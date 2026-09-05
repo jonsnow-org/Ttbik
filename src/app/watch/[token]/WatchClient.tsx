@@ -115,21 +115,33 @@ export default function WatchClient({ token }: { token: string }) {
   return (
     <div className="mx-auto max-w-lg px-4 py-12" dir="rtl">
       <h1 className="text-2xl font-extrabold text-slate-900">شاهد واربح</h1>
-      <p className="mt-2 text-sm text-slate-600">تم فتح الرابط في نافذة جديدة — أكمل الإجراء المطلوب هناك، ثم عد إلى هذه الصفحة.</p>
+      <p className="mt-2 text-sm text-slate-600">
+        اضغط الزر أدناه لفتح الرابط (متصفحات الهاتف غالباً تمنع فتحه تلقائياً)، أكمل الإجراء المطلوب هناك، ثم عد إلى هذه الصفحة.
+      </p>
       <div className="mt-6 space-y-4 rounded-2xl border border-slate-200 bg-white p-5 text-center">
         {confirmed ? (
           <p className="text-lg font-bold text-emerald-700">✅ تم! ارجع الآن إلى البوت واضغط «✅ تحقق من الإنجاز».</p>
         ) : (
           <>
+            {/* Primary CTA: a real <a> tapped directly by the viewer — a
+                genuine synchronous user gesture, unlike the best-effort
+                automatic window.open() below, which mobile browsers and
+                Telegram's in-app browser commonly block silently since it
+                fires after an async fetch(), outside the gesture chain. */}
+            <a
+              href={data.targetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full rounded-xl bg-brand-700 py-3 text-sm font-bold text-white"
+            >
+              🔗 فتح الرابط الآن
+            </a>
             <p className="text-3xl font-extrabold text-brand-700">{secondsLeft ?? data.requiredSeconds}</p>
             <p className="text-sm text-slate-500">ثانية متبقية قبل تفعيل زر المتابعة</p>
-            <a href={data.targetUrl} target="_blank" rel="noopener noreferrer" className="block text-sm text-brand-700 underline">
-              فتح الرابط مرة أخرى
-            </a>
             <button
               onClick={confirm}
               disabled={confirming || (secondsLeft ?? 1) > 0}
-              className="w-full rounded-xl bg-brand-700 py-3 text-sm font-bold text-white disabled:opacity-50"
+              className="w-full rounded-xl bg-slate-800 py-3 text-sm font-bold text-white disabled:opacity-50"
             >
               {confirming ? "جارٍ التأكيد..." : "متابعة ✅"}
             </button>

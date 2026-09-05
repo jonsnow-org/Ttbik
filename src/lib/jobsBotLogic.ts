@@ -1,6 +1,8 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
+import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
+import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -150,7 +152,8 @@ function skipMenu(): Keyboard {
 }
 function infoMenu(): Keyboard {
   return new Keyboard()
-    .text("💡 اقتراح").text("🔗 مشاركة الرابط").row()
+    .text("💡 اقتراح").text("📩 مراسلة الأدمن").row()
+    .text("🔗 مشاركة الرابط").row()
     .text(backLabel())
     .resized();
 }
@@ -162,11 +165,11 @@ function contactMethodMenu(): Keyboard {
 }
 
 function mainMenu(): Keyboard {
-  return new Keyboard()
+  const kb = new Keyboard()
     .text("💼 قسم العمل").text("🛒 قسم المتجر").row()
-    .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row()
-    .text("ℹ️ معلومات")
-    .resized();
+    .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
+  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON مباشر").row();
+  return kb.text("ℹ️ معلومات").resized();
 }
 function workMenu(): Keyboard {
   return new Keyboard().text("📢 نشر").text("🔍 بحث").row().text(backLabel()).resized();
@@ -248,14 +251,25 @@ function depositLink(userId: string): string {
   return `${base}/pay/jobs?uid=${userId}`;
 }
 async function chargeJobsUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  const user = await prisma.jobsUser.findUnique({ where: { id: userId } });
-  const balance = Number(user?.balance || 0);
-  if (balance < amount) return { ok: false, balance };
-  await prisma.$transaction([
-    prisma.jobsUser.update({ where: { id: userId }, data: { balance: { decrement: amount } } }),
-    prisma.jobsTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
-  return { ok: true, balance: balance - amount };
+  // Atomic check-and-decrement inside one DB transaction: updateMany's
+  // WHERE clause balance check is evaluated by Postgres as part of the
+  // UPDATE itself (row-locked), so two concurrent charges against the
+  // same user (e.g. two sellers accepting separate offers from the same
+  // buyer at nearly the same moment) can no longer both pass a stale
+  // in-JS balance check and drive the balance negative — the previous
+  // version read the balance, checked it in JS, then decremented in a
+  // separate step, which was a real TOCTOU race.
+  return prisma.$transaction(async (tx) => {
+    const result = await tx.jobsUser.updateMany({
+      where: { id: userId, balance: { gte: amount } },
+      data: { balance: { decrement: amount } },
+    });
+    const current = await tx.jobsUser.findUnique({ where: { id: userId } });
+    const balance = Number(current?.balance || 0);
+    if (result.count === 0) return { ok: false, balance };
+    await tx.jobsTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } });
+    return { ok: true, balance };
+  });
 }
 async function creditJobsUser(userId: string, amount: number, type: string) {
   await prisma.$transaction([
@@ -1703,6 +1717,16 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع، افتح الرابط:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
     return;
   }
+  if (text === "🔷 إيداع TON مباشر" && isNativeTonConfigured()) {
+    const address = getMasterHotWalletAddress()!;
+    const memo = await getOrCreateJobsTonMemo(tgUserId);
+    await bot.api.sendMessage(
+      chatId,
+      `🔷 أرسل TON إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
+      { reply_markup: mainMenu() }
+    );
+    return;
+  }
   if (text === "ℹ️ معلومات") {
     await bot.api.sendMessage(
       chatId,
@@ -1725,7 +1749,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     );
     return;
   }
-  if (text === "مراسلة الأدمن") {
+  if (text === "📩 مراسلة الأدمن") {
     await setPending(tgUserId, { mode: "contact_admin_compose" });
     await bot.api.sendMessage(chatId, "✍️ اكتب رسالتك للإدارة:", { reply_markup: plainBackMenu() });
     return;

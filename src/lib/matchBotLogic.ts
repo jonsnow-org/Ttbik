@@ -1,6 +1,8 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "@prisma/client";
+import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
+import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -133,8 +135,9 @@ function mainMenu(): Keyboard {
     .resized();
 }
 function upgradesMenu(): Keyboard {
-  return new Keyboard()
-    .text("💰 رصيدي وإيداع").row()
+  const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
+  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON مباشر").row();
+  return kb
     .text(`🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`).row()
     .text(`☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`).row()
     .text(`🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`).row()
@@ -1570,6 +1573,16 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       await endRandomChat(bot, tgUserId, pending.sessionId, pending.partnerId, "end");
       return;
     }
+    if (pending?.mode === "random_waiting") {
+      // Cancel the still-open queue row instead of just clearing local
+      // pending state — otherwise a partner arriving within the leftover
+      // expiresAt window can still match against a user who already left,
+      // flipping them straight into "connected" with no one really there.
+      await prisma.randomChatQueue.updateMany({
+        where: { userId: tgUserId, status: "WAITING" },
+        data: { status: "CANCELLED" },
+      });
+    }
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
     return;
@@ -1747,10 +1760,29 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${balance.toFixed(2)}\n\nللإيداع، افتح الرابط التالي:\n${depositLink(tgUserId)}`, { reply_markup: upgradesMenu() });
     return;
   }
+  if (text === "🔷 إيداع TON مباشر" && isNativeTonConfigured()) {
+    const address = getMasterHotWalletAddress()!;
+    const memo = await getOrCreateMatchTonMemo(tgUserId);
+    await bot.api.sendMessage(
+      chatId,
+      `🔷 أرسل TON إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
+      { reply_markup: upgradesMenu() }
+    );
+    return;
+  }
   if (text === `🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`) {
     const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
+      return;
+    }
+    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+    if (dbUser && isVipActive(dbUser)) {
+      await bot.api.sendMessage(
+        chatId,
+        "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل — لا حاجة لشراء رفع إضافي.",
+        { reply_markup: upgradesMenu() }
+      );
       return;
     }
     const charge = await chargeMatchUser(tgUserId, PRICE_BOOST_24H, "BOOST");

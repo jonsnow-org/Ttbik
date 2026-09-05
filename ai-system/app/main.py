@@ -262,9 +262,13 @@ def subscribe(
     authorization: str | None = Header(default=None),
     x_internal_secret: str | None = Header(default=None),
 ):
-    """Creates a PENDING_APPROVAL subscription request — no automated
-    checkout, matches this project's standing product rule. The owner
-    reviews and activates it manually (Supabase table editor for now)."""
+    """Creates a PENDING_APPROVAL subscription request AND returns the
+    NovaUser id so the caller can build a real payment link
+    (Ttbik/pay/nova?uid=<id> -> NOWPayments -> nova-webhook auto-activates
+    PRO on confirmed payment). The PENDING_APPROVAL row is kept as a
+    manual fallback for anyone who can't/won't pay by crypto — same
+    standing product rule as every other bot here — but paying is now the
+    fast path instead of the only path."""
     api_key = _authorize(req.channel, authorization, x_internal_secret)
     try:
         user = quota.resolve_or_create_user(
@@ -274,4 +278,8 @@ def subscribe(
         raise HTTPException(status_code=400, detail=str(e))
 
     sub_id = quota.request_subscription(user["id"])
-    return {"subscription_id": sub_id, "message": "تم إرسال طلب الترقية — سيتم تفعيله يدوياً من المالك."}
+    return {
+        "subscription_id": sub_id,
+        "nova_user_id": user["id"],
+        "message": "ادفع الآن لتفعيل فوري، أو انتظر تفعيلاً يدوياً من المالك.",
+    }

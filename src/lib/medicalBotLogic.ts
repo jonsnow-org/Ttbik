@@ -1268,7 +1268,12 @@ async function handlePrescriptionReplyStep(bot: TelegramBot, botRow: BotRow, cha
   if (!text) return;
   const query = await prisma.medPrescriptionQuery.update({ where: { id: pending.queryId }, data: { reply: text, status: "ANSWERED" } });
   await setPending(tgUserId, null);
-  await bot.api.sendMessage(chatId, "✅ تم إرسال ردك للمريض.", { reply_markup: pharmacyMainMenu(true) });
+  // Show the pharmacy's REAL duty status, not a hardcoded "on duty" — a
+  // pharmacy that's currently off duty and answers a prescription
+  // question would otherwise see a menu implying it's on duty, and
+  // tapping the mislabeled toggle button would flip isDuty to true.
+  const facility = await prisma.medFacility.findUnique({ where: { id: query.facilityId } });
+  await bot.api.sendMessage(chatId, "✅ تم إرسال ردك للمريض.", { reply_markup: pharmacyMainMenu(!!facility?.isDuty) });
   await bot.api.sendMessage(Number(query.patientId), `💊 رد الصيدلية على سؤالك:\n\n${text}`).catch(() => null);
 }
 

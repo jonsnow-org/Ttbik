@@ -1,5 +1,6 @@
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
+import { SITE_URL } from "@/lib/siteUrl";
 
 // NOVA_BOT — the owner's $0-cost general AI assistant product (owner
 // spec, 2026-09-05). Deliberately different in kind from every other
@@ -124,7 +125,17 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
 
   if (text === "/ترقية" || text === "/subscribe") {
     const { ok, data } = await callNovaBackend("/subscribe", { channel: "TELEGRAM", telegram_id: tgUserId });
-    await bot.api.sendMessage(chatId, ok ? data.message : `تعذر إرسال الطلب: ${data.detail || "خطأ غير معروف"}`);
+    if (!ok) {
+      await bot.api.sendMessage(chatId, `تعذر إرسال الطلب: ${data.detail || "خطأ غير معروف"}`);
+      return;
+    }
+    const payUrl = data.nova_user_id ? `${SITE_URL}/pay/nova?uid=${data.nova_user_id}` : null;
+    await bot.api.sendMessage(
+      chatId,
+      payUrl
+        ? `${data.message}\n\nادفع الآن لتفعيل فوري (5$ شهرياً):\n${payUrl}`
+        : data.message
+    );
     return;
   }
 
