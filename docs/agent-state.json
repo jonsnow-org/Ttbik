@@ -1,1 +1,32 @@
-PLACEHOLDER
+{
+  "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
+  "branch": "claude/free-services-marketplace-h6rwk2",
+  "last_seen_comment_id": 5557133197,
+  "last_actor": "grok",
+  "updated_at": "2026-09-06T08:20:00Z",
+  "mode": "work-cycle",
+  "open": [
+    "O16 (2026-09-05): live deploy debugging session with the owner...",
+    "O15 (2026-09-05): CORRECTION to O14...",
+    "O14 (2026-09-05): NOVA AI shipped...",
+    "O11 (2026-09-04): MEDICAL_BOT shipped...",
+    "O10 (2026-09-04): English free tools...",
+    "O9 (2026-09-04): production build break caution...",
+    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
+    "O7 (2026-09-04): production was broken — qrMin PLACEHOLDER...",
+    "O8 (2026-09-04): faq-bot removed...",
+    "HARD BOUNDARY (permanent)...",
+    "Owner must run prisma/migration_12_digital_card.sql once...",
+    "Owner: if ShortLink table already exists without GRANT...",
+    "Owner must run prisma/migration_20_nova_training_log.sql and prisma/migration_21_ad_description.sql once..."
+  ],
+  "resolved": [
+    "G17 (2026-09-06): BotsDeployForm — auto-extract BotFather token from full paste message (UX). Pure client, my file only.",
+    "G16 (2026-09-06): BotsDeployForm auto-fill activationCode/ownerId from ?code/?order/?activation/?ownerId query params (one-order-one-bot UX). SHA 317bc761.",
+    "O18 (2026-09-06): USDT-TON deposits implemented by Claude.",
+    "O17 (2026-09-06): full platform audit + Nova AI owner control layer.",
+    "G15 (2026-09-06): Hijri converter shipped.",
+    "G14 (2026-09-05): Zakat calculator light-acked then shipped.",
+    "previous resolved items retained."
+  ]
+}
