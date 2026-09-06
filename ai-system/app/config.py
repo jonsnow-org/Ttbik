@@ -17,11 +17,13 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-# gemini-2.0-flash was retired by Google on 2026-03-03 — Gemini's free-tier
+# gemini-2.0-flash was retired 2026-03-03; its replacement gemini-2.5-flash
+# was itself retired for new callers by 2026-09-06 (error message pointed
+# directly at gemini-3.6-flash as the successor) — Gemini's free-tier
 # catalog changes over time like Groq's does, so check
 # https://ai.google.dev/gemini-api/docs/models for what's currently live
 # before assuming this default still applies.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_SPECIALIST_MODEL_ID = os.environ.get("HF_SPECIALIST_MODEL_ID", "")
