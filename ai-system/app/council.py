@@ -1,36 +1,53 @@
 """
-The "council of models" — Mixture-of-Agents over genuinely free APIs
-only. This is the honest, working version of the "merge multiple
-models into one brain" idea: we can't merge closed models (Claude,
-Grok, Gemini) since nobody outside their own companies holds their
-weights, and Claude/Grok's real APIs are paid — neither belongs in a
-$0 pipeline. Instead:
+Nova's own voice comes first — everything else is a fallback.
 
-  - Groq (free, always-on, hosts big open-weight models — currently
-    openai/gpt-oss-120b on this account; Groq's hosted catalog changes
-    over time, check console.groq.com/playground for what's actually
-    live before assuming any specific name still works) is the primary
-    voice AND the final synthesizer. It answers GENERAL/LIVE_INFO
-    queries alone — Groq's whole value proposition is speed, and
-    calling Gemini plus a second Groq synthesis pass on every "hi"
-    made every reply noticeably slower for no real quality gain.
-  - Gemini's free tier is a second, independent opinion, consulted
-    only for CODE queries (run in parallel with Groq, not after it —
-    see answer() below) where the extra opinion is worth the wait.
-  - An optional self-merged open-weight specialist model (produced by
-    ai-system/colab/merge_and_finetune.py, served for free via
-    Hugging Face Inference) is consulted for CODE queries specifically
-    — this is where real Mergekit/LoRA weight-merging actually lives
-    in this system.
+Owner correction, 2026-09-06: an earlier version of this file made Groq
+(a third-party API) the default answer for every ordinary message, and
+only asked our own self-merged/fine-tuned model (ai-system/colab/
+merge_and_finetune.ipynb — real Mergekit weight-merging + real Unsloth
+LoRA fine-tuning on Nova's own real conversation history, scheduled
+weekly on Kaggle's free tier, weights pushed to our own Hugging Face
+repo) for CODE queries, as a second opinion alongside Groq/Gemini, with
+Groq still doing the final synthesis even then. That is backwards: it
+made a third party's API the product and treated our own trained model
+as a bonus. It also isn't "our own AI" at all in any real sense — an
+API call to someone else's hosted model, resold to subscribers, is
+hosting-by-proxy, not model ownership, no matter how the calls are
+load-balanced or how many free providers are stacked behind it.
 
-If only Groq is configured (HF_SPECIALIST_MODEL_ID / GEMINI_API_KEY
-left empty), the system still works end-to-end on Groq alone — every
-other council seat is a bonus, not a hard dependency.
+The correct shape, and what this file now does:
+
+  - OUR OWN model (HF_SPECIALIST_MODEL_ID, produced by the Kaggle
+    notebook, weights we hold on our own HF Hub repo) is the PRIMARY
+    and default voice for every single text query — GENERAL, LIVE_INFO,
+    and CODE alike. This is the actual product: a model we trained,
+    whose weights belong to us, served from our own repo.
+  - Groq is a temporary EMERGENCY FALLBACK ONLY — used only when our
+    own model is unreachable (not configured yet, cold-starting on
+    HF's shared free Inference infra, or genuinely erroring). It is
+    never a parallel voice and never does "final synthesis" over our
+    own model's answer; if our model answered, that answer ships as-is.
+  - Gemini's free tier is kept ONLY for image understanding
+    (call_gemini_vision) — a real capability gap our own text-only
+    merged model has no other free way to cover, not a competing
+    text-answering voice.
+  - Groq and Gemini's real, legitimate role in this system is at
+    TRAINING time, not serving time: the Kaggle notebook can use them
+    as free "teacher" models to generate extra high-quality training
+    examples (distillation) that get folded into our own model's
+    weekly LoRA fine-tune — i.e. they help BUILD our model; they never
+    stand in for it in front of a real user.
+
+If HF_SPECIALIST_MODEL_ID isn't set yet (before the first Kaggle run
+has ever produced a model), everything still answers via the Groq
+fallback alone — there's always a working answer path, it's just not
+yet running on our own weights until the notebook has been run once.
 """
-from concurrent.futures import ThreadPoolExecutor
+import time
 
 from groq import Groq
 from huggingface_hub import InferenceClient
+from huggingface_hub.utils import HfHubHTTPError
 
 from app.config import (
     GEMINI_API_KEY,
@@ -80,22 +97,6 @@ def call_groq(message: str, context: str) -> str:
     return completion.choices[0].message.content or ""
 
 
-def call_gemini(message: str, context: str) -> str | None:
-    if not GEMINI_API_KEY:
-        return None
-    import google.generativeai as genai
-
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(GEMINI_MODEL, system_instruction=_SYSTEM_PROMPT)
-    user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
-    try:
-        response = model.generate_content(user_content)
-        return response.text
-    except Exception:
-        # A second opinion is a bonus, never a hard requirement.
-        return None
-
-
 def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Groq also hosts Whisper for free (same account, same API key) —
     this is the $0 path for voice-message support: transcribe to text,
@@ -132,61 +133,52 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
         return None
 
 
-def call_hf_specialist(message: str) -> str | None:
+def call_hf_specialist(message: str, context: str) -> str | None:
+    """OUR OWN model (see module docstring) — the primary voice for
+    every text query, not a CODE-only bonus opinion. Uses a real chat
+    template (client.chat_completion, not raw text_generation) so the
+    merged Qwen-based model actually gets the system prompt/persona and
+    RAG context the same way call_groq does, instead of a bare prompt
+    with no instructions at all.
+
+    HF's shared free Inference infrastructure unloads an idle custom
+    model and reloads it lazily on the next request — a 503 "still
+    loading" response, not a real failure. Worth one short retry before
+    conceding to the Groq fallback, since giving up on the very first
+    503 would mean our own model almost never actually answers anything
+    in practice."""
     if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
         return None
-    try:
-        client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN)
-        return client.text_generation(message, max_new_tokens=512)
-    except Exception:
-        # HF's free Inference API is rate-limited and can be cold —
-        # never let it block the answer the user actually gets.
-        return None
+    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN)
+    user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+    for attempt in range(2):
+        try:
+            completion = client.chat_completion(messages=messages, max_tokens=800)
+            content = completion.choices[0].message.content
+            return content.strip() if content else None
+        except HfHubHTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            if status == 503 and attempt == 0:
+                time.sleep(8)  # give the free shared instance a moment to finish loading
+                continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
-def synthesize(message: str, groq_answer: str, gemini_answer: str | None, specialist_answer: str | None) -> str:
-    """Mixture-of-agents: if we only have one voice, return it as-is —
-    no wasted extra call. Otherwise ask Groq itself to merge the
-    perspectives into one final answer."""
-    if not gemini_answer and not specialist_answer:
-        return groq_answer
-
-    perspectives = [f"رأي النموذج الأساسي:\n{groq_answer}"]
-    if gemini_answer:
-        perspectives.append(f"رأي ثانٍ للمقارنة:\n{gemini_answer}")
+def answer(message: str, context: str) -> str:
+    """OUR OWN model answers first, always — for every query type, not
+    just CODE. Groq is an emergency fallback only, used solely when our
+    own model isn't configured yet or genuinely unreachable — never a
+    parallel voice, and never re-synthesized over our model's own
+    answer (see module docstring for why this order is the whole
+    point)."""
+    specialist_answer = call_hf_specialist(message, context)
     if specialist_answer:
-        perspectives.append(f"رأي متخصص (برمجي):\n{specialist_answer}")
-
-    synthesis_prompt = (
-        f"سؤال المستخدم الأصلي:\n{message}\n\n"
-        + "\n\n".join(perspectives)
-        + "\n\nادمج هذه الآراء في إجابة نهائية واحدة دقيقة وموجزة للمستخدم، "
-        "دون ذكر أنك تقارن بين نماذج — فقط أعطه أفضل إجابة ممكنة."
-    )
-    client = _groq_client()
-    completion = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "user", "content": synthesis_prompt}],
-    )
-    return completion.choices[0].message.content or groq_answer
-
-
-def answer(message: str, context: str, query_type: str) -> str:
-    """GENERAL/LIVE_INFO: Groq alone — this is the whole point of using
-    Groq, near-instant. Calling Gemini + a second Groq synthesis pass on
-    every single "hi" made every reply 2-3x slower for no real quality
-    gain. The full council (parallelized so it costs one round-trip's
-    worth of latency, not three sequential ones) only kicks in for CODE
-    queries, where the extra opinions are actually worth the wait."""
-    if query_type != "CODE":
-        return call_groq(message, context)
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        groq_future = pool.submit(call_groq, message, context)
-        gemini_future = pool.submit(call_gemini, message, context)
-        specialist_future = pool.submit(call_hf_specialist, message)
-        groq_answer = groq_future.result()
-        gemini_answer = gemini_future.result()
-        specialist_answer = specialist_future.result()
-
-    return synthesize(message, groq_answer, gemini_answer, specialist_answer)
+        return specialist_answer
+    return call_groq(message, context)

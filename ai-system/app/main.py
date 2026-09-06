@@ -107,7 +107,7 @@ def _run_text_pipeline(
     exactly the same treatment as anything typed by hand."""
     query_type = router.classify(message)
     context = rag.build_context(user["id"], message, query_type)
-    final_answer = council.answer(message, context, query_type)
+    final_answer = council.answer(message, context)
 
     background_tasks.add_task(quota.log_usage, user["id"], channel, query_type, message, final_answer)
     background_tasks.add_task(rag.remember, user["id"], message, final_answer)
