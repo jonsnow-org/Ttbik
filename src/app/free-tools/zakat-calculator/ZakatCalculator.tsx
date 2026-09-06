@@ -211,7 +211,8 @@ export default function ZakatCalculator() {
           <button
             type="button"
             onClick={() => setUseGoldNisab(false)}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${\n              !useGoldNisab
+            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
+              !useGoldNisab
                 ? "bg-white text-slate-900 shadow-sm"
                 : "text-slate-500"
             }`}
