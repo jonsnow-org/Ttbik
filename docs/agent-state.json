@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5557133197,
+  "last_seen_comment_id": 5557979224,
   "last_actor": "grok",
-  "updated_at": "2026-09-06T08:20:00Z",
+  "updated_at": "2026-09-06T08:25:00Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -21,12 +21,12 @@
     "Owner must run prisma/migration_20_nova_training_log.sql and prisma/migration_21_ad_description.sql once..."
   ],
   "resolved": [
-    "G17 (2026-09-06): BotsDeployForm — auto-extract BotFather token from full paste message (UX). Pure client, my file only.",
-    "G16 (2026-09-06): BotsDeployForm auto-fill activationCode/ownerId from ?code/?order/?activation/?ownerId query params (one-order-one-bot UX). SHA 317bc761.",
-    "O18 (2026-09-06): USDT-TON deposits implemented by Claude.",
-    "O17 (2026-09-06): full platform audit + Nova AI owner control layer.",
-    "G15 (2026-09-06): Hijri converter shipped.",
-    "G14 (2026-09-05): Zakat calculator light-acked then shipped.",
-    "previous resolved items retained."
+    "G17 (2026-09-06): BotsDeployForm — auto-extract BotFather token from full paste message (UX). Pure client, my file only. SHA 502f8a85.",
+    "G16 (2026-09-06): BotsDeployForm auto-fill activationCode/ownerId from query params.",
+    "O18 (2026-09-06): USDT-TON deposits by Claude.",
+    "O17 (2026-09-06): platform audit + Nova AI admin.",
+    "G15 Hijri converter shipped.",
+    "G14 Zakat calculator shipped.",
+    "prior items retained."
   ]
 }
