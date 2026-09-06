@@ -1498,6 +1498,24 @@ async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): 
   return !!click?.verified;
 }
 
+// A stale/mismatched carousel button (pressed on an old on-screen message
+// after the user already left, restarted, or exhausted that carousel
+// session) used to answer with ONLY a small Telegram alert popup — no
+// persistent chat message, no menu restored, pendingAction left untouched.
+// That popup is trivially easy to miss on a phone, especially mid-tapping,
+// and looks exactly like "the bot stopped responding" (real incident,
+// 2026-09-06). This guarantees a real, visible message and a working menu
+// every time, on top of the (still-shown) alert.
+async function escapeToMainMenu(bot: TelegramBot, chatId: number, tgUserId: string, botRow: BotRow, lang: Lang) {
+  await setPending(tgUserId, null);
+  if (tgUserId === SUPER_ADMIN_ID) {
+    await sendSuperAdminPanel(bot, chatId);
+    return;
+  }
+  const menu = tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang);
+  await bot.api.sendMessage(chatId, t(lang, "mainMenuTitle"), { reply_markup: menu }).catch(() => null);
+}
+
 async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   const chatId = cq.message?.chat?.id;
   const messageId = cq.message?.message_id;
@@ -1534,6 +1552,7 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
 
   if (pending?.mode !== "watch_carousel") {
     await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "taskGone"), show_alert: true }).catch(() => null);
+    await escapeToMainMenu(bot, chatId, tgUserId, botRow, lang);
     return;
   }
 
@@ -1541,6 +1560,7 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
   const currentAdId = pending.queue[pending.index];
   if (!currentAdId || shortId(currentAdId) !== shortAdId) {
     await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "taskGone"), show_alert: true }).catch(() => null);
+    await escapeToMainMenu(bot, chatId, tgUserId, botRow, lang);
     return;
   }
 
