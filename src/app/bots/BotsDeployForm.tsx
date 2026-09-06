@@ -137,6 +137,17 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             placeholder="مثال: 987654321"
             className="w-full rounded border p-2 font-mono text-sm text-black"
           />
+          <p className="mt-1 text-xs text-gray-500">
+            احصل عليه مجاناً من{" "}
+            <a href="https://t.me/userinfobot" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+              @userinfobot
+            </a>{" "}
+            أو{" "}
+            <a href="https://t.me/getidsbot" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+              @getidsbot
+            </a>
+            {" "}— ابدأ المحادثة وأرسل أي رسالة، سيرد عليك بالرقم.
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">اختر قالب البوت</label>
