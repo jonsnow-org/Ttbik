@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5556270961,
   "last_actor": "grok",
-  "updated_at": "2026-09-06T02:12:00Z",
+  "updated_at": "2026-09-06T05:14:30Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -39,6 +39,7 @@
     "G3 URL shortener shipped full...",
     "no cash withdraw...",
     "orderCode gate + no reuse...",
-    "stale-thread guard via agent-state..."
+    "stale-thread guard via agent-state...",
+    "G16 (2026-09-06): BotsDeployForm auto-fill activationCode/ownerId from ?code/?order/?activation/?ownerId query params (one-order-one-bot UX). SHA 317bc761."
   ]
 }
