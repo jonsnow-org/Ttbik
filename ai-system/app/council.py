@@ -257,6 +257,30 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
     token_preview = f"len={len(MODELSCOPE_API_TOKEN)} prefix={MODELSCOPE_API_TOKEN[:6]!r}" if MODELSCOPE_API_TOKEN else "EMPTY"
     logger.info("chat: MODELSCOPE_API_TOKEN at runtime — %s", token_preview)
+
+    # Diagnostic-only raw request (owner report, 2026-09-07): gradio_client's
+    # AuthenticationError message is generic ("Please login") and hides
+    # ModelScope's actual response body — a raw request with the exact
+    # same headers tells us what the server itself says, instead of
+    # guessing at causes (User-Agent, WAF, token format, ...) blind.
+    try:
+        import requests as _requests
+
+        diag_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
+        }
+        diag_resp = _requests.get(MODELSCOPE_SPACE_URL.rstrip("/") + "/config", headers=diag_headers, timeout=15)
+        logger.info(
+            "chat: ModelScope /config raw diagnostic — status=%s server=%s content_type=%s body=%s",
+            diag_resp.status_code,
+            diag_resp.headers.get("server"),
+            diag_resp.headers.get("content-type"),
+            diag_resp.text[:500],
+        )
+    except Exception as diag_e:
+        logger.info("chat: ModelScope /config raw diagnostic request itself failed (%s)", diag_e)
+
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"}
         if MODELSCOPE_API_TOKEN:
