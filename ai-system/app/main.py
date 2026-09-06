@@ -200,9 +200,12 @@ def image(
 
     image_bytes = base64.b64decode(req.image_base64)
     prompt = req.caption or "صف هذه الصورة بالتفصيل وأجب عن أي سؤال ضمني فيها."
-    answer_text = council.call_hf_specialist_vision(image_bytes, prompt, req.mime_type) or council.call_gemini_vision(
-        image_bytes, prompt, req.mime_type
-    )
+    answer_text = council.call_hf_specialist_vision(image_bytes, prompt, req.mime_type)
+    if answer_text:
+        logger.info("image answer: served by OUR OWN model")
+    else:
+        answer_text = council.call_gemini_vision(image_bytes, prompt, req.mime_type)
+        logger.info("image answer: our own model unavailable — served by Gemini fallback" if answer_text else "image answer: both our model and Gemini fallback failed")
     if answer_text is None:
         raise HTTPException(
             status_code=503,

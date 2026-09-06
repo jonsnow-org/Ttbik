@@ -49,6 +49,7 @@ fallback alone — there's always a working answer path, it's just not
 yet running on our own weights until the notebook has been run once.
 """
 import base64
+import logging
 import time
 
 from groq import Groq
@@ -63,6 +64,12 @@ from app.config import (
     HF_SPECIALIST_MODEL_ID,
     HF_TOKEN,
 )
+
+# Greppable in Render's Logs tab — owner report, 2026-09-06: a fluent reply
+# to a generic question ("what can you do?") looks the same whether it came
+# from our own trained model or the Groq/Gemini fallback, so there was no
+# way to tell which one actually answered any given message without this.
+logger = logging.getLogger("nova")
 
 _SYSTEM_PROMPT = (
     "أنت نوفا NOVA، مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر.\n\n"
@@ -170,10 +177,13 @@ def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = 
         except HfHubHTTPError as e:
             status = getattr(e.response, "status_code", None)
             if status == 503 and attempt == 0:
+                logger.info("vision: our own model is cold-starting on HF (503) — retrying once")
                 time.sleep(8)
                 continue
+            logger.info("vision: our own model call failed (HTTP %s) — falling back to Gemini", status)
             return None
-        except Exception:
+        except Exception as e:
+            logger.info("vision: our own model call failed (%s) — falling back to Gemini", e)
             return None
     return None
 
@@ -208,10 +218,13 @@ def call_hf_specialist(message: str, context: str) -> str | None:
         except HfHubHTTPError as e:
             status = getattr(e.response, "status_code", None)
             if status == 503 and attempt == 0:
+                logger.info("chat: our own model is cold-starting on HF (503) — retrying once")
                 time.sleep(8)  # give the free shared instance a moment to finish loading
                 continue
+            logger.info("chat: our own model call failed (HTTP %s) — falling back to Groq", status)
             return None
-        except Exception:
+        except Exception as e:
+            logger.info("chat: our own model call failed (%s) — falling back to Groq", e)
             return None
     return None
 
@@ -225,5 +238,7 @@ def answer(message: str, context: str) -> str:
     point)."""
     specialist_answer = call_hf_specialist(message, context)
     if specialist_answer:
+        logger.info("chat answer: served by OUR OWN model (%s)", HF_SPECIALIST_MODEL_ID)
         return specialist_answer
+    logger.info("chat answer: our own model unavailable — served by Groq fallback")
     return call_groq(message, context)
