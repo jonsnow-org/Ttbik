@@ -1620,8 +1620,18 @@ async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): 
   if (ad.type === "TELEGRAM") {
     return isChannelMember(bot, ad.content, tgUserId);
   }
+  // No longer depends on the /watch page's own JS ever finishing a timer
+  // and calling back (owner report, 2026-09-06: mobile browsers/Telegram's
+  // in-app browser were silently blocking that page's auto-redirect as a
+  // "popup", so its client JS never got a chance to report anything back).
+  // The elapsed-time requirement is now checked directly against
+  // AdClick.issuedAt (minted the instant this card was shown) — the
+  // reward becomes claimable the moment enough real wall-clock time has
+  // passed, whether or not the user's browser ever ran a line of JS.
   const click = await prisma.adClick.findUnique({ where: { adId_userId: { adId: ad.id, userId: tgUserId } } });
-  return !!click?.verified;
+  if (!click) return false;
+  const elapsedMs = Date.now() - new Date(click.issuedAt).getTime();
+  return elapsedMs >= WATCH_TIMER_SECONDS * 1000;
 }
 
 // A stale/mismatched carousel button (pressed on an old on-screen message
