@@ -134,7 +134,17 @@ export const STR: Dict = {
     en: "⚠️ This will permanently cancel the ad and refund its remaining balance ({amount}) to your wallet. Are you sure?",
   },
   myAdCancelledOk: { ar: "❌ أُلغي الإعلان، وأُضيف {amount} إلى رصيد محفظتك.", en: "❌ The ad was cancelled and {amount} was added back to your wallet balance." },
+  campaignEndedReport: {
+    ar: "🏁 انتهت حملتك #{id} ({platform}) — استُهلكت الميزانية بالكامل.\n\n💰 إجمالي الإنفاق: {total}\n👆 عدد الإنجازات: {clicks}\n\nيمكنك تجديدها بشحن رصيد إضافي من «إعلاناتي».",
+    en: "🏁 Your campaign #{id} ({platform}) has ended — its budget is fully spent.\n\n💰 Total spent: {total}\n👆 Completions: {clicks}\n\nYou can top it up again from \"My Ads\".",
+  },
   myAdCancelAborted: { ar: "لم يتم الإلغاء.", en: "Cancellation aborted." },
+  myAdBtnDelete: { ar: "🗑 حذف نهائياً", en: "🗑 Delete permanently" },
+  myAdDeleteConfirm: {
+    ar: "⚠️ سيُحذف هذا الإعلان نهائياً من قائمتك (هذه الحملة منتهية أصلاً ولا رصيد فيها لاسترداده). هل أنت متأكد؟",
+    en: "⚠️ This will permanently delete this ad from your list (this campaign already ended, with nothing left to refund). Are you sure?",
+  },
+  myAdDeletedOk: { ar: "🗑 تم حذف الإعلان نهائياً.", en: "🗑 The ad was permanently deleted." },
   myAdTopupPrompt: { ar: "أرسل المبلغ الذي تريد إضافته لرصيد هذا الإعلان بالدولار:", en: "Send the amount in USD you want to add to this ad's budget:" },
   myAdTopupInvalid: { ar: "أرسل رقماً صحيحاً أكبر من صفر.", en: "Send a valid number greater than zero." },
   myAdTopupInsufficient: {

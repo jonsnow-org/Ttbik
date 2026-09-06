@@ -131,7 +131,8 @@ type PendingAction =
   | { mode: "myads_select" }
   | { mode: "myads_manage"; adId: string }
   | { mode: "myads_cancel_confirm"; adId: string }
-  | { mode: "myads_topup_amount"; adId: string };
+  | { mode: "myads_topup_amount"; adId: string }
+  | { mode: "myads_delete_confirm"; adId: string };
 
 // Per-platform inline "action" button label for the شاهد واربح carousel —
 // exempted from the reply-keyboard-only rule per explicit owner instruction
@@ -635,6 +636,33 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await bot.api.sendMessage(chatId, t(lang, "myAdCancelConfirm", { amount: fmt(Number(ad.remaining)) }), {
         reply_markup: new Keyboard().text(t(lang, "btnConfirmSend")).text(t(lang, "btnCancel")).resized(),
       });
+      return;
+    }
+    if (text === t(lang, "myAdBtnDelete") && MYADS_DELETABLE_STATUSES.includes(ad.status)) {
+      await setPending(user.id, { mode: "myads_delete_confirm", adId: ad.id });
+      await bot.api.sendMessage(chatId, t(lang, "myAdDeleteConfirm"), {
+        reply_markup: new Keyboard().text(t(lang, "btnConfirmSend")).text(t(lang, "btnCancel")).resized(),
+      });
+      return;
+    }
+  }
+  if (pending?.mode === "myads_delete_confirm") {
+    const { adId } = pending;
+    if (text === t(lang, "btnCancel")) {
+      await bot.api.sendMessage(chatId, t(lang, "myAdCancelAborted"));
+      await sendAdManageScreen(bot, chatId, user.id, adId, lang);
+      return;
+    }
+    if (text === t(lang, "btnConfirmSend")) {
+      const ad = await prisma.ad.findUnique({ where: { id: adId } });
+      if (!ad || ad.userId !== user.id || !MYADS_DELETABLE_STATUSES.includes(ad.status)) {
+        await bot.api.sendMessage(chatId, t(lang, "myAdNotFound"));
+        await sendMyAdsList(bot, chatId, user.id, lang);
+        return;
+      }
+      await prisma.ad.delete({ where: { id: ad.id } });
+      await bot.api.sendMessage(chatId, t(lang, "myAdDeletedOk"));
+      await sendMyAdsList(bot, chatId, user.id, lang);
       return;
     }
   }
@@ -1407,7 +1435,7 @@ async function startWatchCarousel(bot: TelegramBot, chatId: number, tgUserId: st
 }
 
 type PayoutResult =
-  | { ok: true; workerCut: number; newBalance: number }
+  | { ok: true; workerCut: number; newBalance: number; adExpired: boolean }
   | { ok: false; reason: "gone" | "own" | "not_done" | "already_claimed" | "flagged" };
 
 // Atomic payout core shared by the carousel's verify handler. Verification
@@ -1441,6 +1469,7 @@ async function payoutTask(tgUserId: string, adId: string, currentBotId: string):
   if (!currentBot) return { ok: false, reason: "gone" };
 
   const newRemaining = round2(Number(ad.remaining) - Number(ad.cpc));
+  const adExpired = newRemaining < Number(ad.cpc);
   const workerCut = Number(ad.workerCut);
   const creatorCut = Number(ad.creatorCut);
   const ownerCut = Number(ad.ownerCut);
@@ -1466,7 +1495,7 @@ async function payoutTask(tgUserId: string, adId: string, currentBotId: string):
     prisma.transaction.create({
       data: { userId: tgUserId, botId: currentBotId, amount: workerCut, currency: "internal", type: "TASK_REWARD", status: "COMPLETED", txHash: `task_${adId}_${tgUserId}` },
     }),
-    prisma.ad.update({ where: { id: ad.id }, data: { remaining: newRemaining, status: newRemaining < Number(ad.cpc) ? "EXPIRED" : ad.status } }),
+    prisma.ad.update({ where: { id: ad.id }, data: { remaining: newRemaining, status: adExpired ? "EXPIRED" : ad.status } }),
     prisma.user.update({ where: { id: tgUserId }, data: { balance: { increment: workerCut } } }),
     // 20% creator cut goes into the completing bot's 48h hold
     // (pendingBalance), not the withdrawable ownerBalance directly —
@@ -1514,7 +1543,26 @@ async function payoutTask(tgUserId: string, adId: string, currentBotId: string):
   }
 
   const updatedWorker = results[2] as { balance: number };
-  return { ok: true, workerCut, newBalance: Number(updatedWorker.balance) };
+  return { ok: true, workerCut, newBalance: Number(updatedWorker.balance), adExpired };
+}
+
+// Sent once, exactly when a campaign's budget runs out mid-payout (owner
+// request, 2026-09-06) — the advertiser previously had no way to know
+// their campaign ended short of manually re-checking "إعلاناتي" over and
+// over. A final tally right when it happens is the honest, useful moment.
+async function sendCampaignEndedReport(bot: TelegramBot, ad: { id: string; userId: string; type: string; totalBudget: any; cpc: any }, lang: Lang) {
+  const clicks = await countAdClicks(ad.id);
+  await bot.api
+    .sendMessage(
+      Number(ad.userId),
+      t(lang, "campaignEndedReport", {
+        id: shortId(ad.id),
+        platform: TYPE_LABEL[ad.type as AdTypeStr][lang],
+        total: fmt(Number(ad.totalBudget)),
+        clicks: String(clicks),
+      })
+    )
+    .catch(() => null);
 }
 
 async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
@@ -1639,6 +1687,10 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     await bot.api.editMessageText(chatId, messageId, t(lang, "carouselSuccess", { amount: fmt(result.workerCut), balance: fmt(result.newBalance) })).catch(() => null);
+    if (result.adExpired) {
+      const ownerUser = await prisma.user.findUnique({ where: { id: ad.userId }, select: { language: true } });
+      await sendCampaignEndedReport(bot, ad, asLang(ownerUser?.language));
+    }
     await new Promise((resolve) => setTimeout(resolve, 1500));
     await advanceCarousel(bot, chatId, messageId, user.id, pending, lang, botRow.id, tgUserId);
     return;
@@ -1813,12 +1865,27 @@ function myAdManageMenu(ad: { status: string }, lang: Lang): Keyboard {
     kb.text(t(lang, "myAdBtnCancel")).row();
   } else if (ad.status === "EXPIRED") {
     kb.text(t(lang, "myAdBtnTopup")).text(t(lang, "myAdBtnCancel")).row();
+  } else if (MYADS_DELETABLE_STATUSES.includes(ad.status)) {
+    kb.text(t(lang, "myAdBtnDelete")).row();
   }
   kb.text(t(lang, "myAdBtnBackToList")).row().text(backLabel(lang));
   return kb.resized();
 }
+// CANCELLED/REJECTED campaigns are fully resolved (refunded on cancel,
+// never charged on rejection) and have no further action available on
+// them — left in the default list forever, they just pile up with no way
+// to clear them out (owner report, 2026-09-06: a screen full of "ملغى"
+// entries with no delete button). They stay reachable via
+// "🗑 حذف نهائياً" on the manage screen for anyone who wants to review one
+// before it's gone, they just don't clutter this list by default.
+const MYADS_LIST_STATUSES = ["ACTIVE", "PAUSED", "EXPIRED", "FLAGGED"];
+const MYADS_DELETABLE_STATUSES = ["CANCELLED", "REJECTED"];
 async function sendMyAdsList(bot: TelegramBot, chatId: number, userId: string, lang: Lang) {
-  const ads = await prisma.ad.findMany({ where: { userId }, orderBy: { created_at: "desc" }, take: 30 });
+  const ads = await prisma.ad.findMany({
+    where: { userId, status: { in: MYADS_LIST_STATUSES } },
+    orderBy: { created_at: "desc" },
+    take: 30,
+  });
   if (ads.length === 0) {
     await setPending(userId, null);
     await bot.api.sendMessage(chatId, t(lang, "myAdsEmpty"), { reply_markup: mainMenu(lang) });
