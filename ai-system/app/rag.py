@@ -1,10 +1,34 @@
 """
-Zero-cost RAG: a per-user ChromaDB collection (local, on-disk, free) for
-conversation memory, a SHARED "knowledge bank" collection that
-accumulates real web-search results across every user, plus DuckDuckGo
-web search (free, no API key) for live/current information the model
-council wouldn't otherwise know about. This is what keeps Nova
-"connected to the network" without any paid search API.
+Zero-cost RAG — several independent "banks" (ChromaDB collections, all
+free, on-disk) Nova draws from depending on what a message needs,
+instead of one undifferentiated memory:
+
+  - A per-user PRIVATE memory bank (nova_memory_<id>) — continuity
+    with one specific person's own past conversations.
+  - A shared LIVE-INFO knowledge bank (nova_knowledge_bank) — caches
+    real DuckDuckGo web-search results (free, no API key) across every
+    user, so a price looked up for one user on Telegram is immediately
+    available to the next user asking the same thing on the web UI.
+  - A shared SOLUTIONS bank (nova_solutions_bank) — every real
+    CODE/GENERAL question that got a real answer, from every user,
+    gets indexed here too. A new question retrieves the most similar
+    past solved ones as worked precedent before answering — this is
+    what actually strengthens code/reasoning help beyond plain text
+    replies (owner request, 2026-09-06: "يساعد بقوة على... التنفيذ
+    والتفكير, وليس فقط اجابات نصية"), without needing to retrain
+    anything. It's the same underlying real-conversation data
+    (NovaUsageLog in Supabase) the Kaggle notebook already pulls for
+    the weekly LoRA fine-tune — this bank makes that same data useful
+    at ANSWER time too, immediately, every time it accumulates, not
+    only once a week when the notebook happens to run.
+
+Owner's own words on why this stays separate from — and doesn't
+change — the training schedule: "نفذ الخطوات... ونقوم بتدريبه عليها
+مرة واحدة او مرتين بالكثير وليس كل يوم" — these banks update
+continuously in real time on every message; the LoRA fine-tune itself
+stays on its own weekly Kaggle schedule regardless, since retraining
+weights and retrieving from a vector store are two entirely different
+operations with entirely different costs.
 
 Uses Chroma's own bundled ONNX embedding function (a small ~80MB
 MiniLM model via onnxruntime), NOT sentence-transformers/PyTorch —
@@ -46,10 +70,58 @@ def _knowledge_bank():
     return _chroma_client.get_or_create_collection(name="nova_knowledge_bank", embedding_function=_embedder)
 
 
+def _solutions_bank():
+    # ONE shared collection (across every user) of real CODE/GENERAL
+    # question-answer pairs — the "tunnel" to a second bank the owner
+    # asked for: separate from per-user private memory and from the
+    # live-info cache above, indexed by query_type so a CODE question
+    # retrieves worked coding precedent specifically, not an unrelated
+    # general-chat answer.
+    return _chroma_client.get_or_create_collection(name="nova_solutions_bank", embedding_function=_embedder)
+
+
+# Below this length an "answer" is almost always a greeting/apology/error
+# message, not a worked solution worth resurfacing to a future question —
+# a cheap free quality filter given there's no budget for a real scoring
+# model to judge every reply before deciding whether to keep it.
+_MIN_SOLUTION_LENGTH = 40
+
+
 def remember(user_id: str, message: str, answer: str) -> None:
     col = _collection_for(user_id)
     doc_id = f"{user_id}-{col.count()}"
     col.add(documents=[f"سؤال سابق: {message}\nإجابة سابقة: {answer}"], ids=[doc_id])
+
+
+def remember_shared(message: str, answer: str, query_type: str) -> None:
+    """Indexes a real, already-answered CODE/GENERAL question into the
+    shared solutions bank so any future user's similar question can
+    retrieve it as worked precedent (see module docstring). LIVE_INFO
+    isn't included here — that has its own freshness-aware knowledge
+    bank above, and a stale cached fact re-surfacing as "precedent"
+    would be actively wrong, not just unhelpful."""
+    if query_type not in ("CODE", "GENERAL") or len(answer) < _MIN_SOLUTION_LENGTH:
+        return
+    bank = _solutions_bank()
+    doc_id = f"s-{abs(hash(message))}-{int(time.time())}"
+    bank.add(
+        documents=[f"سؤال: {message}\nإجابة: {answer}"],
+        metadatas=[{"query_type": query_type}],
+        ids=[doc_id],
+    )
+
+
+def _recall_solutions(query: str, query_type: str, n_results: int = 2) -> list[str]:
+    bank = _solutions_bank()
+    if bank.count() == 0:
+        return []
+    results = bank.query(
+        query_texts=[query],
+        n_results=min(n_results, bank.count()),
+        where={"query_type": query_type},
+    )
+    docs = results.get("documents") or []
+    return docs[0] if docs else []
 
 
 def recall(user_id: str, query: str, n_results: int = 3) -> list[str]:
@@ -119,5 +191,14 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
                 web_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
                 parts.append("نتائج بحث حية من الويب:\n" + web_snippets)
                 _store_knowledge(message, web_snippets)
+    else:
+        # CODE/GENERAL: pull worked precedent from the shared solutions
+        # bank (real past questions from EVERY user, not just this one)
+        # instead of leaving these two query types with no retrieval
+        # augmentation at all — this is what actually strengthens
+        # execution/reasoning help beyond plain unaided generation.
+        solutions = _recall_solutions(message, query_type)
+        if solutions:
+            parts.append("أمثلة سابقة مشابهة أُجيبت بنجاح من بنك حلول Nova المشترك:\n" + "\n---\n".join(solutions))
 
     return "\n\n".join(parts)

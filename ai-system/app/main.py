@@ -119,6 +119,7 @@ def _run_text_pipeline(
 
     background_tasks.add_task(quota.log_usage, user["id"], channel, query_type, message, final_answer)
     background_tasks.add_task(rag.remember, user["id"], message, final_answer)
+    background_tasks.add_task(rag.remember_shared, message, final_answer, query_type)
     return final_answer, query_type
 
 
@@ -224,6 +225,45 @@ def image(
     background_tasks.add_task(rag.remember, user["id"], f"[صورة] {prompt}", answer_text)
 
     return ImageResponse(answer=answer_text, quota_message=quota_message)
+
+
+class GenerateImageRequest(BaseModel):
+    channel: str
+    prompt: str
+    telegram_id: str | None = None
+    email: str | None = None
+
+
+class GenerateImageResponse(BaseModel):
+    image_base64: str
+    quota_message: str
+
+
+@app.post("/generate-image", response_model=GenerateImageResponse)
+def generate_image(
+    req: GenerateImageRequest,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+    x_internal_secret: str | None = Header(default=None),
+):
+    """OUR OWN image-generation model (see council.py's module
+    docstring) — a genuinely separate self-hosted open-weight model
+    from HF_SPECIALIST_MODEL_ID, not a third-party API call. No
+    fallback: Groq/Gemini's free tiers have no image generation at all,
+    which is exactly why this needed to be a model we actually own."""
+    user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
+    quota_message = _enforce_quota(user)
+
+    image_bytes = council.generate_image(req.prompt)
+    if image_bytes is None:
+        raise HTTPException(
+            status_code=503,
+            detail="توليد الصور غير متاح حالياً — تأكد من ضبط HF_IMAGE_MODEL_ID على الخادم (راجع ai-system/colab/generate_image_model.ipynb).",
+        )
+
+    background_tasks.add_task(quota.log_usage, user["id"], req.channel, "IMAGE_GEN", f"[توليد صورة] {req.prompt}", "(صورة)")
+
+    return GenerateImageResponse(image_base64=base64.b64encode(image_bytes).decode("ascii"), quota_message=quota_message)
 
 
 class FileRequest(BaseModel):
