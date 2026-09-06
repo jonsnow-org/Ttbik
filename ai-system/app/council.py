@@ -258,7 +258,9 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
     token_preview = f"len={len(MODELSCOPE_API_TOKEN)} prefix={MODELSCOPE_API_TOKEN[:6]!r}" if MODELSCOPE_API_TOKEN else "EMPTY"
     logger.info("chat: MODELSCOPE_API_TOKEN at runtime — %s", token_preview)
     try:
-        headers = {"Authorization": f"Bearer {MODELSCOPE_API_TOKEN}"} if MODELSCOPE_API_TOKEN else None
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"}
+        if MODELSCOPE_API_TOKEN:
+            headers["Authorization"] = f"Bearer {MODELSCOPE_API_TOKEN}"
         client = Client(MODELSCOPE_SPACE_URL, headers=headers)
         result = client.predict(user_content, api_name="/generate")
         return result.strip() if result else None
