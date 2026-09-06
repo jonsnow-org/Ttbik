@@ -224,10 +224,12 @@ function adminMenu(): Keyboard {
 // ---------------------------------------------------------------------
 // Core helpers
 // ---------------------------------------------------------------------
+// upsert, not findUnique-then-create — see adBotLogic.ts's ensureUser for
+// why the check-then-act version is a real race (two near-simultaneous
+// updates from the same brand-new user can both pass the existence check
+// and the second create() throws, crashing the webhook silently).
 async function ensureJobsUser(botId: string, tgUserId: string) {
-  const existing = await prisma.jobsUser.findUnique({ where: { id: tgUserId } });
-  if (existing) return existing;
-  return prisma.jobsUser.create({ data: { id: tgUserId, botId } });
+  return prisma.jobsUser.upsert({ where: { id: tgUserId }, update: {}, create: { id: tgUserId, botId } });
 }
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.jobsUser.update({ where: { id: userId }, data: { pendingAction: action as any } });

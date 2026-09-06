@@ -371,11 +371,20 @@ async function setPending(userId: string, action: PendingAction | null) {
   await prisma.user.update({ where: { id: userId }, data: { pendingAction: action as any } });
 }
 
+// upsert, not findUnique-then-create: two updates for the same brand-new
+// user arriving close together (a frustrated double-tap of /start, or
+// Telegram retrying a slow webhook delivery) could both pass the
+// existence check before either committed, and the second create() would
+// throw a duplicate-key error — crashing the whole webhook silently, with
+// NOTHING sent back to the user (not even /start responding). Real
+// incident, 2026-09-06.
 async function ensureUser(botId: string, tgUserId: string, botRow: BotRow, referredBy?: string | null) {
-  const existing = await prisma.user.findUnique({ where: { id: tgUserId } });
-  if (existing) return existing;
   const role = tgUserId === SUPER_ADMIN_ID ? "SUPER_ADMIN" : tgUserId === botRow.ownerId ? "BOT_OWNER" : "USER";
-  return prisma.user.create({ data: { id: tgUserId, botId, role, referredBy: referredBy || null } });
+  return prisma.user.upsert({
+    where: { id: tgUserId },
+    update: {},
+    create: { id: tgUserId, botId, role, referredBy: referredBy || null },
+  });
 }
 
 // Shared by /start and /admin — the platform owner is recognized purely by

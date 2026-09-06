@@ -20,9 +20,11 @@ import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
+  let botRow: Awaited<ReturnType<typeof prisma.bot.findUnique>> = null;
+  let rawBody: any = null;
   try {
     const secret = req.headers.get("x-telegram-bot-api-secret-token") || "";
-    const botRow = await prisma.bot.findUnique({ where: { id: params.botId } });
+    botRow = await prisma.bot.findUnique({ where: { id: params.botId } });
 
     if (!botRow || !botRow.isActive) {
       return NextResponse.json({ error: "Bot inactive or missing" }, { status: 404 });
@@ -33,6 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
 
     const bot = new TelegramBot(botRow.token);
     const body = await req.json().catch(() => null);
+    rawBody = body;
     if (body) {
       if (botRow.template === "AD_BOT") {
         await handleAdBotUpdate(bot, botRow, body);
@@ -59,6 +62,30 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
     return NextResponse.json({ status: "ok" });
   } catch (error) {
     console.error("Webhook Error:", error);
+    // Without this, an unhandled exception here is INVISIBLE to the
+    // owner — Telegram never surfaces a server's 500 to the end-user (they
+    // just see total silence, including on /start), and Vercel's server
+    // logs aren't something the owner checks by default. Best-effort DM to
+    // SUPER_ADMIN with the real error + which bot/chat triggered it, so a
+    // crash like this is diagnosable from Telegram itself instead of
+    // guesswork (owner incident, 2026-09-06: a real user's bot went
+    // completely silent, even to /start, with no way to tell why).
+    const superAdminId = process.env.SUPER_ADMIN_TELEGRAM_ID;
+    if (superAdminId && botRow) {
+      try {
+        const notifyBot = new TelegramBot(botRow.token);
+        const message = error instanceof Error ? error.message : String(error);
+        const fromChat = rawBody?.message?.chat?.id ?? rawBody?.callback_query?.message?.chat?.id ?? "?";
+        await notifyBot.api
+          .sendMessage(
+            Number(superAdminId),
+            `⚠️ خطأ غير متوقع في بوت ${botRow.template} (${botRow.id}):\n${message}\n\nمحادثة: ${fromChat}`
+          )
+          .catch(() => null);
+      } catch {
+        // Best-effort only — never let a failure here mask the original 500.
+      }
+    }
     return NextResponse.json({ error: "Internal Error" }, { status: 500 });
   }
 }

@@ -280,10 +280,12 @@ function roleFacilityLabel(role: FacilityType): string {
 // ---------------------------------------------------------------------
 // Core data helpers
 // ---------------------------------------------------------------------
+// upsert, not findUnique-then-create — see adBotLogic.ts's ensureUser for
+// why the check-then-act version is a real race (two near-simultaneous
+// updates from the same brand-new user can both pass the existence check
+// and the second create() throws, crashing the webhook silently).
 async function ensureMedUser(botId: string, tgUserId: string) {
-  const existing = await prisma.medUser.findUnique({ where: { id: tgUserId } });
-  if (existing) return existing;
-  return prisma.medUser.create({ data: { id: tgUserId, botId } });
+  return prisma.medUser.upsert({ where: { id: tgUserId }, update: {}, create: { id: tgUserId, botId } });
 }
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.medUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
