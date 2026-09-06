@@ -192,10 +192,10 @@ export const STR: Dict = {
   // Native TON deposit — a second, direct path alongside the NOWPayments
   // link above (owner spec, 2026-09-02), shown only when the platform's
   // shared hot wallet is configured.
-  btnTonDeposit: { ar: "💎 إيداع TON مباشر", en: "💎 Direct TON Deposit" },
+  btnTonDeposit: { ar: "💎 إيداع TON / USDT مباشر", en: "💎 Direct TON / USDT Deposit" },
   tonDepositInfo: {
-    ar: "💎 إيداع TON/USDT-TON مباشر\n\n📮 العنوان: {address}\n🔖 رمز التعريف (Memo/Comment) الخاص بك: {memo}\n\n⚠️ يجب إضافة رمز التعريف أعلاه بالضبط في خانة \"التعليق/Comment/Memo\" عند التحويل، وإلا لن يُحتسب إيداعك تلقائياً.\n\n⏳ يُضاف المبلغ لرصيدك تلقائياً خلال 24 ساعة من تأكيد المعاملة على الشبكة.",
-    en: "💎 Direct TON/USDT-TON deposit\n\n📮 Address: {address}\n🔖 Your memo/comment code: {memo}\n\n⚠️ You must add the code above exactly in the transfer's \"Comment/Memo\" field, or your deposit won't be credited automatically.\n\n⏳ The amount is added to your balance automatically within 24 hours of the transaction confirming on-chain.",
+    ar: "💎 إيداع TON أو USDT مباشر (أسرع وأقل رسوماً من الدفع عبر NOWPayments)\n\n📮 العنوان: {address}\n🔖 رمز التعريف (Memo/Comment) الخاص بك: {memo}\n\n✅ يمكنك إرسال TON أو USDT (فقط على شبكة TON — لا ترسل USDT من شبكة أخرى مثل TRC20/ERC20 لهذا العنوان).\n⚠️ يجب إضافة رمز التعريف أعلاه بالضبط في خانة \"التعليق/Comment/Memo\" عند التحويل، وإلا لن يُحتسب إيداعك تلقائياً.\n\n⏳ يُضاف المبلغ لرصيدك تلقائياً خلال 24 ساعة من تأكيد المعاملة على الشبكة.",
+    en: "💎 Direct TON or USDT deposit (faster and cheaper than paying via NOWPayments)\n\n📮 Address: {address}\n🔖 Your memo/comment code: {memo}\n\n✅ You can send either TON or USDT (TON network only — do not send USDT from another network like TRC20/ERC20 to this address).\n⚠️ You must add the code above exactly in the transfer's \"Comment/Memo\" field, or your deposit won't be credited automatically.\n\n⏳ The amount is added to your balance automatically within 24 hours of the transaction confirming on-chain.",
   },
 
   // "أريد بوتاً مماثلاً" — the paid bot-purchase flow (owner spec,

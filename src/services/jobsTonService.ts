@@ -8,7 +8,7 @@
 // real on-chain custody is necessarily pooled — but deposits are matched
 // by a JOBS_BOT-only memo (JobsUser.tonMemo) and credited to
 // JobsUser.balance/JobsTransaction only, never another bot's tables.
-import { Address, Cell, fromNano } from "@ton/core";
+import { Address, Cell, Slice, fromNano, beginCell } from "@ton/core";
 import { TonClient } from "@ton/ton";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -55,14 +55,50 @@ async function getTonUsdRate(): Promise<number> {
   }
 }
 
-function extractComment(body: Cell): string | null {
+function extractCommentFromSlice(slice: Slice): string | null {
   try {
-    const slice = body.beginParse();
     if (slice.remainingBits < 32) return null;
     const op = slice.loadUint(32);
     if (op !== 0) return null;
     const text = slice.loadStringTail().trim();
     return text || null;
+  } catch {
+    return null;
+  }
+}
+function extractComment(body: Cell): string | null {
+  return extractCommentFromSlice(body.beginParse());
+}
+
+// See src/services/ton-service.ts for the full explanation of how a
+// Jetton (USDT-TON) deposit ends up in the hot wallet's own transaction
+// history via a transfer_notification message.
+const USDT_JETTON_MASTER = process.env.USDT_JETTON_MASTER_ADDRESS || "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
+const USDT_DECIMALS = 6;
+const JETTON_TRANSFER_NOTIFICATION_OP = 0x7362d09c;
+
+let cachedHotWalletUsdtAddress: Address | null = null;
+async function getHotWalletUsdtJettonAddress(hotWalletAddress: Address): Promise<Address> {
+  if (cachedHotWalletUsdtAddress) return cachedHotWalletUsdtAddress;
+  const client = getClient();
+  const master = Address.parse(USDT_JETTON_MASTER);
+  const ownerSlice = beginCell().storeAddress(hotWalletAddress).endCell();
+  const result = await client.runMethod(master, "get_wallet_address", [{ type: "slice", cell: ownerSlice }]);
+  cachedHotWalletUsdtAddress = result.stack.readAddress();
+  return cachedHotWalletUsdtAddress;
+}
+
+function parseJettonNotification(body: Cell): { amount: bigint; comment: string | null } | null {
+  try {
+    const slice = body.beginParse();
+    const op = slice.loadUint(32);
+    if (op !== JETTON_TRANSFER_NOTIFICATION_OP) return null;
+    slice.loadUint(64); // query_id
+    const amount = slice.loadCoins();
+    slice.loadAddress(); // sender — not trusted for identity; inMsg.info.src proves this came from OUR jetton wallet
+    const payloadIsRef = slice.loadBit();
+    const payloadSlice = payloadIsRef ? slice.loadRef().beginParse() : slice;
+    return { amount, comment: extractCommentFromSlice(payloadSlice) };
   } catch {
     return null;
   }
@@ -77,29 +113,49 @@ export async function scanJobsTonDeposits(): Promise<{ scanned: number; credited
   const address = Address.parse(hotWallet);
   const transactions = await client.getTransactions(address, { limit: 50 });
 
+  let usdtWalletAddress: Address | null = null;
+  try {
+    usdtWalletAddress = await getHotWalletUsdtJettonAddress(address);
+  } catch {
+    // USDT scanning degrades gracefully — native TON deposits still work.
+  }
+
   let credited = 0;
   for (const tx of transactions) {
     const inMsg = tx.inMessage;
     if (!inMsg || inMsg.info.type !== "internal") continue;
     const valueNano = inMsg.info.value.coins;
     if (valueNano <= BigInt(0)) continue;
-    const comment = extractComment(inMsg.body);
-    if (!comment) continue;
+
+    const jettonNotification = parseJettonNotification(inMsg.body);
+    const isFromOurUsdtWallet = !!usdtWalletAddress && inMsg.info.src.equals(usdtWalletAddress);
+
+    let currency: "TON" | "USDT";
+    let comment: string | null;
+    let usdValue: number;
+    if (jettonNotification && isFromOurUsdtWallet) {
+      currency = "USDT";
+      comment = jettonNotification.comment;
+      usdValue = Math.round((Number(jettonNotification.amount) / 10 ** USDT_DECIMALS) * 100) / 100;
+    } else {
+      currency = "TON";
+      comment = extractComment(inMsg.body);
+      const amountTon = Number(fromNano(valueNano));
+      const rate = await getTonUsdRate();
+      usdValue = Math.round(amountTon * rate * 100) / 100;
+    }
+    if (!comment || usdValue <= 0) continue;
 
     const user = await prisma.jobsUser.findUnique({ where: { tonMemo: comment } });
     if (!user) continue; // not a JOBS_BOT memo — leave it for the other bots' own scanners (or ignore)
 
     const txHash = tx.hash().toString("hex");
-    const amountTon = Number(fromNano(valueNano));
-    const rate = await getTonUsdRate();
-    const usdValue = Math.round(amountTon * rate * 100) / 100;
-    if (usdValue <= 0) continue;
 
     try {
       await prisma.$transaction([
         prisma.jobsUser.update({ where: { id: user.id }, data: { balance: { increment: usdValue } } }),
         prisma.jobsTransaction.create({
-          data: { userId: user.id, amount: usdValue, currency: "TON", type: "DEPOSIT", status: "COMPLETED", txHash },
+          data: { userId: user.id, amount: usdValue, currency, type: "DEPOSIT", status: "COMPLETED", txHash },
         }),
       ]);
       credited++;

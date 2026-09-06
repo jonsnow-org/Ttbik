@@ -139,7 +139,7 @@ function mainMenu(): Keyboard {
 }
 function upgradesMenu(): Keyboard {
   const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
-  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON مباشر").row();
+  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb
     .text(`🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`).row()
     .text(`☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`).row()
@@ -1780,12 +1780,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${balance.toFixed(2)}\n\nللإيداع، افتح الرابط التالي:\n${depositLink(tgUserId)}`, { reply_markup: upgradesMenu() });
     return;
   }
-  if (text === "🔷 إيداع TON مباشر" && isNativeTonConfigured()) {
+  if (text === "🔷 إيداع TON / USDT مباشر" && isNativeTonConfigured()) {
     const address = getMasterHotWalletAddress()!;
     const memo = await getOrCreateMatchTonMemo(tgUserId);
     await bot.api.sendMessage(
       chatId,
-      `🔷 أرسل TON إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
+      `🔷 إيداع TON أو USDT مباشر (أسرع وأقل رسوماً من الدفع بالطريقة الأخرى)\n\nأرسل TON أو USDT (فقط على شبكة TON) إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\n⚠️ لا ترسل USDT من شبكة أخرى (TRC20/ERC20 وغيرها) لهذا العنوان.\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
       { reply_markup: upgradesMenu() }
     );
     return;

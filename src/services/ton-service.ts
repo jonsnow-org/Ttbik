@@ -12,7 +12,7 @@
 // process.env (set in Vercel's dashboard) — never hardcoded, logged, or
 // written to any file in this repo.
 import { mnemonicToPrivateKey } from "@ton/crypto";
-import { Address, Cell, internal, toNano, fromNano } from "@ton/core";
+import { Address, Cell, Slice, internal, toNano, fromNano, beginCell } from "@ton/core";
 import { TonClient, WalletContractV4 } from "@ton/ton";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -77,14 +77,68 @@ async function getTonUsdRate(): Promise<number> {
 
 // A TON "simple transfer comment" is op-code 0 (uint32) followed by the
 // UTF-8 text, possibly spanning multiple cell refs.
-function extractComment(body: Cell): string | null {
+function extractCommentFromSlice(slice: Slice): string | null {
   try {
-    const slice = body.beginParse();
     if (slice.remainingBits < 32) return null;
     const op = slice.loadUint(32);
     if (op !== 0) return null;
     const text = slice.loadStringTail().trim();
     return text || null;
+  } catch {
+    return null;
+  }
+}
+function extractComment(body: Cell): string | null {
+  return extractCommentFromSlice(body.beginParse());
+}
+
+// --- USDT-TON (Tether's official Jetton on TON mainnet) ---------------
+// Same shared hot wallet, same memo scheme as native TON above — the only
+// difference is HOW a deposit shows up on-chain. Sending a Jetton doesn't
+// move TON into the hot wallet directly: it moves the Jetton into the hot
+// wallet's own per-jetton "Jetton wallet" child contract, which then fires
+// a transfer_notification message back to its owner (our hot wallet) —
+// that notification is what actually lands in the hot wallet's own
+// transaction history, so scanTonDeposits() below can see it in the same
+// getTransactions() call used for native TON, no separate polling needed.
+//
+// Address confirmed against Tether's own supported-protocols page and
+// Tonscan (2026-09-06) — overridable via USDT_JETTON_MASTER_ADDRESS
+// without a code change if Tether ever migrates it.
+const USDT_JETTON_MASTER = process.env.USDT_JETTON_MASTER_ADDRESS || "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs";
+const USDT_DECIMALS = 6;
+const JETTON_TRANSFER_NOTIFICATION_OP = 0x7362d09c;
+
+// The hot wallet's Jetton-wallet address is a deterministic child contract
+// of (jetton master, owner) — computed once via the master's own
+// get_wallet_address get-method and cached forever (it never changes).
+let cachedHotWalletUsdtAddress: Address | null = null;
+async function getHotWalletUsdtJettonAddress(hotWalletAddress: Address): Promise<Address> {
+  if (cachedHotWalletUsdtAddress) return cachedHotWalletUsdtAddress;
+  const client = getClient();
+  const master = Address.parse(USDT_JETTON_MASTER);
+  const ownerSlice = beginCell().storeAddress(hotWalletAddress).endCell();
+  const result = await client.runMethod(master, "get_wallet_address", [{ type: "slice", cell: ownerSlice }]);
+  cachedHotWalletUsdtAddress = result.stack.readAddress();
+  return cachedHotWalletUsdtAddress;
+}
+
+// transfer_notification#7362d09c query_id:uint64 amount:(VarUInteger 16)
+// sender:MsgAddress forward_payload:(Either Cell ^Cell). Wallet apps (e.g.
+// Tonkeeper) put a plain-text comment in forward_payload the exact same
+// way a native TON transfer does, so extractCommentFromSlice() is reused
+// on whichever slice it ends up in (inline vs. a separate ref cell).
+function parseJettonNotification(body: Cell): { amount: bigint; comment: string | null } | null {
+  try {
+    const slice = body.beginParse();
+    const op = slice.loadUint(32);
+    if (op !== JETTON_TRANSFER_NOTIFICATION_OP) return null;
+    slice.loadUint(64); // query_id
+    const amount = slice.loadCoins();
+    slice.loadAddress(); // sender — not trusted for identity; inMsg.info.src is what proves this came from OUR jetton wallet
+    const payloadIsRef = slice.loadBit();
+    const payloadSlice = payloadIsRef ? slice.loadRef().beginParse() : slice;
+    return { amount, comment: extractCommentFromSlice(payloadSlice) };
   } catch {
     return null;
   }
@@ -106,32 +160,55 @@ export async function scanTonDeposits(): Promise<{ scanned: number; credited: nu
   const address = Address.parse(hotWallet);
   const transactions = await client.getTransactions(address, { limit: 50 });
 
+  let usdtWalletAddress: Address | null = null;
+  try {
+    usdtWalletAddress = await getHotWalletUsdtJettonAddress(address);
+  } catch {
+    // USDT scanning degrades gracefully on any RPC hiccup — native TON
+    // deposits below are unaffected.
+  }
+
   let credited = 0;
   for (const tx of transactions) {
     const inMsg = tx.inMessage;
     if (!inMsg || inMsg.info.type !== "internal") continue; // skip the wallet's own outgoing transfers
     const valueNano = inMsg.info.value.coins;
     if (valueNano <= BigInt(0)) continue;
-    const comment = extractComment(inMsg.body);
-    if (!comment) continue;
+
+    const jettonNotification = parseJettonNotification(inMsg.body);
+    const isFromOurUsdtWallet = !!usdtWalletAddress && inMsg.info.src.equals(usdtWalletAddress);
+
+    let asset: "TON" | "USDT";
+    let comment: string | null;
+    let assetAmount: number;
+    let usdValue: number;
+    if (jettonNotification && isFromOurUsdtWallet) {
+      asset = "USDT";
+      comment = jettonNotification.comment;
+      assetAmount = Number(jettonNotification.amount) / 10 ** USDT_DECIMALS;
+      usdValue = Math.round(assetAmount * 100) / 100; // USDT tracks USD ~1:1, no rate lookup needed
+    } else {
+      asset = "TON";
+      comment = extractComment(inMsg.body);
+      assetAmount = Number(fromNano(valueNano));
+      const rate = await getTonUsdRate();
+      usdValue = Math.round(assetAmount * rate * 100) / 100;
+    }
+    if (!comment || usdValue <= 0) continue;
 
     const user = await prisma.user.findUnique({ where: { tonMemo: comment } });
     if (!user) continue;
 
     const txHash = tx.hash().toString("hex");
-    const amountTon = Number(fromNano(valueNano));
-    const rate = await getTonUsdRate();
-    const usdValue = Math.round(amountTon * rate * 100) / 100;
-    if (usdValue <= 0) continue;
 
     try {
       await prisma.$transaction([
         prisma.tonTransaction.create({
-          data: { userId: user.id, type: "DEPOSIT", amountTon, usdValue, txHash, status: "COMPLETED" },
+          data: { userId: user.id, type: "DEPOSIT", amountTon: assetAmount, usdValue, txHash, status: "COMPLETED", asset },
         }),
         prisma.user.update({ where: { id: user.id }, data: { balance: { increment: usdValue } } }),
         prisma.transaction.create({
-          data: { userId: user.id, amount: usdValue, currency: "TON", type: "DEPOSIT", status: "COMPLETED", txHash },
+          data: { userId: user.id, amount: usdValue, currency: asset, type: "DEPOSIT", status: "COMPLETED", txHash },
         }),
       ]);
       credited++;

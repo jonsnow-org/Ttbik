@@ -177,8 +177,9 @@ model TonTransaction {
   userId     String
   user       User     @relation(fields: [userId], references: [id])
   type       String // DEPOSIT | WITHDRAWAL | OWNER_SWEEP
-  amountTon  Float
-  usdValue   Float // TON amount converted to USD at the rate used to credit/debit User.balance
+  asset      String   @default("TON") // TON | USDT — which on-chain asset amountTon is denominated in
+  amountTon  Float // amount in the deposited asset's own units (TON or USDT), despite the field name
+  usdValue   Float // converted to USD at the rate used to credit/debit User.balance (USDT uses ~1:1, no rate lookup)
   txHash     String   @unique // on-chain transaction hash/logical-time — the idempotency key
   toAddress  String? // withdrawal destination only; null for deposits (always the shared hot wallet)
   status     String   @default("PENDING") // PENDING | COMPLETED | FAILED

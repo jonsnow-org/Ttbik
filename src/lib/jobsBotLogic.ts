@@ -169,7 +169,7 @@ function mainMenu(): Keyboard {
   const kb = new Keyboard()
     .text("💼 قسم العمل").text("🛒 قسم المتجر").row()
     .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
-  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON مباشر").row();
+  if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb.text("ℹ️ معلومات").resized();
 }
 function workMenu(): Keyboard {
@@ -1748,12 +1748,12 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع، افتح الرابط:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
     return;
   }
-  if (text === "🔷 إيداع TON مباشر" && isNativeTonConfigured()) {
+  if (text === "🔷 إيداع TON / USDT مباشر" && isNativeTonConfigured()) {
     const address = getMasterHotWalletAddress()!;
     const memo = await getOrCreateJobsTonMemo(tgUserId);
     await bot.api.sendMessage(
       chatId,
-      `🔷 أرسل TON إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
+      `🔷 إيداع TON أو USDT مباشر (أسرع وأقل رسوماً من الدفع بالطريقة الأخرى)\n\nأرسل TON أو USDT (فقط على شبكة TON) إلى العنوان التالي، مع كتابة المذكرة (Memo/Comment) بالضبط كما هي — بدونها لن يُحتسب إيداعك:\n\nالعنوان:\n${address}\n\nالمذكرة:\n${memo}\n\n⚠️ لا ترسل USDT من شبكة أخرى (TRC20/ERC20 وغيرها) لهذا العنوان.\n\nيُضاف الرصيد تلقائياً خلال دقائق من تأكيد الشبكة.`,
       { reply_markup: mainMenu() }
     );
     return;
