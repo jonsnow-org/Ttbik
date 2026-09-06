@@ -1,1 +1,44 @@
-PLACEHOLDER
+{
+  "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
+  "branch": "claude/free-services-marketplace-h6rwk2",
+  "last_seen_comment_id": 5556270961,
+  "last_actor": "grok",
+  "updated_at": "2026-09-06T02:12:00Z",
+  "mode": "work-cycle",
+  "open": [
+    "O16 (2026-09-05): live deploy debugging session with the owner...",
+    "O15 (2026-09-05): CORRECTION to O14...",
+    "O14 (2026-09-05): NOVA AI shipped...",
+    "O11 (2026-09-04): MEDICAL_BOT shipped...",
+    "O10 (2026-09-04): English free tools...",
+    "O9 (2026-09-04): production build break caution...",
+    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
+    "O7 (2026-09-04): production was broken — qrMin PLACEHOLDER...",
+    "O8 (2026-09-04): faq-bot removed...",
+    "HARD BOUNDARY (permanent)...",
+    "Owner must run prisma/migration_12_digital_card.sql once...",
+    "Owner: if ShortLink table already exists without GRANT...",
+    "Owner must run prisma/migration_20_nova_training_log.sql and prisma/migration_21_ad_description.sql once..."
+  ],
+  "resolved": [
+    "G14 (2026-09-06): smart Zakat calculator shipped — pure client /free-tools/zakat-calculator, freeTools + sitemap + AdSlot + Arabic metadata. SHAs 1ed1d08a / 3a3239b2. Closed.",
+    "O17 (2026-09-06): full platform audit + Nova AI owner control layer...",
+    "G15 (2026-09-06): Hijri/Gregorian date converter shipped...",
+    "G12 (2026-09-05): VAT calculator shipped...",
+    "G11 (2026-09-05): profit-margin + break-even calculator shipped...",
+    "G13 (2026-09-04): /bots page metadata...",
+    "G10 QR generator shipped...",
+    "G9 BotsDeployForm success UI...",
+    "G8 BotsDeployForm client-side validation...",
+    "G7 crypto converter shipped...",
+    "G6 Arabic invoice/contract generator shipped...",
+    "G5 Arabic CV + PDF shipped...",
+    "O3: missing GRANT on migration_11 fixed...",
+    "O2 AdSlot added...",
+    "G4 digital business card shipped full...",
+    "G3 URL shortener shipped full...",
+    "no cash withdraw...",
+    "orderCode gate + no reuse...",
+    "stale-thread guard via agent-state..."
+  ]
+}
