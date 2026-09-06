@@ -255,6 +255,8 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
     from gradio_client import Client
 
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
+    token_preview = f"len={len(MODELSCOPE_API_TOKEN)} prefix={MODELSCOPE_API_TOKEN[:6]!r}" if MODELSCOPE_API_TOKEN else "EMPTY"
+    logger.info("chat: MODELSCOPE_API_TOKEN at runtime — %s", token_preview)
     try:
         headers = {"Authorization": f"Bearer {MODELSCOPE_API_TOKEN}"} if MODELSCOPE_API_TOKEN else None
         client = Client(MODELSCOPE_SPACE_URL, headers=headers)
