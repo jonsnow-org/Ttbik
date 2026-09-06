@@ -309,3 +309,58 @@ def subscribe(
         "nova_user_id": user["id"],
         "message": "ادفع الآن لتفعيل فوري، أو انتظر تفعيلاً يدوياً من المالك.",
     }
+
+
+def _require_internal(x_internal_secret: str | None) -> None:
+    """Auth for the admin endpoints below: identical single check every
+    other endpoint already does for TELEGRAM/WEB — only Ttbik's own
+    server calls these at all, and it only does so after checking the
+    caller's Telegram id against SUPER_ADMIN_TELEGRAM_ID itself (see
+    novaBotLogic.ts's admin panel) — there is no separate per-owner
+    secret to manage here."""
+    if not NOVA_INTERNAL_SECRET or x_internal_secret != NOVA_INTERNAL_SECRET:
+        raise HTTPException(status_code=401, detail="missing/invalid X-Internal-Secret")
+
+
+@app.post("/admin/stats")
+def admin_stats(x_internal_secret: str | None = Header(default=None)):
+    _require_internal(x_internal_secret)
+    return quota.get_admin_stats()
+
+
+@app.post("/admin/pending-subscriptions")
+def admin_pending_subscriptions(x_internal_secret: str | None = Header(default=None)):
+    _require_internal(x_internal_secret)
+    return {"items": quota.list_pending_subscriptions()}
+
+
+class SubscriptionDecisionRequest(BaseModel):
+    subscription_id: str
+
+
+class ApproveSubscriptionRequest(SubscriptionDecisionRequest):
+    approved_by: str
+
+
+@app.post("/admin/approve-subscription")
+def admin_approve_subscription(req: ApproveSubscriptionRequest, x_internal_secret: str | None = Header(default=None)):
+    _require_internal(x_internal_secret)
+    result = quota.approve_subscription(req.subscription_id, req.approved_by)
+    if result is None:
+        raise HTTPException(status_code=404, detail="subscription not found or already decided")
+    return {"ok": True, **result}
+
+
+@app.post("/admin/reject-subscription")
+def admin_reject_subscription(req: SubscriptionDecisionRequest, x_internal_secret: str | None = Header(default=None)):
+    _require_internal(x_internal_secret)
+    result = quota.reject_subscription(req.subscription_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="subscription not found or already decided")
+    return {"ok": True, **result}
+
+
+@app.post("/admin/telegram-user-ids")
+def admin_telegram_user_ids(x_internal_secret: str | None = Header(default=None)):
+    _require_internal(x_internal_secret)
+    return {"ids": quota.list_telegram_user_ids()}

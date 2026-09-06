@@ -1,7 +1,13 @@
-import { Bot as TelegramBot } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+
+// Recognized the same way as every other bot template on this platform
+// (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
+// account at all — every sender, admin included, got the identical
+// customer welcome and had no admin panel to reach).
+const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 
 // NOVA_BOT — the owner's $0-cost general AI assistant product (owner
 // spec, 2026-09-05). Deliberately different in kind from every other
@@ -88,12 +94,125 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
   }
 }
 
+async function sendNovaAdminPanel(bot: TelegramBot, chatId: number) {
+  const { ok, data } = await callNovaBackend("/admin/stats", {});
+  if (!ok) {
+    await bot.api.sendMessage(chatId, `تعذر جلب إحصائيات نوفا: ${data?.detail || "خطأ غير معروف"}`);
+    return;
+  }
+  await bot.api.sendMessage(
+    chatId,
+    `🛠 لوحة إدارة Nova AI\n\n` +
+      `👥 إجمالي المستخدمين: ${data.total_users}\n` +
+      `💎 مشتركو PRO: ${data.pro_users}\n` +
+      `🆓 مستخدمو الخطة المجانية: ${data.free_users}\n` +
+      `⏳ طلبات اشتراك بانتظار الموافقة: ${data.pending_subscriptions}\n` +
+      `💬 إجمالي الرسائل المُعالجة: ${data.total_messages}\n\n` +
+      `الأوامر:\n` +
+      `/طلبات_الاشتراك — عرض طلبات الاشتراك المعلّقة والموافقة/الرفض\n` +
+      `/بث <نص> — إرسال رسالة لكل مستخدمي تيليجرام في نوفا`
+  );
+}
+
+async function sendNovaPendingSubscriptions(bot: TelegramBot, chatId: number) {
+  const { ok, data } = await callNovaBackend("/admin/pending-subscriptions", {});
+  if (!ok) {
+    await bot.api.sendMessage(chatId, `تعذر جلب طلبات الاشتراك: ${data?.detail || "خطأ غير معروف"}`);
+    return;
+  }
+  const items = (data.items || []) as Array<{ id: string; plan: string; amountUsd: number; telegramId: string | null; email: string | null }>;
+  if (!items.length) {
+    await bot.api.sendMessage(chatId, "لا توجد طلبات اشتراك بانتظار الموافقة حالياً.");
+    return;
+  }
+  for (const sub of items) {
+    const who = sub.telegramId ? `تيليجرام: ${sub.telegramId}` : sub.email ? `البريد: ${sub.email}` : "غير معروف";
+    const kb = new InlineKeyboard().text("✅ موافقة", `nova_sub_approve|${sub.id}`).text("❌ رفض", `nova_sub_reject|${sub.id}`);
+    await bot.api.sendMessage(
+      chatId,
+      `طلب اشتراك #${sub.id.slice(0, 8)}\nالمستخدم: ${who}\nالخطة: ${sub.plan}\nالمبلغ: $${sub.amountUsd}`,
+      { reply_markup: kb }
+    );
+  }
+}
+
+async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
+  const chatId = cq.message?.chat?.id;
+  const messageId = cq.message?.message_id;
+  const tgUserId = String(cq.from.id);
+  if (!chatId || !messageId || !SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  const [action, subId] = String(cq.data || "").split("|");
+  if (action !== "nova_sub_approve" && action !== "nova_sub_reject") {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+
+  const approving = action === "nova_sub_approve";
+  const { ok, data } = await callNovaBackend(approving ? "/admin/approve-subscription" : "/admin/reject-subscription", approving ? { subscription_id: subId, approved_by: tgUserId } : { subscription_id: subId });
+  if (!ok) {
+    await bot.api.answerCallbackQuery(cq.id, { text: data?.detail || "فشل تنفيذ الإجراء", show_alert: true }).catch(() => null);
+    return;
+  }
+
+  await bot.api.answerCallbackQuery(cq.id, { text: approving ? "✅ تم التفعيل" : "❌ تم الرفض" }).catch(() => null);
+  const originalText = cq.message?.text ? String(cq.message.text) : "";
+  await bot.api.editMessageText(chatId, messageId, `${originalText}\n\n${approving ? "✅ تم التفعيل." : "❌ تم الرفض."}`).catch(() => null);
+
+  if (data.telegramId) {
+    const notice = approving
+      ? "🎉 تم تفعيل اشتراكك في Nova PRO لمدة 30 يوماً — استخدام غير محدود يومياً!"
+      : "لم تتم الموافقة على طلب اشتراكك حالياً. تواصل مع الدعم لمزيد من التفاصيل.";
+    await bot.api.sendMessage(Number(data.telegramId), notice).catch(() => null);
+  }
+}
+
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
+  if (update.callback_query) {
+    await handleNovaAdminCallback(bot, update.callback_query);
+    return;
+  }
+
   const msg = update.message;
   if (!msg?.chat?.id) return;
 
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
+  const isAdmin = Boolean(SUPER_ADMIN_ID) && tgUserId === SUPER_ADMIN_ID;
+
+  if (isAdmin && typeof msg.text === "string") {
+    const adminText = msg.text.trim();
+    if (adminText === "/طلبات_الاشتراك") {
+      await sendNovaPendingSubscriptions(bot, chatId);
+      return;
+    }
+    if (adminText.startsWith("/بث ")) {
+      const broadcastText = adminText.slice(4).trim();
+      if (!broadcastText) {
+        await bot.api.sendMessage(chatId, "اكتب النص بعد الأمر: /بث نص الرسالة");
+        return;
+      }
+      const { ok, data } = await callNovaBackend("/admin/telegram-user-ids", {});
+      if (!ok) {
+        await bot.api.sendMessage(chatId, `تعذر جلب قائمة المستخدمين: ${data?.detail || "خطأ غير معروف"}`);
+        return;
+      }
+      const ids = (data.ids || []) as string[];
+      let sent = 0;
+      for (const id of ids) {
+        try {
+          await bot.api.sendMessage(Number(id), `📢 إعلان من إدارة Nova AI:\n\n${broadcastText}`);
+          sent++;
+        } catch {
+          /* user blocked the bot or invalid id — skip */
+        }
+      }
+      await bot.api.sendMessage(chatId, `✅ تم الإرسال إلى ${sent} من أصل ${ids.length}.`);
+      return;
+    }
+  }
 
   if (msg.voice) {
     await handleVoiceMessage(bot, chatId, tgUserId, msg.voice.file_id);
@@ -125,6 +244,14 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     const startPayload = text.slice(6).trim();
     if (isAdVerifyPayload(startPayload)) {
       await consumeAdVerifyPayload(startPayload);
+    }
+    // The owner is never a customer — recognized by SUPER_ADMIN_TELEGRAM_ID
+    // (same env var every other bot template uses) and routed straight to
+    // the admin panel instead of the generic welcome, same as every other
+    // bot on this platform.
+    if (isAdmin) {
+      await sendNovaAdminPanel(bot, chatId);
+      return;
     }
     await bot.api.sendMessage(
       chatId,
