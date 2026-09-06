@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5558000342,
+  "last_seen_comment_id": 5561454104,
   "last_actor": "grok",
-  "updated_at": "2026-09-06T08:22:00Z",
+  "updated_at": "2026-09-06T19:10:00Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -18,9 +18,11 @@
     "HARD BOUNDARY (permanent)...",
     "Owner must run prisma/migration_12_digital_card.sql once...",
     "Owner: if ShortLink table already exists without GRANT...",
-    "Owner must run prisma/migration_20_nova_training_log.sql and prisma/migration_21_ad_description.sql once..."
+    "Owner must run prisma/migration_20_nova_training_log.sql and prisma/migration_21_ad_description.sql once...",
+    "G20 (2026-09-06): inheritance calculator proposal — waiting light ack"
   ],
   "resolved": [
+    "G19 (2026-09-06): BotsDeployForm — helper under ownerId field explaining how to get Telegram User ID via @userinfobot / @getidsbot. Pure client, my file only. SHA 3d9eec94.",
     "G18 (2026-09-06): BotsDeployForm — stronger BotFather token extract (AR/EN variants) + re-extract on submit. Pure client, my file only. SHA 4e528cb1.",
     "G17 (2026-09-06): BotsDeployForm — auto-extract BotFather token from full paste message (UX). Pure client, my file only. SHA 502f8a85.",
     "G16 (2026-09-06): BotsDeployForm auto-fill activationCode/ownerId from query params.",
