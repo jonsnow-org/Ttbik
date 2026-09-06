@@ -67,11 +67,27 @@ router.huggingface.co under their newer "Inference Providers" system —
 so the old hostname doesn't just reject requests, it no longer
 resolves at all. Fixed by bumping huggingface_hub (see
 requirements.txt) and passing provider="hf-inference" explicitly on
-every InferenceClient() below — "hf-inference" is HF's own hosted
-infra (the direct successor to the old serverless API), the only
-provider that can serve a private, custom-uploaded repo like ours
-(third-party providers such as fal-ai/together only serve their own
-curated public model list).
+every InferenceClient() below.
+
+Owner report, 2026-09-07 (follow-up): that fix got us a real response
+from HF at last — a flat refusal. "hf-inference" itself turned out to
+no longer serve ANY custom/private model repo for chat_completion,
+confirmed with both our own fine-tuned repo and the stock official
+base model, at 7B and 0.5B alike: "Model not supported by provider
+hf-inference". This is HF's own free-tier policy, not a bug we can
+configure around — text and vision now fail closed against HF and
+always fall back to Groq/Gemini.
+
+Real serving for text moved to ModelScope's free Studio hosting
+instead (call_modelscope_specialist, MODELSCOPE_SPACE_URL) — 2 vCPU /
+16GB, no session time limit, no card required. This is a genuine
+compute box we run our own app.py on (via the "gradio" SDK ModelScope
+Studios expect), not a rented API call — the same ownership shape
+call_hf_specialist was meant to have, just on infrastructure that
+actually agrees to run it. HF_SPECIALIST_MODEL_ID/call_hf_specialist
+stay defined only for vision (call_hf_specialist_vision) — that path
+hasn't been retested since the hf-inference refusal was found and may
+need the same migration once it is.
 """
 import base64
 import io
@@ -90,6 +106,7 @@ from app.config import (
     HF_IMAGE_MODEL_ID,
     HF_SPECIALIST_MODEL_ID,
     HF_TOKEN,
+    MODELSCOPE_SPACE_URL,
 )
 
 # Greppable in Render's Logs tab — owner report, 2026-09-06: a fluent reply
@@ -225,46 +242,25 @@ def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = 
     return None
 
 
-def call_hf_specialist(message: str, context: str) -> str | None:
-    """OUR OWN model (see module docstring) — the primary voice for
-    every text query, not a CODE-only bonus opinion. Uses a real chat
-    template (client.chat_completion, not raw text_generation) so the
-    merged Qwen-based model actually gets the system prompt/persona and
-    RAG context the same way call_groq does, instead of a bare prompt
-    with no instructions at all.
-
-    HF's shared free Inference infrastructure unloads an idle custom
-    model and reloads it lazily on the next request — a 503 "still
-    loading" response, not a real failure. Worth one short retry before
-    conceding to the Groq fallback, since giving up on the very first
-    503 would mean our own model almost never actually answers anything
-    in practice."""
-    if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
+def call_modelscope_specialist(message: str, context: str) -> str | None:
+    """OUR OWN model, actually reachable this time (see module
+    docstring — hf-inference flatly refuses custom repos, ModelScope's
+    free Studio hosting doesn't). This calls the Gradio app we deployed
+    ourselves (ai-system/app.py running as a ModelScope Studio) through
+    its auto-generated API, using the exact api_name/parameter shape
+    ModelScope's own "API documentation" page for the Studio shows."""
+    if not MODELSCOPE_SPACE_URL:
         return None
-    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
+    from gradio_client import Client
+
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
-    for attempt in range(2):
-        try:
-            completion = client.chat_completion(messages=messages, max_tokens=800)
-            content = completion.choices[0].message.content
-            return content.strip() if content else None
-        except HfHubHTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            if status == 503 and attempt == 0:
-                logger.info("chat: our own model is cold-starting on HF (503) — retrying once")
-                time.sleep(8)  # give the free shared instance a moment to finish loading
-                continue
-            body = getattr(e.response, "text", "")[:300]
-            logger.info("chat: our own model call failed (HTTP %s: %s) — falling back to Groq", status, body)
-            return None
-        except Exception as e:
-            logger.info("chat: our own model call failed (%s) — falling back to Groq", e)
-            return None
-    return None
+    try:
+        client = Client(MODELSCOPE_SPACE_URL)
+        result = client.predict(user_content, api_name="/generate")
+        return result.strip() if result else None
+    except Exception as e:
+        logger.info("chat: our own model (ModelScope) call failed (%s) — falling back to Groq", e)
+        return None
 
 
 def answer(message: str, context: str) -> str:
@@ -274,9 +270,9 @@ def answer(message: str, context: str) -> str:
     parallel voice, and never re-synthesized over our model's own
     answer (see module docstring for why this order is the whole
     point)."""
-    specialist_answer = call_hf_specialist(message, context)
+    specialist_answer = call_modelscope_specialist(message, context)
     if specialist_answer:
-        logger.info("chat answer: served by OUR OWN model (%s)", HF_SPECIALIST_MODEL_ID)
+        logger.info("chat answer: served by OUR OWN model (ModelScope)")
         return specialist_answer
     logger.info("chat answer: our own model unavailable — served by Groq fallback")
     return call_groq(message, context)
