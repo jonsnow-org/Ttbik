@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
+import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -111,6 +112,8 @@ type StoreWantedDraft = { title?: string; description?: string; budget?: number 
 type PendingAction =
   | { mode: "profile_wizard"; step: ProfileStep; data: ProfileDraft }
   | { mode: "job_posting_wizard"; step: JobPostingStep; data: JobPostingDraft }
+  | { mode: "job_posting_description_review"; data: JobPostingDraft; suggested: string }
+  | { mode: "ask_nova" }
   | { mode: "job_search_keyword"; fallbackKeyword?: string }
   | { mode: "store_search_keyword" }
   | { mode: "wanted_search_keyword" }
@@ -151,11 +154,9 @@ function skipMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
 function infoMenu(): Keyboard {
-  return new Keyboard()
-    .text("💡 اقتراح").text("📩 مراسلة الأدمن").row()
-    .text("🔗 مشاركة الرابط").row()
-    .text(backLabel())
-    .resized();
+  const kb = new Keyboard().text("💡 اقتراح").text("📩 مراسلة الأدمن").row();
+  if (novaAssistConfigured()) kb.text("✨ اسأل نوفا (ذكاء اصطناعي)").row();
+  return kb.text("🔗 مشاركة الرابط").row().text(backLabel()).resized();
 }
 function plainBackMenu(): Keyboard {
   return new Keyboard().text(backLabel()).resized();
@@ -514,6 +515,19 @@ async function consumeJobPostingStep(bot: TelegramBot, chatId: number, userId: s
     data.city = text;
   } else if (step === "description") {
     data.description = isSkip(text) ? undefined : text;
+    if (data.description && novaAssistConfigured()) {
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      const suggestion = await improveListingText(userId, "إعلان وظيفة", data.description);
+      if (suggestion.ok && suggestion.text && suggestion.text !== data.description) {
+        await setPending(userId, { mode: "job_posting_description_review", data, suggested: suggestion.text });
+        await bot.api.sendMessage(
+          chatId,
+          `📝 وصفك:\n${data.description}\n\n✨ اقتراح نوفا (ذكاء اصطناعي) لتحسينه:\n${suggestion.text}\n\nأي نسخة تريد نشرها؟`,
+          { reply_markup: new InlineKeyboard().text("📝 وصفي الأصلي", "jai_use|orig").row().text("✨ نسخة نوفا المحسّنة", "jai_use|ai") }
+        );
+        return;
+      }
+    }
   } else if (step === "contactMethod") {
     if (text !== "✈️ تلجرام" && text !== "💬 واتساب") {
       await bot.api.sendMessage(chatId, "اختر من القائمة.", { reply_markup: contactMethodMenu() });
@@ -525,6 +539,10 @@ async function consumeJobPostingStep(bot: TelegramBot, chatId: number, userId: s
     data.contactValue = data.contactMethod === "WHATSAPP" ? text.replace(/[^0-9+]/g, "") : text.replace(/^@/, "");
   }
 
+  await advanceJobPostingStep(bot, chatId, userId, step, data);
+}
+
+async function advanceJobPostingStep(bot: TelegramBot, chatId: number, userId: string, step: JobPostingStep, data: JobPostingDraft) {
   const next = nextJobPostingStep(step);
   if (!next) {
     await prisma.jobPosting.create({
@@ -1587,6 +1605,10 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   // ---- Pending wizards ----
   if (pending?.mode === "profile_wizard") return consumeProfileStep(bot, chatId, tgUserId, pending, text);
   if (pending?.mode === "job_posting_wizard") return consumeJobPostingStep(bot, chatId, tgUserId, pending, text);
+  if (pending?.mode === "job_posting_description_review") {
+    await bot.api.sendMessage(chatId, "اختر إحدى النسختين بالضغط على أحد الزرين أعلاه.");
+    return;
+  }
   if (pending?.mode === "store_listing_wizard") return consumeStoreListingStep(bot, chatId, tgUserId, pending, text);
   if (pending?.mode === "store_wanted_wizard") return consumeStoreWantedStep(bot, chatId, tgUserId, pending, text);
   if (pending?.mode === "job_search_keyword") {
@@ -1681,6 +1703,15 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     }
     return;
   }
+  if (pending?.mode === "ask_nova") {
+    if (!text) return;
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    const result = await askNovaAssist(tgUserId, text);
+    await bot.api.sendMessage(chatId, result.ok ? result.text! : (result.error || "تعذّر الحصول على رد الآن."), {
+      reply_markup: plainBackMenu(),
+    });
+    return;
+  }
   if (pending?.mode === "suggestion_compose" || pending?.mode === "suggestion_confirm") {
     if (!text) return;
     await setPending(tgUserId, { mode: "suggestion_confirm", text });
@@ -1752,6 +1783,15 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (text === "📩 مراسلة الأدمن") {
     await setPending(tgUserId, { mode: "contact_admin_compose" });
     await bot.api.sendMessage(chatId, "✍️ اكتب رسالتك للإدارة:", { reply_markup: plainBackMenu() });
+    return;
+  }
+  if (text === "✨ اسأل نوفا (ذكاء اصطناعي)") {
+    await setPending(tgUserId, { mode: "ask_nova" });
+    await bot.api.sendMessage(
+      chatId,
+      "✨ اكتب سؤالك وسيجيبك نوفا (نفس مساعد الذكاء الاصطناعي في بوت Nova AI) — يشاركك نفس رصيدك المجاني اليومي هناك.",
+      { reply_markup: plainBackMenu() }
+    );
     return;
   }
 
@@ -1934,6 +1974,19 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
       .sendMessage(chatId, isPaused ? "⏸ تم إيقاف ظهورك في نتائج البحث عن مهنيين." : "▶️ تم تفعيل ظهورك في نتائج البحث مجدداً.", { reply_markup: mainMenu() })
       .catch(() => null);
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  if (data.startsWith("jai_use|")) {
+    const choice = data.split("|")[1];
+    const pending = (await prisma.jobsUser.findUnique({ where: { id: tgUserId } }))?.pendingAction as PendingAction | null;
+    if (pending?.mode !== "job_posting_description_review") {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    const draft = pending.data;
+    if (choice === "ai") draft.description = pending.suggested;
+    await advanceJobPostingStep(bot, chatId, tgUserId, "description", draft);
+    await bot.api.answerCallbackQuery(cq.id, { text: choice === "ai" ? "✅ استُخدمت نسخة نوفا" : "✅ استُخدم النص الأصلي" }).catch(() => null);
     return;
   }
   if (data === "jsuggestion_confirm") {

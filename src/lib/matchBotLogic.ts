@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
+import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -115,6 +116,8 @@ type PendingAction =
   | { mode: "admin_lookup" }
   | { mode: "admin_unban" }
   | { mode: "contact_admin_compose" }
+  | { mode: "ask_nova" }
+  | { mode: "attributes_ai_review"; data: ProfileDraft; step: ProfileStep; suggested: string }
   | { mode: "admin_reply"; targetUserId: string; messageId: string }
   | { mode: "verify_badge_photo" }
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
@@ -149,10 +152,9 @@ function upgradesMenu(): Keyboard {
     .resized();
 }
 function infoMenu(): Keyboard {
-  return new Keyboard()
-    .text("📩 مراسلة الأدمن").text("🔗 دعوة رابط البوت").row()
-    .text(backLabel())
-    .resized();
+  const kb = new Keyboard().text("📩 مراسلة الأدمن").text("🔗 دعوة رابط البوت").row();
+  if (novaAssistConfigured()) kb.text("✨ اسأل نوفا (ذكاء اصطناعي)").row();
+  return kb.text(backLabel()).resized();
 }
 function adminMenu(): Keyboard {
   return new Keyboard()
@@ -433,6 +435,19 @@ async function consumeProfileStep(bot: TelegramBot, chatId: number, userId: stri
     data.education = isSkip(text) ? null : text;
   } else if (step === "attributes") {
     data.attributes = isSkip(text) ? null : text;
+    if (data.attributes && novaAssistConfigured()) {
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      const suggestion = await improveListingText(userId, "نبذة تعريفية شخصية", data.attributes);
+      if (suggestion.ok && suggestion.text && suggestion.text !== data.attributes) {
+        await setPending(userId, { mode: "attributes_ai_review", data, step, suggested: suggestion.text });
+        await bot.api.sendMessage(
+          chatId,
+          `📝 نبذتك:\n${data.attributes}\n\n✨ اقتراح نوفا (ذكاء اصطناعي) لتحسينها:\n${suggestion.text}\n\nأي نسخة تريد استخدامها؟`,
+          { reply_markup: new InlineKeyboard().text("📝 نبذتي الأصلية", "matai_use|orig").row().text("✨ نسخة نوفا المحسّنة", "matai_use|ai") }
+        );
+        return;
+      }
+    }
   } else if (step === "city") {
     data.city = isSkip(text) ? null : text;
   } else if (step === "maritalStatus") {
@@ -455,6 +470,10 @@ async function consumeProfileStep(bot: TelegramBot, chatId: number, userId: stri
     // earlier in the main dispatcher; text reaching here means "no voice intro".
   }
 
+  await advanceProfileStep(bot, chatId, userId, step, data);
+}
+
+async function advanceProfileStep(bot: TelegramBot, chatId: number, userId: string, step: ProfileStep, data: ProfileDraft) {
   const next = nextProfileStep(step);
   if (!next) {
     await saveProfile(bot, chatId, userId, data);
@@ -784,6 +803,19 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
 
   const user = await ensureMatchUser(botRow.id, tgUserId);
   const pending = user.pendingAction as PendingAction | null;
+
+  if (data.startsWith("matai_use|")) {
+    if (pending?.mode !== "attributes_ai_review") {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    const choice = data.split("|")[1];
+    const draftData = pending.data;
+    if (choice === "ai") draftData.attributes = pending.suggested;
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await advanceProfileStep(bot, chatId, tgUserId, pending.step, draftData);
+    return;
+  }
 
   if (data.startsWith("mlike|")) {
     const targetId = data.split("|")[1];
@@ -1515,24 +1547,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // (which only handles msg.text) never sees them.
   if (msg.photo && pending?.mode === "profile_wizard" && pending.step === "photo") {
     pending.data.photoFileId = msg.photo[msg.photo.length - 1].file_id;
-    const next = nextProfileStep("photo");
-    if (!next) {
-      await saveProfile(bot, chatId, tgUserId, pending.data);
-    } else {
-      await setPending(tgUserId, { mode: "profile_wizard", step: next, data: pending.data });
-      await askProfileStep(bot, chatId, next);
-    }
+    await advanceProfileStep(bot, chatId, tgUserId, "photo", pending.data);
     return;
   }
   if (msg.voice && pending?.mode === "profile_wizard" && pending.step === "voice") {
     pending.data.voiceFileId = msg.voice.file_id;
-    const next = nextProfileStep("voice");
-    if (!next) {
-      await saveProfile(bot, chatId, tgUserId, pending.data);
-    } else {
-      await setPending(tgUserId, { mode: "profile_wizard", step: next, data: pending.data });
-      await askProfileStep(bot, chatId, next);
-    }
+    await advanceProfileStep(bot, chatId, tgUserId, "voice", pending.data);
     return;
   }
   if (msg.photo && pending?.mode === "verify_badge_photo") {
@@ -1939,6 +1959,27 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
         )
         .catch(() => null);
     }
+    return;
+  }
+
+  if (text === "✨ اسأل نوفا (ذكاء اصطناعي)") {
+    await setPending(tgUserId, { mode: "ask_nova" });
+    await bot.api.sendMessage(
+      chatId,
+      "✨ اكتب سؤالك وسيجيبك نوفا (نفس مساعد الذكاء الاصطناعي في بوت Nova AI) — يشاركك نفس رصيدك المجاني اليومي هناك.",
+      { reply_markup: plainBackMenu() }
+    );
+    return;
+  }
+  if (pending?.mode === "ask_nova") {
+    if (!text) return;
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    const result = await askNovaAssist(tgUserId, text);
+    await bot.api.sendMessage(chatId, result.ok ? result.text! : (result.error || "تعذّر الحصول على رد الآن."), { reply_markup: plainBackMenu() });
+    return;
+  }
+  if (pending?.mode === "attributes_ai_review") {
+    await bot.api.sendMessage(chatId, "اختر إحدى النسختين بالضغط على أحد الزرين أعلاه.");
     return;
   }
 

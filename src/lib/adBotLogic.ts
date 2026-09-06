@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
+import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -110,7 +111,9 @@ type CreateAdStep = "scope" | "subtype" | "description" | "target" | "budget" | 
 type PendingAction =
   | { mode: "platform_pick"; intent: "watch" | "create" }
   | { mode: "create_ad"; type: AdTypeStr; step: CreateAdStep; collected: CreateAdCollected }
+  | { mode: "ad_description_review"; type: AdTypeStr; step: CreateAdStep; collected: CreateAdCollected; suggested: string }
   | { mode: "reviewing_ad"; type: AdTypeStr; collected: CreateAdCollected }
+  | { mode: "ask_nova" }
   | { mode: "withdraw_address" }
   | { mode: "withdraw_amount"; address: string }
   | { mode: "choosing_language" }
@@ -253,13 +256,13 @@ function backLabel(lang: Lang) {
 }
 
 function mainMenu(lang: Lang): Keyboard {
-  return new Keyboard()
+  const kb = new Keyboard()
     .text(t(lang, "btnCreateAd")).text(t(lang, "btnMyAds")).row()
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
-    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(backLabel(lang))
-    .resized();
+    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row();
+  if (novaAssistConfigured()) kb.text(t(lang, "btnAskNova")).row();
+  return kb.text(backLabel(lang)).resized();
 }
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
@@ -545,6 +548,11 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   if (text === t(lang, "btnFaq")) {
     const faqKb = new Keyboard().text(t(lang, "btnWantOwnBot")).row().text(backLabel(lang)).resized();
     await bot.api.sendMessage(chatId, t(lang, "faqBody"), { reply_markup: faqKb });
+    return;
+  }
+  if (text === t(lang, "btnAskNova")) {
+    await setPending(user.id, { mode: "ask_nova" });
+    await bot.api.sendMessage(chatId, t(lang, "askNovaPrompt"), { reply_markup: new Keyboard().text(backLabel(lang)).resized() });
     return;
   }
   if (text === t(lang, "btnWantOwnBot")) {
@@ -983,6 +991,19 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await consumeCreateAdStep(bot, chatId, user, pending, text, lang);
     return;
   }
+  if (pending?.mode === "ad_description_review") {
+    await bot.api.sendMessage(chatId, lang === "ar" ? "اختر إحدى النسختين بالضغط على أحد الزرين أعلاه." : "Pick one of the two versions using the buttons above.");
+    return;
+  }
+  if (pending?.mode === "ask_nova") {
+    if (!text) return;
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    const result = await askNovaAssist(user.id, text);
+    const fallbackError = lang === "ar" ? "حدث خطأ — حاول مرة أخرى." : "Something went wrong — try again.";
+    await bot.api.sendMessage(chatId, result.ok ? result.text! : (result.error || fallbackError), { reply_markup: mainMenu(lang) });
+    await setPending(user.id, null);
+    return;
+  }
   if (pending?.mode === "admin_broadcast" && tgUserId === SUPER_ADMIN_ID) {
     await runBroadcast(bot, chatId, text);
     await setPending(user.id, null);
@@ -1032,6 +1053,23 @@ async function consumeCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
       return;
     }
     updated.description = text;
+    if (novaAssistConfigured()) {
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      const kindLabel = lang === "ar" ? "إعلان" : "ad";
+      const suggestion = await improveListingText(String(user.id), kindLabel, text);
+      if (suggestion.ok && suggestion.text && suggestion.text !== text) {
+        await setPending(user.id, { mode: "ad_description_review", type, step, collected: updated, suggested: suggestion.text });
+        const label = lang === "ar" ? "أي نسخة تريد استخدامها؟" : "Which version do you want to use?";
+        const origLabel = lang === "ar" ? "📝 نصي الأصلي" : "📝 My original";
+        const aiLabel = lang === "ar" ? "✨ نسخة نوفا المحسّنة" : "✨ Nova's improved version";
+        await bot.api.sendMessage(
+          chatId,
+          `📝 ${text}\n\n✨ ${suggestion.text}\n\n${label}`,
+          { reply_markup: new InlineKeyboard().text(origLabel, "adai_use|orig").row().text(aiLabel, "adai_use|ai") }
+        );
+        return;
+      }
+    }
   } else if (step === "target") {
     if (!text.trim()) {
       await bot.api.sendMessage(chatId, t(lang, "adTargetEmptyError"));
@@ -1059,13 +1097,17 @@ async function consumeCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
     updated.cpc = cpc;
   }
 
+  await advanceCreateAdStep(bot, chatId, user, type, step, updated, lang);
+}
+
+async function advanceCreateAdStep(bot: TelegramBot, chatId: number, user: any, type: AdTypeStr, step: CreateAdStep, collected: CreateAdCollected, lang: Lang) {
   const next = nextCreateAdStep(type, step);
   if (!next) {
-    await setPending(user.id, { mode: "reviewing_ad", type, collected: updated });
-    await sendAdReview(bot, chatId, type, updated, lang);
+    await setPending(user.id, { mode: "reviewing_ad", type, collected });
+    await sendAdReview(bot, chatId, type, collected, lang);
     return;
   }
-  await setPending(user.id, { mode: "create_ad", type, step: next, collected: updated });
+  await setPending(user.id, { mode: "create_ad", type, step: next, collected });
   await askCreateAdStep(bot, chatId, type, next, lang);
 }
 
@@ -1268,6 +1310,7 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
   // "message is not modified" and the "next" button appears to do nothing.
   const lines = [
     `${isForced ? t(lang, "watchForcedLabel") : t(lang, "carouselAdTitle", { platform: TYPE_LABEL[type][lang] })} #${shortId(ad.id)}`,
+    ad.description ? String(ad.description) : null,
     !isForced ? t(lang, "carouselReward", { reward: fmt(Number(ad.workerCut)) }) : null,
     type !== "TELEGRAM" ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
   ].filter((l): l is string => !!l);
@@ -1432,6 +1475,19 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     return;
   }
 
+  if (data.startsWith("adai_use|")) {
+    if (pending?.mode !== "ad_description_review") {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    const choice = data.split("|")[1];
+    const collected = { ...pending.collected };
+    if (choice === "ai") collected.description = pending.suggested;
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await advanceCreateAdStep(bot, chatId, user, pending.type, pending.step, collected, lang);
+    return;
+  }
+
   if (pending?.mode !== "watch_carousel") {
     await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "taskGone"), show_alert: true }).catch(() => null);
     return;
@@ -1583,6 +1639,7 @@ async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: E
       botId: fresh!.botId,
       type: type as any,
       content: collected.target || "",
+      description: collected.description || null,
       totalBudget: budget,
       cpc,
       ownerCut,

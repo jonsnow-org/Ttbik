@@ -20,6 +20,11 @@ export const STR: Dict = {
   btnStats: { ar: "📊 إحصائيات", en: "📊 Stats" },
   btnLanguage: { ar: "🌐 اللغة", en: "🌐 Language" },
   btnFaq: { ar: "❓ الأسئلة الشائعة", en: "❓ FAQ" },
+  btnAskNova: { ar: "✨ اسأل نوفا (ذكاء اصطناعي)", en: "✨ Ask Nova (AI)" },
+  askNovaPrompt: {
+    ar: "✨ اكتب سؤالك وسيجيبك نوفا (نفس مساعد الذكاء الاصطناعي في بوت Nova AI) — يشاركك نفس رصيدك المجاني اليومي هناك.",
+    en: "✨ Type your question and Nova (the same AI assistant behind the Nova AI bot) will answer — it shares your same free daily quota there.",
+  },
   btnDeposit: { ar: "📥 إيداع", en: "📥 Deposit" },
   btnWithdraw: { ar: "📤 سحب", en: "📤 Withdraw" },
   btnBack: { ar: "🔙 القائمة الرئيسية", en: "🔙 Main Menu" },

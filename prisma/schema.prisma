@@ -92,6 +92,7 @@ model Ad {
   botId       String // bot this campaign was created in (the advertiser's own bot)
   type        AdType
   content     String // target link/channel/video/handle
+  description String? // advertiser's own ad copy, shown to viewers on the carousel card (owner audit fix, 2026-09-06: was collected during ad creation but silently dropped before this)
   totalBudget Float
   cpc         Float // cost per click/task, min $0.02
   ownerCut    Float // 30% platform
