@@ -55,6 +55,23 @@ If HF_SPECIALIST_MODEL_ID isn't set yet (before the first Kaggle run
 has ever produced a model), everything still answers via the Groq
 fallback alone — there's always a working answer path, it's just not
 yet running on our own weights until the notebook has been run once.
+
+Owner report, 2026-09-06: every call to our own models (text, vision,
+image-gen) failed with a DNS error — "Failed to resolve
+api-inference.huggingface.co" — even right after a fresh Render
+restart, ruling out a transient cold-start blip. Root cause: the
+huggingface_hub version this project had pinned (0.27.1) only ever
+talks to that one hardcoded legacy hostname, which Hugging Face has
+since retired outright in favor of routing all Inference calls through
+router.huggingface.co under their newer "Inference Providers" system —
+so the old hostname doesn't just reject requests, it no longer
+resolves at all. Fixed by bumping huggingface_hub (see
+requirements.txt) and passing provider="hf-inference" explicitly on
+every InferenceClient() below — "hf-inference" is HF's own hosted
+infra (the direct successor to the old serverless API), the only
+provider that can serve a private, custom-uploaded repo like ours
+(third-party providers such as fal-ai/together only serve their own
+curated public model list).
 """
 import base64
 import io
@@ -176,7 +193,7 @@ def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = 
     reloading an idle custom model)."""
     if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
         return None
-    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN)
+    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
     data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -223,7 +240,7 @@ def call_hf_specialist(message: str, context: str) -> str | None:
     in practice."""
     if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
         return None
-    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN)
+    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
@@ -274,7 +291,7 @@ def generate_image(prompt: str) -> bytes | None:
     place, not a gap papered over by a third-party API."""
     if not HF_IMAGE_MODEL_ID or not HF_TOKEN:
         return None
-    client = InferenceClient(model=HF_IMAGE_MODEL_ID, token=HF_TOKEN)
+    client = InferenceClient(model=HF_IMAGE_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
     for attempt in range(2):
         try:
             image = client.text_to_image(prompt)
