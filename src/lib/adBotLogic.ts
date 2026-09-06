@@ -313,6 +313,7 @@ const ADMIN_MENU = new Keyboard()
   .text("📣 إذاعة لكل المستخدمين").row()
   .text("📊 الإحصائيات والأرباح").row()
   .text("➕ شحن رصيد").row()
+  .text("🔌 فحص الويبهوك").row()
   .text("🔙 القائمة الرئيسية")
   .resized();
 // A bot's own creator is also a full participant in their own bot — not a
@@ -779,6 +780,32 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       `📊 إحصائيات المنصة:\nعدد البوتات: ${botsCount}\nعدد المستخدمين: ${usersCount}\nأرباح المنصة التراكمية: ${fmt(Number(revenueAgg._sum.totalRevenue || 0))}\n💼 المحفظة المركزية — طلبات سحب معلّقة: ${fmt(Number(pendingWithdrawalsAgg._sum.amount || 0))}\n\n📦 مخزون «شاهد واربح» حسب المنصة:\n${inventoryLines}\n(إعلانات غير نشطة/مرفوضة/متوقفة: ${inactiveTotal})\n\n💡 أي منصة تظهر "0 نشط" ستعرض "لا مزيد من الإعلانات المتاحة" لكل المستخدمين — أضف لها إعلاناً إجبارياً من الزر أعلاه.`,
       { reply_markup: ADMIN_MENU }
     );
+    return;
+  }
+  // Real-time Telegram-side webhook diagnosis — added to actually settle
+  // (instead of guess at) an owner-reported "this bot doesn't respond to
+  // anyone but me" incident, 2026-09-06. If a normal user's messages never
+  // reach handleAdBotUpdate at all (wrong/stale registered URL, Telegram
+  // dropped the webhook after a long failure streak, etc.), no amount of
+  // fixing the handler's own logic would ever show up as a response —
+  // this reads Telegram's own getWebhookInfo for THIS bot's real
+  // registration state and re-registers it in one tap if anything is off,
+  // using the exact same URL format the deploy flow itself uses.
+  if (text === "🔌 فحص الويبهوك" && tgUserId === SUPER_ADMIN_ID) {
+    const info = await bot.api.getWebhookInfo();
+    const expectedUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/api/telegram/${botRow.id}`;
+    const urlMatches = info.url === expectedUrl;
+    const lines = [
+      `🔌 حالة ويبهوك هذا البوت:`,
+      `الرابط المسجّل حالياً: ${info.url || "(لا يوجد — غير مسجّل إطلاقاً)"}`,
+      `الرابط المتوقّع: ${expectedUrl}`,
+      urlMatches ? "✅ الرابط مطابق" : "❌ الرابط غير مطابق — هذا هو سبب توقف الاستجابة على الأغلب",
+      `تحديثات بانتظار المعالجة: ${info.pending_update_count}`,
+      info.last_error_message ? `⚠️ آخر خطأ من تيليجرام: ${info.last_error_message}` : "لا يوجد خطأ مسجّل من تيليجرام",
+      info.last_error_date ? `تاريخ آخر خطأ: ${new Date(info.last_error_date * 1000).toLocaleString("ar")}` : null,
+    ].filter(Boolean);
+    const kb = new InlineKeyboard().text("🔄 إعادة تسجيل الويبهوك الآن", `wh_fix|${botRow.id}`);
+    await bot.api.sendMessage(chatId, lines.join("\n"), { reply_markup: kb });
     return;
   }
   // Admin plain-text bot-purchase approval: "موافقة شراء <id>" / "رفض شراء <id>"
@@ -1525,6 +1552,15 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
+
+  if (data.startsWith("wh_fix|") && tgUserId === SUPER_ADMIN_ID) {
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    await bot.api.setWebhook(`${siteUrl}/api/telegram/${botRow.id}`, { secret_token: botRow.webhookSecret });
+    await bot.api.answerCallbackQuery(cq.id, { text: "✅ أُعيد تسجيل الويبهوك" }).catch(() => null);
+    await bot.api.sendMessage(chatId, "✅ تم إعادة تسجيل ويبهوك هذا البوت بالرابط والمفتاح الصحيحين.").catch(() => null);
+    return;
+  }
+
   const user = await ensureUser(botRow.id, tgUserId, botRow);
   const lang = asLang(user.language);
   const pending = user.pendingAction as PendingAction | null;
