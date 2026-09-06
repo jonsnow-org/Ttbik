@@ -95,6 +95,14 @@ export const STR: Dict = {
   adCpcPrompt: { ar: "حدد السعر لكل نقرة/مهمة بالدولار (الحد الأدنى ${min}):", en: "Set the cost per click/task in USD (minimum ${min}):" },
   adDescriptionEmptyError: { ar: "أرسل وصفاً غير فارغ.", en: "Send a non-empty description." },
   adTargetEmptyError: { ar: "أرسل رابطاً أو حساباً أو قناة فعلياً — لا يمكن ترك هذا الحقل فارغاً.", en: "Send an actual link, account, or channel — this field can't be empty." },
+  adTelegramChannelNotFound: {
+    ar: "⚠️ تعذّر العثور على {handle} على تيليجرام. تأكد من صحة معرّف القناة/المجموعة (يجب أن تكون عامة) وأرسله مجدداً.",
+    en: "⚠️ Couldn't find {handle} on Telegram. Make sure the channel/group username is correct (it must be public) and send it again.",
+  },
+  adTelegramBotNotAdminWarning: {
+    ar: "✅ تم العثور على {handle}، لكن يجب إضافة هذا البوت كـ«مشرف (Admin)» فيها ليتمكن من التحقق من انضمام المشاهدين — وإلا فلن يحصل أي مشاهد على المكافأة لاحقاً. أضف البوت كمشرف ثم تابع.",
+    en: "✅ Found {handle}, but this bot must be added as an ADMIN there to verify viewers actually joined — otherwise no viewer will ever be able to claim the reward. Add the bot as admin, then continue.",
+  },
   adBudgetError: { ar: "أرسل رقماً صحيحاً أكبر من صفر بالدولار.", en: "Send a valid number greater than zero, in USD." },
   adCpcMinError: { ar: "السعر لكل نقرة على {platform} لا يقل عن ${min}.", en: "Cost per click on {platform} must be at least ${min}." },
   adCpcOverBudgetError: { ar: "السعر لكل نقرة أكبر من الميزانية الكلية.", en: "Cost per click is greater than the total budget." },

@@ -88,7 +88,6 @@ const LABEL_TO_TYPE: Record<string, AdTypeStr> = Object.fromEntries(
     [TYPE_LABEL[t].en, t],
   ])
 ) as Record<string, AdTypeStr>;
-const NEEDS_DESCRIPTION: AdTypeStr[] = ["YOUTUBE", "TIKTOK", "FACEBOOK", "INSTAGRAM"];
 
 // A flat $0.02 minimum overprices cheap actions (joining a channel) relative
 // to costlier ones (watching a full video) — per-platform floors, from the
@@ -156,10 +155,27 @@ function round2(n: number): number {
 function fmt(n: number): string {
   return `$${n.toFixed(2)}`;
 }
+// CPC values are deliberately sub-cent (as low as $0.003 for TELEGRAM) —
+// fmt()'s fixed 2-decimal format rounds every one of them down to
+// "$0.00", which is exactly why an advertiser who set a real, valid CPC
+// saw "سعر النقرة: $0.00" (or a *different* value than what they typed,
+// e.g. 0.005 rendering as "$0.01") on the manage/review screens (owner
+// report, 2026-09-06). Shows up to 4 decimals, trimming trailing zeros,
+// so the exact price the advertiser set is what they see back.
+function fmtCpc(n: number): string {
+  return `$${n.toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;
+}
 function splitCpc(cpc: number) {
-  const ownerCut = round2(cpc * 0.3);
-  const creatorCut = round2(cpc * 0.2);
-  const workerCut = round2(cpc - ownerCut - creatorCut);
+  // Not round2()'d — at these sub-cent CPCs, rounding each cut to the
+  // nearest cent zeroes out every single one of them (e.g. cpc=0.003 ->
+  // ownerCut/creatorCut/workerCut all round to $0.00), meaning a worker
+  // who completes a minimum-CPC task would be paid nothing at all. Kept
+  // at full float precision instead — balances accumulate the exact
+  // fractional-cent amount internally and are only rounded for display
+  // (fmt()), never for storage.
+  const ownerCut = cpc * 0.3;
+  const creatorCut = cpc * 0.2;
+  const workerCut = cpc - ownerCut - creatorCut;
   return { ownerCut, creatorCut, workerCut };
 }
 function shortId(id: string): string {
@@ -179,7 +195,14 @@ function asLang(v: unknown): Lang {
 function normalizeChannelHandle(input: string): string {
   return input
     .trim()
+    .replace(/^@/, "") // a leading @ before a full link (rare copy-paste artifact) must go first,
+    // otherwise the protocol-strip below never matches and the link is left
+    // completely un-normalized (owner-reported bug, 2026-09-06: a
+    // TELEGRAM ad's target link failed with Telegram's own "username not
+    // found" even though the exact same channel worked fine as a bare
+    // @username).
     .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "") // some share sheets prepend "www." to t.me links
     .replace(/^(t\.me|telegram\.me)\//i, "")
     .replace(/^@/, "")
     .replace(/\/+$/, "")
@@ -1166,6 +1189,30 @@ async function consumeCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
       await bot.api.sendMessage(chatId, t(lang, "adTargetEmptyError"));
       return;
     }
+    // Real-time validation for TELEGRAM targets (owner report, 2026-09-06):
+    // a channel/username that doesn't actually exist (typo, wrong link
+    // format) used to be accepted silently and only fail once a real
+    // viewer tried to join — with Telegram's own "لم يعثر على اسم
+    // المستخدم" error and no reward. Catching it here, at creation time,
+    // with a clear message, instead of shipping a broken ad to real users.
+    if (type === "TELEGRAM") {
+      const handle = `@${normalizeChannelHandle(text.trim())}`;
+      const foundChat = await bot.api.getChat(handle).catch(() => null);
+      if (!foundChat) {
+        await bot.api.sendMessage(chatId, t(lang, "adTelegramChannelNotFound", { handle }));
+        return;
+      }
+      // A bot can only see WHO is a member of a channel/group (needed for
+      // the "✅ تحقق من الإنجاز" step every viewer relies on) if it's an
+      // ADMIN there itself — a genuine Telegram platform rule, not
+      // something this code can work around. Warn, don't hard-block: the
+      // advertiser may still add the bot as admin right after.
+      const me = await bot.api.getMe();
+      const botMembership = await bot.api.getChatMember(handle, me.id).catch(() => null);
+      if (!botMembership || !["administrator", "creator"].includes(botMembership.status)) {
+        await bot.api.sendMessage(chatId, t(lang, "adTelegramBotNotAdminWarning", { handle }));
+      }
+    }
     updated.target = text.trim();
   } else if (step === "budget") {
     const budget = Number(text.replace(/[^0-9.]/g, ""));
@@ -1205,8 +1252,12 @@ async function advanceCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
 function createAdSteps(type: AdTypeStr): CreateAdStep[] {
   const s: CreateAdStep[] = ["scope"];
   if (type === "TWITTER") s.push("subtype");
-  if (NEEDS_DESCRIPTION.includes(type)) s.push("description");
-  s.push("target", "budget", "cpc");
+  // Description is asked for every ad type, always before the target/link
+  // (owner request, 2026-09-06) — previously only YOUTUBE/TIKTOK/FACEBOOK/
+  // INSTAGRAM asked for one at all, so TELEGRAM/TWITTER/LINK campaigns
+  // (like the one in the owner's own screenshots) skipped straight to the
+  // link with no description step.
+  s.push("description", "target", "budget", "cpc");
   return s;
 }
 function nextCreateAdStep(type: AdTypeStr, current: string) {
@@ -1242,7 +1293,7 @@ async function sendAdReview(bot: TelegramBot, chatId: number, type: AdTypeStr, c
     c.description ? t(lang, "adReviewDesc", { desc: c.description }) : null,
     t(lang, "adReviewTarget", { target: c.target || "" }),
     t(lang, "adReviewBudget", { budget: fmt(c.budget || 0) }),
-    t(lang, "adReviewCpc", { cpc: fmt(c.cpc || 0) }),
+    t(lang, "adReviewCpc", { cpc: fmtCpc(c.cpc || 0) }),
     t(lang, "adReviewClicks", { clicks }),
   ].filter(Boolean);
   await bot.api.sendMessage(chatId, lines.join("\n"), { reply_markup: reviewMenu(lang) });
@@ -1410,7 +1461,7 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
   const lines = [
     `${isForced ? t(lang, "watchForcedLabel") : t(lang, "carouselAdTitle", { platform: TYPE_LABEL[type][lang] })} #${shortId(ad.id)}`,
     ad.description ? String(ad.description) : null,
-    !isForced ? t(lang, "carouselReward", { reward: fmt(Number(ad.workerCut)) }) : null,
+    !isForced ? t(lang, "carouselReward", { reward: fmtCpc(Number(ad.workerCut)) }) : null,
     type !== "TELEGRAM" ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
   ].filter((l): l is string => !!l);
   return { text: lines.join("\n"), keyboard: kb };
@@ -1686,7 +1737,7 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
       return;
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-    await bot.api.editMessageText(chatId, messageId, t(lang, "carouselSuccess", { amount: fmt(result.workerCut), balance: fmt(result.newBalance) })).catch(() => null);
+    await bot.api.editMessageText(chatId, messageId, t(lang, "carouselSuccess", { amount: fmtCpc(result.workerCut), balance: fmt(result.newBalance) })).catch(() => null);
     if (result.adExpired) {
       const ownerUser = await prisma.user.findUnique({ where: { id: ad.userId }, select: { language: true } });
       await sendCampaignEndedReport(bot, ad, asLang(ownerUser?.language));
@@ -1908,7 +1959,7 @@ async function sendAdManageScreen(bot: TelegramBot, chatId: number, userId: stri
       id: shortId(ad.id),
       platform: TYPE_LABEL[ad.type as AdTypeStr][lang],
       status: adStatusLabel(ad.status, lang),
-      cpc: fmt(Number(ad.cpc)),
+      cpc: fmtCpc(Number(ad.cpc)),
       total: fmt(Number(ad.totalBudget)),
       remaining: fmt(Number(ad.remaining)),
       spent: fmt(round2(Number(ad.totalBudget) - Number(ad.remaining))),
