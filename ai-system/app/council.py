@@ -216,7 +216,8 @@ def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = 
                 logger.info("vision: our own model is cold-starting on HF (503) — retrying once")
                 time.sleep(8)
                 continue
-            logger.info("vision: our own model call failed (HTTP %s) — falling back to Gemini", status)
+            body = getattr(e.response, "text", "")[:300]
+            logger.info("vision: our own model call failed (HTTP %s: %s) — falling back to Gemini", status, body)
             return None
         except Exception as e:
             logger.info("vision: our own model call failed (%s) — falling back to Gemini", e)
@@ -257,7 +258,8 @@ def call_hf_specialist(message: str, context: str) -> str | None:
                 logger.info("chat: our own model is cold-starting on HF (503) — retrying once")
                 time.sleep(8)  # give the free shared instance a moment to finish loading
                 continue
-            logger.info("chat: our own model call failed (HTTP %s) — falling back to Groq", status)
+            body = getattr(e.response, "text", "")[:300]
+            logger.info("chat: our own model call failed (HTTP %s: %s) — falling back to Groq", status, body)
             return None
         except Exception as e:
             logger.info("chat: our own model call failed (%s) — falling back to Groq", e)
@@ -304,7 +306,8 @@ def generate_image(prompt: str) -> bytes | None:
                 logger.info("image-gen: our own model is cold-starting on HF (503) — retrying once")
                 time.sleep(8)
                 continue
-            logger.info("image-gen: our own model call failed (HTTP %s)", status)
+            body = getattr(e.response, "text", "")[:300]
+            logger.info("image-gen: our own model call failed (HTTP %s: %s)", status, body)
             return None
         except Exception as e:
             logger.info("image-gen: our own model call failed (%s)", e)
