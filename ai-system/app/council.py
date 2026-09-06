@@ -246,48 +246,58 @@ def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = 
 def call_modelscope_specialist(message: str, context: str) -> str | None:
     """OUR OWN model, actually reachable this time (see module
     docstring — hf-inference flatly refuses custom repos, ModelScope's
-    free Studio hosting doesn't). This calls the Gradio app we deployed
-    ourselves (ai-system/app.py running as a ModelScope Studio) through
-    its auto-generated API, using the exact api_name/parameter shape
-    ModelScope's own "API documentation" page for the Studio shows."""
-    if not MODELSCOPE_SPACE_URL:
+    free Studio hosting doesn't). Calls the Gradio app we deployed
+    ourselves (ai-system/app.py running as a ModelScope Studio) via
+    Gradio's raw queue-based call API directly with `requests`, NOT the
+    `gradio_client` library.
+
+    Owner report, 2026-09-07: gradio_client kept failing with a generic
+    "credentials were not provided" 401 on this exact URL/token no
+    matter what (right token confirmed present at runtime, right
+    User-Agent, right header shape per its own source). A raw
+    `requests.get()` to the identical /config URL with the identical
+    headers succeeded immediately (200, real config JSON back) — so
+    the failure is specific to something in gradio_client's own httpx
+    request construction, not our auth or the server. Bypassing it
+    entirely and speaking Gradio's documented queue protocol
+    (POST .../call/<api_name> -> event_id, then GET .../call/<api_name>/
+    <event_id> for the SSE result) with plain `requests` sidesteps
+    whatever that incompatibility is."""
+    if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
         return None
-    from gradio_client import Client
+    import json
 
+    import requests
+
+    base = MODELSCOPE_SPACE_URL.rstrip("/")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
+    }
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
-    token_preview = f"len={len(MODELSCOPE_API_TOKEN)} prefix={MODELSCOPE_API_TOKEN[:6]!r}" if MODELSCOPE_API_TOKEN else "EMPTY"
-    logger.info("chat: MODELSCOPE_API_TOKEN at runtime — %s", token_preview)
-
-    # Diagnostic-only raw request (owner report, 2026-09-07): gradio_client's
-    # AuthenticationError message is generic ("Please login") and hides
-    # ModelScope's actual response body — a raw request with the exact
-    # same headers tells us what the server itself says, instead of
-    # guessing at causes (User-Agent, WAF, token format, ...) blind.
     try:
-        import requests as _requests
-
-        diag_headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
-        }
-        diag_resp = _requests.get(MODELSCOPE_SPACE_URL.rstrip("/") + "/config", headers=diag_headers, timeout=15)
-        logger.info(
-            "chat: ModelScope /config raw diagnostic — status=%s server=%s content_type=%s body=%s",
-            diag_resp.status_code,
-            diag_resp.headers.get("server"),
-            diag_resp.headers.get("content-type"),
-            diag_resp.text[:500],
+        submit = requests.post(
+            f"{base}/gradio_api/call/generate",
+            headers=headers,
+            json={"data": [user_content]},
+            timeout=30,
         )
-    except Exception as diag_e:
-        logger.info("chat: ModelScope /config raw diagnostic request itself failed (%s)", diag_e)
-
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"}
-        if MODELSCOPE_API_TOKEN:
-            headers["Authorization"] = f"Bearer {MODELSCOPE_API_TOKEN}"
-        client = Client(MODELSCOPE_SPACE_URL, headers=headers)
-        result = client.predict(user_content, api_name="/generate")
-        return result.strip() if result else None
+        submit.raise_for_status()
+        event_id = submit.json()["event_id"]
+        result_resp = requests.get(
+            f"{base}/gradio_api/call/generate/{event_id}",
+            headers=headers,
+            timeout=60,
+            stream=True,
+        )
+        result_resp.raise_for_status()
+        for line in result_resp.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
+                continue
+            payload = json.loads(line[len("data:") :].strip())
+            if isinstance(payload, list) and payload:
+                return str(payload[0]).strip() or None
+        return None
     except Exception as e:
         logger.info("chat: our own model (ModelScope) call failed (%s) — falling back to Groq", e)
         return None
