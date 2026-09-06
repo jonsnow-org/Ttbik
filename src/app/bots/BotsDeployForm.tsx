@@ -9,11 +9,13 @@ const theme = getCategoryTheme("bots");
 /** Extract bot token if user pastes full BotFather message (e.g. "Done! Congratulations... token is 123:ABC") */
 function extractBotToken(raw: string): string {
   const trimmed = raw.trim();
-  // Already looks like a token
+  // Already looks like a pure token
   if (/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(trimmed)) return trimmed;
-  // Common BotFather patterns
+  // BotFather EN / AR variants + any standalone token in the paste
   const m =
-    trimmed.match(/(?:token is|Use this token to access the HTTP API:|API Token:|التوكن هو)\s*([\d]{6,12}:[A-Za-z0-9_-]{30,})/i) ||
+    trimmed.match(
+      /(?:token is|Use this token to access the HTTP API:|API Token:|Your bot token is|التوكن هو|رمز البوت|التوكن)\s*[:：]?\s*([\d]{6,12}:[A-Za-z0-9_-]{30,})/i
+    ) ||
     trimmed.match(/\b(\d{6,12}:[A-Za-z0-9_-]{30,})\b/);
   return m ? m[1] : trimmed;
 }
@@ -52,9 +54,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     setCopied(false);
 
     // Client-side guards — avoid round-trip for obvious bad input
-    const trimmedToken = token.trim();
+    // Re-run extract in case state lagged behind a long paste
+    const trimmedToken = extractBotToken(token);
+    if (trimmedToken !== token.trim()) setToken(trimmedToken);
     if (!/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(trimmedToken)) {
-      setStatus("❌ صيغة التوكن غير صحيحة. يجب أن تكون مثل: 123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw");
+      setStatus("❌ صيغة التوكن غير صحيحة. الصق التوكن فقط أو رسالة BotFather كاملة (Done! … token is …).");
       return;
     }
     if (!ownerId || ownerId.length < 5 || ownerId.length > 15) {
@@ -100,18 +104,17 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     navigator.clipboard.writeText(url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }).catch(() => {});
+    });
   }
 
   return (
-    <main className="relative mx-auto max-w-xl px-6 py-12 font-sans" dir="rtl">
-      <SectionBackdrop tone="bots" />
-      <h1 className="mb-6 text-center text-2xl font-bold">تنشيط بوت تلجرام آلياً</h1>
-      {ref && (
-        <p className="mb-4 rounded bg-emerald-50 p-3 text-center text-sm text-emerald-800">
-          🎁 أُحلت بواسطة المستخدم <span className="font-mono font-bold">{ref}</span> — سيحصل على عمولة إحالة من أرباح بوتك.
-        </p>
-      )}
+    <main className="relative mx-auto max-w-lg px-4 py-10">
+      <SectionBackdrop category="bots" />
+      <h1 className="mb-2 text-2xl font-bold">تفعيل بوت تليجرام</h1>
+      <p className="mb-6 text-sm text-gray-600">
+        الصق توكن البوت من @BotFather (أو الرسالة كاملة)، أدخل آيدي تيليجرامك، واختر القالب. البوت يُفعَّل فوراً على توكنك.
+      </p>
+
       <form onSubmit={handleDeploy} className="space-y-4">
         <div>
           <label className="mb-1 block text-sm font-medium">Bot Token من BotFather</label>
