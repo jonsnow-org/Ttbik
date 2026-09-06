@@ -22,6 +22,14 @@ from pydantic import BaseModel
 from app import council, files, quota, rag, router
 from app.config import NOVA_INTERNAL_SECRET
 
+# Without this, logger.info() calls throughout this file and council.py
+# (added 2026-09-06 to show which model actually answered each message)
+# are silently dropped — Python's root logger defaults to WARNING, so
+# INFO-level records never reach any handler unless a level is set
+# explicitly. Uvicorn's own "INFO:  ...200 OK" lines you see in Render's
+# Logs are unaffected either way — those come from uvicorn's own loggers,
+# configured independently of this one.
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 app = FastAPI(title="Nova AI")
 
