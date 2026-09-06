@@ -42,6 +42,12 @@ HF_SPECIALIST_MODEL_ID = os.environ.get("HF_SPECIALIST_MODEL_ID", "")
 # the Studio (looks like
 # https://studio-<owner>-<space>.api-inference.modelscope.net/).
 MODELSCOPE_SPACE_URL = os.environ.get("MODELSCOPE_SPACE_URL", "")
+# ModelScope's api-inference.modelscope.net domain requires a bearer
+# token even for a Studio marked public (confirmed live: a plain
+# unauthenticated request gets 401 Unauthorized) — generate one from
+# the ModelScope account's Access Tokens settings page (format
+# "ms-xxxxx").
+MODELSCOPE_API_TOKEN = os.environ.get("MODELSCOPE_API_TOKEN", "")
 # Our own self-hosted, open-weight image-GENERATION model (Stable
 # Diffusion family) — see ai-system/colab/generate_image_model.ipynb.
 # Separate from HF_SPECIALIST_MODEL_ID (Qwen2.5-VL, text+image

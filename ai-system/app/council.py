@@ -106,6 +106,7 @@ from app.config import (
     HF_IMAGE_MODEL_ID,
     HF_SPECIALIST_MODEL_ID,
     HF_TOKEN,
+    MODELSCOPE_API_TOKEN,
     MODELSCOPE_SPACE_URL,
 )
 
@@ -255,7 +256,8 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
 
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
     try:
-        client = Client(MODELSCOPE_SPACE_URL)
+        headers = {"Authorization": f"Bearer {MODELSCOPE_API_TOKEN}"} if MODELSCOPE_API_TOKEN else None
+        client = Client(MODELSCOPE_SPACE_URL, headers=headers)
         result = client.predict(user_content, api_name="/generate")
         return result.strip() if result else None
     except Exception as e:
