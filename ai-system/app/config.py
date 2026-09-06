@@ -37,3 +37,10 @@ HF_IMAGE_MODEL_ID = os.environ.get("HF_IMAGE_MODEL_ID", "")
 NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 
 FREE_DAILY_QUOTA = int(os.environ.get("FREE_DAILY_QUOTA", "20"))
+
+# The platform owner is never a customer of their own product — exempt
+# from the same free daily cap regular NovaUsers hit (owner report,
+# 2026-09-06: hit "انتهى حدك المجاني اليومي" while testing their own
+# bot). Same env var novaBotLogic.ts already reads on the Vercel side
+# for admin-panel recognition — set it here too on Render.
+SUPER_ADMIN_TELEGRAM_ID = os.environ.get("SUPER_ADMIN_TELEGRAM_ID", "")

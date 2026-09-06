@@ -9,7 +9,7 @@ standing product rule against auto-checkout).
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.config import FREE_DAILY_QUOTA
+from app.config import FREE_DAILY_QUOTA, SUPER_ADMIN_TELEGRAM_ID
 from app.supabase_client import get_supabase
 
 
@@ -78,8 +78,11 @@ def has_active_subscription(user: dict) -> bool:
 
 
 def check_and_reserve_quota(user: dict) -> tuple[bool, int, str]:
-    """Returns (allowed, remaining_after, message). PRO users skip the
-    daily cap entirely. FREE users reset at each new UTC day."""
+    """Returns (allowed, remaining_after, message). The platform owner
+    and PRO users skip the daily cap entirely. FREE users reset at
+    each new UTC day."""
+    if SUPER_ADMIN_TELEGRAM_ID and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID:
+        return True, -1, "مالك المنصة — بلا حد يومي"
     if has_active_subscription(user):
         return True, -1, "PRO — بلا حد يومي"
 
