@@ -188,20 +188,25 @@ def image(
     authorization: str | None = Header(default=None),
     x_internal_secret: str | None = Header(default=None),
 ):
-    """Free image understanding via Gemini's multimodal free tier —
-    the council's other members (Groq's hosted model, the HF
-    specialist) have no vision capability, so images bypass the
-    council entirely and go straight to Gemini."""
+    """OUR OWN model answers image questions first (see council.py's
+    module docstring) — once merge_and_finetune.ipynb has trained a
+    Qwen2.5-VL-based checkpoint, this is genuinely our own weights, not
+    a third-party API. Gemini's free multimodal tier is only the same
+    emergency fallback Groq is for text: used before our own
+    vision-capable model has been trained/configured, or if it's
+    genuinely unreachable."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
     image_bytes = base64.b64decode(req.image_base64)
     prompt = req.caption or "صف هذه الصورة بالتفصيل وأجب عن أي سؤال ضمني فيها."
-    answer_text = council.call_gemini_vision(image_bytes, prompt, req.mime_type)
+    answer_text = council.call_hf_specialist_vision(image_bytes, prompt, req.mime_type) or council.call_gemini_vision(
+        image_bytes, prompt, req.mime_type
+    )
     if answer_text is None:
         raise HTTPException(
             status_code=503,
-            detail="تحليل الصور غير متاح حالياً — تأكد من ضبط GEMINI_API_KEY على الخادم.",
+            detail="تحليل الصور غير متاح حالياً — تأكد من ضبط HF_SPECIALIST_MODEL_ID أو GEMINI_API_KEY على الخادم.",
         )
 
     background_tasks.add_task(quota.log_usage, user["id"], req.channel, "IMAGE", f"[صورة] {prompt}", answer_text)

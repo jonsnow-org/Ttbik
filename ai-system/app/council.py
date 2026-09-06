@@ -27,10 +27,15 @@ The correct shape, and what this file now does:
     HF's shared free Inference infra, or genuinely erroring). It is
     never a parallel voice and never does "final synthesis" over our
     own model's answer; if our model answered, that answer ships as-is.
-  - Gemini's free tier is kept ONLY for image understanding
-    (call_gemini_vision) — a real capability gap our own text-only
-    merged model has no other free way to cover, not a competing
-    text-answering voice.
+  - Images work the same way as text: OUR OWN model (now trained on
+    Qwen2.5-VL — see ai-system/colab/merge_and_finetune.ipynb, which
+    dropped the old text-only Mergekit merge in favor of a single
+    open-weight vision-language foundation we fine-tune and own) is
+    tried FIRST via call_hf_specialist_vision. Gemini's free tier
+    (call_gemini_vision) is kept only as the same kind of emergency
+    fallback Groq is for text — for before the vision-capable model has
+    ever been trained, or if it's genuinely unreachable — never a
+    competing default voice for images either.
   - Groq and Gemini's real, legitimate role in this system is at
     TRAINING time, not serving time: the Kaggle notebook can use them
     as free "teacher" models to generate extra high-quality training
@@ -43,6 +48,7 @@ has ever produced a model), everything still answers via the Groq
 fallback alone — there's always a working answer path, it's just not
 yet running on our own weights until the notebook has been run once.
 """
+import base64
 import time
 
 from groq import Groq
@@ -116,10 +122,10 @@ def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
 
 
 def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/jpeg") -> str | None:
-    """Gemini's free tier supports multimodal (image) input — the $0
-    path for "what's in this picture" / reading a photo of text, a
-    receipt, a diagram, etc. Bypasses the text-only council entirely
-    since Groq/the HF specialist have no vision capability."""
+    """Emergency fallback ONLY (see module docstring) — used solely
+    when our own vision-capable model isn't trained/configured yet or
+    is genuinely unreachable. Gemini's free multimodal tier is a
+    reasonable stand-in for that gap, never the default."""
     if not GEMINI_API_KEY:
         return None
     import google.generativeai as genai
@@ -131,6 +137,45 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
         return response.text
     except Exception:
         return None
+
+
+def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/jpeg") -> str | None:
+    """OUR OWN vision-capable model — the primary voice for image
+    understanding once ai-system/colab/merge_and_finetune.ipynb has
+    trained and pushed a Qwen2.5-VL-based checkpoint to
+    HF_SPECIALIST_MODEL_ID. Uses the same OpenAI-style multimodal chat
+    message shape (image_url as a base64 data URI) HF's Inference API
+    expects for vision-chat models — same 503-retry-once pattern as
+    call_hf_specialist for the same reason (shared free infra lazily
+    reloading an idle custom model)."""
+    if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
+        return None
+    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN)
+    data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+    messages = [
+        {"role": "system", "content": _SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt},
+            ],
+        },
+    ]
+    for attempt in range(2):
+        try:
+            completion = client.chat_completion(messages=messages, max_tokens=800)
+            content = completion.choices[0].message.content
+            return content.strip() if content else None
+        except HfHubHTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            if status == 503 and attempt == 0:
+                time.sleep(8)
+                continue
+            return None
+        except Exception:
+            return None
+    return None
 
 
 def call_hf_specialist(message: str, context: str) -> str | None:
