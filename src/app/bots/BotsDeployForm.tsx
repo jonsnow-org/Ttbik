@@ -109,7 +109,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
-      <SectionBackdrop category="bots" />
+      <SectionBackdrop tone="bots" />
       <h1 className="mb-2 text-2xl font-bold">تفعيل بوت تليجرام</h1>
       <p className="mb-6 text-sm text-gray-600">
         الصق توكن البوت من @BotFather (أو الرسالة كاملة)، أدخل آيدي تيليجرامك، واختر القالب. البوت يُفعَّل فوراً على توكنك.
