@@ -729,7 +729,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
   if (text === "📊 الإحصائيات والأرباح" && tgUserId === SUPER_ADMIN_ID) {
-    const [botsCount, usersCount, revenueAgg, pendingWithdrawalsAgg] = await Promise.all([
+    const [botsCount, usersCount, revenueAgg, pendingWithdrawalsAgg, adGroups] = await Promise.all([
       prisma.bot.count(),
       prisma.user.count(),
       prisma.bot.aggregate({ _sum: { totalRevenue: true } }),
@@ -737,10 +737,37 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         where: { type: { in: ["WITHDRAWAL", "OWNER_WITHDRAWAL"] }, status: { in: ["PENDING", "PENDING_AUDIT"] } },
         _sum: { amount: true },
       }),
+      prisma.ad.groupBy({ by: ["type", "scope", "status"], _count: { _all: true } }),
     ]);
+
+    // "شاهد واربح" inventory breakdown, by platform — added after a real
+    // incident (owner report, 2026-09-06): the carousel showed "no ads
+    // available" on every single platform for a real end-user, and there
+    // was no way for the owner to tell from inside the bot whether that
+    // meant a bug or simply an empty ad pool (zero forced ads ever created
+    // + zero real advertiser campaigns yet). This makes that instantly
+    // checkable without needing database access.
+    const activeByType: Record<string, { global: number; targeted: number }> = {};
+    for (const t of AD_TYPES) activeByType[t] = { global: 0, targeted: 0 };
+    let inactiveTotal = 0;
+    for (const row of adGroups) {
+      if (row.status !== "ACTIVE") {
+        inactiveTotal += row._count._all;
+        continue;
+      }
+      const bucket = activeByType[row.type as AdTypeStr];
+      if (!bucket) continue;
+      if (row.scope === "GLOBAL") bucket.global += row._count._all;
+      else bucket.targeted += row._count._all;
+    }
+    const inventoryLines = AD_TYPES.map((t) => {
+      const b = activeByType[t];
+      return `${TYPE_LABEL[t].ar}: ${b.global + b.targeted} نشط (${b.global} إجباري، ${b.targeted} من معلنين)`;
+    }).join("\n");
+
     await bot.api.sendMessage(
       chatId,
-      `📊 إحصائيات المنصة:\nعدد البوتات: ${botsCount}\nعدد المستخدمين: ${usersCount}\nأرباح المنصة التراكمية: ${fmt(Number(revenueAgg._sum.totalRevenue || 0))}\n💼 المحفظة المركزية — طلبات سحب معلّقة: ${fmt(Number(pendingWithdrawalsAgg._sum.amount || 0))}`,
+      `📊 إحصائيات المنصة:\nعدد البوتات: ${botsCount}\nعدد المستخدمين: ${usersCount}\nأرباح المنصة التراكمية: ${fmt(Number(revenueAgg._sum.totalRevenue || 0))}\n💼 المحفظة المركزية — طلبات سحب معلّقة: ${fmt(Number(pendingWithdrawalsAgg._sum.amount || 0))}\n\n📦 مخزون «شاهد واربح» حسب المنصة:\n${inventoryLines}\n(إعلانات غير نشطة/مرفوضة/متوقفة: ${inactiveTotal})\n\n💡 أي منصة تظهر "0 نشط" ستعرض "لا مزيد من الإعلانات المتاحة" لكل المستخدمين — أضف لها إعلاناً إجبارياً من الزر أعلاه.`,
       { reply_markup: ADMIN_MENU }
     );
     return;
