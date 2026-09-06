@@ -250,6 +250,32 @@ def file_endpoint(
     return FileResponse(answer=final_answer, quota_message=quota_message)
 
 
+class WhoamiRequest(BaseModel):
+    channel: str
+    telegram_id: str | None = None
+    email: str | None = None
+
+
+@app.post("/whoami")
+def whoami(
+    req: WhoamiRequest,
+    authorization: str | None = Header(default=None),
+    x_internal_secret: str | None = Header(default=None),
+):
+    """Resolves (or creates) the NovaUser and returns just their id — used
+    by novaBotLogic.ts's "🎛 لوحتي" command to build the Ttbik dashboard
+    link (Ttbik/nova/dashboard?uid=<id>) without duplicating the
+    resolve-or-create logic client-side."""
+    api_key = _authorize(req.channel, authorization, x_internal_secret)
+    try:
+        user = quota.resolve_or_create_user(
+            req.channel, telegram_id=req.telegram_id, email=req.email, api_key=api_key
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"nova_user_id": user["id"]}
+
+
 class SubscribeRequest(BaseModel):
     channel: str
     telegram_id: str | None = None

@@ -46,9 +46,14 @@ export default function AdminDashboard() {
         <h1 className="text-xl font-extrabold text-slate-900">
           لوحة التحكم — {pending.length} طلب بانتظار المراجعة
         </h1>
-        <Link href="/admin/analytics" className="text-sm font-semibold text-brand-700 hover:underline">
-          إحصائيات الزوار ←
-        </Link>
+        <div className="flex gap-4">
+          <Link href="/admin/nova" className="text-sm font-semibold text-brand-700 hover:underline">
+            لوحة Nova AI ←
+          </Link>
+          <Link href="/admin/analytics" className="text-sm font-semibold text-brand-700 hover:underline">
+            إحصائيات الزوار ←
+          </Link>
+        </div>
       </div>
       <p className="mb-4 text-xs text-slate-500">
         إدارة البوتات (بث، إعلانات إجبارية، إحصائيات، سحوبات) انتقلت بالكامل إلى أمر <code className="font-mono">/admin</code> داخل بوت تليجرام نفسه.
