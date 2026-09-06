@@ -26,6 +26,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     const params = new URLSearchParams(window.location.search);
     const r = params.get("ref");
     if (r) setRef(r.replace(/\D/g, ""));
+    // Auto-fill paid activation / order code from common query keys (one-order-one-bot flow)
+    const code = params.get("code") || params.get("order") || params.get("activation") || params.get("activationCode");
+    if (code) setActivationCode(code.trim().toUpperCase());
+    const oid = params.get("ownerId") || params.get("owner");
+    if (oid) setOwnerId(oid.replace(/\D/g, ""));
   }, []);
 
   async function handleDeploy(e: React.FormEvent) {
