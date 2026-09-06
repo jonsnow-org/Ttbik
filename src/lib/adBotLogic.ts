@@ -1238,11 +1238,19 @@ async function buildAdQueue(tgUserId: string, type: AdTypeStr, currentBotId: str
     where: {
       type: type as any,
       status: "ACTIVE",
-      userId: { not: tgUserId },
       OR: [
         { scope: "TARGETED", botId: currentBotId },
         { scope: "GLOBAL" },
       ],
+      // Excludes only the viewer's own PAID ads (self-farming protection) —
+      // never their own forced/free platform ads (cpc=0). Forced ads are
+      // always created under SUPER_ADMIN_ID (see createGlobalAd), so
+      // without this carve-out the owner's own account would see "no ads
+      // available" on every single platform the moment they browse شاهد
+      // واربح themselves, since that filter would strip out every forced
+      // ad in the system — exactly what's cost-free to watch and was
+      // never a farming risk in the first place.
+      NOT: { AND: [{ userId: tgUserId }, { cpc: { gt: 0 } }] },
     },
     orderBy: { created_at: "desc" },
     take: 50,
