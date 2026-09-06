@@ -1,6 +1,7 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
+import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 
 /**
  * MEDICAL_BOT template (owner spec, 2026-09-04, refined over several
@@ -310,6 +311,17 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
   const tgUserId = String(msg.from.id);
   const text = String(msg.text || "").trim();
 
+  // AD_BOT hands out "/start adv_<AdClickId>" deep links when a campaign
+  // promotes this very bot — consuming it here marks that click verified
+  // instantly, no cooperation needed beyond this one check (see
+  // src/lib/adVerifyPayload.ts: every platform bot shares one database).
+  if (text.startsWith("/start ")) {
+    const startPayload = text.slice(7).trim();
+    if (isAdVerifyPayload(startPayload)) {
+      await consumeAdVerifyPayload(startPayload);
+    }
+  }
+
   // ---- SUPER_ADMIN gate (checked first, entirely separate menu tree) ----
   if (SUPER_ADMIN_ID && tgUserId === SUPER_ADMIN_ID) {
     await handleAdminMessage(bot, botRow, chatId, tgUserId, msg, text);
@@ -320,7 +332,7 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
   if (user.isBanned) return;
   const pending = user.pendingAction as PendingAction | null;
 
-  if (text === "/start" || isBack(text)) {
+  if (text === "/start" || text.startsWith("/start ") || isBack(text)) {
     // Clearing here is safe even mid-wizard: routeStart re-derives the
     // correct next step from scratch (role picker / resume registration /
     // main menu) by checking profile & facility existence, not

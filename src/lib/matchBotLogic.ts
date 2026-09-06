@@ -4,6 +4,7 @@ import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
+import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -1509,6 +1510,16 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     if (adminPending) await setPending(tgUserId, null);
     await handleAdminMessage(bot, chatId, text, tgUserId);
     return;
+  }
+
+  // AD_BOT hands out "/start adv_<AdClickId>" deep links when a campaign
+  // promotes this very bot — consuming it here marks that click verified
+  // instantly (see src/lib/adVerifyPayload.ts). Checked against the raw
+  // payload directly, independent of the ref_ referral-code match below,
+  // so the two can never collide.
+  const startPayload = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+(\S+)/)?.[1] : null;
+  if (startPayload && isAdVerifyPayload(startPayload)) {
+    await consumeAdVerifyPayload(startPayload);
   }
 
   // Referral capture (owner spec, 2026-09-05) — only meaningful on a

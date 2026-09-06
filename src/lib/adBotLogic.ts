@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
+import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -208,6 +209,28 @@ function normalizeChannelHandle(input: string): string {
     .replace(/\/+$/, "")
     .split(/[?#]/)[0];
 }
+// Telegram reserves the "bot" username suffix exclusively for bot
+// accounts — a channel or group can never register a public username
+// ending in "bot" — so this is a deterministic, zero-API-call way to tell
+// "this TELEGRAM ad target is another bot" apart from "this is a
+// channel/group" (owner report, 2026-09-06: a bot-link target was being
+// run through the channel/group admin-membership checks, which don't
+// apply to bots at all — you can't make a bot "admin of itself").
+function isBotHandle(handle: string): boolean {
+  return /bot$/i.test(handle);
+}
+
+// A Telegram bot token's own numeric prefix (before the ":") IS that
+// bot's Telegram user id — a standard, documented property of the Bot API
+// token format. So checking "is this target bot one of OUR OWN platform's
+// bots" needs no extra schema field: just compare the target's chat id
+// (from getChat) against every deployed bot's own id, derived straight
+// from its stored token.
+async function isOwnPlatformBotChatId(chatId: number): Promise<boolean> {
+  const bots = await prisma.bot.findMany({ select: { token: true } });
+  return bots.some((b) => Number(b.token.split(":")[0]) === chatId);
+}
+
 async function isChannelMember(bot: TelegramBot, channelHandle: string, tgUserId: string): Promise<boolean> {
   try {
     const handle = `@${normalizeChannelHandle(channelHandle)}`;
@@ -464,7 +487,11 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
 
   if (text.startsWith("/start")) {
     const payload = text.slice(6).trim();
-    const user = await ensureUser(botRow.id, tgUserId, botRow, payload && payload !== tgUserId ? payload : null);
+    if (isAdVerifyPayload(payload)) {
+      await consumeAdVerifyPayload(payload);
+    }
+    const referredBy = payload && !isAdVerifyPayload(payload) && payload !== tgUserId ? payload : null;
+    const user = await ensureUser(botRow.id, tgUserId, botRow, referredBy);
     await setPending(user.id, null);
     const lang = asLang(user.language);
     const isPrivileged = tgUserId === SUPER_ADMIN_ID || tgUserId === botRow.ownerId;
@@ -1196,21 +1223,36 @@ async function consumeCreateAdStep(bot: TelegramBot, chatId: number, user: any, 
     // المستخدم" error and no reward. Catching it here, at creation time,
     // with a clear message, instead of shipping a broken ad to real users.
     if (type === "TELEGRAM") {
-      const handle = `@${normalizeChannelHandle(text.trim())}`;
+      const rawHandle = normalizeChannelHandle(text.trim());
+      const handle = `@${rawHandle}`;
       const foundChat = await bot.api.getChat(handle).catch(() => null);
       if (!foundChat) {
         await bot.api.sendMessage(chatId, t(lang, "adTelegramChannelNotFound", { handle }));
         return;
       }
-      // A bot can only see WHO is a member of a channel/group (needed for
-      // the "✅ تحقق من الإنجاز" step every viewer relies on) if it's an
-      // ADMIN there itself — a genuine Telegram platform rule, not
-      // something this code can work around. Warn, don't hard-block: the
-      // advertiser may still add the bot as admin right after.
-      const me = await bot.api.getMe();
-      const botMembership = await bot.api.getChatMember(handle, me.id).catch(() => null);
-      if (!botMembership || !["administrator", "creator"].includes(botMembership.status)) {
-        await bot.api.sendMessage(chatId, t(lang, "adTelegramBotNotAdminWarning", { handle }));
+      if (isBotHandle(rawHandle)) {
+        // A bot has no "members" to check via getChatMember — that only
+        // applies to channels/groups (owner report, 2026-09-06: this used
+        // to run the admin-membership check below against a bot target,
+        // nonsensically asking to make one bot "admin" of another bot).
+        // Verification for a bot target works completely differently —
+        // see buildCarouselCard() / isAdVerifiedByUser().
+        const ownPlatform = await isOwnPlatformBotChatId(foundChat.id);
+        await bot.api.sendMessage(
+          chatId,
+          t(lang, ownPlatform ? "adTelegramBotTargetOwnPlatform" : "adTelegramBotTargetExternal", { handle })
+        );
+      } else {
+        // A bot can only see WHO is a member of a channel/group (needed for
+        // the "✅ تحقق من الإنجاز" step every viewer relies on) if it's an
+        // ADMIN there itself — a genuine Telegram platform rule, not
+        // something this code can work around. Warn, don't hard-block: the
+        // advertiser may still add the bot as admin right after.
+        const me = await bot.api.getMe();
+        const botMembership = await bot.api.getChatMember(handle, me.id).catch(() => null);
+        if (!botMembership || !["administrator", "creator"].includes(botMembership.status)) {
+          await bot.api.sendMessage(chatId, t(lang, "adTelegramBotNotAdminWarning", { handle }));
+        }
       }
     }
     updated.target = text.trim();
@@ -1431,20 +1473,40 @@ async function buildAdQueue(tgUserId: string, type: AdTypeStr, currentBotId: str
 // direct link — the anti-cheat time-tracking gate from the owner's spec.
 // Telegram ads open t.me directly since getChatMember is a hard, instant,
 // unspoofable check that doesn't need a timer.
+async function mintAdClick(adId: string, tgUserId: string, currentBotId: string) {
+  return prisma.adClick.upsert({
+    where: { adId_userId: { adId, userId: tgUserId } },
+    update: { issuedAt: new Date(), verified: false, botId: currentBotId },
+    create: { adId, userId: tgUserId, botId: currentBotId },
+  });
+}
+
 async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentBotId: string): Promise<{ text: string; keyboard: InlineKeyboard }> {
   const type = ad.type as AdTypeStr;
   const isForced = Number(ad.cpc) === 0;
   const kb = new InlineKeyboard();
 
+  const telegramHandle = type === "TELEGRAM" ? normalizeChannelHandle(String(ad.content)) : null;
+  const isBotTarget = telegramHandle !== null && isBotHandle(telegramHandle);
+
   let actionUrl: string;
-  if (type === "TELEGRAM") {
-    actionUrl = `https://t.me/${normalizeChannelHandle(String(ad.content))}`;
+  if (telegramHandle !== null && !isBotTarget) {
+    actionUrl = `https://t.me/${telegramHandle}`;
+  } else if (isBotTarget) {
+    // A bot can't be "joined" or membership-checked, so it's handled like
+    // an external link instead: mint an AdClick for a token, and hand out
+    // a deep link with that token as the /start payload. If the target
+    // turns out to be one of OUR OWN platform's bots, its own /start
+    // handler marks this click verified the instant the viewer opens it
+    // (see adVerifyPayload.ts) — fully reliable, no cooperation needed,
+    // same database. For a third-party bot we don't control, the payload
+    // is just a harmless unrecognized argument, and isAdVerifiedByUser()
+    // falls back to the same elapsed-time gate every external link/video
+    // ad already uses.
+    const click = await mintAdClick(ad.id, tgUserId, currentBotId);
+    actionUrl = `https://t.me/${telegramHandle}?start=adv_${click.id}`;
   } else {
-    const click = await prisma.adClick.upsert({
-      where: { adId_userId: { adId: ad.id, userId: tgUserId } },
-      update: { issuedAt: new Date(), verified: false, botId: currentBotId },
-      create: { adId: ad.id, userId: tgUserId, botId: currentBotId },
-    });
+    const click = await mintAdClick(ad.id, tgUserId, currentBotId);
     const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
     actionUrl = `${site}/watch/${click.id}`;
   }
@@ -1462,7 +1524,7 @@ async function buildCarouselCard(ad: any, lang: Lang, tgUserId: string, currentB
     `${isForced ? t(lang, "watchForcedLabel") : t(lang, "carouselAdTitle", { platform: TYPE_LABEL[type][lang] })} #${shortId(ad.id)}`,
     ad.description ? String(ad.description) : null,
     !isForced ? t(lang, "carouselReward", { reward: fmtCpc(Number(ad.workerCut)) }) : null,
-    type !== "TELEGRAM" ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
+    type !== "TELEGRAM" || isBotTarget ? t(lang, "carouselTimerNotice", { seconds: String(WATCH_TIMER_SECONDS) }) : null,
   ].filter((l): l is string => !!l);
   return { text: lines.join("\n"), keyboard: kb };
 }
@@ -1616,22 +1678,33 @@ async function sendCampaignEndedReport(bot: TelegramBot, ad: { id: string; userI
     .catch(() => null);
 }
 
-async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
-  if (ad.type === "TELEGRAM") {
-    return isChannelMember(bot, ad.content, tgUserId);
-  }
-  // No longer depends on the /watch page's own JS ever finishing a timer
-  // and calling back (owner report, 2026-09-06: mobile browsers/Telegram's
-  // in-app browser were silently blocking that page's auto-redirect as a
-  // "popup", so its client JS never got a chance to report anything back).
-  // The elapsed-time requirement is now checked directly against
-  // AdClick.issuedAt (minted the instant this card was shown) — the
-  // reward becomes claimable the moment enough real wall-clock time has
-  // passed, whether or not the user's browser ever ran a line of JS.
-  const click = await prisma.adClick.findUnique({ where: { adId_userId: { adId: ad.id, userId: tgUserId } } });
+// No longer depends on the /watch page's own JS ever finishing a timer
+// and calling back (owner report, 2026-09-06: mobile browsers/Telegram's
+// in-app browser were silently blocking that page's auto-redirect as a
+// "popup", so its client JS never got a chance to report anything back).
+// True the instant something already marked this click verified (e.g. an
+// own-platform bot target's /start handler, via adVerifyPayload.ts) —
+// otherwise falls back to elapsed time against AdClick.issuedAt (minted
+// the instant this card was shown): the reward becomes claimable once
+// enough real wall-clock time has passed, whether or not the viewer's
+// browser/bot ever reported anything back at all.
+async function isAdClickTimeVerified(adId: string, tgUserId: string): Promise<boolean> {
+  const click = await prisma.adClick.findUnique({ where: { adId_userId: { adId, userId: tgUserId } } });
   if (!click) return false;
+  if (click.verified) return true;
   const elapsedMs = Date.now() - new Date(click.issuedAt).getTime();
   return elapsedMs >= WATCH_TIMER_SECONDS * 1000;
+}
+
+async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
+  if (ad.type === "TELEGRAM") {
+    const handle = normalizeChannelHandle(String(ad.content));
+    if (isBotHandle(handle)) {
+      return isAdClickTimeVerified(ad.id, tgUserId);
+    }
+    return isChannelMember(bot, ad.content, tgUserId);
+  }
+  return isAdClickTimeVerified(ad.id, tgUserId);
 }
 
 // A stale/mismatched carousel button (pressed on an old on-screen message

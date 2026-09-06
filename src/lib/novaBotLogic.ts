@@ -1,6 +1,7 @@
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
+import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 
 // NOVA_BOT — the owner's $0-cost general AI assistant product (owner
 // spec, 2026-09-05). Deliberately different in kind from every other
@@ -115,7 +116,16 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   if (!msg.text) return;
   const text = String(msg.text).trim();
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
+    // AD_BOT hands out "/start adv_<AdClickId>" deep links when a
+    // campaign promotes this very bot — consuming it here marks that
+    // click verified instantly (see src/lib/adVerifyPayload.ts: every
+    // platform bot shares one database, so no cooperation beyond this
+    // one check is needed).
+    const startPayload = text.slice(6).trim();
+    if (isAdVerifyPayload(startPayload)) {
+      await consumeAdVerifyPayload(startPayload);
+    }
     await bot.api.sendMessage(
       chatId,
       "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."

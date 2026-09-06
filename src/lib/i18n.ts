@@ -103,6 +103,14 @@ export const STR: Dict = {
     ar: "✅ تم العثور على {handle}، لكن يجب إضافة هذا البوت كـ«مشرف (Admin)» فيها ليتمكن من التحقق من انضمام المشاهدين — وإلا فلن يحصل أي مشاهد على المكافأة لاحقاً. أضف البوت كمشرف ثم تابع.",
     en: "✅ Found {handle}, but this bot must be added as an ADMIN there to verify viewers actually joined — otherwise no viewer will ever be able to claim the reward. Add the bot as admin, then continue.",
   },
+  adTelegramBotTargetOwnPlatform: {
+    ar: "✅ تم العثور على {handle} — وهو أحد بوتات منصتنا، لذا سيتم تأكيد مشاهدة كل مستخدم تلقائياً وفورياً بمجرد ضغطه «ابدأ» فيه، دون أي إعداد إضافي منك.",
+    en: "✅ Found {handle} — it's one of our own platform's bots, so every viewer's visit is confirmed automatically the instant they tap Start there, no extra setup needed.",
+  },
+  adTelegramBotTargetExternal: {
+    ar: "✅ تم العثور على {handle}. تنبيه: بما أنه بوت خارجي لا تديره منصتنا، لا يمكننا تأكيد ما يفعله المستخدم بداخله فعلياً — سيُعتمد بدلاً من ذلك على مرور الوقت المطلوب بعد فتحه، كما في إعلانات الروابط الخارجية.",
+    en: "✅ Found {handle}. Note: since it's an external bot not run by our platform, we can't confirm what the user actually does inside it — verification will instead rely on the required time elapsing after they open it, same as external link ads.",
+  },
   adBudgetError: { ar: "أرسل رقماً صحيحاً أكبر من صفر بالدولار.", en: "Send a valid number greater than zero, in USD." },
   adCpcMinError: { ar: "السعر لكل نقرة على {platform} لا يقل عن ${min}.", en: "Cost per click on {platform} must be at least ${min}." },
   adCpcOverBudgetError: { ar: "السعر لكل نقرة أكبر من الميزانية الكلية.", en: "Cost per click is greater than the total budget." },

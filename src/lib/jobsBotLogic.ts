@@ -4,6 +4,7 @@ import type { Bot as BotRow, JobsProfile, JobsUser } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
+import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -1593,7 +1594,16 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
     return;
   }
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
+    // AD_BOT hands out "/start adv_<AdClickId>" deep links when a campaign
+    // promotes this very bot — consuming it here marks that click verified
+    // instantly, with zero cooperation needed beyond this one line (see
+    // src/lib/adVerifyPayload.ts for why: every platform bot shares the
+    // same database).
+    const payload = text.slice(6).trim();
+    if (isAdVerifyPayload(payload)) {
+      await consumeAdVerifyPayload(payload);
+    }
     await setPending(tgUserId, null);
     const profile = await prisma.jobsProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
