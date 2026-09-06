@@ -42,6 +42,14 @@ The correct shape, and what this file now does:
     examples (distillation) that get folded into our own model's
     weekly LoRA fine-tune — i.e. they help BUILD our model; they never
     stand in for it in front of a real user.
+  - Image GENERATION (generate_image, HF_IMAGE_MODEL_ID) is a second,
+    separate self-hosted open-weight model (Stable Diffusion family —
+    see ai-system/colab/generate_image_model.ipynb) alongside the
+    text/vision one. Understanding an image and generating one are
+    different neural architectures entirely — no amount of fine-tuning
+    HF_SPECIALIST_MODEL_ID could add generation to it — but both models
+    are equally OURS: downloaded once, fine-tuned/served by us, never
+    rented per-call from anyone.
 
 If HF_SPECIALIST_MODEL_ID isn't set yet (before the first Kaggle run
 has ever produced a model), everything still answers via the Groq
@@ -49,6 +57,7 @@ fallback alone — there's always a working answer path, it's just not
 yet running on our own weights until the notebook has been run once.
 """
 import base64
+import io
 import logging
 import time
 
@@ -61,6 +70,7 @@ from app.config import (
     GEMINI_MODEL,
     GROQ_API_KEY,
     GROQ_MODEL,
+    HF_IMAGE_MODEL_ID,
     HF_SPECIALIST_MODEL_ID,
     HF_TOKEN,
 )
@@ -88,10 +98,12 @@ _SYSTEM_PROMPT = (
     "لا تختلق أبداً أي رابط (URL) لم يصلك حرفياً في السياق أو نتائج البحث — "
     "هذا يشمل روابط صور من مواقع مثل Unsplash/Pexels وروابط أي صفحة أخرى. "
     "رابط مُختلَق يبدو حقيقياً أخطر من إجابة خاطئة، لأن المستخدم سيضغط عليه "
-    "فيجد صفحة غير موجودة. أنت أيضاً **لا تملك أي قدرة على توليد صور أو "
-    "فيديو أو صوت، ولا على البحث الفعلي عن صور حقيقية أونلاين** — إذا طُلب "
-    "منك ذلك، قل بوضوح إنك لا تستطيع توليد أو جلب صور فعلية حالياً، دون "
-    "اختلاق أي رابط أو وصف لصورة لا وجود لها.\n\n"
+    "فيجد صفحة غير موجودة. توليد الصور الفعلي لا يحدث في هذه المحادثة "
+    "النصية — إذا طلب أحدهم صورة، وجّهه لاستخدام أمر البوت المخصص "
+    "(الأمر '/صورة' متبوعاً بوصف الصورة) بدل محاولة وصف أو رابط صورة "
+    "هنا. لا تملك أيضاً أي قدرة على توليد فيديو أو صوت، ولا على البحث "
+    "الفعلي عن صور حقيقية أونلاين — إن طُلب منك أحدهما، قل بوضوح إنك لا "
+    "تستطيع ذلك حالياً.\n\n"
     "لا تستخدم صيغ LaTeX إطلاقاً (مثل \\frac أو \\times أو \\text) — تظهر "
     "كرموز غريبة غير مقروءة لأن واتساب/تيليجرام لا يعرضانها، استخدم أرقاماً "
     "ونصاً عادياً بسيطاً بدلاً منها."
@@ -249,3 +261,35 @@ def answer(message: str, context: str) -> str:
         return specialist_answer
     logger.info("chat answer: our own model unavailable — served by Groq fallback")
     return call_groq(message, context)
+
+
+def generate_image(prompt: str) -> bytes | None:
+    """OUR OWN image-GENERATION model (see module docstring — a
+    genuinely different architecture from HF_SPECIALIST_MODEL_ID's
+    text/vision understanding, so it's a separate self-hosted
+    open-weight model: see ai-system/colab/generate_image_model.ipynb).
+    No fallback exists for this one — Groq/Gemini's free tiers have no
+    image-generation capability at all to fall back to, and that's
+    fine: it's exactly why this needs to be our own model in the first
+    place, not a gap papered over by a third-party API."""
+    if not HF_IMAGE_MODEL_ID or not HF_TOKEN:
+        return None
+    client = InferenceClient(model=HF_IMAGE_MODEL_ID, token=HF_TOKEN)
+    for attempt in range(2):
+        try:
+            image = client.text_to_image(prompt)
+            buf = io.BytesIO()
+            image.save(buf, format="PNG")
+            return buf.getvalue()
+        except HfHubHTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            if status == 503 and attempt == 0:
+                logger.info("image-gen: our own model is cold-starting on HF (503) — retrying once")
+                time.sleep(8)
+                continue
+            logger.info("image-gen: our own model call failed (HTTP %s)", status)
+            return None
+        except Exception as e:
+            logger.info("image-gen: our own model call failed (%s)", e)
+            return None
+    return None

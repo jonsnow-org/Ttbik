@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, InlineKeyboard } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard, InputFile } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
@@ -255,7 +255,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     }
     await bot.api.sendMessage(
       chatId,
-      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."
+      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، أرسل /صورة متبوعاً بوصف لتوليد صورة جديدة، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."
     );
     return;
   }
@@ -283,6 +283,28 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         ? `${data.message}\n\nادفع الآن لتفعيل فوري (5$ شهرياً):\n${payUrl}`
         : data.message
     );
+    return;
+  }
+
+  if (text.startsWith("/صورة") || text.startsWith("/image")) {
+    // OUR OWN image-generation model (council.generate_image /
+    // HF_IMAGE_MODEL_ID — see council.py's module docstring), not a
+    // third-party API call. A real, explicit command instead of trying
+    // to detect "draw me a cat" as intent inside plain chat text —
+    // deterministic and unambiguous, and matches this file's existing
+    // pattern for /لوحتي and /ترقية.
+    const prompt = text.replace(/^\/(صورة|image)\s*/, "").trim();
+    if (!prompt) {
+      await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الصورة، مثال:\n/صورة قطة سوداء تحت المطر");
+      return;
+    }
+    await bot.api.sendChatAction(chatId, "upload_photo").catch(() => null);
+    const { ok: genOk, data: genData } = await callNovaBackend("/generate-image", { channel: "TELEGRAM", telegram_id: tgUserId, prompt });
+    if (!genOk || !genData.image_base64) {
+      await bot.api.sendMessage(chatId, `تعذر توليد الصورة: ${genData?.detail || "خطأ غير معروف"}`);
+      return;
+    }
+    await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(genData.image_base64, "base64"), "nova.png"), { caption: prompt });
     return;
   }
 

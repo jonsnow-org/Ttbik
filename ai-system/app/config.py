@@ -27,6 +27,12 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_SPECIALIST_MODEL_ID = os.environ.get("HF_SPECIALIST_MODEL_ID", "")
+# Our own self-hosted, open-weight image-GENERATION model (Stable
+# Diffusion family) — see ai-system/colab/generate_image_model.ipynb.
+# Separate from HF_SPECIALIST_MODEL_ID (Qwen2.5-VL, text+image
+# UNDERSTANDING) because generation and understanding are genuinely
+# different model architectures — see council.py's module docstring.
+HF_IMAGE_MODEL_ID = os.environ.get("HF_IMAGE_MODEL_ID", "")
 
 NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 
