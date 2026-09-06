@@ -63,7 +63,7 @@ export default function ZakatCalculator() {
     const net = Math.max(0, assetsValue - debtsV);
 
     const nisabGold = parseNum(nisabGoldG) || DEFAULT_GOLD_NISAB_G;
-    const nisabSilver = parseNum(nisabSilverG) || DEFAULT_SILVER_NISVER_G;
+    const nisabSilver = parseNum(nisabSilverG) || DEFAULT_SILVER_NISAB_G;
 
     // If prices provided, convert nisab to currency; else fall back to weight comparison for metals only.
     let nisabThreshold = 0;
@@ -83,10 +83,7 @@ export default function ZakatCalculator() {
       }
     }
 
-    // If no price at all and only cash/stocks/trade, use a soft note (user must set price for proper nisab).
     const hasPrice = goldPrice > 0 || silverPrice > 0;
-    const reached =
-      metByWeight || (hasPrice && net >= nisabThreshold) || (!hasPrice && net > 0 && (cashV + stocksV + tradeV) > 0 && (pureGoldG >= nisabGold || silverG >= nisabSilver));
 
     // Conservative: if we have currency total and a currency nisab, use it; else weight.
     const reachedFinal =
