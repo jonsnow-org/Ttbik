@@ -68,6 +68,7 @@ the placeholder version that was already confirmed working end to end
 — see git history / ai-system/app/council.py's module docstring for
 why each of those exists.
 """
+import ast
 import base64
 import glob
 import json
@@ -309,8 +310,44 @@ NOVA_SYSTEM_PROMPT = (
     "إن احتجت أداة، اكتب داخل <تفكير> استدعاءً بالشكل:\n"
     '<tool_call>\n{"name": "اسم_الأداة", "arguments": {...}}\n</tool_call>\n'
     "ثم أغلق </تفكير> وتوقف فوراً — لا تكتب نتيجة الأداة بنفسك أبداً ولا تختلقها، ستصلك نتيجتها "
-    "الحقيقية لتكمل بها في <اجابة>. إن لم تحتج أداة، أجب مباشرة كالمعتاد بلا أي استدعاء."
+    "الحقيقية لتكمل بها في <اجابة>. إن لم تحتج أداة، أجب مباشرة كالمعتاد بلا أي استدعاء.\n\n"
+    # Owner spec, 2026-09-08 (Gemini review, "القيود العكسية"/negative
+    # constraints): a small model tends to pad answers with empty
+    # preambles and to guess rather than admit it doesn't know — both
+    # directly reinforce the "never fabricate" principle already
+    # applied elsewhere in this project (council.py's own system
+    # prompt, the LIVE_INFO web-search fallback), now stated for the
+    # model itself instead of only for context injected around it.
+    "تنبيهات صارمة: لا تبدأ إجابتك أبداً بمقدمات فارغة مثل 'أهلاً بك، "
+    "بصفتي ذكاء اصطناعي...' أو 'بالتأكيد يمكنني مساعدتك في ذلك' — ابدأ "
+    "بالإجابة مباشرة. إن كان السؤال يطلب معلومة حقيقية (تاريخاً، رقماً، "
+    "اسماً) لست متأكداً منها بثقة تامة، صرّح بوضوح أنك لا تملك هذه "
+    "المعلومة الآن، ولا تخترع أو تخمّن أي تفصيل يبدو دقيقاً وهو ليس "
+    "كذلك. أي كود برمجي تكتبه يجب أن يكون كاملاً وقابلاً للتشغيل فعلياً "
+    "— لا تترك أسطراً ناقصة بتعليقات مثل '# أكمل الباقي هنا'."
 )
+
+# Owner spec, 2026-09-08 (Gemini review, "موجه الخبراء الديناميكي"/
+# dynamic expert router): a 7B model asked to be equally expert at
+# everything, all the time, answers more vaguely than one given a
+# narrow, well-defined role for the specific question in front of it.
+# query_type is already computed once by main.py's router.classify and
+# threaded down here for the temperature choice above — this reuses
+# the exact same signal for a second purpose instead of adding a new
+# classification pass. GENERAL gets no extra persona: ordinary
+# conversation doesn't benefit from being forced into a narrow role.
+_EXPERT_PERSONA_BY_QUERY_TYPE = {
+    "CODE": (
+        "في هذا السؤال تحديداً، تصرّف كمهندس برمجيات محترف ودقيق جداً: "
+        "اكتب كوداً نظيفاً وصحيحاً بنيوياً دائماً، مع تعليقات موجزة فقط "
+        "عند الحاجة الحقيقية، بلا أي إسهاب."
+    ),
+    "LIVE_INFO": (
+        "في هذا السؤال تحديداً، تصرّف كباحث دقيق يعتمد فقط على "
+        "المعلومات المؤكدة المزوَّدة لك في السياق أدناه، ولا يخمّن رقماً "
+        "أو تاريخاً أو اسماً أبداً إن لم تصله معلومة حقيقية عنه."
+    ),
+}
 
 # Owner spec, 2026-09-08 ("آلية التفكير والتصحيح الذاتي"): a tiny 7B
 # model answers noticeably better when it's forced to briefly critique
@@ -337,6 +374,34 @@ def _extract_final_answer(raw: str) -> str:
     return re.sub(r"<تفكير>.*?</تفكير>", "", raw, flags=re.DOTALL).strip() or raw.strip()
 
 
+# Owner spec, 2026-09-08 (Gemini review, "الفحص البرمجي الذاتي"/AST
+# syntax gate): a real, cheap correctness check — ast.parse() either
+# confirms the code is syntactically valid Python or names the exact
+# line and error, in under a millisecond, no model call needed for the
+# check itself. Deliberately scoped to ONLY explicit ```python/```py
+# fences (never a bare ``` block, which could be any language) — a
+# false "syntax error" on valid JS/Bash/SQL parsed as Python would be
+# worse than not checking at all. Only ever triggers a corrective
+# second pass on a REAL, confirmed syntax error, so the common case
+# (valid code on the first try) pays zero extra latency — important
+# given latency is this system's own reported #1 problem right now.
+_PYTHON_CODE_BLOCK_RE = re.compile(r"```(?:python|py)\s*\n(.*?)```", re.DOTALL)
+
+
+def _first_python_syntax_error(text: str) -> str | None:
+    """Returns a human-readable "line N: message" string for the first
+    explicitly-fenced Python block with a real syntax error, or None if
+    there's no such block or it's already valid."""
+    match = _PYTHON_CODE_BLOCK_RE.search(text)
+    if not match:
+        return None
+    try:
+        ast.parse(match.group(1))
+        return None
+    except SyntaxError as e:
+        return f"line {e.lineno}: {e.msg}"
+
+
 # Owner spec, 2026-09-08 (Gemini architecture review, "الضبط الديناميكي
 # لدرجة الابداع"): a fixed temperature for every query type is a real,
 # easy-to-fix weakness on a 7B model — CODE/LIVE_INFO answers need to be
@@ -358,6 +423,9 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
             return _IDENTITY_ANSWER
 
         temperature = _temperature_for(query_type)
+        persona = _EXPERT_PERSONA_BY_QUERY_TYPE.get(query_type, "")
+        system_content = f"{NOVA_SYSTEM_PROMPT}\n\n{persona}" if persona else NOVA_SYSTEM_PROMPT
+
         content = []
         if image_base64:
             # Accept either a bare base64 string or an already-prefixed
@@ -368,7 +436,7 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
         content.append({"type": "text", "text": message})
 
         messages = [
-            {"role": "system", "content": NOVA_SYSTEM_PROMPT},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": content},
         ]
         output = llm.create_chat_completion(
@@ -412,6 +480,32 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
                     ]
                     output2 = llm.create_chat_completion(messages=followup, max_tokens=900, temperature=temperature)
                     raw = output2["choices"][0]["message"]["content"]
+
+        # AST syntax gate (see _first_python_syntax_error above) — one
+        # real corrective pass, only when there's a confirmed syntax
+        # error, never a guess.
+        syntax_error = _first_python_syntax_error(raw)
+        if syntax_error:
+            correction = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": (
+                        f"يوجد خطأ برمجي حقيقي في الكود أعلاه (تحقق فعلي عبر ast.parse، وليس تخميناً): "
+                        f"{syntax_error}. أعد كتابة <تفكير> و<اجابة> الكاملتين بعد تصحيح هذا الخطأ فقط، بنفس الشكل بالضبط."
+                    ),
+                },
+            ]
+            try:
+                output3 = llm.create_chat_completion(messages=correction, max_tokens=900, temperature=temperature)
+                corrected_raw = output3["choices"][0]["message"]["content"]
+                if _first_python_syntax_error(corrected_raw) is None:
+                    raw = corrected_raw
+                # else: still broken after one real retry — ship the
+                # original rather than looping indefinitely; a syntax
+                # error visible to the user beats never answering.
+            except Exception:
+                pass
 
         final_answer = _extract_final_answer(raw)
         if _contains_forbidden_identity_leak(final_answer):
