@@ -1,0 +1,57 @@
+name: Deploy Kaggle Notebook
+
+# لماذا هذا الـworkflow موجود: نفس سبب deploy-modelscope-studio.yml —
+# رفع تحديثات دفتر Kaggle (merge_and_finetune.ipynb) كان يدوياً بالكامل
+# (نسخ/لصق عبر الهاتف)، وهذا هو أكبر مصدر احتكاك في تطوير خط تدريب
+# نوفا. Kaggle له API حقيقي (kaggle kernels push) يسمح برفع محتوى
+# الدفتر مباشرة من هنا.
+#
+# owner spec 2026-09-08: نستخدم "kaggle kernels pull ... -m" أولاً
+# لجلب إعدادات الدفتر الحالية بالضبط (GPU مفعّل، الإنترنت، الخصوصية)
+# بدل إعادة كتابتها تخميناً — فالتخمين هنا قد يُعطّل التدريب الفعلي
+# (مثلاً لو أُعيد GPU إلى false بالخطأ). نستبدل فقط محتوى ملف .ipynb
+# نفسه بالنسخة الأحدث من هذا المستودع، ثم نرفع الكل بإعداداته الأصلية
+# كما هي.
+#
+# ملاحظة معروفة ومقبولة من المالك: "kaggle kernels push" يُشغّل الدفتر
+# فعلياً على خوادم Kaggle فور الرفع (يستهلك من حصة GPU) — مقبول هنا
+# لأن هذا الـworkflow يعمل فقط عند تغيّر دفتر التدريب نفسه، لا عند أي
+# تغيير عشوائي في المشروع.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/merge_and_finetune.ipynb"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Kaggle CLI
+        run: pip install --upgrade kaggle
+
+      - name: Pull current kernel (preserves GPU/internet/privacy settings exactly)
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: kaggle kernels pull jonsnowjonsnow/merge-and-finetune -p ./kaggle-kernel -m
+
+      - name: Overwrite the notebook content with this repo's version
+        run: |
+          CODE_FILE=$(jq -r '.code_file' ./kaggle-kernel/kernel-metadata.json)
+          cp ai-system/colab/merge_and_finetune.ipynb "./kaggle-kernel/$CODE_FILE"
+
+      - name: Push updated notebook to Kaggle (also triggers a real run there)
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: kaggle kernels push -p ./kaggle-kernel
