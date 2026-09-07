@@ -282,6 +282,7 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
             json={"data": [user_content]},
             timeout=30,
         )
+        logger.info("chat: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
         result_resp = requests.get(
@@ -290,13 +291,19 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
             timeout=60,
             stream=True,
         )
+        logger.info("chat: ModelScope GET status=%s", result_resp.status_code)
         result_resp.raise_for_status()
+        raw_lines = []
         for line in result_resp.iter_lines(decode_unicode=True):
-            if not line or not line.startswith("data:"):
+            if not line:
+                continue
+            raw_lines.append(line)
+            if not line.startswith("data:"):
                 continue
             payload = json.loads(line[len("data:") :].strip())
             if isinstance(payload, list) and payload:
                 return str(payload[0]).strip() or None
+        logger.info("chat: ModelScope SSE stream ended with no usable result — raw lines: %s", raw_lines[:20])
         return None
     except Exception as e:
         logger.info("chat: our own model (ModelScope) call failed (%s) — falling back to Groq", e)
