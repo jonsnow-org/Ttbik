@@ -70,11 +70,14 @@ why each of those exists.
 """
 import base64
 import glob
+import json
 import os
 import re
 import subprocess
 import sys
 import traceback
+
+import requests
 
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
@@ -199,6 +202,63 @@ def _is_identity_question(message: str) -> bool:
     return any(keyword.lower() in normalized for keyword in _IDENTITY_KEYWORDS)
 
 
+# Owner spec, 2026-09-08 ("خلايا الاتصال عبر ترومنيل بالمواقع وال آبي
+# أي كما تفعل انت"): real, model-initiated tool use, not just rag.py's
+# router pre-deciding to search before the model ever runs. Trained
+# into the model via ai-system/colab/merge_and_finetune.ipynb's
+# tool-use cell (same Hermes-style <tool_call>/<tool_response> format,
+# same two tools, same wttr.in/ddgs executors — kept in lockstep with
+# that cell so what's trained matches what's served). generate() below
+# NEVER trusts a <tool_response> the model itself might produce in one
+# pass (it's told explicitly not to and to stop right after the call)
+# — it always does a real second generation pass fed the ACTUAL
+# executed result, exactly like the training data was built.
+_TOOLS_SCHEMA = [
+    {
+        "name": "web_search",
+        "description": "ابحث على الويب عن معلومة حديثة أو حقيقة عامة لا تعرفها بثقة.",
+        "parameters": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "نص البحث"}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_weather",
+        "description": "احصل على حالة الطقس الحالية لمدينة معيّنة.",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string", "description": "اسم المدينة بالإنجليزية"}},
+            "required": ["city"],
+        },
+    },
+]
+
+_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+def _tool_web_search(query: str) -> str:
+    try:
+        from ddgs import DDGS
+
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+        return "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results) or "لا نتائج بحث."
+    except Exception as e:
+        return f"تعذّر تنفيذ البحث فعلياً: {e}"
+
+
+def _tool_get_weather(city: str) -> str:
+    try:
+        resp = requests.get(f"https://wttr.in/{city}?format=3", timeout=15)
+        return resp.text.strip() if resp.ok else "تعذّر جلب الطقس."
+    except Exception as e:
+        return f"تعذّر جلب الطقس فعلياً: {e}"
+
+
+_TOOL_EXECUTORS = {"web_search": _tool_web_search, "get_weather": _tool_get_weather}
+
+
 NOVA_SYSTEM_PROMPT = (
     "أنت نوفا NOVA، مساعد ذكاء اصطناعي متعدد اللغات ومتعدد الوسائط (نص وصور). "
     "إن سألك أحد عمّن طوّرك أو صنعك أو يملكك أو عن الشركة أو المختبر المسؤول عنك أو عن النموذج الأساسي "
@@ -209,7 +269,13 @@ NOVA_SYSTEM_PROMPT = (
     "أسلوب إلزامي لكل رد: اكتب أولاً وسم <تفكير> ثم فكّر بإيجاز شديد (سطر أو سطرين فقط، لا أكثر) "
     "في صحة إجابتك المبدئية — تحقق من أي خطأ منطقي أو برمجي أو لغوي وصحّحه ذهنياً هنا — ثم أغلق بوسم "
     "</تفكير>. بعده مباشرة اكتب وسم <اجابة> ثم الإجابة النهائية النظيفة والمصححة الموجهة للمستخدم فقط "
-    "(بلا أي إشارة لعملية تفكيرك)، ثم أغلق بوسم </اجابة>. لا تُخرج أي نص خارج هذين الوسمين إطلاقاً."
+    "(بلا أي إشارة لعملية تفكيرك)، ثم أغلق بوسم </اجابة>. لا تُخرج أي نص خارج هذين الوسمين إطلاقاً.\n\n"
+    "لديك أدوات حقيقية يمكنك استدعاؤها عند الحاجة لمعلومة حية لا تعرفها بثقة:\n"
+    "<tools>\n" + json.dumps(_TOOLS_SCHEMA, ensure_ascii=False) + "\n</tools>\n\n"
+    "إن احتجت أداة، اكتب داخل <تفكير> استدعاءً بالشكل:\n"
+    '<tool_call>\n{"name": "اسم_الأداة", "arguments": {...}}\n</tool_call>\n'
+    "ثم أغلق </تفكير> وتوقف فوراً — لا تكتب نتيجة الأداة بنفسك أبداً ولا تختلقها، ستصلك نتيجتها "
+    "الحقيقية لتكمل بها في <اجابة>. إن لم تحتج أداة، أجب مباشرة كالمعتاد بلا أي استدعاء."
 )
 
 # Owner spec, 2026-09-08 ("آلية التفكير والتصحيح الذاتي"): a tiny 7B
@@ -251,11 +317,12 @@ def generate(message: str, image_base64: str = "") -> str:
             content.append({"type": "image_url", "image_url": {"url": data_url}})
         content.append({"type": "text", "text": message})
 
+        messages = [
+            {"role": "system", "content": NOVA_SYSTEM_PROMPT},
+            {"role": "user", "content": content},
+        ]
         output = llm.create_chat_completion(
-            messages=[
-                {"role": "system", "content": NOVA_SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
+            messages=messages,
             # Raised from 512: the model now spends some of its budget
             # on the <تفكير> critique before the <اجابة> the user
             # actually sees (see NOVA_SYSTEM_PROMPT above) — without
@@ -263,6 +330,38 @@ def generate(message: str, image_base64: str = "") -> str:
             max_tokens=900,
         )
         raw = output["choices"][0]["message"]["content"]
+
+        # Real tool execution, text-only (an image question has no real
+        # use for web_search/get_weather). The model was trained to stop
+        # right after </tool_call> inside <تفكير> without writing its own
+        # <tool_response> — but a 7B model won't always obey that
+        # perfectly, so _TOOL_CALL_RE only ever looks for the call itself
+        # and everything the model generated after it (including any
+        # fabricated response) is discarded in favor of the one real
+        # second pass below.
+        if not image_base64:
+            tool_match = _TOOL_CALL_RE.search(raw)
+            if tool_match:
+                try:
+                    call = json.loads(tool_match.group(1))
+                    executor = _TOOL_EXECUTORS.get(call.get("name"))
+                except Exception:
+                    executor = None
+                if executor:
+                    try:
+                        real_result = executor(**call.get("arguments", {}))
+                    except Exception as e:
+                        real_result = f"تعذّر تنفيذ الأداة فعلياً: {e}"
+                    assistant_turn_1 = raw[: tool_match.end()]
+                    if "</تفكير>" not in assistant_turn_1:
+                        assistant_turn_1 += "\n</تفكير>"
+                    followup = messages + [
+                        {"role": "assistant", "content": assistant_turn_1},
+                        {"role": "user", "content": f"<tool_response>\n{real_result}\n</tool_response>"},
+                    ]
+                    output2 = llm.create_chat_completion(messages=followup, max_tokens=900)
+                    raw = output2["choices"][0]["message"]["content"]
+
         return _extract_final_answer(raw)
     except Exception:
         # Owner audit, 2026-09-08: this used to return the raw traceback

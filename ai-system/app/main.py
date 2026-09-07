@@ -64,6 +64,25 @@ def _send_telegram_message(chat_id: str, text: str) -> None:
         logger.exception("Failed to deliver async answer to Telegram chat_id=%s", chat_id)
 
 
+def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None:
+    """Same async-delivery shape as _send_telegram_message above, but
+    for a generated video file — sendVideo needs a real multipart file
+    upload, not a JSON body, and a longer timeout since video files run
+    much larger than a text payload."""
+    if not NOVA_BOT_TOKEN:
+        logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async video to Telegram chat_id=%s", chat_id)
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendVideo",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"video": ("nova.mp4", video_bytes, "video/mp4")},
+            timeout=60,
+        )
+    except Exception:
+        logger.exception("Failed to deliver async video to Telegram chat_id=%s", chat_id)
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     # Without this, any unhandled exception (e.g. a missing env var like
@@ -408,6 +427,65 @@ def generate_image(
     background_tasks.add_task(quota.log_usage, user["id"], req.channel, "IMAGE_GEN", f"[توليد صورة] {req.prompt}", "(صورة)")
 
     return GenerateImageResponse(image_base64=base64.b64encode(image_bytes).decode("ascii"), quota_message=quota_message)
+
+
+class GenerateVideoRequest(BaseModel):
+    channel: str
+    prompt: str
+    telegram_id: str | None = None
+    email: str | None = None
+    # Unlike /generate-image (synchronous — Stable Diffusion inference
+    # is fast enough to answer inline), video generation's real latency
+    # is unmeasured and could plausibly land in the same class of
+    # problem /image and /chat already hit this session (a real answer
+    # arriving well past any caller's own timeout). Async-by-default
+    # here rather than assuming it will be fast — chat_id is required.
+    chat_id: str
+
+
+class GenerateVideoResponse(BaseModel):
+    accepted: bool
+    quota_message: str
+
+
+def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str) -> None:
+    """Runs in a FastAPI BackgroundTask — see _process_image_and_deliver
+    above for why this needs its own try/except (no HTTP response left
+    to surface an exception on once this starts)."""
+    try:
+        video_bytes = council.generate_video(prompt)
+        if video_bytes is None:
+            _send_telegram_message(
+                chat_id,
+                "تعذّر توليد الفيديو حالياً — هذه ميزة جديدة قيد التحقق (راجع "
+                "ai-system/colab/generate_image_model.ipynb وHF_VIDEO_MODEL_ID)، حاول مرة أخرى لاحقاً.",
+            )
+            return
+        quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
+        _send_telegram_video(chat_id, video_bytes, prompt)
+    except Exception:
+        logger.exception("background video pipeline failed for chat_id=%s", chat_id)
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى.")
+
+
+@app.post("/generate-video", response_model=GenerateVideoResponse)
+def generate_video(
+    req: GenerateVideoRequest,
+    background_tasks: BackgroundTasks,
+    authorization: str | None = Header(default=None),
+    x_internal_secret: str | None = Header(default=None),
+):
+    """OUR OWN video-generation model (see council.py's generate_video
+    docstring for the honest caveat about HF's free tier's real,
+    unconfirmed support for this task on a custom repo). Same IMAGE
+    quota bucket as /generate-image — video is heavier still, so it
+    stays under the same strict cap rather than getting its own."""
+    user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
+    quota_message = _enforce_quota(user, "IMAGE")
+
+    background_tasks.add_task(_process_video_and_deliver, user["id"], req.channel, req.chat_id, req.prompt)
+
+    return GenerateVideoResponse(accepted=True, quota_message=quota_message)
 
 
 class FileRequest(BaseModel):

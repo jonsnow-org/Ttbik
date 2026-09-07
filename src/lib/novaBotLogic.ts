@@ -362,7 +362,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     }
     await bot.api.sendMessage(
       chatId,
-      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، أرسل /صورة متبوعاً بوصف لتوليد صورة جديدة، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."
+      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، أرسل /صورة متبوعاً بوصف لتوليد صورة جديدة، أرسل /فيديو متبوعاً بوصف لتوليد فيديو جديد، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."
     );
     return;
   }
@@ -401,6 +401,32 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       return;
     }
     await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(genData.image_base64, "base64"), "nova.png"), { caption: prompt });
+    return;
+  }
+
+  if (text.startsWith("/فيديو") || text.startsWith("/video")) {
+    // OUR OWN video-generation model (council.generate_video /
+    // HF_VIDEO_MODEL_ID — see ai-system/colab/generate_image_model.ipynb's
+    // video-gen cells). Unlike /صورة above, this is async (like /image
+    // and /chat) — real video-generation latency is unmeasured and
+    // could easily exceed this route's own timeout, so the backend
+    // pushes the finished video straight to Telegram once ready
+    // instead of waiting for it inline here.
+    const prompt = text.replace(/^\/(فيديو|video)\s*/, "").trim();
+    if (!prompt) {
+      await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الفيديو، مثال:\n/فيديو قطة تلعب بكرة صوف");
+      return;
+    }
+    await bot.api.sendMessage(chatId, "🎬 جارٍ توليد الفيديو — قد يستغرق الأمر عدة دقائق، سيصلك هنا فور الانتهاء.").catch(() => null);
+    const { ok: videoOk, data: videoData } = await callNovaBackend("/generate-video", {
+      channel: "TELEGRAM",
+      telegram_id: tgUserId,
+      chat_id: String(chatId),
+      prompt,
+    });
+    if (!videoOk) {
+      await bot.api.sendMessage(chatId, videoData?.detail || "تعذر جدولة توليد الفيديو — حاول مرة أخرى.");
+    }
     return;
   }
 

@@ -114,6 +114,7 @@ from app.config import (
     GROQ_MODEL,
     HF_IMAGE_MODEL_ID,
     HF_TOKEN,
+    HF_VIDEO_MODEL_ID,
     MODELSCOPE_API_TOKEN,
     MODELSCOPE_SPACE_URL,
 )
@@ -433,5 +434,53 @@ def generate_image(prompt: str) -> bytes | None:
             return None
         except Exception as e:
             logger.info("image-gen: our own model call failed (%s)", e)
+            return None
+    return None
+
+
+def generate_video(prompt: str) -> bytes | None:
+    """Owner spec, 2026-09-08 ("فديو توليد... كما تفعل انت"): our own
+    self-hosted video-generation model (CogVideoX-2B, with a lighter
+    damo-vilab/text-to-video-ms-1.7b fallback if that one's too heavy
+    for a free GPU — see ai-system/colab/generate_image_model.ipynb's
+    video-gen cells, added the same day). Same ownership shape as
+    generate_image() above: downloaded once, weights held on our own
+    HF repo, never a rented per-call API.
+
+    Honest caveat this function's design accounts for, unlike
+    generate_image() above (real research done 2026-09-08, not
+    assumed): huggingface_hub's InferenceClient.text_to_video is
+    documented almost exclusively through PAID third-party providers
+    (fal-ai, replicate) calling well-known named models — there is no
+    confirmed evidence HF's own free "hf-inference" tier serves a
+    private/custom repo for this task the way it does for
+    text_to_image. This is written defensively for exactly that
+    reason: it tries the same hf-inference path generate_image() uses,
+    but if HF's free tier refuses this task for our repo (the likely
+    outcome, going by this project's own repeated history with HF's
+    free-tier limits on custom repos — see this file's module
+    docstring), it fails closed to None instead of pretending this is
+    a solid live feature. If that happens, the proven fix (once this
+    is actually needed live, not before) is the same pivot text/vision
+    already made: a dedicated self-hosted ModelScope Studio running
+    our own inference code, not an HF API call."""
+    if not HF_VIDEO_MODEL_ID or not HF_TOKEN:
+        return None
+    client = InferenceClient(model=HF_VIDEO_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
+    for attempt in range(2):
+        try:
+            video_bytes = client.text_to_video(prompt)
+            return bytes(video_bytes) if isinstance(video_bytes, (bytes, bytearray)) else None
+        except HfHubHTTPError as e:
+            status = getattr(e.response, "status_code", None)
+            if status == 503 and attempt == 0:
+                logger.info("video-gen: our own model is cold-starting on HF (503) — retrying once")
+                time.sleep(8)
+                continue
+            body = getattr(e.response, "text", "")[:300]
+            logger.info("video-gen: our own model call failed (HTTP %s: %s)", status, body)
+            return None
+        except Exception as e:
+            logger.info("video-gen: our own model call failed (%s)", e)
             return None
     return None

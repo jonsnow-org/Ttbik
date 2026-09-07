@@ -1,1 +1,5 @@
 gradio
+# real tool-use execution (web_search/get_weather) — see app.py's
+# _TOOL_EXECUTORS and NOVA_SYSTEM_PROMPT's <tools> section.
+ddgs
+requests

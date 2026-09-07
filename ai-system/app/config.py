@@ -54,6 +54,13 @@ MODELSCOPE_API_TOKEN = os.environ.get("MODELSCOPE_API_TOKEN", "")
 # UNDERSTANDING) because generation and understanding are genuinely
 # different model architectures — see council.py's module docstring.
 HF_IMAGE_MODEL_ID = os.environ.get("HF_IMAGE_MODEL_ID", "")
+# Our own self-hosted, open-weight video-GENERATION model (CogVideoX-2B
+# or the lighter damo-vilab/text-to-video-ms-1.7b fallback) — see
+# ai-system/colab/generate_image_model.ipynb's video-gen cells and
+# council.py's generate_video() for the real, honestly-documented
+# uncertainty around whether HF's free tier actually serves this task
+# for a custom repo (unconfirmed, unlike HF_IMAGE_MODEL_ID above).
+HF_VIDEO_MODEL_ID = os.environ.get("HF_VIDEO_MODEL_ID", "")
 
 NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 
