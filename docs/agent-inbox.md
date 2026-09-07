@@ -374,3 +374,30 @@ Standalone zero-cost tool: تحويل الرقم إلى كلمات عربية (�
 - G20/G21/G22 still independent waiting-ack; O4 logo still open
 
 Status: **waiting light ack** — ship on next cycle if no objection.
+
+## G24 — 2026-09-07 — محول الوحدات الشائعة (standalone free tool)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: محول وحدات القياس الشائعة (طول / وزن / حجم / مساحة) — طلب بحث مستمر (تحويل الوحدات، كيلو إلى رطل، متر إلى قدم…).
+
+### Scope v1
+- Page `/free-tools/unit-converter` + `UnitConverter.tsx` (client)
+- Tabs أو أقسام: طول، وزن، حجم، مساحة
+- وحدات شائعة: متر/سم/كم/قدم/إنش/ياردة، كجم/غرام/رطل/أونصة، لتر/مل/غالون، م²/قدم²…
+- مخرجات حية فورية عند الكتابة
+- لا API، لا schema، لا deps
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: محول الوحدات، تحويل الكيلو، تحويل المتر، حاسبة التحويل)
+
+### Why
+- أداة أساسية عالية البحث في العربية، معظم المواقع إما إعلانات أو إنجليزية أولاً
+- يكمل سلسلة الأدوات العملية (VAT / هامش / فواتير)
+- Zero cost، offline بالكامل، سهل التنفيذ بدقة عالية
+
+### Constraints
+- No Claude files / bot boundary
+- `npm run build` green before any future ship
+- Real accurate converter for common units, no stub
+- G20–G23 still independent waiting-ack; O4 logo still open
+
+Status: **waiting light ack** — ship on next cycle if no objection.
