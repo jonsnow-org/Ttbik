@@ -259,6 +259,20 @@ def call_modelscope_specialist(message: str, context: str, image_base64: str | N
     }
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
     request_label = "vision" if image_base64 else "chat"
+    # Owner report, 2026-09-07 (measured live via the Studio's own
+    # runtime log): the vision encoder alone (clip_encode) took ~241s
+    # for one photo on this box's 2-vCPU/no-GPU hardware, before a
+    # single answer token is generated — a plain text turn's own
+    # measured total was ~45s. 60s was nowhere near enough for vision;
+    # this is the actual cost of running a real 7B vision-language
+    # model on CPU-only free hardware, not a bug. Callers of this
+    # function (main.py's /image handler) now run it in a FastAPI
+    # BackgroundTask instead of inline in the request/response cycle,
+    # so waiting several minutes here no longer risks the caller's own
+    # timeout (Vercel's 60s function ceiling / novaBotLogic.ts's 55s
+    # abort) — those numbers were never going to fit a real vision
+    # answer no matter how they were tuned.
+    result_timeout = 600 if image_base64 else 90
     try:
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate",
@@ -272,7 +286,7 @@ def call_modelscope_specialist(message: str, context: str, image_base64: str | N
         result_resp = requests.get(
             f"{base}/gradio_api/call/generate/{event_id}",
             headers=headers,
-            timeout=60,
+            timeout=result_timeout,
             stream=True,
         )
         logger.info("%s: ModelScope GET status=%s", request_label, result_resp.status_code)

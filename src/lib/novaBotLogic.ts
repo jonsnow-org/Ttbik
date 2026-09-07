@@ -346,17 +346,28 @@ async function handleImageMessage(bot: TelegramBot, chatId: number, tgUserId: st
     await bot.api.sendMessage(chatId, "تعذّر تحميل الصورة — حاول مرة أخرى.");
     return;
   }
+  // Owner report, 2026-09-07: real vision inference on the free
+  // ModelScope box (CPU-only) measured ~4-5 minutes for one photo —
+  // far past this route's own 55s abort / Vercel's 60s maxDuration, so
+  // /image no longer waits for the actual answer inline (confirmed
+  // live: that used to fail here with the generic "تعذر الاتصال"
+  // message even though the model was still working). The backend now
+  // only schedules the work and answers Telegram directly once done
+  // (see ai-system/app/main.py's /image handler) — this call just has
+  // to succeed at *scheduling* it, which is fast.
+  await bot.api
+    .sendMessage(chatId, "🖼 جارٍ تحليل الصورة بدقة — قد يستغرق الأمر بضع دقائق، سيصلك الرد هنا فور الانتهاء.")
+    .catch(() => null);
   const { ok, data } = await callNovaBackend("/image", {
     channel: "TELEGRAM",
     telegram_id: tgUserId,
+    chat_id: String(chatId),
     image_base64: imageBase64,
     caption: caption || null,
   });
   if (!ok) {
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ في تحليل الصورة — حاول مرة أخرى.");
-    return;
   }
-  await bot.api.sendMessage(chatId, stripMarkdown(data.answer));
 }
 
 async function handleDocumentMessage(

@@ -65,3 +65,15 @@ FREE_DAILY_QUOTA = int(os.environ.get("FREE_DAILY_QUOTA", "20"))
 # bot). Same env var novaBotLogic.ts already reads on the Vercel side
 # for admin-panel recognition — set it here too on Render.
 SUPER_ADMIN_TELEGRAM_ID = os.environ.get("SUPER_ADMIN_TELEGRAM_ID", "")
+
+# Owner report, 2026-09-07: real vision inference on the free ModelScope
+# box (CPU-only, no GPU) took ~4-5 minutes measured live for one photo —
+# far past anything a single Vercel function invocation (60s ceiling) can
+# wait for. /image in main.py now answers Telegram directly from here,
+# in a background task, once the model is actually done, instead of
+# routing the answer back through the original webhook's response — so
+# this service needs the bot's own token to call Telegram's sendMessage
+# API itself. Same NOVA_BOT token novaBotLogic.ts already holds on the
+# Vercel side; set it here too on Render (same pattern as
+# SUPER_ADMIN_TELEGRAM_ID above).
+NOVA_BOT_TOKEN = os.environ.get("NOVA_BOT_TOKEN", "")

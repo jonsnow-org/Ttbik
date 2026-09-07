@@ -14,13 +14,15 @@ Deploy free:  Render.com (Docker web service, free instance type) — see
 """
 import base64
 import logging
+import re
 
+import requests
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import council, files, quota, rag, router
-from app.config import NOVA_INTERNAL_SECRET
+from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET
 
 # Without this, logger.info() calls throughout this file and council.py
 # (added 2026-09-06 to show which model actually answered each message)
@@ -32,6 +34,32 @@ from app.config import NOVA_INTERNAL_SECRET
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 app = FastAPI(title="Nova AI")
+
+
+# Same stripping novaBotLogic.ts's stripMarkdown() does — needed here
+# too now that /image answers Telegram directly (see that function's
+# call site below) instead of always routing the answer back through
+# the Next.js webhook, which used to be the only place doing this.
+def _strip_markdown(text: str) -> str:
+    text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    return text
+
+
+def _send_telegram_message(chat_id: str, text: str) -> None:
+    if not NOVA_BOT_TOKEN:
+        logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async answer to Telegram chat_id=%s", chat_id)
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15,
+        )
+    except Exception:
+        logger.exception("Failed to deliver async answer to Telegram chat_id=%s", chat_id)
 
 
 @app.exception_handler(Exception)
@@ -183,11 +211,40 @@ class ImageRequest(BaseModel):
     mime_type: str = "image/jpeg"
     telegram_id: str | None = None
     email: str | None = None
+    # Telegram chat id to deliver the answer to once it's actually ready
+    # (see image() below for why this is no longer returned inline in
+    # the HTTP response). Only set by novaBotLogic.ts today — /image has
+    # no other caller (Streamlit only ever calls /chat).
+    chat_id: str | None = None
 
 
 class ImageResponse(BaseModel):
-    answer: str
+    accepted: bool
     quota_message: str
+
+
+def _process_image_and_deliver(
+    user_id: str, channel: str, chat_id: str | None, prompt: str, image_base64: str, mime_type: str
+) -> None:
+    """The actual slow work, run in a FastAPI BackgroundTask (see image()
+    below) — Render is a persistent process, not a serverless function,
+    so there is no execution-time ceiling here once the HTTP response
+    has already gone out."""
+    answer_text = council.call_modelscope_specialist(prompt, "", image_base64=image_base64)
+    if answer_text:
+        logger.info("image answer: served by OUR OWN model (ModelScope)")
+    else:
+        image_bytes = base64.b64decode(image_base64)
+        answer_text = council.call_gemini_vision(image_bytes, prompt, mime_type)
+        logger.info("image answer: our own model unavailable — served by Gemini fallback" if answer_text else "image answer: both our model and Gemini fallback failed")
+    if answer_text is None:
+        answer_text = "تعذّر تحليل الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم، أو حاول مرة أخرى لاحقاً."
+
+    quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
+    rag.remember(user_id, f"[صورة] {prompt}", answer_text)
+
+    if chat_id:
+        _send_telegram_message(chat_id, _strip_markdown(answer_text))
 
 
 @app.post("/image", response_model=ImageResponse)
@@ -203,28 +260,31 @@ def image(
     with image_base64 set). Gemini's free multimodal tier is only the
     same emergency fallback Groq is for text: used before our own
     vision-capable model has been trained/configured, or if it's
-    genuinely unreachable."""
+    genuinely unreachable.
+
+    Owner report, 2026-09-07: measured live via the Studio's own
+    runtime log — the vision encoder alone (clip_encode) took ~241s for
+    one photo on this box's CPU-only hardware, before a single answer
+    token is generated. That's far past Vercel's 60s function ceiling
+    novaBotLogic.ts's webhook route is bound by (confirmed live: the
+    real Telegram request failed with "تعذر الاتصال بخادم Nova AI" —
+    the caller's own fetch had already given up long before the model
+    was done). Computing the answer inline and returning it in this
+    response can therefore never work for vision, no matter how the
+    timeouts here are tuned — so this endpoint now only *schedules* the
+    real work as a background task and returns immediately; the actual
+    answer is delivered straight to Telegram once it's ready (see
+    _process_image_and_deliver / _send_telegram_message above), fully
+    decoupled from this request's own lifetime."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
     prompt = req.caption or "صف هذه الصورة بالتفصيل وأجب عن أي سؤال ضمني فيها."
-    answer_text = council.call_modelscope_specialist(prompt, "", image_base64=req.image_base64)
-    if answer_text:
-        logger.info("image answer: served by OUR OWN model (ModelScope)")
-    else:
-        image_bytes = base64.b64decode(req.image_base64)
-        answer_text = council.call_gemini_vision(image_bytes, prompt, req.mime_type)
-        logger.info("image answer: our own model unavailable — served by Gemini fallback" if answer_text else "image answer: both our model and Gemini fallback failed")
-    if answer_text is None:
-        raise HTTPException(
-            status_code=503,
-            detail="تحليل الصور غير متاح حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم.",
-        )
+    background_tasks.add_task(
+        _process_image_and_deliver, user["id"], req.channel, req.chat_id, prompt, req.image_base64, req.mime_type
+    )
 
-    background_tasks.add_task(quota.log_usage, user["id"], req.channel, "IMAGE", f"[صورة] {prompt}", answer_text)
-    background_tasks.add_task(rag.remember, user["id"], f"[صورة] {prompt}", answer_text)
-
-    return ImageResponse(answer=answer_text, quota_message=quota_message)
+    return ImageResponse(accepted=True, quota_message=quota_message)
 
 
 class GenerateImageRequest(BaseModel):
