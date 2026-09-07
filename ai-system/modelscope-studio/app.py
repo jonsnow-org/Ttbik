@@ -265,7 +265,19 @@ def generate(message: str, image_base64: str = "") -> str:
         raw = output["choices"][0]["message"]["content"]
         return _extract_final_answer(raw)
     except Exception:
-        return "SERVER ERROR:\n" + traceback.format_exc()
+        # Owner audit, 2026-09-08: this used to return the raw traceback
+        # as the "answer" — council.py's call_modelscope_specialist
+        # treats any non-empty string as a real answer and ships it
+        # straight to the user/Telegram with no sanity check, so a
+        # crash here was leaking a Python stack trace (file paths,
+        # internal code structure) directly into a live chat instead of
+        # triggering the existing Gemini fallback. Logging it here (this
+        # Studio's own runtime log, visible in ModelScope's "运行日志"
+        # tab) and returning "" instead lets the caller's own
+        # `str(payload[0]).strip() or None` correctly read this as "no
+        # answer" and fall back, exactly like a network failure already does.
+        traceback.print_exc()
+        return ""
 
 
 demo = gr.Interface(

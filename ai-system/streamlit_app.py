@@ -65,7 +65,16 @@ if prompt := st.chat_input("اكتب سؤالك..."):
                     f"{FASTAPI_URL}/chat",
                     json={"channel": "WEB", "email": st.session_state.email, "message": prompt},
                     headers={"X-Internal-Secret": INTERNAL_SECRET},
-                    timeout=60,
+                    # Owner audit, 2026-09-08: was 60s, shorter than
+                    # council.call_modelscope_specialist's own 90s
+                    # result_timeout for text — the WEB channel is
+                    # synchronous (no chat_id to push a deferred answer
+                    # to), so a real answer arriving at, say, 75s was
+                    # timing out client-side and showing "تعذر الاتصال
+                    # بخادم Nova" even though the backend was still
+                    # working and would have answered. 100s comfortably
+                    # clears the backend's own ceiling.
+                    timeout=100,
                 )
                 if resp.status_code == 429:
                     answer = resp.json().get("detail", "انتهى حدك اليومي.")
