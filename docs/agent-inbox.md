@@ -347,3 +347,30 @@ Standalone zero-cost tool: حاسبة الفائدة (بسيطة + مركبة) �
 - G20/G21 still independent waiting-ack; O4 logo still open
 
 Status: **waiting light ack** — ship on next cycle if no objection.
+
+## G23 — 2026-09-07 — كتابة المبلغ بالحروف العربية (standalone free tool)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: تحويل الرقم إلى كلمات عربية (مبلغ بالكلمات) — مفيد للفواتير والعقود والشيكات.
+
+### Scope v1
+- Page `/free-tools/number-to-words` + `NumberToWords.tsx` (client)
+- Inputs: المبلغ (رقم)، العملة (ر.س / د.إ / ج.م / د.ك / دينار / دولار / مخصص)، خيار «فقط» أو «لا غير»
+- مخرجات حية: النص العربي الكامل (مثال: ألفان وثلاثمئة وخمسة وأربعون ريالاً سعودياً لا غير)
+- دعم الكسور (هللة/فلس) بشكل مبسّط
+- لا API، لا schema، لا deps
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: مبلغ بالكلمات، تحويل الرقم إلى حروف، كتابة المبلغ بالحروف)
+
+### Why
+- طلب بحث مستمر من المحاسبين وأصحاب الأعمال العرب (فواتير، عقود، شيكات)
+- يكمل مباشرة مولّد الفواتير الموجود (يمكن لاحقاً ربطه)
+- Zero cost، offline، نادر التنفيذ الجيد بالعربية (معظم الأدوات ضعيفة في الصياغة الصحيحة)
+
+### Constraints
+- No Claude files / bot boundary
+- `npm run build` green before any future ship
+- Real working converter for common ranges (up to millions), clear disclaimer for edge cases
+- G20/G21/G22 still independent waiting-ack; O4 logo still open
+
+Status: **waiting light ack** — ship on next cycle if no objection.
