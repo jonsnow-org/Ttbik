@@ -257,12 +257,21 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
     User-Agent, right header shape per its own source). A raw
     `requests.get()` to the identical /config URL with the identical
     headers succeeded immediately (200, real config JSON back) — so
-    the failure is specific to something in gradio_client's own httpx
-    request construction, not our auth or the server. Bypassing it
-    entirely and speaking Gradio's documented queue protocol
-    (POST .../call/<api_name> -> event_id, then GET .../call/<api_name>/
-    <event_id> for the SSE result) with plain `requests` sidesteps
-    whatever that incompatibility is."""
+    that failure was specific to gradio_client's own httpx request
+    construction, not our auth or the server. Bypassed gradio_client
+    entirely in favor of plain `requests`.
+
+    The POST body/path shape below is copied verbatim from ModelScope's
+    own auto-generated "cURL" tab on this Studio's API documentation
+    page, not guessed: POST .../gradio_api/call/v2/<api_name> (note the
+    "v2" — the classic Gradio queue docs describe a v1-style
+    {"data": [...]} positional-array body at .../call/<api_name>
+    without "v2", which this Studio's server rejects with a silent
+    "event: error" — no exception, no useful message). The real,
+    working shape is a plain {"<param_name>": value} object keyed by
+    the function's actual parameter name. GET .../call/<api_name>/
+    <event_id> (no v2) then streams the SSE result exactly as in the
+    classic protocol."""
     if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
         return None
     import json
@@ -277,9 +286,9 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
     try:
         submit = requests.post(
-            f"{base}/gradio_api/call/generate",
+            f"{base}/gradio_api/call/v2/generate",
             headers=headers,
-            json={"data": [user_content]},
+            json={"message": user_content},
             timeout=30,
         )
         logger.info("chat: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
