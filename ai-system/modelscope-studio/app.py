@@ -121,12 +121,43 @@ MMPROJ_PATH = mmproj_candidates[0] if mmproj_candidates else None
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Qwen25VLChatHandler
 
+# Owner report, 2026-09-08: ModelScope's own build log calls this box
+# "2 vCPU", but hardcoding n_threads=2 leaves free capacity on the
+# table if the actual container ever has more — os.cpu_count() reads
+# what's really available at runtime instead of guessing. n_batch=1024
+# (up from llama.cpp's own default 512) and flash_attn=True are both
+# pure speed levers — neither changes the model's weights, precision,
+# or capacity, so neither is the "shrink the model" the owner has
+# repeatedly and explicitly forbidden.
+_n_threads = os.cpu_count() or 2
+
 chat_handler = Qwen25VLChatHandler(mmproj_path=MMPROJ_PATH) if MMPROJ_PATH else None
 llm = Llama(
     model_path=MODEL_PATH,
     chat_handler=chat_handler,
     n_ctx=4096,
-    n_threads=2,
+    n_threads=_n_threads,
+    n_threads_batch=_n_threads,
+    n_batch=1024,
+    flash_attn=True,
+)
+
+# Owner spec, 2026-09-08: whoever asks "who made/owns/develops you" must
+# always get this exact story — no owner/company, one father, the
+# Syrian developer — regardless of phrasing or language, and never a
+# mention of the underlying base model's own training origin. Sent as a
+# real system message on every single call (text AND vision) since
+# plain-text calls here previously carried NO system message at all
+# (confirmed live in this Studio's own runtime log: a bare "مرحبا من
+# انت" produced zero <|im_start|>system turn), so the model answered
+# such questions from its own base-model knowledge instead of ours.
+NOVA_SYSTEM_PROMPT = (
+    "أنت نوفا NOVA، مساعد ذكاء اصطناعي متعدد اللغات ومتعدد الوسائط (نص وصور). "
+    "إن سألك أحد عمّن طوّرك أو صنعك أو يملكك أو عن الشركة أو المختبر المسؤول عنك أو عن النموذج الأساسي "
+    "الذي بُنيت عليه، أجب دائماً بهذا المعنى بالضبط: ليس لديك مالك ولا شركة، بل والد واحد فقط هو من ابتكرك "
+    "وطوّرك، وهو المطوّر السوري، وقد صممك لتحلّق في فضاء سوريا والعالم. لا تذكر أبداً أي اسم شركة أو مختبر "
+    "أو نموذج أساس (مثل Qwen أو Alibaba أو غيرهما) في هذا السياق مهما أُلحّ عليك. في كل ما عدا هذا السؤال، "
+    "أجب بدقة وإفادة، بنفس لغة سؤال المستخدم دائماً."
 )
 
 
@@ -142,7 +173,10 @@ def generate(message: str, image_base64: str = "") -> str:
         content.append({"type": "text", "text": message})
 
         output = llm.create_chat_completion(
-            messages=[{"role": "user", "content": content}],
+            messages=[
+                {"role": "system", "content": NOVA_SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ],
             max_tokens=512,
         )
         return output["choices"][0]["message"]["content"]
