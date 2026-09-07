@@ -90,7 +90,15 @@ except ImportError:
         raise RuntimeError(
             "ملف llama_cpp_python-*.whl غير موجود بجانب app.py — يجب رفعه أولاً (انظر تعليمات الدفتر)."
         )
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--no-cache-dir", _wheels[0]])
+    # --no-index --find-links يجعل pip يحل كل الاعتماديات (numpy,
+    # pillow, jinja2, diskcache, ...) من ملفات .whl المرفوعة محلياً بجانب
+    # app.py فقط، دون أي حاجة لاتصال إنترنت وقت التشغيل — كلها موجودة
+    # هنا لأنها بُنيت معاً على Kaggle في نفس الخطوة.
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "--no-cache-dir",
+        "--no-index", "--find-links", _here,
+        _wheels[0],
+    ])
 
 import gradio as gr
 from modelscope import snapshot_download
