@@ -189,9 +189,11 @@ def log_usage(user_id: str, channel: str, query_type: str, message: str | None =
     # notebook's scheduled LoRA fine-tuning run (fetched over Supabase's
     # REST API — see ai-system/colab/merge_and_finetune.ipynb), instead
     # of the old hand-typed placeholder example. Returns the row's own
-    # id so the caller (main.py) can hand it back to novaBotLogic.ts,
-    # which attaches it to the 👍/👎 feedback buttons on this exact
-    # answer (see set_feedback below).
+    # id so the caller (main.py) can look this exact row back up later —
+    # not for visible 👍/👎 buttons anymore (those were dropped, see
+    # get_last_usage_log below), but so _maybe_flag_previous_answer can
+    # silently set_feedback(..., "DOWN") on it if the user's own next
+    # message reads as a complaint.
     db = get_supabase()
     log_id = str(uuid.uuid4())
     db.table("NovaUsageLog").insert(

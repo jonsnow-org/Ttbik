@@ -977,10 +977,33 @@ model NovaUsageLog {
   message    String? // the user's message — nullable so old rows stay valid; also doubles as real LoRA fine-tuning
   answer     String? // Nova's final answer — data for ai-system/colab/merge_and_finetune.ipynb's scheduled Kaggle run,
   // fetched over Supabase's REST API (never stored in the notebook itself) instead of the old hand-typed placeholder.
-  // UP | DOWN | null (no feedback given) — set via the 👍/👎 buttons novaBotLogic.ts attaches to every
-  // text answer, one tap away for the actual user. Real thumbs-down rows become the "rejected" half of a
-  // DPO preference pair (ai-system/colab/build_dpo_dataset.py) — the self-improvement loop this doubles as.
+  // UP | DOWN | null (no feedback given) — set automatically by council.py's detect_dissatisfaction
+  // (owner spec 2026-09-08: visible 👍/👎 buttons were removed — a button risks an accidental tap —
+  // this reads the user's own next message instead, silently, with no UI element at all). Real
+  // thumbs-down rows become the "rejected" half of a DPO preference pair, built directly inside
+  // ai-system/colab/merge_and_finetune.ipynb — the self-improvement loop this doubles as.
   rating     String?
+  created_at DateTime @default(now())
+}
+
+// Owner spec 2026-09-08: Nova should actively research topics it doesn't
+// already know well, not just answer from its own weights — "يذهب للبحث
+// على الانترنت عن بنك معلومات ويخزنه في المخازن التي صنعناها ويحلله
+// ويتدرب عليه". rag.py's shared knowledge bank (a ChromaDB collection) is
+// the fast in-memory side of that; this table is its durable twin, since
+// Render's free-tier disk is NOT persistent — every restart/redeploy wipes
+// ./chroma_data, which would otherwise silently reset the whole knowledge
+// bank to empty. rag.py writes here on every new live search and rehydrates
+// Chroma from here on first use after a cold start; the Kaggle notebook
+// also reads this table directly (same Supabase REST pattern as
+// NovaUsageLog) as an additional real training-data source.
+model NovaKnowledgeEntry {
+  id         String   @id @default(uuid())
+  query      String // the question that triggered the search
+  content    String // the (for GENERAL/CODE) analyzed answer, or (for LIVE_INFO) raw search snippets —
+  // LIVE_INFO is deliberately NOT run through Groq synthesis: a price/date needs to stay exact,
+  // not paraphrased, so rag.py stores those snippets as-is (same as before this table existed).
+  source     String   @default("general") // "general" | "live_info" — doubles as rag.py's freshness category
   created_at DateTime @default(now())
 }
 

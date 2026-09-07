@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, InlineKeyboard, InputFile } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
@@ -99,10 +99,30 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
   }
 }
 
+// Reply-keyboard buttons for the admin commands below — added because the
+// panel originally listed "/طلبات_الاشتراك" and "/بث <نص>" as plain text
+// only, with no reply_markup at all (owner report, 2026-09-07: "لوحة تحكم
+// الادمن لاتظهر ازرار البوت" — the admin panel showed no tappable buttons),
+// unlike every other bot template's admin panel (ADMIN_MENU/adminMenu() in
+// adBotLogic/jobsBotLogic/matchBotLogic/medicalBotLogic, all real
+// Keyboard()s). "📢 بث جماعي" still just points the admin at the existing
+// /بث <نص> text command rather than a full button-driven wizard — Nova is a
+// thin client with no local Prisma table of its own to persist a
+// multi-step "awaiting broadcast text" state across serverless
+// invocations (see this file's module docstring), so a real free-text
+// follow-up stays a typed command like every other admin-only text
+// command here (/لوحتي, /ترقية, /صورة).
+function novaAdminMenu(): Keyboard {
+  return new Keyboard()
+    .text("⏳ طلبات الاشتراك المعلّقة").row()
+    .text("📢 بث جماعي")
+    .resized();
+}
+
 async function sendNovaAdminPanel(bot: TelegramBot, chatId: number) {
   const { ok, data } = await callNovaBackend("/admin/stats", {});
   if (!ok) {
-    await bot.api.sendMessage(chatId, `تعذر جلب إحصائيات نوفا: ${data?.detail || "خطأ غير معروف"}`);
+    await bot.api.sendMessage(chatId, `تعذر جلب إحصائيات نوفا: ${data?.detail || "خطأ غير معروف"}`, { reply_markup: novaAdminMenu() });
     return;
   }
   const planCounts = (data.plan_counts || {}) as Record<string, number>;
@@ -118,7 +138,8 @@ async function sendNovaAdminPanel(bot: TelegramBot, chatId: number) {
       `💬 إجمالي الرسائل المُعالجة: ${data.total_messages}\n\n` +
       `الأوامر:\n` +
       `/طلبات_الاشتراك — عرض طلبات الاشتراك المعلّقة والموافقة/الرفض\n` +
-      `/بث <نص> — إرسال رسالة لكل مستخدمي تيليجرام في نوفا`
+      `/بث <نص> — إرسال رسالة لكل مستخدمي تيليجرام في نوفا`,
+    { reply_markup: novaAdminMenu() }
   );
 }
 
@@ -194,12 +215,12 @@ async function handleNovaPlanCallback(bot: TelegramBot, cq: any) {
 async function sendNovaPendingSubscriptions(bot: TelegramBot, chatId: number) {
   const { ok, data } = await callNovaBackend("/admin/pending-subscriptions", {});
   if (!ok) {
-    await bot.api.sendMessage(chatId, `تعذر جلب طلبات الاشتراك: ${data?.detail || "خطأ غير معروف"}`);
+    await bot.api.sendMessage(chatId, `تعذر جلب طلبات الاشتراك: ${data?.detail || "خطأ غير معروف"}`, { reply_markup: novaAdminMenu() });
     return;
   }
   const items = (data.items || []) as Array<{ id: string; plan: string; amountUsd: number; telegramId: string | null; email: string | null }>;
   if (!items.length) {
-    await bot.api.sendMessage(chatId, "لا توجد طلبات اشتراك بانتظار الموافقة حالياً.");
+    await bot.api.sendMessage(chatId, "لا توجد طلبات اشتراك بانتظار الموافقة حالياً.", { reply_markup: novaAdminMenu() });
     return;
   }
   for (const sub of items) {
@@ -266,19 +287,23 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
 
   if (isAdmin && typeof msg.text === "string") {
     const adminText = msg.text.trim();
-    if (adminText === "/طلبات_الاشتراك") {
+    if (adminText === "/طلبات_الاشتراك" || adminText === "⏳ طلبات الاشتراك المعلّقة") {
       await sendNovaPendingSubscriptions(bot, chatId);
+      return;
+    }
+    if (adminText === "📢 بث جماعي") {
+      await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
       return;
     }
     if (adminText.startsWith("/بث ")) {
       const broadcastText = adminText.slice(4).trim();
       if (!broadcastText) {
-        await bot.api.sendMessage(chatId, "اكتب النص بعد الأمر: /بث نص الرسالة");
+        await bot.api.sendMessage(chatId, "اكتب النص بعد الأمر: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
         return;
       }
       const { ok, data } = await callNovaBackend("/admin/telegram-user-ids", {});
       if (!ok) {
-        await bot.api.sendMessage(chatId, `تعذر جلب قائمة المستخدمين: ${data?.detail || "خطأ غير معروف"}`);
+        await bot.api.sendMessage(chatId, `تعذر جلب قائمة المستخدمين: ${data?.detail || "خطأ غير معروف"}`, { reply_markup: novaAdminMenu() });
         return;
       }
       const ids = (data.ids || []) as string[];
@@ -291,7 +316,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
           /* user blocked the bot or invalid id — skip */
         }
       }
-      await bot.api.sendMessage(chatId, `✅ تم الإرسال إلى ${sent} من أصل ${ids.length}.`);
+      await bot.api.sendMessage(chatId, `✅ تم الإرسال إلى ${sent} من أصل ${ids.length}.`, { reply_markup: novaAdminMenu() });
       return;
     }
   }

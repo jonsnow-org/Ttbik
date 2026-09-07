@@ -215,6 +215,44 @@ def detect_dissatisfaction(previous_answer: str, new_message: str) -> bool:
         return False
 
 
+def analyze_knowledge(query: str, raw_snippets: str) -> str:
+    """Owner spec, 2026-09-08: when Nova has to fall back to a live web
+    search (see rag.py), the raw search-result titles/snippets aren't
+    fit to store as "learned" knowledge as-is — they're fragments from
+    several different pages, often redundant or contradictory. This
+    turns them into one clean, synthesized Arabic paragraph before
+    rag.py stores it in the knowledge bank, so what Nova recalls later
+    (and what the Kaggle notebook eventually trains on) is an actual
+    answer, not a grab-bag of search-result text. Falls back to
+    returning raw_snippets unchanged if Groq isn't configured or the
+    call fails — a slightly rougher stored answer beats storing
+    nothing at all."""
+    if not GROQ_API_KEY:
+        return raw_snippets
+    try:
+        client = _groq_client()
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "لديك نتائج بحث خام من الويب حول سؤال معيّن. لخّصها وادمجها في "
+                        "فقرة واحدة واضحة ومباشرة بالعربية تجيب عن السؤال مباشرة، بلا "
+                        "ذكر لأسماء المواقع أو أنك تلخّص بحثاً. إن تناقضت النتائج، اذكر "
+                        "المعلومة الأكثر اتفاقاً بينها فقط."
+                    ),
+                },
+                {"role": "user", "content": f"السؤال: {query}\n\nنتائج البحث الخام:\n{raw_snippets}"},
+            ],
+            max_tokens=400,
+        )
+        analyzed = (completion.choices[0].message.content or "").strip()
+        return analyzed or raw_snippets
+    except Exception:
+        return raw_snippets
+
+
 def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Groq also hosts Whisper for free (same account, same API key) —
     this is the $0 path for voice-message support: transcribe to text,

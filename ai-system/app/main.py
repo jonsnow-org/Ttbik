@@ -36,10 +36,12 @@ logger = logging.getLogger("nova")
 app = FastAPI(title="Nova AI")
 
 
-# Same stripping novaBotLogic.ts's stripMarkdown() does — needed here
-# too now that /image answers Telegram directly (see that function's
-# call site below) instead of always routing the answer back through
-# the Next.js webhook, which used to be the only place doing this.
+# Same stripping novaBotLogic.ts's old stripMarkdown() used to do
+# before that file stopped rendering answers itself — needed here now
+# instead, since every answer (text and image alike) is delivered
+# straight to Telegram from this backend (see _send_telegram_message
+# below) rather than routed back through the Next.js webhook, which
+# used to be the only place doing this.
 def _strip_markdown(text: str) -> str:
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
@@ -191,7 +193,22 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
 
 
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
-    final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
+    # This runs inside a FastAPI BackgroundTask, AFTER the HTTP response
+    # (accepted: true) has already gone out — there is no request/response
+    # cycle left for an exception here to surface on. Without this
+    # try/except, any failure in _run_text_pipeline (council.answer,
+    # quota.log_usage, rag.remember/remember_shared all hit a live network
+    # call or DB and can throw) would propagate out of this function,
+    # Starlette would just log it internally, and the user would be left
+    # staring at the "🤔 جارٍ التفكير..." ack forever with nothing ever
+    # arriving — a real silent-failure risk with zero visibility outside
+    # Render's own logs, unlike the sync WEB/API path which still has
+    # unhandled_exception_handler above to turn it into a real response.
+    try:
+        final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
+    except Exception:
+        logger.exception("background chat pipeline failed for chat_id=%s — sending an error message instead of leaving the user with silence", chat_id)
+        final_answer = "حدث خطأ أثناء توليد الإجابة — حاول مرة أخرى."
     _send_telegram_message(chat_id, _strip_markdown(final_answer))
 
 
@@ -288,18 +305,27 @@ def _process_image_and_deliver(
     below) — Render is a persistent process, not a serverless function,
     so there is no execution-time ceiling here once the HTTP response
     has already gone out."""
-    answer_text = council.call_modelscope_specialist(prompt, "", image_base64=image_base64)
-    if answer_text:
-        logger.info("image answer: served by OUR OWN model (ModelScope)")
-    else:
-        image_bytes = base64.b64decode(image_base64)
-        answer_text = council.call_gemini_vision(image_bytes, prompt, mime_type)
-        logger.info("image answer: our own model unavailable — served by Gemini fallback" if answer_text else "image answer: both our model and Gemini fallback failed")
-    if answer_text is None:
-        answer_text = "تعذّر تحليل الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم، أو حاول مرة أخرى لاحقاً."
+    # Same reasoning as _process_chat_and_deliver above: this also runs
+    # as a FastAPI BackgroundTask after the HTTP response is already
+    # gone, so an uncaught exception here (base64 decode, quota.log_usage
+    # or rag.remember hitting a dead DB, etc.) would otherwise vanish
+    # into Starlette's own logs with the user never hearing back at all.
+    try:
+        answer_text = council.call_modelscope_specialist(prompt, "", image_base64=image_base64)
+        if answer_text:
+            logger.info("image answer: served by OUR OWN model (ModelScope)")
+        else:
+            image_bytes = base64.b64decode(image_base64)
+            answer_text = council.call_gemini_vision(image_bytes, prompt, mime_type)
+            logger.info("image answer: our own model unavailable — served by Gemini fallback" if answer_text else "image answer: both our model and Gemini fallback failed")
+        if answer_text is None:
+            answer_text = "تعذّر تحليل الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم، أو حاول مرة أخرى لاحقاً."
 
-    quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
-    rag.remember(user_id, f"[صورة] {prompt}", answer_text)
+        quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
+        rag.remember(user_id, f"[صورة] {prompt}", answer_text)
+    except Exception:
+        logger.exception("background image pipeline failed for chat_id=%s — sending an error message instead of leaving the user with silence", chat_id)
+        answer_text = "تعذّر تحليل الصورة حالياً — حدث خطأ غير متوقع، حاول مرة أخرى لاحقاً."
 
     if chat_id:
         _send_telegram_message(chat_id, _strip_markdown(answer_text))
