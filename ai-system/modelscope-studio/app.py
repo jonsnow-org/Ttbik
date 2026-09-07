@@ -175,6 +175,17 @@ _IDENTITY_KEYWORDS = [
     "who made you", "who created you", "who developed you", "who owns you",
     "who built you", "what company", "which company", "your creator",
     "your developer", "your owner", "your maker",
+    # owner report, 2026-09-08: a real Telegram conversation showed "من
+    # انت" (a plain "who are you") slipping past the guard entirely and
+    # going straight to the model, since that phrasing never mentions
+    # "developer/owner/company" — it's the single most common way a user
+    # actually opens an identity question, so it has to be caught here
+    # too, not just its narrower "who made you" variants.
+    "من انت", "من أنت", "مين انت", "مين أنت", "منانت", "من هو نوفا",
+    "ما هو نوفا", "عرف عن نفسك", "عرّف عن نفسك", "عرفني بنفسك",
+    "عرّفني بنفسك", "حدثني عن نفسك", "من انتي",
+    "who are you", "what are you", "tell me about yourself",
+    "introduce yourself",
 ]
 
 _IDENTITY_ANSWER = (
