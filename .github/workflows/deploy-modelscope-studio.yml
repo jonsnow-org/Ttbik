@@ -1,0 +1,56 @@
+name: Deploy ModelScope Studio
+
+# لماذا هذا الـworkflow موجود: بيئة التطوير (Claude Code) وشبكة بناء
+# ModelScope نفسها كلتاهما لا تصل github.com (مؤكد حياً في كل الاتجاهين
+# — راجع سجل محادثة 2026-09-07). خوادم GitHub Actions نفسها بيئة
+# مختلفة تماماً؛ نختبر هنا إن كانت تصل modelscope.cn، وإن نجح هذا فهو
+# يزيل الحاجة لأي رفع يدوي عبر الهاتف لهذا الاستوديو تحديداً.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/modelscope-studio/**"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Clone ModelScope studio git repo
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          git config --global user.name "Nova AI CI"
+          git config --global user.email "ci@nova.local"
+          git clone "https://oauth2:${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" ms-studio
+
+      - name: Copy deploy files into the studio repo
+        run: |
+          cp ai-system/modelscope-studio/app.py ms-studio/app.py
+          cp ai-system/modelscope-studio/requirements.txt ms-studio/requirements.txt
+          shopt -s nullglob
+          whls=(ai-system/modelscope-studio/*.whl)
+          if [ ${#whls[@]} -gt 0 ]; then
+            cp "${whls[@]}" ms-studio/
+          fi
+
+      - name: Commit and push to ModelScope
+        working-directory: ms-studio
+        run: |
+          git add app.py requirements.txt
+          shopt -s nullglob
+          whls=(*.whl)
+          if [ ${#whls[@]} -gt 0 ]; then
+            git add "${whls[@]}"
+          fi
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+          else
+            git commit -m "Deploy from Ttbik CI (${GITHUB_SHA})"
+            git push
+          fi
