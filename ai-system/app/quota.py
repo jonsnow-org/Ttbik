@@ -209,9 +209,10 @@ def log_usage(user_id: str, channel: str, query_type: str, message: str | None =
 
 def set_feedback(log_id: str, rating: str) -> bool:
     """rating is "UP" or "DOWN" — a real thumbs-down here becomes the
-    "rejected" half of a DPO preference pair (see
-    ai-system/colab/build_dpo_dataset.py). Returns False if the log row
-    doesn't exist (stale/tampered callback data), True otherwise."""
+    "rejected" half of a DPO preference pair — see
+    ai-system/colab/merge_and_finetune.ipynb's cells 12-13. Returns
+    False if the log row doesn't exist (stale/tampered callback data),
+    True otherwise."""
     if rating not in ("UP", "DOWN"):
         raise ValueError(f"invalid rating: {rating}")
     db = get_supabase()

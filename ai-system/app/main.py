@@ -160,9 +160,10 @@ def _run_text_pipeline(
     log_usage now runs synchronously (not as a background task) so its
     row id can be returned and handed all the way back to the actual
     end user as a 👍/👎 button (novaBotLogic.ts) — a real thumbs-down
-    later becomes the "rejected" half of a DPO preference pair (see
-    ai-system/colab/build_dpo_dataset.py). remember/remember_shared stay
-    backgrounded since nothing downstream needs to wait on them."""
+    later becomes the "rejected" half of a DPO preference pair — see
+    ai-system/colab/merge_and_finetune.ipynb's cells 12-13. remember/
+    remember_shared stay backgrounded since nothing downstream needs
+    to wait on them."""
     query_type = router.classify(message)
     context = rag.build_context(user["id"], message, query_type)
     final_answer = council.answer(message, context)

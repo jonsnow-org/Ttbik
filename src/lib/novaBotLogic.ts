@@ -56,9 +56,9 @@ function stripMarkdown(text: string): string {
 // real text/voice/file answer gets a 👍/👎 button tied to its own
 // NovaUsageLog row (log_id, returned by /chat, /voice, /file — see
 // ai-system/app/main.py's _run_text_pipeline). A real thumbs-down
-// later becomes the "rejected" half of a DPO preference pair (see
-// ai-system/colab/build_dpo_dataset.py) instead of this feedback just
-// evaporating unused.
+// later becomes the "rejected" half of a DPO preference pair — see
+// ai-system/colab/merge_and_finetune.ipynb's cells 12-13 — instead of
+// this feedback just evaporating unused.
 async function sendNovaAnswerWithFeedback(bot: TelegramBot, chatId: number, answer: string, logId: string | undefined) {
   const kb = logId
     ? new InlineKeyboard().text("👍", `nova_fb|${logId}|up`).text("👎", `nova_fb|${logId}|down`)
