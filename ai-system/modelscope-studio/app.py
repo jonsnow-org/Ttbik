@@ -417,6 +417,26 @@ def _temperature_for(query_type: str) -> float:
     return _TEMPERATURE_BY_QUERY_TYPE.get(query_type, 0.6)
 
 
+# Owner spec, 2026-09-08 (Gemini architecture review, "تحديد سقف
+# التوكنز"): CPU token generation time scales with tokens actually
+# produced, so capping GENERAL/LIVE_INFO chat replies well below the old
+# flat 900 is a real, direct latency win for the common case (an
+# ordinary Telegram reply has no business running that long). Kept
+# query-type-aware rather than one flat number for every reply, though
+# — a flat low cap would also apply to CODE answers, where the AST
+# syntax gate below can trigger a full second generation pass on a
+# truncated (and therefore often syntactically invalid) code block,
+# which would make total latency WORSE than the original 900, not
+# better. So CODE keeps real headroom; only GENERAL/LIVE_INFO (which
+# reuses the same tighter budget in most other cases here) get cut down
+# near the 300-400 Gemini proposed.
+_MAX_TOKENS_BY_QUERY_TYPE = {"CODE": 900, "LIVE_INFO": 500, "GENERAL": 400}
+
+
+def _max_tokens_for(query_type: str) -> int:
+    return _MAX_TOKENS_BY_QUERY_TYPE.get(query_type, 400)
+
+
 def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") -> str:
     try:
         if not image_base64 and _is_identity_question(message):
@@ -425,6 +445,13 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
         temperature = _temperature_for(query_type)
         persona = _EXPERT_PERSONA_BY_QUERY_TYPE.get(query_type, "")
         system_content = f"{NOVA_SYSTEM_PROMPT}\n\n{persona}" if persona else NOVA_SYSTEM_PROMPT
+        # A detailed image description ("صف هذه الصورة بالتفصيل") needs
+        # real headroom regardless of query_type (main.py's /image
+        # handler never even sets one, so this would otherwise silently
+        # inherit GENERAL's tight 400-token cap below and cut off
+        # mid-description) — vision was never what Gemini's max_tokens
+        # suggestion was about (Telegram TEXT replies specifically).
+        max_tokens = 900 if image_base64 else _max_tokens_for(query_type)
 
         content = []
         if image_base64:
@@ -441,11 +468,12 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
         ]
         output = llm.create_chat_completion(
             messages=messages,
-            # Raised from 512: the model now spends some of its budget
-            # on the <تفكير> critique before the <اجابة> the user
-            # actually sees (see NOVA_SYSTEM_PROMPT above) — without
-            # headroom, long final answers would get cut off mid-way.
-            max_tokens=900,
+            # Query-type-aware (see _MAX_TOKENS_BY_QUERY_TYPE above) —
+            # still has to cover the <تفكير> critique before the
+            # <اجابة> the user actually sees (see NOVA_SYSTEM_PROMPT),
+            # which is why CODE/vision keep the old, more generous 900
+            # rather than all being cut to GENERAL's tighter budget.
+            max_tokens=max_tokens,
             temperature=temperature,
         )
         raw = output["choices"][0]["message"]["content"]
@@ -478,7 +506,7 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
                         {"role": "assistant", "content": assistant_turn_1},
                         {"role": "user", "content": f"<tool_response>\n{real_result}\n</tool_response>"},
                     ]
-                    output2 = llm.create_chat_completion(messages=followup, max_tokens=900, temperature=temperature)
+                    output2 = llm.create_chat_completion(messages=followup, max_tokens=max_tokens, temperature=temperature)
                     raw = output2["choices"][0]["message"]["content"]
 
         # AST syntax gate (see _first_python_syntax_error above) — one
@@ -497,6 +525,12 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
                 },
             ]
             try:
+                # Deliberately NOT the query-type-aware max_tokens above:
+                # this path only ever fires when a real Python code block
+                # was found (see _first_python_syntax_error), so the
+                # rewritten answer needs the same full code-sized budget
+                # regardless of query_type — truncating the correction
+                # itself would be worse than the one-time extra latency.
                 output3 = llm.create_chat_completion(messages=correction, max_tokens=900, temperature=temperature)
                 corrected_raw = output3["choices"][0]["message"]["content"]
                 if _first_python_syntax_error(corrected_raw) is None:

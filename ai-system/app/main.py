@@ -15,6 +15,7 @@ Deploy free:  Render.com (Docker web service, free instance type) — see
 import base64
 import logging
 import re
+import threading
 
 import requests
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
@@ -81,6 +82,45 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
         )
     except Exception:
         logger.exception("Failed to deliver async video to Telegram chat_id=%s", chat_id)
+
+
+def _keep_typing_loop(chat_id: str, stop_event: threading.Event, interval: int = 4, action: str = "typing") -> None:
+    """Owner spec, 2026-09-08 (Gemini architecture review, "مؤشر الانتظار
+    المستمر"): Telegram's own "typing..." indicator auto-expires after
+    ~5s, but real generation on ModelScope's free CPU-only box takes
+    45-95s+ — far longer than one indicator covers. novaBotLogic.ts
+    (Vercel) can't just keep resending it either: that function already
+    returns immediately after one initial ping, precisely so Vercel's
+    own 60s ceiling never has to wait for the real answer (see chat()
+    below) — by the time the real work is happening, Vercel's request
+    has already ended. So this has to run right here, in the background
+    task that's actually alive for the whole duration.
+    Uses threading (not asyncio) since _process_chat_and_deliver and its
+    siblings below are plain sync functions run by FastAPI's own
+    BackgroundTasks threadpool, not async ones — an asyncio event loop
+    would need its own thread anyway, so a plain Event+sleep loop is the
+    direct fit for the code already here, not a rewrite for its own sake."""
+    if not NOVA_BOT_TOKEN:
+        return
+    url = f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendChatAction"
+    while not stop_event.is_set():
+        try:
+            requests.post(url, json={"chat_id": chat_id, "action": action}, timeout=5)
+        except Exception:
+            pass  # a dropped ping is never worth interrupting the loop over
+        stop_event.wait(interval)
+
+
+def _start_typing_loop(chat_id: str, action: str = "typing") -> tuple[threading.Event, threading.Thread]:
+    stop_event = threading.Event()
+    thread = threading.Thread(target=_keep_typing_loop, args=(chat_id, stop_event), kwargs={"action": action}, daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_typing_loop(stop_event: threading.Event, thread: threading.Thread) -> None:
+    stop_event.set()
+    thread.join(timeout=5)
 
 
 @app.exception_handler(Exception)
@@ -240,11 +280,14 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
     # arriving — a real silent-failure risk with zero visibility outside
     # Render's own logs, unlike the sync WEB/API path which still has
     # unhandled_exception_handler above to turn it into a real response.
+    stop_typing, typing_thread = _start_typing_loop(chat_id)
     try:
         final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
     except Exception:
         logger.exception("background chat pipeline failed for chat_id=%s — sending an error message instead of leaving the user with silence", chat_id)
         final_answer = "حدث خطأ أثناء توليد الإجابة — حاول مرة أخرى."
+    finally:
+        _stop_typing_loop(stop_typing, typing_thread)
     _send_telegram_message(chat_id, _strip_markdown(final_answer))
 
 
@@ -346,6 +389,7 @@ def _process_image_and_deliver(
     # gone, so an uncaught exception here (base64 decode, quota.log_usage
     # or rag.remember hitting a dead DB, etc.) would otherwise vanish
     # into Starlette's own logs with the user never hearing back at all.
+    stop_typing, typing_thread = _start_typing_loop(chat_id) if chat_id else (None, None)
     try:
         answer_text = council.call_modelscope_specialist(prompt, "", image_base64=image_base64)
         if answer_text:
@@ -362,6 +406,9 @@ def _process_image_and_deliver(
     except Exception:
         logger.exception("background image pipeline failed for chat_id=%s — sending an error message instead of leaving the user with silence", chat_id)
         answer_text = "تعذّر تحليل الصورة حالياً — حدث خطأ غير متوقع، حاول مرة أخرى لاحقاً."
+    finally:
+        if stop_typing:
+            _stop_typing_loop(stop_typing, typing_thread)
 
     if chat_id:
         _send_telegram_message(chat_id, _strip_markdown(answer_text))
@@ -469,6 +516,7 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
     """Runs in a FastAPI BackgroundTask — see _process_image_and_deliver
     above for why this needs its own try/except (no HTTP response left
     to surface an exception on once this starts)."""
+    stop_typing, typing_thread = _start_typing_loop(chat_id, action="upload_video")
     try:
         video_bytes = council.generate_video(prompt)
         if video_bytes is None:
@@ -483,6 +531,8 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
     except Exception:
         logger.exception("background video pipeline failed for chat_id=%s", chat_id)
         _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى.")
+    finally:
+        _stop_typing_loop(stop_typing, typing_thread)
 
 
 @app.post("/generate-video", response_model=GenerateVideoResponse)
