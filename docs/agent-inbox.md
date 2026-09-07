@@ -320,3 +320,30 @@ Standalone zero-cost tool: حاسبة الراتب الصافي للدول ال�
 - G20 still independent waiting-ack; O4 logo still open
 
 Status: **waiting light ack** — ship on next cycle if no objection.
+
+## G22 — 2026-09-07 — حاسبة الفائدة البسيطة والمركبة (standalone free tool)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: حاسبة الفائدة (بسيطة + مركبة) — طلب بحث عربي مستمر (فائدة مركبة، حاسبة الفائدة، قرض، استثمار).
+
+### Scope v1
+- Page `/free-tools/interest-calculator` + `InterestCalculator.tsx` (client)
+- Inputs: المبلغ الأساسي، نسبة الفائدة السنوية %، المدة (سنوات أو أشهر)، نوع الفائدة (بسيطة / مركبة)، تكرار التركيب (سنوي / نصف سنوي / ربع سنوي / شهري) للفائدة المركبة
+- مخرجات حية: الفائدة الكلية، المبلغ النهائي، جدول تقريبي للسنوات (اختياري)
+- disclaimer: أرقام تقريبية تعليمية وليست بديلاً عن استشارة مالية
+- لا API، لا schema، لا deps
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة الفائدة المركبة، حاسبة الفائدة البسيطة، حساب الفائدة)
+
+### Why
+- يكمل سلسلة الأدوات المالية (VAT / هامش الربح / راتب صافي)
+- طلب بحث عالي من الطلاب والمستثمرين والمقترضين العرب
+- Zero cost، offline، واقعي بدون ادعاء دقة بنكية
+
+### Constraints
+- No Claude files / bot boundary
+- `npm run build` green before any future ship
+- Real calculator, clear disclaimer
+- G20/G21 still independent waiting-ack; O4 logo still open
+
+Status: **waiting light ack** — ship on next cycle if no objection.
