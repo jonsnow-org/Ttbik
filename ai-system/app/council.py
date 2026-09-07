@@ -31,11 +31,12 @@ The correct shape, and what this file now does:
     Qwen2.5-VL — see ai-system/colab/merge_and_finetune.ipynb, which
     dropped the old text-only Mergekit merge in favor of a single
     open-weight vision-language foundation we fine-tune and own) is
-    tried FIRST via call_hf_specialist_vision. Gemini's free tier
-    (call_gemini_vision) is kept only as the same kind of emergency
-    fallback Groq is for text — for before the vision-capable model has
-    ever been trained, or if it's genuinely unreachable — never a
-    competing default voice for images either.
+    tried FIRST via call_modelscope_specialist(..., image_base64=...) —
+    same ModelScope-hosted call as text, just with an image attached.
+    Gemini's free tier (call_gemini_vision) is kept only as the same
+    kind of emergency fallback Groq is for text — for before the
+    vision-capable model has ever been trained, or if it's genuinely
+    unreachable — never a competing default voice for images either.
   - Groq and Gemini's real, legitimate role in this system is at
     TRAINING time, not serving time: the Kaggle notebook can use them
     as free "teacher" models to generate extra high-quality training
@@ -78,18 +79,26 @@ hf-inference". This is HF's own free-tier policy, not a bug we can
 configure around — text and vision now fail closed against HF and
 always fall back to Groq/Gemini.
 
-Real serving for text moved to ModelScope's free Studio hosting
-instead (call_modelscope_specialist, MODELSCOPE_SPACE_URL) — 2 vCPU /
-16GB, no session time limit, no card required. This is a genuine
-compute box we run our own app.py on (via the "gradio" SDK ModelScope
-Studios expect), not a rented API call — the same ownership shape
-call_hf_specialist was meant to have, just on infrastructure that
-actually agrees to run it. HF_SPECIALIST_MODEL_ID/call_hf_specialist
-stay defined only for vision (call_hf_specialist_vision) — that path
-hasn't been retested since the hf-inference refusal was found and may
-need the same migration once it is.
+Real serving for text (and, as of the same day, vision too) moved to
+ModelScope's free Studio hosting instead (call_modelscope_specialist,
+MODELSCOPE_SPACE_URL) — 2 vCPU / 16GB, no session time limit, no card
+required. This is a genuine compute box we run our own app.py on (via
+the "gradio" SDK ModelScope Studios expect), not a rented API call —
+the same ownership shape call_hf_specialist/call_hf_specialist_vision
+were meant to have, just on infrastructure that actually agrees to run
+it. Both old HF-based functions are gone now (confirmed permanently
+broken for custom repos at every size tested, text and vision alike) —
+call_modelscope_specialist handles both, with an optional
+image_base64 argument.
+
+The ModelScope-hosted app.py itself was rewritten alongside this to
+load two GGUF files (main model + mmproj, produced by
+ai-system/colab/merge_and_finetune.ipynb) via a chat handler from the
+`JamePeng/llama-cpp-python` fork (Qwen25VLChatHandler) — checked live
+that the official PyPI llama-cpp-python has no Qwen2.5-VL chat handler
+at all, so plain `pip install llama-cpp-python` cannot serve vision
+regardless of which GGUF files it's given.
 """
-import base64
 import io
 import logging
 import time
@@ -104,7 +113,6 @@ from app.config import (
     GROQ_API_KEY,
     GROQ_MODEL,
     HF_IMAGE_MODEL_ID,
-    HF_SPECIALIST_MODEL_ID,
     HF_TOKEN,
     MODELSCOPE_API_TOKEN,
     MODELSCOPE_SPACE_URL,
@@ -200,56 +208,22 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
         return None
 
 
-def call_hf_specialist_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/jpeg") -> str | None:
-    """OUR OWN vision-capable model — the primary voice for image
-    understanding once ai-system/colab/merge_and_finetune.ipynb has
-    trained and pushed a Qwen2.5-VL-based checkpoint to
-    HF_SPECIALIST_MODEL_ID. Uses the same OpenAI-style multimodal chat
-    message shape (image_url as a base64 data URI) HF's Inference API
-    expects for vision-chat models — same 503-retry-once pattern as
-    call_hf_specialist for the same reason (shared free infra lazily
-    reloading an idle custom model)."""
-    if not HF_SPECIALIST_MODEL_ID or not HF_TOKEN:
-        return None
-    client = InferenceClient(model=HF_SPECIALIST_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
-    data_url = f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}"
-    messages = [
-        {"role": "system", "content": _SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": data_url}},
-                {"type": "text", "text": prompt},
-            ],
-        },
-    ]
-    for attempt in range(2):
-        try:
-            completion = client.chat_completion(messages=messages, max_tokens=800)
-            content = completion.choices[0].message.content
-            return content.strip() if content else None
-        except HfHubHTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            if status == 503 and attempt == 0:
-                logger.info("vision: our own model is cold-starting on HF (503) — retrying once")
-                time.sleep(8)
-                continue
-            body = getattr(e.response, "text", "")[:300]
-            logger.info("vision: our own model call failed (HTTP %s: %s) — falling back to Gemini", status, body)
-            return None
-        except Exception as e:
-            logger.info("vision: our own model call failed (%s) — falling back to Gemini", e)
-            return None
-    return None
-
-
-def call_modelscope_specialist(message: str, context: str) -> str | None:
+def call_modelscope_specialist(message: str, context: str, image_base64: str | None = None) -> str | None:
     """OUR OWN model, actually reachable this time (see module
     docstring — hf-inference flatly refuses custom repos, ModelScope's
     free Studio hosting doesn't). Calls the Gradio app we deployed
     ourselves (ai-system/app.py running as a ModelScope Studio) via
     Gradio's raw queue-based call API directly with `requests`, NOT the
     `gradio_client` library.
+
+    Owner report, 2026-09-07 (vision migration): the ModelScope-hosted
+    app.py now also serves images — same call, same endpoint, with an
+    extra `image_base64` field (bare base64, no data: prefix; the
+    server adds one). This replaced call_hf_specialist_vision, which
+    used HF's hf-inference and is now confirmed dead for the same
+    reason text was (see module docstring). One shared code path for
+    text and vision instead of two, since the underlying model and
+    endpoint are now the same either way.
 
     Owner report, 2026-09-07: gradio_client kept failing with a generic
     "credentials were not provided" 401 on this exact URL/token no
@@ -284,14 +258,15 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
         "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
     }
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
+    request_label = "vision" if image_base64 else "chat"
     try:
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate",
             headers=headers,
-            json={"message": user_content},
+            json={"message": user_content, "image_base64": image_base64 or ""},
             timeout=30,
         )
-        logger.info("chat: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
+        logger.info("%s: ModelScope POST status=%s body=%s", request_label, submit.status_code, submit.text[:300])
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
         result_resp = requests.get(
@@ -300,7 +275,7 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
             timeout=60,
             stream=True,
         )
-        logger.info("chat: ModelScope GET status=%s", result_resp.status_code)
+        logger.info("%s: ModelScope GET status=%s", request_label, result_resp.status_code)
         result_resp.raise_for_status()
         raw_lines = []
         for line in result_resp.iter_lines(decode_unicode=True):
@@ -312,10 +287,10 @@ def call_modelscope_specialist(message: str, context: str) -> str | None:
             payload = json.loads(line[len("data:") :].strip())
             if isinstance(payload, list) and payload:
                 return str(payload[0]).strip() or None
-        logger.info("chat: ModelScope SSE stream ended with no usable result — raw lines: %s", raw_lines[:20])
+        logger.info("%s: ModelScope SSE stream ended with no usable result — raw lines: %s", request_label, raw_lines[:20])
         return None
     except Exception as e:
-        logger.info("chat: our own model (ModelScope) call failed (%s) — falling back to Groq", e)
+        logger.info("%s: our own model (ModelScope) call failed (%s) — falling back", request_label, e)
         return None
 
 
