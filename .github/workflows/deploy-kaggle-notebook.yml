@@ -17,13 +17,30 @@ name: Deploy Kaggle Notebook
 # فعلياً على خوادم Kaggle فور الرفع (يستهلك من حصة GPU) — مقبول هنا
 # لأن هذا الـworkflow يعمل فقط عند تغيّر دفتر التدريب نفسه، لا عند أي
 # تغيير عشوائي في المشروع.
-
+#
+# owner report, 2026-09-09 (real Kaggle UI evidence, screenshot): Kaggle's
+# own native "Schedule this notebook" feature flatly refuses to schedule
+# any notebook with a GPU accelerator attached ("Scheduled notebooks
+# cannot use GPU. Turn off GPU to save your scheduled notebook.") — a
+# real platform limit, not a setting we can work around, and this
+# notebook's whole job (Unsloth LoRA fine-tuning a 7B model) is
+# impossible on CPU alone. So Kaggle's own scheduler can never be the
+# weekly-cadence backstop this project's README originally described.
+# The `schedule:` trigger below is the real fix instead: GitHub Actions'
+# own cron is unaffected by Kaggle's GPU-scheduling restriction, since
+# all it does is call the same `kaggle kernels push` already used for
+# the on-push case — which "Pull current kernel" above already
+# preserves the GPU/internet/privacy settings of, unchanged. This is
+# real weekly automation that keeps GPU intact, running independently
+# of whether the notebook's own code changed that week.
 on:
   push:
     branches:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - "ai-system/colab/merge_and_finetune.ipynb"
+  schedule:
+    - cron: "0 3 * * 5"  # كل يوم جمعة، 03:00 UTC
   workflow_dispatch: {}
 
 jobs:
