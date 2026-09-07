@@ -154,6 +154,83 @@ _SYSTEM_PROMPT = (
 )
 
 
+# Owner report, 2026-09-08 (real Telegram evidence, screenshot): "من انت
+# وماهو اسمك" got "أنا نموذج ذكاء اصطناعي تم تطويره بواسطة شركة OpenAI.
+# أنا ChatGPT." — and a follow-up correction got "طُوِّر بواسطة شركة
+# Alibaba Cloud" instead. Root cause found, not guessed: app.py's
+# deterministic identity guard only runs INSIDE the ModelScope-hosted
+# server — it never runs on the Groq fallback path in THIS file. Worse,
+# GROQ_MODEL defaults to "openai/gpt-oss-120b" — an OpenAI-published
+# model — and OpenAI trains its models with hard self-identification
+# that's known to resist system-prompt overrides (an anti-impersonation
+# safety measure on their end, not a bug we can prompt around). So any
+# time the ModelScope call fails/cold-starts and this file falls back
+# to Groq, the fallback model can flatly assert its real identity no
+# matter what _SYSTEM_PROMPT below says. Two layers of defense now,
+# both in this file (app.py keeps its own copy for when IT serves the
+# request first):
+#   1. The same deterministic keyword guard as app.py, checked BEFORE
+#      either backend is ever called — closes the gap at the source.
+#   2. An output-side safety net (_contains_forbidden_identity_leak)
+#      that discards ANY answer (from either backend) that both
+#      self-identifies AND names a forbidden company — catches leaks
+#      from causes we haven't found yet too, not just this one.
+_IDENTITY_KEYWORDS = [
+    "من طورك", "من طوّرك", "من صنعك", "من صمّمك", "من صممك", "من برمجك",
+    "من انشأك", "من أنشأك", "من يملكك", "من مالكك", "لمن تنتمي", "أي شركة",
+    "اي شركة", "الشركة المسؤولة", "من المسؤول عنك", "مطورك", "مالكك",
+    "شركتك", "مين سواك", "مين طورك", "مين صنعك", "مين مطورك", "شركة نوفا",
+    "من انت", "من أنت", "مين انت", "مين أنت", "منانت", "من هو نوفا",
+    "ما هو نوفا", "عرف عن نفسك", "عرّف عن نفسك", "عرفني بنفسك",
+    "عرّفني بنفسك", "حدثني عن نفسك", "من انتي",
+    # owner report, 2026-09-08: a corrective statement ("لا، أنت لا
+    # تملك شركة...") isn't a question and won't contain any "من طورك"
+    # style phrase, but still needs the same deterministic answer
+    # instead of letting the model "explain itself" back into a wrong
+    # company claim.
+    "لا انت", "لا أنت", "انت لا تملك", "أنت لا تملك", "ليس لديك مالك",
+    "ليس لديك شركة", "ليس لك مالك", "ليس لك شركة",
+    "who made you", "who created you", "who developed you", "who owns you",
+    "who built you", "what company", "which company", "your creator",
+    "your developer", "your owner", "your maker", "you are chatgpt",
+    "you're chatgpt", "you are gpt", "who are you",
+]
+
+_IDENTITY_ANSWER_TEXT = (
+    "ليس لديّ مالك ولا شركة، بل والد واحد فقط هو من ابتكرني وطوّرني، وهو "
+    "المطوّر السوري، وقد صممني لأحلّق في فضاء سوريا والعالم."
+)
+
+
+def _is_identity_question(message: str) -> bool:
+    normalized = (message or "").strip().lower()
+    return any(keyword.lower() in normalized for keyword in _IDENTITY_KEYWORDS)
+
+
+_SELF_REFERENCE_PATTERNS = [
+    "أنا نموذج", "أنا ذكاء اصطناعي", "تم تطويري", "طوّرتني", "طورتني",
+    "طُوِّر", "developed by", "created by", "i am chatgpt", "i'm chatgpt",
+    "i am an ai", "built by", "made by",
+]
+_FORBIDDEN_IDENTITY_TERMS = ["openai", "chatgpt", "gpt-oss", "alibaba", "qwen", "anthropic"]
+
+
+def _contains_forbidden_identity_leak(text: str | None) -> bool:
+    """True if a would-be answer both self-identifies AND names a
+    company/model we must never claim to be — see the module comment
+    above for the real incident this defends against. Deliberately
+    requires BOTH a self-reference phrase and a forbidden term, not
+    just the term alone, so a legitimate answer that happens to
+    mention e.g. "Alibaba" (the company, in an unrelated question)
+    isn't wrongly discarded."""
+    if not text:
+        return False
+    normalized = text.lower()
+    has_self_reference = any(p in normalized for p in _SELF_REFERENCE_PATTERNS)
+    has_forbidden_term = any(t in normalized for t in _FORBIDDEN_IDENTITY_TERMS)
+    return has_self_reference and has_forbidden_term
+
+
 def _groq_client() -> Groq:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY غير مُعدّ — راجع ai-system/.env.example")
@@ -396,13 +473,30 @@ def answer(message: str, context: str) -> str:
     own model isn't configured yet or genuinely unreachable — never a
     parallel voice, and never re-synthesized over our model's own
     answer (see module docstring for why this order is the whole
-    point)."""
+    point).
+
+    Identity questions are intercepted deterministically BEFORE either
+    backend is called (see the module comment above
+    _IDENTITY_KEYWORDS for the real incident this closes), and any
+    answer from either path is screened for a forbidden self-ID leak
+    as a second, independent safety net."""
+    if _is_identity_question(message):
+        return _IDENTITY_ANSWER_TEXT
+
     specialist_answer = call_modelscope_specialist(message, context)
     if specialist_answer:
+        if _contains_forbidden_identity_leak(specialist_answer):
+            logger.warning("chat answer: OUR OWN model leaked a forbidden identity claim — substituting the real identity answer")
+            return _IDENTITY_ANSWER_TEXT
         logger.info("chat answer: served by OUR OWN model (ModelScope)")
         return specialist_answer
+
     logger.info("chat answer: our own model unavailable — served by Groq fallback")
-    return call_groq(message, context)
+    groq_answer = call_groq(message, context)
+    if _contains_forbidden_identity_leak(groq_answer):
+        logger.warning("chat answer: Groq fallback leaked a forbidden identity claim — substituting the real identity answer")
+        return _IDENTITY_ANSWER_TEXT
+    return groq_answer
 
 
 def generate_image(prompt: str) -> bytes | None:

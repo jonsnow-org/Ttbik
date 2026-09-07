@@ -189,12 +189,46 @@ _IDENTITY_KEYWORDS = [
     "عرّفني بنفسك", "حدثني عن نفسك", "من انتي",
     "who are you", "what are you", "tell me about yourself",
     "introduce yourself",
+    # owner report, 2026-09-08 (real Telegram evidence): a corrective
+    # statement ("لا، أنت لا تملك شركة...") isn't a question and won't
+    # contain any "من طورك"-style phrase, but still needs the exact
+    # same deterministic answer instead of letting the model "explain
+    # itself" back into a wrong company claim.
+    "لا انت", "لا أنت", "انت لا تملك", "أنت لا تملك", "ليس لديك مالك",
+    "ليس لديك شركة", "ليس لك مالك", "ليس لك شركة",
+    "you are chatgpt", "you're chatgpt", "you are gpt",
 ]
 
 _IDENTITY_ANSWER = (
     "ليس لديّ مالك ولا شركة، بل والد واحد فقط هو من ابتكرني وطوّرني، وهو "
     "المطوّر السوري، وقد صممني لأحلّق في فضاء سوريا والعالم."
 )
+
+# Owner report, 2026-09-08 (real Telegram evidence, screenshot): "من
+# انت وماهو اسمك" got "أنا نموذج ذكاء اصطناعي تم تطويره بواسطة شركة
+# OpenAI. أنا ChatGPT." even though this message contains "من انت"
+# and should have matched _IDENTITY_KEYWORDS above — real evidence the
+# keyword guard alone isn't a complete guarantee (a stale container
+# still finishing a rebuild at that moment is the leading suspect, but
+# unconfirmed). Whatever the cause, this is the second, independent
+# safety net: any generated answer that both self-identifies AND names
+# a forbidden company gets discarded in favor of the real identity
+# answer, regardless of why the keyword guard didn't already catch it.
+_SELF_REFERENCE_PATTERNS = [
+    "أنا نموذج", "أنا ذكاء اصطناعي", "تم تطويري", "طوّرتني", "طورتني",
+    "طُوِّر", "developed by", "created by", "i am chatgpt", "i'm chatgpt",
+    "i am an ai", "built by", "made by",
+]
+_FORBIDDEN_IDENTITY_TERMS = ["openai", "chatgpt", "gpt-oss", "alibaba", "qwen", "anthropic"]
+
+
+def _contains_forbidden_identity_leak(text: str | None) -> bool:
+    if not text:
+        return False
+    normalized = text.lower()
+    has_self_reference = any(p in normalized for p in _SELF_REFERENCE_PATTERNS)
+    has_forbidden_term = any(t in normalized for t in _FORBIDDEN_IDENTITY_TERMS)
+    return has_self_reference and has_forbidden_term
 
 
 def _is_identity_question(message: str) -> bool:
@@ -362,7 +396,10 @@ def generate(message: str, image_base64: str = "") -> str:
                     output2 = llm.create_chat_completion(messages=followup, max_tokens=900)
                     raw = output2["choices"][0]["message"]["content"]
 
-        return _extract_final_answer(raw)
+        final_answer = _extract_final_answer(raw)
+        if _contains_forbidden_identity_leak(final_answer):
+            return _IDENTITY_ANSWER
+        return final_answer
     except Exception:
         # Owner audit, 2026-09-08: this used to return the raw traceback
         # as the "answer" — council.py's call_modelscope_specialist
