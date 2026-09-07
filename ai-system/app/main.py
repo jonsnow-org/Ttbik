@@ -93,13 +93,19 @@ class ChatRequest(BaseModel):
     message: str
     telegram_id: str | None = None
     email: str | None = None
+    # TELEGRAM only — when set, the answer is delivered directly to this
+    # chat once ready instead of being returned in this response (see
+    # chat() below). WEB/API never send this and always get answer
+    # inline, same as before.
+    chat_id: str | None = None
 
 
 class ChatResponse(BaseModel):
-    answer: str
-    query_type: str
+    accepted: bool
     quota_message: str
-    log_id: str
+    answer: str | None = None
+    query_type: str | None = None
+    log_id: str | None = None
 
 
 @app.get("/health")
@@ -147,31 +153,39 @@ def _enforce_quota(user: dict, kind: str = "TEXT") -> str:
     return quota_message
 
 
-def _run_text_pipeline(
-    user: dict, channel: str, message: str, background_tasks: BackgroundTasks
-) -> tuple[str, str, str]:
+def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str, str]:
     """The one shared brain path: classify -> build context (memory +
-    live search/knowledge bank) -> council answer. Used by /chat
-    directly, and by /voice (after transcription) and /file (after
-    text extraction) so a transcribed or extracted message gets
-    exactly the same treatment as anything typed by hand.
+    live search/knowledge bank) -> council answer -> log + remember.
+    Used directly for WEB/API channels, and inside a FastAPI
+    BackgroundTask for TELEGRAM (see chat()/voice()/file_endpoint()
+    below) — no BackgroundTasks parameter here on purpose, since this
+    function itself now runs *as* a background task on the TELEGRAM
+    path and there is no request/response cycle left to defer onto by
+    that point.
 
-    Owner spec, 2026-09-08 ("حلقة التدريب والتطوير الذاتي / DPO"):
-    log_usage now runs synchronously (not as a background task) so its
-    row id can be returned and handed all the way back to the actual
-    end user as a 👍/👎 button (novaBotLogic.ts) — a real thumbs-down
-    later becomes the "rejected" half of a DPO preference pair — see
-    ai-system/colab/merge_and_finetune.ipynb's cells 12-13. remember/
-    remember_shared stay backgrounded since nothing downstream needs
-    to wait on them."""
+    Owner report, 2026-09-08: real Render log evidence — the
+    self-critique response format (ModelScope app.py's <تفكير>/<اجابة>
+    tags) pushed real text generation time to 70-95s+ per answer,
+    confirmed live ("ModelScope POST" to "answer: served by OUR OWN
+    model" timestamps 89s, 96s, 69s apart). That is past both
+    novaBotLogic.ts's 55s fetch abort and Vercel's 60s maxDuration —
+    the exact same failure mode /image already hit (see that
+    endpoint's docstring) and was fixed the same way: schedule the
+    real work as a background task and deliver the answer straight to
+    Telegram once it's ready, instead of racing a deadline that no
+    longer fits."""
     query_type = router.classify(message)
     context = rag.build_context(user["id"], message, query_type)
     final_answer = council.answer(message, context)
-
     log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
-    background_tasks.add_task(rag.remember, user["id"], message, final_answer)
-    background_tasks.add_task(rag.remember_shared, message, final_answer, query_type)
+    rag.remember(user["id"], message, final_answer)
+    rag.remember_shared(message, final_answer, query_type)
     return final_answer, query_type, log_id
+
+
+def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
+    final_answer, _query_type, log_id = _run_text_pipeline(user, channel, message)
+    _send_telegram_message(chat_id, _strip_markdown(final_answer), log_id=log_id)
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -181,12 +195,20 @@ def chat(
     authorization: str | None = Header(default=None),
     x_internal_secret: str | None = Header(default=None),
 ):
+    """TELEGRAM (chat_id set): schedules the answer as a background task
+    and returns immediately — see _run_text_pipeline's docstring for
+    why. WEB/API: answers inline as before, since Streamlit/external
+    callers have no chat_id to push a deferred answer to and must get
+    it back in this same response."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, req.message, background_tasks)
+    if req.channel == "TELEGRAM" and req.chat_id:
+        background_tasks.add_task(_process_chat_and_deliver, user, req.channel, req.message, req.chat_id)
+        return ChatResponse(accepted=True, quota_message=quota_message)
 
-    return ChatResponse(answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, req.message)
+    return ChatResponse(accepted=True, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
 
 
 class FeedbackRequest(BaseModel):
@@ -221,14 +243,16 @@ class VoiceRequest(BaseModel):
     filename: str = "voice.ogg"
     telegram_id: str | None = None
     email: str | None = None
+    chat_id: str | None = None  # TELEGRAM only — see ChatRequest.chat_id
 
 
 class VoiceResponse(BaseModel):
-    transcript: str
-    answer: str
-    query_type: str
+    accepted: bool
     quota_message: str
-    log_id: str
+    transcript: str | None = None
+    answer: str | None = None
+    query_type: str | None = None
+    log_id: str | None = None
 
 
 @app.post("/voice", response_model=VoiceResponse)
@@ -239,8 +263,9 @@ def voice(
     x_internal_secret: str | None = Header(default=None),
 ):
     """Free voice-message support via Groq's own hosted Whisper (same
-    API key, no extra cost): transcribe, then run the transcript
-    through the exact same pipeline /chat uses."""
+    API key, no extra cost): transcribe (fast), then run the transcript
+    through the exact same pipeline /chat uses — deferred for TELEGRAM,
+    inline for WEB/API, same reasoning as chat() above."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
@@ -249,9 +274,14 @@ def voice(
     if not transcript.strip():
         raise HTTPException(status_code=422, detail="تعذّر فهم الرسالة الصوتية — حاول مرة أخرى بوضوح أكبر.")
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, transcript, background_tasks)
+    if req.channel == "TELEGRAM" and req.chat_id:
+        background_tasks.add_task(_process_chat_and_deliver, user, req.channel, transcript, req.chat_id)
+        return VoiceResponse(accepted=True, quota_message=quota_message, transcript=transcript)
 
-    return VoiceResponse(transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, transcript)
+    return VoiceResponse(
+        accepted=True, transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id
+    )
 
 
 class ImageRequest(BaseModel):
@@ -383,12 +413,14 @@ class FileRequest(BaseModel):
     question: str | None = None
     telegram_id: str | None = None
     email: str | None = None
+    chat_id: str | None = None  # TELEGRAM only — see ChatRequest.chat_id
 
 
 class FileResponse(BaseModel):
-    answer: str
+    accepted: bool
     quota_message: str
-    log_id: str
+    answer: str | None = None
+    log_id: str | None = None
 
 
 @app.post("/file", response_model=FileResponse)
@@ -399,8 +431,10 @@ def file_endpoint(
     x_internal_secret: str | None = Header(default=None),
 ):
     """PDF/Word/plain-text support: extract text locally (pypdf /
-    python-docx, both pure-Python — no heavy ML dependency), then run
-    it through the exact same text pipeline as a typed message."""
+    python-docx, both pure-Python — no heavy ML dependency, fast), then
+    run it through the exact same text pipeline as a typed message —
+    deferred for TELEGRAM, inline for WEB/API, same reasoning as
+    chat() above."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
@@ -412,9 +446,12 @@ def file_endpoint(
     question = req.question or "لخّص هذا الملف بإيجاز واذكر أهم النقاط فيه."
     message = f"محتوى ملف ({req.filename}):\n{extracted}\n\nسؤال المستخدم: {question}"
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, message, background_tasks)
+    if req.channel == "TELEGRAM" and req.chat_id:
+        background_tasks.add_task(_process_chat_and_deliver, user, req.channel, message, req.chat_id)
+        return FileResponse(accepted=True, quota_message=quota_message)
 
-    return FileResponse(answer=final_answer, quota_message=quota_message, log_id=log_id)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, message)
+    return FileResponse(accepted=True, answer=final_answer, quota_message=quota_message, log_id=log_id)
 
 
 class WhoamiRequest(BaseModel):

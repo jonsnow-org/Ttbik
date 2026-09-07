@@ -39,33 +39,19 @@ const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
 const FASTAPI_URL = process.env.NOVA_FASTAPI_URL || "";
 const INTERNAL_SECRET = process.env.NOVA_INTERNAL_SECRET || "";
 
-// The model council writes plain Markdown (**bold**, # headers, etc.),
-// but Telegram's own Markdown/MarkdownV2 parse modes require every
-// special character to be perfectly escaped — a single stray one from
-// model output throws and the message never arrives at all. Stripping
-// the common markers to plain text is less pretty but never fails.
-function stripMarkdown(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, "")
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/__(.+?)__/g, "$1")
-    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1");
-}
-
 // Owner spec, 2026-09-08 ("حلقة التدريب والتطوير الذاتي / DPO"): every
-// real text/voice/file answer gets a 👍/👎 button tied to its own
-// NovaUsageLog row (log_id, returned by /chat, /voice, /file — see
-// ai-system/app/main.py's _run_text_pipeline). A real thumbs-down
-// later becomes the "rejected" half of a DPO preference pair — see
-// ai-system/colab/merge_and_finetune.ipynb's cells 12-13 — instead of
-// this feedback just evaporating unused.
-async function sendNovaAnswerWithFeedback(bot: TelegramBot, chatId: number, answer: string, logId: string | undefined) {
-  const kb = logId
-    ? new InlineKeyboard().text("👍", `nova_fb|${logId}|up`).text("👎", `nova_fb|${logId}|down`)
-    : undefined;
-  await bot.api.sendMessage(chatId, stripMarkdown(answer), kb ? { reply_markup: kb } : undefined);
-}
-
+// real text/voice/file/image answer now carries a 👍/👎 button tied to
+// its own NovaUsageLog row (log_id) — a real thumbs-down later becomes
+// the "rejected" half of a DPO preference pair, see
+// ai-system/colab/merge_and_finetune.ipynb's cells 12-13. All of those
+// answers are delivered directly by ai-system/app/main.py (see that
+// file's _send_telegram_message / _strip_markdown) rather than through
+// this file's own sendMessage calls now that real generation time
+// (70-95s+ per answer, confirmed live in Render's logs after the
+// self-critique response format was added) exceeds this route's own
+// 55s abort / Vercel's 60s maxDuration for every message type, not
+// just images — so nothing here waits for or displays the answer text
+// itself anymore, only the tap-triggered feedback callback below.
 async function handleNovaFeedbackCallback(bot: TelegramBot, cq: any) {
   const [, logId, rating] = String(cq.data || "").split("|");
   if (!logId || (rating !== "up" && rating !== "down")) {
@@ -404,13 +390,20 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
 
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
 
-  const { ok, data } = await callNovaBackend("/chat", { channel: "TELEGRAM", telegram_id: tgUserId, message: text });
+  // Owner report, 2026-09-08: real Render log evidence — the
+  // self-critique response format (ModelScope app.py's <تفكير>/<اجابة>
+  // tags, added the same day) pushed real text generation to 70-95s+
+  // per answer, past both this route's own 55s abort and Vercel's 60s
+  // maxDuration (confirmed live: every message failed with "تعذر
+  // الاتصال" even though the model was still working). Same fix as
+  // /image: don't wait for the answer inline, just schedule it —
+  // ai-system/app/main.py's /chat delivers it straight to Telegram
+  // once ready.
+  await bot.api.sendMessage(chatId, "🤔 جارٍ التفكير في إجابتك...").catch(() => null);
+  const { ok, data } = await callNovaBackend("/chat", { channel: "TELEGRAM", telegram_id: tgUserId, chat_id: String(chatId), message: text });
   if (!ok) {
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ — حاول مرة أخرى بعد قليل.");
-    return;
   }
-
-  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
 
 async function handleVoiceMessage(bot: TelegramBot, chatId: number, tgUserId: string, fileId: string) {
@@ -420,17 +413,17 @@ async function handleVoiceMessage(bot: TelegramBot, chatId: number, tgUserId: st
     await bot.api.sendMessage(chatId, "تعذّر تحميل الرسالة الصوتية — حاول مرة أخرى.");
     return;
   }
+  await bot.api.sendMessage(chatId, "🤔 جارٍ الاستماع والتفكير في إجابتك...").catch(() => null);
   const { ok, data } = await callNovaBackend("/voice", {
     channel: "TELEGRAM",
     telegram_id: tgUserId,
+    chat_id: String(chatId),
     audio_base64: audioBase64,
     filename: "voice.ogg",
   });
   if (!ok) {
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ في معالجة الصوت — حاول مرة أخرى.");
-    return;
   }
-  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
 
 async function handleImageMessage(bot: TelegramBot, chatId: number, tgUserId: string, fileId: string, caption?: string) {
@@ -478,16 +471,16 @@ async function handleDocumentMessage(
     await bot.api.sendMessage(chatId, "تعذّر تحميل الملف — حاول مرة أخرى.");
     return;
   }
+  await bot.api.sendMessage(chatId, "🤔 جارٍ قراءة الملف والتفكير في إجابتك...").catch(() => null);
   const { ok, data } = await callNovaBackend("/file", {
     channel: "TELEGRAM",
     telegram_id: tgUserId,
+    chat_id: String(chatId),
     file_base64: fileBase64,
     filename: fileName || "file.txt",
     question: caption || null,
   });
   if (!ok) {
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ في قراءة الملف — حاول مرة أخرى.");
-    return;
   }
-  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
