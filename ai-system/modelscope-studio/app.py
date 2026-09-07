@@ -152,6 +152,42 @@ llm = Llama(
 # (confirmed live in this Studio's own runtime log: a bare "مرحبا من
 # انت" produced zero <|im_start|>system turn), so the model answered
 # such questions from its own base-model knowledge instead of ours.
+#
+# Owner report, 2026-09-08 (real Telegram evidence): even with the
+# system prompt above, a plain 7B model does NOT reliably hold this one
+# fact across different phrasings of the same question — confirmed
+# live: "من انت" answered generically, then "لأي شركة أنت مملوك" in the
+# very same conversation answered "أنا ملك لشركة Nova", flatly
+# contradicting the instruction. Small-model instruction-following on a
+# single abstract rule is known to be inconsistent, and the owner's
+# requirement here is explicit 100% consistency ("regardless of
+# phrasing... however hard they're pressed") — that can only be
+# guaranteed deterministically, not by hoping the model obeys. So
+# identity questions are now intercepted by keyword match BEFORE the
+# model ever runs, and answered with a fixed string every time — the
+# system prompt below stays as a second line of defense for phrasings
+# the keyword list doesn't catch.
+_IDENTITY_KEYWORDS = [
+    "من طورك", "من طوّرك", "من صنعك", "من صمّمك", "من صممك", "من برمجك",
+    "من انشأك", "من أنشأك", "من يملكك", "من مالكك", "لمن تنتمي", "أي شركة",
+    "اي شركة", "الشركة المسؤولة", "من المسؤول عنك", "مطورك", "مالكك",
+    "شركتك", "مين سواك", "مين طورك", "مين صنعك", "مين مطورك", "شركة نوفا",
+    "who made you", "who created you", "who developed you", "who owns you",
+    "who built you", "what company", "which company", "your creator",
+    "your developer", "your owner", "your maker",
+]
+
+_IDENTITY_ANSWER = (
+    "ليس لديّ مالك ولا شركة، بل والد واحد فقط هو من ابتكرني وطوّرني، وهو "
+    "المطوّر السوري، وقد صممني لأحلّق في فضاء سوريا والعالم."
+)
+
+
+def _is_identity_question(message: str) -> bool:
+    normalized = message.strip().lower()
+    return any(keyword.lower() in normalized for keyword in _IDENTITY_KEYWORDS)
+
+
 NOVA_SYSTEM_PROMPT = (
     "أنت نوفا NOVA، مساعد ذكاء اصطناعي متعدد اللغات ومتعدد الوسائط (نص وصور). "
     "إن سألك أحد عمّن طوّرك أو صنعك أو يملكك أو عن الشركة أو المختبر المسؤول عنك أو عن النموذج الأساسي "
@@ -192,6 +228,9 @@ def _extract_final_answer(raw: str) -> str:
 
 def generate(message: str, image_base64: str = "") -> str:
     try:
+        if not image_base64 and _is_identity_question(message):
+            return _IDENTITY_ANSWER
+
         content = []
         if image_base64:
             # Accept either a bare base64 string or an already-prefixed

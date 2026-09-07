@@ -207,6 +207,26 @@ def log_usage(user_id: str, channel: str, query_type: str, message: str | None =
     return log_id
 
 
+def get_last_usage_log(user_id: str) -> dict | None:
+    """Most recent NovaUsageLog row for this user that has a real
+    answer — used to detect an implicit thumbs-down from the user's
+    own next message (see council.py's detect_dissatisfaction), which
+    replaced visible 👍/👎 buttons entirely (owner spec 2026-09-08: a
+    button risks an accidental tap, and needs a screen element at
+    all — this needs neither)."""
+    db = get_supabase()
+    res = (
+        db.table("NovaUsageLog")
+        .select("id, answer, rating")
+        .eq("novaUserId", user_id)
+        .not_.is_("answer", "null")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
 def set_feedback(log_id: str, rating: str) -> bool:
     """rating is "UP" or "DOWN" — a real thumbs-down here becomes the
     "rejected" half of a DPO preference pair — see

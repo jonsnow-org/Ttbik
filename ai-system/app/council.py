@@ -172,6 +172,49 @@ def call_groq(message: str, context: str) -> str:
     return completion.choices[0].message.content or ""
 
 
+def detect_dissatisfaction(previous_answer: str, new_message: str) -> bool:
+    """Owner spec, 2026-09-08: replaces visible 👍/👎 buttons entirely —
+    the owner's own concern was real (a user can tap the wrong one by
+    accident, and it's one more UI element to explain). This is a
+    silent, free classifier instead: asks Groq's free tier whether the
+    user's NEW message reads as a complaint about the PREVIOUS answer
+    (says it's wrong, unhelpful, asks for a redo, corrects a fact in
+    it) — no button, no screen element, nothing the user has to notice
+    or act on. Called from main.py's _run_text_pipeline right before
+    generating the new answer, on the previous turn's own log row (see
+    quota.py's get_last_usage_log/set_feedback). Always defaults to
+    False on any failure or genuine ambiguity — an undetected real
+    complaint just costs one missed DPO example, never a wrongly
+    flagged good answer."""
+    if not GROQ_API_KEY:
+        return False
+    try:
+        client = _groq_client()
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "أجب بكلمة واحدة فقط: YES أو NO، بلا أي شرح. هل رسالة المستخدم "
+                        "الجديدة تدل بوضوح على عدم رضاه عن رد المساعد السابق (يقول إنه خطأ، "
+                        "غير مفيد، يطلب تصحيحه أو إعادة المحاولة، أو يصحح معلومة خاطئة فيه)؟ "
+                        "إن لم يكن الأمر واضحاً تماماً، أجب NO."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"رد المساعد السابق:\n{previous_answer[:800]}\n\nرسالة المستخدم الجديدة:\n{new_message[:400]}",
+                },
+            ],
+            max_tokens=5,
+        )
+        reply = (completion.choices[0].message.content or "").strip().upper()
+        return reply.startswith("YES")
+    except Exception:
+        return False
+
+
 def transcribe_voice(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Groq also hosts Whisper for free (same account, same API key) —
     this is the $0 path for voice-message support: transcribe to text,

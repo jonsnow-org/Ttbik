@@ -40,29 +40,22 @@ const FASTAPI_URL = process.env.NOVA_FASTAPI_URL || "";
 const INTERNAL_SECRET = process.env.NOVA_INTERNAL_SECRET || "";
 
 // Owner spec, 2026-09-08 ("حلقة التدريب والتطوير الذاتي / DPO"): every
-// real text/voice/file/image answer now carries a 👍/👎 button tied to
-// its own NovaUsageLog row (log_id) — a real thumbs-down later becomes
-// the "rejected" half of a DPO preference pair, see
-// ai-system/colab/merge_and_finetune.ipynb's cells 12-13. All of those
-// answers are delivered directly by ai-system/app/main.py (see that
-// file's _send_telegram_message / _strip_markdown) rather than through
-// this file's own sendMessage calls now that real generation time
-// (70-95s+ per answer, confirmed live in Render's logs after the
-// self-critique response format was added) exceeds this route's own
-// 55s abort / Vercel's 60s maxDuration for every message type, not
-// just images — so nothing here waits for or displays the answer text
-// itself anymore, only the tap-triggered feedback callback below.
-async function handleNovaFeedbackCallback(bot: TelegramBot, cq: any) {
-  const [, logId, rating] = String(cq.data || "").split("|");
-  if (!logId || (rating !== "up" && rating !== "down")) {
-    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-    return;
-  }
-  const { ok } = await callNovaBackend("/feedback", { channel: "TELEGRAM", log_id: logId, rating: rating.toUpperCase() });
-  await bot.api
-    .answerCallbackQuery(cq.id, { text: ok ? "شكراً على تقييمك! 🙏" : "تعذر تسجيل التقييم" })
-    .catch(() => null);
-}
+// real text/voice/file/image answer is delivered directly by
+// ai-system/app/main.py (see that file's _send_telegram_message /
+// _strip_markdown) rather than through this file's own sendMessage
+// calls, now that real generation time (70-95s+ per answer, confirmed
+// live in Render's logs after the self-critique response format was
+// added) exceeds this route's own 55s abort / Vercel's 60s maxDuration
+// for every message type, not just images — so nothing here waits for
+// or displays the answer text itself anymore.
+//
+// Owner spec, 2026-09-08 (feedback UI): visible 👍/👎 buttons were
+// dropped entirely (real risk of an accidental tap, one more screen
+// element to explain) in favor of a silent detector — main.py's
+// _maybe_flag_previous_answer asks Groq whether the user's own next
+// message reads as a complaint about the previous answer, and flags it
+// automatically. No button, no callback, nothing for this file to do
+// for feedback at all anymore.
 
 async function callNovaBackend(path: string, body: Record<string, unknown>): Promise<{ ok: boolean; data: any }> {
   if (!FASTAPI_URL || !INTERNAL_SECRET) {
@@ -258,8 +251,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     const cqData = String(update.callback_query.data || "");
     if (cqData.startsWith("nova_plan|")) {
       await handleNovaPlanCallback(bot, update.callback_query);
-    } else if (cqData.startsWith("nova_fb|")) {
-      await handleNovaFeedbackCallback(bot, update.callback_query);
     } else {
       await handleNovaAdminCallback(bot, update.callback_query);
     }

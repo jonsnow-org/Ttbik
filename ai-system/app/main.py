@@ -48,27 +48,14 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
-def _send_telegram_message(chat_id: str, text: str, log_id: str | None = None) -> None:
-    """log_id, when given, attaches the same 👍/👎 feedback keyboard
-    novaBotLogic.ts puts on every text/voice/file answer — image
-    answers are delivered directly from here (see
-    _process_image_and_deliver above) rather than through that file's
-    normal send path, so they need the buttons added here instead."""
+def _send_telegram_message(chat_id: str, text: str) -> None:
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async answer to Telegram chat_id=%s", chat_id)
         return
-    body = {"chat_id": chat_id, "text": text}
-    if log_id:
-        body["reply_markup"] = {
-            "inline_keyboard": [[
-                {"text": "👍", "callback_data": f"nova_fb|{log_id}|up"},
-                {"text": "👎", "callback_data": f"nova_fb|{log_id}|down"},
-            ]]
-        }
     try:
         requests.post(
             f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
-            json=body,
+            json={"chat_id": chat_id, "text": text},
             timeout=15,
         )
     except Exception:
@@ -105,7 +92,6 @@ class ChatResponse(BaseModel):
     quota_message: str
     answer: str | None = None
     query_type: str | None = None
-    log_id: str | None = None
 
 
 @app.get("/health")
@@ -153,15 +139,35 @@ def _enforce_quota(user: dict, kind: str = "TEXT") -> str:
     return quota_message
 
 
+def _maybe_flag_previous_answer(user_id: str, new_message: str) -> None:
+    """Silent thumbs-down detector (owner spec 2026-09-08, replacing
+    visible 👍/👎 buttons — real risk of an accidental tap, and one
+    fewer screen element for the user to deal with). Runs right before
+    generating the NEW answer, so it judges the PREVIOUS turn based on
+    how the user actually reacted to it — see
+    council.detect_dissatisfaction. Never raises; a failure here just
+    means one fewer DPO example, never a blocked chat."""
+    try:
+        prev = quota.get_last_usage_log(user_id)
+        if not prev or prev.get("rating") or not prev.get("answer"):
+            return
+        if council.detect_dissatisfaction(prev["answer"], new_message):
+            quota.set_feedback(prev["id"], "DOWN")
+            logger.info("passive feedback: flagged log %s as DOWN from the user's own follow-up message", prev["id"])
+    except Exception:
+        logger.exception("passive feedback detection failed — skipping")
+
+
 def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str, str]:
-    """The one shared brain path: classify -> build context (memory +
-    live search/knowledge bank) -> council answer -> log + remember.
-    Used directly for WEB/API channels, and inside a FastAPI
-    BackgroundTask for TELEGRAM (see chat()/voice()/file_endpoint()
-    below) — no BackgroundTasks parameter here on purpose, since this
-    function itself now runs *as* a background task on the TELEGRAM
-    path and there is no request/response cycle left to defer onto by
-    that point.
+    """The one shared brain path: flag previous answer if the user's
+    new message reads as a complaint about it -> classify -> build
+    context (memory + live search/knowledge bank) -> council answer ->
+    log + remember. Used directly for WEB/API channels, and inside a
+    FastAPI BackgroundTask for TELEGRAM (see chat()/voice()/
+    file_endpoint() below) — no BackgroundTasks parameter here on
+    purpose, since this function itself now runs *as* a background
+    task on the TELEGRAM path and there is no request/response cycle
+    left to defer onto by that point.
 
     Owner report, 2026-09-08: real Render log evidence — the
     self-critique response format (ModelScope app.py's <تفكير>/<اجابة>
@@ -174,6 +180,7 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     real work as a background task and deliver the answer straight to
     Telegram once it's ready, instead of racing a deadline that no
     longer fits."""
+    _maybe_flag_previous_answer(user["id"], message)
     query_type = router.classify(message)
     context = rag.build_context(user["id"], message, query_type)
     final_answer = council.answer(message, context)
@@ -184,8 +191,8 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
 
 
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
-    final_answer, _query_type, log_id = _run_text_pipeline(user, channel, message)
-    _send_telegram_message(chat_id, _strip_markdown(final_answer), log_id=log_id)
+    final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
+    _send_telegram_message(chat_id, _strip_markdown(final_answer))
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -207,34 +214,8 @@ def chat(
         background_tasks.add_task(_process_chat_and_deliver, user, req.channel, req.message, req.chat_id)
         return ChatResponse(accepted=True, quota_message=quota_message)
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, req.message)
-    return ChatResponse(accepted=True, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
-
-
-class FeedbackRequest(BaseModel):
-    channel: str
-    log_id: str
-    rating: str  # "UP" | "DOWN"
-
-
-@app.post("/feedback")
-def feedback(
-    req: FeedbackRequest,
-    authorization: str | None = Header(default=None),
-    x_internal_secret: str | None = Header(default=None),
-):
-    """The 👍/👎 tap itself — novaBotLogic.ts calls this from the
-    callback handler attached to every text/voice/file answer. No user
-    resolution needed here beyond the same channel auth every other
-    TELEGRAM/WEB call already requires — log_id alone identifies which
-    answer this is about."""
-    _authorize(req.channel, authorization, x_internal_secret)
-    if req.rating not in ("UP", "DOWN"):
-        raise HTTPException(status_code=400, detail="rating must be UP or DOWN")
-    found = quota.set_feedback(req.log_id, req.rating)
-    if not found:
-        raise HTTPException(status_code=404, detail="log not found")
-    return {"ok": True}
+    final_answer, query_type, _log_id = _run_text_pipeline(user, req.channel, req.message)
+    return ChatResponse(accepted=True, answer=final_answer, query_type=query_type, quota_message=quota_message)
 
 
 class VoiceRequest(BaseModel):
@@ -252,7 +233,6 @@ class VoiceResponse(BaseModel):
     transcript: str | None = None
     answer: str | None = None
     query_type: str | None = None
-    log_id: str | None = None
 
 
 @app.post("/voice", response_model=VoiceResponse)
@@ -278,10 +258,8 @@ def voice(
         background_tasks.add_task(_process_chat_and_deliver, user, req.channel, transcript, req.chat_id)
         return VoiceResponse(accepted=True, quota_message=quota_message, transcript=transcript)
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, transcript)
-    return VoiceResponse(
-        accepted=True, transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id
-    )
+    final_answer, query_type, _log_id = _run_text_pipeline(user, req.channel, transcript)
+    return VoiceResponse(accepted=True, transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message)
 
 
 class ImageRequest(BaseModel):
@@ -320,11 +298,11 @@ def _process_image_and_deliver(
     if answer_text is None:
         answer_text = "تعذّر تحليل الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم، أو حاول مرة أخرى لاحقاً."
 
-    log_id = quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
+    quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
     rag.remember(user_id, f"[صورة] {prompt}", answer_text)
 
     if chat_id:
-        _send_telegram_message(chat_id, _strip_markdown(answer_text), log_id=log_id)
+        _send_telegram_message(chat_id, _strip_markdown(answer_text))
 
 
 @app.post("/image", response_model=ImageResponse)
@@ -420,7 +398,6 @@ class FileResponse(BaseModel):
     accepted: bool
     quota_message: str
     answer: str | None = None
-    log_id: str | None = None
 
 
 @app.post("/file", response_model=FileResponse)
@@ -450,8 +427,8 @@ def file_endpoint(
         background_tasks.add_task(_process_chat_and_deliver, user, req.channel, message, req.chat_id)
         return FileResponse(accepted=True, quota_message=quota_message)
 
-    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, message)
-    return FileResponse(accepted=True, answer=final_answer, quota_message=quota_message, log_id=log_id)
+    final_answer, _query_type, _log_id = _run_text_pipeline(user, req.channel, message)
+    return FileResponse(accepted=True, answer=final_answer, quota_message=quota_message)
 
 
 class WhoamiRequest(BaseModel):
