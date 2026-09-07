@@ -365,12 +365,27 @@ _EXPERT_PERSONA_BY_QUERY_TYPE = {
 # raw text (minus any stray thinking block) rather than silently
 # returning nothing.
 _ANSWER_TAG_RE = re.compile(r"<اجابة>(.*?)</اجابة>", re.DOTALL)
+# Owner report, 2026-09-09 (real Telegram evidence, screenshot): a reply
+# arrived with the literal text "<اجابة>" visible at the top — the model
+# opened the tag but never emitted the closing </اجابة> (most likely cut
+# off by max_tokens before finishing, though a 7B model can simply drop
+# it too). The old fallback below only ever stripped a *complete*
+# <تفكير>...</تفكير> block and returned the rest verbatim, so a dangling
+# open tag with no match for _ANSWER_TAG_RE fell straight through to the
+# user with the raw tag still in it. Real fix: if the strict tag match
+# fails, look for a bare opening <اجابة> and take everything after it
+# (still real model output, just never closed) before falling back
+# further to stripping only <تفكير>.
+_ANSWER_OPEN_TAG_RE = re.compile(r"<اجابة>", re.DOTALL)
 
 
 def _extract_final_answer(raw: str) -> str:
     match = _ANSWER_TAG_RE.search(raw)
     if match:
         return match.group(1).strip()
+    open_match = _ANSWER_OPEN_TAG_RE.search(raw)
+    if open_match:
+        return raw[open_match.end() :].strip()
     return re.sub(r"<تفكير>.*?</تفكير>", "", raw, flags=re.DOTALL).strip() or raw.strip()
 
 
@@ -430,7 +445,15 @@ def _temperature_for(query_type: str) -> float:
 # better. So CODE keeps real headroom; only GENERAL/LIVE_INFO (which
 # reuses the same tighter budget in most other cases here) get cut down
 # near the 300-400 Gemini proposed.
-_MAX_TOKENS_BY_QUERY_TYPE = {"CODE": 900, "LIVE_INFO": 500, "GENERAL": 400}
+# GENERAL raised from an initial 400 to 500 after real evidence
+# (2026-09-09): a reply arrived with a literal unclosed "<اجابة>" tag
+# visible to the user — the mandatory <تفكير> preamble on a wordier
+# attempt can eat into a tight budget, leaving too little room to close
+# <اجابة> before hitting the cap. 500 still cuts the old flat 900
+# nearly in half (the real latency win) while giving real headroom for
+# the preamble; the fallback in _extract_final_answer above is now also
+# hardened to never leak a bare open tag regardless of budget.
+_MAX_TOKENS_BY_QUERY_TYPE = {"CODE": 900, "LIVE_INFO": 500, "GENERAL": 500}
 
 
 def _max_tokens_for(query_type: str) -> int:
