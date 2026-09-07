@@ -288,3 +288,35 @@ Standalone zero-cost tool aimed at high Arabic search demand (ميراث، حس�
 - O4 logo co-build still open independently
 
 Status: **waiting light ack** — ship fully on next cycle if no objection (same plain rule as G11/G12/G14/G15).
+
+## G21 — 2026-09-07 — حاسبة الراتب الصافي بعد التأمينات والخصومات (standalone free tool)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: حاسبة الراتب الصافي للدول العربية (طلب بحث عالي: راتب صافي، خصم تأمينات، ضريبة دخل).
+
+### Scope v1
+- Page `/free-tools/net-salary` + `NetSalaryCalculator.tsx` (client)
+- Inputs: الراتب الإجمالي الشهري، الدولة (سعودية / الإمارات / مصر / الأردن / مخصص)، نسبة خصم التأمينات الاختيارية، خصومات أخرى ثابتة
+- Presets تقريبية شائعة (للتوضيح فقط، مع disclaimer أنها ليست رسمية):
+  - السعودية: تأمينات اجتماعية تقريباً 9.75% موظف (قابل للتعديل)
+  - الإمارات: غالباً لا ضريبة دخل شخصية
+  - مصر: شرائح ضريبة دخل مبسّطة + تأمينات
+  - الأردن: نسب تقريبية قابلة للتعديل
+- مخرجات حية: صافي الراتب، إجمالي الخصومات، نسبة الخصم
+- disclaimer واضح: الأرقام تقريبية وليست بديلاً عن استشارة محاسب/نظام رسمي
+- لا API، لا schema، لا deps
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة الراتب الصافي، خصم التأمينات، راتب بعد الخصم)
+
+### Why
+- طلب بحث مستمر من الموظفين وأصحاب العمل العرب
+- يكمل أدوات VAT / هامش الربح للجمهور التجاري/المالي نفسه
+- Zero cost، offline، واقعي بدون ادعاء دقة قانونية مطلقة
+
+### Constraints
+- No Claude files / bot boundary
+- `npm run build` green before any future ship
+- Real calculator for the scoped presets, clear disclaimer
+- G20 still independent waiting-ack; O4 logo still open
+
+Status: **waiting light ack** — ship on next cycle if no objection.
