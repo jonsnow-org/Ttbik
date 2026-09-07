@@ -10,17 +10,28 @@ type NovaUser = {
   plan: string;
   subscriptionExpiresAt: string | null;
   dailyUsed: number;
+  dailyUsedImage: number;
+  weeklyUsedText: number;
+  weeklyUsedImage: number;
   dailyResetAt: string;
   created_at: string;
 };
 
 type LogRow = { id: string; channel: string; queryType: string; message: string | null; answer: string | null; created_at: string };
 
-const FREE_DAILY_QUOTA = 20; // mirrors ai-system/.env.example's default — display only
+type Plan = {
+  label: string;
+  daily_text: number;
+  daily_image: number;
+  weekly_text: number;
+  weekly_image: number;
+  price_usd: number;
+};
 
 export default function NovaDashboardClient({ uid }: { uid: string }) {
   const [tab, setTab] = useState<"overview" | "history" | "apikey" | "upgrade">("overview");
   const [user, setUser] = useState<NovaUser | null>(null);
+  const [plans, setPlans] = useState<Record<string, Plan>>({});
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
@@ -35,6 +46,7 @@ export default function NovaDashboardClient({ uid }: { uid: string }) {
       return;
     }
     setUser(data.user);
+    setPlans(data.plans || {});
     setLogs(data.recentLogs || []);
     setApiKey(data.user.apiKey);
   }, [uid]);
@@ -77,8 +89,10 @@ export default function NovaDashboardClient({ uid }: { uid: string }) {
     );
   }
 
-  const isPro = user.plan === "PRO";
-  const remaining = isPro ? null : Math.max(0, FREE_DAILY_QUOTA - user.dailyUsed);
+  const isPro = user.plan !== "FREE";
+  const currentPlan: Plan | undefined = plans[user.plan];
+  const remainingText = currentPlan ? Math.max(0, currentPlan.daily_text - user.dailyUsed) : null;
+  const remainingImage = currentPlan ? Math.max(0, currentPlan.daily_image - user.dailyUsedImage) : null;
 
   const TABS: { id: typeof tab; label: string }[] = [
     { id: "overview", label: "نظرة عامة" },
@@ -112,15 +126,20 @@ export default function NovaDashboardClient({ uid }: { uid: string }) {
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-600">الخطة الحالية</span>
               <span className={`rounded-full px-3 py-1 text-xs font-bold ${isPro ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"}`}>
-                {isPro ? "👑 PRO" : "مجانية"}
+                {isPro ? `👑 ${currentPlan?.label || user.plan}` : "مجانية"}
               </span>
             </div>
-            {isPro ? (
-              <p className="mt-2 text-sm text-slate-500">
-                {user.subscriptionExpiresAt ? `ينتهي في: ${new Date(user.subscriptionExpiresAt).toLocaleDateString("ar")}` : "بلا حد يومي"}
-              </p>
-            ) : (
-              <p className="mt-2 text-sm text-slate-500">متبقٍ اليوم: {remaining} من {FREE_DAILY_QUOTA} رسالة</p>
+            {isPro && user.subscriptionExpiresAt && (
+              <p className="mt-1 text-xs text-slate-400">ينتهي في: {new Date(user.subscriptionExpiresAt).toLocaleDateString("ar")}</p>
+            )}
+            {currentPlan && (
+              <div className="mt-2 space-y-1 text-sm text-slate-500">
+                <p>رسائل اليوم: {remainingText} من {currentPlan.daily_text}</p>
+                <p>صور اليوم: {remainingImage} من {currentPlan.daily_image}</p>
+                <p className="text-xs text-slate-400">
+                  الحد الأسبوعي: {currentPlan.weekly_text} رسالة، {currentPlan.weekly_image} صورة
+                </p>
+              </div>
             )}
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
@@ -165,19 +184,18 @@ export default function NovaDashboardClient({ uid }: { uid: string }) {
 
       {tab === "upgrade" && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          {isPro ? (
-            <p className="text-sm text-slate-600">اشتراكك PRO فعّال حالياً — رسائل غير محدودة يومياً 🎉</p>
-          ) : (
-            <>
-              <p className="mb-3 text-sm text-slate-600">ترقّ إلى PRO مقابل $5 شهرياً للحصول على رسائل غير محدودة يومياً.</p>
-              <a
-                href={`/pay/nova?uid=${uid}`}
-                className="block w-full rounded-xl bg-brand-700 py-3 text-center text-sm font-bold text-white"
-              >
-                اشترك الآن بعملة رقمية →
-              </a>
-            </>
+          {isPro && (
+            <p className="mb-3 text-sm text-slate-600">
+              اشتراكك الحالي: {currentPlan?.label || user.plan} — يمكنك الترقية لخطة أعلى في أي وقت.
+            </p>
           )}
+          <p className="mb-3 text-sm text-slate-600">كل الخطط تتيح كل ميزات نوفا (نص، صور، صوت، ملفات) — الفرق فقط في الكمية اليومية/الأسبوعية.</p>
+          <a
+            href={`/pay/nova?uid=${uid}`}
+            className="block w-full rounded-xl bg-brand-700 py-3 text-center text-sm font-bold text-white"
+          >
+            عرض الخطط والاشتراك بعملة رقمية →
+          </a>
         </div>
       )}
     </div>

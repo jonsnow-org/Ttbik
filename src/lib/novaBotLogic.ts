@@ -100,18 +100,90 @@ async function sendNovaAdminPanel(bot: TelegramBot, chatId: number) {
     await bot.api.sendMessage(chatId, `تعذر جلب إحصائيات نوفا: ${data?.detail || "خطأ غير معروف"}`);
     return;
   }
+  const planCounts = (data.plan_counts || {}) as Record<string, number>;
+  const planLines = Object.entries(planCounts)
+    .map(([plan, count]) => `  • ${plan}: ${count}`)
+    .join("\n");
   await bot.api.sendMessage(
     chatId,
     `🛠 لوحة إدارة Nova AI\n\n` +
       `👥 إجمالي المستخدمين: ${data.total_users}\n` +
-      `💎 مشتركو PRO: ${data.pro_users}\n` +
-      `🆓 مستخدمو الخطة المجانية: ${data.free_users}\n` +
+      `📊 حسب الخطة:\n${planLines}\n` +
       `⏳ طلبات اشتراك بانتظار الموافقة: ${data.pending_subscriptions}\n` +
       `💬 إجمالي الرسائل المُعالجة: ${data.total_messages}\n\n` +
       `الأوامر:\n` +
       `/طلبات_الاشتراك — عرض طلبات الاشتراك المعلّقة والموافقة/الرفض\n` +
       `/بث <نص> — إرسال رسالة لكل مستخدمي تيليجرام في نوفا`
   );
+}
+
+type NovaPlan = {
+  label: string;
+  daily_text: number;
+  daily_image: number;
+  weekly_text: number;
+  weekly_image: number;
+  price_usd: number;
+};
+
+// A plain GET, unlike every other Nova backend call — callNovaBackend
+// above always POSTs, and /plans (ai-system/app/main.py) is a public
+// read-only catalog with no per-user identity involved, so it doesn't
+// need the X-Internal-Secret gate either.
+async function fetchNovaPlans(): Promise<Record<string, NovaPlan> | null> {
+  if (!FASTAPI_URL) return null;
+  try {
+    const res = await fetch(`${FASTAPI_URL}/plans`, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.plans || null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendNovaPlanPicker(bot: TelegramBot, chatId: number) {
+  const plans = await fetchNovaPlans();
+  if (!plans) {
+    await bot.api.sendMessage(chatId, "تعذر جلب خطط الاشتراك حالياً — حاول مرة أخرى بعد قليل.");
+    return;
+  }
+  const paidPlans = Object.entries(plans).filter(([key]) => key !== "FREE");
+  const kb = new InlineKeyboard();
+  for (const [key, p] of paidPlans) {
+    kb.text(`${p.label} — $${p.price_usd}/شهرياً`, `nova_plan|${key}`).row();
+  }
+  const lines = paidPlans.map(([, p]) => `• ${p.label}: ${p.daily_text} رسالة/يوم، ${p.daily_image} صورة/يوم — $${p.price_usd}/شهرياً`);
+  await bot.api.sendMessage(chatId, `اختر خطة الاشتراك (كل الوظائف متاحة في كل خطة، الفرق فقط في الكمية اليومية/الأسبوعية):\n\n${lines.join("\n")}`, {
+    reply_markup: kb,
+  });
+}
+
+async function handleNovaPlanCallback(bot: TelegramBot, cq: any) {
+  const chatId = cq.message?.chat?.id;
+  const messageId = cq.message?.message_id;
+  const tgUserId = String(cq.from.id);
+  const [, plan] = String(cq.data || "").split("|");
+  if (!chatId || !messageId || !plan) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  const { ok, data } = await callNovaBackend("/subscribe", { channel: "TELEGRAM", telegram_id: tgUserId, plan });
+  if (!ok) {
+    await bot.api.answerCallbackQuery(cq.id, { text: data?.detail || "تعذر إرسال الطلب", show_alert: true }).catch(() => null);
+    return;
+  }
+  await bot.api.answerCallbackQuery(cq.id, { text: "تم إرسال الطلب" }).catch(() => null);
+  const payUrl = data.nova_user_id ? `${SITE_URL}/pay/nova?uid=${data.nova_user_id}` : null;
+  await bot.api
+    .editMessageText(
+      chatId,
+      messageId,
+      payUrl
+        ? `${data.message}\n\nادفع الآن لتفعيل فوري ($${data.amount_usd}/شهرياً):\n${payUrl}`
+        : data.message
+    )
+    .catch(() => null);
 }
 
 async function sendNovaPendingSubscriptions(bot: TelegramBot, chatId: number) {
@@ -171,7 +243,12 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (update.callback_query) {
-    await handleNovaAdminCallback(bot, update.callback_query);
+    const cqData = String(update.callback_query.data || "");
+    if (cqData.startsWith("nova_plan|")) {
+      await handleNovaPlanCallback(bot, update.callback_query);
+    } else {
+      await handleNovaAdminCallback(bot, update.callback_query);
+    }
     return;
   }
 
@@ -271,18 +348,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   }
 
   if (text === "/ترقية" || text === "/subscribe") {
-    const { ok, data } = await callNovaBackend("/subscribe", { channel: "TELEGRAM", telegram_id: tgUserId });
-    if (!ok) {
-      await bot.api.sendMessage(chatId, `تعذر إرسال الطلب: ${data.detail || "خطأ غير معروف"}`);
-      return;
-    }
-    const payUrl = data.nova_user_id ? `${SITE_URL}/pay/nova?uid=${data.nova_user_id}` : null;
-    await bot.api.sendMessage(
-      chatId,
-      payUrl
-        ? `${data.message}\n\nادفع الآن لتفعيل فوري (5$ شهرياً):\n${payUrl}`
-        : data.message
-    );
+    await sendNovaPlanPicker(bot, chatId);
     return;
   }
 

@@ -21,7 +21,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
     await prisma.novaUser.update({
       where: { id: subscription.novaUserId },
-      data: { plan: "PRO", subscriptionExpiresAt: expiresAt },
+      data: { plan: subscription.plan, subscriptionExpiresAt: expiresAt },
     });
     return NextResponse.json({ ok: true });
   }

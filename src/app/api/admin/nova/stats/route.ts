@@ -10,9 +10,9 @@ export async function GET() {
   const since24h = new Date(Date.now() - 24 * 3600 * 1000);
   const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000);
 
-  const [totalUsers, proUsers, pendingSubs, messages24h, messages7d, byChannel, byQueryType] = await Promise.all([
+  const [totalUsers, byPlan, pendingSubs, messages24h, messages7d, byChannel, byQueryType] = await Promise.all([
     prisma.novaUser.count(),
-    prisma.novaUser.count({ where: { plan: "PRO" } }),
+    prisma.novaUser.groupBy({ by: ["plan"], _count: { _all: true } }),
     prisma.novaSubscription.count({ where: { status: "PENDING_APPROVAL" } }),
     prisma.novaUsageLog.count({ where: { created_at: { gte: since24h } } }),
     prisma.novaUsageLog.count({ where: { created_at: { gte: since7d } } }),
@@ -22,8 +22,8 @@ export async function GET() {
 
   return NextResponse.json({
     totalUsers,
-    proUsers,
-    freeUsers: totalUsers - proUsers,
+    // FREE | PRO_BASIC | PRO_PLUS | PRO_ULTRA — see ai-system/app/quota.py's PLANS dict
+    planCounts: Object.fromEntries(byPlan.map((p) => [p.plan, p._count._all])),
     pendingSubscriptions: pendingSubs,
     messages24h,
     messages7d,

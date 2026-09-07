@@ -57,7 +57,11 @@ HF_IMAGE_MODEL_ID = os.environ.get("HF_IMAGE_MODEL_ID", "")
 
 NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 
-FREE_DAILY_QUOTA = int(os.environ.get("FREE_DAILY_QUOTA", "20"))
+# Owner spec, 2026-09-08: replaced by the tiered PLANS dict in quota.py
+# (FREE/PRO_BASIC/PRO_PLUS/PRO_ULTRA, each with its own daily+weekly
+# text/image caps) — a single flat env var couldn't express that, so
+# this no longer exists as a config knob; edit quota.py's PLANS dict
+# directly to change any plan's numbers.
 
 # The platform owner is never a customer of their own product — exempt
 # from the same free daily cap regular NovaUsers hit (owner report,

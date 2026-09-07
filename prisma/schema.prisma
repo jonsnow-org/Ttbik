@@ -943,10 +943,26 @@ model NovaUser {
   telegramId            String?   @unique // set when the user first talks via NOVA_BOT
   email                 String?   @unique // set when the user first logs into the Streamlit web UI
   apiKey                String?   @unique // issued on request for external API access
-  plan                  String    @default("FREE") // FREE | PRO
+  // FREE | PRO_BASIC | PRO_PLUS | PRO_ULTRA — owner spec 2026-09-08:
+  // everything the bot can do stays available to every tier (text,
+  // vision, voice, files, image generation); tiers only scale HOW MUCH
+  // of it you get per day/week, cheaper than a single flat $5 plan.
+  // Exact numbers live in ai-system/app/quota.py's PLANS dict, kept in
+  // one place so pricing can change without a migration.
+  plan                  String    @default("FREE")
   subscriptionExpiresAt DateTime?
-  dailyUsed             Int       @default(0)
+  // Daily counters, separate per media type since the owner wants a
+  // much stricter cap on images specifically (heavier to compute) than
+  // on plain text messages.
+  dailyUsed             Int       @default(0) // text/voice/file messages today
+  dailyUsedImage        Int       @default(0) // images today (understand + generate share one cap)
   dailyResetAt          DateTime  @default(now())
+  // Weekly counters, same split — owner spec: "نفس النظام الذي تعمل
+  // عليه أنت [Claude]" (a rolling weekly ceiling on top of the daily
+  // one, so a paid plan can't be hammered non-stop every single day).
+  weeklyUsedText        Int       @default(0)
+  weeklyUsedImage       Int       @default(0)
+  weeklyResetAt         DateTime  @default(now())
   created_at            DateTime  @default(now())
   usageLogs             NovaUsageLog[]
   subscriptions         NovaSubscription[]
@@ -968,7 +984,7 @@ model NovaSubscription {
   id         String    @id @default(uuid())
   novaUserId String
   novaUser   NovaUser  @relation(fields: [novaUserId], references: [id])
-  plan       String // PRO_MONTHLY
+  plan       String // PRO_BASIC | PRO_PLUS | PRO_ULTRA (monthly) — see ai-system/app/quota.py's PLANS dict
   amountUsd  Float
   status     String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | ACTIVE | EXPIRED
   approvedBy String? // owner's Telegram ID who approved manually

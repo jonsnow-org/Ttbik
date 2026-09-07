@@ -4,8 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 type Stats = {
   totalUsers: number;
-  proUsers: number;
-  freeUsers: number;
+  planCounts: Record<string, number>;
   pendingSubscriptions: number;
   messages24h: number;
   messages7d: number;
@@ -21,9 +20,12 @@ type NovaUser = {
   plan: string;
   subscriptionExpiresAt: string | null;
   dailyUsed: number;
+  dailyUsedImage: number;
   dailyResetAt: string;
   created_at: string;
 };
+
+const PAID_PLANS = ["PRO_BASIC", "PRO_PLUS", "PRO_ULTRA"];
 
 type Subscription = {
   id: string;
@@ -148,8 +150,9 @@ export default function NovaAdminDashboard() {
       {tab === "overview" && stats && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="إجمالي المستخدمين" value={stats.totalUsers} />
-          <StatCard label="مشتركو PRO" value={stats.proUsers} />
-          <StatCard label="مجانيون" value={stats.freeUsers} />
+          {Object.entries(stats.planCounts).map(([plan, count]) => (
+            <StatCard key={plan} label={plan} value={count} />
+          ))}
           <StatCard label="طلبات بانتظار الموافقة" value={stats.pendingSubscriptions} />
           <StatCard label="رسائل آخر 24 ساعة" value={stats.messages24h} />
           <StatCard label="رسائل آخر 7 أيام" value={stats.messages7d} />
@@ -227,17 +230,21 @@ export default function NovaAdminDashboard() {
                   <div>
                     <p className="font-bold">{u.telegramId ? `TG: ${u.telegramId}` : u.email || "—"}</p>
                     <p className="text-xs text-slate-500">
-                      {u.plan} — استخدام اليوم: {u.dailyUsed} — منذ {new Date(u.created_at).toLocaleDateString("ar")}
+                      {u.plan} — رسائل اليوم: {u.dailyUsed} — صور اليوم: {u.dailyUsedImage} — منذ{" "}
+                      {new Date(u.created_at).toLocaleDateString("ar")}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    <button
-                      disabled={busy === u.id + "grant_pro"}
-                      onClick={() => userAction(u.id, "grant_pro", { days: 30 })}
-                      className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white disabled:opacity-50"
-                    >
-                      منح PRO (30 يوم)
-                    </button>
+                    {PAID_PLANS.map((plan) => (
+                      <button
+                        key={plan}
+                        disabled={busy === u.id + "grant_pro"}
+                        onClick={() => userAction(u.id, "grant_pro", { plan, days: 30 })}
+                        className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        منح {plan} (30 يوم)
+                      </button>
+                    ))}
                     <button
                       disabled={busy === u.id + "revoke_pro"}
                       onClick={() => userAction(u.id, "revoke_pro")}
@@ -250,7 +257,7 @@ export default function NovaAdminDashboard() {
                       onClick={() => userAction(u.id, "reset_quota")}
                       className="rounded-lg bg-brand-700 px-2 py-1 text-xs font-bold text-white disabled:opacity-50"
                     >
-                      إعادة تعيين الحد اليومي
+                      إعادة تعيين الحد اليومي والأسبوعي
                     </button>
                   </div>
                 </div>

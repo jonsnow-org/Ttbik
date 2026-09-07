@@ -126,8 +126,8 @@ def _resolve_and_authorize(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-def _enforce_quota(user: dict) -> str:
-    allowed, _remaining, quota_message = quota.check_and_reserve_quota(user)
+def _enforce_quota(user: dict, kind: str = "TEXT") -> str:
+    allowed, _remaining, quota_message = quota.check_and_reserve_quota(user, kind)
     if not allowed:
         raise HTTPException(status_code=429, detail=quota_message)
     return quota_message
@@ -277,7 +277,7 @@ def image(
     _process_image_and_deliver / _send_telegram_message above), fully
     decoupled from this request's own lifetime."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
-    quota_message = _enforce_quota(user)
+    quota_message = _enforce_quota(user, "IMAGE")
 
     prompt = req.caption or "صف هذه الصورة بالتفصيل وأجب عن أي سؤال ضمني فيها."
     background_tasks.add_task(
@@ -312,7 +312,7 @@ def generate_image(
     fallback: Groq/Gemini's free tiers have no image generation at all,
     which is exactly why this needed to be a model we actually own."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
-    quota_message = _enforce_quota(user)
+    quota_message = _enforce_quota(user, "IMAGE")
 
     image_bytes = council.generate_image(req.prompt)
     if image_bytes is None:
@@ -392,8 +392,20 @@ def whoami(
     return {"nova_user_id": user["id"]}
 
 
+@app.get("/plans")
+def plans():
+    """The single source of truth for plan names/prices/limits — read
+    by novaBotLogic.ts to render the /ترقية tier-picker keyboard instead
+    of duplicating these numbers in TypeScript. Owner changes a price
+    or limit in quota.py's PLANS dict once; every client picks it up
+    automatically on its next call, no redeploy of the bot itself
+    needed."""
+    return {"plans": quota.PLANS}
+
+
 class SubscribeRequest(BaseModel):
     channel: str
+    plan: str
     telegram_id: str | None = None
     email: str | None = None
 
@@ -404,13 +416,14 @@ def subscribe(
     authorization: str | None = Header(default=None),
     x_internal_secret: str | None = Header(default=None),
 ):
-    """Creates a PENDING_APPROVAL subscription request AND returns the
-    NovaUser id so the caller can build a real payment link
-    (Ttbik/pay/nova?uid=<id> -> NOWPayments -> nova-webhook auto-activates
-    PRO on confirmed payment). The PENDING_APPROVAL row is kept as a
-    manual fallback for anyone who can't/won't pay by crypto — same
-    standing product rule as every other bot here — but paying is now the
-    fast path instead of the only path."""
+    """Creates a PENDING_APPROVAL subscription request for the chosen
+    paid tier (PRO_BASIC/PRO_PLUS/PRO_ULTRA — see /plans) AND returns
+    the NovaUser id so the caller can build a real payment link
+    (Ttbik/pay/nova?uid=<id>&plan=<plan> -> NOWPayments -> nova-webhook
+    auto-activates that tier on confirmed payment). The PENDING_APPROVAL
+    row is kept as a manual fallback for anyone who can't/won't pay by
+    crypto — same standing product rule as every other bot here — but
+    paying is now the fast path instead of the only path."""
     api_key = _authorize(req.channel, authorization, x_internal_secret)
     try:
         user = quota.resolve_or_create_user(
@@ -419,10 +432,15 @@ def subscribe(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    sub_id = quota.request_subscription(user["id"])
+    try:
+        sub_id = quota.request_subscription(user["id"], req.plan)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {
         "subscription_id": sub_id,
         "nova_user_id": user["id"],
+        "plan": req.plan,
+        "amount_usd": quota.PLANS[req.plan]["price_usd"],
         "message": "ادفع الآن لتفعيل فوري، أو انتظر تفعيلاً يدوياً من المالك.",
     }
 

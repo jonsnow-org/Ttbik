@@ -1,16 +1,65 @@
 """
-Identity resolution + daily-quota/subscription enforcement against the
-shared NovaUser table. Mirrors the ledger/quota patterns already used
-in src/lib/adBotLogic.ts (isolated table, plain string status fields,
-no automated payment/checkout — subscriptions start PENDING_APPROVAL
-and the owner flips them to ACTIVE manually, same as this project's
-standing product rule against auto-checkout).
+Identity resolution + tiered daily/weekly-quota/subscription
+enforcement against the shared NovaUser table. Mirrors the
+ledger/quota patterns already used in src/lib/adBotLogic.ts (isolated
+table, plain string status fields, no automated payment/checkout —
+subscriptions start PENDING_APPROVAL and the owner flips them to
+ACTIVE manually, same as this project's standing product rule against
+auto-checkout).
+
+Owner spec, 2026-09-08: every feature (text, vision, voice, files,
+image generation) stays available to EVERY plan, including FREE —
+plans only scale HOW MUCH of it you get per day/week, not WHICH
+features you can reach at all. Images get a much stricter cap than
+plain text everywhere (heavier to compute on our own free hardware),
+and every plan also carries a weekly ceiling on top of its daily one —
+the same shape the owner described Claude's own consumer plans using —
+so a paid plan can't be hammered non-stop every single day. Pricing
+below is a starting proposal (owner: "must be cheaper than yours,
+mine's a beginner") — change the numbers here whenever the owner wants
+a different price or limit; nothing else in the codebase needs to
+change for that.
 """
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.config import FREE_DAILY_QUOTA, SUPER_ADMIN_TELEGRAM_ID
+from app.config import SUPER_ADMIN_TELEGRAM_ID
 from app.supabase_client import get_supabase
+
+PLANS: dict[str, dict] = {
+    "FREE": {
+        "label": "مجاني",
+        "daily_text": 100,
+        "daily_image": 3,
+        "weekly_text": 600,
+        "weekly_image": 18,
+        "price_usd": 0.0,
+    },
+    "PRO_BASIC": {
+        "label": "نوفا الأساسي",
+        "daily_text": 500,
+        "daily_image": 20,
+        "weekly_text": 3000,
+        "weekly_image": 120,
+        "price_usd": 2.0,
+    },
+    "PRO_PLUS": {
+        "label": "نوفا بلس",
+        "daily_text": 2000,
+        "daily_image": 60,
+        "weekly_text": 12000,
+        "weekly_image": 360,
+        "price_usd": 4.0,
+    },
+    "PRO_ULTRA": {
+        "label": "نوفا الكامل",
+        "daily_text": 999_999,
+        "daily_image": 999_999,
+        "weekly_text": 999_999,
+        "weekly_image": 999_999,
+        "price_usd": 7.0,
+    },
+}
 
 
 def _now() -> datetime:
@@ -68,40 +117,71 @@ def resolve_or_create_user(
     raise ValueError(f"unknown channel: {channel}")
 
 
-def has_active_subscription(user: dict) -> bool:
-    if user.get("plan") != "PRO":
-        return False
+def effective_plan(user: dict) -> str:
+    """A stale/expired paid plan silently behaves as FREE from here on —
+    no separate "is it still active" check needed anywhere else."""
+    plan = user.get("plan") or "FREE"
+    if plan == "FREE" or plan not in PLANS:
+        return "FREE"
     expires_at = user.get("subscriptionExpiresAt")
-    if not expires_at:
-        return False
-    return _parse_ts(expires_at) > _now()
+    if not expires_at or _parse_ts(expires_at) <= _now():
+        return "FREE"
+    return plan
 
 
-def check_and_reserve_quota(user: dict) -> tuple[bool, int, str]:
-    """Returns (allowed, remaining_after, message). The platform owner
-    and PRO users skip the daily cap entirely. FREE users reset at
-    each new UTC day."""
+def has_active_subscription(user: dict) -> bool:
+    return effective_plan(user) != "FREE"
+
+
+def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, str]:
+    """Returns (allowed, remaining_after, message). kind is "TEXT" (chat/
+    voice/file) or "IMAGE" (understand or generate — they share one
+    cap). The platform owner skips every cap entirely; every other
+    user, FREE included, is checked against their plan's daily AND
+    weekly ceiling for that kind (see PLANS above) — daily resets each
+    UTC day, weekly every 7 days, independently."""
     if SUPER_ADMIN_TELEGRAM_ID and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID:
-        return True, -1, "مالك المنصة — بلا حد يومي"
-    if has_active_subscription(user):
-        return True, -1, "PRO — بلا حد يومي"
+        return True, -1, "مالك المنصة — بلا حد"
+
+    plan = effective_plan(user)
+    limits = PLANS[plan]
+    is_image = kind == "IMAGE"
+    daily_cap = limits["daily_image"] if is_image else limits["daily_text"]
+    weekly_cap = limits["weekly_image"] if is_image else limits["weekly_text"]
+    daily_field = "dailyUsedImage" if is_image else "dailyUsed"
+    weekly_field = "weeklyUsedImage" if is_image else "weeklyUsedText"
+    kind_label = "الصور" if is_image else "الرسائل"
 
     db = get_supabase()
-    reset_at = _parse_ts(user["dailyResetAt"])
-    used = user["dailyUsed"]
+    daily_reset_at = _parse_ts(user["dailyResetAt"])
+    weekly_reset_at = _parse_ts(user.get("weeklyResetAt") or user["dailyResetAt"])
+    daily_used = user.get(daily_field) or 0
+    weekly_used = user.get(weekly_field) or 0
 
-    if _now() - reset_at > timedelta(days=1):
-        used = 0
-        reset_at = _now()
+    if _now() - daily_reset_at > timedelta(days=1):
+        daily_used = 0
+        daily_reset_at = _now()
+    if _now() - weekly_reset_at > timedelta(days=7):
+        weekly_used = 0
+        weekly_reset_at = _now()
 
-    if used >= FREE_DAILY_QUOTA:
-        return False, 0, "انتهى حدك المجاني اليومي — أرسل /ترقية للاشتراك في الخطة المدفوعة لاستخدام غير محدود."
+    if daily_used >= daily_cap:
+        return False, 0, f"انتهى حدك اليومي من {kind_label} ({daily_cap}) — أرسل /ترقية للاشتراك أو انتظر التصفير غداً."
+    if weekly_used >= weekly_cap:
+        return False, 0, f"انتهى حدك الأسبوعي من {kind_label} ({weekly_cap}) — أرسل /ترقية لرفع حدك."
 
-    used += 1
-    db.table("NovaUser").update({"dailyUsed": used, "dailyResetAt": reset_at.isoformat()}).eq(
-        "id", user["id"]
-    ).execute()
-    return True, FREE_DAILY_QUOTA - used, f"متبقٍ لك اليوم: {FREE_DAILY_QUOTA - used} رسالة"
+    daily_used += 1
+    weekly_used += 1
+    db.table("NovaUser").update(
+        {
+            daily_field: daily_used,
+            "dailyResetAt": daily_reset_at.isoformat(),
+            weekly_field: weekly_used,
+            "weeklyResetAt": weekly_reset_at.isoformat(),
+        }
+    ).eq("id", user["id"]).execute()
+    remaining = daily_cap - daily_used
+    return True, remaining, f"متبقٍ لك اليوم من {kind_label}: {remaining}"
 
 
 def log_usage(user_id: str, channel: str, query_type: str, message: str | None = None, answer: str | None = None) -> None:
@@ -122,15 +202,19 @@ def log_usage(user_id: str, channel: str, query_type: str, message: str | None =
     ).execute()
 
 
-def request_subscription(user_id: str, plan: str = "PRO_MONTHLY", amount_usd: float = 5.0) -> str:
+def request_subscription(user_id: str, plan: str) -> str:
     """Creates a PENDING_APPROVAL row — the owner approves it manually
     (no automated checkout), then flips status to ACTIVE and sets
     startedAt/expiresAt via the admin endpoints below (called from
-    NOVA_BOT's own admin panel — see novaBotLogic.ts)."""
+    NOVA_BOT's own admin panel — see novaBotLogic.ts). plan must be one
+    of PLANS' paid keys (PRO_BASIC/PRO_PLUS/PRO_ULTRA) — the price is
+    always looked up from PLANS here, never trusted from the caller."""
+    if plan not in PLANS or plan == "FREE":
+        raise ValueError(f"unknown paid plan: {plan}")
     db = get_supabase()
     sub_id = str(uuid.uuid4())
     db.table("NovaSubscription").insert(
-        {"id": sub_id, "novaUserId": user_id, "plan": plan, "amountUsd": amount_usd}
+        {"id": sub_id, "novaUserId": user_id, "plan": plan, "amountUsd": PLANS[plan]["price_usd"]}
     ).execute()
     return sub_id
 
@@ -151,15 +235,16 @@ def get_admin_stats() -> dict:
     db = get_supabase()
     users = db.table("NovaUser").select("id, plan", count="exact").execute()
     total_users = users.count if users.count is not None else len(users.data)
-    pro_users = sum(1 for u in users.data if u.get("plan") == "PRO")
+    plan_counts = {plan: 0 for plan in PLANS}
+    for u in users.data:
+        plan_counts[u.get("plan") if u.get("plan") in PLANS else "FREE"] += 1
     pending = db.table("NovaSubscription").select("id", count="exact").eq("status", "PENDING_APPROVAL").execute()
     pending_count = pending.count if pending.count is not None else len(pending.data)
     logs = db.table("NovaUsageLog").select("id", count="exact").execute()
     total_messages = logs.count if logs.count is not None else len(logs.data)
     return {
         "total_users": total_users,
-        "pro_users": pro_users,
-        "free_users": total_users - pro_users,
+        "plan_counts": plan_counts,
         "pending_subscriptions": pending_count,
         "total_messages": total_messages,
     }
@@ -209,7 +294,7 @@ def approve_subscription(sub_id: str, approved_by: str, days: int = 30) -> dict 
     db.table("NovaSubscription").update(
         {"status": "ACTIVE", "approvedBy": approved_by, "startedAt": now.isoformat(), "expiresAt": expires.isoformat()}
     ).eq("id", sub_id).execute()
-    db.table("NovaUser").update({"plan": "PRO", "subscriptionExpiresAt": expires.isoformat()}).eq(
+    db.table("NovaUser").update({"plan": sub["plan"], "subscriptionExpiresAt": expires.isoformat()}).eq(
         "id", sub["novaUserId"]
     ).execute()
     user_res = db.table("NovaUser").select("telegramId, email").eq("id", sub["novaUserId"]).limit(1).execute()
