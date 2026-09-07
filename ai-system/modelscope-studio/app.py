@@ -337,11 +337,27 @@ def _extract_final_answer(raw: str) -> str:
     return re.sub(r"<تفكير>.*?</تفكير>", "", raw, flags=re.DOTALL).strip() or raw.strip()
 
 
-def generate(message: str, image_base64: str = "") -> str:
+# Owner spec, 2026-09-08 (Gemini architecture review, "الضبط الديناميكي
+# لدرجة الابداع"): a fixed temperature for every query type is a real,
+# easy-to-fix weakness on a 7B model — CODE/LIVE_INFO answers need to be
+# precise and repeatable (a wrong digit or a "creative" variable name is
+# a real bug), while GENERAL conversation benefits from a little more
+# natural variety. query_type already exists (router.classify in
+# main.py) and is now threaded through from council.py to here, so this
+# reuses a signal we already compute instead of adding a new one.
+_TEMPERATURE_BY_QUERY_TYPE = {"CODE": 0.1, "LIVE_INFO": 0.2, "GENERAL": 0.6}
+
+
+def _temperature_for(query_type: str) -> float:
+    return _TEMPERATURE_BY_QUERY_TYPE.get(query_type, 0.6)
+
+
+def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") -> str:
     try:
         if not image_base64 and _is_identity_question(message):
             return _IDENTITY_ANSWER
 
+        temperature = _temperature_for(query_type)
         content = []
         if image_base64:
             # Accept either a bare base64 string or an already-prefixed
@@ -362,6 +378,7 @@ def generate(message: str, image_base64: str = "") -> str:
             # actually sees (see NOVA_SYSTEM_PROMPT above) — without
             # headroom, long final answers would get cut off mid-way.
             max_tokens=900,
+            temperature=temperature,
         )
         raw = output["choices"][0]["message"]["content"]
 
@@ -393,7 +410,7 @@ def generate(message: str, image_base64: str = "") -> str:
                         {"role": "assistant", "content": assistant_turn_1},
                         {"role": "user", "content": f"<tool_response>\n{real_result}\n</tool_response>"},
                     ]
-                    output2 = llm.create_chat_completion(messages=followup, max_tokens=900)
+                    output2 = llm.create_chat_completion(messages=followup, max_tokens=900, temperature=temperature)
                     raw = output2["choices"][0]["message"]["content"]
 
         final_answer = _extract_final_answer(raw)
@@ -418,7 +435,11 @@ def generate(message: str, image_base64: str = "") -> str:
 
 demo = gr.Interface(
     fn=generate,
-    inputs=[gr.Textbox(label="message"), gr.Textbox(label="image_base64 (optional)")],
+    inputs=[
+        gr.Textbox(label="message"),
+        gr.Textbox(label="image_base64 (optional)"),
+        gr.Textbox(label="query_type (optional, CODE|LIVE_INFO|GENERAL)"),
+    ],
     outputs=gr.Textbox(label="Response"),
     title="Nova AI — self-hosted (vision + text)",
     api_name="generate",

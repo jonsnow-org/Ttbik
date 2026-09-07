@@ -185,7 +185,12 @@ def remember_shared(message: str, answer: str, query_type: str) -> None:
     doc_id = f"s-{abs(hash(message))}-{int(time.time())}"
     bank.add(
         documents=[f"سؤال: {message}\nإجابة: {answer}"],
-        metadatas=[{"query_type": query_type}],
+        # "answer" stored raw here (not just embedded in the document
+        # text above) so recall_cached_answer below can return it
+        # directly on a cache hit, without re-parsing "سؤال:...\nإجابة:..."
+        # back apart — owner spec 2026-09-08 (Gemini architecture
+        # review, "التخزين المؤقت الذكي"/semantic caching).
+        metadatas=[{"query_type": query_type, "answer": answer}],
         ids=[doc_id],
     )
 
@@ -201,6 +206,60 @@ def _recall_solutions(query: str, query_type: str, n_results: int = 2) -> list[s
     )
     docs = results.get("documents") or []
     return docs[0] if docs else []
+
+
+# Owner spec, 2026-09-08 (Gemini architecture review): _recall_solutions
+# above only ever hands a past answer to the model as extra CONTEXT — it
+# still pays the full 45-95s CPU generation cost every time, since the
+# model rewrites the answer from that context rather than reusing it
+# verbatim. True semantic caching skips generation entirely on a
+# near-duplicate question, which is the one lever that actually cuts
+# the reported real latency (network hops between Vercel/Render/
+# ModelScope are milliseconds by comparison — see the architecture
+# reply this was requested alongside). Real evidence, not guessed: this
+# risks returning a stale/wrong-context answer for a question that
+# LOOKS similar but isn't (e.g. two different bugs with similar
+# wording), so it's deliberately conservative — same CODE/GENERAL scope
+# as the solutions bank (never LIVE_INFO, which already has its own
+# distinct 6h-freshness cache), and a tight distance threshold.
+#
+# Threshold math: Chroma's default collection distance metric is
+# squared L2. For roughly unit-length sentence embeddings (Chroma's
+# bundled MiniLM ONNX model), squared L2 distance relates to cosine
+# similarity as d² ≈ 2·(1 − cos_sim). A distance below 0.15 corresponds
+# to cos_sim above ~0.925 — i.e. two questions phrased almost
+# identically, not just topically related. This is a principled
+# starting point based on how the embedding model behaves in general,
+# not a live-measured value for THIS specific corpus — if real cache
+# hits ever look wrong in practice, tighten this further; a missed
+# cache hit only costs the normal generation time back, while a wrong
+# one serves an incorrect answer, so err conservative.
+_CACHE_MAX_DISTANCE = 0.15
+
+
+def recall_cached_answer(query: str, query_type: str) -> str | None:
+    """Returns a past answer to VERBATIM-reuse (skipping model
+    inference entirely) if a near-duplicate question was already
+    answered, or None if nothing is close enough — in which case the
+    caller must generate a real answer as usual."""
+    if query_type not in ("CODE", "GENERAL"):
+        return None
+    bank = _solutions_bank()
+    if bank.count() == 0:
+        return None
+    results = bank.query(
+        query_texts=[query],
+        n_results=1,
+        where={"query_type": query_type},
+        include=["metadatas", "distances"],
+    )
+    metadatas = results.get("metadatas") or []
+    distances = results.get("distances") or []
+    if not metadatas or not metadatas[0] or not distances or not distances[0]:
+        return None
+    if distances[0][0] > _CACHE_MAX_DISTANCE:
+        return None
+    return metadatas[0][0].get("answer")
 
 
 def recall(user_id: str, query: str, n_results: int = 3) -> list[str]:

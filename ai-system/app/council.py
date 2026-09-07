@@ -367,7 +367,9 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
         return None
 
 
-def call_modelscope_specialist(message: str, context: str, image_base64: str | None = None) -> str | None:
+def call_modelscope_specialist(
+    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL"
+) -> str | None:
     """OUR OWN model, actually reachable this time (see module
     docstring — hf-inference flatly refuses custom repos, ModelScope's
     free Studio hosting doesn't). Calls the Gradio app we deployed
@@ -436,7 +438,7 @@ def call_modelscope_specialist(message: str, context: str, image_base64: str | N
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate",
             headers=headers,
-            json={"message": user_content, "image_base64": image_base64 or ""},
+            json={"message": user_content, "image_base64": image_base64 or "", "query_type": query_type or "GENERAL"},
             timeout=30,
         )
         logger.info("%s: ModelScope POST status=%s body=%s", request_label, submit.status_code, submit.text[:300])
@@ -467,7 +469,7 @@ def call_modelscope_specialist(message: str, context: str, image_base64: str | N
         return None
 
 
-def answer(message: str, context: str) -> str:
+def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
     """OUR OWN model answers first, always — for every query type, not
     just CODE. Groq is an emergency fallback only, used solely when our
     own model isn't configured yet or genuinely unreachable — never a
@@ -479,11 +481,19 @@ def answer(message: str, context: str) -> str:
     backend is called (see the module comment above
     _IDENTITY_KEYWORDS for the real incident this closes), and any
     answer from either path is screened for a forbidden self-ID leak
-    as a second, independent safety net."""
+    as a second, independent safety net.
+
+    query_type (from main.py's router.classify) is passed through to
+    app.py so it can pick a per-type sampling temperature — owner spec
+    2026-09-08 (Gemini architecture review): CODE/LIVE_INFO need
+    precise, repeatable answers (a wrong digit or invented variable
+    name is a real bug), GENERAL conversation reads better with a
+    little more natural variety. Reuses a signal already computed for
+    routing instead of adding a new classification pass."""
     if _is_identity_question(message):
         return _IDENTITY_ANSWER_TEXT
 
-    specialist_answer = call_modelscope_specialist(message, context)
+    specialist_answer = call_modelscope_specialist(message, context, query_type=query_type)
     if specialist_answer:
         if _contains_forbidden_identity_leak(specialist_answer):
             logger.warning("chat answer: OUR OWN model leaked a forbidden identity claim — substituting the real identity answer")

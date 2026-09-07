@@ -200,11 +200,28 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     endpoint's docstring) and was fixed the same way: schedule the
     real work as a background task and deliver the answer straight to
     Telegram once it's ready, instead of racing a deadline that no
-    longer fits."""
+    longer fits.
+
+    Owner spec, 2026-09-08 (Gemini architecture review — real semantic
+    caching): before paying that 45-95s generation cost at all, check
+    rag.recall_cached_answer for a near-duplicate question already
+    answered (CODE/GENERAL only — see that function's own comment for
+    the conservative distance threshold and why). A cache hit skips
+    build_context/council.answer entirely and returns the past answer
+    verbatim in effectively zero time; a miss falls through to the
+    normal path exactly as before this existed."""
     _maybe_flag_previous_answer(user["id"], message)
     query_type = router.classify(message)
+
+    cached_answer = rag.recall_cached_answer(message, query_type)
+    if cached_answer:
+        logger.info("chat answer: served from semantic cache — model call skipped")
+        log_id = quota.log_usage(user["id"], channel, query_type, message, cached_answer)
+        rag.remember(user["id"], message, cached_answer)
+        return cached_answer, query_type, log_id
+
     context = rag.build_context(user["id"], message, query_type)
-    final_answer = council.answer(message, context)
+    final_answer = council.answer(message, context, query_type=query_type)
     log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
     rag.remember(user["id"], message, final_answer)
     rag.remember_shared(message, final_answer, query_type)
