@@ -184,15 +184,19 @@ def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, 
     return True, remaining, f"متبقٍ لك اليوم من {kind_label}: {remaining}"
 
 
-def log_usage(user_id: str, channel: str, query_type: str, message: str | None = None, answer: str | None = None) -> None:
+def log_usage(user_id: str, channel: str, query_type: str, message: str | None = None, answer: str | None = None) -> str:
     # message/answer double as real training data for the Kaggle
     # notebook's scheduled LoRA fine-tuning run (fetched over Supabase's
     # REST API — see ai-system/colab/merge_and_finetune.ipynb), instead
-    # of the old hand-typed placeholder example.
+    # of the old hand-typed placeholder example. Returns the row's own
+    # id so the caller (main.py) can hand it back to novaBotLogic.ts,
+    # which attaches it to the 👍/👎 feedback buttons on this exact
+    # answer (see set_feedback below).
     db = get_supabase()
+    log_id = str(uuid.uuid4())
     db.table("NovaUsageLog").insert(
         {
-            "id": str(uuid.uuid4()),
+            "id": log_id,
             "novaUserId": user_id,
             "channel": channel,
             "queryType": query_type,
@@ -200,6 +204,22 @@ def log_usage(user_id: str, channel: str, query_type: str, message: str | None =
             "answer": answer,
         }
     ).execute()
+    return log_id
+
+
+def set_feedback(log_id: str, rating: str) -> bool:
+    """rating is "UP" or "DOWN" — a real thumbs-down here becomes the
+    "rejected" half of a DPO preference pair (see
+    ai-system/colab/build_dpo_dataset.py). Returns False if the log row
+    doesn't exist (stale/tampered callback data), True otherwise."""
+    if rating not in ("UP", "DOWN"):
+        raise ValueError(f"invalid rating: {rating}")
+    db = get_supabase()
+    existing = db.table("NovaUsageLog").select("id").eq("id", log_id).limit(1).execute()
+    if not existing.data:
+        return False
+    db.table("NovaUsageLog").update({"rating": rating}).eq("id", log_id).execute()
+    return True
 
 
 def request_subscription(user_id: str, plan: str) -> str:

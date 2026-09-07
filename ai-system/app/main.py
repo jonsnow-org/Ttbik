@@ -48,14 +48,27 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
-def _send_telegram_message(chat_id: str, text: str) -> None:
+def _send_telegram_message(chat_id: str, text: str, log_id: str | None = None) -> None:
+    """log_id, when given, attaches the same 👍/👎 feedback keyboard
+    novaBotLogic.ts puts on every text/voice/file answer — image
+    answers are delivered directly from here (see
+    _process_image_and_deliver above) rather than through that file's
+    normal send path, so they need the buttons added here instead."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async answer to Telegram chat_id=%s", chat_id)
         return
+    body = {"chat_id": chat_id, "text": text}
+    if log_id:
+        body["reply_markup"] = {
+            "inline_keyboard": [[
+                {"text": "👍", "callback_data": f"nova_fb|{log_id}|up"},
+                {"text": "👎", "callback_data": f"nova_fb|{log_id}|down"},
+            ]]
+        }
     try:
         requests.post(
             f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
+            json=body,
             timeout=15,
         )
     except Exception:
@@ -86,6 +99,7 @@ class ChatResponse(BaseModel):
     answer: str
     query_type: str
     quota_message: str
+    log_id: str
 
 
 @app.get("/health")
@@ -135,20 +149,28 @@ def _enforce_quota(user: dict, kind: str = "TEXT") -> str:
 
 def _run_text_pipeline(
     user: dict, channel: str, message: str, background_tasks: BackgroundTasks
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     """The one shared brain path: classify -> build context (memory +
     live search/knowledge bank) -> council answer. Used by /chat
     directly, and by /voice (after transcription) and /file (after
     text extraction) so a transcribed or extracted message gets
-    exactly the same treatment as anything typed by hand."""
+    exactly the same treatment as anything typed by hand.
+
+    Owner spec, 2026-09-08 ("حلقة التدريب والتطوير الذاتي / DPO"):
+    log_usage now runs synchronously (not as a background task) so its
+    row id can be returned and handed all the way back to the actual
+    end user as a 👍/👎 button (novaBotLogic.ts) — a real thumbs-down
+    later becomes the "rejected" half of a DPO preference pair (see
+    ai-system/colab/build_dpo_dataset.py). remember/remember_shared stay
+    backgrounded since nothing downstream needs to wait on them."""
     query_type = router.classify(message)
     context = rag.build_context(user["id"], message, query_type)
     final_answer = council.answer(message, context)
 
-    background_tasks.add_task(quota.log_usage, user["id"], channel, query_type, message, final_answer)
+    log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
     background_tasks.add_task(rag.remember, user["id"], message, final_answer)
     background_tasks.add_task(rag.remember_shared, message, final_answer, query_type)
-    return final_answer, query_type
+    return final_answer, query_type, log_id
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -161,9 +183,35 @@ def chat(
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user)
 
-    final_answer, query_type = _run_text_pipeline(user, req.channel, req.message, background_tasks)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, req.message, background_tasks)
 
-    return ChatResponse(answer=final_answer, query_type=query_type, quota_message=quota_message)
+    return ChatResponse(answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
+
+
+class FeedbackRequest(BaseModel):
+    channel: str
+    log_id: str
+    rating: str  # "UP" | "DOWN"
+
+
+@app.post("/feedback")
+def feedback(
+    req: FeedbackRequest,
+    authorization: str | None = Header(default=None),
+    x_internal_secret: str | None = Header(default=None),
+):
+    """The 👍/👎 tap itself — novaBotLogic.ts calls this from the
+    callback handler attached to every text/voice/file answer. No user
+    resolution needed here beyond the same channel auth every other
+    TELEGRAM/WEB call already requires — log_id alone identifies which
+    answer this is about."""
+    _authorize(req.channel, authorization, x_internal_secret)
+    if req.rating not in ("UP", "DOWN"):
+        raise HTTPException(status_code=400, detail="rating must be UP or DOWN")
+    found = quota.set_feedback(req.log_id, req.rating)
+    if not found:
+        raise HTTPException(status_code=404, detail="log not found")
+    return {"ok": True}
 
 
 class VoiceRequest(BaseModel):
@@ -179,6 +227,7 @@ class VoiceResponse(BaseModel):
     answer: str
     query_type: str
     quota_message: str
+    log_id: str
 
 
 @app.post("/voice", response_model=VoiceResponse)
@@ -199,9 +248,9 @@ def voice(
     if not transcript.strip():
         raise HTTPException(status_code=422, detail="تعذّر فهم الرسالة الصوتية — حاول مرة أخرى بوضوح أكبر.")
 
-    final_answer, query_type = _run_text_pipeline(user, req.channel, transcript, background_tasks)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, transcript, background_tasks)
 
-    return VoiceResponse(transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message)
+    return VoiceResponse(transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message, log_id=log_id)
 
 
 class ImageRequest(BaseModel):
@@ -240,11 +289,11 @@ def _process_image_and_deliver(
     if answer_text is None:
         answer_text = "تعذّر تحليل الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL أو GEMINI_API_KEY على الخادم، أو حاول مرة أخرى لاحقاً."
 
-    quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
+    log_id = quota.log_usage(user_id, channel, "IMAGE", f"[صورة] {prompt}", answer_text)
     rag.remember(user_id, f"[صورة] {prompt}", answer_text)
 
     if chat_id:
-        _send_telegram_message(chat_id, _strip_markdown(answer_text))
+        _send_telegram_message(chat_id, _strip_markdown(answer_text), log_id=log_id)
 
 
 @app.post("/image", response_model=ImageResponse)
@@ -338,6 +387,7 @@ class FileRequest(BaseModel):
 class FileResponse(BaseModel):
     answer: str
     quota_message: str
+    log_id: str
 
 
 @app.post("/file", response_model=FileResponse)
@@ -361,9 +411,9 @@ def file_endpoint(
     question = req.question or "لخّص هذا الملف بإيجاز واذكر أهم النقاط فيه."
     message = f"محتوى ملف ({req.filename}):\n{extracted}\n\nسؤال المستخدم: {question}"
 
-    final_answer, query_type = _run_text_pipeline(user, req.channel, message, background_tasks)
+    final_answer, query_type, log_id = _run_text_pipeline(user, req.channel, message, background_tasks)
 
-    return FileResponse(answer=final_answer, quota_message=quota_message)
+    return FileResponse(answer=final_answer, quota_message=quota_message, log_id=log_id)
 
 
 class WhoamiRequest(BaseModel):

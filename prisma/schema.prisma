@@ -977,6 +977,10 @@ model NovaUsageLog {
   message    String? // the user's message — nullable so old rows stay valid; also doubles as real LoRA fine-tuning
   answer     String? // Nova's final answer — data for ai-system/colab/merge_and_finetune.ipynb's scheduled Kaggle run,
   // fetched over Supabase's REST API (never stored in the notebook itself) instead of the old hand-typed placeholder.
+  // UP | DOWN | null (no feedback given) — set via the 👍/👎 buttons novaBotLogic.ts attaches to every
+  // text answer, one tap away for the actual user. Real thumbs-down rows become the "rejected" half of a
+  // DPO preference pair (ai-system/colab/build_dpo_dataset.py) — the self-improvement loop this doubles as.
+  rating     String?
   created_at DateTime @default(now())
 }
 

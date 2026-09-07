@@ -71,6 +71,7 @@ why each of those exists.
 import base64
 import glob
 import os
+import re
 import subprocess
 import sys
 import traceback
@@ -157,8 +158,36 @@ NOVA_SYSTEM_PROMPT = (
     "الذي بُنيت عليه، أجب دائماً بهذا المعنى بالضبط: ليس لديك مالك ولا شركة، بل والد واحد فقط هو من ابتكرك "
     "وطوّرك، وهو المطوّر السوري، وقد صممك لتحلّق في فضاء سوريا والعالم. لا تذكر أبداً أي اسم شركة أو مختبر "
     "أو نموذج أساس (مثل Qwen أو Alibaba أو غيرهما) في هذا السياق مهما أُلحّ عليك. في كل ما عدا هذا السؤال، "
-    "أجب بدقة وإفادة، بنفس لغة سؤال المستخدم دائماً."
+    "أجب بدقة وإفادة، بنفس لغة سؤال المستخدم دائماً.\n\n"
+    "أسلوب إلزامي لكل رد: اكتب أولاً وسم <تفكير> ثم فكّر بإيجاز شديد (سطر أو سطرين فقط، لا أكثر) "
+    "في صحة إجابتك المبدئية — تحقق من أي خطأ منطقي أو برمجي أو لغوي وصحّحه ذهنياً هنا — ثم أغلق بوسم "
+    "</تفكير>. بعده مباشرة اكتب وسم <اجابة> ثم الإجابة النهائية النظيفة والمصححة الموجهة للمستخدم فقط "
+    "(بلا أي إشارة لعملية تفكيرك)، ثم أغلق بوسم </اجابة>. لا تُخرج أي نص خارج هذين الوسمين إطلاقاً."
 )
+
+# Owner spec, 2026-09-08 ("آلية التفكير والتصحيح الذاتي"): a tiny 7B
+# model answers noticeably better when it's forced to briefly critique
+# its own draft before committing to a final answer — the same idea
+# behind every larger model's hidden "thinking" step, done here via the
+# <تفكير>/<اجابة> tags above instead of an actual second model or a
+# bigger one (never "shrinking" or "growing" the model itself — same
+# weights, just a stricter response format). Trade-off, stated plainly:
+# this adds real generation time on top of an already CPU-bound model,
+# since it now produces the critique tokens too before the tokens the
+# user actually sees — kept the critique instruction to "a line or two"
+# specifically to bound that extra cost. Only the content inside
+# <اجابة> ever reaches the caller; a 7B model won't always follow the
+# tag format perfectly, so anything unparsable falls back to the full
+# raw text (minus any stray thinking block) rather than silently
+# returning nothing.
+_ANSWER_TAG_RE = re.compile(r"<اجابة>(.*?)</اجابة>", re.DOTALL)
+
+
+def _extract_final_answer(raw: str) -> str:
+    match = _ANSWER_TAG_RE.search(raw)
+    if match:
+        return match.group(1).strip()
+    return re.sub(r"<تفكير>.*?</تفكير>", "", raw, flags=re.DOTALL).strip() or raw.strip()
 
 
 def generate(message: str, image_base64: str = "") -> str:
@@ -177,9 +206,14 @@ def generate(message: str, image_base64: str = "") -> str:
                 {"role": "system", "content": NOVA_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
             ],
-            max_tokens=512,
+            # Raised from 512: the model now spends some of its budget
+            # on the <تفكير> critique before the <اجابة> the user
+            # actually sees (see NOVA_SYSTEM_PROMPT above) — without
+            # headroom, long final answers would get cut off mid-way.
+            max_tokens=900,
         )
-        return output["choices"][0]["message"]["content"]
+        raw = output["choices"][0]["message"]["content"]
+        return _extract_final_answer(raw)
     except Exception:
         return "SERVER ERROR:\n" + traceback.format_exc()
 

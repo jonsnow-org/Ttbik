@@ -52,6 +52,32 @@ function stripMarkdown(text: string): string {
     .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1");
 }
 
+// Owner spec, 2026-09-08 ("حلقة التدريب والتطوير الذاتي / DPO"): every
+// real text/voice/file answer gets a 👍/👎 button tied to its own
+// NovaUsageLog row (log_id, returned by /chat, /voice, /file — see
+// ai-system/app/main.py's _run_text_pipeline). A real thumbs-down
+// later becomes the "rejected" half of a DPO preference pair (see
+// ai-system/colab/build_dpo_dataset.py) instead of this feedback just
+// evaporating unused.
+async function sendNovaAnswerWithFeedback(bot: TelegramBot, chatId: number, answer: string, logId: string | undefined) {
+  const kb = logId
+    ? new InlineKeyboard().text("👍", `nova_fb|${logId}|up`).text("👎", `nova_fb|${logId}|down`)
+    : undefined;
+  await bot.api.sendMessage(chatId, stripMarkdown(answer), kb ? { reply_markup: kb } : undefined);
+}
+
+async function handleNovaFeedbackCallback(bot: TelegramBot, cq: any) {
+  const [, logId, rating] = String(cq.data || "").split("|");
+  if (!logId || (rating !== "up" && rating !== "down")) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  const { ok } = await callNovaBackend("/feedback", { channel: "TELEGRAM", log_id: logId, rating: rating.toUpperCase() });
+  await bot.api
+    .answerCallbackQuery(cq.id, { text: ok ? "شكراً على تقييمك! 🙏" : "تعذر تسجيل التقييم" })
+    .catch(() => null);
+}
+
 async function callNovaBackend(path: string, body: Record<string, unknown>): Promise<{ ok: boolean; data: any }> {
   if (!FASTAPI_URL || !INTERNAL_SECRET) {
     return { ok: false, data: { detail: "NOVA_FASTAPI_URL / NOVA_INTERNAL_SECRET غير مُعدّين على Vercel." } };
@@ -246,6 +272,8 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     const cqData = String(update.callback_query.data || "");
     if (cqData.startsWith("nova_plan|")) {
       await handleNovaPlanCallback(bot, update.callback_query);
+    } else if (cqData.startsWith("nova_fb|")) {
+      await handleNovaFeedbackCallback(bot, update.callback_query);
     } else {
       await handleNovaAdminCallback(bot, update.callback_query);
     }
@@ -382,7 +410,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  await bot.api.sendMessage(chatId, stripMarkdown(data.answer));
+  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
 
 async function handleVoiceMessage(bot: TelegramBot, chatId: number, tgUserId: string, fileId: string) {
@@ -402,7 +430,7 @@ async function handleVoiceMessage(bot: TelegramBot, chatId: number, tgUserId: st
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ في معالجة الصوت — حاول مرة أخرى.");
     return;
   }
-  await bot.api.sendMessage(chatId, stripMarkdown(data.answer));
+  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
 
 async function handleImageMessage(bot: TelegramBot, chatId: number, tgUserId: string, fileId: string, caption?: string) {
@@ -461,5 +489,5 @@ async function handleDocumentMessage(
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ في قراءة الملف — حاول مرة أخرى.");
     return;
   }
-  await bot.api.sendMessage(chatId, stripMarkdown(data.answer));
+  await sendNovaAnswerWithFeedback(bot, chatId, data.answer, data.log_id);
 }
