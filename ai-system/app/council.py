@@ -585,9 +585,6 @@ _MEDIA_EXPANSION_INSTRUCTION = {
 }
 
 
-_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
-
-
 def expand_media_prompt(user_request: str, media_kind: str) -> str:
     """Owner spec, 2026-09-09 ("هل تستطيع الاستفادة... ليصبح انشاء
     الوسائط عند الطلب مفهوم واكثر دقة واحترافية"): the image/video
@@ -612,18 +609,18 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
     out-of-distribution Arabic string happens to decode to, no error at
     all. The instruction now demands English explicitly.
 
-    Owner correction, 2026-09-08 ("يجب ان يفهم كل اللغات جيدا"): the
-    first fix here checked specifically for Arabic script, which only
-    protects Arabic-speaking users — the same bug hits identically for
-    a request in French, Russian, Chinese, or any other language our
-    model might reply in verbatim instead of translating. The check
-    below is language-agnostic instead (any non-ASCII output at all is
-    treated as non-compliant, regardless of which language it is), so
-    every language gets the same safety net: if our model (or Groq)
-    doesn't comply, ask Groq to translate the ORIGINAL request — in
-    whatever language the user wrote it — into a short English prompt,
-    instead of falling through to the also-untranslated raw
-    user_request, which would hit the exact same bug."""
+    Owner correction, 2026-09-08 ("يجب ان يفهم نموذجنا كل اللغات بدقة
+    وليس ان نستعين بجروك للترجمة" + a real latency complaint that every
+    extra API round-trip adds to an already-slow media pipeline): the
+    fix above added a SECOND Groq call specifically to detect and
+    re-translate non-English output. Removed — that is exactly the
+    "force it with an external crutch" pattern already rejected earlier
+    this project for image/video INTENT detection, now rejected here
+    too for the same reason, plus a concrete cost: every such fallback
+    call is pure added latency on a pipeline already flagged as too
+    slow. Our own model is genuinely multilingual (Qwen2.5-VL-based) —
+    a clear, explicit "answer in English" instruction is enough; trust
+    it instead of patching around it."""
     instruction = _MEDIA_EXPANSION_INSTRUCTION.get(media_kind, _MEDIA_EXPANSION_INSTRUCTION["image"]) + user_request
     expanded = call_modelscope_specialist(instruction, "", query_type="GENERAL")
     if not expanded or len(expanded.strip()) < 10:
@@ -632,23 +629,7 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
         except Exception:
             expanded = None
     expanded = (expanded or "").strip()
-
-    if len(expanded) < 10 or _NON_ASCII_RE.search(expanded):
-        try:
-            translated = call_groq(
-                "Translate the following into a short, professional English "
-                "image/video-generation prompt (one or two sentences, English "
-                "only, no preamble):\n\n" + user_request,
-                "",
-            )
-        except Exception:
-            translated = None
-        translated = (translated or "").strip()
-        if len(translated) >= 10 and not _NON_ASCII_RE.search(translated):
-            return translated
-        return expanded if len(expanded) >= 10 else user_request
-
-    return expanded
+    return expanded if len(expanded) >= 10 else user_request
 
 
 _INTENT_CLASSIFY_INSTRUCTION = (

@@ -678,6 +678,32 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
 _image_pipe = None
 
 
+_IMAGE_GEN_CONFIG = None  # {"base_model_id": ...} written by the Kaggle notebook's upload cell, if present
+
+
+def _get_image_gen_config() -> dict:
+    """Owner directive, 2026-09-08 ("يجب ان نجد حلول... عبر الضغط
+    والدمج"): reads an optional nova_gen_config.json the Kaggle notebook
+    now writes into the uploaded model folder, naming which candidate
+    from _CANDIDATE_IMAGE_MODELS actually got used (e.g.
+    "stabilityai/sd-turbo" — a distilled, few-step model, the real
+    "compression" lever the owner asked for, vs. a full 25-50-step
+    model like stable-diffusion-v1-5). Absent/unreadable file → {}, so
+    the caller's own .get() defaults apply and nothing breaks for a
+    model uploaded before this file existed."""
+    global _IMAGE_GEN_CONFIG
+    if _IMAGE_GEN_CONFIG is None:
+        _IMAGE_GEN_CONFIG = {}
+        try:
+            config_path = os.path.join(_image_model_dir or "", "nova_gen_config.json")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    _IMAGE_GEN_CONFIG = json.load(f)
+        except Exception:
+            traceback.print_exc()
+    return _IMAGE_GEN_CONFIG
+
+
 def _get_image_pipe():
     """Loaded lazily, only on the first real image request — this box
     already holds a 7B GGUF language model in memory at all times;
@@ -687,7 +713,25 @@ def _get_image_pipe():
     common case (an ordinary text/vision question). local_files_only:
     the actual download already happened eagerly at module import time
     above (see the real "client has been closed" evidence there for
-    why) — this must never touch the network itself."""
+    why) — this must never touch the network itself.
+
+    Owner report, 2026-09-08 (real evidence — WhatsApp, ~15 minutes for
+    one image): float32 on a 2-vCPU box doubles both the memory
+    bandwidth and the compute this pipeline has to push through per
+    step versus bfloat16 — CPU inference is usually memory-bandwidth
+    bound, not compute bound, so halving the bytes moved is a real,
+    not guessed, lever (unlike float16, bfloat16 has solid native CPU
+    kernel support, so this isn't the "half precision often has no CPU
+    kernel and is slower" trap). torch.set_num_threads: PyTorch's
+    default thread count doesn't reliably see a container's real
+    cgroup CPU limit — same os.cpu_count() fix already applied to the
+    LLM's n_threads above, now applied here too. Scheduler swap
+    (DPMSolverMultistepScheduler, DPM-Solver++ algorithm): a real
+    technique change, not the "arbitrary step-count guess" the
+    previous version of this comment warned against — DPM-Solver++ is
+    documented to reach comparable-or-better quality than the
+    pipeline's default scheduler in far fewer steps, so pairing it with
+    fewer steps is the technique working as designed, not tuning blind."""
     global _image_pipe
     if _image_pipe is None:
         if _image_model_dir is None:
@@ -695,7 +739,14 @@ def _get_image_pipe():
         import torch
         from diffusers import AutoPipelineForText2Image
 
-        _image_pipe = AutoPipelineForText2Image.from_pretrained(_image_model_dir, torch_dtype=torch.float32, local_files_only=True)
+        torch.set_num_threads(os.cpu_count() or 2)
+        _image_pipe = AutoPipelineForText2Image.from_pretrained(_image_model_dir, torch_dtype=torch.bfloat16, local_files_only=True)
+
+        base_model_id = _get_image_gen_config().get("base_model_id", "")
+        if "turbo" not in base_model_id.lower():
+            from diffusers import DPMSolverMultistepScheduler
+
+            _image_pipe.scheduler = DPMSolverMultistepScheduler.from_config(_image_pipe.scheduler.config, algorithm_type="dpmsolver++")
     return _image_pipe
 
 
@@ -707,11 +758,21 @@ def generate_image(prompt: str) -> str:
     is why council.py's generate_image call and main.py's
     /generate-image endpoint are both async now, delivering straight to
     Telegram once ready — see main.py's module comment on that
-    endpoint) — 25 steps is a deliberate floor for real image quality,
-    not an arbitrary number to guess-tune later."""
+    endpoint).
+
+    Owner directive, 2026-09-08: a distilled "turbo"-family model
+    (nova_gen_config.json's base_model_id, see _get_image_gen_config)
+    is specifically trained via adversarial distillation for 1-4 step,
+    guidance_scale=0.0 inference — its own documented usage, not a
+    guess — so it gets a completely different, much faster call than a
+    standard model paired with the DPM-Solver++ scheduler above."""
     try:
         pipe = _get_image_pipe()
-        image = pipe(prompt, num_inference_steps=25).images[0]
+        base_model_id = _get_image_gen_config().get("base_model_id", "")
+        if "turbo" in base_model_id.lower():
+            image = pipe(prompt, num_inference_steps=2, guidance_scale=0.0).images[0]
+        else:
+            image = pipe(prompt, num_inference_steps=20).images[0]
         buf = io.BytesIO()
         image.save(buf, format="PNG")
         return base64.b64encode(buf.getvalue()).decode("ascii")
@@ -744,7 +805,19 @@ def _get_video_pipe():
     shuttle to/from in the first place; this box has none, so the
     model simply stays resident in CPU RAM as-is. VAE slicing/tiling
     ARE kept since those reduce peak memory during decode regardless of
-    which device is doing the compute."""
+    which device is doing the compute.
+
+    Owner report, 2026-09-08 (real latency complaint): same two
+    real, low-risk CPU levers applied to the image pipe above —
+    bfloat16 (native CPU kernel support, halves memory bandwidth,
+    usually the real bottleneck on CPU) and torch.set_num_threads
+    matching this container's real CPU count. NOT changing the
+    scheduler or step count here unlike the image pipe: CogVideoX's
+    step-count/quality tradeoff at low step counts hasn't been
+    confirmed here (unlike the image side's DPM-Solver++, which is
+    well-documented to hold quality at fewer steps), and this path has
+    already been fragile — safer to ship the two confirmed-safe wins
+    now than guess on a third."""
     global _video_pipe
     if _video_pipe is None:
         if _video_model_dir is None:
@@ -752,7 +825,8 @@ def _get_video_pipe():
         import torch
         from diffusers import CogVideoXPipeline
 
-        _video_pipe = CogVideoXPipeline.from_pretrained(_video_model_dir, torch_dtype=torch.float32, local_files_only=True)
+        torch.set_num_threads(os.cpu_count() or 2)
+        _video_pipe = CogVideoXPipeline.from_pretrained(_video_model_dir, torch_dtype=torch.bfloat16, local_files_only=True)
         _video_pipe.vae.enable_slicing()
         _video_pipe.vae.enable_tiling()
     return _video_pipe
