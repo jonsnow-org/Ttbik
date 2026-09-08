@@ -585,7 +585,7 @@ _MEDIA_EXPANSION_INSTRUCTION = {
 }
 
 
-_ARABIC_CHARS_RE = re.compile(r"[؀-ۿ]")
+_NON_ASCII_RE = re.compile(r"[^\x00-\x7F]")
 
 
 def expand_media_prompt(user_request: str, media_kind: str) -> str:
@@ -610,12 +610,20 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
     Arabic (its natural language) — and Stable Diffusion's CLIP text
     encoder is English-only, so it silently produced whatever an
     out-of-distribution Arabic string happens to decode to, no error at
-    all. The instruction now demands English explicitly, but as a real
-    safety net in case our model still doesn't comply: if the result
-    still contains Arabic script, ask Groq to translate the ORIGINAL
-    request into a short English prompt instead of falling through to
-    the (also Arabic) raw user_request, which would hit the exact same
-    bug."""
+    all. The instruction now demands English explicitly.
+
+    Owner correction, 2026-09-08 ("يجب ان يفهم كل اللغات جيدا"): the
+    first fix here checked specifically for Arabic script, which only
+    protects Arabic-speaking users — the same bug hits identically for
+    a request in French, Russian, Chinese, or any other language our
+    model might reply in verbatim instead of translating. The check
+    below is language-agnostic instead (any non-ASCII output at all is
+    treated as non-compliant, regardless of which language it is), so
+    every language gets the same safety net: if our model (or Groq)
+    doesn't comply, ask Groq to translate the ORIGINAL request — in
+    whatever language the user wrote it — into a short English prompt,
+    instead of falling through to the also-untranslated raw
+    user_request, which would hit the exact same bug."""
     instruction = _MEDIA_EXPANSION_INSTRUCTION.get(media_kind, _MEDIA_EXPANSION_INSTRUCTION["image"]) + user_request
     expanded = call_modelscope_specialist(instruction, "", query_type="GENERAL")
     if not expanded or len(expanded.strip()) < 10:
@@ -625,7 +633,7 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
             expanded = None
     expanded = (expanded or "").strip()
 
-    if len(expanded) < 10 or _ARABIC_CHARS_RE.search(expanded):
+    if len(expanded) < 10 or _NON_ASCII_RE.search(expanded):
         try:
             translated = call_groq(
                 "Translate the following into a short, professional English "
@@ -636,7 +644,7 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
         except Exception:
             translated = None
         translated = (translated or "").strip()
-        if len(translated) >= 10 and not _ARABIC_CHARS_RE.search(translated):
+        if len(translated) >= 10 and not _NON_ASCII_RE.search(translated):
             return translated
         return expanded if len(expanded) >= 10 else user_request
 
