@@ -615,8 +615,18 @@ def _process_image_gen_and_deliver(
             # to keep improving. Skipped when expansion fell back to
             # the raw prompt (both our model and Groq failed) — that
             # would just teach the model to echo input unchanged.
+            #
+            # Owner report, 2026-09-09 (real evidence, screenshot): this
+            # internal instruction/expansion pair was showing up in
+            # "📜 سجل المحادثات" and the web dashboard as if it were a
+            # real user question — both read NovaUsageLog rows with
+            # message IS NOT NULL and no queryType filter at all. Real
+            # fix: a dedicated queryType ("PROMPT_EXPANSION", not
+            # "GENERAL") that src/app/api/nova/me/route.ts now excludes
+            # from recentLogs — training still ingests it fine since
+            # that fetch has no queryType filter either.
             quota.log_usage(
-                user_id, channel, "GENERAL",
+                user_id, channel, "PROMPT_EXPANSION",
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد صورة بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
@@ -706,8 +716,10 @@ def _process_video_and_deliver(
         # this expansion step exists and what it costs in real latency.
         expanded_prompt = expanded_prompt or council.expand_media_prompt(prompt, "video")
         if expanded_prompt != prompt:
+            # See _process_image_gen_and_deliver's own comment above —
+            # same "PROMPT_EXPANSION" fix, same reason.
             quota.log_usage(
-                user_id, channel, "GENERAL",
+                user_id, channel, "PROMPT_EXPANSION",
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )

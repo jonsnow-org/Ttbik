@@ -16,8 +16,15 @@ export async function GET(req: NextRequest) {
   const user = await prisma.novaUser.findUnique({ where: { id: uid } });
   if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
 
+  // Owner report, 2026-09-09 (real evidence, screenshot): internal
+  // (instruction, expansion) training pairs logged by
+  // ai-system/app/main.py's media-generation handlers (queryType
+  // "PROMPT_EXPANSION") were showing up here as if they were real
+  // conversation turns — this query had no queryType filter at all.
+  // Excluded; training's own weekly fetch reads NovaUsageLog directly
+  // with no queryType filter, so it's unaffected.
   const recentLogs = await prisma.novaUsageLog.findMany({
-    where: { novaUserId: uid, message: { not: null } },
+    where: { novaUserId: uid, message: { not: null }, queryType: { not: "PROMPT_EXPANSION" } },
     orderBy: { created_at: "desc" },
     take: 20,
   });

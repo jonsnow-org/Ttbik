@@ -155,11 +155,21 @@ async function fetchNovaMe(uid: string): Promise<{ user: any; plans: Record<stri
 
 // follow-up stays a typed command like every other admin-only text
 // command here (/لوحتي, /ترقية, /صورة).
+// Owner report, 2026-09-09 (real complaint): "لماذا السجل ليس في
+// حسابي كأدمن؟!" — the admin's /start always routes to
+// sendNovaAdminPanel (never the customer welcome), which only ever
+// attached this menu — so the owner had no button for "🎬 الاستوديو"،
+// "🎛 لوحتي"، or "📜 سجل المحادثات" at all, even though the underlying
+// text handlers for all three were never admin-restricted (the owner
+// is a real Nova user too, not just its operator). Added here so the
+// owner gets every customer feature plus the admin-only commands, in
+// one menu, instead of two disconnected ones.
 function novaAdminMenu(): Keyboard {
   return new Keyboard()
+    .text("🎬 الاستوديو").text("🎛 لوحتي").row()
+    .text("📜 سجل المحادثات").text("🔑 مفتاح API").row()
     .text("⏳ طلبات الاشتراك المعلّقة").row()
-    .text("📢 بث جماعي").row()
-    .text("🔑 مفتاح API")
+    .text("📢 بث جماعي")
     .resized();
 }
 
