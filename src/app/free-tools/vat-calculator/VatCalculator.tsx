@@ -143,6 +143,24 @@ export default function VatCalculator() {
               {fmt(result.total)}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const text = [
+                `المبلغ قبل الضريبة: ${fmt(result.base)}`,
+                `مبلغ الضريبة (${fmt(rate, 1)}%): ${fmt(result.vat)}`,
+                `الإجمالي شامل الضريبة: ${fmt(result.total)}`,
+              ].join("\n");
+              try {
+                await navigator.clipboard.writeText(text);
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="mt-2 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+          >
+            نسخ النتيجة
+          </button>
         </div>
       )}
 

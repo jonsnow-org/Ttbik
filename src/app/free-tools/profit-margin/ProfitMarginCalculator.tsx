@@ -158,6 +158,36 @@ export default function ProfitMarginCalculator() {
                 </span>
               </div>
             )}
+            <button
+              type="button"
+              onClick={async () => {
+                const lines = [
+                  `هامش الربح: ${fmt(result.marginPct, 1)}%`,
+                  `نسبة الإضافة (Markup): ${fmt(result.markupPct, 1)}%`,
+                  `ربح الوحدة: ${fmt(result.unitProfit)}`,
+                ];
+                if (result.hasFixed) {
+                  lines.push(
+                    `نقطة التعادل (وحدات): ${
+                      result.breakEvenUnits === null
+                        ? "غير ممكن"
+                        : fmt(result.breakEvenUnits, 1)
+                    }`
+                  );
+                }
+                if (result.hasQty && result.expectedProfit !== null) {
+                  lines.push(`الربح المتوقع: ${fmt(result.expectedProfit)}`);
+                }
+                try {
+                  await navigator.clipboard.writeText(lines.join("\n"));
+                } catch {
+                  /* ignore */
+                }
+              }}
+              className="mt-3 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+            >
+              نسخ النتيجة
+            </button>
           </div>
 
           {result.unitProfit <= 0 && (
