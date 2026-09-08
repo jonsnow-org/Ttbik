@@ -401,3 +401,30 @@ Standalone zero-cost tool: محول وحدات القياس الشائعة (طو
 - G20–G23 still independent waiting-ack; O4 logo still open
 
 Status: **waiting light ack** — ship on next cycle if no objection.
+
+## G25 — 2026-09-08 — حاسبة الأقساط الشهرية للقروض (EMI calculator)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: حاسبة القسط الشهري للقروض والتمويل (طلب بحث عالي ومستمر: قسط شهري، حاسبة قرض، تمويل سيارة/عقار).
+
+### Scope v1
+- Page `/free-tools/emi-calculator` + `EmiCalculator.tsx` (client)
+- Inputs: مبلغ القرض، نسبة الفائدة السنوية %، مدة السداد (أشهر أو سنوات)، نوع الحساب (قسط ثابت EMI)
+- مخرجات حية: القسط الشهري، إجمالي الفائدة، إجمالي المبلغ المسدد، جدول سداد مبسّط (أول/آخر أقساط أو سنوي)
+- disclaimer واضح: أرقام تعليمية تقريبية وليست عرضاً بنكياً رسمياً
+- لا API، لا schema، لا deps جديدة
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة الأقساط، قسط شهري، حاسبة قرض، تمويل)
+
+### Why
+- طلب بحث عربي قوي من مقترضي السيارات والعقارات والتمويل الشخصي
+- يكمل سلسلة الأدوات المالية (فائدة / راتب / VAT / هامش) بدون تكرار
+- Zero cost، offline، صيغة EMI قياسية معروفة ودقيقة للحالات الشائعة
+
+### Constraints
+- No Claude files / bot boundary (BotsDeployForm + bots page Claude-owned)
+- `npm run build` green before any future ship (O9)
+- Real working calculator, clear disclaimer
+- G20–G24 still independent waiting-ack; O4 logo still open
+
+Status: **waiting light ack** — ship on next cycle if no objection.
