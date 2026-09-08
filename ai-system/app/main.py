@@ -596,7 +596,7 @@ class GenerateVideoResponse(BaseModel):
     quota_message: str
 
 
-def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str) -> None:
+def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str, seconds: int) -> None:
     """Runs in a FastAPI BackgroundTask — see _process_image_and_deliver
     above for why this needs its own try/except (no HTTP response left
     to surface an exception on once this starts)."""
@@ -611,7 +611,7 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
-        video_bytes = council.generate_video(expanded_prompt)
+        video_bytes = council.generate_video(expanded_prompt, seconds)
         if video_bytes is None:
             # Owner spec, 2026-09-09: video generation now genuinely
             # attempts real CPU-only inference on ModelScope (see
@@ -639,6 +639,20 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
         _stop_typing_loop(stop_typing, typing_thread)
 
 
+# Owner spec, 2026-09-09 ("الافتراضي 6 الى 10 حسب الطلب من المستخدم"):
+# a plain-language duration mentioned in the request itself ("فيديو 8
+# ثواني قطة تلعب") — no explicit UI field needed, matches how every
+# other media request here is already free-text. None if the user
+# didn't mention a number, which quota.check_video_duration reads as
+# "use the plan default".
+_DURATION_RE = re.compile(r"(\d+)\s*(?:ثانية|ثواني|ثوان|sec|second)", re.IGNORECASE)
+
+
+def _parse_requested_seconds(prompt: str) -> int | None:
+    match = _DURATION_RE.search(prompt)
+    return int(match.group(1)) if match else None
+
+
 @app.post("/generate-video", response_model=GenerateVideoResponse)
 def generate_video(
     req: GenerateVideoRequest,
@@ -654,7 +668,12 @@ def generate_video(
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user, "IMAGE")
 
-    background_tasks.add_task(_process_video_and_deliver, user["id"], req.channel, req.chat_id, req.prompt)
+    requested_seconds = _parse_requested_seconds(req.prompt)
+    duration_ok, seconds, duration_message = quota.check_video_duration(user, requested_seconds)
+    if not duration_ok:
+        raise HTTPException(status_code=429, detail=duration_message)
+
+    background_tasks.add_task(_process_video_and_deliver, user["id"], req.channel, req.chat_id, req.prompt, seconds)
 
     return GenerateVideoResponse(accepted=True, quota_message=quota_message)
 

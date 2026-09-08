@@ -29,6 +29,13 @@ from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
 
+# Owner spec, 2026-09-09 ("عندما ننجح نبقي الافتراضي 6 الى 10 حسب الطلب
+# ... ونجعل من 15 ثانية وفوق ضمن الخطة المدفوعة"): video generation
+# isn't confirmed working live yet (see council.py's generate_video),
+# but this gating is prepared now so it's ready the moment it is —
+# max_video_seconds caps what main.py will even attempt to render for
+# a given plan, checked before scheduling the (slow, real) generation
+# work, not after.
 PLANS: dict[str, dict] = {
     "FREE": {
         "label": "مجاني",
@@ -36,6 +43,7 @@ PLANS: dict[str, dict] = {
         "daily_image": 3,
         "weekly_text": 600,
         "weekly_image": 18,
+        "max_video_seconds": 10,
         "price_usd": 0.0,
     },
     "PRO_BASIC": {
@@ -44,6 +52,7 @@ PLANS: dict[str, dict] = {
         "daily_image": 20,
         "weekly_text": 3000,
         "weekly_image": 120,
+        "max_video_seconds": 20,
         "price_usd": 2.0,
     },
     "PRO_PLUS": {
@@ -52,6 +61,7 @@ PLANS: dict[str, dict] = {
         "daily_image": 60,
         "weekly_text": 12000,
         "weekly_image": 360,
+        "max_video_seconds": 30,
         "price_usd": 4.0,
     },
     "PRO_ULTRA": {
@@ -60,6 +70,7 @@ PLANS: dict[str, dict] = {
         "daily_image": 999_999,
         "weekly_text": 999_999,
         "weekly_image": 999_999,
+        "max_video_seconds": 60,
         "price_usd": 7.0,
     },
 }
@@ -134,6 +145,40 @@ def effective_plan(user: dict) -> str:
 
 def has_active_subscription(user: dict) -> bool:
     return effective_plan(user) != "FREE"
+
+
+# Owner spec, 2026-09-09: default video length when the user doesn't
+# specify one, and the floor no plan can go below (a request for "0
+# seconds" or a nonsensical value falls back to this, not an error).
+DEFAULT_VIDEO_SECONDS = 6
+MIN_VIDEO_SECONDS = 4
+
+
+def check_video_duration(user: dict, requested_seconds: int | None) -> tuple[bool, int, str]:
+    """Returns (allowed, seconds_to_use, message). The platform owner
+    skips this like every other cap. requested_seconds is whatever the
+    user asked for in plain text (None if they didn't specify a
+    number) — clamped to [MIN_VIDEO_SECONDS, plan's max_video_seconds]
+    rather than rejected outright for an unreasonably small/large
+    number, since "give me the closest thing I'm allowed" is a better
+    experience than an error for an honest typo like "0 ثواني". Only
+    a request that explicitly exceeds the plan's own ceiling is
+    rejected with an upgrade prompt — that's the real business rule
+    ("من 15 ثانية وفوق ضمن الخطة المدفوعة"), not a technical limit."""
+    if SUPER_ADMIN_TELEGRAM_ID and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID:
+        return True, requested_seconds or DEFAULT_VIDEO_SECONDS, "مالك المنصة — بلا حد"
+
+    plan = effective_plan(user)
+    max_seconds = PLANS[plan]["max_video_seconds"]
+    if requested_seconds is None:
+        return True, DEFAULT_VIDEO_SECONDS, ""
+    if requested_seconds > max_seconds:
+        return (
+            False,
+            max_seconds,
+            f"خطتك الحالية تسمح بفيديو حتى {max_seconds} ثانية فقط — أرسل /ترقية لمدة أطول (حتى {PLANS['PRO_ULTRA']['max_video_seconds']} ثانية).",
+        )
+    return True, max(MIN_VIDEO_SECONDS, requested_seconds), ""
 
 
 def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, str]:

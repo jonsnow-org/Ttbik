@@ -611,16 +611,37 @@ def generate_image(prompt: str) -> bytes | None:
         return None
 
 
-def generate_video(prompt: str) -> bytes | None:
-    """Owner spec, 2026-09-09 ("قم ايضا بارسال الفديو الى ModelScope"):
-    explicit owner instruction to try this despite two known, real
-    risks stated plainly beforehand and not resolved, only accepted:
+_VIDEO_FPS = 8  # matches export_to_video(fps=8) on the ModelScope side
+
+
+def _seconds_to_cogvideox_frames(seconds: int) -> int:
+    """CogVideoX's temporal VAE has a real, documented architectural
+    constraint (not a guess): it compresses frames 4x, so the frame
+    count it was trained/tested against is of the form 4n+1 (49 = the
+    exact value used in every test run so far, on both Kaggle's GPU and
+    this Studio's own generate_video below). Rounds the requested
+    duration to the nearest valid 4n+1 count instead of an arbitrary
+    frame number diffusers/CogVideoX was never validated against."""
+    raw_frames = max(1, round(seconds * _VIDEO_FPS))
+    n = round((raw_frames - 1) / 4)
+    return max(25, n * 4 + 1)  # floor of 25 (~3s) — anything shorter is a degenerate clip
+
+
+def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
+    """Owner spec, 2026-09-08/09 ("قم ايضا بارسال الفديو الى
+    ModelScope" + "الافتراضي 6 الى 10 حسب الطلب"): explicit owner
+    instruction to try this despite two known, real risks stated
+    plainly beforehand and not resolved, only accepted:
 
     1. CogVideoX-2B (2B params) has no GPU to run on here — the same
        test video that took ~17 minutes on a real Kaggle T4 GPU could
-       plausibly take HOURS on this CPU-only ModelScope box. The
-       timeout below is deliberately generous (not a guessed "should
-       be enough" number) for exactly that reason.
+       plausibly take HOURS on this CPU-only ModelScope box, and this
+       is UNMEASURED at durations other than the one 49-frame/6s test
+       that's actually been confirmed to work — a longer request (per
+       quota.check_video_duration's plan-based ceiling) costs
+       proportionally more real time, not a fixed amount. The timeout
+       below is deliberately generous (not a guessed "should be
+       enough" number) for exactly that reason.
     2. This box already holds a 7B GGUF language model AND the Stable
        Diffusion image model (both resident once loaded) — adding this
        third, heaviest model risks exceeding the box's real 16GB RAM
@@ -639,6 +660,7 @@ def generate_video(prompt: str) -> bytes | None:
 
     import requests
 
+    num_frames = _seconds_to_cogvideox_frames(seconds)
     base = MODELSCOPE_SPACE_URL.rstrip("/")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -648,7 +670,7 @@ def generate_video(prompt: str) -> bytes | None:
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate_video",
             headers=headers,
-            json={"prompt": prompt},
+            json={"prompt": prompt, "num_frames": num_frames},
             timeout=30,
         )
         submit.raise_for_status()

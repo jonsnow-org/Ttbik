@@ -710,25 +710,33 @@ def _get_video_pipe():
     return _video_pipe
 
 
-def generate_video(prompt: str) -> str:
+_VIDEO_FPS = 8  # must match council.py's _seconds_to_cogvideox_frames assumption
+
+
+def generate_video(prompt: str, num_frames: float = 49) -> str:
     """Returns a base64-encoded MP4 string directly, same shape as
-    generate_image's base64 PNG above. Real cost, stated plainly rather
-    than tuned around: CPU-only inference for a model this size is
-    unmeasured territory — the same test video that took ~17 minutes on
-    a real T4 GPU (see ai-system/colab/generate_image_model.ipynb) could
-    plausibly take hours here. num_frames/num_inference_steps are kept
-    at the same values already confirmed to produce a real working
-    video on GPU, not lowered to guess-optimize for CPU speed at the
-    cost of guessing the output still looks right."""
+    generate_image's base64 PNG above. num_frames comes from
+    council.py's _seconds_to_cogvideox_frames — already rounded there
+    to a valid 4n+1 count for CogVideoX's temporal VAE, so this just
+    casts the raw float Gradio hands every Number input back to int.
+    Real cost, stated plainly rather than tuned around: CPU-only
+    inference for a model this size is unmeasured territory — the one
+    confirmed-working test (49 frames, ~17 minutes on a real T4 GPU —
+    see ai-system/colab/generate_image_model.ipynb) could plausibly
+    take hours here, and a longer request costs proportionally more,
+    not a fixed amount. num_inference_steps is kept at the same value
+    already confirmed to produce a real working video on GPU, not
+    lowered to guess-optimize for CPU speed at the cost of guessing the
+    output still looks right."""
     try:
         from diffusers.utils import export_to_video
 
         pipe = _get_video_pipe()
         frames = pipe(
-            prompt=prompt, num_videos_per_prompt=1, num_inference_steps=50, num_frames=49, guidance_scale=6
+            prompt=prompt, num_videos_per_prompt=1, num_inference_steps=50, num_frames=int(num_frames), guidance_scale=6
         ).frames[0]
         path = "/tmp/nova_generated_video.mp4"
-        export_to_video(frames, path, fps=8)
+        export_to_video(frames, path, fps=_VIDEO_FPS)
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode("ascii")
     except Exception:
@@ -758,7 +766,10 @@ _image_interface = gr.Interface(
 
 _video_interface = gr.Interface(
     fn=generate_video,
-    inputs=gr.Textbox(label="prompt"),
+    inputs=[
+        gr.Textbox(label="prompt"),
+        gr.Number(label="num_frames", value=49),
+    ],
     outputs=gr.Textbox(label="video_base64"),
     title="توليد فيديو",
     api_name="generate_video",
