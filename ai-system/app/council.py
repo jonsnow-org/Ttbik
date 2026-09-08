@@ -99,6 +99,7 @@ that the official PyPI llama-cpp-python has no Qwen2.5-VL chat handler
 at all, so plain `pip install llama-cpp-python` cannot serve vision
 regardless of which GGUF files it's given.
 """
+import concurrent.futures
 import json
 import logging
 import re
@@ -119,6 +120,39 @@ from app.config import (
 # from our own trained model or the Groq/Gemini fallback, so there was no
 # way to tell which one actually answered any given message without this.
 logger = logging.getLogger("nova")
+
+
+def _with_hard_deadline(fn, *args, timeout: float, **kwargs):
+    """Owner report, 2026-09-09 (real evidence: a plain "مرحبا" got ZERO
+    reply for minutes, not even a fallback error message): a real,
+    well-known gotcha with requests' `timeout=` on a streamed (SSE)
+    response — it bounds each individual socket read, not the total
+    call duration. If ModelScope's queue sends periodic keepalive bytes
+    while a job is genuinely stalled, every single read succeeds well
+    within its own timeout and iter_lines() keeps going indefinitely —
+    the nominal timeout on call_modelscope_specialist/generate_image/
+    generate_video never actually fires, so their Groq-fallback (or
+    honest failure message) never runs either, leaving the user with
+    silence forever.
+
+    This runs `fn` in a separate thread and gives up waiting after
+    `timeout` seconds REGARDLESS of what the socket is doing — the
+    caller gets None back and can fall through to Groq or a real error
+    message on schedule. The abandoned thread is not killed (Python has
+    no safe way to do that) — it either finishes on its own later and
+    its result is discarded, or the underlying `requests` call
+    eventually hits its own timeout and dies there. Either way this
+    function's caller is never blocked past `timeout`."""
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = pool.submit(fn, *args, **kwargs)
+    try:
+        return future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.warning("hard deadline (%ss) hit waiting on %s — treating as unavailable", timeout, getattr(fn, "__name__", fn))
+        return None
+    finally:
+        pool.shutdown(wait=False)
+
 
 _SYSTEM_PROMPT = (
     "أنت نوفا NOVA، مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر.\n\n"
@@ -371,6 +405,21 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
 
 
 def call_modelscope_specialist(
+    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL"
+) -> str | None:
+    """Thin wrapper enforcing a real hard wall-clock deadline around
+    _call_modelscope_specialist_blocking — see _with_hard_deadline's own
+    docstring for the exact real bug this closes (an SSE stream with
+    keepalive bytes can make requests' own `timeout=` never fire even
+    though a job is genuinely stalled)."""
+    result_timeout = 630 if image_base64 else 100  # a little above the inner call's own nominal timeouts
+    return _with_hard_deadline(
+        _call_modelscope_specialist_blocking, message, context, image_base64=image_base64, query_type=query_type,
+        timeout=result_timeout,
+    )
+
+
+def _call_modelscope_specialist_blocking(
     message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL"
 ) -> str | None:
     """OUR OWN model, actually reachable this time (see module
@@ -634,6 +683,14 @@ def classify_intent(message: str, recent_context: str = "") -> dict:
 
 
 def generate_image(prompt: str) -> bytes | None:
+    """Thin wrapper enforcing a real hard wall-clock deadline — see
+    _with_hard_deadline's own docstring (same real bug that made a
+    plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
+    keep requests' own `timeout=` from ever firing)."""
+    return _with_hard_deadline(_generate_image_blocking, prompt, timeout=1830)
+
+
+def _generate_image_blocking(prompt: str) -> bytes | None:
     """OUR OWN image-GENERATION model — real evidence, 2026-09-09
     (Render's own logs): Hugging Face's free "hf-inference" provider
     refuses to serve our own Stable Diffusion repo too, not just
@@ -719,6 +776,16 @@ def _seconds_to_cogvideox_frames(seconds: int) -> int:
 
 
 def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
+    """Thin wrapper enforcing a real hard wall-clock deadline — see
+    _with_hard_deadline's own docstring (same real bug that made a
+    plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
+    keep requests' own `timeout=` from ever firing). Keeps the same
+    generous 4-hour ceiling _generate_video_blocking already documents
+    below as deliberate, just actually enforced now."""
+    return _with_hard_deadline(_generate_video_blocking, prompt, seconds, timeout=14430)
+
+
+def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
     """Owner spec, 2026-09-08/09 ("قم ايضا بارسال الفديو الى
     ModelScope" + "الافتراضي 6 الى 10 حسب الطلب"): explicit owner
     instruction to try this despite two known, real risks stated
