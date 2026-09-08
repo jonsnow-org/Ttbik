@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
@@ -121,9 +121,15 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 // across every later message once sent — no need to re-attach it on
 // every single reply, only where the menu changes, exactly like the
 // sibling bots' own mainMenu functions).
+// Owner spec, 2026-09-09: "توليد صورة"/"توليد فيديو" as dedicated
+// buttons are gone — the free-text AI understanding built into /chat
+// (council.classify_intent) already covers that without a button ("لا
+// داعي للزرين الحاليين"). "🎬 الاستوديو" replaces them with real,
+// non-AI tools instead: editing the user's OWN photos (crop/resize)
+// and the site's already-working free tools, both wired below.
 function novaMainMenu(): Keyboard {
   return new Keyboard()
-    .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
+    .text("🎬 الاستوديو").row()
     .text("🎛 لوحتي").text("📜 سجل المحادثات").row()
     .text("💎 ترقية")
     .resized();
@@ -329,11 +335,127 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
 // _process_chat_and_deliver and ai-system/app/council.py's
 // classify_intent for where that now lives.
 
+// Owner spec, 2026-09-09 ("قسم في لوحة المستخدم... وظائف مجاني ومدفوع
+// ونربطها بادوات حقيقية تعمل على موقعنا... حالياً كله مجاني حتى يكتمل
+// البناء"): "🧰 أدوات الموقع" wires the bot to the SAME free-tools API
+// routes the website already serves (src/app/api/free-tools/*) — real,
+// already-working endpoints, not new AI logic. All free for now per
+// that spec; gating a mode behind a paid plan later is a one-line
+// change here (check the user's plan the same way _enforce_quota does
+// on the Python side) once the owner decides which ones become paid.
+const STUDIO_TOOLS: Record<string, { label: string; endpoint: string; modes: Record<string, string> }> = {
+  writing: {
+    label: "✍️ كاتب المحتوى",
+    endpoint: "/api/free-tools/writing-assistant",
+    modes: {
+      caption: "منشور تسويقي",
+      blog: "مسودة مقال",
+      "product-desc": "وصف منتج",
+      translate: "ترجمة",
+    },
+  },
+  analyzer: {
+    label: "📊 محلل النصوص",
+    endpoint: "/api/free-tools/text-analyzer",
+    modes: {
+      summarize: "تلخيص تقرير",
+      reviews: "تحليل آراء عملاء",
+    },
+  },
+};
+
+function studioRootMenu(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✋ المكتبة اليدوية (على صورك)", "studio|manual").row()
+    .text("🧰 أدوات الموقع", "studio|tools");
+}
+
+function studioToolsMenu(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const [key, tool] of Object.entries(STUDIO_TOOLS)) {
+    kb.text(tool.label, `studio|tools|${key}`).row();
+  }
+  return kb;
+}
+
+function studioModesMenu(toolKey: string): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const [modeKey, label] of Object.entries(STUDIO_TOOLS[toolKey].modes)) {
+    kb.text(label, `studio|tools|${toolKey}|${modeKey}`).row();
+  }
+  return kb;
+}
+
+// Same zero-server-state reasoning as the removed image/video
+// force_reply trick (see the owner-correction comment above) — but
+// legitimate here, unlike there: the user just tapped an exact button
+// naming an exact deterministic operation, so there is no "intent" left
+// to understand, only input left to collect. Encodes which tool+mode via
+// the exact prompt text itself (matched back against msg.reply_to_message
+// below) instead of any persisted session, consistent with this file's
+// thin-client design.
+function studioInputPromptText(toolKey: string, modeKey: string): string {
+  const tool = STUDIO_TOOLS[toolKey];
+  return `📝 أرسل النص الآن — [${tool.label}: ${tool.modes[modeKey]}]`;
+}
+
+function parseStudioInputPrompt(promptText: string): { toolKey: string; modeKey: string } | null {
+  const match = promptText.match(/^📝 أرسل النص الآن — \[(.+?): (.+?)\]$/);
+  if (!match) return null;
+  const [, toolLabel, modeLabel] = match;
+  for (const [toolKey, tool] of Object.entries(STUDIO_TOOLS)) {
+    if (tool.label !== toolLabel) continue;
+    for (const [modeKey, label] of Object.entries(tool.modes)) {
+      if (label === modeLabel) return { toolKey, modeKey };
+    }
+  }
+  return null;
+}
+
+async function handleStudioCallback(bot: TelegramBot, cq: any) {
+  const chatId = cq.message?.chat?.id;
+  await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+  if (!chatId) return;
+
+  const parts = String(cq.data || "").split("|"); // ["studio", ...]
+
+  if (parts[1] === "manual") {
+    await bot.api.sendMessage(
+      chatId,
+      "✋ المكتبة اليدوية — أدوات حقيقية بالكود على صورتك أنت مباشرة، بلا أي ذكاء اصطناعي:\n\n" +
+        "أرسل صورة، واكتب في خانة الوصف (caption) قبل الإرسال إحدى الكلمتين:\n" +
+        "• قص — يقصّها إلى مربّع\n" +
+        "• تصغير — يصغّر حجمها\n\n" +
+        "مثال: أرفق الصورة واكتب \"قص\" في خانة الوصف."
+    );
+    return;
+  }
+
+  if (parts[1] === "tools" && parts.length === 2) {
+    await bot.api.sendMessage(chatId, "🧰 اختر أداة:", { reply_markup: studioToolsMenu() });
+    return;
+  }
+
+  if (parts[1] === "tools" && parts.length === 3 && STUDIO_TOOLS[parts[2]]) {
+    await bot.api.sendMessage(chatId, `${STUDIO_TOOLS[parts[2]].label} — اختر الوضع:`, {
+      reply_markup: studioModesMenu(parts[2]),
+    });
+    return;
+  }
+
+  if (parts[1] === "tools" && parts.length === 4 && STUDIO_TOOLS[parts[2]]?.modes[parts[3]]) {
+    await bot.api.sendMessage(chatId, studioInputPromptText(parts[2], parts[3]));
+    return;
+  }
+}
+
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (update.callback_query) {
     const cqData = String(update.callback_query.data || "");
     if (cqData.startsWith("nova_plan|")) {
       await handleNovaPlanCallback(bot, update.callback_query);
+    } else if (cqData.startsWith("studio|")) {
+      await handleStudioCallback(bot, update.callback_query);
     } else {
       await handleNovaAdminCallback(bot, update.callback_query);
     }
@@ -404,6 +526,30 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   if (!msg.text) return;
   const text = String(msg.text).trim();
 
+  // Legitimate, deterministic reply-matching (see the comment above
+  // parseStudioInputPrompt for why this is unlike the removed
+  // image/video force_reply trick) — the user already picked an exact
+  // tool+mode by tapping a button, so this text is unambiguously that
+  // tool's input, checked before any other routing.
+  const studioMatch = msg.reply_to_message?.text ? parseStudioInputPrompt(String(msg.reply_to_message.text)) : null;
+  if (studioMatch) {
+    const tool = STUDIO_TOOLS[studioMatch.toolKey];
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    try {
+      const res = await fetch(`${SITE_URL}${tool.endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: studioMatch.modeKey, input: text }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const data = await res.json().catch(() => ({}));
+      await bot.api.sendMessage(chatId, res.ok && data.output ? data.output : data?.error || "تعذّر تنفيذ الأداة الآن، حاول لاحقاً.");
+    } catch {
+      await bot.api.sendMessage(chatId, "تعذّر الاتصال بالأداة — حاول لاحقاً.");
+    }
+    return;
+  }
+
   if (text === "/start" || text.startsWith("/start ")) {
     // AD_BOT hands out "/start adv_<AdClickId>" deep links when a
     // campaign promotes this very bot — consuming it here marks that
@@ -424,27 +570,14 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     }
     await bot.api.sendMessage(
       chatId,
-      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، استخدم الأزرار أدناه لتوليد صورة أو فيديو، لعرض لوحتك، أو للترقية.",
+      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word) — بما في ذلك طلب توليد صورة أو فيديو، بلا حاجة لأي زر. استخدم \"🎬 الاستوديو\" أدناه لأدوات إضافية حقيقية (تعديل صورك، أدوات الموقع)، أو لعرض لوحتك، أو للترقية.",
       { reply_markup: novaMainMenu() }
     );
     return;
   }
 
-  if (text === "🖼 توليد صورة") {
-    // No force_reply, no marker to match against later — just a plain
-    // invitation. Whatever the user types next goes to /chat like any
-    // other message, and the backend's own model understands from
-    // context (this exact exchange, via council.classify_intent) that
-    // it's an image description, exactly like a person would (see the
-    // owner-correction comment above detectMediaGenerationIntent's old
-    // location for why this replaced both that keyword list and the
-    // force_reply trick this button used briefly).
-    await bot.api.sendMessage(chatId, "🖼 صف لي الصورة التي تريدها (مثال: قطة سوداء تحت المطر).");
-    return;
-  }
-
-  if (text === "🎬 توليد فيديو") {
-    await bot.api.sendMessage(chatId, "🎬 صف لي الفيديو الذي تريده (مثال: قطة تلعب بكرة صوف).");
+  if (text === "🎬 الاستوديو") {
+    await bot.api.sendMessage(chatId, "🎬 الاستوديو — اختر قسماً:", { reply_markup: studioRootMenu() });
     return;
   }
 
@@ -640,6 +773,35 @@ async function handleImageMessage(bot: TelegramBot, chatId: number, tgUserId: st
     await bot.api.sendMessage(chatId, "تعذّر تحميل الصورة — حاول مرة أخرى.");
     return;
   }
+
+  // Owner spec, 2026-09-09 ("المكتبة اليدوية"): a caption of "قص" or
+  // "تصغير" routes to REAL, non-AI, code-only image editing
+  // (src/app/api/nova/studio/image-edit — plain sharp crop/resize)
+  // instead of the AI vision pipeline below. Fast enough (well under a
+  // second) to answer inline, unlike vision's genuine multi-minute
+  // CPU-only inference — a completely different, deterministic path,
+  // not a shortcut through the AI.
+  const studioOp = caption?.trim() === "قص" ? "crop-square" : caption?.trim() === "تصغير" ? "resize-small" : null;
+  if (studioOp) {
+    try {
+      const res = await fetch(`${SITE_URL}/api/nova/studio/image-edit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: studioOp, image_base64: imageBase64 }),
+        signal: AbortSignal.timeout(20000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.image_base64) {
+        await bot.api.sendMessage(chatId, data?.error || "تعذّر تعديل الصورة — حاول مرة أخرى.");
+        return;
+      }
+      await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(data.image_base64, "base64"), "edited.jpg"));
+    } catch {
+      await bot.api.sendMessage(chatId, "تعذّر الاتصال بأداة تعديل الصور — حاول لاحقاً.");
+    }
+    return;
+  }
+
   // Owner report, 2026-09-07: real vision inference on the free
   // ModelScope box (CPU-only) measured ~4-5 minutes for one photo —
   // far past this route's own 55s abort / Vercel's 60s maxDuration, so
