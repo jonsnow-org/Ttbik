@@ -827,38 +827,49 @@ def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
     """Thin wrapper enforcing a real hard wall-clock deadline — see
     _with_hard_deadline's own docstring (same real bug that made a
     plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
-    keep requests' own `timeout=` from ever firing). Keeps the same
-    generous 4-hour ceiling _generate_video_blocking already documents
-    below as deliberate, just actually enforced now."""
-    return _with_hard_deadline(_generate_video_blocking, prompt, seconds, timeout=14430)
+    keep requests' own `timeout=` from ever firing).
+
+    Owner directive, 2026-09-08 (real evidence, not guessed — see
+    _generate_video_blocking's own docstring below for the full
+    measurement): this used to be a 4-hour ceiling because CogVideoX-2B
+    on CPU was genuinely unmeasured territory. It no longer is: the
+    serving side now builds video from real AI keyframes (the
+    already-fast image pipeline) plus classical animation, not raw
+    video diffusion, so a 30-minute ceiling is already generous — if a
+    request is anywhere near that long, something is genuinely stuck,
+    not just slow, and the user deserves a real failure message far
+    sooner than 4 hours."""
+    return _with_hard_deadline(_generate_video_blocking, prompt, seconds, timeout=1830)
 
 
 def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
     """Owner spec, 2026-09-08/09 ("قم ايضا بارسال الفديو الى
-    ModelScope" + "الافتراضي 6 الى 10 حسب الطلب"): explicit owner
-    instruction to try this despite two known, real risks stated
-    plainly beforehand and not resolved, only accepted:
+    ModelScope" + "الافتراضي 6 الى 10 حسب الطلب"): originally called
+    into a raw CogVideoX-2B pipeline on the CPU-only ModelScope box.
 
-    1. CogVideoX-2B (2B params) has no GPU to run on here — the same
-       test video that took ~17 minutes on a real Kaggle T4 GPU could
-       plausibly take HOURS on this CPU-only ModelScope box, and this
-       is UNMEASURED at durations other than the one 49-frame/6s test
-       that's actually been confirmed to work — a longer request (per
-       quota.check_video_duration's plan-based ceiling) costs
-       proportionally more real time, not a fixed amount. The timeout
-       below is deliberately generous (not a guessed "should be
-       enough" number) for exactly that reason.
-    2. This box already holds a 7B GGUF language model AND the Stable
-       Diffusion image model (both resident once loaded) — adding this
-       third, heaviest model risks exceeding the box's real 16GB RAM
-       limit, which could crash the whole Studio process (temporarily
-       taking text/vision down too, until it restarts) rather than
-       failing just this one request cleanly.
+    Owner directive, 2026-09-08 (real measured evidence): a genuine T4
+    GPU test (Lightning AI, same model, same parameters) generated this
+    exact video in 157 seconds. Real attempts on this CPU-only box
+    either hung indefinitely or hit the hard deadline and failed
+    outright — not a tuning gap but a ~100-1000x hardware gap (GPUs are
+    built for the massively parallel compute video diffusion needs; no
+    CPU-viable model closes that today). Confirmed by direct
+    comparison, not assumed.
 
-    Real evidence on hosting elsewhere: Hugging Face's free hf-inference
-    provider's own error response lists every task it supports — "text-
-    to-video" isn't in that list for ANY model, not just custom repos
-    (2026-09-09, Render logs) — so no HF-based fix exists regardless."""
+    The serving side (ai-system/modelscope-studio/app.py's
+    generate_video) now builds "video" a different, honest way instead:
+    real AI keyframe images from the already-fast owned image pipeline
+    (sd-turbo, seconds per frame on GPU / a real but far smaller CPU
+    cost than full video diffusion), assembled via classical, zero-AI
+    pan/zoom + crossfade animation (Ken Burns effect). This function
+    itself is unchanged below — it's still just the HTTP call to the
+    Studio's Gradio API — only what runs on the other end changed.
+
+    Real evidence on hosting a true video-diffusion model elsewhere:
+    Hugging Face's free hf-inference provider's own error response
+    lists every task it supports — "text-to-video" isn't in that list
+    for ANY model, not just custom repos (2026-09-09, Render logs) — so
+    no HF-based fix exists regardless."""
     if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
         return None
     import base64
@@ -882,13 +893,18 @@ def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
         logger.info("video-gen: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
-        # Deliberately generous (not tuned to "typical" — there is no
-        # typical yet): unmeasured CPU-only cost for a 2B video model,
-        # stated in this function's own docstring above.
+        # This is only requests' own per-chunk read timeout (see
+        # _with_hard_deadline's docstring for why that's a different,
+        # weaker guarantee than total call duration) — the real ceiling
+        # on total time is generate_video()'s outer 1830s hard deadline
+        # above, which fires regardless of what's set here. Kept
+        # generous anyway so a single slow keyframe download/step
+        # doesn't trip this inner timeout before the outer one gets a
+        # chance to return a clean None.
         result_resp = requests.get(
             f"{base}/gradio_api/call/generate_video/{event_id}",
             headers=headers,
-            timeout=14400,
+            timeout=1800,
             stream=True,
         )
         logger.info("video-gen: ModelScope GET status=%s", result_resp.status_code)

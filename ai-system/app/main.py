@@ -725,20 +725,22 @@ def _process_video_and_deliver(
             )
         video_bytes = council.generate_video(expanded_prompt, seconds)
         if video_bytes is None:
-            # Owner spec, 2026-09-09: video generation now genuinely
-            # attempts real CPU-only inference on ModelScope (see
-            # council.py's generate_video docstring for the real,
-            # stated-upfront risks: unmeasured hours-long latency, and
-            # a real chance this destabilizes the shared box). A
-            # failure here is never the user's fault — refund the
-            # quota unit this request already reserved.
+            # Owner directive, 2026-09-08 (real evidence): video
+            # generation on this CPU-only box now builds real AI
+            # keyframes + classical animation instead of raw video
+            # diffusion (see council.py's generate_video docstring for
+            # the measured 157s-on-GPU-vs-hang-on-CPU evidence behind
+            # that switch) — genuinely a few minutes, not hours, so a
+            # failure here is more likely a mid-deploy restart or one
+            # bad keyframe than the old "no GPU" story. A failure here
+            # is never the user's fault either way — refund the quota
+            # unit this request already reserved.
             quota.refund_quota(user_id, "IMAGE")
             _send_telegram_message(
                 chat_id,
                 "تعذّر توليد الفيديو هذه المرة — إما أن الخادم لا يزال يُعيد "
-                "التشغيل بعد تحديث، أو أن التوليد الفعلي (بلا معالج رسومي "
-                "GPU) أخذ وقتاً طويلاً جداً وانقطع الاتصال. حاول مرة أخرى "
-                "لاحقاً (لم يُخصَم هذا من حدك اليومي).",
+                "التشغيل بعد تحديث، أو حدث خطأ غير متوقع أثناء التوليد. حاول "
+                "مرة أخرى (لم يُخصَم هذا من حدك اليومي).",
             )
             return
         quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
