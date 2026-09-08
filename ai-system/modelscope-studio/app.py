@@ -108,7 +108,6 @@ except ImportError:
     ])
 
 import gradio as gr
-from huggingface_hub import snapshot_download as hf_snapshot_download
 from modelscope import snapshot_download
 
 # Our own trained model repo on ModelScope — produced by
@@ -144,8 +143,27 @@ MMPROJ_PATH = mmproj_candidates[0] if mmproj_candidates else None
 # context the main model already uses successfully, and have the lazy
 # loaders below read from local disk only (local_files_only=True),
 # never touching the network from a worker thread at all.
-_IMAGE_MODEL_ID = "Novasy/nova-image-gen"
-_VIDEO_MODEL_ID = "Novasy/nova-video-gen"
+#
+# Owner report, 2026-09-08→09 (real evidence, three redeploys tested):
+# even after the retry-with-backoff fix below, image generation stayed
+# permanently broken — ruling out a transient cause. Real asymmetry
+# found by comparing this to the MAIN model above: the main model
+# downloads from ModelScope's OWN hub (modelscope.snapshot_download)
+# and has never once failed; these two downloaded from Hugging Face
+# (huggingface_hub) and have never once succeeded, despite the owner
+# confirming live (screenshot) that the HF repos themselves are public,
+# valid, and populated. ModelScope's build infra is confirmed
+# China-based (cn-zhangjiakou region, mirrors.aliyun.com PyPI mirror —
+# both seen directly in this Studio's own build logs), which is a
+# well-known class of real-world network path that frequently cannot
+# reach huggingface.co at all regardless of the repo's own validity.
+# Fix: stop asking these servers to reach Hugging Face. Mirror both
+# models onto ModelScope's own hub instead (see the new upload cells in
+# ai-system/colab/generate_image_model.ipynb) and read them with the
+# exact same snapshot_download() call already proven reliable for the
+# main model above.
+_IMAGE_MODEL_ID = "novaai2026/nova-image-gen"
+_VIDEO_MODEL_ID = "novaai2026/nova-video-gen"
 
 
 def _download_with_retries(model_id: str, attempts: int = 3, backoff_seconds: float = 15.0) -> str | None:
@@ -166,10 +184,14 @@ def _download_with_retries(model_id: str, attempts: int = 3, backoff_seconds: fl
     the single-attempt version already used, so this does NOT
     reintroduce the separate, already-fixed "client has been closed"
     bug (that one was specifically about a LAZY download from a Gradio
-    worker thread; this stays eager)."""
+    worker thread; this stays eager). Uses ModelScope's own
+    snapshot_download now (see _IMAGE_MODEL_ID/_VIDEO_MODEL_ID comment
+    above) — not huggingface_hub's — since retries alone never fixed
+    this in practice, which is exactly what a structural network-path
+    problem to huggingface.co (rather than a one-off blip) looks like."""
     for attempt in range(1, attempts + 1):
         try:
-            return hf_snapshot_download(model_id)
+            return snapshot_download(model_id)
         except Exception:
             print(f"[startup] download attempt {attempt}/{attempts} for {model_id} failed:")
             traceback.print_exc()
