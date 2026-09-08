@@ -125,7 +125,7 @@ function novaMainMenu(): Keyboard {
   return new Keyboard()
     .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
     .text("🎛 لوحتي").text("📜 سجل المحادثات").row()
-    .text("🔑 مفتاح API").text("💎 ترقية")
+    .text("💎 ترقية")
     .resized();
 }
 
@@ -152,7 +152,8 @@ async function fetchNovaMe(uid: string): Promise<{ user: any; plans: Record<stri
 function novaAdminMenu(): Keyboard {
   return new Keyboard()
     .text("⏳ طلبات الاشتراك المعلّقة").row()
-    .text("📢 بث جماعي")
+    .text("📢 بث جماعي").row()
+    .text("🔑 مفتاح API")
     .resized();
 }
 
