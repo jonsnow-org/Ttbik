@@ -11,7 +11,6 @@ tsconfig.tsbuildinfo
 # ai-system/ (Python FastAPI + Streamlit service)
 ai-system/.env
 ai-system/venv
-ai-system/__pycache__
-ai-system/app/__pycache__
+ai-system/**/__pycache__
 ai-system/chroma_data
-ai-system/*.pyc
+ai-system/**/*.pyc
