@@ -71,6 +71,7 @@ why each of those exists.
 import ast
 import base64
 import glob
+import io
 import json
 import os
 import re
@@ -584,7 +585,58 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
         return ""
 
 
-demo = gr.Interface(
+# Owner spec, 2026-09-09 ("لا تجعل كل الامور مترابطة ومتشابكة ومعقدة"):
+# real evidence (Render logs, same day) that Hugging Face's free
+# hf-inference provider refuses to serve our own image-generation repo
+# too — "Model not supported by provider hf-inference", the exact same
+# wall already hit and fixed for text/vision. Consolidating onto this
+# one box instead of juggling two platforms: Hugging Face is now only
+# used to archive trained weights (ownership/backup), never to serve a
+# live request — ModelScope hosts everything real (text, vision, and
+# now images) in one place, one deployment pipeline, one thing to
+# reason about.
+_IMAGE_MODEL_ID = "Novasy/nova-image-gen"
+_image_pipe = None
+
+
+def _get_image_pipe():
+    """Loaded lazily, only on the first real image request — this box
+    already holds a 7B GGUF language model in memory at all times;
+    loading Stable Diffusion's own weights on every cold start whether
+    or not anyone ever asks for an image would risk pushing combined
+    memory past this free box's real limit for no benefit on the
+    common case (an ordinary text/vision question)."""
+    global _image_pipe
+    if _image_pipe is None:
+        import torch
+        from diffusers import AutoPipelineForText2Image
+
+        _image_pipe = AutoPipelineForText2Image.from_pretrained(_IMAGE_MODEL_ID, torch_dtype=torch.float32)
+    return _image_pipe
+
+
+def generate_image(prompt: str) -> str:
+    """Returns a base64-encoded PNG string directly (not a file path) —
+    council.py's caller decodes this the same way it already decodes
+    text responses, no new wire format introduced. Real CPU-only
+    Stable Diffusion inference on a 2-vCPU box is genuinely slow (this
+    is why council.py's generate_image call and main.py's
+    /generate-image endpoint are both async now, delivering straight to
+    Telegram once ready — see main.py's module comment on that
+    endpoint) — 25 steps is a deliberate floor for real image quality,
+    not an arbitrary number to guess-tune later."""
+    try:
+        pipe = _get_image_pipe()
+        image = pipe(prompt, num_inference_steps=25).images[0]
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        traceback.print_exc()
+        return ""
+
+
+_text_interface = gr.Interface(
     fn=generate,
     inputs=[
         gr.Textbox(label="message"),
@@ -592,8 +644,22 @@ demo = gr.Interface(
         gr.Textbox(label="query_type (optional, CODE|LIVE_INFO|GENERAL)"),
     ],
     outputs=gr.Textbox(label="Response"),
-    title="Nova AI — self-hosted (vision + text)",
+    title="نص ورؤية",
     api_name="generate",
+)
+
+_image_interface = gr.Interface(
+    fn=generate_image,
+    inputs=gr.Textbox(label="prompt"),
+    outputs=gr.Textbox(label="image_base64"),
+    title="توليد صور",
+    api_name="generate_image",
+)
+
+demo = gr.TabbedInterface(
+    [_text_interface, _image_interface],
+    ["نص ورؤية", "توليد صور"],
+    title="Nova AI — self-hosted (نص + رؤية + صور)",
 )
 
 if __name__ == "__main__":

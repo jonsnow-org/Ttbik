@@ -65,6 +65,31 @@ def _send_telegram_message(chat_id: str, text: str) -> None:
         logger.exception("Failed to deliver async answer to Telegram chat_id=%s", chat_id)
 
 
+def _send_telegram_photo(chat_id: str, photo_bytes: bytes, caption: str) -> None:
+    """Same async-delivery shape as _send_telegram_message above, but
+    for a generated image — sendPhoto needs a real multipart file
+    upload, not a JSON body. Added 2026-09-09 alongside moving image
+    generation from Hugging Face's free tier (which refuses to serve
+    our own repo — real evidence, not guessed) to our own ModelScope
+    Studio: CPU-only Stable Diffusion inference is genuinely slow, so
+    /generate-image is no longer synchronous either (see that endpoint
+    below) — the old assumption that it would "answer inline fast
+    enough" only held while it was calling a third party's own
+    infrastructure, not ours."""
+    if not NOVA_BOT_TOKEN:
+        logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async photo to Telegram chat_id=%s", chat_id)
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendPhoto",
+            data={"chat_id": chat_id, "caption": caption},
+            files={"photo": ("nova.png", photo_bytes, "image/png")},
+            timeout=60,
+        )
+    except Exception:
+        logger.exception("Failed to deliver async photo to Telegram chat_id=%s", chat_id)
+
+
 def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None:
     """Same async-delivery shape as _send_telegram_message above, but
     for a generated video file — sendVideo needs a real multipart file
@@ -459,11 +484,44 @@ class GenerateImageRequest(BaseModel):
     prompt: str
     telegram_id: str | None = None
     email: str | None = None
+    # Owner spec, 2026-09-09: async now, chat_id required — see
+    # _process_image_gen_and_deliver's docstring for why (moved off
+    # Hugging Face's free tier, which refuses our own repo, onto our
+    # own CPU-only ModelScope Studio, which is genuinely slow).
+    chat_id: str
 
 
 class GenerateImageResponse(BaseModel):
-    image_base64: str
+    accepted: bool
     quota_message: str
+
+
+def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str) -> None:
+    """Runs in a FastAPI BackgroundTask — see _process_video_and_deliver
+    above for why this needs its own try/except (no HTTP response left
+    to surface an exception on once this starts).
+
+    Owner spec, 2026-09-09: this used to be synchronous, answering
+    inline in the HTTP response — that assumption held only while
+    council.generate_image() was calling a third party's own hosted
+    Stable Diffusion (fast). Real evidence (Render logs, same day) that
+    Hugging Face's free tier refuses our own repo moved this to our own
+    ModelScope Studio instead, where CPU-only inference is genuinely
+    slow — same fix, same async-delivery shape as /image and
+    /generate-video above, for the same underlying reason."""
+    try:
+        image_bytes = council.generate_image(prompt)
+        if image_bytes is None:
+            _send_telegram_message(
+                chat_id,
+                "تعذّر توليد الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL على الخادم، أو حاول مرة أخرى لاحقاً.",
+            )
+            return
+        quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
+        _send_telegram_photo(chat_id, image_bytes, prompt)
+    except Exception:
+        logger.exception("background image-gen pipeline failed for chat_id=%s", chat_id)
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الصورة — حاول مرة أخرى.")
 
 
 @app.post("/generate-image", response_model=GenerateImageResponse)
@@ -474,23 +532,16 @@ def generate_image(
     x_internal_secret: str | None = Header(default=None),
 ):
     """OUR OWN image-generation model (see council.py's module
-    docstring) — a genuinely separate self-hosted open-weight model
-    from HF_SPECIALIST_MODEL_ID, not a third-party API call. No
-    fallback: Groq/Gemini's free tiers have no image generation at all,
-    which is exactly why this needed to be a model we actually own."""
+    docstring) — self-hosted on our own ModelScope Studio, not a
+    third-party API call. No fallback: Groq/Gemini's free tiers have no
+    image generation at all, which is exactly why this needed to be a
+    model we actually own."""
     user = _resolve_and_authorize(req.channel, req.telegram_id, req.email, authorization, x_internal_secret)
     quota_message = _enforce_quota(user, "IMAGE")
 
-    image_bytes = council.generate_image(req.prompt)
-    if image_bytes is None:
-        raise HTTPException(
-            status_code=503,
-            detail="توليد الصور غير متاح حالياً — تأكد من ضبط HF_IMAGE_MODEL_ID على الخادم (راجع ai-system/colab/generate_image_model.ipynb).",
-        )
+    background_tasks.add_task(_process_image_gen_and_deliver, user["id"], req.channel, req.chat_id, req.prompt)
 
-    background_tasks.add_task(quota.log_usage, user["id"], req.channel, "IMAGE_GEN", f"[توليد صورة] {req.prompt}", "(صورة)")
-
-    return GenerateImageResponse(image_base64=base64.b64encode(image_bytes).decode("ascii"), quota_message=quota_message)
+    return GenerateImageResponse(accepted=True, quota_message=quota_message)
 
 
 class GenerateVideoRequest(BaseModel):
@@ -522,8 +573,10 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
         if video_bytes is None:
             _send_telegram_message(
                 chat_id,
-                "تعذّر توليد الفيديو حالياً — هذه ميزة جديدة قيد التحقق (راجع "
-                "ai-system/colab/generate_image_model.ipynb وHF_VIDEO_MODEL_ID)، حاول مرة أخرى لاحقاً.",
+                "توليد الفيديو غير متاح حالياً — تأكيد حقيقي (2026-09-09): توليد "
+                "الفيديو الفعلي جاهز ويعمل، لكن لا يوجد استضافة مجانية حقيقية "
+                "بمعالج رسومي (GPU) لتشغيله حياً بسرعة معقولة حالياً (راجع "
+                "council.py's generate_video docstring للتفاصيل الكاملة).",
             )
             return
         quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")

@@ -25,21 +25,23 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # before assuming this default still applies.
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
-HF_SPECIALIST_MODEL_ID = os.environ.get("HF_SPECIALIST_MODEL_ID", "")
-
-# Owner report, 2026-09-07: Hugging Face's free Inference Providers
-# system flatly refuses to serve ANY custom/private model repo for
-# chat_completion — confirmed live with both our own fine-tuned repo
-# and the untouched official base model, at every size we tried (7B
-# and 0.5B alike) — "Model not supported by provider hf-inference".
-# That isn't a config problem, it's HF's own free-tier policy, so
-# HF_SPECIALIST_MODEL_ID above is no longer usable as a live answer
-# path (see council.py). Real serving now happens on ModelScope's free
-# Studio hosting (2 vCPU / 16GB, no time limit) instead — a compute
-# box we run our own code on, not an API we rent per call. Point this
-# at the public URL ModelScope's "API documentation" page shows for
-# the Studio (looks like
+# Owner report, 2026-09-07/09: Hugging Face's free Inference Providers
+# system flatly refuses to serve ANY custom/private model repo for ANY
+# task — confirmed live for chat_completion (both our own fine-tuned
+# repo and the untouched official base model, every size tried) and
+# again for text_to_image on our own Stable Diffusion repo
+# ("Model not supported by provider hf-inference" both times). That
+# isn't a config problem, it's HF's own free-tier policy — there is no
+# HF-based env var left to configure for live serving of any kind
+# (text, vision, or image generation) as a result; Hugging Face is now
+# used only to archive trained weights (see
+# ai-system/colab/merge_and_finetune.ipynb and
+# generate_image_model.ipynb), never at request time. Real serving of
+# everything — text, vision, and image generation alike — happens on
+# ModelScope's free Studio hosting instead (2 vCPU / 16GB, no time
+# limit): a compute box we run our own code on, not an API we rent per
+# call. Point this at the public URL ModelScope's "API documentation"
+# page shows for the Studio (looks like
 # https://studio-<owner>-<space>.api-inference.modelscope.net/).
 MODELSCOPE_SPACE_URL = os.environ.get("MODELSCOPE_SPACE_URL", "")
 # ModelScope's api-inference.modelscope.net domain requires a bearer
@@ -48,19 +50,6 @@ MODELSCOPE_SPACE_URL = os.environ.get("MODELSCOPE_SPACE_URL", "")
 # the ModelScope account's Access Tokens settings page (format
 # "ms-xxxxx").
 MODELSCOPE_API_TOKEN = os.environ.get("MODELSCOPE_API_TOKEN", "")
-# Our own self-hosted, open-weight image-GENERATION model (Stable
-# Diffusion family) — see ai-system/colab/generate_image_model.ipynb.
-# Separate from HF_SPECIALIST_MODEL_ID (Qwen2.5-VL, text+image
-# UNDERSTANDING) because generation and understanding are genuinely
-# different model architectures — see council.py's module docstring.
-HF_IMAGE_MODEL_ID = os.environ.get("HF_IMAGE_MODEL_ID", "")
-# Our own self-hosted, open-weight video-GENERATION model (CogVideoX-2B
-# or the lighter damo-vilab/text-to-video-ms-1.7b fallback) — see
-# ai-system/colab/generate_image_model.ipynb's video-gen cells and
-# council.py's generate_video() for the real, honestly-documented
-# uncertainty around whether HF's free tier actually serves this task
-# for a custom repo (unconfirmed, unlike HF_IMAGE_MODEL_ID above).
-HF_VIDEO_MODEL_ID = os.environ.get("HF_VIDEO_MODEL_ID", "")
 
 NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 

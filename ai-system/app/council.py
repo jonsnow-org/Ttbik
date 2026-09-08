@@ -99,22 +99,15 @@ that the official PyPI llama-cpp-python has no Qwen2.5-VL chat handler
 at all, so plain `pip install llama-cpp-python` cannot serve vision
 regardless of which GGUF files it's given.
 """
-import io
 import logging
-import time
 
 from groq import Groq
-from huggingface_hub import InferenceClient
-from huggingface_hub.utils import HfHubHTTPError
 
 from app.config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
     GROQ_API_KEY,
     GROQ_MODEL,
-    HF_IMAGE_MODEL_ID,
-    HF_TOKEN,
-    HF_VIDEO_MODEL_ID,
     MODELSCOPE_API_TOKEN,
     MODELSCOPE_SPACE_URL,
 )
@@ -518,81 +511,87 @@ def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
 
 
 def generate_image(prompt: str) -> bytes | None:
-    """OUR OWN image-GENERATION model (see module docstring — a
-    genuinely different architecture from HF_SPECIALIST_MODEL_ID's
-    text/vision understanding, so it's a separate self-hosted
-    open-weight model: see ai-system/colab/generate_image_model.ipynb).
-    No fallback exists for this one — Groq/Gemini's free tiers have no
-    image-generation capability at all to fall back to, and that's
-    fine: it's exactly why this needs to be our own model in the first
-    place, not a gap papered over by a third-party API."""
-    if not HF_IMAGE_MODEL_ID or not HF_TOKEN:
+    """OUR OWN image-GENERATION model — real evidence, 2026-09-09
+    (Render's own logs): Hugging Face's free "hf-inference" provider
+    refuses to serve our own Stable Diffusion repo too, not just
+    text/vision ("Model not supported by provider hf-inference") — the
+    exact same wall already hit and fixed for text/vision. Same fix,
+    consolidated onto the one platform that actually works: this now
+    calls the SAME ModelScope Studio as call_modelscope_specialist
+    above, at a second endpoint (api_name="generate_image") the Studio
+    now also exposes. Hugging Face is no longer part of live serving at
+    all — only used to archive trained weights (see
+    ai-system/colab/generate_image_model.ipynb)."""
+    if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
         return None
-    client = InferenceClient(model=HF_IMAGE_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
-    for attempt in range(2):
-        try:
-            image = client.text_to_image(prompt)
-            buf = io.BytesIO()
-            image.save(buf, format="PNG")
-            return buf.getvalue()
-        except HfHubHTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            if status == 503 and attempt == 0:
-                logger.info("image-gen: our own model is cold-starting on HF (503) — retrying once")
-                time.sleep(8)
+    import base64
+    import json
+
+    import requests
+
+    base = MODELSCOPE_SPACE_URL.rstrip("/")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
+    }
+    try:
+        submit = requests.post(
+            f"{base}/gradio_api/call/v2/generate_image",
+            headers=headers,
+            json={"prompt": prompt},
+            timeout=30,
+        )
+        submit.raise_for_status()
+        event_id = submit.json()["event_id"]
+        # Real CPU-only Stable Diffusion inference on a 2-vCPU box is
+        # genuinely slow (this is exactly why /generate-image is async
+        # now — see main.py) — 300s matches the same order of magnitude
+        # already measured for vision on this same box, not a guess.
+        result_resp = requests.get(
+            f"{base}/gradio_api/call/generate_image/{event_id}",
+            headers=headers,
+            timeout=300,
+            stream=True,
+        )
+        result_resp.raise_for_status()
+        for line in result_resp.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
                 continue
-            body = getattr(e.response, "text", "")[:300]
-            logger.info("image-gen: our own model call failed (HTTP %s: %s)", status, body)
-            return None
-        except Exception as e:
-            logger.info("image-gen: our own model call failed (%s)", e)
-            return None
-    return None
+            payload = json.loads(line[len("data:") :].strip())
+            if isinstance(payload, list) and payload and payload[0]:
+                return base64.b64decode(str(payload[0]))
+        return None
+    except Exception as e:
+        logger.info("image-gen: our own model (ModelScope) call failed (%s)", e)
+        return None
 
 
 def generate_video(prompt: str) -> bytes | None:
-    """Owner spec, 2026-09-08 ("فديو توليد... كما تفعل انت"): our own
-    self-hosted video-generation model (CogVideoX-2B, with a lighter
-    damo-vilab/text-to-video-ms-1.7b fallback if that one's too heavy
-    for a free GPU — see ai-system/colab/generate_image_model.ipynb's
-    video-gen cells, added the same day). Same ownership shape as
-    generate_image() above: downloaded once, weights held on our own
-    HF repo, never a rented per-call API.
+    """Owner spec, 2026-09-08 ("فديو توليد... كما تفعل انت"): a real
+    self-hosted video-generation model (CogVideoX-2B) was trained and
+    confirmed working on Kaggle's own free GPU (real test video
+    produced successfully — see ai-system/colab/generate_image_model.ipynb's
+    video-gen cells). Serving it live for free is the actual blocker,
+    confirmed with real evidence, not assumed:
 
-    Honest caveat this function's design accounts for, unlike
-    generate_image() above (real research done 2026-09-08, not
-    assumed): huggingface_hub's InferenceClient.text_to_video is
-    documented almost exclusively through PAID third-party providers
-    (fal-ai, replicate) calling well-known named models — there is no
-    confirmed evidence HF's own free "hf-inference" tier serves a
-    private/custom repo for this task the way it does for
-    text_to_image. This is written defensively for exactly that
-    reason: it tries the same hf-inference path generate_image() uses,
-    but if HF's free tier refuses this task for our repo (the likely
-    outcome, going by this project's own repeated history with HF's
-    free-tier limits on custom repos — see this file's module
-    docstring), it fails closed to None instead of pretending this is
-    a solid live feature. If that happens, the proven fix (once this
-    is actually needed live, not before) is the same pivot text/vision
-    already made: a dedicated self-hosted ModelScope Studio running
-    our own inference code, not an HF API call."""
-    if not HF_VIDEO_MODEL_ID or not HF_TOKEN:
-        return None
-    client = InferenceClient(model=HF_VIDEO_MODEL_ID, token=HF_TOKEN, provider="hf-inference")
-    for attempt in range(2):
-        try:
-            video_bytes = client.text_to_video(prompt)
-            return bytes(video_bytes) if isinstance(video_bytes, (bytes, bytearray)) else None
-        except HfHubHTTPError as e:
-            status = getattr(e.response, "status_code", None)
-            if status == 503 and attempt == 0:
-                logger.info("video-gen: our own model is cold-starting on HF (503) — retrying once")
-                time.sleep(8)
-                continue
-            body = getattr(e.response, "text", "")[:300]
-            logger.info("video-gen: our own model call failed (HTTP %s: %s)", status, body)
-            return None
-        except Exception as e:
-            logger.info("video-gen: our own model call failed (%s)", e)
-            return None
+    1. Hugging Face's free "hf-inference" provider's own error response
+       lists every task it supports at all (2026-09-09, Render logs) —
+       "text-to-video" isn't in that list, for ANY model, not just
+       custom repos. Unlike images/text (which HF supports as a task
+       but refuses for OUR repo specifically, fixed by moving to our
+       own ModelScope Studio), this is a flat "this task doesn't exist
+       here" — no repo-hosting fix works around it.
+    2. Self-hosting it ourselves (the fix that worked for text/vision/
+       images) hits a different wall: CogVideoX-2B needs real GPU time
+       (measured live on Kaggle: ~17 minutes for ONE test video on a
+       T4 GPU) — ModelScope's free Studio hosting is CPU-only, where
+       the same generation would plausibly take hours, not minutes.
+       That's not a usable live feature in a chat bot regardless of
+       which platform serves it.
+
+    So this fails closed to None unconditionally for now — an honest
+    "not available" beats pretending a network call might still
+    somehow work when both routes to a real answer are already ruled
+    out with evidence. If a free GPU-backed hosting option ever becomes
+    available for this, this function is where that would plug in."""
     return None

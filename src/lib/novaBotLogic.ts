@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
@@ -427,26 +427,35 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   const mediaIntent = isExplicitImageCommand || isExplicitVideoCommand ? null : detectMediaGenerationIntent(text);
 
   if (isExplicitImageCommand || mediaIntent === "image") {
-    // OUR OWN image-generation model (council.generate_image /
-    // HF_IMAGE_MODEL_ID — see council.py's module docstring), not a
-    // third-party API call. Either the explicit command, or natural-
-    // language intent (see detectMediaGenerationIntent above) — the
-    // full sentence is used as the prompt either way for the
-    // natural-language path, since a text-to-image model handles a
-    // full descriptive sentence fine without needing the trigger
-    // phrase stripped out of it first.
+    // OUR OWN image-generation model (council.generate_image), self-
+    // hosted on our own ModelScope Studio — not a third-party API call.
+    // Either the explicit command, or natural-language intent (see
+    // detectMediaGenerationIntent above) — the full sentence is used as
+    // the prompt either way for the natural-language path, since a
+    // text-to-image model handles a full descriptive sentence fine
+    // without needing the trigger phrase stripped out of it first.
+    //
+    // Owner spec, 2026-09-09: async now, like /فيديو below — real
+    // evidence (Render logs) that Hugging Face's free tier refuses to
+    // serve our own image model moved this to our own CPU-only
+    // ModelScope Studio, where inference is genuinely slow. The old
+    // synchronous, wait-for-the-photo-inline design only worked while
+    // this was calling a third party's own (fast) infrastructure.
     const prompt = isExplicitImageCommand ? text.replace(/^\/(صورة|image)\s*/, "").trim() : text;
     if (!prompt) {
       await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الصورة، مثال:\n/صورة قطة سوداء تحت المطر");
       return;
     }
-    await bot.api.sendChatAction(chatId, "upload_photo").catch(() => null);
-    const { ok: genOk, data: genData } = await callNovaBackend("/generate-image", { channel: "TELEGRAM", telegram_id: tgUserId, prompt });
-    if (!genOk || !genData.image_base64) {
-      await bot.api.sendMessage(chatId, `تعذر توليد الصورة: ${genData?.detail || "خطأ غير معروف"}`);
-      return;
+    await bot.api.sendMessage(chatId, "🖼 جارٍ توليد الصورة — قد يستغرق الأمر بضع دقائق، ستصلك هنا فور الانتهاء.").catch(() => null);
+    const { ok: genOk, data: genData } = await callNovaBackend("/generate-image", {
+      channel: "TELEGRAM",
+      telegram_id: tgUserId,
+      chat_id: String(chatId),
+      prompt,
+    });
+    if (!genOk) {
+      await bot.api.sendMessage(chatId, genData?.detail || "تعذر جدولة توليد الصورة — حاول مرة أخرى.");
     }
-    await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(genData.image_base64, "base64"), "nova.png"), { caption: prompt });
     return;
   }
 

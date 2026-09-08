@@ -3,3 +3,18 @@ gradio
 # _TOOL_EXECUTORS and NOVA_SYSTEM_PROMPT's <tools> section.
 ddgs
 requests
+
+# Owner spec, 2026-09-09: image generation moved here from Hugging
+# Face's free Inference API after real evidence (Render logs) that it
+# refuses to serve ANY custom/private repo for ANY task — "Model not
+# supported by provider hf-inference" for our own Stable Diffusion
+# repo, the same wall already hit and fixed for text/vision. Same box,
+# same proven fix: self-host inference instead of renting an API that
+# won't cooperate. No special CUDA index needed — this box is CPU-only
+# already, so the default PyPI torch wheel (CPU build) is exactly what
+# we want here, unlike Kaggle where we explicitly need the GPU build.
+diffusers
+transformers
+accelerate
+safetensors
+torch
