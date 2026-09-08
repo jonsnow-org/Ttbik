@@ -969,7 +969,12 @@ def _crossfade_frames(img_a, img_b, num_frames: int) -> list:
 def _build_slideshow_frames(keyframes: list, total_frames: int) -> list:
     """Assembles the full frame sequence: pan/zoom on each keyframe,
     crossfade into the next, sized to exactly total_frames (matching
-    the requested video duration at _VIDEO_FPS)."""
+    the requested video duration at _VIDEO_FPS). Caller (generate_video)
+    always passes at least 2 keyframes; still guarded here (rather than
+    a broken `keyframes[0]` fallback on an empty list) so this stays
+    safe to call with fewer, without crashing the whole request."""
+    if not keyframes:
+        return []
     n_transitions = max(len(keyframes) - 1, 1)
     frames_per_transition = max(total_frames // n_transitions, 2)
     all_frames = []
@@ -979,7 +984,7 @@ def _build_slideshow_frames(keyframes: list, total_frames: int) -> list:
         all_frames.extend(_crossfade_frames(keyframes[i], keyframes[i + 1], frames_per_transition - half))
     remaining = total_frames - len(all_frames)
     if remaining > 0:
-        all_frames.extend(_ken_burns_frames(keyframes[-1] if keyframes else keyframes[0], remaining))
+        all_frames.extend(_ken_burns_frames(keyframes[-1], remaining))
     return all_frames[:total_frames] if all_frames else all_frames
 
 
