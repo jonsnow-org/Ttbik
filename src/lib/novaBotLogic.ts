@@ -267,6 +267,43 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
   }
 }
 
+// Owner spec, 2026-09-09 ("يجب ان يفهم الامر بمجرد الكتابة كما اتحدث معك
+// انا دائما وليس عبر /"): natural-language image/video generation intent,
+// layered on top of (not replacing) the explicit /صورة and /فيديو
+// commands below — a real command still works for anyone who prefers
+// it, but nobody should be forced to remember exact command syntax on a
+// phone keyboard (real evidence this session: several failed real
+// attempts from a missing "/" or a one-letter typo in "فيديو"— إن
+// كانت الكتابة اليدوية على الهاتف عرضة للخطأ، فرض بادئة حرفية دقيقة
+// عليها كان الخطأ التصميمي، لا خطأ المستخدم).
+//
+// A deterministic keyword heuristic, not a model call — same "cheap,
+// fast, no ambiguity" pattern this file already uses for /لوحتي and
+// /ترقية, extended to plain-language intent instead of only an exact
+// prefix. Requires BOTH a generation verb AND a media noun together,
+// never either alone — a lone "صورة" is common in ordinary questions
+// ("ما رأيك بهذه الصورة؟", "كيف ألتقط صورة أفضل؟") that must still go
+// to normal chat, not silently trigger real (paid-quota) generation.
+const _GENERATION_VERBS = [
+  "صمم", "صمّم", "ولد", "ولّد", "اصنع", "إصنع", "اعمل", "أعمل",
+  "انشئ", "أنشئ", "ارسم", "أرسم", "اطلع", "أطلع", "سوي", "سوّي",
+  "اعطني", "أعطني", "generate", "create", "draw", "design", "make",
+];
+const _IMAGE_NOUNS = ["صورة", "صور", "image", "picture", "photo"];
+const _VIDEO_NOUNS = ["فيديو", "فديو", "video", "مقطع فيديو", "مقطع"];
+
+function detectMediaGenerationIntent(text: string): "image" | "video" | null {
+  const normalized = text.toLowerCase();
+  const hasVerb = _GENERATION_VERBS.some((v) => normalized.includes(v.toLowerCase()));
+  if (!hasVerb) return null;
+  // Video checked first: a message naming both nouns (rare) means video,
+  // since a video request often also describes its individual "frames"/
+  // "scene" in image-like language.
+  if (_VIDEO_NOUNS.some((n) => normalized.includes(n.toLowerCase()))) return "video";
+  if (_IMAGE_NOUNS.some((n) => normalized.includes(n.toLowerCase()))) return "image";
+  return null;
+}
+
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (update.callback_query) {
     const cqData = String(update.callback_query.data || "");
@@ -382,14 +419,23 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  if (text.startsWith("/صورة") || text.startsWith("/image")) {
+  const isExplicitImageCommand = text.startsWith("/صورة") || text.startsWith("/image");
+  const isExplicitVideoCommand = text.startsWith("/فيديو") || text.startsWith("/video");
+  // Only run the natural-language detector when neither explicit command
+  // already matched — an explicit /صورة command describing a video-ish
+  // scene shouldn't get reclassified.
+  const mediaIntent = isExplicitImageCommand || isExplicitVideoCommand ? null : detectMediaGenerationIntent(text);
+
+  if (isExplicitImageCommand || mediaIntent === "image") {
     // OUR OWN image-generation model (council.generate_image /
     // HF_IMAGE_MODEL_ID — see council.py's module docstring), not a
-    // third-party API call. A real, explicit command instead of trying
-    // to detect "draw me a cat" as intent inside plain chat text —
-    // deterministic and unambiguous, and matches this file's existing
-    // pattern for /لوحتي and /ترقية.
-    const prompt = text.replace(/^\/(صورة|image)\s*/, "").trim();
+    // third-party API call. Either the explicit command, or natural-
+    // language intent (see detectMediaGenerationIntent above) — the
+    // full sentence is used as the prompt either way for the
+    // natural-language path, since a text-to-image model handles a
+    // full descriptive sentence fine without needing the trigger
+    // phrase stripped out of it first.
+    const prompt = isExplicitImageCommand ? text.replace(/^\/(صورة|image)\s*/, "").trim() : text;
     if (!prompt) {
       await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الصورة، مثال:\n/صورة قطة سوداء تحت المطر");
       return;
@@ -404,15 +450,17 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  if (text.startsWith("/فيديو") || text.startsWith("/video")) {
+  if (isExplicitVideoCommand || mediaIntent === "video") {
     // OUR OWN video-generation model (council.generate_video /
     // HF_VIDEO_MODEL_ID — see ai-system/colab/generate_image_model.ipynb's
     // video-gen cells). Unlike /صورة above, this is async (like /image
     // and /chat) — real video-generation latency is unmeasured and
     // could easily exceed this route's own timeout, so the backend
     // pushes the finished video straight to Telegram once ready
-    // instead of waiting for it inline here.
-    const prompt = text.replace(/^\/(فيديو|video)\s*/, "").trim();
+    // instead of waiting for it inline here. Either the explicit
+    // command, or natural-language intent — see the image block above
+    // for why the full sentence is used as-is for that path.
+    const prompt = isExplicitVideoCommand ? text.replace(/^\/(فيديو|video)\s*/, "").trim() : text;
     if (!prompt) {
       await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الفيديو، مثال:\n/فيديو قطة تلعب بكرة صوف");
       return;
