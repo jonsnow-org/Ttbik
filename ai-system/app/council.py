@@ -567,31 +567,64 @@ def generate_image(prompt: str) -> bytes | None:
 
 
 def generate_video(prompt: str) -> bytes | None:
-    """Owner spec, 2026-09-08 ("فديو توليد... كما تفعل انت"): a real
-    self-hosted video-generation model (CogVideoX-2B) was trained and
-    confirmed working on Kaggle's own free GPU (real test video
-    produced successfully — see ai-system/colab/generate_image_model.ipynb's
-    video-gen cells). Serving it live for free is the actual blocker,
-    confirmed with real evidence, not assumed:
+    """Owner spec, 2026-09-09 ("قم ايضا بارسال الفديو الى ModelScope"):
+    explicit owner instruction to try this despite two known, real
+    risks stated plainly beforehand and not resolved, only accepted:
 
-    1. Hugging Face's free "hf-inference" provider's own error response
-       lists every task it supports at all (2026-09-09, Render logs) —
-       "text-to-video" isn't in that list, for ANY model, not just
-       custom repos. Unlike images/text (which HF supports as a task
-       but refuses for OUR repo specifically, fixed by moving to our
-       own ModelScope Studio), this is a flat "this task doesn't exist
-       here" — no repo-hosting fix works around it.
-    2. Self-hosting it ourselves (the fix that worked for text/vision/
-       images) hits a different wall: CogVideoX-2B needs real GPU time
-       (measured live on Kaggle: ~17 minutes for ONE test video on a
-       T4 GPU) — ModelScope's free Studio hosting is CPU-only, where
-       the same generation would plausibly take hours, not minutes.
-       That's not a usable live feature in a chat bot regardless of
-       which platform serves it.
+    1. CogVideoX-2B (2B params) has no GPU to run on here — the same
+       test video that took ~17 minutes on a real Kaggle T4 GPU could
+       plausibly take HOURS on this CPU-only ModelScope box. The
+       timeout below is deliberately generous (not a guessed "should
+       be enough" number) for exactly that reason.
+    2. This box already holds a 7B GGUF language model AND the Stable
+       Diffusion image model (both resident once loaded) — adding this
+       third, heaviest model risks exceeding the box's real 16GB RAM
+       limit, which could crash the whole Studio process (temporarily
+       taking text/vision down too, until it restarts) rather than
+       failing just this one request cleanly.
 
-    So this fails closed to None unconditionally for now — an honest
-    "not available" beats pretending a network call might still
-    somehow work when both routes to a real answer are already ruled
-    out with evidence. If a free GPU-backed hosting option ever becomes
-    available for this, this function is where that would plug in."""
-    return None
+    Real evidence on hosting elsewhere: Hugging Face's free hf-inference
+    provider's own error response lists every task it supports — "text-
+    to-video" isn't in that list for ANY model, not just custom repos
+    (2026-09-09, Render logs) — so no HF-based fix exists regardless."""
+    if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
+        return None
+    import base64
+    import json
+
+    import requests
+
+    base = MODELSCOPE_SPACE_URL.rstrip("/")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
+    }
+    try:
+        submit = requests.post(
+            f"{base}/gradio_api/call/v2/generate_video",
+            headers=headers,
+            json={"prompt": prompt},
+            timeout=30,
+        )
+        submit.raise_for_status()
+        event_id = submit.json()["event_id"]
+        # Deliberately generous (not tuned to "typical" — there is no
+        # typical yet): unmeasured CPU-only cost for a 2B video model,
+        # stated in this function's own docstring above.
+        result_resp = requests.get(
+            f"{base}/gradio_api/call/generate_video/{event_id}",
+            headers=headers,
+            timeout=14400,
+            stream=True,
+        )
+        result_resp.raise_for_status()
+        for line in result_resp.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
+                continue
+            payload = json.loads(line[len("data:") :].strip())
+            if isinstance(payload, list) and payload and payload[0]:
+                return base64.b64decode(str(payload[0]))
+        return None
+    except Exception as e:
+        logger.info("video-gen: our own model (ModelScope) call failed (%s)", e)
+        return None

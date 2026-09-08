@@ -512,16 +512,27 @@ def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, pro
     try:
         image_bytes = council.generate_image(prompt)
         if image_bytes is None:
+            # Owner report, 2026-09-09 (real evidence): a failure here
+            # is almost always the ModelScope Studio still rebuilding
+            # after a code push (this endpoint is new), not a missing
+            # config value — MODELSCOPE_SPACE_URL/TOKEN are already
+            # confirmed working for text chat on this same server. The
+            # quota unit this request already reserved (see
+            # main.py's generate_image() endpoint below /
+            # quota.check_and_reserve_quota) is refunded here since this
+            # failure is never the user's fault.
+            quota.refund_quota(user_id, "IMAGE")
             _send_telegram_message(
                 chat_id,
-                "تعذّر توليد الصورة حالياً — تأكد من ضبط MODELSCOPE_SPACE_URL على الخادم، أو حاول مرة أخرى لاحقاً.",
+                "تعذّر توليد الصورة حالياً — قد يكون الخادم لا يزال يُعيد التشغيل بعد تحديث، حاول مرة أخرى بعد بضع دقائق (لم يُخصَم هذا من حدك اليومي).",
             )
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
         _send_telegram_photo(chat_id, image_bytes, prompt)
     except Exception:
         logger.exception("background image-gen pipeline failed for chat_id=%s", chat_id)
-        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الصورة — حاول مرة أخرى.")
+        quota.refund_quota(user_id, "IMAGE")
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الصورة — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
 
 
 @app.post("/generate-image", response_model=GenerateImageResponse)
@@ -571,19 +582,28 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
     try:
         video_bytes = council.generate_video(prompt)
         if video_bytes is None:
+            # Owner spec, 2026-09-09: video generation now genuinely
+            # attempts real CPU-only inference on ModelScope (see
+            # council.py's generate_video docstring for the real,
+            # stated-upfront risks: unmeasured hours-long latency, and
+            # a real chance this destabilizes the shared box). A
+            # failure here is never the user's fault — refund the
+            # quota unit this request already reserved.
+            quota.refund_quota(user_id, "IMAGE")
             _send_telegram_message(
                 chat_id,
-                "توليد الفيديو غير متاح حالياً — تأكيد حقيقي (2026-09-09): توليد "
-                "الفيديو الفعلي جاهز ويعمل، لكن لا يوجد استضافة مجانية حقيقية "
-                "بمعالج رسومي (GPU) لتشغيله حياً بسرعة معقولة حالياً (راجع "
-                "council.py's generate_video docstring للتفاصيل الكاملة).",
+                "تعذّر توليد الفيديو هذه المرة — إما أن الخادم لا يزال يُعيد "
+                "التشغيل بعد تحديث، أو أن التوليد الفعلي (بلا معالج رسومي "
+                "GPU) أخذ وقتاً طويلاً جداً وانقطع الاتصال. حاول مرة أخرى "
+                "لاحقاً (لم يُخصَم هذا من حدك اليومي).",
             )
             return
         quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
         _send_telegram_video(chat_id, video_bytes, prompt)
     except Exception:
         logger.exception("background video pipeline failed for chat_id=%s", chat_id)
-        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى.")
+        quota.refund_quota(user_id, "IMAGE")
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
     finally:
         _stop_typing_loop(stop_typing, typing_thread)
 

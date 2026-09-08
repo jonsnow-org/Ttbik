@@ -20,11 +20,14 @@ mine's a beginner") — change the numbers here whenever the owner wants
 a different price or limit; nothing else in the codebase needs to
 change for that.
 """
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.config import SUPER_ADMIN_TELEGRAM_ID
 from app.supabase_client import get_supabase
+
+logger = logging.getLogger("nova")
 
 PLANS: dict[str, dict] = {
     "FREE": {
@@ -182,6 +185,37 @@ def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, 
     ).eq("id", user["id"]).execute()
     remaining = daily_cap - daily_used
     return True, remaining, f"متبقٍ لك اليوم من {kind_label}: {remaining}"
+
+
+def refund_quota(user_id: str, kind: str = "TEXT") -> None:
+    """Owner report, 2026-09-09 (real evidence): a real user's
+    /generate-image attempts failed twice in a row purely from our own
+    infrastructure being mid-deploy — check_and_reserve_quota above
+    already reserved (incremented) their quota for both, so by the
+    third real attempt they'd genuinely used up their whole daily cap
+    on failures that were never their fault. check_and_reserve_quota
+    has to reserve BEFORE the real work runs (there's no other way to
+    stop a flood of concurrent requests from all passing the check at
+    once) — so the fix is this counterpart, called from main.py's
+    background-task handlers whenever council.generate_image/
+    generate_video comes back empty: hands the reserved unit back.
+    Never raises — a failed refund on top of an already-failed
+    generation should never surface a second error to the user; the
+    worst case is one unit of quota not restored, not a broken chat."""
+    is_image = kind == "IMAGE"
+    daily_field = "dailyUsedImage" if is_image else "dailyUsed"
+    weekly_field = "weeklyUsedImage" if is_image else "weeklyUsedText"
+    try:
+        db = get_supabase()
+        user = db.table("NovaUser").select(f"id,{daily_field},{weekly_field}").eq("id", user_id).limit(1).execute().data
+        if not user:
+            return
+        row = user[0]
+        daily_used = max(0, (row.get(daily_field) or 0) - 1)
+        weekly_used = max(0, (row.get(weekly_field) or 0) - 1)
+        db.table("NovaUser").update({daily_field: daily_used, weekly_field: weekly_used}).eq("id", user_id).execute()
+    except Exception:
+        logger.exception("refund_quota: failed to refund kind=%s for user_id=%s", kind, user_id)
 
 
 def log_usage(user_id: str, channel: str, query_type: str, message: str | None = None, answer: str | None = None) -> str:

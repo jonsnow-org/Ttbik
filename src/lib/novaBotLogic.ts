@@ -288,6 +288,13 @@ const _GENERATION_VERBS = [
   "صمم", "صمّم", "ولد", "ولّد", "اصنع", "إصنع", "اعمل", "أعمل",
   "انشئ", "أنشئ", "ارسم", "أرسم", "اطلع", "أطلع", "سوي", "سوّي",
   "اعطني", "أعطني", "generate", "create", "draw", "design", "make",
+  // Owner report, 2026-09-09 (real evidence): "قم بتوليد فديو قطة
+  // تلعب على العشب" fell straight through to normal chat — the verb
+  // list only had imperative command forms ("اصنع", "ولّد"), missing
+  // the extremely common Arabic "قم بـ + gerund" construction ("قم
+  // بتوليد" = "proceed to generate"), where the action word appears as
+  // a noun/gerund instead.
+  "توليد", "تصميم", "إنشاء", "انشاء",
 ];
 const _IMAGE_NOUNS = ["صورة", "صور", "image", "picture", "photo"];
 const _VIDEO_NOUNS = ["فيديو", "فديو", "video", "مقطع فيديو", "مقطع"];

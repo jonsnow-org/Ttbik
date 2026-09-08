@@ -636,6 +636,67 @@ def generate_image(prompt: str) -> str:
         return ""
 
 
+# Owner spec, 2026-09-09 ("قم ايضا بارسال الفديو الى ModelScope"):
+# explicit owner instruction to also host video here, after being told
+# plainly this box has no GPU and CogVideoX-2B (a real 2B-parameter
+# video diffusion model, already trained and confirmed working on
+# Kaggle's GPU) could plausibly take HOURS per video on CPU alone, and
+# risks pushing this box's combined memory (this LLM + the image model
+# above + this) past its real 16GB limit, possibly destabilizing text/
+# vision too. Owner chose to proceed anyway — implemented honestly,
+# not held back further; the real timing and stability, good or bad,
+# will only be known once this is actually tried live.
+_VIDEO_MODEL_ID = "Novasy/nova-video-gen"
+_video_pipe = None
+
+
+def _get_video_pipe():
+    """Loaded lazily, only on the first real video request — same
+    reasoning as _get_image_pipe above, doubly important here since
+    this model is far heavier. enable_model_cpu_offload() (used in the
+    Kaggle training notebook) is deliberately NOT called here — it
+    shuttles weights between a GPU and CPU, which requires a GPU to
+    shuttle to/from in the first place; this box has none, so the
+    model simply stays resident in CPU RAM as-is. VAE slicing/tiling
+    ARE kept since those reduce peak memory during decode regardless of
+    which device is doing the compute."""
+    global _video_pipe
+    if _video_pipe is None:
+        import torch
+        from diffusers import CogVideoXPipeline
+
+        _video_pipe = CogVideoXPipeline.from_pretrained(_VIDEO_MODEL_ID, torch_dtype=torch.float32)
+        _video_pipe.vae.enable_slicing()
+        _video_pipe.vae.enable_tiling()
+    return _video_pipe
+
+
+def generate_video(prompt: str) -> str:
+    """Returns a base64-encoded MP4 string directly, same shape as
+    generate_image's base64 PNG above. Real cost, stated plainly rather
+    than tuned around: CPU-only inference for a model this size is
+    unmeasured territory — the same test video that took ~17 minutes on
+    a real T4 GPU (see ai-system/colab/generate_image_model.ipynb) could
+    plausibly take hours here. num_frames/num_inference_steps are kept
+    at the same values already confirmed to produce a real working
+    video on GPU, not lowered to guess-optimize for CPU speed at the
+    cost of guessing the output still looks right."""
+    try:
+        from diffusers.utils import export_to_video
+
+        pipe = _get_video_pipe()
+        frames = pipe(
+            prompt=prompt, num_videos_per_prompt=1, num_inference_steps=50, num_frames=49, guidance_scale=6
+        ).frames[0]
+        path = "/tmp/nova_generated_video.mp4"
+        export_to_video(frames, path, fps=8)
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("ascii")
+    except Exception:
+        traceback.print_exc()
+        return ""
+
+
 _text_interface = gr.Interface(
     fn=generate,
     inputs=[
@@ -656,10 +717,18 @@ _image_interface = gr.Interface(
     api_name="generate_image",
 )
 
+_video_interface = gr.Interface(
+    fn=generate_video,
+    inputs=gr.Textbox(label="prompt"),
+    outputs=gr.Textbox(label="video_base64"),
+    title="توليد فيديو",
+    api_name="generate_video",
+)
+
 demo = gr.TabbedInterface(
-    [_text_interface, _image_interface],
-    ["نص ورؤية", "توليد صور"],
-    title="Nova AI — self-hosted (نص + رؤية + صور)",
+    [_text_interface, _image_interface, _video_interface],
+    ["نص ورؤية", "توليد صور", "توليد فيديو"],
+    title="Nova AI — self-hosted (نص + رؤية + صور + فيديو)",
 )
 
 if __name__ == "__main__":
