@@ -1,4 +1,4 @@
-"use client";
+use client";
 
 import { useMemo, useState } from "react";
 
@@ -40,6 +40,7 @@ export default function ZakatCalculator() {
   const [nisabGoldG, setNisabGoldG] = useState(String(DEFAULT_GOLD_NISAB_G));
   const [nisabSilverG, setNisabSilverG] = useState(String(DEFAULT_SILVER_NISAB_G));
   const [useGoldNisab, setUseGoldNisab] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
     const cashV = parseNum(cash);
@@ -84,30 +85,20 @@ export default function ZakatCalculator() {
     }
 
     const hasPrice = goldPrice > 0 || silverPrice > 0;
+    const reached =
+      metByWeight || (hasPrice && nisabThreshold > 0 && net >= nisabThreshold);
 
-    // Conservative: if we have currency total and a currency nisab, use it; else weight.
-    const reachedFinal =
-      hasPrice && nisabThreshold > 0
-        ? net >= nisabThreshold
-        : metByWeight || pureGoldG >= nisabGold || silverG >= nisabSilver;
-
-    const zakatDue = reachedFinal ? net * ZAKAT_RATE : 0;
+    const zakatDue = reached ? net * ZAKAT_RATE : 0;
 
     return {
-      cashV,
-      pureGoldG,
-      goldValue,
-      silverG,
-      silverValue,
-      stocksV,
-      tradeV,
-      debtsV,
       assetsValue,
       net,
       nisabThreshold,
-      reached: reachedFinal,
-      zakatDue,
       hasPrice,
+      reached,
+      zakatDue,
+      pureGoldG,
+      silverG,
     };
   }, [
     cash,
@@ -125,20 +116,15 @@ export default function ZakatCalculator() {
   ]);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
-      <div className="space-y-3">
-        <Field
-          label="نقد / ودائع بنكية"
-          value={cash}
-          onChange={setCash}
-          placeholder="مثال: 10000"
-        />
+    <div className="space-y-6">
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+        <Field label="النقد / الحسابات البنكية" value={cash} onChange={setCash} placeholder="0" />
         <div className="grid grid-cols-2 gap-3">
           <Field
             label="ذهب (جرام)"
             value={goldGrams}
             onChange={setGoldGrams}
-            placeholder="جرام"
+            placeholder="0"
           />
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">
@@ -149,7 +135,7 @@ export default function ZakatCalculator() {
               onChange={(e) => setGoldKarat(e.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm focus:border-brand-500 focus:outline-none"
             >
-              <option value="24">24 قيراط (خالص)</option>
+              <option value="24">24 قيراط</option>
               <option value="22">22 قيراط</option>
               <option value="21">21 قيراط</option>
               <option value="18">18 قيراط</option>
@@ -157,67 +143,56 @@ export default function ZakatCalculator() {
           </div>
         </div>
         <Field
-          label="سعر جرام الذهب (اختياري — لحساب القيمة والنصاب بالمال)"
+          label="سعر جرام الذهب (اختياري)"
           value={goldPricePerG}
           onChange={setGoldPricePerG}
           placeholder="مثال: 280"
         />
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label="فضة (جرام)"
+            value={silverGrams}
+            onChange={setSilverGrams}
+            placeholder="0"
+          />
+          <Field
+            label="سعر جرام الفضة (اختياري)"
+            value={silverPricePerG}
+            onChange={setSilverPricePerG}
+            placeholder="مثال: 3.5"
+          />
+        </div>
+        <Field label="أسهم / صناديق" value={stocks} onChange={setStocks} placeholder="0" />
         <Field
-          label="فضة (جرام)"
-          value={silverGrams}
-          onChange={setSilverGrams}
-          placeholder="جرام"
-        />
-        <Field
-          label="سعر جرام الفضة (اختياري)"
-          value={silverPricePerG}
-          onChange={setSilverPricePerG}
-          placeholder="مثال: 3.5"
-        />
-        <Field
-          label="أسهم / صناديق (القيمة السوقية)"
-          value={stocks}
-          onChange={setStocks}
-          placeholder="قيمة"
-        />
-        <Field
-          label="عروض تجارة (قيمة البضاعة)"
+          label="عروض التجارة / بضاعة"
           value={tradeGoods}
           onChange={setTradeGoods}
-          placeholder="قيمة"
+          placeholder="0"
         />
-        <Field
-          label="ديون مستحقة عليك (تُخصم)"
-          value={debts}
-          onChange={setDebts}
-          placeholder="اختياري"
-        />
-      </div>
-
-      <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 space-y-3">
-        <p className="text-xs font-semibold text-slate-600">إعدادات النصاب (قابلة للتعديل)</p>
-        <div className="flex gap-2 rounded-xl bg-slate-100 p-1">
+        <Field label="ديون مستحقة عليك" value={debts} onChange={setDebts} placeholder="0" />
+        <div className="flex items-center gap-3 pt-1">
+          <label className="text-sm font-semibold text-slate-700">حساب النصاب حسب:</label>
           <button
             type="button"
             onClick={() => setUseGoldNisab(true)}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
               useGoldNisab
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500"
+                ? "bg-emerald-600 text-white"
+                : "bg-slate-100 text-slate-600"
             }`}
           >
-            نصاب الذهب
+            ذهب
           </button>
           <button
             type="button"
             onClick={() => setUseGoldNisab(false)}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold transition ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
               !useGoldNisab
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500"
+                ? "bg-emerald-600 text-white"
+                : "bg-slate-100 text-slate-600"
             }`}
           >
-            نصاب الفضة
+            فضة
           </button>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -271,6 +246,30 @@ export default function ZakatCalculator() {
             {fmt(result.silverG, 2)} ج
           </p>
         )}
+        <button
+          type="button"
+          onClick={async () => {
+            const lines = [
+              `إجمالي الأصول الزكوية: ${fmt(result.assetsValue)}`,
+              `بعد خصم الديون: ${fmt(result.net)}`,
+              result.hasPrice && result.nisabThreshold > 0
+                ? `النصاب: ${fmt(result.nisabThreshold)}`
+                : null,
+              `هل بلغ النصاب؟ ${result.reached ? "نعم — تجب الزكاة" : "لا — لم يبلغ النصاب"}`,
+              `مبلغ الزكاة (2.5%): ${fmt(result.zakatDue)}`,
+            ].filter(Boolean) as string[];
+            try {
+              await navigator.clipboard.writeText(lines.join("\n"));
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            } catch {
+              /* ignore */
+            }
+          }}
+          className="mt-3 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+        >
+          {copied ? "تم النسخ ✓" : "نسخ النتيجة"}
+        </button>
       </div>
 
       <p className="text-[11px] text-slate-400 text-center leading-relaxed">
