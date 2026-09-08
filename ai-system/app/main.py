@@ -617,9 +617,17 @@ def _process_image_gen_and_deliver(
             # quota.check_and_reserve_quota) is refunded here since this
             # failure is never the user's fault.
             quota.refund_quota(user_id, "IMAGE")
+            # Owner report, 2026-09-09 (real evidence): the server had
+            # been confirmed up and stable for 30+ minutes, ruling out
+            # the old message's guessed "still restarting" cause — that
+            # guess is gone. council.generate_image now logs the real
+            # POST/GET status and, on a stream that ends with no usable
+            # result, the raw SSE lines too (see that function), so the
+            # next failure is diagnosable from Render's own logs instead
+            # of guessed at again.
             _send_telegram_message(
                 chat_id,
-                "تعذّر توليد الصورة حالياً — قد يكون الخادم لا يزال يُعيد التشغيل بعد تحديث، حاول مرة أخرى بعد بضع دقائق (لم يُخصَم هذا من حدك اليومي).",
+                "تعذّر توليد الصورة هذه المرة — إما أن التوليد الفعلي (بلا معالج رسومي GPU) أخذ وقتاً أطول من المتوقع، أو حدث خطأ غير متوقع. حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).",
             )
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")

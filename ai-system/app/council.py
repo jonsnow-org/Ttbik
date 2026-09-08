@@ -654,25 +654,38 @@ def generate_image(prompt: str) -> bytes | None:
             json={"prompt": prompt},
             timeout=30,
         )
+        logger.info("image-gen: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
-        # Real CPU-only Stable Diffusion inference on a 2-vCPU box is
-        # genuinely slow (this is exactly why /generate-image is async
-        # now — see main.py) — 300s matches the same order of magnitude
-        # already measured for vision on this same box, not a guess.
+        # Owner report, 2026-09-09 (real evidence: the server had been up
+        # and stable for 30+ minutes, ruling out the previous "still
+        # restarting after a deploy" guess this function's failure
+        # message used to make). 300s was itself an unverified guess by
+        # analogy to vision's ~241s CLIP *encoder* pass — a single
+        # forward pass, not 25 full U-Net denoising steps + a VAE
+        # decode, which is a categorically heavier CPU workload. Raised
+        # to the same "deliberately generous, not a guessed minimum"
+        # philosophy generate_video already uses below, until a real
+        # measured duration replaces this number too.
         result_resp = requests.get(
             f"{base}/gradio_api/call/generate_image/{event_id}",
             headers=headers,
-            timeout=300,
+            timeout=1800,
             stream=True,
         )
+        logger.info("image-gen: ModelScope GET status=%s", result_resp.status_code)
         result_resp.raise_for_status()
+        raw_lines = []
         for line in result_resp.iter_lines(decode_unicode=True):
-            if not line or not line.startswith("data:"):
+            if not line:
+                continue
+            raw_lines.append(line)
+            if not line.startswith("data:"):
                 continue
             payload = json.loads(line[len("data:") :].strip())
             if isinstance(payload, list) and payload and payload[0]:
                 return base64.b64decode(str(payload[0]))
+        logger.info("image-gen: ModelScope SSE stream ended with no usable result — raw lines: %s", raw_lines[:20])
         return None
     except Exception as e:
         logger.info("image-gen: our own model (ModelScope) call failed (%s)", e)
@@ -741,6 +754,7 @@ def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
             json={"prompt": prompt, "num_frames": num_frames},
             timeout=30,
         )
+        logger.info("video-gen: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
         # Deliberately generous (not tuned to "typical" — there is no
@@ -752,13 +766,19 @@ def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
             timeout=14400,
             stream=True,
         )
+        logger.info("video-gen: ModelScope GET status=%s", result_resp.status_code)
         result_resp.raise_for_status()
+        raw_lines = []
         for line in result_resp.iter_lines(decode_unicode=True):
-            if not line or not line.startswith("data:"):
+            if not line:
+                continue
+            raw_lines.append(line)
+            if not line.startswith("data:"):
                 continue
             payload = json.loads(line[len("data:") :].strip())
             if isinstance(payload, list) and payload and payload[0]:
                 return base64.b64decode(str(payload[0]))
+        logger.info("video-gen: ModelScope SSE stream ended with no usable result — raw lines: %s", raw_lines[:20])
         return None
     except Exception as e:
         logger.info("video-gen: our own model (ModelScope) call failed (%s)", e)
