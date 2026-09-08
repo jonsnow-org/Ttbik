@@ -60,6 +60,7 @@ export default function CryptoConverter() {
   const [amount, setAmount] = useState("1");
   const [from, setFrom] = useState<CoinId>("ton");
   const [to, setTo] = useState<CoinId>("usd");
+  const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -126,6 +127,9 @@ export default function CryptoConverter() {
     setFrom(to);
     setTo(from);
   }
+
+  const fromLabel = COINS.find((c) => c.id === from)?.label ?? from;
+  const toLabel = COINS.find((c) => c.id === to)?.label ?? to;
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
@@ -200,9 +204,28 @@ export default function CryptoConverter() {
             <p className="text-2xl font-extrabold text-slate-900 dir-ltr" dir="ltr">
               {formatNum(result)}{" "}
               <span className="text-base font-bold text-brand-700">
-                {COINS.find((c) => c.id === to)?.label}
+                {toLabel}
               </span>
             </p>
+            <button
+              type="button"
+              onClick={async () => {
+                const lines = [
+                  `${formatNum(num)} ${fromLabel} = ${formatNum(result)} ${toLabel}`,
+                  rates
+                    ? `أسعار تقريبية: TON $${formatNum(rates.ton.usd)} · BTC $${formatNum(rates.btc.usd)} · ETH $${formatNum(rates.eth.usd)} · USDT $${formatNum(rates.usdt.usd)}`
+                    : null,
+                ].filter(Boolean) as string[];
+                try {
+                  await navigator.clipboard.writeText(lines.join("\n"));
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {}
+              }}
+              className="mt-3 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+            >
+              {copied ? "تم النسخ ✓" : "نسخ النتيجة"}
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 sm:grid-cols-4">
