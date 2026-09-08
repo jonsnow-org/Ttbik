@@ -115,6 +115,7 @@ export default function HijriConverter() {
   const [day, setDay] = useState("1");
   const [month, setMonth] = useState("1");
   const [year, setYear] = useState(() => String(new Date().getFullYear()));
+  const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
     const d = clamp(parseInt(day, 10), 1, 31);
@@ -130,6 +131,11 @@ export default function HijriConverter() {
         monthName: HIJRI_MONTHS[h.hm - 1] ?? "",
         weekday: wd,
         label: "هجري",
+        inputLabel: "ميلادي",
+        inputDay: d,
+        inputMonth: m,
+        inputYear: y,
+        inputMonthName: GREG_MONTHS[m - 1] ?? "",
       };
     } else {
       const g = hijriToGregorian(y, m, d);
@@ -141,11 +147,33 @@ export default function HijriConverter() {
         monthName: GREG_MONTHS[g.gm - 1] ?? "",
         weekday: wd,
         label: "ميلادي",
+        inputLabel: "هجري",
+        inputDay: d,
+        inputMonth: m,
+        inputYear: y,
+        inputMonthName: HIJRI_MONTHS[m - 1] ?? "",
       };
     }
   }, [dir, day, month, year]);
 
   const inputMonthNames = dir === "g2h" ? GREG_MONTHS : HIJRI_MONTHS;
+
+  async function copyResult() {
+    if (!result) return;
+    const text = [
+      `التاريخ المدخل (${result.inputLabel}): ${result.inputDay} ${result.inputMonthName} ${result.inputYear}`,
+      `التاريخ المقابل (${result.label}): ${result.outDay} ${result.monthName} ${result.outYear}`,
+      `اليوم: ${result.weekday}`,
+      `رقمي: ${result.outDay}/${result.outMonth}/${result.outYear}`,
+    ].join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
@@ -229,6 +257,13 @@ export default function HijriConverter() {
           <p className="text-[11px] text-slate-400 pt-1" dir="ltr">
             {result.outDay}/{result.outMonth}/{result.outYear}
           </p>
+          <button
+            type="button"
+            onClick={copyResult}
+            className="mt-3 w-full rounded-lg border border-emerald-200 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-emerald-50 transition"
+          >
+            {copied ? "تم النسخ ✓" : "نسخ النتيجة"}
+          </button>
         </div>
       )}
 
