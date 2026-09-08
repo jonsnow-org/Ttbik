@@ -124,8 +124,27 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 function novaMainMenu(): Keyboard {
   return new Keyboard()
     .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
-    .text("🎛 لوحتي").text("💎 ترقية")
+    .text("🎛 لوحتي").text("📜 سجل المحادثات").row()
+    .text("🔑 مفتاح API").text("💎 ترقية")
     .resized();
+}
+
+// Owner spec, 2026-09-09 ("لاتهمنا [لوحة الموقع]... يمكنك ربط ازرارها
+// ووظائفها هنا بالبوت بشكل مباشر"): the web dashboard
+// (/nova/dashboard) stays as-is for later Android-app/API integration
+// use, but every function it offers a regular user day-to-day (quota
+// status, conversation history, API key) is now also answered directly
+// inside the bot itself, reusing the exact same internal endpoints the
+// dashboard page already calls — not a second implementation, just a
+// second front door onto the same data.
+async function fetchNovaMe(uid: string): Promise<{ user: any; plans: Record<string, any>; recentLogs: any[] } | null> {
+  try {
+    const res = await fetch(`${SITE_URL}/api/nova/me?uid=${uid}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
 }
 
 // follow-up stays a typed command like every other admin-only text
@@ -446,7 +465,70 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       await bot.api.sendMessage(chatId, "تعذر فتح لوحتك — حاول مرة أخرى بعد قليل.");
       return;
     }
-    await bot.api.sendMessage(chatId, `🎛 لوحة حسابك (الخطة، الحد اليومي، سجل المحادثات، مفتاح API):\n${SITE_URL}/nova/dashboard?uid=${data.nova_user_id}`);
+    const me = await fetchNovaMe(data.nova_user_id);
+    if (!me) {
+      await bot.api.sendMessage(chatId, "تعذر تحميل بيانات حسابك — حاول مرة أخرى بعد قليل.");
+      return;
+    }
+    const plan = me.plans[me.user.plan];
+    const isPro = me.user.plan !== "FREE";
+    const remainingText = plan ? Math.max(0, plan.daily_text - me.user.dailyUsed) : "؟";
+    const remainingImage = plan ? Math.max(0, plan.daily_image - me.user.dailyUsedImage) : "؟";
+    const planLabel = isPro ? `👑 ${plan?.label || me.user.plan}` : "مجانية";
+    const expiry = isPro && me.user.subscriptionExpiresAt
+      ? `\nينتهي في: ${new Date(me.user.subscriptionExpiresAt).toLocaleDateString("ar")}`
+      : "";
+    const weekly = plan ? `\nالحد الأسبوعي: ${plan.weekly_text} رسالة، ${plan.weekly_image} صورة` : "";
+    await bot.api.sendMessage(
+      chatId,
+      `🎛 لوحتك\n\nالخطة: ${planLabel}${expiry}\nرسائل متبقية اليوم: ${remainingText}${plan ? ` من ${plan.daily_text}` : ""}\nصور/فيديو متبقية اليوم: ${remainingImage}${plan ? ` من ${plan.daily_image}` : ""}${weekly}\nعضو منذ: ${new Date(me.user.created_at).toLocaleDateString("ar")}`
+    );
+    return;
+  }
+
+  if (text === "📜 سجل المحادثات") {
+    const { ok, data } = await callNovaBackend("/whoami", { channel: "TELEGRAM", telegram_id: tgUserId });
+    if (!ok || !data.nova_user_id) {
+      await bot.api.sendMessage(chatId, "تعذر جلب سجلك — حاول مرة أخرى بعد قليل.");
+      return;
+    }
+    const me = await fetchNovaMe(data.nova_user_id);
+    if (!me || me.recentLogs.length === 0) {
+      await bot.api.sendMessage(chatId, "لا توجد محادثات محفوظة بعد.");
+      return;
+    }
+    const lines = me.recentLogs
+      .slice(0, 5)
+      .map((l: any) => `س: ${(l.message || "").slice(0, 100)}\nج: ${(l.answer || "").slice(0, 150)}`)
+      .join("\n\n---\n\n");
+    await bot.api.sendMessage(chatId, `📜 آخر ٥ محادثات:\n\n${lines}`);
+    return;
+  }
+
+  if (text === "🔑 مفتاح API") {
+    const { ok, data } = await callNovaBackend("/whoami", { channel: "TELEGRAM", telegram_id: tgUserId });
+    if (!ok || !data.nova_user_id) {
+      await bot.api.sendMessage(chatId, "تعذر إنشاء المفتاح — حاول مرة أخرى بعد قليل.");
+      return;
+    }
+    try {
+      const res = await fetch(`${SITE_URL}/api/nova/me/api-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: data.nova_user_id }),
+      });
+      const keyData = await res.json();
+      if (!res.ok || !keyData.apiKey) {
+        await bot.api.sendMessage(chatId, "تعذر إنشاء المفتاح — حاول مرة أخرى بعد قليل.");
+        return;
+      }
+      await bot.api.sendMessage(
+        chatId,
+        `🔑 مفتاح API الخاص بك (استخدمه للوصول لنوفا برمجياً — أرسله في ترويسة Authorization: Bearer):\n\n${keyData.apiKey}\n\n⚠️ كل ضغطة على هذا الزر تُنشئ مفتاحاً جديداً وتُلغي القديم فوراً.`
+      );
+    } catch {
+      await bot.api.sendMessage(chatId, "تعذر إنشاء المفتاح — حاول مرة أخرى بعد قليل.");
+    }
     return;
   }
 
