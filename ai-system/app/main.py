@@ -354,11 +354,26 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
     # OWN model exactly the way a real assistant would, using
     # conversation memory instead of rigid syntax. See
     # council.classify_intent's docstring for the full reasoning.
-    try:
-        intent_result = council.classify_intent(message, _recent_context_for_intent(user["id"]))
-    except Exception:
-        logger.exception("intent classification failed for chat_id=%s — defaulting to a normal text answer", chat_id)
+    #
+    # Real regression fix, 2026-09-09 (evidence: "مرحبا" and "الووو" both
+    # got zero reply for minutes): a bare word or two structurally cannot
+    # be a real image/video description (a real one needs at least a
+    # subject), so skipping classification for anything this short isn't
+    # a content-based keyword decision — it's the same kind of "too short
+    # to be that" reasoning a person applies before even considering
+    # whether "hi" might be an image request. Saves a whole model call
+    # (this session's other fix already made it Groq-first/fast, but
+    # skipping it entirely for real non-candidates is strictly safer on
+    # an already-strained free CPU box) for the overwhelming majority of
+    # ordinary chat turns.
+    if len(message.strip()) < 8:
         intent_result = {"intent": "TEXT", "prompt": ""}
+    else:
+        try:
+            intent_result = council.classify_intent(message, _recent_context_for_intent(user["id"]))
+        except Exception:
+            logger.exception("intent classification failed for chat_id=%s — defaulting to a normal text answer", chat_id)
+            intent_result = {"intent": "TEXT", "prompt": ""}
 
     if intent_result["intent"] in ("IMAGE", "VIDEO"):
         # chat() below already reserved one TEXT quota unit before

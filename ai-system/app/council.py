@@ -602,24 +602,34 @@ def classify_intent(message: str, recent_context: str = "") -> dict:
     into the future standalone app/website this bot is just a testing
     container for.
 
-    OUR OWN model decides instead, using the same kind of conversational
-    context a person would ("the assistant just asked what to draw" is
-    itself context, understood from recent_context, not a rigid
-    reply-marker the client has to track) — and produces the
-    professional generation prompt in the very same call, merging what
-    used to be two separate steps (this + expand_media_prompt) into one
-    real "thinking" pass. Same model-then-Groq-fallback order as every
-    other decision in this file. Any parse failure, empty response, or
+    OUR OWN model decides the real ANSWER first, always (council.answer,
+    called separately after this — untouched, still tries our own model
+    before Groq, exactly as the "our own model is the product" rule
+    requires for what the user actually sees). This classification step
+    is different: it is invisible routing, not the visible voice, the
+    same category as router.classify()'s CODE/LIVE_INFO/GENERAL split —
+    and real evidence, 2026-09-09 ("مرحبا" and "الووو" both got zero
+    reply for minutes), showed the reverse order (our slow CPU-only
+    model first, here too) was a real regression: it silently doubled
+    every plain message's model-call burden (this classification, then
+    the real answer) on a box already measured taking 45-95s+ for ONE
+    call — ordinary chat itself stopped responding. Groq-first here
+    fixes that (typically a few seconds), while still being genuine
+    model understanding, never a keyword list — falling back to our own
+    model only if Groq is unreachable, the same real-world availability
+    logic used everywhere else in this file, just pointed the other way
+    for this one invisible step. Any parse failure, empty response, or
     ambiguous result defaults to TEXT: a missed media request just
     becomes a normal conversational answer (harmless), while a false
     positive would wrongly reserve/burn a user's image/video quota."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
-    raw = call_modelscope_specialist(instruction, "", query_type="GENERAL")
+    raw = None
+    try:
+        raw = call_groq(instruction, "")
+    except Exception:
+        raw = None
     if not raw or len(raw.strip()) < 2:
-        try:
-            raw = call_groq(instruction, "")
-        except Exception:
-            raw = None
+        raw = call_modelscope_specialist(instruction, "", query_type="GENERAL")
     return _parse_intent_json(raw or "")
 
 
