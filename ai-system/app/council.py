@@ -566,19 +566,26 @@ _MEDIA_EXPANSION_INSTRUCTION = {
         "حوّل الطلب التالي إلى وصف احترافي مفصّل لتوليد صورة بالذكاء "
         "الاصطناعي: أضف تفاصيل واقعية عن الإضاءة، زاوية التصوير، "
         "التكوين البصري، الأسلوب الفني، والألوان — بما يخدم الطلب "
-        "الأصلي بدقة دون تغيير معناه أو إضافة عناصر غير مطلوبة. اكتب "
-        "الوصف النهائي فقط، جملة أو جملتين، بلا أي مقدمة أو شرح.\n\n"
+        "الأصلي بدقة دون تغيير معناه أو إضافة عناصر غير مطلوبة. "
+        "مهم جداً: النموذج الذي سيستخدم هذا الوصف (Stable Diffusion) "
+        "مدرَّب على اللغة الإنجليزية فقط — اكتب الوصف النهائي بالإنجليزية "
+        "حصرياً، جملة أو جملتين، بلا أي مقدمة أو شرح أو أي كلمة عربية.\n\n"
         "الطلب: "
     ),
     "video": (
         "حوّل الطلب التالي إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء "
         "الاصطناعي: أضف تفاصيل واقعية عن الحركة، زاوية الكاميرا، "
         "الإضاءة، والأسلوب البصري — بما يخدم الطلب الأصلي بدقة دون "
-        "تغيير معناه أو إضافة عناصر غير مطلوبة. اكتب الوصف النهائي "
-        "فقط، جملة أو جملتين، بلا أي مقدمة أو شرح.\n\n"
+        "تغيير معناه أو إضافة عناصر غير مطلوبة. "
+        "مهم جداً: النموذج الذي سيستخدم هذا الوصف (CogVideoX) مدرَّب "
+        "على اللغة الإنجليزية فقط — اكتب الوصف النهائي بالإنجليزية "
+        "حصرياً، جملة أو جملتين، بلا أي مقدمة أو شرح أو أي كلمة عربية.\n\n"
         "الطلب: "
     ),
 }
+
+
+_ARABIC_CHARS_RE = re.compile(r"[؀-ۿ]")
 
 
 def expand_media_prompt(user_request: str, media_kind: str) -> str:
@@ -594,7 +601,21 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
     answer() above), Groq only as the same emergency fallback. Always
     falls back to the raw user_request on any failure or a
     suspiciously short/empty result — a plain but real generation beats
-    none at all if this enhancement step itself breaks."""
+    none at all if this enhancement step itself breaks.
+
+    Owner report, 2026-09-08 (real evidence — WhatsApp screenshot):
+    "صمم صورة كلب" delivered a real generated image, but a completely
+    unrelated city skyline. Root cause, not guessed: the instruction
+    above never told our model to answer in English, so it answered in
+    Arabic (its natural language) — and Stable Diffusion's CLIP text
+    encoder is English-only, so it silently produced whatever an
+    out-of-distribution Arabic string happens to decode to, no error at
+    all. The instruction now demands English explicitly, but as a real
+    safety net in case our model still doesn't comply: if the result
+    still contains Arabic script, ask Groq to translate the ORIGINAL
+    request into a short English prompt instead of falling through to
+    the (also Arabic) raw user_request, which would hit the exact same
+    bug."""
     instruction = _MEDIA_EXPANSION_INSTRUCTION.get(media_kind, _MEDIA_EXPANSION_INSTRUCTION["image"]) + user_request
     expanded = call_modelscope_specialist(instruction, "", query_type="GENERAL")
     if not expanded or len(expanded.strip()) < 10:
@@ -603,7 +624,23 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
         except Exception:
             expanded = None
     expanded = (expanded or "").strip()
-    return expanded if len(expanded) >= 10 else user_request
+
+    if len(expanded) < 10 or _ARABIC_CHARS_RE.search(expanded):
+        try:
+            translated = call_groq(
+                "Translate the following into a short, professional English "
+                "image/video-generation prompt (one or two sentences, English "
+                "only, no preamble):\n\n" + user_request,
+                "",
+            )
+        except Exception:
+            translated = None
+        translated = (translated or "").strip()
+        if len(translated) >= 10 and not _ARABIC_CHARS_RE.search(translated):
+            return translated
+        return expanded if len(expanded) >= 10 else user_request
+
+    return expanded
 
 
 _INTENT_CLASSIFY_INSTRUCTION = (
