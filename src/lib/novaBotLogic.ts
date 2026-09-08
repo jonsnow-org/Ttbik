@@ -364,10 +364,182 @@ const STUDIO_TOOLS: Record<string, { label: string; endpoint: string; modes: Rec
   },
 };
 
+// Owner spec, 2026-09-09 ("قم بعمل جول على كل ادوات الموقع... قسم
+// مستقل"): a real audit of every standalone tool on the site (bot
+// templates excluded, per that same request) found 6 real, already-
+// working tools whose logic is simple enough to reuse directly here —
+// 2 already have their own API route (business-name, url-shorten), the
+// other 4 (zakat/margin/vat/crypto) are pure client-side math/API calls
+// in their own page components, ported here verbatim (same formulas,
+// same CoinGecko call) rather than duplicated behind a new route. A
+// genuinely separate section from STUDIO_TOOLS above (which are AI
+// calls) — none of these touch the AI at all.
+type CalcToolResult = { text: string } | { error: string };
+
+const STUDIO_CALC_TOOLS: Record<
+  string,
+  { label: string; instructions: string; handle: (input: string) => Promise<CalcToolResult> }
+> = {
+  "business-name": {
+    label: "🏷 مولّد أسماء المشاريع",
+    instructions: "🏷 أرسل الآن وصفاً قصيراً لمشروعك/متجرك — [مولّد أسماء المشاريع]",
+    handle: async (input) => {
+      try {
+        const res = await fetch(`${SITE_URL}/api/free-tools/business-name`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description: input }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const data = await res.json().catch(() => ({}));
+        return res.ok && data.output ? { text: data.output } : { error: data?.error || "تعذّر توليد الأسماء الآن." };
+      } catch {
+        return { error: "تعذّر الاتصال بالأداة — حاول لاحقاً." };
+      }
+    },
+  },
+  "url-shorten": {
+    label: "🔗 مختصر الروابط",
+    instructions: "🔗 أرسل الآن الرابط الذي تريد اختصاره — [مختصر الروابط]",
+    handle: async (input) => {
+      try {
+        const res = await fetch(`${SITE_URL}/api/tools/shorten`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.trim() }),
+          signal: AbortSignal.timeout(15000),
+        });
+        const data = await res.json().catch(() => ({}));
+        return res.ok && data.shortUrl
+          ? { text: `🔗 الرابط المختصر: ${data.shortUrl}` }
+          : { error: data?.error || "تعذّر اختصار الرابط." };
+      } catch {
+        return { error: "تعذّر الاتصال بالأداة — حاول لاحقاً." };
+      }
+    },
+  },
+  // Simplified vs. the full site page (src/app/free-tools/zakat-calculator):
+  // that page separately weighs gold/silver by grams+price and compares
+  // against a nisab threshold; collecting that many fields one-by-one in
+  // chat would be real friction for little gain, so this asks for the
+  // already-netted zakatable total directly and applies the same 2.5%
+  // rate (ZAKAT_RATE in that page) — stated as a simplification, not
+  // silently dropped precision.
+  zakat: {
+    label: "🕌 حاسبة الزكاة",
+    instructions:
+      "🕌 أرسل صافي أموالك الزكوية بعد خصم الديون (نقد + قيمة ذهب/فضة + أسهم) كرقم واحد — [حاسبة الزكاة]\nمثال: 20000",
+    handle: async (input) => {
+      const net = parseFloat(input.replace(/,/g, "").replace(/[^0-9.-]/g, ""));
+      if (!isFinite(net) || net <= 0) return { error: "أرسل رقماً صحيحاً أكبر من صفر، مثال: 20000" };
+      const zakat = net * 0.025;
+      return {
+        text:
+          `🕌 (بافتراض بلوغ النصاب)\nصافي المال: ${net.toLocaleString("ar")}\nالزكاة (2.5%): ${zakat.toLocaleString("ar", { maximumFractionDigits: 2 })}\n\n` +
+          "⚠️ حساب مبسّط — للتفاصيل الكاملة (نصاب الذهب/الفضة بالوزن) استخدم حاسبة الزكاة الكاملة على الموقع.",
+      };
+    },
+  },
+  margin: {
+    label: "📈 حاسبة هامش الربح",
+    instructions: "📈 أرسل التكلفة والسعر مفصولين بمسافة — [حاسبة هامش الربح]\nمثال: 50 100",
+    handle: async (input) => {
+      const [cost, price] = input.trim().split(/\s+/).map(Number);
+      if (!isFinite(cost) || !isFinite(price) || price <= 0) {
+        return { error: "أرسل رقمين: التكلفة ثم السعر، مثال: 50 100" };
+      }
+      const unitProfit = price - cost;
+      const marginPct = (unitProfit / price) * 100;
+      const markupPct = cost > 0 ? (unitProfit / cost) * 100 : 0;
+      return {
+        text: `📈 ربح الوحدة: ${unitProfit.toFixed(2)}\nهامش الربح (Margin): ${marginPct.toFixed(1)}%\nنسبة الزيادة (Markup): ${markupPct.toFixed(1)}%`,
+      };
+    },
+  },
+  vat: {
+    label: "🧾 حاسبة الضريبة (VAT)",
+    instructions: "🧾 أرسل المبلغ ونسبة الضريبة مفصولين بمسافة (النسبة اختيارية، افتراضي 15%) — [حاسبة الضريبة]\nمثال: 100 15",
+    handle: async (input) => {
+      const parts = input.trim().split(/\s+/).map(Number);
+      const amount = parts[0];
+      const rate = isFinite(parts[1]) ? parts[1] : 15;
+      if (!isFinite(amount) || amount < 0 || rate < 0) return { error: "أرسل رقماً صحيحاً للمبلغ، مثال: 100 15" };
+      const r = rate / 100;
+      const vatExclusive = amount * r;
+      const baseFromInclusive = amount / (1 + r);
+      return {
+        text:
+          `🧾 إن كان ${amount} قبل الضريبة (${rate}%): الضريبة ${vatExclusive.toFixed(2)}، الإجمالي ${(amount + vatExclusive).toFixed(2)}\n` +
+          `إن كان ${amount} شاملاً الضريبة: الأساس ${baseFromInclusive.toFixed(2)}، الضريبة ضمنه ${(amount - baseFromInclusive).toFixed(2)}`,
+      };
+    },
+  },
+  // Same CoinGecko endpoint/coin-id mapping as
+  // src/app/free-tools/crypto-converter/CryptoConverter.tsx, ported
+  // server-side instead of duplicating a client widget in a bot chat.
+  crypto: {
+    label: "💱 محوّل العملات الرقمية",
+    instructions:
+      "💱 أرسل: المبلغ ثم العملة المصدر ثم الهدف (TON, BTC, ETH, USDT, USD, SAR) — [محوّل العملات]\nمثال: 10 USDT SAR",
+    handle: async (input) => {
+      const parts = input.trim().split(/\s+/);
+      const amount = Number(parts[0]);
+      const from = (parts[1] || "").toUpperCase();
+      const to = (parts[2] || "").toUpperCase();
+      const COIN_IDS: Record<string, string> = { TON: "the-open-network", BTC: "bitcoin", ETH: "ethereum", USDT: "tether" };
+      if (!isFinite(amount) || amount <= 0 || !from || !to) {
+        return { error: "الصيغة: المبلغ ثم العملة المصدر ثم الهدف، مثال: 10 USDT SAR" };
+      }
+      if (from === to) return { text: `${amount} ${from} = ${amount} ${to}` };
+      try {
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${Object.values(COIN_IDS).join(",")}&vs_currencies=usd,sar`,
+          { signal: AbortSignal.timeout(15000) }
+        );
+        const prices = await res.json();
+        // Any coin's own usd/sar pair gives the same USD/SAR rate — try
+        // each until one actually has both fields (a single missing
+        // coin from CoinGecko's response shouldn't sink the whole SAR
+        // conversion).
+        const anyCoin = Object.values(COIN_IDS).find((id) => prices[id]?.usd && prices[id]?.sar);
+        const sarPerUsd = anyCoin ? prices[anyCoin].sar / prices[anyCoin].usd : null;
+
+        const toUsd = (code: string, amt: number): number | null => {
+          if (code === "USD") return amt;
+          if (code === "SAR") return sarPerUsd ? amt / sarPerUsd : null;
+          const id = COIN_IDS[code];
+          return id && prices[id]?.usd ? amt * prices[id].usd : null;
+        };
+        const usdAmount = toUsd(from, amount);
+        if (usdAmount === null) return { error: "تعذّر جلب سعر العملة المطلوبة." };
+
+        let result: number | null;
+        if (to === "USD") result = usdAmount;
+        else if (to === "SAR") result = sarPerUsd ? usdAmount * sarPerUsd : null;
+        else result = COIN_IDS[to] && prices[COIN_IDS[to]]?.usd ? usdAmount / prices[COIN_IDS[to]].usd : null;
+
+        if (result === null || !isFinite(result)) return { error: "تعذّر إتمام التحويل — تأكد من رموز العملات." };
+        return { text: `💱 ${amount} ${from} ≈ ${result.toLocaleString("en", { maximumFractionDigits: 6 })} ${to}` };
+      } catch {
+        return { error: "تعذّر الاتصال بخدمة الأسعار — حاول لاحقاً." };
+      }
+    },
+  },
+};
+
+function studioCalcMenu(): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  for (const [key, tool] of Object.entries(STUDIO_CALC_TOOLS)) {
+    kb.text(tool.label, `studio|calc|${key}`).row();
+  }
+  return kb;
+}
+
 function studioRootMenu(): InlineKeyboard {
   return new InlineKeyboard()
     .text("✋ المكتبة اليدوية (على صورك)", "studio|manual").row()
-    .text("🧰 أدوات الموقع", "studio|tools");
+    .text("🧰 أدوات الموقع", "studio|tools").row()
+    .text("🧮 أدوات وحاسبات", "studio|calc");
 }
 
 function studioToolsMenu(): InlineKeyboard {
@@ -445,6 +617,16 @@ async function handleStudioCallback(bot: TelegramBot, cq: any) {
 
   if (parts[1] === "tools" && parts.length === 4 && STUDIO_TOOLS[parts[2]]?.modes[parts[3]]) {
     await bot.api.sendMessage(chatId, studioInputPromptText(parts[2], parts[3]));
+    return;
+  }
+
+  if (parts[1] === "calc" && parts.length === 2) {
+    await bot.api.sendMessage(chatId, "🧮 اختر أداة:", { reply_markup: studioCalcMenu() });
+    return;
+  }
+
+  if (parts[1] === "calc" && parts.length === 3 && STUDIO_CALC_TOOLS[parts[2]]) {
+    await bot.api.sendMessage(chatId, STUDIO_CALC_TOOLS[parts[2]].instructions);
     return;
   }
 }
@@ -547,6 +729,16 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     } catch {
       await bot.api.sendMessage(chatId, "تعذّر الاتصال بالأداة — حاول لاحقاً.");
     }
+    return;
+  }
+
+  const calcMatch = msg.reply_to_message?.text
+    ? Object.values(STUDIO_CALC_TOOLS).find((t) => t.instructions === msg.reply_to_message.text)
+    : undefined;
+  if (calcMatch) {
+    await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+    const result = await calcMatch.handle(text);
+    await bot.api.sendMessage(chatId, "text" in result ? result.text : result.error);
     return;
   }
 
