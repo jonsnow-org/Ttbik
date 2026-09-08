@@ -121,6 +121,14 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 // across every later message once sent — no need to re-attach it on
 // every single reply, only where the menu changes, exactly like the
 // sibling bots' own mainMenu functions).
+// Exact text of the two "now send your description" prompts sent after
+// tapping the image/video buttons — compared against msg.reply_to_message
+// below to recognize a plain-text reply as the actual media description
+// even when it contains no generation verb (see the force_reply comment
+// at its send site for why this exists).
+const IMAGE_PROMPT_TEXT = "🖼 أرسل الآن وصف الصورة التي تريدها (مثال: قطة سوداء تحت المطر).";
+const VIDEO_PROMPT_TEXT = "🎬 أرسل الآن وصف الفيديو الذي تريده (مثال: قطة تلعب بكرة صوف).";
+
 function novaMainMenu(): Keyboard {
   return new Keyboard()
     .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
@@ -451,12 +459,24 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   }
 
   if (text === "🖼 توليد صورة") {
-    await bot.api.sendMessage(chatId, "أرسل وصف الصورة التي تريدها مباشرة (مثال: قطة سوداء تحت المطر)، أو استخدم الأمر /صورة متبوعاً بالوصف.");
+    // force_reply is what makes "send the description directly" actually
+    // work below (real bug, owner screenshot 2026-09-09: a plain
+    // description like "قطة سوداء تحت المطر" has no generation verb, so
+    // detectMediaGenerationIntent correctly returned null and the message
+    // fell straight through to /chat, which happily answered with a TEXT
+    // description of a cat instead of generating an image). Telegram
+    // echoes back msg.reply_to_message on whatever the user replies to,
+    // which lets the handler below recognize "this text is an answer to
+    // our own image prompt" with zero server-side session state — exactly
+    // the constraint this thin client has always had (see this file's
+    // module docstring: no local Prisma table to persist multi-step state
+    // across serverless invocations).
+    await bot.api.sendMessage(chatId, IMAGE_PROMPT_TEXT, { reply_markup: { force_reply: true } });
     return;
   }
 
   if (text === "🎬 توليد فيديو") {
-    await bot.api.sendMessage(chatId, "أرسل وصف الفيديو الذي تريده مباشرة (مثال: قطة تلعب بكرة صوف)، أو استخدم الأمر /فيديو متبوعاً بالوصف.");
+    await bot.api.sendMessage(chatId, VIDEO_PROMPT_TEXT, { reply_markup: { force_reply: true } });
     return;
   }
 
@@ -540,12 +560,17 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
 
   const isExplicitImageCommand = text.startsWith("/صورة") || text.startsWith("/image");
   const isExplicitVideoCommand = text.startsWith("/فيديو") || text.startsWith("/video");
+  const isImagePromptReply = msg.reply_to_message?.text === IMAGE_PROMPT_TEXT;
+  const isVideoPromptReply = msg.reply_to_message?.text === VIDEO_PROMPT_TEXT;
   // Only run the natural-language detector when neither explicit command
   // already matched — an explicit /صورة command describing a video-ish
   // scene shouldn't get reclassified.
-  const mediaIntent = isExplicitImageCommand || isExplicitVideoCommand ? null : detectMediaGenerationIntent(text);
+  const mediaIntent =
+    isExplicitImageCommand || isExplicitVideoCommand || isImagePromptReply || isVideoPromptReply
+      ? null
+      : detectMediaGenerationIntent(text);
 
-  if (isExplicitImageCommand || mediaIntent === "image") {
+  if (isExplicitImageCommand || mediaIntent === "image" || isImagePromptReply) {
     // OUR OWN image-generation model (council.generate_image), self-
     // hosted on our own ModelScope Studio — not a third-party API call.
     // Either the explicit command, or natural-language intent (see
@@ -578,7 +603,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  if (isExplicitVideoCommand || mediaIntent === "video") {
+  if (isExplicitVideoCommand || mediaIntent === "video" || isVideoPromptReply) {
     // OUR OWN video-generation model (council.generate_video /
     // HF_VIDEO_MODEL_ID — see ai-system/colab/generate_image_model.ipynb's
     // video-gen cells). Unlike /صورة above, this is async (like /image
