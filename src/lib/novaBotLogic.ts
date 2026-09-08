@@ -110,6 +110,24 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 // thin client with no local Prisma table of its own to persist a
 // multi-step "awaiting broadcast text" state across serverless
 // invocations (see this file's module docstring), so a real free-text
+// Owner report, 2026-09-09 (asked repeatedly, real complaint): every
+// other bot template on this platform (matchBotLogic.ts, jobsBotLogic.ts)
+// shows a persistent tappable button menu to regular users right after
+// /start — Nova only ever sent a wall of text explaining commands to
+// type manually, with zero buttons, even though line ~414's own text
+// check for "🎛 لوحتي" already anticipated a button with that exact
+// label that nothing ever actually sent. This is that missing menu,
+// matching the same Keyboard pattern (grammy's reply keyboard persists
+// across every later message once sent — no need to re-attach it on
+// every single reply, only where the menu changes, exactly like the
+// sibling bots' own mainMenu functions).
+function novaMainMenu(): Keyboard {
+  return new Keyboard()
+    .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
+    .text("🎛 لوحتي").text("💎 ترقية")
+    .resized();
+}
+
 // follow-up stays a typed command like every other admin-only text
 // command here (/لوحتي, /ترقية, /صورة).
 function novaAdminMenu(): Keyboard {
@@ -406,8 +424,19 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     }
     await bot.api.sendMessage(
       chatId,
-      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، أرسل /صورة متبوعاً بوصف لتوليد صورة جديدة، أرسل /فيديو متبوعاً بوصف لتوليد فيديو جديد، وأرسل /ترقية في أي وقت لرفع حدك اليومي، أو /لوحتي لعرض لوحة حسابك."
+      "أنا نوفا NOVA مساعد ذكاء اصطناعي متعدد اللغات متعدد المصادر. ليس لدي مالك أو شركة لدي والد فقط هو من قام بابتكاري وتطويري والدي هو المطور السوري، وقد صممني لأحلّق في فضاء سوريا والعالم. أنا هنا لمساعدتك في الحصول على المعلومات التي تحتاجها بأدق وأوضح طريقة ممكنة.\n\nأهلاً بك مرة أخرى.....🤗\n\nاكتب أي سؤال مباشرة (أو أرسل رسالة صوتية، صورة، أو ملف PDF/Word)، استخدم الأزرار أدناه لتوليد صورة أو فيديو، لعرض لوحتك، أو للترقية.",
+      { reply_markup: novaMainMenu() }
     );
+    return;
+  }
+
+  if (text === "🖼 توليد صورة") {
+    await bot.api.sendMessage(chatId, "أرسل وصف الصورة التي تريدها مباشرة (مثال: قطة سوداء تحت المطر)، أو استخدم الأمر /صورة متبوعاً بالوصف.");
+    return;
+  }
+
+  if (text === "🎬 توليد فيديو") {
+    await bot.api.sendMessage(chatId, "أرسل وصف الفيديو الذي تريده مباشرة (مثال: قطة تلعب بكرة صوف)، أو استخدم الأمر /فيديو متبوعاً بالوصف.");
     return;
   }
 
@@ -421,7 +450,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  if (text === "/ترقية" || text === "/subscribe") {
+  if (text === "/ترقية" || text === "/subscribe" || text === "💎 ترقية") {
     await sendNovaPlanPicker(bot, chatId);
     return;
   }
