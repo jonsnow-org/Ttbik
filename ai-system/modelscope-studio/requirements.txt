@@ -1,4 +1,17 @@
-gradio
+# Owner discovery, 2026-09-09 (real evidence — ModelScope's own deploy
+# JSON config, screenshotted from the Studio's settings dialog):
+# "sdk_version": "6.17.3" — this is the exact Gradio version ModelScope's
+# platform wraps/expects this Studio to speak. This line used to be a
+# bare "gradio" with no version pin, meaning every container rebuild
+# installed whatever the newest PyPI release was at that moment (6.26.0
+# as of this fix — 9 minor releases ahead). A protocol mismatch between
+# what the platform's own proxy expects (6.17.3) and what our container
+# actually runs is a real, plausible explanation for some of the queue
+# API oddities hit this session (the "v2" vs non-"v2" endpoint
+# confusion, gradio_client's unexplained 401s, possibly the current
+# image-generation failures) — not confirmed as THE cause yet, but a
+# real, previously-invisible mismatch worth closing regardless.
+gradio==6.17.3
 # real tool-use execution (web_search/get_weather) — see app.py's
 # _TOOL_EXECUTORS and NOVA_SYSTEM_PROMPT's <tools> section.
 ddgs
