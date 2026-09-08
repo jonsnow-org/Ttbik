@@ -624,12 +624,34 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
     instruction = _MEDIA_EXPANSION_INSTRUCTION.get(media_kind, _MEDIA_EXPANSION_INSTRUCTION["image"]) + user_request
     expanded = call_modelscope_specialist(instruction, "", query_type="GENERAL")
     if not expanded or len(expanded.strip()) < 10:
+        logger.warning(
+            "expand_media_prompt: our own model returned no usable expansion (got %r) — falling back to Groq",
+            expanded,
+        )
         try:
             expanded = call_groq(instruction, "")
         except Exception:
+            logger.exception("expand_media_prompt: Groq fallback also failed")
             expanded = None
     expanded = (expanded or "").strip()
-    return expanded if len(expanded) >= 10 else user_request
+    if len(expanded) < 10:
+        # Owner report, 2026-09-08 (real evidence — Supabase's own
+        # NovaUsageLog): both calls above failing silently used to mean
+        # this function returned the RAW, untranslated user_request
+        # with zero trace anywhere (the PROMPT_EXPANSION log entry in
+        # main.py only fires when expanded != prompt, so a silent
+        # fall-through here left no evidence at all) — exactly what
+        # produced two real unrelated-image failures (Arabic text fed
+        # straight into Stable Diffusion's English-only CLIP encoder).
+        # This log line is the only reason that root cause is now
+        # actually visible instead of requiring a live A/B test to prove.
+        logger.warning(
+            "expand_media_prompt: both our model and Groq failed to expand %r (media_kind=%s) — "
+            "returning the RAW, untranslated request, which will likely produce an unrelated image/video",
+            user_request, media_kind,
+        )
+        return user_request
+    return expanded
 
 
 _INTENT_CLASSIFY_INSTRUCTION = (
