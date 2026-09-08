@@ -12,7 +12,18 @@ on:
       - claude/free-services-marketplace-h6rwk2
     paths:
       - "ai-system/modelscope-studio/**"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_restart:
+        description: >-
+          إجباري true افتراضياً: يكتب ملف علامة زمنية فيضمن وجود تغيير
+          للرفع حتى لو لم يتغيّر app.py/requirements.txt نفسه — الطريقة
+          الوحيدة لإجبار الحاوية الحيّة على إعادة تحميل النماذج بعد أن
+          يرفع دفتر Kaggle (generate_image_model.ipynb أو
+          merge_and_finetune.ipynb) ملفات جديدة إلى ModelScope، لأن
+          الحاوية تحمّل النماذج مرة واحدة فقط عند بدء التشغيل.
+        required: false
+        default: "true"
 
 jobs:
   deploy:
@@ -39,6 +50,11 @@ jobs:
             cp "${whls[@]}" ms-studio/
           fi
 
+      - name: Write restart marker on manual force_restart (guarantees a diff to push even with no code change)
+        if: github.event_name == 'workflow_dispatch' && inputs.force_restart != 'false'
+        run: |
+          date -u +"forced restart: %Y-%m-%dT%H:%M:%SZ (run ${GITHUB_RUN_ID})" > ms-studio/.last_deploy_trigger
+
       - name: Commit and push to ModelScope
         working-directory: ms-studio
         run: |
@@ -47,6 +63,9 @@ jobs:
           whls=(*.whl)
           if [ ${#whls[@]} -gt 0 ]; then
             git add "${whls[@]}"
+          fi
+          if [ -f .last_deploy_trigger ]; then
+            git add .last_deploy_trigger
           fi
           if git diff --cached --quiet; then
             echo "No changes to deploy."
