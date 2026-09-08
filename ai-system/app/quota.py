@@ -294,11 +294,15 @@ def get_last_usage_log(user_id: str) -> dict | None:
     own next message (see council.py's detect_dissatisfaction), which
     replaced visible 👍/👎 buttons entirely (owner spec 2026-09-08: a
     button risks an accidental tap, and needs a screen element at
-    all — this needs neither)."""
+    all — this needs neither). Also doubles as the "recent context" fed
+    into council.classify_intent (message included for that reason) so
+    the model can understand a reply like "قطة سوداء تحت المطر" the same
+    way a person would — by remembering it just asked what to draw —
+    without any client-side reply-marker."""
     db = get_supabase()
     res = (
         db.table("NovaUsageLog")
-        .select("id, answer, rating")
+        .select("id, message, answer, rating")
         .eq("novaUserId", user_id)
         .not_.is_("answer", "null")
         .order("created_at", desc=True)

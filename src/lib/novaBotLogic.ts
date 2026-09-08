@@ -121,14 +121,6 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 // across every later message once sent — no need to re-attach it on
 // every single reply, only where the menu changes, exactly like the
 // sibling bots' own mainMenu functions).
-// Exact text of the two "now send your description" prompts sent after
-// tapping the image/video buttons — compared against msg.reply_to_message
-// below to recognize a plain-text reply as the actual media description
-// even when it contains no generation verb (see the force_reply comment
-// at its send site for why this exists).
-const IMAGE_PROMPT_TEXT = "🖼 أرسل الآن وصف الصورة التي تريدها (مثال: قطة سوداء تحت المطر).";
-const VIDEO_PROMPT_TEXT = "🎬 أرسل الآن وصف الفيديو الذي تريده (مثال: قطة تلعب بكرة صوف).";
-
 function novaMainMenu(): Keyboard {
   return new Keyboard()
     .text("🖼 توليد صورة").text("🎬 توليد فيديو").row()
@@ -313,49 +305,29 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
   }
 }
 
-// Owner spec, 2026-09-09 ("يجب ان يفهم الامر بمجرد الكتابة كما اتحدث معك
-// انا دائما وليس عبر /"): natural-language image/video generation intent,
-// layered on top of (not replacing) the explicit /صورة and /فيديو
-// commands below — a real command still works for anyone who prefers
-// it, but nobody should be forced to remember exact command syntax on a
-// phone keyboard (real evidence this session: several failed real
-// attempts from a missing "/" or a one-letter typo in "فيديو"— إن
-// كانت الكتابة اليدوية على الهاتف عرضة للخطأ، فرض بادئة حرفية دقيقة
-// عليها كان الخطأ التصميمي، لا خطأ المستخدم).
+// Owner correction, 2026-09-09 ("ليس هدفنا البوت — البوت مجرد حاوية
+// اختبار حالية... اذا وضعنا اوامر اجبارية لاجل تنظيم الرد بالبوت
+// بالمستقبل سنصنع تطبيق وموقع ويب للذكاء فحينها سيكون مبرمج على
+// الاجبار وليس الذكاء المعرفي كما تتحدث انت معي الآن"): this file used
+// to guess image/video intent itself with a keyword verb+noun list
+// (detectMediaGenerationIntent, removed here) and briefly patched a
+// real gap in that list with a Telegram force_reply trick (real bug:
+// "قطة سوداء تحت المطر" has no generation verb, so it fell through to
+// plain chat and got answered with a text description of a cat
+// instead of an actual image). Both were mechanical, client-side
+// pattern-matching — exactly the kind of "force" the owner is warning
+// against baking into the eventual real app/website this bot is only
+// a testing container for.
 //
-// A deterministic keyword heuristic, not a model call — same "cheap,
-// fast, no ambiguity" pattern this file already uses for /لوحتي and
-// /ترقية, extended to plain-language intent instead of only an exact
-// prefix. Requires BOTH a generation verb AND a media noun together,
-// never either alone — a lone "صورة" is common in ordinary questions
-// ("ما رأيك بهذه الصورة؟", "كيف ألتقط صورة أفضل؟") that must still go
-// to normal chat, not silently trigger real (paid-quota) generation.
-const _GENERATION_VERBS = [
-  "صمم", "صمّم", "ولد", "ولّد", "اصنع", "إصنع", "اعمل", "أعمل",
-  "انشئ", "أنشئ", "ارسم", "أرسم", "اطلع", "أطلع", "سوي", "سوّي",
-  "اعطني", "أعطني", "generate", "create", "draw", "design", "make",
-  // Owner report, 2026-09-09 (real evidence): "قم بتوليد فديو قطة
-  // تلعب على العشب" fell straight through to normal chat — the verb
-  // list only had imperative command forms ("اصنع", "ولّد"), missing
-  // the extremely common Arabic "قم بـ + gerund" construction ("قم
-  // بتوليد" = "proceed to generate"), where the action word appears as
-  // a noun/gerund instead.
-  "توليد", "تصميم", "إنشاء", "انشاء",
-];
-const _IMAGE_NOUNS = ["صورة", "صور", "image", "picture", "photo"];
-const _VIDEO_NOUNS = ["فيديو", "فديو", "video", "مقطع فيديو", "مقطع"];
-
-function detectMediaGenerationIntent(text: string): "image" | "video" | null {
-  const normalized = text.toLowerCase();
-  const hasVerb = _GENERATION_VERBS.some((v) => normalized.includes(v.toLowerCase()));
-  if (!hasVerb) return null;
-  // Video checked first: a message naming both nouns (rare) means video,
-  // since a video request often also describes its individual "frames"/
-  // "scene" in image-like language.
-  if (_VIDEO_NOUNS.some((n) => normalized.includes(n.toLowerCase()))) return "video";
-  if (_IMAGE_NOUNS.some((n) => normalized.includes(n.toLowerCase()))) return "image";
-  return null;
-}
+// The fix: this thin client no longer decides intent at all, finally
+// matching its own module docstring above ("owns zero AI logic").
+// Every plain message — a bare description with no verb included —
+// now goes straight to /chat, and OUR OWN model on the backend
+// (council.classify_intent, using real conversation memory the same
+// way a person would) decides whether it's an image/video request and
+// produces the generation prompt itself. See ai-system/app/main.py's
+// _process_chat_and_deliver and ai-system/app/council.py's
+// classify_intent for where that now lives.
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (update.callback_query) {
@@ -459,24 +431,20 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   }
 
   if (text === "🖼 توليد صورة") {
-    // force_reply is what makes "send the description directly" actually
-    // work below (real bug, owner screenshot 2026-09-09: a plain
-    // description like "قطة سوداء تحت المطر" has no generation verb, so
-    // detectMediaGenerationIntent correctly returned null and the message
-    // fell straight through to /chat, which happily answered with a TEXT
-    // description of a cat instead of generating an image). Telegram
-    // echoes back msg.reply_to_message on whatever the user replies to,
-    // which lets the handler below recognize "this text is an answer to
-    // our own image prompt" with zero server-side session state — exactly
-    // the constraint this thin client has always had (see this file's
-    // module docstring: no local Prisma table to persist multi-step state
-    // across serverless invocations).
-    await bot.api.sendMessage(chatId, IMAGE_PROMPT_TEXT, { reply_markup: { force_reply: true } });
+    // No force_reply, no marker to match against later — just a plain
+    // invitation. Whatever the user types next goes to /chat like any
+    // other message, and the backend's own model understands from
+    // context (this exact exchange, via council.classify_intent) that
+    // it's an image description, exactly like a person would (see the
+    // owner-correction comment above detectMediaGenerationIntent's old
+    // location for why this replaced both that keyword list and the
+    // force_reply trick this button used briefly).
+    await bot.api.sendMessage(chatId, "🖼 صف لي الصورة التي تريدها (مثال: قطة سوداء تحت المطر).");
     return;
   }
 
   if (text === "🎬 توليد فيديو") {
-    await bot.api.sendMessage(chatId, VIDEO_PROMPT_TEXT, { reply_markup: { force_reply: true } });
+    await bot.api.sendMessage(chatId, "🎬 صف لي الفيديو الذي تريده (مثال: قطة تلعب بكرة صوف).");
     return;
   }
 
@@ -558,26 +526,17 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
+  // Explicit /صورة and /فيديو commands stay as direct fast-paths — a
+  // literal typed command isn't "force" (nobody is required to use it,
+  // and it saves one classification model call for whoever prefers
+  // typing it) — but every other message, whatever its wording, falls
+  // straight through to /chat below and lets OUR OWN model decide.
   const isExplicitImageCommand = text.startsWith("/صورة") || text.startsWith("/image");
   const isExplicitVideoCommand = text.startsWith("/فيديو") || text.startsWith("/video");
-  const isImagePromptReply = msg.reply_to_message?.text === IMAGE_PROMPT_TEXT;
-  const isVideoPromptReply = msg.reply_to_message?.text === VIDEO_PROMPT_TEXT;
-  // Only run the natural-language detector when neither explicit command
-  // already matched — an explicit /صورة command describing a video-ish
-  // scene shouldn't get reclassified.
-  const mediaIntent =
-    isExplicitImageCommand || isExplicitVideoCommand || isImagePromptReply || isVideoPromptReply
-      ? null
-      : detectMediaGenerationIntent(text);
 
-  if (isExplicitImageCommand || mediaIntent === "image" || isImagePromptReply) {
+  if (isExplicitImageCommand) {
     // OUR OWN image-generation model (council.generate_image), self-
     // hosted on our own ModelScope Studio — not a third-party API call.
-    // Either the explicit command, or natural-language intent (see
-    // detectMediaGenerationIntent above) — the full sentence is used as
-    // the prompt either way for the natural-language path, since a
-    // text-to-image model handles a full descriptive sentence fine
-    // without needing the trigger phrase stripped out of it first.
     //
     // Owner spec, 2026-09-09: async now, like /فيديو below — real
     // evidence (Render logs) that Hugging Face's free tier refuses to
@@ -585,7 +544,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     // ModelScope Studio, where inference is genuinely slow. The old
     // synchronous, wait-for-the-photo-inline design only worked while
     // this was calling a third party's own (fast) infrastructure.
-    const prompt = isExplicitImageCommand ? text.replace(/^\/(صورة|image)\s*/, "").trim() : text;
+    const prompt = text.replace(/^\/(صورة|image)\s*/, "").trim();
     if (!prompt) {
       await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الصورة، مثال:\n/صورة قطة سوداء تحت المطر");
       return;
@@ -603,17 +562,15 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     return;
   }
 
-  if (isExplicitVideoCommand || mediaIntent === "video" || isVideoPromptReply) {
+  if (isExplicitVideoCommand) {
     // OUR OWN video-generation model (council.generate_video /
     // HF_VIDEO_MODEL_ID — see ai-system/colab/generate_image_model.ipynb's
     // video-gen cells). Unlike /صورة above, this is async (like /image
     // and /chat) — real video-generation latency is unmeasured and
     // could easily exceed this route's own timeout, so the backend
     // pushes the finished video straight to Telegram once ready
-    // instead of waiting for it inline here. Either the explicit
-    // command, or natural-language intent — see the image block above
-    // for why the full sentence is used as-is for that path.
-    const prompt = isExplicitVideoCommand ? text.replace(/^\/(فيديو|video)\s*/, "").trim() : text;
+    // instead of waiting for it inline here.
+    const prompt = text.replace(/^\/(فيديو|video)\s*/, "").trim();
     if (!prompt) {
       await bot.api.sendMessage(chatId, "أرسل الأمر متبوعاً بوصف الفيديو، مثال:\n/فيديو قطة تلعب بكرة صوف");
       return;
@@ -642,7 +599,14 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   // /image: don't wait for the answer inline, just schedule it —
   // ai-system/app/main.py's /chat delivers it straight to Telegram
   // once ready.
-  await bot.api.sendMessage(chatId, "🤔 جارٍ التفكير في إجابتك...").catch(() => null);
+  //
+  // Wording kept intent-neutral ("جارٍ المعالجة" rather than "جارٍ
+  // التفكير في إجابتك") since this file no longer knows in advance
+  // whether the backend will answer in text or turn out to be an
+  // image/video request — council.classify_intent decides that itself
+  // once the background task starts, and sends its own "🖼/🎬 جارٍ
+  // التوليد" message at that point if so.
+  await bot.api.sendMessage(chatId, "⏳ جارٍ المعالجة...").catch(() => null);
   const { ok, data } = await callNovaBackend("/chat", { channel: "TELEGRAM", telegram_id: tgUserId, chat_id: String(chatId), message: text });
   if (!ok) {
     await bot.api.sendMessage(chatId, data?.detail || "حدث خطأ — حاول مرة أخرى بعد قليل.");

@@ -99,7 +99,9 @@ that the official PyPI llama-cpp-python has no Qwen2.5-VL chat handler
 at all, so plain `pip install llama-cpp-python` cannot serve vision
 regardless of which GGUF files it's given.
 """
+import json
 import logging
+import re
 
 from groq import Groq
 
@@ -553,6 +555,72 @@ def expand_media_prompt(user_request: str, media_kind: str) -> str:
             expanded = None
     expanded = (expanded or "").strip()
     return expanded if len(expanded) >= 10 else user_request
+
+
+_INTENT_CLASSIFY_INSTRUCTION = (
+    "أنت الجزء المسؤول داخل نظام الذكاء الاصطناعي عن فهم نية المستخدم من "
+    "سياق المحادثة الحقيقي، تماماً كما يفهم أي مساعد ذكي حقيقي القصد من "
+    "الكلام دون الحاجة لكلمات أو صيغ أوامر ثابتة. اقرأ رسالة المستخدم "
+    "الحالية مستفيداً من سياق المحادثة السابق إن وُجد، وحدد نيته: هل "
+    "يطلب توليد صورة، أم توليد فيديو، أم أن رسالته سؤال أو محادثة عادية؟\n\n"
+    "أجب حصراً بصيغة JSON صحيحة بدون أي نص أو شرح إضافي، بهذا الشكل تماماً:\n"
+    '{{"intent": "IMAGE" أو "VIDEO" أو "TEXT", "prompt": "وصف احترافي '
+    'مفصّل للصورة أو الفيديو المطلوب إن وُجد، فارغ تماماً إذا كانت intent هي TEXT"}}\n\n'
+    "سياق المحادثة السابق:\n{context}\n\nرسالة المستخدم الحالية:\n{message}"
+)
+
+
+def _parse_intent_json(raw: str) -> dict:
+    match = re.search(r"\{.*\}", raw, re.DOTALL) if raw else None
+    if not match:
+        return {"intent": "TEXT", "prompt": ""}
+    try:
+        data = json.loads(match.group(0))
+    except Exception:
+        return {"intent": "TEXT", "prompt": ""}
+    intent = str(data.get("intent", "TEXT")).strip().upper()
+    if intent not in ("IMAGE", "VIDEO", "TEXT"):
+        intent = "TEXT"
+    prompt = str(data.get("prompt") or "").strip()
+    if intent != "TEXT" and len(prompt) < 3:
+        # Untrustworthy media prompt — safer to fall through to a normal
+        # (harmless) conversational answer than to burn the user's
+        # image/video quota on a malformed request.
+        intent, prompt = "TEXT", ""
+    return {"intent": intent, "prompt": prompt}
+
+
+def classify_intent(message: str, recent_context: str = "") -> dict:
+    """Owner correction, 2026-09-09 ("ليس هدفنا البوت... اذا وضعنا اوامر
+    اجبارية لاجل تنظيم الرد بالبوت... سيكون مبرمج على الاجبار وليس الذكاء
+    المعرفي"): replaces both the old keyword-list detector
+    (novaBotLogic.ts's since-removed detectMediaGenerationIntent, which
+    only matched literal generation verbs + media nouns) and the bot's
+    force_reply trick (which only worked because the user was replying
+    to a specific marker message) — both were mechanical string-matching,
+    not real understanding, and would have carried that same rigidity
+    into the future standalone app/website this bot is just a testing
+    container for.
+
+    OUR OWN model decides instead, using the same kind of conversational
+    context a person would ("the assistant just asked what to draw" is
+    itself context, understood from recent_context, not a rigid
+    reply-marker the client has to track) — and produces the
+    professional generation prompt in the very same call, merging what
+    used to be two separate steps (this + expand_media_prompt) into one
+    real "thinking" pass. Same model-then-Groq-fallback order as every
+    other decision in this file. Any parse failure, empty response, or
+    ambiguous result defaults to TEXT: a missed media request just
+    becomes a normal conversational answer (harmless), while a false
+    positive would wrongly reserve/burn a user's image/video quota."""
+    instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
+    raw = call_modelscope_specialist(instruction, "", query_type="GENERAL")
+    if not raw or len(raw.strip()) < 2:
+        try:
+            raw = call_groq(instruction, "")
+        except Exception:
+            raw = None
+    return _parse_intent_json(raw or "")
 
 
 def generate_image(prompt: str) -> bytes | None:

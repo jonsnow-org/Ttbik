@@ -293,6 +293,47 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     return final_answer, query_type, log_id
 
 
+def _recent_context_for_intent(user_id: str) -> str:
+    """Feeds council.classify_intent the same kind of memory a person
+    would use to understand a short follow-up ("قطة سوداء تحت المطر"
+    right after the assistant asked what to draw) — see that
+    function's own docstring for why this replaced keyword-matching and
+    the bot's old force_reply trick."""
+    prev = quota.get_last_usage_log(user_id)
+    if not prev:
+        return ""
+    return f"آخر رسالة من المستخدم: {prev.get('message') or ''}\nآخر رد من المساعد: {prev.get('answer') or ''}"
+
+
+def _dispatch_media_intent(user: dict, channel: str, chat_id: str, message: str, intent: str, expanded_prompt: str) -> None:
+    """council.classify_intent already decided (via real model
+    understanding, not a keyword match) that this message is an
+    image/video request and already produced the professional prompt —
+    this just reserves the correct quota bucket and hands off to the
+    same background generation pipelines /generate-image and
+    /generate-video use, passing expanded_prompt through so it's never
+    computed twice."""
+    seconds = 0
+    if intent == "VIDEO":
+        requested_seconds = _parse_requested_seconds(message)
+        duration_ok, seconds, duration_message = quota.check_video_duration(user, requested_seconds)
+        if not duration_ok:
+            _send_telegram_message(chat_id, duration_message)
+            return
+
+    allowed, _remaining, quota_message = quota.check_and_reserve_quota(user, "IMAGE")
+    if not allowed:
+        _send_telegram_message(chat_id, quota_message)
+        return
+
+    if intent == "IMAGE":
+        _send_telegram_message(chat_id, "🖼 جارٍ توليد الصورة — قد يستغرق الأمر بضع دقائق، ستصلك هنا فور الانتهاء.")
+        _process_image_gen_and_deliver(user["id"], channel, chat_id, message, expanded_prompt=expanded_prompt)
+    else:
+        _send_telegram_message(chat_id, "🎬 جارٍ توليد الفيديو — قد يستغرق الأمر عدة دقائق، سيصلك هنا فور الانتهاء.")
+        _process_video_and_deliver(user["id"], channel, chat_id, message, seconds, expanded_prompt=expanded_prompt)
+
+
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
     # This runs inside a FastAPI BackgroundTask, AFTER the HTTP response
     # (accepted: true) has already gone out — there is no request/response
@@ -305,6 +346,29 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
     # arriving — a real silent-failure risk with zero visibility outside
     # Render's own logs, unlike the sync WEB/API path which still has
     # unhandled_exception_handler above to turn it into a real response.
+
+    # Owner correction, 2026-09-09 ("ليس هدفنا البوت... اذا وضعنا اوامر
+    # اجبارية... سيكون مبرمج على الاجبار وليس الذكاء المعرفي"): every
+    # plain-text message — not just ones with a recognized verb, not
+    # just replies to a force_reply marker — is understood here by OUR
+    # OWN model exactly the way a real assistant would, using
+    # conversation memory instead of rigid syntax. See
+    # council.classify_intent's docstring for the full reasoning.
+    try:
+        intent_result = council.classify_intent(message, _recent_context_for_intent(user["id"]))
+    except Exception:
+        logger.exception("intent classification failed for chat_id=%s — defaulting to a normal text answer", chat_id)
+        intent_result = {"intent": "TEXT", "prompt": ""}
+
+    if intent_result["intent"] in ("IMAGE", "VIDEO"):
+        # chat() below already reserved one TEXT quota unit before
+        # scheduling this background task — refund it now that real
+        # understanding says this is actually a media request, then
+        # _dispatch_media_intent reserves the correct IMAGE/VIDEO unit.
+        quota.refund_quota(user["id"], "TEXT")
+        _dispatch_media_intent(user, channel, chat_id, message, intent_result["intent"], intent_result["prompt"])
+        return
+
     stop_typing, typing_thread = _start_typing_loop(chat_id)
     try:
         final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
@@ -496,7 +560,9 @@ class GenerateImageResponse(BaseModel):
     quota_message: str
 
 
-def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str) -> None:
+def _process_image_gen_and_deliver(
+    user_id: str, channel: str, chat_id: str, prompt: str, expanded_prompt: str | None = None
+) -> None:
     """Runs in a FastAPI BackgroundTask — see _process_video_and_deliver
     above for why this needs its own try/except (no HTTP response left
     to surface an exception on once this starts).
@@ -508,7 +574,14 @@ def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, pro
     Hugging Face's free tier refuses our own repo moved this to our own
     ModelScope Studio instead, where CPU-only inference is genuinely
     slow — same fix, same async-delivery shape as /image and
-    /generate-video above, for the same underlying reason."""
+    /generate-video above, for the same underlying reason.
+
+    expanded_prompt: pre-computed professional prompt, passed in when
+    council.classify_intent already produced one during real intent
+    understanding (see _dispatch_media_intent below) — avoids paying
+    for a second, redundant model call. None (the explicit /صورة
+    command path, which never goes through classify_intent) still
+    expands it here exactly as before."""
     try:
         # Owner spec, 2026-09-09 ("ليصبح انشاء الوسائط... مفهوم واكثر
         # دقة واحترافية"): the Stable Diffusion weights themselves are
@@ -517,7 +590,7 @@ def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, pro
         # request into a detailed professional prompt first. Real cost
         # stated plainly: this adds a full extra model call (another
         # 45-95s+ on this CPU box) before generation even starts.
-        expanded_prompt = council.expand_media_prompt(prompt, "image")
+        expanded_prompt = expanded_prompt or council.expand_media_prompt(prompt, "image")
         if expanded_prompt != prompt:
             # Logged as a real (instruction, expansion) training pair
             # into the SAME NovaUsageLog table and weekly fetch every
@@ -596,15 +669,19 @@ class GenerateVideoResponse(BaseModel):
     quota_message: str
 
 
-def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt: str, seconds: int) -> None:
+def _process_video_and_deliver(
+    user_id: str, channel: str, chat_id: str, prompt: str, seconds: int, expanded_prompt: str | None = None
+) -> None:
     """Runs in a FastAPI BackgroundTask — see _process_image_and_deliver
     above for why this needs its own try/except (no HTTP response left
-    to surface an exception on once this starts)."""
+    to surface an exception on once this starts). expanded_prompt: see
+    _process_image_gen_and_deliver's own docstring for why this param
+    exists."""
     stop_typing, typing_thread = _start_typing_loop(chat_id, action="upload_video")
     try:
         # See _process_image_gen_and_deliver's own comment above for why
         # this expansion step exists and what it costs in real latency.
-        expanded_prompt = council.expand_media_prompt(prompt, "video")
+        expanded_prompt = expanded_prompt or council.expand_media_prompt(prompt, "video")
         if expanded_prompt != prompt:
             quota.log_usage(
                 user_id, channel, "GENERAL",
