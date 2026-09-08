@@ -510,6 +510,51 @@ def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
     return groq_answer
 
 
+_MEDIA_EXPANSION_INSTRUCTION = {
+    "image": (
+        "حوّل الطلب التالي إلى وصف احترافي مفصّل لتوليد صورة بالذكاء "
+        "الاصطناعي: أضف تفاصيل واقعية عن الإضاءة، زاوية التصوير، "
+        "التكوين البصري، الأسلوب الفني، والألوان — بما يخدم الطلب "
+        "الأصلي بدقة دون تغيير معناه أو إضافة عناصر غير مطلوبة. اكتب "
+        "الوصف النهائي فقط، جملة أو جملتين، بلا أي مقدمة أو شرح.\n\n"
+        "الطلب: "
+    ),
+    "video": (
+        "حوّل الطلب التالي إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء "
+        "الاصطناعي: أضف تفاصيل واقعية عن الحركة، زاوية الكاميرا، "
+        "الإضاءة، والأسلوب البصري — بما يخدم الطلب الأصلي بدقة دون "
+        "تغيير معناه أو إضافة عناصر غير مطلوبة. اكتب الوصف النهائي "
+        "فقط، جملة أو جملتين، بلا أي مقدمة أو شرح.\n\n"
+        "الطلب: "
+    ),
+}
+
+
+def expand_media_prompt(user_request: str, media_kind: str) -> str:
+    """Owner spec, 2026-09-09 ("هل تستطيع الاستفادة... ليصبح انشاء
+    الوسائط عند الطلب مفهوم واكثر دقة واحترافية"): the image/video
+    generation MODELS themselves (Stable Diffusion, CogVideoX) are used
+    as downloaded, never fine-tuned by us — the cheap, real lever for
+    better media output is teaching OUR OWN text model (which already
+    gets fine-tuned weekly) to turn a short user request into a
+    detailed, professional generation prompt first, the same technique
+    production systems like DALL-E 3 use internally. OUR OWN model
+    tried first (same "our model is the default voice" rule as
+    answer() above), Groq only as the same emergency fallback. Always
+    falls back to the raw user_request on any failure or a
+    suspiciously short/empty result — a plain but real generation beats
+    none at all if this enhancement step itself breaks."""
+    instruction = _MEDIA_EXPANSION_INSTRUCTION.get(media_kind, _MEDIA_EXPANSION_INSTRUCTION["image"]) + user_request
+    expanded = call_modelscope_specialist(instruction, "", query_type="GENERAL")
+    if not expanded or len(expanded.strip()) < 10:
+        try:
+            expanded = call_groq(instruction, "")
+        except Exception:
+            expanded = None
+    expanded = (expanded or "").strip()
+    return expanded if len(expanded) >= 10 else user_request
+
+
 def generate_image(prompt: str) -> bytes | None:
     """OUR OWN image-GENERATION model — real evidence, 2026-09-09
     (Render's own logs): Hugging Face's free "hf-inference" provider

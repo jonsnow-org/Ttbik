@@ -510,7 +510,29 @@ def _process_image_gen_and_deliver(user_id: str, channel: str, chat_id: str, pro
     slow — same fix, same async-delivery shape as /image and
     /generate-video above, for the same underlying reason."""
     try:
-        image_bytes = council.generate_image(prompt)
+        # Owner spec, 2026-09-09 ("ليصبح انشاء الوسائط... مفهوم واكثر
+        # دقة واحترافية"): the Stable Diffusion weights themselves are
+        # never fine-tuned by us — the real, cheap lever is having OUR
+        # OWN text model (already fine-tuned weekly) turn a short
+        # request into a detailed professional prompt first. Real cost
+        # stated plainly: this adds a full extra model call (another
+        # 45-95s+ on this CPU box) before generation even starts.
+        expanded_prompt = council.expand_media_prompt(prompt, "image")
+        if expanded_prompt != prompt:
+            # Logged as a real (instruction, expansion) training pair
+            # into the SAME NovaUsageLog table and weekly fetch every
+            # other real conversation already feeds into training
+            # (merge_and_finetune.ipynb's cell 4 has no query_type
+            # filter) — no new Kaggle-side code needed for this skill
+            # to keep improving. Skipped when expansion fell back to
+            # the raw prompt (both our model and Groq failed) — that
+            # would just teach the model to echo input unchanged.
+            quota.log_usage(
+                user_id, channel, "GENERAL",
+                f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد صورة بالذكاء الاصطناعي: {prompt}",
+                expanded_prompt,
+            )
+        image_bytes = council.generate_image(expanded_prompt)
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -580,7 +602,16 @@ def _process_video_and_deliver(user_id: str, channel: str, chat_id: str, prompt:
     to surface an exception on once this starts)."""
     stop_typing, typing_thread = _start_typing_loop(chat_id, action="upload_video")
     try:
-        video_bytes = council.generate_video(prompt)
+        # See _process_image_gen_and_deliver's own comment above for why
+        # this expansion step exists and what it costs in real latency.
+        expanded_prompt = council.expand_media_prompt(prompt, "video")
+        if expanded_prompt != prompt:
+            quota.log_usage(
+                user_id, channel, "GENERAL",
+                f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
+                expanded_prompt,
+            )
+        video_bytes = council.generate_video(expanded_prompt)
         if video_bytes is None:
             # Owner spec, 2026-09-09: video generation now genuinely
             # attempts real CPU-only inference on ModelScope (see
