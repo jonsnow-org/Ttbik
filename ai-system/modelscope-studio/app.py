@@ -107,6 +107,7 @@ except ImportError:
     ])
 
 import gradio as gr
+from huggingface_hub import snapshot_download as hf_snapshot_download
 from modelscope import snapshot_download
 
 # Our own trained model repo on ModelScope — produced by
@@ -123,6 +124,37 @@ main_candidates = [f for f in all_gguf if MAIN_GGUF_HINT in f.lower() and MMPROJ
 mmproj_candidates = [f for f in all_gguf if MMPROJ_HINT in f.lower()]
 MODEL_PATH = main_candidates[0] if main_candidates else [f for f in all_gguf if MMPROJ_HINT not in f.lower()][0]
 MMPROJ_PATH = mmproj_candidates[0] if mmproj_candidates else None
+
+# Owner report, 2026-09-09 (real evidence, Studio's own run log):
+# "RuntimeError: Cannot send a request, as the client has been closed"
+# deep inside huggingface_hub's hf_hub_download, triggered from
+# _get_image_pipe() on the first real /صورة request. Root cause found,
+# not guessed: huggingface_hub's internal HTTP client is created once
+# and reused for the process's lifetime — that's fine for the MAIN
+# model above, which downloads eagerly at import time in the main
+# thread before Gradio ever starts, but _get_image_pipe/_get_video_pipe
+# were deliberately LAZY (only run on the first real request, inside a
+# Gradio worker thread) to avoid spending memory on models nobody may
+# ever ask for. That lazy-in-a-worker-thread timing is exactly what
+# breaks huggingface_hub's shared client here. Fix: split "download the
+# files" (cheap, disk-only, no reason to defer) from "load them into a
+# pipeline in RAM" (genuinely memory-heavy, worth keeping lazy) —
+# download both eagerly here, in the same safe main-thread/startup
+# context the main model already uses successfully, and have the lazy
+# loaders below read from local disk only (local_files_only=True),
+# never touching the network from a worker thread at all.
+_IMAGE_MODEL_ID = "Novasy/nova-image-gen"
+_VIDEO_MODEL_ID = "Novasy/nova-video-gen"
+try:
+    _image_model_dir = hf_snapshot_download(_IMAGE_MODEL_ID)
+except Exception:
+    traceback.print_exc()
+    _image_model_dir = None
+try:
+    _video_model_dir = hf_snapshot_download(_VIDEO_MODEL_ID)
+except Exception:
+    traceback.print_exc()
+    _video_model_dir = None
 
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Qwen25VLChatHandler
@@ -595,7 +627,6 @@ def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") 
 # live request — ModelScope hosts everything real (text, vision, and
 # now images) in one place, one deployment pipeline, one thing to
 # reason about.
-_IMAGE_MODEL_ID = "Novasy/nova-image-gen"
 _image_pipe = None
 
 
@@ -605,13 +636,18 @@ def _get_image_pipe():
     loading Stable Diffusion's own weights on every cold start whether
     or not anyone ever asks for an image would risk pushing combined
     memory past this free box's real limit for no benefit on the
-    common case (an ordinary text/vision question)."""
+    common case (an ordinary text/vision question). local_files_only:
+    the actual download already happened eagerly at module import time
+    above (see the real "client has been closed" evidence there for
+    why) — this must never touch the network itself."""
     global _image_pipe
     if _image_pipe is None:
+        if _image_model_dir is None:
+            raise RuntimeError("فشل تنزيل نموذج الصور عند بدء تشغيل الاستوديو — راجع سجل التشغيل.")
         import torch
         from diffusers import AutoPipelineForText2Image
 
-        _image_pipe = AutoPipelineForText2Image.from_pretrained(_IMAGE_MODEL_ID, torch_dtype=torch.float32)
+        _image_pipe = AutoPipelineForText2Image.from_pretrained(_image_model_dir, torch_dtype=torch.float32, local_files_only=True)
     return _image_pipe
 
 
@@ -646,15 +682,16 @@ def generate_image(prompt: str) -> str:
 # vision too. Owner chose to proceed anyway — implemented honestly,
 # not held back further; the real timing and stability, good or bad,
 # will only be known once this is actually tried live.
-_VIDEO_MODEL_ID = "Novasy/nova-video-gen"
 _video_pipe = None
 
 
 def _get_video_pipe():
     """Loaded lazily, only on the first real video request — same
     reasoning as _get_image_pipe above, doubly important here since
-    this model is far heavier. enable_model_cpu_offload() (used in the
-    Kaggle training notebook) is deliberately NOT called here — it
+    this model is far heavier. local_files_only: same real "client has
+    been closed" fix as the image pipe — the download already happened
+    eagerly at module import time. enable_model_cpu_offload() (used in
+    the Kaggle training notebook) is deliberately NOT called here — it
     shuttles weights between a GPU and CPU, which requires a GPU to
     shuttle to/from in the first place; this box has none, so the
     model simply stays resident in CPU RAM as-is. VAE slicing/tiling
@@ -662,10 +699,12 @@ def _get_video_pipe():
     which device is doing the compute."""
     global _video_pipe
     if _video_pipe is None:
+        if _video_model_dir is None:
+            raise RuntimeError("فشل تنزيل نموذج الفيديو عند بدء تشغيل الاستوديو — راجع سجل التشغيل.")
         import torch
         from diffusers import CogVideoXPipeline
 
-        _video_pipe = CogVideoXPipeline.from_pretrained(_VIDEO_MODEL_ID, torch_dtype=torch.float32)
+        _video_pipe = CogVideoXPipeline.from_pretrained(_video_model_dir, torch_dtype=torch.float32, local_files_only=True)
         _video_pipe.vae.enable_slicing()
         _video_pipe.vae.enable_tiling()
     return _video_pipe
