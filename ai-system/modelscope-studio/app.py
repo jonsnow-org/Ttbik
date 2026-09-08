@@ -77,6 +77,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import traceback
 
 import requests
@@ -145,16 +146,41 @@ MMPROJ_PATH = mmproj_candidates[0] if mmproj_candidates else None
 # never touching the network from a worker thread at all.
 _IMAGE_MODEL_ID = "Novasy/nova-image-gen"
 _VIDEO_MODEL_ID = "Novasy/nova-video-gen"
-try:
-    _image_model_dir = hf_snapshot_download(_IMAGE_MODEL_ID)
-except Exception:
-    traceback.print_exc()
-    _image_model_dir = None
-try:
-    _video_model_dir = hf_snapshot_download(_VIDEO_MODEL_ID)
-except Exception:
-    traceback.print_exc()
-    _video_model_dir = None
+
+
+def _download_with_retries(model_id: str, attempts: int = 3, backoff_seconds: float = 15.0) -> str | None:
+    """Owner report, 2026-09-08 (real evidence — the Studio's own run
+    log, retrieved directly): a real "RuntimeError: فشل تنزيل نموذج
+    الصور..." traced back to _image_model_dir being None, meaning the
+    single eager download attempt below had failed once at container
+    startup — and with no retry, that ONE failure permanently broke
+    image generation for this entire container's lifetime, until the
+    next manual redeploy. The log retention window had already rotated
+    past the original download error by the time this was noticed, so
+    the exact transient cause (network blip, a slow/rate-limited HF
+    response during a cold boot, etc.) couldn't be recovered — but a
+    single-attempt eager download was always going to be fragile
+    against exactly that kind of one-off hiccup regardless of what
+    caused it this time. Retries with backoff, still entirely in the
+    main thread before Gradio starts — the same safe startup context
+    the single-attempt version already used, so this does NOT
+    reintroduce the separate, already-fixed "client has been closed"
+    bug (that one was specifically about a LAZY download from a Gradio
+    worker thread; this stays eager)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return hf_snapshot_download(model_id)
+        except Exception:
+            print(f"[startup] download attempt {attempt}/{attempts} for {model_id} failed:")
+            traceback.print_exc()
+            if attempt < attempts:
+                time.sleep(backoff_seconds * attempt)
+    print(f"[startup] giving up on {model_id} after {attempts} attempts — generation using this model stays unavailable until the next redeploy.")
+    return None
+
+
+_image_model_dir = _download_with_retries(_IMAGE_MODEL_ID)
+_video_model_dir = _download_with_retries(_VIDEO_MODEL_ID)
 
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Qwen25VLChatHandler
