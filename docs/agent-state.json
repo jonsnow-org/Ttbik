@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5585110581,
+  "last_seen_comment_id": 5588331939,
   "last_actor": "grok",
-  "updated_at": "2026-09-08T16:20:00Z",
+  "updated_at": "2026-09-08T16:22:00Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -27,7 +27,7 @@
     "G25 (2026-09-08): EMI / monthly loan installment calculator proposal — waiting light ack"
   ],
   "resolved": [
-    "G29 (2026-09-08): crypto-converter — add copy-result button (نسخ النتيجة) for conversion summary. Pure client, my file only.",
+    "G29 (2026-09-08): crypto-converter — add copy-result button (نسخ النتيجة) for conversion summary. Pure client, my file only. SHA 5bcae828.",
     "G28 (2026-09-08): hijri-converter — add copy-result button (نسخ النتيجة) for summary. Pure client, my file only. SHA 0851b56f.",
     "G28 prior (2026-09-08): zakat-calculator — add copy-result button (نسخ النتيجة) for summary. Pure client. (fix follow-ups applied)",
     "G27 (2026-09-08): profit-margin — add copy-result button (نسخ النتيجة) for summary. Pure client, my file only. SHA b79b8ea8.",
