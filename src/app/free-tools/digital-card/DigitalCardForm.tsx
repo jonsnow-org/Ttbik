@@ -20,6 +20,7 @@ export default function DigitalCardForm() {
     slug: string;
   } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   function addLink() {
     if (links.length >= 12) return;
@@ -82,6 +83,14 @@ export default function DigitalCardForm() {
     });
   }
 
+  function copyToken() {
+    if (!result) return;
+    navigator.clipboard.writeText(result.editToken).then(() => {
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    });
+  }
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6">
       {!result ? (
@@ -128,7 +137,7 @@ export default function DigitalCardForm() {
 
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">
-              معرّف الرابط ( المخصص (اختياري)
+              معرّف الرابط المخصص (اختياري)
             </label>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400" dir="ltr">
@@ -264,6 +273,13 @@ export default function DigitalCardForm() {
             <p className="mt-1 break-all font-mono text-xs text-amber-900" dir="ltr">
               {result.editToken}
             </p>
+            <button
+              type="button"
+              onClick={copyToken}
+              className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+            >
+              {tokenCopied ? "✅ تم النسخ" : "نسخ رمز التعديل"}
+            </button>
             <p className="mt-1 text-[11px] text-amber-700">
               ستحتاجه لاحقاً لتعديل الروابط أو العنوان. لا تشاركه.
             </p>
@@ -278,6 +294,7 @@ export default function DigitalCardForm() {
               setAvatarUrl("");
               setSlug("");
               setLinks([{ label: "", url: "" }]);
+              setTokenCopied(false);
             }}
             className="mt-4 text-sm font-semibold text-brand-700 hover:underline"
           >
@@ -287,8 +304,7 @@ export default function DigitalCardForm() {
       )}
 
       <div className="mt-6 rounded-xl border border-dashed border-brand-200 bg-brand-50/50 p-4 text-sm text-slate-600">
-        بطاقة أعمال رقمية حقيقية على نطاق الموقع — صفحة عامة + عداد مشاهدات. ليست مجرد كود
-        معروض. راجع{" "}
+        بطاقة أعمال رقمية حقيقية على نطاق الموقع — صفحة عامة + عداد مشاهدات. راجع{" "}
         <Link href="/free-tools" className="font-bold text-brand-700 underline">
           باقي الأدوات المجانية
         </Link>
