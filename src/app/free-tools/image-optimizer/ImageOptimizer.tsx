@@ -32,7 +32,7 @@ const T = {
   ar: {
     format: "الصيغة الناتجة",
     quality: (pct: number) => `الجودة (${pct}%)`,
-    maxWidth: "أقصى عرض بالبكسل (اختياري — لتصغير الأبعاد أيضاً)",
+    maxWidth: "أقصى عرض بالبكسل (اختياري — لتصغير الأبعاد أيضا)",
     maxWidthPlaceholder: "مثال: 1200",
     processing: "جاري المعالجة...",
     convert: "تحويل وضغط الآن",
@@ -40,7 +40,9 @@ const T = {
     saved: (pct: number) => ` (توفير ${pct}%)`,
     resultAlt: "النتيجة",
     downloadBtn: "تنزيل الصورة الناتجة",
-    footer: "كل المعالجة تتم داخل متصفحك مباشرة — صورك لا تُرفع لأي خادم ولا نراها إطلاقاً.",
+    copySummary: "نسخ الملخص",
+    copied: "تم النسخ ✓",
+    footer: "كل المعالجة تتم داخل متصفحك مباشرة — صورك لا تُرفع لأي خادم ولا نراها إطلاقا.",
   },
   en: {
     format: "Output format",
@@ -53,6 +55,8 @@ const T = {
     saved: (pct: number) => ` (saved ${pct}%)`,
     resultAlt: "Result",
     downloadBtn: "Download result",
+    copySummary: "Copy summary",
+    copied: "Copied ✓",
     footer: "All processing happens right in your browser — your image is never uploaded to any server.",
   },
 } as const;
@@ -66,6 +70,7 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
   const [maxWidth, setMaxWidth] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<{ url: string; size: number; ext: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -115,24 +120,53 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
 
   const savedPct = result && file ? Math.max(0, Math.round((1 - result.size / file.size) * 100)) : 0;
 
+  function copySummary() {
+    if (!result || !file) return;
+    const orig = formatBytes(file.size, lang);
+    const neu = formatBytes(result.size, lang);
+    const lines =
+      lang === "ar"
+        ? [
+            `ضغط الصورة — سوق تولز`,
+            `الاسم: ${file.name}`,
+            `الحجم الأصلي: ${orig}`,
+            `الحجم الجديد: ${neu}`,
+            savedPct > 0 ? `التوفير: ${savedPct}%` : null,
+            `الصيغة: ${result.ext.toUpperCase()}`,
+          ]
+        : [
+            `Image compress — SouqTools`,
+            `Name: ${file.name}`,
+            `Original size: ${orig}`,
+            `New size: ${neu}`,
+            savedPct > 0 ? `Saved: ${savedPct}%` : null,
+            `Format: ${result.ext.toUpperCase()}`,
+          ];
+    const textOut = lines.filter(Boolean).join("\n");
+    navigator.clipboard.writeText(textOut).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6" dir={lang === "en" ? "ltr" : "rtl"}>
       <div className="rounded-xl border-2 border-dashed border-slate-300 p-6 text-center">
         <input
           type="file"
-          accept="image/png, image/jpeg, image/jpg, image/webp"
+          accept="image/*"
           onChange={handleUpload}
-          className="text-sm"
+          className="block w-full text-sm text-slate-500 file:mr-4 file:rounded-xl file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-brand-700 hover:file:bg-brand-100"
         />
         {file && (
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-slate-600">
             {file.name} — {formatBytes(file.size, lang)}
           </p>
         )}
       </div>
 
       {file && (
-        <div className="mt-4 grid gap-4">
+        <div className="mt-4 space-y-4">
           <div>
             <label className="mb-1 block text-sm font-semibold text-slate-700">{t.format}</label>
             <select
@@ -198,13 +232,22 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
             {savedPct > 0 && <span className="text-emerald-600">{t.saved(savedPct)}</span>}
           </p>
           <img src={result.url} alt={t.resultAlt} className="mx-auto max-h-64 max-w-full rounded-lg" />
-          <a
-            href={result.url}
-            download={`${file?.name.split(".")[0] || "image"}-optimized.${result.ext}`}
-            className="mt-4 inline-block rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
-          >
-            {t.downloadBtn}
-          </a>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <a
+              href={result.url}
+              download={`${file?.name.split(".")[0] || "image"}-optimized.${result.ext}`}
+              className="inline-block rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
+            >
+              {t.downloadBtn}
+            </a>
+            <button
+              type="button"
+              onClick={copySummary}
+              className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {copied ? t.copied : t.copySummary}
+            </button>
+          </div>
         </div>
       )}
 
