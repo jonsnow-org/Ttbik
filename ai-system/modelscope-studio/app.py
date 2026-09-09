@@ -767,22 +767,25 @@ def _get_image_pipe():
         # safetensors<0.8.0, diffusers 0.40.0 requires the opposite
         # (>=1.23.0 / >=0.8.0) — no version of either satisfies both,
         # confirmed by actually breaking the diffusers import, not
-        # guessed. torch.compile() instead: built into torch itself
-        # (verified working here, CPU-only, zero new dependencies, zero
-        # version-conflict risk). Real tradeoff stated plainly: the FIRST
-        # call after this compiles the graph (real overhead, could be
-        # tens of seconds), every call after that on this same container
-        # lifetime is faster — a one-time cost paid once per redeploy,
-        # not per request. try/except: this container's exact build
-        # toolchain is unverified (Triton/C-compiler availability can
-        # vary), so a compile failure here must never take down image
-        # generation entirely — fall back to the uncompiled (still
-        # bf16 + DPM-Solver++) pipe, which already works.
-        try:
-            _image_pipe.unet = torch.compile(_image_pipe.unet, mode="reduce-overhead")
-        except Exception:
-            print("[startup] torch.compile on the image UNet failed — continuing with the uncompiled pipe.")
-            traceback.print_exc()
+        # guessed.
+        #
+        # Owner report, 2026-09-09 (real evidence — every single image
+        # request failed outright afterward, even one typed directly in
+        # English, ruling out a content/language cause): a torch.compile()
+        # attempt was added here with mode="reduce-overhead" — that mode
+        # specifically relies on CUDA Graphs, a GPU-only mechanism, and on
+        # this CPU-only box it either isn't supported or breaks on the
+        # UNet's real forward pass. The try/except that wrapped the compile
+        # call could never have caught this either way: torch.compile() is
+        # lazy — it doesn't actually trace/compile anything until the FIRST
+        # real inference call, which happens later inside
+        # _generate_one_image, entirely outside that try/except. Removed
+        # rather than re-guessed at a "safer" mode: the earlier claim of
+        # "verified working" was only ever a toy-model smoke test, never
+        # confirmed against this real pipeline in production — reliability
+        # matters more than an unconfirmed speed gain here. bf16 +
+        # DPM-Solver++ above (both independently verified) stay as the
+        # real, working speed levers.
     return _image_pipe
 
 
