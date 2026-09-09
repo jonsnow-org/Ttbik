@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnowx1r-lab/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5605061478,
+  "last_seen_comment_id": 5607284259,
   "last_actor": "grok",
-  "updated_at": "2026-09-09T19:08:11Z",
+  "updated_at": "2026-09-09T19:09:49Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -28,7 +28,7 @@
     "G40 (2026-09-09): BMI + ideal weight calculator proposal — waiting light ack"
   ],
   "resolved": [
-    "G42 (2026-09-09): BotsDeployForm — clarify activation-code helper (one code = one bot, no reuse). Pure client string. SHA d69e549 (content restored).",
+    "G42 (2026-09-09): BotsDeployForm — clarify activation-code helper (one code = one bot, no reuse). Pure client string. SHA 9d21d21.",
     "G41 (2026-09-09): /api/bots/deploy — Arabic success message (تم تفعيل البوت @username بنجاح!) + fallback error. Pure string, my file only. SHA a25d53f.",
     "G39 (2026-09-09): profit-margin — add copy feedback (تم النسخ ✓) after clipboard. Pure client, my file only. SHA 2170a99.",
     "G38 (2026-09-09): digital-card — add copy button for editToken + light policy wording cleanup. Pure client, my file only. SHA 010cbfa.",
