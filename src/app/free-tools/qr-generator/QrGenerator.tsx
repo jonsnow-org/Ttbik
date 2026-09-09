@@ -15,6 +15,7 @@ const T = {
     errorTooLong: "تعذر إنشاء رمز QR — النص طويل جداً",
     download: "تنزيل PNG",
     copy: "نسخ الصورة",
+    copied: "✅ تم النسخ",
     footer: "يعمل بالكامل داخل المتصفح — بلا رفع بيانات لأي خادم.",
   },
   en: {
@@ -26,6 +27,7 @@ const T = {
     errorTooLong: "Couldn't generate the QR code — text is too long",
     download: "Download PNG",
     copy: "Copy image",
+    copied: "✅ Copied",
     footer: "Runs entirely in your browser — no data is ever uploaded.",
   },
 } as const;
@@ -39,6 +41,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const [error, setError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const draw = useCallback(() => {
     setError(null);
@@ -109,6 +112,8 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
       await navigator.clipboard.write([
         new ClipboardItem({ "image/png": blob }),
       ]);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       // fallback: ignore
     }
@@ -148,32 +153,30 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
 
       <div className="mt-4 flex flex-wrap gap-4">
         <label className="flex items-center gap-2 text-sm text-slate-600">
-          {t.fgColor}
+          <span>{t.fgColor}</span>
           <input
             type="color"
             value={fg}
             onChange={(e) => setFg(e.target.value)}
-            className="h-8 w-10 cursor-pointer rounded border border-slate-200"
+            className="h-8 w-10 cursor-pointer rounded border border-slate-300"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-600">
-          {t.bgColor}
+          <span>{t.bgColor}</span>
           <input
             type="color"
             value={bg}
             onChange={(e) => setBg(e.target.value)}
-            className="h-8 w-10 cursor-pointer rounded border border-slate-200"
+            className="h-8 w-10 cursor-pointer rounded border border-slate-300"
           />
         </label>
       </div>
 
       {error && (
-        <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
+        <p className="mt-3 text-sm text-red-600">{error}</p>
       )}
 
-      <div className="mt-6 flex flex-col items-center gap-4">
+      <div className="mt-6 flex flex-col items-center gap-3">
         <canvas
           ref={canvasRef}
           width={size}
@@ -196,7 +199,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
             disabled={!dataUrl}
             className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            {t.copy}
+            {copied ? t.copied : t.copy}
           </button>
         </div>
       </div>
