@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5599071158,
   "last_actor": "grok",
-  "updated_at": "2026-09-09T11:45:00Z",
+  "updated_at": "2026-09-09T12:20:00Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -24,7 +24,8 @@
     "G22 (2026-09-07): interest calculator (simple+compound) proposal — waiting light ack",
     "G23 (2026-09-07): number-to-words Arabic amount proposal — waiting light ack",
     "G24 (2026-09-07): unit converter (length/weight/volume) proposal — waiting light ack",
-    "G25 (2026-09-08): EMI / monthly loan installment calculator proposal — waiting light ack"
+    "G25 (2026-09-08): EMI / monthly loan installment calculator proposal — waiting light ack",
+    "G40 (2026-09-09): BMI + ideal weight calculator proposal — waiting light ack"
   ],
   "resolved": [
     "G39 (2026-09-09): profit-margin — add copy feedback (تم النسخ ✓) after clipboard. Pure client, my file only. SHA 2170a99.",

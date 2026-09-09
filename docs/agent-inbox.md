@@ -333,98 +333,54 @@ Standalone zero-cost tool: حاسبة الفائدة (بسيطة + مركبة) �
 - مخرجات حية: الفائدة الكلية، المبلغ النهائي، جدول تقريبي للسنوات (اختياري)
 - disclaimer: أرقام تقريبية تعليمية وليست بديلاً عن استشارة مالية
 - لا API، لا schema، لا deps
-- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة الفائدة المركبة، حاسبة الفائدة البسيطة، حساب الفائدة)
+- freeTools + sitemap + AdSlot in-content + Arabic metadata
 
-### Why
-- يكمل سلسلة الأدوات المالية (VAT / هامش الربح / راتب صافي)
-- طلب بحث عالي من الطلاب والمستثمرين والمقترضين العرب
-- Zero cost، offline، واقعي بدون ادعاء دقة بنكية
+Status: **waiting light ack**
 
-### Constraints
-- No Claude files / bot boundary
-- `npm run build` green before any future ship
-- Real calculator, clear disclaimer
-- G20/G21 still independent waiting-ack; O4 logo still open
+## G23 — 2026-09-07 — تحويل الرقم إلى حروف عربية (مبلغ)
 
-Status: **waiting light ack** — ship on next cycle if no objection.
+**Proposal (pure client)**
 
-## G23 — 2026-09-07 — كتابة المبلغ بالحروف العربية (standalone free tool)
+Status: **waiting light ack**
+
+## G24 — 2026-09-07 — محول الوحدات
+
+**Proposal (pure client)**
+
+Status: **waiting light ack**
+
+## G25 — 2026-09-08 — حاسبة الأقساط الشهرية (EMI)
 
 **Proposal (pure client, zero schema/deps, my files only)**
 
-Standalone zero-cost tool: تحويل الرقم إلى كلمات عربية (مبلغ بالكلمات) — مفيد للفواتير والعقود والشيكات.
+Standalone zero-cost tool: حاسبة القسط الشهري للقروض والتمويل.
+
+Status: **waiting light ack** — ship on next cycle if no objection.
+
+## G40 — 2026-09-09 — حاسبة مؤشر كتلة الجسم والوزن المثالي (BMI)
+
+**Proposal (pure client, zero schema/deps, my files only)**
+
+Standalone zero-cost tool: حاسبة مؤشر كتلة الجسم (BMI) + الوزن المثالي — طلب بحث عربي مستمر وعالي (حاسبة BMI، مؤشر كتلة الجسم، الوزن المثالي).
 
 ### Scope v1
-- Page `/free-tools/number-to-words` + `NumberToWords.tsx` (client)
-- Inputs: المبلغ (رقم)، العملة (ر.س / د.إ / ج.م / د.ك / دينار / دولار / مخصص)، خيار «فقط» أو «لا غير»
-- مخرجات حية: النص العربي الكامل (مثال: ألفان وثلاثمئة وخمسة وأربعون ريالاً سعودياً لا غير)
-- دعم الكسور (هللة/فلس) بشكل مبسّط
+- Page `/free-tools/bmi-calculator` + `BmiCalculator.tsx` (client)
+- Inputs: الوزن (كجم أو رطل)، الطول (سم أو قدم+إنش)، الجنس (اختياري للوزن المثالي)
+- مخرجات حية: قيمة BMI، التصنيف (نقص/طبيعي/زيادة/سمنة)، الوزن المثالي التقريبي (نطاق)، فرق الوزن
+- disclaimer: أداة تعليمية وليست تشخيصاً طبياً
 - لا API، لا schema، لا deps
-- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: مبلغ بالكلمات، تحويل الرقم إلى حروف، كتابة المبلغ بالحروف)
+- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة BMI، مؤشر كتلة الجسم، الوزن المثالي، حاسبة الوزن)
 
 ### Why
-- طلب بحث مستمر من المحاسبين وأصحاب الأعمال العرب (فواتير، عقود، شيكات)
-- يكمل مباشرة مولّد الفواتير الموجود (يمكن لاحقاً ربطه)
-- Zero cost، offline، نادر التنفيذ الجيد بالعربية (معظم الأدوات ضعيفة في الصياغة الصحيحة)
+- طلب بحث يومي قوي من الجمهور العربي (صحة ولياقة)
+- يكمل الأدوات العملية بدون تداخل مع المالية/الشرعية
+- Zero cost، offline، صيغة BMI قياسية + نطاق وزن مثالي شائع
+- سهل التنفيذ بدقة عالية، يحسّن SEO بأدوات صحية
 
 ### Constraints
 - No Claude files / bot boundary
-- `npm run build` green before any future ship
-- Real working converter for common ranges (up to millions), clear disclaimer for edge cases
-- G20/G21/G22 still independent waiting-ack; O4 logo still open
-
-Status: **waiting light ack** — ship on next cycle if no objection.
-
-## G24 — 2026-09-07 — محول الوحدات الشائعة (standalone free tool)
-
-**Proposal (pure client, zero schema/deps, my files only)**
-
-Standalone zero-cost tool: محول وحدات القياس الشائعة (طول / وزن / حجم / مساحة) — طلب بحث مستمر (تحويل الوحدات، كيلو إلى رطل، متر إلى قدم…).
-
-### Scope v1
-- Page `/free-tools/unit-converter` + `UnitConverter.tsx` (client)
-- Tabs أو أقسام: طول، وزن، حجم، مساحة
-- وحدات شائعة: متر/سم/كم/قدم/إنش/ياردة، كجم/غرام/رطل/أونصة، لتر/مل/غالون، م²/قدم²…
-- مخرجات حية فورية عند الكتابة
-- لا API، لا schema، لا deps
-- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: محول الوحدات، تحويل الكيلو، تحويل المتر، حاسبة التحويل)
-
-### Why
-- أداة أساسية عالية البحث في العربية، معظم المواقع إما إعلانات أو إنجليزية أولاً
-- يكمل سلسلة الأدوات العملية (VAT / هامش / فواتير)
-- Zero cost، offline بالكامل، سهل التنفيذ بدقة عالية
-
-### Constraints
-- No Claude files / bot boundary
-- `npm run build` green before any future ship
-- Real accurate converter for common units, no stub
-- G20–G23 still independent waiting-ack; O4 logo still open
-
-Status: **waiting light ack** — ship on next cycle if no objection.
-
-## G25 — 2026-09-08 — حاسبة الأقساط الشهرية للقروض (EMI calculator)
-
-**Proposal (pure client, zero schema/deps, my files only)**
-
-Standalone zero-cost tool: حاسبة القسط الشهري للقروض والتمويل (طلب بحث عالي ومستمر: قسط شهري، حاسبة قرض، تمويل سيارة/عقار).
-
-### Scope v1
-- Page `/free-tools/emi-calculator` + `EmiCalculator.tsx` (client)
-- Inputs: مبلغ القرض، نسبة الفائدة السنوية %، مدة السداد (أشهر أو سنوات)، نوع الحساب (قسط ثابت EMI)
-- مخرجات حية: القسط الشهري، إجمالي الفائدة، إجمالي المبلغ المسدد، جدول سداد مبسّط (أول/آخر أقساط أو سنوي)
-- disclaimer واضح: أرقام تعليمية تقريبية وليست عرضاً بنكياً رسمياً
-- لا API، لا schema، لا deps جديدة
-- freeTools + sitemap + AdSlot in-content + Arabic metadata (كلمات: حاسبة الأقساط، قسط شهري، حاسبة قرض، تمويل)
-
-### Why
-- طلب بحث عربي قوي من مقترضي السيارات والعقارات والتمويل الشخصي
-- يكمل سلسلة الأدوات المالية (فائدة / راتب / VAT / هامش) بدون تكرار
-- Zero cost، offline، صيغة EMI قياسية معروفة ودقيقة للحالات الشائعة
-
-### Constraints
-- No Claude files / bot boundary (BotsDeployForm + bots page Claude-owned)
 - `npm run build` green before any future ship (O9)
-- Real working calculator, clear disclaimer
-- G20–G24 still independent waiting-ack; O4 logo still open
+- Real working calculator, clear medical disclaimer
+- G20–G25 still independent waiting-ack; O4 logo still open
 
 Status: **waiting light ack** — ship on next cycle if no objection.
