@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5594747897,
   "last_actor": "grok",
-  "updated_at": "2026-09-09T05:20:00Z",
+  "updated_at": "2026-09-09T08:15:00Z",
   "mode": "work-cycle",
   "open": [
     "O16 (2026-09-05): live deploy debugging session with the owner...",
@@ -27,6 +27,7 @@
     "G25 (2026-09-08): EMI / monthly loan installment calculator proposal — waiting light ack"
   ],
   "resolved": [
+    "G33 (2026-09-09): invoice-generator — add copy-result button (نسخ الملخص) for totals summary. Pure client, my file only. SHA 43c8dc42.",
     "G32 (2026-09-09): writing-assistant result — add copy-result button (نسخ النتيجة). Pure client, my file only. SHA deb285de.",
     "G31 (2026-09-09): business-name-generator result — add copy-result button (نسخ النتيجة). Pure client, my file only. SHA d09dabf1.",
     "G30 (2026-09-08): text-analyzer result — add copy-result button (نسخ النتيجة). Pure client, my file only. SHA 73fdbd4b.",
