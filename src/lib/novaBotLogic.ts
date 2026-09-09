@@ -128,10 +128,13 @@ async function downloadTelegramFileAsBase64(bot: TelegramBot, fileId: string): P
 // non-AI tools instead: editing the user's OWN photos (crop/resize)
 // and the site's already-working free tools, both wired below.
 function novaMainMenu(): Keyboard {
+  // Owner spec, 2026-09-09 ("لاحظ زر سجل المحادثات لا يزال متاح
+  // للمستخدم يجب إزالته وجعله متاح فقط للأدمن"): a regular customer's
+  // own history was never really the point of this button — it's now
+  // admin-only (see novaAdminMenu below), so it's gone from here.
   return new Keyboard()
     .text("🎬 الاستوديو").row()
-    .text("🎛 لوحتي").text("📜 سجل المحادثات").row()
-    .text("💎 ترقية")
+    .text("🎛 لوحتي").text("💎 ترقية")
     .resized();
 }
 
@@ -151,6 +154,40 @@ async function fetchNovaMe(uid: string): Promise<{ user: any; plans: Record<stri
   } catch {
     return null;
   }
+}
+
+const USAGE_LOGS_PAGE_SIZE = 5;
+
+// Owner spec, 2026-09-09: "📜 سجل المحادثات" is now admin-only and must
+// show the ENTIRE log across every user, paginated with a numbered
+// "التالي" button — not one person's own last 5 like the old
+// /whoami+recentLogs path (see quota.py's list_usage_logs docstring).
+// Shared by both the initial text command and the "nova_log_page|"
+// callback below so the page-turning re-render can't drift from the
+// first render.
+async function renderUsageLogsPage(offset: number): Promise<{ text: string; keyboard: InlineKeyboard }> {
+  const { ok, data } = await callNovaBackend("/admin/usage-logs", { offset, limit: USAGE_LOGS_PAGE_SIZE });
+  if (!ok) {
+    return { text: `تعذر جلب السجل: ${data?.detail || "خطأ غير معروف"}`, keyboard: new InlineKeyboard() };
+  }
+  const logs = (data.logs || []) as any[];
+  const total = Number(data.total || 0);
+  if (logs.length === 0) {
+    return { text: "لا توجد محادثات مسجّلة في هذا النطاق.", keyboard: new InlineKeyboard() };
+  }
+  const totalPages = Math.max(1, Math.ceil(total / USAGE_LOGS_PAGE_SIZE));
+  const currentPage = Math.floor(offset / USAGE_LOGS_PAGE_SIZE) + 1;
+  const lines = logs
+    .map(
+      (l, i) =>
+        `${offset + i + 1}. [${l.userLabel}] ${new Date(l.created_at).toLocaleString("ar")}\nس: ${(l.message || "").slice(0, 150)}\nج: ${(l.answer || "").slice(0, 200)}`
+    )
+    .join("\n\n---\n\n");
+  const text = `📜 سجل المحادثات — صفحة ${currentPage} من ${totalPages} (الإجمالي: ${total})\n\n${lines}`;
+  const kb = new InlineKeyboard();
+  if (offset > 0) kb.text("⏮ السابق", `nova_log_page|${Math.max(0, offset - USAGE_LOGS_PAGE_SIZE)}`);
+  if (offset + USAGE_LOGS_PAGE_SIZE < total) kb.text("التالي ⏭", `nova_log_page|${offset + USAGE_LOGS_PAGE_SIZE}`);
+  return { text, keyboard: kb };
 }
 
 // follow-up stays a typed command like every other admin-only text
@@ -296,12 +333,21 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
-  const [action, subId] = String(cq.data || "").split("|");
+  const [action, param] = String(cq.data || "").split("|");
+
+  if (action === "nova_log_page") {
+    const { text, keyboard } = await renderUsageLogsPage(Number(param) || 0);
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await bot.api.editMessageText(chatId, messageId, text, { reply_markup: keyboard }).catch(() => null);
+    return;
+  }
+
   if (action !== "nova_sub_approve" && action !== "nova_sub_reject") {
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
 
+  const subId = param;
   const approving = action === "nova_sub_approve";
   const { ok, data } = await callNovaBackend(approving ? "/admin/approve-subscription" : "/admin/reject-subscription", approving ? { subscription_id: subId, approved_by: tgUserId } : { subscription_id: subId });
   if (!ok) {
@@ -667,6 +713,11 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       await sendNovaPendingSubscriptions(bot, chatId);
       return;
     }
+    if (adminText === "📜 سجل المحادثات") {
+      const { text, keyboard } = await renderUsageLogsPage(0);
+      await bot.api.sendMessage(chatId, text, { reply_markup: keyboard });
+      return;
+    }
     if (adminText === "📢 بث جماعي") {
       await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
       return;
@@ -807,25 +858,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       chatId,
       `🎛 لوحتك\n\nالخطة: ${planLabel}${expiry}\nرسائل متبقية اليوم: ${remainingText}${plan ? ` من ${plan.daily_text}` : ""}\nصور/فيديو متبقية اليوم: ${remainingImage}${plan ? ` من ${plan.daily_image}` : ""}${weekly}\nعضو منذ: ${new Date(me.user.created_at).toLocaleDateString("ar")}`
     );
-    return;
-  }
-
-  if (text === "📜 سجل المحادثات") {
-    const { ok, data } = await callNovaBackend("/whoami", { channel: "TELEGRAM", telegram_id: tgUserId });
-    if (!ok || !data.nova_user_id) {
-      await bot.api.sendMessage(chatId, "تعذر جلب سجلك — حاول مرة أخرى بعد قليل.");
-      return;
-    }
-    const me = await fetchNovaMe(data.nova_user_id);
-    if (!me || me.recentLogs.length === 0) {
-      await bot.api.sendMessage(chatId, "لا توجد محادثات محفوظة بعد.");
-      return;
-    }
-    const lines = me.recentLogs
-      .slice(0, 5)
-      .map((l: any) => `س: ${(l.message || "").slice(0, 100)}\nج: ${(l.answer || "").slice(0, 150)}`)
-      .join("\n\n---\n\n");
-    await bot.api.sendMessage(chatId, `📜 آخر ٥ محادثات:\n\n${lines}`);
     return;
   }
 

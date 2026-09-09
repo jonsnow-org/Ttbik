@@ -971,3 +971,18 @@ def admin_reject_subscription(req: SubscriptionDecisionRequest, x_internal_secre
 def admin_telegram_user_ids(x_internal_secret: str | None = Header(default=None)):
     _require_internal(x_internal_secret)
     return {"ids": quota.list_telegram_user_ids()}
+
+
+class UsageLogsRequest(BaseModel):
+    offset: int = 0
+    limit: int = 5
+
+
+@app.post("/admin/usage-logs")
+def admin_usage_logs(req: UsageLogsRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-09: "📜 سجل المحادثات" moved to admin-only,
+    with pagination so the admin can page through the WHOLE log
+    (novaBotLogic.ts's "التالي" inline button), not just their own last
+    5 messages like the old /whoami-scoped path."""
+    _require_internal(x_internal_secret)
+    return quota.list_usage_logs(offset=req.offset, limit=req.limit)

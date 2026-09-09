@@ -402,6 +402,43 @@ def list_pending_subscriptions(limit: int = 20) -> list[dict]:
     return subs
 
 
+def list_usage_logs(offset: int = 0, limit: int = 5) -> dict:
+    """Owner spec, 2026-09-09 ("📜 سجل المحادثات" made admin-only, and
+    must show the ENTIRE log, paginated — not just one person's own
+    last 5, which is all the existing /whoami+recentLogs path ever
+    returned, even for the admin, since it's scoped to a single
+    novaUserId). Same PROMPT_EXPANSION exclusion as
+    src/app/api/nova/me/route.ts's recentLogs query, so internal
+    (instruction, expansion) training pairs never show up as if they
+    were real user turns here either."""
+    db = get_supabase()
+    total_res = (
+        db.table("NovaUsageLog")
+        .select("id", count="exact")
+        .not_.is_("message", "null")
+        .neq("queryType", "PROMPT_EXPANSION")
+        .execute()
+    )
+    total = total_res.count if total_res.count is not None else len(total_res.data)
+    rows = (
+        db.table("NovaUsageLog")
+        .select("novaUserId, channel, queryType, message, answer, created_at")
+        .not_.is_("message", "null")
+        .neq("queryType", "PROMPT_EXPANSION")
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+        .data
+    )
+    user_ids = list({r["novaUserId"] for r in rows})
+    users = db.table("NovaUser").select("id, telegramId, email").in_("id", user_ids).execute().data if user_ids else []
+    users_by_id = {u["id"]: u for u in users}
+    for r in rows:
+        u = users_by_id.get(r["novaUserId"], {})
+        r["userLabel"] = u.get("telegramId") or u.get("email") or r["novaUserId"][:8]
+    return {"logs": rows, "total": total, "offset": offset, "limit": limit}
+
+
 def _find_pending_subscription(sub_id: str) -> dict | None:
     res = get_supabase().table("NovaSubscription").select("*").eq("id", sub_id).eq("status", "PENDING_APPROVAL").limit(1).execute()
     return res.data[0] if res.data else None
