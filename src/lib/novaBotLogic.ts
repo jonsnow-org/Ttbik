@@ -391,14 +391,19 @@ async function handleNovaAdminCallback(bot: TelegramBot, cq: any) {
 // _process_chat_and_deliver and ai-system/app/council.py's
 // classify_intent for where that now lives.
 
-// Owner spec, 2026-09-09 ("قسم في لوحة المستخدم... وظائف مجاني ومدفوع
+// Owner spec, 2026-09-08 ("قسم في لوحة المستخدم... وظائف مجاني ومدفوع
 // ونربطها بادوات حقيقية تعمل على موقعنا... حالياً كله مجاني حتى يكتمل
-// البناء"): "🧰 أدوات الموقع" wires the bot to the SAME free-tools API
-// routes the website already serves (src/app/api/free-tools/*) — real,
-// already-working endpoints, not new AI logic. All free for now per
-// that spec; gating a mode behind a paid plan later is a one-line
-// change here (check the user's plan the same way _enforce_quota does
-// on the Python side) once the owner decides which ones become paid.
+// البناء"): wires the bot to the SAME free-tools API routes the
+// website already serves (src/app/api/free-tools/*) — real, already-
+// working endpoints, not new AI logic. All free for now per that spec;
+// gating a mode behind a paid plan later is a one-line change here
+// (check the user's plan the same way _enforce_quota does on the
+// Python side) once the owner decides which ones become paid.
+//
+// Owner spec, 2026-09-09 ("زر ادوات الموقع يجب اضافته محتواه كاداة
+// واحدة للزر ادوات وحاسبات"): these 2 entries no longer have their own
+// top-level "🧰 أدوات الموقع" menu — studioCalcMenu() below lists them
+// directly alongside STUDIO_CALC_TOOLS's 6 calculators, one flat list.
 const STUDIO_TOOLS: Record<string, { label: string; endpoint: string; modes: Record<string, string> }> = {
   writing: {
     label: "✍️ كاتب المحتوى",
@@ -583,35 +588,51 @@ const STUDIO_CALC_TOOLS: Record<
   },
 };
 
-function studioCalcMenu(): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  for (const [key, tool] of Object.entries(STUDIO_CALC_TOOLS)) {
-    kb.text(tool.label, `studio|calc|${key}`).row();
+// Owner spec, 2026-09-09 ("يجب ان تظهر الازرار في لوحة القائمة وليس في
+// المحادثة تذكر ان هذا شرط منذ بداية عملنا معا"): every Studio menu
+// below was an InlineKeyboard — attached to one message, scrolling away
+// into chat history like any other bubble. Converted the whole Studio
+// navigation to persistent reply Keyboards (the same docked-panel
+// pattern novaMainMenu/novaAdminMenu already use), matched by exact
+// button text like every other command in this file, instead of
+// callback_data. Each "🔙" back button gets its own distinct label
+// (rather than one generic "رجوع") specifically so a flat text match
+// can route it correctly with no server-side navigation state to keep —
+// this file's existing stateless-thin-client design, just extended one
+// level deeper.
+//
+// Owner spec, same message ("بالنسبة لزر ادوات الموقع يجب اضافته
+// محتواه كاداة واحدة للزر ادوات وحاسبات"): STUDIO_TOOLS (the 2 AI
+// tools, formerly their own "🧰 أدوات الموقع" section) are now folded
+// directly into this same combined list alongside the 6 calculators —
+// one flat menu instead of two separate top-level sections.
+function studioCalcMenu(): Keyboard {
+  const kb = new Keyboard();
+  const aiToolLabels = Object.values(STUDIO_TOOLS).map((t) => t.label);
+  const calcLabels = Object.values(STUDIO_CALC_TOOLS).map((t) => t.label);
+  const allLabels = [...aiToolLabels, ...calcLabels];
+  for (let i = 0; i < allLabels.length; i += 2) {
+    kb.text(allLabels[i]);
+    if (allLabels[i + 1]) kb.text(allLabels[i + 1]);
+    kb.row();
   }
-  return kb;
+  return kb.text("🔙 الاستوديو").resized();
 }
 
-function studioRootMenu(): InlineKeyboard {
-  return new InlineKeyboard()
-    .text("✋ المكتبة اليدوية (على صورك)", "studio|manual").row()
-    .text("🧰 أدوات الموقع", "studio|tools").row()
-    .text("🧮 أدوات وحاسبات", "studio|calc");
+function studioRootMenu(): Keyboard {
+  return new Keyboard()
+    .text("✋ المكتبة اليدوية (على صورك)").row()
+    .text("🧮 أدوات وحاسبات").row()
+    .text("🔙 القائمة الرئيسية")
+    .resized();
 }
 
-function studioToolsMenu(): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  for (const [key, tool] of Object.entries(STUDIO_TOOLS)) {
-    kb.text(tool.label, `studio|tools|${key}`).row();
+function studioModesMenu(toolKey: string): Keyboard {
+  const kb = new Keyboard();
+  for (const label of Object.values(STUDIO_TOOLS[toolKey].modes)) {
+    kb.text(label).row();
   }
-  return kb;
-}
-
-function studioModesMenu(toolKey: string): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  for (const [modeKey, label] of Object.entries(STUDIO_TOOLS[toolKey].modes)) {
-    kb.text(label, `studio|tools|${toolKey}|${modeKey}`).row();
-  }
-  return kb;
+  return kb.text("🔙 أدوات وحاسبات").resized();
 }
 
 // Same zero-server-state reasoning as the removed image/video
@@ -640,50 +661,91 @@ function parseStudioInputPrompt(promptText: string): { toolKey: string; modeKey:
   return null;
 }
 
-async function handleStudioCallback(bot: TelegramBot, cq: any) {
-  const chatId = cq.message?.chat?.id;
-  await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-  if (!chatId) return;
+function findStudioToolByLabel(label: string): string | null {
+  for (const [toolKey, tool] of Object.entries(STUDIO_TOOLS)) {
+    if (tool.label === label) return toolKey;
+  }
+  return null;
+}
 
-  const parts = String(cq.data || "").split("|"); // ["studio", ...]
+function findStudioModeByLabel(label: string): { toolKey: string; modeKey: string } | null {
+  for (const [toolKey, tool] of Object.entries(STUDIO_TOOLS)) {
+    for (const [modeKey, modeLabel] of Object.entries(tool.modes)) {
+      if (modeLabel === label) return { toolKey, modeKey };
+    }
+  }
+  return null;
+}
 
-  if (parts[1] === "manual") {
-    await bot.api.sendMessage(
-      chatId,
-      "✋ المكتبة اليدوية — أدوات حقيقية بالكود على صورتك أنت مباشرة، بلا أي ذكاء اصطناعي:\n\n" +
-        "أرسل صورة، واكتب في خانة الوصف (caption) قبل الإرسال إحدى الكلمتين:\n" +
-        "• قص — يقصّها إلى مربّع\n" +
-        "• تصغير — يصغّر حجمها\n\n" +
-        "مثال: أرفق الصورة واكتب \"قص\" في خانة الوصف."
-    );
+// Owner spec, 2026-09-09 ("هدفي كان وصله بمحرر صور... من القص والتركيب
+// الى اخره... وليست وظيفة" — the old caption-typing trick, "أرفق صورة
+// واكتب قص", was easy to mistype and gave no feedback on failure):
+// replaced with a real menu of 10 actual sharp operations (see
+// src/app/api/nova/studio/image-edit/route.ts — each independently
+// verified against a real image buffer before shipping), selected by
+// tapping a button instead of remembering/typing an exact caption word.
+// Multi-photo composition ("تركيب" — merging two images together) and
+// any video editing are genuinely separate, larger features not built
+// yet — stated plainly rather than implied by this menu, since every
+// operation here takes exactly one photo.
+const MANUAL_PHOTO_OPS: Record<string, string> = {
+  "◻️ قص مربع": "crop-square",
+  "📱 قص طولي": "crop-portrait",
+  "🖥 قص عريض": "crop-landscape",
+  "🔽 تصغير": "resize-small",
+  "🔼 تكبير": "resize-large",
+  "🔄 تدوير 90°": "rotate-90",
+  "↔️ عكس أفقي": "flip-h",
+  "↕️ عكس رأسي": "flip-v",
+  "⚫ أبيض وأسود": "grayscale",
+  "✨ زيادة الحدة": "sharpen",
+};
+
+function manualLibraryMenu(): Keyboard {
+  const kb = new Keyboard();
+  const labels = Object.keys(MANUAL_PHOTO_OPS);
+  for (let i = 0; i < labels.length; i += 2) {
+    kb.text(labels[i]);
+    if (labels[i + 1]) kb.text(labels[i + 1]);
+    kb.row();
+  }
+  return kb.text("🔙 الاستوديو").resized();
+}
+
+function manualPhotoPromptText(opLabel: string): string {
+  return `📸 أرسل الصورة الآن — [${opLabel}]`;
+}
+
+function parseManualPhotoPrompt(promptText: string): string | null {
+  const match = promptText.match(/^📸 أرسل الصورة الآن — \[(.+?)\]$/);
+  if (!match) return null;
+  return MANUAL_PHOTO_OPS[match[1]] || null;
+}
+
+async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: string, op: string) {
+  await bot.api.sendChatAction(chatId, "upload_photo").catch(() => null);
+  const imageBase64 = await downloadTelegramFileAsBase64(bot, fileId);
+  if (!imageBase64) {
+    await bot.api.sendMessage(chatId, "تعذّر تحميل الصورة — حاول مرة أخرى.", { reply_markup: manualLibraryMenu() });
     return;
   }
-
-  if (parts[1] === "tools" && parts.length === 2) {
-    await bot.api.sendMessage(chatId, "🧰 اختر أداة:", { reply_markup: studioToolsMenu() });
-    return;
-  }
-
-  if (parts[1] === "tools" && parts.length === 3 && STUDIO_TOOLS[parts[2]]) {
-    await bot.api.sendMessage(chatId, `${STUDIO_TOOLS[parts[2]].label} — اختر الوضع:`, {
-      reply_markup: studioModesMenu(parts[2]),
+  try {
+    const res = await fetch(`${SITE_URL}/api/nova/studio/image-edit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op, image_base64: imageBase64 }),
+      signal: AbortSignal.timeout(20000),
     });
-    return;
-  }
-
-  if (parts[1] === "tools" && parts.length === 4 && STUDIO_TOOLS[parts[2]]?.modes[parts[3]]) {
-    await bot.api.sendMessage(chatId, studioInputPromptText(parts[2], parts[3]));
-    return;
-  }
-
-  if (parts[1] === "calc" && parts.length === 2) {
-    await bot.api.sendMessage(chatId, "🧮 اختر أداة:", { reply_markup: studioCalcMenu() });
-    return;
-  }
-
-  if (parts[1] === "calc" && parts.length === 3 && STUDIO_CALC_TOOLS[parts[2]]) {
-    await bot.api.sendMessage(chatId, STUDIO_CALC_TOOLS[parts[2]].instructions);
-    return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.image_base64) {
+      await bot.api.sendMessage(chatId, data?.error || "تعذّر تعديل الصورة — حاول مرة أخرى.", { reply_markup: manualLibraryMenu() });
+      return;
+    }
+    await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(data.image_base64, "base64"), "edited.jpg"), {
+      reply_markup: manualLibraryMenu(),
+    });
+  } catch {
+    await bot.api.sendMessage(chatId, "تعذّر الاتصال بأداة تعديل الصور — حاول لاحقاً.", { reply_markup: manualLibraryMenu() });
   }
 }
 
@@ -692,8 +754,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     const cqData = String(update.callback_query.data || "");
     if (cqData.startsWith("nova_plan|")) {
       await handleNovaPlanCallback(bot, update.callback_query);
-    } else if (cqData.startsWith("studio|")) {
-      await handleStudioCallback(bot, update.callback_query);
     } else {
       await handleNovaAdminCallback(bot, update.callback_query);
     }
@@ -757,6 +817,15 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     // Telegram sends the same photo in multiple resolutions — the last
     // entry is always the largest/highest quality.
     const largest = msg.photo[msg.photo.length - 1];
+    // The user already picked an exact manual-library operation by
+    // tapping its button (see MANUAL_PHOTO_OPS above) — this photo is
+    // unambiguously that operation's input, checked before falling back
+    // to the generic AI-vision path.
+    const manualOp = msg.reply_to_message?.text ? parseManualPhotoPrompt(String(msg.reply_to_message.text)) : null;
+    if (manualOp) {
+      await handleManualPhotoOp(bot, chatId, largest.file_id, manualOp);
+      return;
+    }
     await handleImageMessage(bot, chatId, tgUserId, largest.file_id, msg.caption);
     return;
   }
@@ -832,6 +901,59 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
   if (text === "🎬 الاستوديو") {
     await bot.api.sendMessage(chatId, "🎬 الاستوديو — اختر قسماً:", { reply_markup: studioRootMenu() });
     return;
+  }
+
+  if (text === "🔙 القائمة الرئيسية") {
+    await bot.api.sendMessage(chatId, "القائمة الرئيسية:", { reply_markup: isAdmin ? novaAdminMenu() : novaMainMenu() });
+    return;
+  }
+
+  if (text === "🔙 الاستوديو") {
+    await bot.api.sendMessage(chatId, "🎬 الاستوديو — اختر قسماً:", { reply_markup: studioRootMenu() });
+    return;
+  }
+
+  if (text === "🔙 أدوات وحاسبات") {
+    await bot.api.sendMessage(chatId, "🧮 اختر أداة:", { reply_markup: studioCalcMenu() });
+    return;
+  }
+
+  if (text === "✋ المكتبة اليدوية (على صورك)") {
+    await bot.api.sendMessage(
+      chatId,
+      "✋ المكتبة اليدوية — أدوات حقيقية بالكود على صورتك أنت مباشرة، بلا أي ذكاء اصطناعي:\n\n" +
+        "اختر عملية من الأزرار أدناه، ثم أرسل الصورة رداً على الرسالة التي سيرسلها البوت.",
+      { reply_markup: manualLibraryMenu() }
+    );
+    return;
+  }
+
+  if (text in MANUAL_PHOTO_OPS) {
+    await bot.api.sendMessage(chatId, manualPhotoPromptText(text), { reply_markup: manualLibraryMenu() });
+    return;
+  }
+
+  if (text === "🧮 أدوات وحاسبات") {
+    await bot.api.sendMessage(chatId, "🧮 اختر أداة:", { reply_markup: studioCalcMenu() });
+    return;
+  }
+
+  {
+    const toolKey = findStudioToolByLabel(text);
+    if (toolKey) {
+      await bot.api.sendMessage(chatId, `${STUDIO_TOOLS[toolKey].label} — اختر الوضع:`, { reply_markup: studioModesMenu(toolKey) });
+      return;
+    }
+    const modeMatch = findStudioModeByLabel(text);
+    if (modeMatch) {
+      await bot.api.sendMessage(chatId, studioInputPromptText(modeMatch.toolKey, modeMatch.modeKey), { reply_markup: studioModesMenu(modeMatch.toolKey) });
+      return;
+    }
+    const calcToolEntry = Object.values(STUDIO_CALC_TOOLS).find((t) => t.label === text);
+    if (calcToolEntry) {
+      await bot.api.sendMessage(chatId, calcToolEntry.instructions, { reply_markup: studioCalcMenu() });
+      return;
+    }
   }
 
   if (text === "/لوحتي" || text === "🎛 لوحتي" || text === "/dashboard") {
@@ -1008,33 +1130,11 @@ async function handleImageMessage(bot: TelegramBot, chatId: number, tgUserId: st
     return;
   }
 
-  // Owner spec, 2026-09-09 ("المكتبة اليدوية"): a caption of "قص" or
-  // "تصغير" routes to REAL, non-AI, code-only image editing
-  // (src/app/api/nova/studio/image-edit — plain sharp crop/resize)
-  // instead of the AI vision pipeline below. Fast enough (well under a
-  // second) to answer inline, unlike vision's genuine multi-minute
-  // CPU-only inference — a completely different, deterministic path,
-  // not a shortcut through the AI.
-  const studioOp = caption?.trim() === "قص" ? "crop-square" : caption?.trim() === "تصغير" ? "resize-small" : null;
-  if (studioOp) {
-    try {
-      const res = await fetch(`${SITE_URL}/api/nova/studio/image-edit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ op: studioOp, image_base64: imageBase64 }),
-        signal: AbortSignal.timeout(20000),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.image_base64) {
-        await bot.api.sendMessage(chatId, data?.error || "تعذّر تعديل الصورة — حاول مرة أخرى.");
-        return;
-      }
-      await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(data.image_base64, "base64"), "edited.jpg"));
-    } catch {
-      await bot.api.sendMessage(chatId, "تعذّر الاتصال بأداة تعديل الصور — حاول لاحقاً.");
-    }
-    return;
-  }
+  // Owner spec, 2026-09-09: the old "اكتب قص/تصغير في الوصف" caption
+  // trick is gone — replaced by MANUAL_PHOTO_OPS's menu-driven flow
+  // above (handleManualPhotoOp), reached via "✋ المكتبة اليدوية" and
+  // matched by reply_to_message like every other Studio input, not by
+  // a caption the user had to remember and type exactly.
 
   // Owner report, 2026-09-07: real vision inference on the free
   // ModelScope box (CPU-only) measured ~4-5 minutes for one photo —

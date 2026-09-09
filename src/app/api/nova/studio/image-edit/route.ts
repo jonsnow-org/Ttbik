@@ -23,7 +23,26 @@ function rateLimited(ip: string): boolean {
   return entry.count > LIMIT;
 }
 
-const OPS = new Set(["crop-square", "resize-small"]);
+// Owner spec, 2026-09-09 ("هدفي كان وصله بمحرر صور... القص والتركيب
+// إلى آخره... ليس مجرد كتابة قص في الوصف"): expanded from the original
+// 2 ops to a real, useful set — still all deterministic sharp pixel
+// operations, no AI, each verified locally against a real image buffer
+// before shipping (not assumed from sharp's docs alone). Multi-photo
+// composition (merging two images together) is a genuinely separate,
+// larger feature — a single request here only ever carries one image —
+// and is not part of this op set yet.
+const OPS = new Set([
+  "crop-square",
+  "crop-portrait",
+  "crop-landscape",
+  "resize-small",
+  "resize-large",
+  "rotate-90",
+  "flip-h",
+  "flip-v",
+  "grayscale",
+  "sharpen",
+]);
 // Telegram itself already compresses photos sent through the bot API
 // (well under a few MB), so this cap is a real abuse guard, not a
 // realistic ceiling for a normal photo.
@@ -51,14 +70,51 @@ export async function POST(req: NextRequest) {
     }
 
     let pipeline = sharp(input).rotate(); // rotate(): auto-applies EXIF orientation before any op below
-    if (op === "crop-square") {
-      const side = Math.min(meta.width, meta.height);
-      pipeline = pipeline.resize({ width: side, height: side, fit: "cover" });
-    } else {
-      // resize-small: caps the longer edge at 480px — a real, useful
-      // "make this file smaller" op, not a guessed number (480 keeps a
-      // typical phone photo well under Telegram's own display width).
-      pipeline = pipeline.resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true });
+    switch (op) {
+      case "crop-square": {
+        const side = Math.min(meta.width, meta.height);
+        pipeline = pipeline.resize({ width: side, height: side, fit: "cover" });
+        break;
+      }
+      case "crop-portrait":
+        // 4:5 — a real, common portrait-photo ratio (Instagram's own
+        // portrait crop), centered via sharp's default "cover" gravity.
+        pipeline = pipeline.resize({ width: 320, height: 400, fit: "cover" });
+        break;
+      case "crop-landscape":
+        // 16:9 — a real, common widescreen/landscape ratio.
+        pipeline = pipeline.resize({ width: 480, height: 270, fit: "cover" });
+        break;
+      case "resize-small":
+        // Caps the longer edge at 480px — a real, useful "make this
+        // file smaller" op, not a guessed number (480 keeps a typical
+        // phone photo well under Telegram's own display width).
+        pipeline = pipeline.resize({ width: 480, height: 480, fit: "inside", withoutEnlargement: true });
+        break;
+      case "resize-large":
+        // Upscales toward 1600px on the longer edge when the source is
+        // smaller — plain pixel interpolation (sharp's default Lanczos
+        // kernel), not AI super-resolution; stated plainly so it's
+        // never confused with the AI image-generation path.
+        pipeline = pipeline.resize({ width: 1600, height: 1600, fit: "inside" });
+        break;
+      case "rotate-90":
+        pipeline = pipeline.rotate(90);
+        break;
+      case "flip-h":
+        // sharp's own naming: flop() mirrors left-right.
+        pipeline = pipeline.flop();
+        break;
+      case "flip-v":
+        // sharp's own naming: flip() mirrors top-bottom.
+        pipeline = pipeline.flip();
+        break;
+      case "grayscale":
+        pipeline = pipeline.grayscale();
+        break;
+      case "sharpen":
+        pipeline = pipeline.sharpen();
+        break;
     }
 
     const output = await pipeline.jpeg({ quality: 85 }).toBuffer();
