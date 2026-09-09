@@ -20,6 +20,7 @@ export default function ProfitMarginCalculator() {
   const [price, setPrice] = useState("100");
   const [fixed, setFixed] = useState("");
   const [qty, setQty] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
     const c = parseNum(cost);
@@ -180,13 +181,15 @@ export default function ProfitMarginCalculator() {
                 }
                 try {
                   await navigator.clipboard.writeText(lines.join("\n"));
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
                 } catch {
                   /* ignore */
                 }
               }}
               className="mt-3 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
             >
-              نسخ النتيجة
+              {copied ? "تم النسخ ✓" : "نسخ النتيجة"}
             </button>
           </div>
 
