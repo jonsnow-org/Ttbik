@@ -110,13 +110,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Bot @${botInfo.username} activated successfully!`,
+      message: `تم تفعيل البوت @${botInfo.username} بنجاح!`,
       botId: newBot.id,
     });
   } catch (error: any) {
     if (error?.code === "P2002") {
       return NextResponse.json({ success: false, error: "هذا التوكن مُفعّل بالفعل على المنصة." }, { status: 400 });
     }
-    return NextResponse.json({ success: false, error: error.message || "Deployment failed" }, { status: 400 });
+    return NextResponse.json({ success: false, error: error.message || "فشل التفعيل" }, { status: 400 });
   }
 }
