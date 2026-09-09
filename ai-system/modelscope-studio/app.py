@@ -786,16 +786,41 @@ def _get_image_pipe():
     return _image_pipe
 
 
+_GEN_SIDE = 384  # generate small, upscale classically — see _generate_one_image
+_DELIVER_SIDE = 640
+
+
 def _generate_one_image(prompt: str):
     """Returns a raw PIL.Image — the actual model call, factored out of
     generate_image() below so generate_video()'s keyframe slideshow (see
     its own docstring) can reuse the exact same call instead of
-    duplicating the turbo/non-turbo branching logic."""
+    duplicating the turbo/non-turbo branching logic.
+
+    Owner directive, 2026-09-09 ("ابتكر طريقة لتطبيق اسلوب مشابه للذي
+    ابتكرته بالنسبة للفديو"): the video fix's actual pattern wasn't
+    "video-specific" — it was "shrink the expensive AI work, hand the
+    rest to cheap classical code". The same pattern applies directly to
+    images: a diffusion UNet's per-step cost scales with the number of
+    latent-space positions it processes, which scales with height*width
+    — generating at 384x384 instead of 512x512 is (384/512)^2 ≈ 0.56x
+    the pixel count per step, a real, architecture-level compute cut
+    that stacks with sd-turbo's step-count cut (and helps even the
+    OLD, non-turbo model in the meantime, since it doesn't depend on
+    which candidate actually made it onto ModelScope hub). Image.LANCZOS
+    upscale + a light UnsharpMask afterwards is the classical
+    counterpart to Ken Burns/crossfade for video: zero-AI, zero new
+    dependency (PIL only), recovering a normal-looking delivery size
+    and countering the softness a straight resize would leave behind."""
+    from PIL import Image as _PILImage, ImageFilter as _PILImageFilter
+
     pipe = _get_image_pipe()
     base_model_id = _get_image_gen_config().get("base_model_id", "")
     if "turbo" in base_model_id.lower():
-        return pipe(prompt, num_inference_steps=2, guidance_scale=0.0).images[0]
-    return pipe(prompt, num_inference_steps=20).images[0]
+        image = pipe(prompt, num_inference_steps=2, guidance_scale=0.0, height=_GEN_SIDE, width=_GEN_SIDE).images[0]
+    else:
+        image = pipe(prompt, num_inference_steps=20, height=_GEN_SIDE, width=_GEN_SIDE).images[0]
+    image = image.resize((_DELIVER_SIDE, _DELIVER_SIDE), _PILImage.LANCZOS)
+    return image.filter(_PILImageFilter.UnsharpMask(radius=2, percent=60, threshold=2))
 
 
 def generate_image(prompt: str) -> str:
