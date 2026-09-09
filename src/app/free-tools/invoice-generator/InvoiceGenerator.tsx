@@ -18,6 +18,7 @@ export default function InvoiceGenerator() {
   const [taxPercent, setTaxPercent] = useState("");
   const [notes, setNotes] = useState("");
   const [currency, setCurrency] = useState("ر.س");
+  const [copied, setCopied] = useState(false);
 
   function updateItem(i: number, field: keyof LineItem, val: string) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: val } : it)));
@@ -42,6 +43,24 @@ export default function InvoiceGenerator() {
 
   function handlePrint() {
     window.print();
+  }
+
+  async function copySummary() {
+    const lines = [
+      docType === "invoice" ? "فاتورة" : "عقد خدمة",
+      docNumber ? `رقم: ${docNumber}` : null,
+      docDate ? `التاريخ: ${docDate}` : null,
+      sellerName ? `من: ${sellerName}` : null,
+      buyerName ? `إلى: ${buyerName}` : null,
+      `المجموع الفرعي: ${fmt(subtotal)} ${currency}`,
+      taxRate > 0 ? `ضريبة (${taxRate}%): ${fmt(taxAmount)} ${currency}` : null,
+      `الإجمالي: ${fmt(total)} ${currency}`,
+    ].filter(Boolean) as string[];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
   }
 
   const hasContent = sellerName.trim() || buyerName.trim() || parsedItems.length > 0;
@@ -217,14 +236,24 @@ export default function InvoiceGenerator() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handlePrint}
-          disabled={!hasContent}
-          className="w-full rounded-xl bg-brand-600 px-5 py-3 text-sm font-bold text-white hover:bg-brand-700 disabled:bg-slate-300"
-        >
-          🖨️ اطبع / احفظ كـ PDF
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={!hasContent}
+            className="flex-1 rounded-xl bg-brand-600 px-5 py-3 text-sm font-bold text-white hover:bg-brand-700 disabled:bg-slate-300"
+          >
+            🖨️ اطبع / احفظ كـ PDF
+          </button>
+          <button
+            type="button"
+            onClick={copySummary}
+            disabled={!hasContent}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {copied ? "تم النسخ ✓" : "نسخ الملخص"}
+          </button>
+        </div>
         <p className="text-xs text-slate-400 text-center">
           سيفتح مربع الطباعة — اختر «حفظ كـ PDF». النص العربي يظهر صحيحاً بفضل محرك المتصفح.
         </p>
