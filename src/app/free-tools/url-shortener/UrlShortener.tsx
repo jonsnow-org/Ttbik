@@ -20,7 +20,9 @@ const T = {
     copied: "✅ تم النسخ",
     copy: "نسخ الرابط",
     open: "فتح",
-    qrNote: "لمشاركة QR: انسخ الرابط والصقه في أي مولّد QR مجاني، أو استخدمه مباشرة في منشوراتك.",
+    qrNotePre: "لمشاركة كـ QR: انسخ الرابط ثم افتح",
+    qrNoteLink: "مولّد QR الخاص بنا",
+    qrNotePost: "أو استخدمه مباشرة في منشوراتك.",
     realToolPre: "أداة حقيقية على نطاق الموقع — ليست مجرد عرض كود. للاحتياجات المتقدمة (نطاق فرعي مخصص، صفحات روابط متعددة) راجع",
     realToolLink: "باقي الأدوات المجانية",
   },
@@ -40,7 +42,9 @@ const T = {
     copied: "✅ Copied",
     copy: "Copy link",
     open: "Open",
-    qrNote: "To share as a QR code: copy the link and paste it into any free QR generator, or use it directly in your posts.",
+    qrNotePre: "To share as a QR: copy the link then open our",
+    qrNoteLink: "QR generator",
+    qrNotePost: "or use it directly in your posts.",
     realToolPre: "A real tool running on this domain — not just a code demo. For advanced needs (custom subdomain, multiple link pages) see",
     realToolLink: "the rest of the free tools",
   },
@@ -163,7 +167,11 @@ export default function UrlShortener({ lang = "ar" }: { lang?: "ar" | "en" }) {
             </a>
           </div>
           <p className="mt-3 text-xs text-slate-500">
-            {t.qrNote}
+            {t.qrNotePre}{" "}
+            <Link href="/free-tools/qr-generator" className="font-semibold text-brand-700 underline">
+              {t.qrNoteLink}
+            </Link>
+            {" "}{t.qrNotePost}
           </p>
         </div>
       )}
