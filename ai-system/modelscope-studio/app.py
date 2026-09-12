@@ -902,8 +902,13 @@ def _add_watermark(image):
     margin = max(8, base.width // 64)
     x = base.width - text_w - margin * 2
     y = base.height - text_h - margin * 2
-    draw.rectangle([x - margin // 2, y - margin // 2, x + text_w + margin, y + text_h + margin], fill=(0, 0, 0, 90))
-    draw.text((x, y), _WATERMARK_TEXT, font=font, fill=(255, 255, 255, 200))
+    # Owner report, 2026-09-12 (real screenshot): the mark read as an
+    # opaque label, not a watermark — both alphas cut roughly in half
+    # (box 90->45, text 200->130) so it stays legible up close but
+    # reads as translucent at a normal viewing size, closer to what
+    # "علامة مائية" actually means.
+    draw.rectangle([x - margin // 2, y - margin // 2, x + text_w + margin, y + text_h + margin], fill=(0, 0, 0, 45))
+    draw.text((x, y), _WATERMARK_TEXT, font=font, fill=(255, 255, 255, 130))
     return _PILImage.alpha_composite(base, overlay).convert("RGB")
 
 
