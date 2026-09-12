@@ -70,6 +70,7 @@ import time
 from datetime import datetime, timezone
 
 import chromadb
+import requests
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
 
@@ -270,10 +271,53 @@ def recall(user_id: str, query: str, n_results: int = 3) -> list[str]:
     return results["documents"][0] if results["documents"] else []
 
 
+def _web_search_ddgs(query: str, max_results: int) -> list[dict]:
+    with DDGS() as ddgs:
+        return list(ddgs.text(query, max_results=max_results))
+
+
+def _web_search_duckduckgo_instant_answer(query: str, max_results: int) -> list[dict]:
+    """Owner report, 2026-09-12 (real complaint): asked Nova something
+    needing live info, got a flat "I can't reach the live web" instead
+    of a real answer. Real, already-anticipated cause (see the comment
+    this function is a fallback for): ddgs scrapes DuckDuckGo's HTML
+    search rather than calling an official API, and shared cloud IPs
+    like Render's are a well-known target for that kind of scraping to
+    get rate-limited/blocked — the model's honest "no live data" answer
+    was very likely correct given what actually reached it (nothing),
+    not a wiring bug.
+
+    Real second attempt, not a guess: DuckDuckGo's own official Instant
+    Answer JSON API (no key, no scraping, a real documented endpoint) —
+    genuinely more limited (mostly infobox-style facts: definitions,
+    disambiguation, some named entities; NOT general web results,
+    prices, or news) but a real, different code path that can succeed
+    when the scraping one is blocked. Tries AbstractText first (a real
+    prose answer), then RelatedTopics (whatever it has) as a last
+    resort — returns [] on anything else, same "let the caller admit
+    it has no data" contract as the function above."""
+    try:
+        resp = requests.get(
+            "https://api.duckduckgo.com/",
+            params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+            timeout=8,
+        )
+        if not resp.ok:
+            return []
+        data = resp.json()
+        if data.get("AbstractText"):
+            return [{"title": data.get("Heading") or query, "body": data["AbstractText"]}]
+        related = [t for t in data.get("RelatedTopics", []) if isinstance(t, dict) and t.get("Text")]
+        return [{"title": query, "body": t["Text"]} for t in related[:max_results]]
+    except Exception:
+        return []
+
+
 def web_search(query: str, max_results: int = 3) -> list[dict]:
     try:
-        with DDGS() as ddgs:
-            return list(ddgs.text(query, max_results=max_results))
+        results = _web_search_ddgs(query, max_results)
+        if results:
+            return results
     except Exception:
         # A search-provider hiccup (rate limiting is common on shared
         # cloud IPs like Render's) should never take the whole chat
@@ -284,8 +328,12 @@ def web_search(query: str, max_results: int = 3) -> list[dict]:
         # guessing/hallucinating "live" answers instead of admitting
         # it has no current data (exactly what showed up as fabricated
         # gold-price figures with wrong currency and raw LaTeX).
-        logger.exception("web_search failed for query: %s", query)
-        return []
+        logger.exception("web_search: ddgs failed for query: %s — trying the Instant Answer API fallback", query)
+
+    fallback = _web_search_duckduckgo_instant_answer(query, max_results)
+    if not fallback:
+        logger.warning("web_search: both ddgs and the Instant Answer fallback returned nothing for: %s", query)
+    return fallback
 
 
 def _recall_knowledge(query: str, category: str, max_age_seconds: float) -> str | None:
