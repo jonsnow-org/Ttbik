@@ -6,3 +6,5 @@ been silently disconnected from `jonsnow-org/Ttbik` for ~3 days
 since then had actually deployed. This file's only purpose is to give
 that reconnect a real commit to build, forcing a fresh Production
 Deployment of everything already pushed during that gap.
+
+Confirmed reconnected to jonsnow-org/Ttbik (green, no error) — this second commit is the real post-reconnect trigger.
