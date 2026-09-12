@@ -74,6 +74,7 @@ import requests
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
 
+from app.config import GROQ_API_KEY, GROQ_MODEL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
@@ -357,35 +358,41 @@ def _recall_knowledge(query: str, category: str, max_age_seconds: float) -> str 
     return docs[0][0]
 
 
-def _store_knowledge(query: str, content: str, category: str) -> None:
-    """Owner spec, 2026-09-12 ("قواعد للنموذج كي لا يتخطاها... يتجنب
-    نشر كلمات مرور"): every write to Nova's knowledge bank — the same
-    table merge_and_finetune.ipynb's cell 4ب folds into REAL training
-    weights — passes through guardrails.sanitize_for_storage first, no
-    exceptions. A real, pattern-based floor against storing (and later
-    training on) a leaked password/API key/private key that happened to
-    be sitting in whatever a live web search turned up; see that
-    module's own docstring for what it does and doesn't catch."""
-    from app import guardrails
+def _store_knowledge(query: str, content: str, category: str, domain: str = "GENERAL_KNOWLEDGE") -> str:
+    """Owner spec, 2026-09-12 ("قواعد للنموذج كي لا يتخطاها... وظيفته
+    التفكير وليس فقط البحث والتخزين... اذا وجد ان هذا الامر خطأ يقوم
+    حينها باستبداله بالصحيح"): every write to Nova's knowledge bank —
+    the same table merge_and_finetune.ipynb's cell 4ب folds into REAL
+    training weights — now goes through knowledge_store.store_or_update,
+    the one real chokepoint every writer (this reactive path,
+    learn_now, gather_knowledge.py) shares: guardrail redaction, AND
+    real reconciliation against whatever is already stored for the same
+    question (confirm/replace/keep-both, decided by a real model call,
+    not a blind re-insert every time). See that module's own docstring
+    for the full reasoning.
 
-    safe_content = guardrails.sanitize_for_storage(content)
-    if safe_content is None:
+    The in-memory Chroma copy below still gets the fresh content
+    unconditionally for this container's own lifetime (a quick win for
+    this same conversation) — the durable Supabase row is what actually
+    matters for training quality, and that one IS properly deduplicated/
+    corrected now; Chroma re-syncs from it cleanly on the next cold
+    start regardless (_rehydrate_knowledge_bank)."""
+    from app import knowledge_store
+
+    result = knowledge_store.store_or_update(
+        query, content, domain, category, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GROQ_API_KEY, GROQ_MODEL
+    )
+    if result == "rejected_guardrails":
         logger.info("store_knowledge: rejected by guardrails (query=%s)", query)
-        return
+        return result
+    if result == "skipped_same":
+        logger.info("store_knowledge: new finding just confirmed an existing entry, no change needed (query=%s)", query)
+        return result
 
     bank = _knowledge_bank()
     doc_id = f"k-{abs(hash(query))}-{int(time.time())}"
-    bank.add(documents=[safe_content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
-    # Durable twin (see module docstring) — a Supabase hiccup here must
-    # never break the answer that's already been built; the in-memory
-    # Chroma copy above already has it for this container's lifetime
-    # regardless of whether this write succeeds.
-    try:
-        get_supabase().table("NovaKnowledgeEntry").insert(
-            {"id": doc_id, "query": query, "content": safe_content, "source": category}
-        ).execute()
-    except Exception:
-        logger.exception("store_knowledge: failed to persist to Supabase (query=%s)", query)
+    bank.add(documents=[content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
+    return result
 
 
 def build_context(user_id: str, message: str, query_type: str) -> str:
@@ -477,8 +484,11 @@ def learn_now(topic: str) -> str:
     if safe_content is None:
         return f"بحثت فعلاً عن \"{topic}\" لكن ما وجدته لم يجتز فحص الأمان الداخلي — لم يُخزَّن شيء."
 
-    _store_knowledge(topic, analyzed, "owner_directed")
+    result = _store_knowledge(topic, analyzed, "owner_directed")
+    if result == "skipped_same":
+        return f"بحثت فعلاً عن \"{topic}\" — ما وجدته يؤكد معرفة مخزَّنة لديّ مسبقاً، لا حاجة لتغيير شيء."
+    verb = "حدّثت معرفة سابقة كانت غير دقيقة" if result == "updated" else "خزّنت معرفة جديدة"
     return (
-        f"✅ بحثت فعلاً عن \"{topic}\" الآن وخزّنت ما تعلّمته في بنك معرفتي "
+        f"✅ بحثت فعلاً عن \"{topic}\" الآن و{verb} في بنك معرفتي "
         f"(سيُستخدم في التدريب الأسبوعي القادم على Kaggle):\n\n{safe_content[:600]}"
     )

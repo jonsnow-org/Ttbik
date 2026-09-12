@@ -1,0 +1,34 @@
+name: Propose Self-Improvement (weekly, owner-supervised)
+
+# لماذا هذا الـworkflow موجود: owner spec 2026-09-12 ("الادوات
+# والتطوير الذاتي يعطيني تقرير ماذا وجد وماذا ينفع الذي وجده وماتأثيره
+# على عمله الحالي، حينها اقبل او ارفض... دوري تلقائي أسبوعي") — يستدعي
+# نفس التنفيذ الحقيقي الوحيد (ai-system/app/self_improve.py's
+# research_and_propose) الذي يستخدمه أيضاً أمر المالك المباشر عبر
+# البوت (نية IMPROVE)، فقط بجدولة أسبوعية بدل رسالة تيليجرام حية.
+#
+# لماذا عبر استدعاء خادم Render (وليس دفتر مستقل مثل gather-knowledge.yml):
+# هذه الميزة تحتاج نفس المنطق الحقيقي المستخدم في مسار المالك المباشر
+# بالضبط (بحث + تحليل Groq + تخزين اقتراح PENDING) — استدعاء نفس
+# الـendpoint يضمن عدم ازدواج المنطق بين مسارين مختلفين لنفس الميزة.
+# الإرسال الفعلي للتقرير على تيليجرام يحدث من داخل main.py نفسها
+# (SUPER_ADMIN_TELEGRAM_ID already configured on Render).
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # كل اثنين
+  workflow_dispatch: {}
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the real self-improvement research endpoint on Render
+        env:
+          NOVA_FASTAPI_URL: ${{ secrets.NOVA_FASTAPI_URL }}
+          NOVA_INTERNAL_SECRET: ${{ secrets.NOVA_INTERNAL_SECRET }}
+        run: |
+          curl -sS -X POST "${NOVA_FASTAPI_URL}/admin/propose-self-improvement" \
+            -H "Content-Type: application/json" \
+            -H "X-Internal-Secret: ${NOVA_INTERNAL_SECRET}" \
+            -d '{}'

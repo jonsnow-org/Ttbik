@@ -22,8 +22,8 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, files, hf_video, quota, rag, router
-from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET
+from app import cloudflare_ai, council, files, hf_video, quota, rag, router, self_improve
+from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
 # Without this, logger.info() calls throughout this file and council.py
 # (added 2026-09-06 to show which model actually answered each message)
@@ -483,6 +483,18 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # anything actually happened.
         quota.refund_quota(user["id"], "TEXT")
         _send_telegram_message(chat_id, rag.learn_now(intent_result["topic"]))
+        return
+
+    if intent_result["intent"] == "IMPROVE":
+        # Owner spec, 2026-09-12 ("الادوات والتطوير الذاتي يعطيني
+        # تقرير... فاقبل او ارفض"): self_improve.research_and_propose
+        # does the real research and stores a PENDING proposal — never
+        # implements anything on its own. The owner decides via
+        # /موافقة_تطوير or /رفض_تطوير (novaBotLogic.ts), which call
+        # /admin/decide-self-improvement below.
+        quota.refund_quota(user["id"], "TEXT")
+        topic = intent_result["topic"] or None
+        _send_telegram_message(chat_id, self_improve.research_and_propose(topic, trigger="owner_directed"))
         return
 
     if intent_result["intent"] in ("IMAGE", "VIDEO"):
@@ -1160,6 +1172,46 @@ def admin_verify_owner_password(req: VerifyOwnerPasswordRequest, x_internal_secr
     _require_internal(x_internal_secret)
     ok, message = quota.verify_owner_password(req.telegram_id, req.password)
     return {"ok": ok, "message": message}
+
+
+class DecideSelfImprovementRequest(BaseModel):
+    proposal_id: str
+    accept: bool
+
+
+@app.post("/admin/decide-self-improvement")
+def admin_decide_self_improvement(req: DecideSelfImprovementRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12 ("فاقبل او ارفض"): called by
+    novaBotLogic.ts's "/موافقة_تطوير <id>" and "/رفض_تطوير <id>"
+    handlers, only after its own isAdmin (Telegram ID) check already
+    passed — same gate every owner-only admin action here uses.
+    self_improve.decide_proposal does the real work: REJECTED just
+    marks the row; ACCEPTED with a confident file_path actually calls
+    dev_agent's real PR machinery (auto_merge=True, same as any other
+    owner-directed code change)."""
+    _require_internal(x_internal_secret)
+    return {"message": self_improve.decide_proposal(req.proposal_id, req.accept)}
+
+
+class ProposeSelfImprovementRequest(BaseModel):
+    topic: str | None = None
+
+
+@app.post("/admin/propose-self-improvement")
+def admin_propose_self_improvement(req: ProposeSelfImprovementRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12 ("دوري تلقائي أسبوعي"): called by
+    .github/workflows/propose-self-improvement.yml on a weekly
+    schedule — same _require_internal gate, same one real
+    self_improve.research_and_propose implementation the owner's
+    on-demand IMPROVE intent already uses (main.py above), just
+    triggered by a cron instead of a Telegram message. Sends the
+    resulting report straight to the owner via Telegram itself, since a
+    scheduled GitHub Actions run has no live chat_id to reply to."""
+    _require_internal(x_internal_secret)
+    report = self_improve.research_and_propose(req.topic, trigger="scheduled")
+    if SUPER_ADMIN_TELEGRAM_ID:
+        _send_telegram_message(SUPER_ADMIN_TELEGRAM_ID, report)
+    return {"message": report}
 
 
 class VideoQueueResultRequest(BaseModel):

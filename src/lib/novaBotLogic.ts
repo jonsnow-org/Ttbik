@@ -799,6 +799,22 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
       return;
     }
+    // Owner spec, 2026-09-12 ("الادوات والتطوير الذاتي يعطيني تقرير...
+    // فاقبل او ارفض"): the only two commands that ever move a
+    // NovaSelfImprovementProposal off PENDING — self_improve.py's
+    // decide_proposal does the real work (REJECTED just marks the row;
+    // ACCEPTED with a confident file_path calls dev_agent's real PR
+    // machinery). isAdmin above already gates this whole block to the
+    // owner's own Telegram ID.
+    if (adminText.startsWith("/موافقة_تطوير ") || adminText.startsWith("/رفض_تطوير ")) {
+      const accept = adminText.startsWith("/موافقة_تطوير ");
+      const prefix = accept ? "/موافقة_تطوير " : "/رفض_تطوير ";
+      const proposalId = adminText.slice(prefix.length).trim();
+      const { ok, data } = await callNovaBackend("/admin/decide-self-improvement", { proposal_id: proposalId, accept });
+      const message = ok ? data?.message || "خطأ غير معروف" : data?.detail || "تعذر الاتصال بخادم Nova AI.";
+      await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
+      return;
+    }
     if (adminText === "📢 بث جماعي") {
       await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
       return;

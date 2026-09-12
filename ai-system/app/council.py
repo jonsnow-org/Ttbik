@@ -719,7 +719,15 @@ _DEV_INTENT_ADDENDUM = (
     'وتعلّمه فعلياً، بصياغة واضحة ومحددة"}\n'
     "لا تستخدم LEARN لسؤال عادي يريد إجابة فورية فقط — استخدمها فقط "
     "عندما يطلب صراحة أن تبحث/تتعلّم/تطوّر نفسك في موضوع، كأمر فعلي لا "
-    "مجرد سؤال."
+    "مجرد سؤال.\n\n"
+    "أو قد تكون رسالته طلباً بأن تبحث عن أداة/طريقة حقيقية **لتطوير "
+    'قدراتك أنت نفسك كنظام** (وليس مجرد تعلّم معلومة عامة) — مثل "ابحث '
+    'عن طرق لتطوير قدراتك في توليد الصور" أو "طوّر نفسك في مجال البحث '
+    'الحي". هذا مختلف عن LEARN: لا يُخزَّن كمعرفة عامة، بل يُنتج تقريراً '
+    "حقيقياً ينتظر موافقتك أنت قبل أي تنفيذ. إن كانت كذلك، أجب بهذا "
+    'الشكل:\n'
+    '{"intent": "IMPROVE", "topic": "المجال المحدَّد الذي يجب البحث فيه '
+    'عن أداة/طريقة لتطوير نظامك، فارغاً إن لم يحدد المستخدم مجالاً معيناً"}'
 )
 
 
@@ -741,14 +749,18 @@ def _parse_intent_json(raw: str) -> dict:
             # (harmless), same "ambiguous -> TEXT" rule as IMAGE/VIDEO.
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "DEV", "file_path": file_path, "instruction": dev_instruction}
-    if intent == "LEARN":
+    if intent in ("LEARN", "IMPROVE"):
         topic = str(data.get("topic") or "").strip()
-        if not topic:
+        if intent == "LEARN" and not topic:
             # No confident topic — same "ambiguous -> TEXT" rule as
             # DEV/IMAGE/VIDEO above rather than researching something
             # vague.
             return {"intent": "TEXT", "prompt": ""}
-        return {"intent": "LEARN", "topic": topic}
+        # IMPROVE's topic may legitimately be empty (owner didn't name
+        # a specific area) — self_improve.research_and_propose picks a
+        # real rotating topic itself in that case, same as the
+        # scheduled weekly trigger.
+        return {"intent": intent, "topic": topic}
     if intent not in ("IMAGE", "VIDEO", "TEXT"):
         intent = "TEXT"
     prompt = str(data.get("prompt") or "").strip()
@@ -797,14 +809,18 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
     كما اتحدث معك الآن" — talk naturally instead of memorizing a fixed
     "/اقتراح_تعديل <path> :: <instruction>" command): main.py passes
     True only when quota.is_platform_owner(user) already confirmed the
-    caller is the owner — adds BOTH owner-only options to the schema:
-    DEV (a real code-change proposal, see dev_agent.py) and LEARN (a
-    real, on-demand research-and-store command — owner spec, same day:
-    "اذهب وابحث عن وسائل لتطوير قدراتك... وقم بتغذية نفسك بها" — actual
-    execution, not a reply describing what it would do; see
-    rag.learn_now). A file path/topic the model isn't confident about
-    never gets guessed (see _parse_intent_json) — that falls through to
-    TEXT, same as any other ambiguous case here."""
+    caller is the owner — adds THREE owner-only options to the schema:
+    DEV (a real code-change proposal, see dev_agent.py), LEARN (a real,
+    on-demand research-and-store command — "اذهب وابحث عن وسائل لتطوير
+    قدراتك... وقم بتغذية نفسك بها" — actual execution, not a reply
+    describing what it would do; see rag.learn_now), and IMPROVE (owner
+    spec, same day: "الادوات والتطوير الذاتي يعطيني تقرير... فاقبل او
+    ارفض" — researches a way to improve Nova's OWN capabilities and
+    produces a real report awaiting the owner's explicit accept/reject,
+    never auto-applied; see self_improve.research_and_propose). A file
+    path/topic the model isn't confident about never gets guessed (see
+    _parse_intent_json) — that falls through to TEXT, same as any other
+    ambiguous case here."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
     if allow_dev:
         instruction += _DEV_INTENT_ADDENDUM
