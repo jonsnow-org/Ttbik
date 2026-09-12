@@ -103,9 +103,11 @@ import concurrent.futures
 import json
 import logging
 import re
+import uuid
 
 from groq import Groq
 
+from app import dev_agent
 from app.config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
@@ -964,3 +966,83 @@ def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
     except Exception as e:
         logger.info("video-gen: our own model (ModelScope) call failed (%s)", e)
         return None
+
+
+_DEV_AGENT_INSTRUCTION_TEMPLATE = (
+    "هذا هو المحتوى الحالي الكامل للملف {file_path} في مشروعنا:\n\n"
+    "```\n{current_content}\n```\n\n"
+    "التعديل المطلوب: {instruction}\n\n"
+    "أعد كتابة الملف بالكامل بعد تطبيق هذا التعديل فقط، بلا أي تغيير آخر "
+    "غير مطلوب، وبلا أي شرح أو مقدمة أو علامات ```‎ من أي نوع — أعد فقط "
+    "المحتوى الكامل النهائي للملف كما سيُكتب حرفياً على القرص، من أول "
+    "سطر فيه إلى آخر سطر."
+)
+
+
+def propose_code_change(file_path: str, instruction: str) -> str:
+    """Owner-only "Dev Agent" entry point — main.py calls this ONLY
+    after confirming quota.is_platform_owner(user) for the current
+    request; there is no separate authorization check here, same
+    one-check-done-upstream pattern as the /admin/* endpoints'
+    _require_internal.
+
+    Owner spec, 2026-09-12, verbatim, all still true here: "ممنوع
+    التنفيذ الفوري أو الكتابة المباشرة على الفرع الحي بأي شكل... أي
+    تعديل يقترحه نوفا يُنشأ كفرع Git جديد + Pull Request... ولا يُدمج
+    إلا بعد مراجعة." This function never writes to
+    NOVA_DEV_AGENT_BASE_BRANCH — dev_agent.create_branch always forks a
+    fresh branch first, dev_agent.update_file only ever targets that
+    fresh branch, and nothing here calls a merge endpoint at all (see
+    dev_agent.py's own module docstring for the full constraint list
+    and why it holds by construction, not just by convention).
+
+    Real, not guessed, reuse: OUR OWN model already answers CODE
+    queries best (query_type="CODE" picks the right persona/temperature
+    in app.py) — the same call_modelscope_specialist/call_groq fallback
+    chain used for every other text answer, just with a different
+    instruction and no conversation context. Returns a plain string
+    ready to send straight to the owner — either the real PR URL or a
+    specific failure reason (dev_agent.DevAgentError messages are
+    already safe to relay verbatim, built only from HTTP status/body,
+    never from the token — see that module's docstring)."""
+    try:
+        current_content, sha = dev_agent.get_file(file_path)
+    except dev_agent.DevAgentError as e:
+        return str(e)
+
+    prompt = _DEV_AGENT_INSTRUCTION_TEMPLATE.format(
+        file_path=file_path, current_content=current_content, instruction=instruction
+    )
+    new_content = call_modelscope_specialist(prompt, "", query_type="CODE") or call_groq(prompt, "")
+    if not new_content or not new_content.strip():
+        return "تعذّر توليد التعديل المقترح — لم يُرجع النموذج محتوى صالحاً. حاول صياغة الطلب بشكل أوضح."
+
+    cleaned = new_content.strip()
+    if cleaned.startswith("```"):
+        # A small model ignoring the "no ``` fences" instruction is a
+        # real, observed habit elsewhere in this project (see
+        # app.py's _extract_final_answer) — stripped defensively rather
+        # than shipping a PR whose file starts with a stray fence line.
+        cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
+        cleaned = re.sub(r"\n```\s*$", "", cleaned)
+
+    branch_name = f"nova-dev-agent/{uuid.uuid4().hex[:10]}"
+    try:
+        dev_agent.create_branch(branch_name)
+        dev_agent.update_file(
+            file_path, branch_name, cleaned, sha,
+            commit_message=f"Nova Dev Agent: {instruction[:200]}",
+        )
+        pr_url = dev_agent.open_pull_request(
+            branch_name,
+            title=f"Nova Dev Agent: {instruction[:70]}",
+            body=(
+                f"مقترح تلقائي من نوفا (وضع المالك)، بناءً على الطلب التالي:\n\n"
+                f"> {instruction}\n\n"
+                f"الملف: `{file_path}`\n\n"
+                "**هذا اقتراح فقط — يتطلب مراجعة بشرية قبل أي دمج، ولم يُدمج تلقائياً.**"
+            ),
+        )
+        return f"✅ تم إنشاء اقتراح التعديل كطلب Pull Request للمراجعة:\n{pr_url}"
+    except dev_agent.DevAgentError as e:
+        return str(e)

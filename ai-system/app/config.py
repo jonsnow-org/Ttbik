@@ -86,3 +86,18 @@ NOVA_OWNER_PASSWORD = os.environ.get("NOVA_OWNER_PASSWORD", "")
 # Vercel side; set it here too on Render (same pattern as
 # SUPER_ADMIN_TELEGRAM_ID above).
 NOVA_BOT_TOKEN = os.environ.get("NOVA_BOT_TOKEN", "")
+
+# Owner spec, 2026-09-12 ("أداة اقتراح تعديل الكود... PR-only"): see
+# ai-system/app/dev_agent.py's module docstring for the full, explicit
+# safety constraints the owner set for this token. Fine-grained PAT,
+# contents + pull_requests permissions ONLY, scoped to this one repo,
+# no admin permissions — set here on Render only, never in
+# novaBotLogic.ts/Vercel (that side never touches GitHub directly).
+NOVA_DEV_AGENT_GITHUB_TOKEN = os.environ.get("NOVA_DEV_AGENT_GITHUB_TOKEN", "")
+# "owner/repo" form, e.g. "jonsnow-org/Ttbik".
+NOVA_DEV_AGENT_REPO = os.environ.get("NOVA_DEV_AGENT_REPO", "")
+# The branch every proposal branch is forked FROM and every PR targets —
+# dev_agent.py never writes to this branch directly, only reads its tip
+# to fork a new branch from. Set to whatever this project's real
+# current working branch is (NOT necessarily "main").
+NOVA_DEV_AGENT_BASE_BRANCH = os.environ.get("NOVA_DEV_AGENT_BASE_BRANCH", "")

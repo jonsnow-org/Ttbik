@@ -340,6 +340,65 @@ def _dispatch_media_intent(user: dict, channel: str, chat_id: str, message: str,
         _process_video_and_deliver(user["id"], channel, chat_id, message, seconds, expanded_prompt=expanded_prompt)
 
 
+_DEV_AGENT_COMMAND_PREFIX = "/اقتراح_تعديل"
+
+
+def _try_handle_dev_agent_command(user: dict, message: str, chat_id: str) -> bool:
+    """Owner-only "Dev Agent" command — returns True if `message` was
+    this command (handled here, caller should stop) or False otherwise
+    (caller proceeds with the normal chat pipeline). Gated on
+    quota.is_platform_owner(user), checked HERE, once, before
+    council.propose_code_change is ever reached — that function itself
+    has no separate authorization check (same one-check-upstream
+    pattern as _require_internal for /admin/* endpoints). A non-owner
+    typing this exact command gets a plain "not recognized" answer
+    (falls through to the normal chat pipeline below), never a
+    permission-denied message that would confirm the command's
+    existence to someone probing for it.
+
+    Format: "/اقتراح_تعديل <مسار الملف> :: <وصف التعديل المطلوب>" — a
+    single explicit command, not a model-decided tool call, on purpose:
+    the owner explicitly rejected giving the small, self-hosted 7B
+    model itself any GitHub-write capability via its own Hermes-style
+    tool-calling (that mechanism is real and already used for
+    web_search/get_weather in app.py, but this action is far more
+    consequential and the model is far easier to manipulate than a
+    fixed command parsed in Python)."""
+    stripped = message.strip()
+    if not stripped.startswith(_DEV_AGENT_COMMAND_PREFIX):
+        return False
+    if not quota.is_platform_owner(user):
+        return False
+
+    rest = stripped[len(_DEV_AGENT_COMMAND_PREFIX):].strip()
+    if "::" not in rest:
+        _send_telegram_message(
+            chat_id,
+            "الصيغة: /اقتراح_تعديل <مسار الملف> :: <وصف التعديل المطلوب>\n"
+            "مثال: /اقتراح_تعديل src/lib/novaBotLogic.ts :: اجعل رسالة الترحيب أكثر ودية",
+        )
+        return True
+
+    file_path, instruction = rest.split("::", 1)
+    file_path, instruction = file_path.strip(), instruction.strip()
+    if not file_path or not instruction:
+        _send_telegram_message(chat_id, "يجب تحديد كل من مسار الملف ووصف التعديل بعد ::")
+        return True
+
+    _send_telegram_message(chat_id, f"⚙️ جارٍ إعداد مقترح تعديل لـ {file_path} — سيصلك رابط Pull Request للمراجعة فور الانتهاء.")
+    # No extra thread/BackgroundTask needed here — this function is
+    # only ever called from _process_chat_and_deliver, which is
+    # ALREADY running as its own FastAPI BackgroundTask (see that
+    # function's docstring); nothing is waiting on this call to return.
+    try:
+        result_message = council.propose_code_change(file_path, instruction)
+    except Exception:
+        logger.exception("dev-agent proposal failed for chat_id=%s file=%s", chat_id, file_path)
+        result_message = "حدث خطأ غير متوقع أثناء إعداد المقترح — راجع سجلات الخادم."
+    _send_telegram_message(chat_id, result_message)
+    return True
+
+
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
     # This runs inside a FastAPI BackgroundTask, AFTER the HTTP response
     # (accepted: true) has already gone out — there is no request/response
@@ -352,6 +411,9 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
     # arriving — a real silent-failure risk with zero visibility outside
     # Render's own logs, unlike the sync WEB/API path which still has
     # unhandled_exception_handler above to turn it into a real response.
+
+    if _try_handle_dev_agent_command(user, message, chat_id):
+        return
 
     # Owner correction, 2026-09-09 ("ليس هدفنا البوت... اذا وضعنا اوامر
     # اجبارية... سيكون مبرمج على الاجبار وليس الذكاء المعرفي"): every
