@@ -839,13 +839,22 @@ def _enqueue_real_video(
 
     Owner follow-up, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
     مقبول"): the Kaggle queue's up-to-~2h wait was then itself rejected
-    as too slow. Real research (not a workaround) found Cloudflare
-    Workers AI — a genuinely free, always-on, GPU-served host that
-    answers real video inline in seconds (see cloudflare_ai.py's module
-    docstring in full). This function now tries that FIRST; the Kaggle
-    queue below is unchanged and still fires automatically as the real
-    fallback for whenever Cloudflare's shared free daily Neuron quota is
-    already used up for the day."""
+    as too slow. Real research found Cloudflare Workers AI, a genuinely
+    free, always-on, GPU-served host — and it did fix this exact
+    problem for images (see the image path below and cloudflare_ai.py).
+    A Cloudflare-first attempt was briefly added here too, but REAL,
+    live evidence overturned it just as quickly: the owner personally
+    scrolled Cloudflare's own model catalog (all 34 "video"-tagged
+    results, not a guess) and confirmed every text-to-video/
+    image-to-video model listed there — Vidu, RunwayML, Alibaba Wan/
+    HappyHorse, xAI Grok, ByteDance Seedance, Google Gemini, Black
+    Forest Labs flux-video, all of them — is tagged "Third-party": billed
+    separately from the free 10,000 Neurons/day pool, not actually free.
+    There is, as of this date, NO genuinely free real-video option
+    anywhere that answers in seconds — the Kaggle queue below (up to
+    ~2h) remains the only real, $0 path; a true few-minutes guarantee
+    would need a real paid per-video GPU call (cents each), a tradeoff
+    put to the owner directly rather than assumed here."""
     # Owner spec, 2026-09-09-era pattern, still real here: this may run
     # inside a FastAPI BackgroundTask with no request/response cycle
     # left to surface an exception on — an uncaught error here would
@@ -861,25 +870,25 @@ def _enqueue_real_video(
             )
 
         # Owner spec, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
-        # مقبول"): tried FIRST — Cloudflare Workers AI answers inline,
-        # in real seconds, not the Kaggle queue's up-to-~2h batch (see
-        # cloudflare_ai.py's module docstring). Never raises — returns
-        # None on any failure, including today's free daily Neuron quota
-        # already being used up, so the enqueue path below still fires
-        # exactly as it always did whenever this fast path can't answer.
-        video_bytes = cloudflare_ai.generate_video(expanded_prompt, seconds)
-        if video_bytes is not None:
-            logger.info("video-gen: served by Cloudflare Workers AI (real motion, inline) for chat_id=%s", chat_id)
-            quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
-            _send_telegram_video(chat_id, video_bytes, prompt)
-            return
-
-        logger.info("video-gen: Cloudflare unavailable/quota exhausted for chat_id=%s — falling back to the Kaggle queue", chat_id)
+        # مقبول"): a Cloudflare-first attempt was tried here (same idea
+        # as the image path below) but REAL evidence overturned it —
+        # the owner personally scrolled Cloudflare's own model catalog
+        # (all 34 "video" results) and confirmed every single
+        # text-to-video/image-to-video model there (Vidu, RunwayML,
+        # Alibaba Wan/HappyHorse, xAI Grok, ByteDance Seedance, Google
+        # Gemini, Black Forest Labs flux-video) is tagged "Third-party" —
+        # billed separately from the free 10,000 Neurons/day pool, not
+        # actually free. cloudflare_ai.generate_video/generate_speech
+        # are kept, not deleted, for if Cloudflare ever adds a real
+        # first-party (@cf/...) video model — but calling them here
+        # today would only ever fail, so this goes straight to the real
+        # free option: the Kaggle-scheduled queue (see
+        # quota.enqueue_video / process_video_queue.ipynb).
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,
-            "🎬 التوليد الفوري وصل حده المجاني اليومي حالياً — أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) "
-            "يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
+            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، "
+            "فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
         )
     except Exception:
         logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)

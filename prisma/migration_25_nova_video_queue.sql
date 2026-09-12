@@ -26,3 +26,14 @@ CREATE TABLE IF NOT EXISTS "NovaVideoQueue" (
     CONSTRAINT "NovaVideoQueue_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX IF NOT EXISTS "NovaVideoQueue_status_idx" ON "NovaVideoQueue"("status");
+
+-- Real bug hit live, 2026-09-12 (owner's own Render logs): this table
+-- existing isn't enough on Supabase — the backend's service_role had no
+-- table-level privileges on it, so every real insert failed with
+-- "permission denied for table NovaVideoQueue" (Postgres error 42501),
+-- silently breaking the ONLY real free video path this project has.
+-- Every other table this project's service_role already touches got
+-- this grant implicitly (existing default privileges); a brand new
+-- table via SQL Editor does not inherit that automatically. Idempotent
+-- (GRANT is safe to re-run).
+GRANT SELECT, INSERT, UPDATE ON public."NovaVideoQueue" TO service_role;
