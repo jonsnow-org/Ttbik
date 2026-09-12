@@ -778,6 +778,27 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       await bot.api.sendMessage(chatId, text, { reply_markup: keyboard });
       return;
     }
+    // Owner spec, 2026-09-12 ("وضع المالك... عبر معرف تيليجرام + كلمة
+    // سر أضيفها"): isAdmin above already confirms the Telegram ID
+    // factor — this command supplies the second (password), checked
+    // server-side (quota.py's verify_owner_password) since only that
+    // side knows NOVA_OWNER_PASSWORD and can write ownerVerifiedAt.
+    // One-time: after this succeeds, quota.is_platform_owner(user)
+    // stays true for every future message from this same Telegram ID,
+    // no need to repeat the password.
+    if (adminText.startsWith("/تفعيل_المالك ")) {
+      const password = adminText.slice("/تفعيل_المالك ".length).trim();
+      const { ok, data } = await callNovaBackend("/admin/verify-owner-password", { telegram_id: tgUserId, password });
+      // ok here is callNovaBackend's own HTTP-level success — the
+      // endpoint itself always responds 200 with {ok, message} whether
+      // verification succeeded or not, so data.message covers both
+      // cases; data.detail only appears on a real HTTP-level failure
+      // (network error, misconfigured secret) that never reached
+      // quota.verify_owner_password at all.
+      const message = ok ? data?.message || "خطأ غير معروف" : data?.detail || "تعذر الاتصال بخادم Nova AI.";
+      await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
+      return;
+    }
     if (adminText === "📢 بث جماعي") {
       await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
       return;

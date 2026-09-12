@@ -66,6 +66,15 @@ NOVA_INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 # for admin-panel recognition — set it here too on Render.
 SUPER_ADMIN_TELEGRAM_ID = os.environ.get("SUPER_ADMIN_TELEGRAM_ID", "")
 
+# Owner spec, 2026-09-12: second factor for "owner mode" (Telegram ID
+# alone was already used for the quota exemption below; the owner
+# asked for ID + a password together, checked once via a Telegram
+# command — see quota.py's verify_owner_password and
+# novaBotLogic.ts's "/تفعيل_المالك" handler). Same simple
+# env-var-comparison style already used for NOVA_BOT_CREATOR_PASSWORD
+# (src/app/api/bots/deploy/route.ts) — no new auth system invented.
+NOVA_OWNER_PASSWORD = os.environ.get("NOVA_OWNER_PASSWORD", "")
+
 # Owner report, 2026-09-07: real vision inference on the free ModelScope
 # box (CPU-only, no GPU) took ~4-5 minutes measured live for one photo —
 # far past anything a single Vercel function invocation (60s ceiling) can

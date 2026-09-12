@@ -979,6 +979,24 @@ def admin_telegram_user_ids(x_internal_secret: str | None = Header(default=None)
     return {"ids": quota.list_telegram_user_ids()}
 
 
+class VerifyOwnerPasswordRequest(BaseModel):
+    telegram_id: str
+    password: str
+
+
+@app.post("/admin/verify-owner-password")
+def admin_verify_owner_password(req: VerifyOwnerPasswordRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12: same _require_internal gate as every
+    other /admin/* endpoint — only novaBotLogic.ts calls this, and only
+    after its own isAdmin (Telegram ID) check already passed (see that
+    file's "/تفعيل_المالك" handler), same pattern as every other admin
+    action here. quota.verify_owner_password does the real
+    ID+password check and sets ownerVerifiedAt on success."""
+    _require_internal(x_internal_secret)
+    ok, message = quota.verify_owner_password(req.telegram_id, req.password)
+    return {"ok": ok, "message": message}
+
+
 class UsageLogsRequest(BaseModel):
     offset: int = 0
     limit: int = 5

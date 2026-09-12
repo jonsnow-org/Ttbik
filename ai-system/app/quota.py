@@ -20,11 +20,12 @@ mine's a beginner") — change the numbers here whenever the owner wants
 a different price or limit; nothing else in the codebase needs to
 change for that.
 """
+import hmac
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from app.config import SUPER_ADMIN_TELEGRAM_ID
+from app.config import NOVA_OWNER_PASSWORD, SUPER_ADMIN_TELEGRAM_ID
 from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
@@ -159,8 +160,48 @@ def is_platform_owner(user: dict) -> bool:
     out so main.py's chat pipeline can reuse the exact same condition
     (to make Nova address the owner as its own developer, not a
     customer) instead of a third copy of this comparison drifting out
-    of sync with the two already here."""
-    return bool(SUPER_ADMIN_TELEGRAM_ID) and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID
+    of sync with the two already here.
+
+    Owner spec, 2026-09-12: Telegram ID alone used to be enough (the
+    only version of this check until now). The owner explicitly asked
+    for a second factor — ownerVerifiedAt is only ever set by
+    verify_owner_password below, once, via a Telegram command only the
+    real owner knows the password for. Until that command has been
+    sent (migration_24 applied + NOVA_OWNER_PASSWORD configured +
+    "/تفعيل_المالك <password>" sent once), this now returns False even
+    for a request carrying the right telegramId — that's a real,
+    intentional behavior change from before, not a bug."""
+    return (
+        bool(SUPER_ADMIN_TELEGRAM_ID)
+        and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID
+        and bool(user.get("ownerVerifiedAt"))
+    )
+
+
+def verify_owner_password(telegram_id: str, password: str) -> tuple[bool, str]:
+    """Owner spec, 2026-09-12 ("لي أنا شخصياً، عبر معرف تيليجرام + كلمة
+    سر أضيفها... استخدم نفس آلية التعرف الموجودة مسبقاً"): reuses the
+    existing SUPER_ADMIN_TELEGRAM_ID comparison as one factor, adds the
+    password as the other — same simple env-var-equality style already
+    used for NOVA_BOT_CREATOR_PASSWORD elsewhere in this project, not a
+    new auth system. hmac.compare_digest instead of == on the password:
+    a real, cheap constant-time comparison that costs nothing here and
+    closes a timing side-channel a plain string compare has. Generic
+    failure message on any wrong factor — never reveals which one
+    failed, so a wrong password guess can't be used to first confirm
+    the right Telegram ID."""
+    if not SUPER_ADMIN_TELEGRAM_ID or not NOVA_OWNER_PASSWORD:
+        return False, "وضع المالك غير مُعدّ على الخادم بعد (SUPER_ADMIN_TELEGRAM_ID أو NOVA_OWNER_PASSWORD غير موجودين)."
+    telegram_id_ok = str(telegram_id) == SUPER_ADMIN_TELEGRAM_ID
+    password_ok = hmac.compare_digest(password or "", NOVA_OWNER_PASSWORD)
+    if not (telegram_id_ok and password_ok):
+        return False, "بيانات التحقق غير صحيحة."
+
+    user = resolve_or_create_user("TELEGRAM", telegram_id=telegram_id)
+    get_supabase().table("NovaUser").update({"ownerVerifiedAt": datetime.now(timezone.utc).isoformat()}).eq(
+        "id", user["id"]
+    ).execute()
+    return True, "تم تفعيل وضع المالك بنجاح."
 
 
 def check_video_duration(user: dict, requested_seconds: int | None) -> tuple[bool, int, str]:
