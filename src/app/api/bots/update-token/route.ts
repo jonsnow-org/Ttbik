@@ -13,29 +13,53 @@ import { prisma } from "@/lib/prisma";
 export async function GET(req: NextRequest) {
   const newToken = req.nextUrl.searchParams.get("newToken");
   const botId = req.nextUrl.searchParams.get("botId") || undefined;
-  return handleUpdate(newToken, botId);
+  const template = req.nextUrl.searchParams.get("template") || undefined;
+  return handleUpdate(newToken, botId, template);
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { botId, newToken } = await req.json();
-    return handleUpdate(newToken, botId);
+    const { botId, newToken, template } = await req.json();
+    return handleUpdate(newToken, botId, template);
   } catch (error: any) {
     return NextResponse.json({ success: false, error: error.message || "invalid request body" }, { status: 400 });
   }
 }
 
-async function handleUpdate(newToken: string | null | undefined, botId: string | undefined) {
+async function handleUpdate(newToken: string | null | undefined, botId: string | undefined, template: string | undefined) {
   try {
     if (!newToken || typeof newToken !== "string") {
       return NextResponse.json({ success: false, error: "newToken is required" }, { status: 400 });
     }
 
     let targetId: string | undefined = botId;
+
+    // Real incident, 2026-09-12: a super-admin owner with MORE than one
+    // Bot row (Nova plus at least one other deployed bot, both under the
+    // same ownerId) hit the "default target" branch below, which had no
+    // way to prefer the right one and grabbed an unrelated bot — the
+    // very next line then failed with a unique-constraint error trying
+    // to write NOVA's own already-correct token onto that wrong row.
+    // Checked first, before any ownerId guessing: if a row ALREADY has
+    // this exact token (the common real case for this endpoint — just
+    // re-registering a webhook that got cleared, not an actual
+    // rotation), that row is unambiguously the right one regardless of
+    // how many bots this owner has.
+    if (!targetId) {
+      const exactTokenMatch = await prisma.bot.findUnique({ where: { token: newToken } });
+      if (exactTokenMatch) targetId = exactTokenMatch.id;
+    }
+
     if (!targetId && process.env.SUPER_ADMIN_TELEGRAM_ID) {
       // Default target: the platform's own bot, owned by SUPER_ADMIN_TELEGRAM_ID
-      // — distinct from any other bots deployed on the platform.
-      const superAdminBot = await prisma.bot.findFirst({ where: { ownerId: process.env.SUPER_ADMIN_TELEGRAM_ID } });
+      // — distinct from any other bots deployed on the platform. Prefers
+      // NOVA_BOT specifically now (same real incident above: ownerId
+      // alone isn't unique enough once more than one bot shares it) —
+      // pass ?template=OTHER_TEMPLATE explicitly to target a different
+      // one of the owner's bots instead.
+      const superAdminBot = await prisma.bot.findFirst({
+        where: { ownerId: process.env.SUPER_ADMIN_TELEGRAM_ID, template: template || "NOVA_BOT" },
+      });
       if (superAdminBot) targetId = superAdminBot.id;
     }
     if (!targetId) {
