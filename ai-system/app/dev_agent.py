@@ -141,11 +141,11 @@ def update_file(path: str, branch: str, new_content: str, sha: str, commit_messa
         raise DevAgentError(f"تعذّر كتابة التعديل على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
 
 
-def open_pull_request(branch: str, title: str, body: str, base_branch: str | None = None) -> str:
-    """Returns the PR's html_url. This is the ONLY function in this
-    module that can be described as "shipping" a change anywhere near
-    the live branch — and even this only opens a PR against it,
-    never merges. No function anywhere here calls the merge endpoint."""
+def open_pull_request(branch: str, title: str, body: str, base_branch: str | None = None) -> tuple[str, int]:
+    """Returns (html_url, pr_number). Opening a PR is the only function
+    in this module that gets anywhere near the live branch by default —
+    see merge_pull_request below for the one, explicitly opt-in
+    exception the owner asked for."""
     _ensure_configured()
     resp = requests.post(
         f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/pulls",
@@ -155,4 +155,27 @@ def open_pull_request(branch: str, title: str, body: str, base_branch: str | Non
     )
     if not resp.ok:
         raise DevAgentError(f"تعذّر فتح Pull Request ({resp.status_code}): {resp.text[:300]}")
-    return resp.json()["html_url"]
+    data = resp.json()
+    return data["html_url"], data["number"]
+
+
+def merge_pull_request(pr_number: int) -> None:
+    """Owner spec, 2026-09-12 ("بداية نفعلها لي أنا مع الدمج التلقائي"):
+    the ONE explicitly opt-in exception to "never merges" above —
+    called ONLY when main.py has confirmed quota.is_platform_owner(user)
+    AND the owner's request went through the auto-merge path. Still a
+    real git merge commit (not a direct push/rewrite) — the change
+    stays a normal, revertable commit in history either way, this just
+    skips the manual tap. Raises DevAgentError on failure (e.g. a
+    branch-protection rule blocking the merge) rather than failing
+    silently, so the owner finds out the PR is still open awaiting
+    manual action."""
+    _ensure_configured()
+    resp = requests.put(
+        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/pulls/{pr_number}/merge",
+        headers=_headers(),
+        json={"merge_method": "squash"},
+        timeout=30,
+    )
+    if not resp.ok:
+        raise DevAgentError(f"تعذّر الدمج التلقائي ({resp.status_code}): {resp.text[:300]} — الـPR ما زال مفتوحاً للمراجعة اليدوية.")

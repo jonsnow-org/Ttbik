@@ -385,18 +385,26 @@ def _try_handle_dev_agent_command(user: dict, message: str, chat_id: str) -> boo
         _send_telegram_message(chat_id, "يجب تحديد كل من مسار الملف ووصف التعديل بعد ::")
         return True
 
+    _run_dev_agent_proposal(chat_id, file_path, instruction)
+    return True
+
+
+def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str) -> None:
+    """Shared by both Dev Agent entry points: the explicit
+    "/اقتراح_تعديل" command above and the natural-language DEV intent
+    in _process_chat_and_deliver below. Both callers already confirmed
+    quota.is_platform_owner(user) before reaching here — auto_merge=True
+    is hardcoded, never conditional on anything read from the message
+    itself. No extra thread/BackgroundTask needed — always called from
+    within _process_chat_and_deliver, which is ALREADY its own FastAPI
+    BackgroundTask; nothing is waiting on this to return."""
     _send_telegram_message(chat_id, f"⚙️ جارٍ إعداد مقترح تعديل لـ {file_path} — سيصلك رابط Pull Request للمراجعة فور الانتهاء.")
-    # No extra thread/BackgroundTask needed here — this function is
-    # only ever called from _process_chat_and_deliver, which is
-    # ALREADY running as its own FastAPI BackgroundTask (see that
-    # function's docstring); nothing is waiting on this call to return.
     try:
-        result_message = council.propose_code_change(file_path, instruction)
+        result_message = council.propose_code_change(file_path, instruction, auto_merge=True)
     except Exception:
         logger.exception("dev-agent proposal failed for chat_id=%s file=%s", chat_id, file_path)
         result_message = "حدث خطأ غير متوقع أثناء إعداد المقترح — راجع سجلات الخادم."
     _send_telegram_message(chat_id, result_message)
-    return True
 
 
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
@@ -438,10 +446,24 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         intent_result = {"intent": "TEXT", "prompt": ""}
     else:
         try:
-            intent_result = council.classify_intent(message, _recent_context_for_intent(user["id"]))
+            # Owner spec, 2026-09-12 ("محادثتي له ستكون عبر البوت...
+            # كما اتحدث معك الآن هنا"): allow_dev only ever True for
+            # the owner's own messages — adds the DEV option to
+            # classify_intent's schema so the owner can describe a
+            # real code change in plain conversation instead of the
+            # fixed "/اقتراح_تعديل" command (that command still works
+            # too, for a precise one-liner).
+            intent_result = council.classify_intent(
+                message, _recent_context_for_intent(user["id"]), allow_dev=quota.is_platform_owner(user)
+            )
         except Exception:
             logger.exception("intent classification failed for chat_id=%s — defaulting to a normal text answer", chat_id)
             intent_result = {"intent": "TEXT", "prompt": ""}
+
+    if intent_result["intent"] == "DEV":
+        quota.refund_quota(user["id"], "TEXT")
+        _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"])
+        return
 
     if intent_result["intent"] in ("IMAGE", "VIDEO"):
         # chat() below already reserved one TEXT quota unit before

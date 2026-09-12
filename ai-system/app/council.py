@@ -700,6 +700,20 @@ _INTENT_CLASSIFY_INSTRUCTION = (
 )
 
 
+_DEV_INTENT_ADDENDUM = (
+    "\n\nملاحظة إضافية (تنطبق فقط على هذه المحادثة، المالك يتحدث معك "
+    'الآن): قد تكون رسالته أيضاً طلب تعديل حقيقي على كود المشروع (مثل '
+    '"غيّر رسالة الترحيب لتصير أكثر ودية" أو "أصلح كذا في ملف كذا"). إن '
+    "كانت كذلك، أجب بهذا الشكل بدلاً من IMAGE/VIDEO/TEXT:\n"
+    '{"intent": "DEV", "file_path": "المسار الحقيقي للملف داخل المستودع '
+    "إن ذكره المستخدم أو كان واضحاً جداً من السياق، وإلا اتركه فارغاً "
+    'تماماً (لا تخمّن مساراً غير مؤكد أبداً)", "instruction": "وصف دقيق '
+    'وواضح لما يجب تغييره في الملف، بأي لغة"}\n'
+    "لا تستخدم DEV إلا إذا كان الطلب فعلاً عن تعديل كود/ملف حقيقي، وليس "
+    "مجرد سؤال عام عن البرمجة."
+)
+
+
 def _parse_intent_json(raw: str) -> dict:
     match = re.search(r"\{.*\}", raw, re.DOTALL) if raw else None
     if not match:
@@ -709,6 +723,15 @@ def _parse_intent_json(raw: str) -> dict:
     except Exception:
         return {"intent": "TEXT", "prompt": ""}
     intent = str(data.get("intent", "TEXT")).strip().upper()
+    if intent == "DEV":
+        file_path = str(data.get("file_path") or "").strip()
+        dev_instruction = str(data.get("instruction") or "").strip()
+        if not file_path or not dev_instruction:
+            # No confident file path — never guess which file to edit;
+            # falls through to a normal conversational answer instead
+            # (harmless), same "ambiguous -> TEXT" rule as IMAGE/VIDEO.
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "DEV", "file_path": file_path, "instruction": dev_instruction}
     if intent not in ("IMAGE", "VIDEO", "TEXT"):
         intent = "TEXT"
     prompt = str(data.get("prompt") or "").strip()
@@ -720,7 +743,7 @@ def _parse_intent_json(raw: str) -> dict:
     return {"intent": intent, "prompt": prompt}
 
 
-def classify_intent(message: str, recent_context: str = "") -> dict:
+def classify_intent(message: str, recent_context: str = "", allow_dev: bool = False) -> dict:
     """Owner correction, 2026-09-09 ("ليس هدفنا البوت... اذا وضعنا اوامر
     اجبارية لاجل تنظيم الرد بالبوت... سيكون مبرمج على الاجبار وليس الذكاء
     المعرفي"): replaces both the old keyword-list detector
@@ -751,8 +774,20 @@ def classify_intent(message: str, recent_context: str = "") -> dict:
     for this one invisible step. Any parse failure, empty response, or
     ambiguous result defaults to TEXT: a missed media request just
     becomes a normal conversational answer (harmless), while a false
-    positive would wrongly reserve/burn a user's image/video quota."""
+    positive would wrongly reserve/burn a user's image/video quota.
+
+    allow_dev (owner spec, 2026-09-12: "محادثتي له ستكون عبر البوت...
+    كما اتحدث معك الآن" — talk naturally instead of memorizing a fixed
+    "/اقتراح_تعديل <path> :: <instruction>" command): main.py passes
+    True only when quota.is_platform_owner(user) already confirmed the
+    caller is the owner — adds the DEV option to the schema so a plain
+    conversational request can trigger the Dev Agent. A file path the
+    model isn't confident about never gets guessed (see
+    _parse_intent_json) — that falls through to TEXT, same as any
+    other ambiguous case here."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
+    if allow_dev:
+        instruction += _DEV_INTENT_ADDENDUM
     raw = None
     try:
         raw = call_groq(instruction, "")
@@ -979,22 +1014,30 @@ _DEV_AGENT_INSTRUCTION_TEMPLATE = (
 )
 
 
-def propose_code_change(file_path: str, instruction: str) -> str:
+def propose_code_change(file_path: str, instruction: str, auto_merge: bool = False) -> str:
     """Owner-only "Dev Agent" entry point — main.py calls this ONLY
     after confirming quota.is_platform_owner(user) for the current
     request; there is no separate authorization check here, same
     one-check-done-upstream pattern as the /admin/* endpoints'
     _require_internal.
 
-    Owner spec, 2026-09-12, verbatim, all still true here: "ممنوع
-    التنفيذ الفوري أو الكتابة المباشرة على الفرع الحي بأي شكل... أي
-    تعديل يقترحه نوفا يُنشأ كفرع Git جديد + Pull Request... ولا يُدمج
-    إلا بعد مراجعة." This function never writes to
-    NOVA_DEV_AGENT_BASE_BRANCH — dev_agent.create_branch always forks a
-    fresh branch first, dev_agent.update_file only ever targets that
-    fresh branch, and nothing here calls a merge endpoint at all (see
-    dev_agent.py's own module docstring for the full constraint list
-    and why it holds by construction, not just by convention).
+    Owner spec, 2026-09-12, verbatim, still the DEFAULT behavior here:
+    "ممنوع التنفيذ الفوري أو الكتابة المباشرة على الفرع الحي بأي شكل...
+    أي تعديل يقترحه نوفا يُنشأ كفرع Git جديد + Pull Request... ولا
+    يُدمج إلا بعد مراجعة." This function never writes to
+    NOVA_DEV_AGENT_BASE_BRANCH directly — dev_agent.create_branch
+    always forks a fresh branch first, dev_agent.update_file only ever
+    targets that fresh branch.
+
+    auto_merge — owner follow-up, 2026-09-12 ("بداية نفعلها لي أنا مع
+    الدمج التلقائي"): the ONE explicit, opt-in exception to "never
+    merges" — main.py only ever passes True here for the owner's own
+    requests specifically (never for any other caller), and even then
+    the change still lands as a real, revertable git commit via
+    GitHub's own merge endpoint (dev_agent.merge_pull_request) — not a
+    direct unreviewed write to the branch. A merge failure (e.g.
+    branch protection) leaves the PR open for manual merge instead of
+    silently discarding the proposal.
 
     Real, not guessed, reuse: OUR OWN model already answers CODE
     queries best (query_type="CODE" picks the right persona/temperature
@@ -1033,16 +1076,23 @@ def propose_code_change(file_path: str, instruction: str) -> str:
             file_path, branch_name, cleaned, sha,
             commit_message=f"Nova Dev Agent: {instruction[:200]}",
         )
-        pr_url = dev_agent.open_pull_request(
+        pr_url, pr_number = dev_agent.open_pull_request(
             branch_name,
             title=f"Nova Dev Agent: {instruction[:70]}",
             body=(
                 f"مقترح تلقائي من نوفا (وضع المالك)، بناءً على الطلب التالي:\n\n"
                 f"> {instruction}\n\n"
                 f"الملف: `{file_path}`\n\n"
-                "**هذا اقتراح فقط — يتطلب مراجعة بشرية قبل أي دمج، ولم يُدمج تلقائياً.**"
+                + ("**دُمج تلقائياً بطلب المالك (auto_merge).**" if auto_merge
+                   else "**هذا اقتراح فقط — يتطلب مراجعة بشرية قبل أي دمج، ولم يُدمج تلقائياً.**")
             ),
         )
+        if auto_merge:
+            try:
+                dev_agent.merge_pull_request(pr_number)
+                return f"✅ تم إنشاء التعديل ودمجه تلقائياً:\n{pr_url}"
+            except dev_agent.DevAgentError as e:
+                return f"تم إنشاء الاقتراح لكن فشل الدمج التلقائي — يبقى مفتوحاً للمراجعة اليدوية:\n{pr_url}\n({e})"
         return f"✅ تم إنشاء اقتراح التعديل كطلب Pull Request للمراجعة:\n{pr_url}"
     except dev_agent.DevAgentError as e:
         return str(e)
