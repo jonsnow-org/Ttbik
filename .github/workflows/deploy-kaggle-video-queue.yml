@@ -1,0 +1,89 @@
+name: Deploy + Run Kaggle Video Queue Processor
+
+# لماذا هذا الـworkflow موجود: owner spec 2026-09-12 ("لا اريد عرض
+# شرائح... اريد فديو حقيقي وليس شرائح") — فيديو حقيقي (CogVideoX-2B)
+# يحتاج معالجاً رسومياً (GPU) لا يوجد استضافة حية مجانية له، فالحل
+# الصادق هو معالجة الطلبات على دفعات مجدولة عبر GPU T4 المجاني على
+# Kaggle (نفس آلية kaggle kernels push الموثوقة أصلاً في هذا المشروع،
+# انظر deploy-kaggle-image-video-notebook.yml لنفس المنطق بالتفصيل).
+#
+# فرق جوهري عن ذاك الـworkflow: هذا يحتاج جدولة (schedule) حقيقية —
+# هذا الدفتر يُشغَّل بشكل متكرر لمعالجة الطابور، وليس مرة واحدة فقط
+# لاقتناء نموذج.
+#
+# ملاحظة معروفة ومقبولة من المالك (نفس ملاحظة الدفتر الآخر بالضبط):
+# دفع الدفتر عبر الـAPI قد يُعطّل ربط أسرار Kaggle (Secrets) المرفقة —
+# راجع يدوياً من واجهة Kaggle أن الأسرار الخمسة (SUPABASE_URL،
+# SUPABASE_SERVICE_ROLE_KEY، NOVA_BOT_TOKEN، NOVA_INTERNAL_SECRET،
+# NOVA_FASTAPI_URL) لا تزال مفعّلة بعد كل عملية دفع تلقائي.
+#
+# الجدولة كل 12 ساعة (وليس أكثر): تحفظ حصة GPU المجانية الأسبوعية
+# (30 ساعة) مشتركة مع دفتر التدريب الأسبوعي (merge_and_finetune) —
+# عدّل الفاصل الزمني هنا مباشرة إن احتجت معالجة أسرع أو أردت توفير
+# حصة أكبر للتدريب.
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/process_video_queue.ipynb"
+  schedule:
+    - cron: "0 */12 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Kaggle CLI
+        run: pip install --upgrade kaggle
+
+      - name: Try to pull an existing kernel first (preserves its real GPU/internet/secrets settings if it exists)
+        id: pull
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p ./kaggle-kernel
+          if kaggle kernels pull jonsnowjonsnow/process-video-queue -p ./kaggle-kernel -m; then
+            echo "existed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "existed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create fresh kernel metadata if it didn't exist yet (GPU + internet explicitly on, private)
+        if: steps.pull.outputs.existed == 'false'
+        run: |
+          cat > ./kaggle-kernel/kernel-metadata.json <<'EOF'
+          {
+            "id": "jonsnowjonsnow/process-video-queue",
+            "title": "process-video-queue",
+            "code_file": "process_video_queue.ipynb",
+            "language": "python",
+            "kernel_type": "notebook",
+            "is_private": true,
+            "enable_gpu": true,
+            "enable_internet": true,
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          EOF
+
+      - name: Overwrite the notebook content with this repo's version
+        run: |
+          CODE_FILE=$(jq -r '.code_file' ./kaggle-kernel/kernel-metadata.json)
+          cp ai-system/colab/process_video_queue.ipynb "./kaggle-kernel/$CODE_FILE"
+
+      - name: Push notebook to Kaggle (also triggers a real run there)
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: kaggle kernels push -p ./kaggle-kernel

@@ -94,7 +94,14 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
     """Same async-delivery shape as _send_telegram_message above, but
     for a generated video file — sendVideo needs a real multipart file
     upload, not a JSON body, and a longer timeout since video files run
-    much larger than a text payload."""
+    much larger than a text payload.
+
+    Owner spec, 2026-09-12: real video delivery moved to
+    ai-system/colab/process_video_queue.ipynb, which sends straight to
+    Telegram itself from Kaggle (the video bytes never pass through
+    this server at all now) — this function has no caller left in this
+    file. Kept, not deleted: same real, working sendVideo call this
+    project would need again if delivery ever moves back to Render."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async video to Telegram chat_id=%s", chat_id)
         return
@@ -336,8 +343,7 @@ def _dispatch_media_intent(user: dict, channel: str, chat_id: str, message: str,
         _send_telegram_message(chat_id, "🖼 جارٍ توليد الصورة — قد يستغرق الأمر بضع دقائق، ستصلك هنا فور الانتهاء.")
         _process_image_gen_and_deliver(user["id"], channel, chat_id, message, expanded_prompt=expanded_prompt)
     else:
-        _send_telegram_message(chat_id, "🎬 جارٍ توليد الفيديو — قد يستغرق الأمر عدة دقائق، سيصلك هنا فور الانتهاء.")
-        _process_video_and_deliver(user["id"], channel, chat_id, message, seconds, expanded_prompt=expanded_prompt)
+        _enqueue_real_video(user["id"], channel, chat_id, message, seconds, expanded_prompt=expanded_prompt)
 
 
 _DEV_AGENT_COMMAND_PREFIX = "/اقتراح_تعديل"
@@ -792,55 +798,49 @@ class GenerateVideoResponse(BaseModel):
     quota_message: str
 
 
-def _process_video_and_deliver(
+def _enqueue_real_video(
     user_id: str, channel: str, chat_id: str, prompt: str, seconds: int, expanded_prompt: str | None = None
 ) -> None:
-    """Runs in a FastAPI BackgroundTask — see _process_image_and_deliver
-    above for why this needs its own try/except (no HTTP response left
-    to surface an exception on once this starts). expanded_prompt: see
-    _process_image_gen_and_deliver's own docstring for why this param
-    exists."""
-    stop_typing, typing_thread = _start_typing_loop(chat_id, action="upload_video")
+    """Owner spec, 2026-09-12 ("لا اريد عرض شرائح... اريد فديو حقيقي
+    وليس شرائح"): replaces the old CPU-only "AI keyframes + classical
+    Ken Burns slideshow" path (council.generate_video) — that was an
+    honest workaround for having no free GPU to serve video live, but
+    the owner explicitly rejected it once he saw it: it isn't real
+    video, it's stills with pan/zoom. Real video (CogVideoX-2B, already
+    confirmed working — 157s on an actual T4 GPU, see
+    ai-system/colab/generate_image_model.ipynb's own test cell) needs a
+    real GPU this project has no free LIVE-serving access to — so the
+    honest way to still deliver REAL video at $0 is to queue it here
+    and let a scheduled Kaggle run (ai-system/colab/process_video_queue.ipynb,
+    real free T4 GPU quota) generate and deliver it directly to
+    Telegram in a later batch. Real trade-off, stated plainly: this is
+    no longer "a few minutes" — it's "whenever the next scheduled batch
+    runs" (see that workflow's own schedule for the current interval).
+    A real video is worth more than an instant slideshow was, per the
+    owner's own explicit priority."""
+    # Owner spec, 2026-09-09-era pattern, still real here: this may run
+    # inside a FastAPI BackgroundTask with no request/response cycle
+    # left to surface an exception on — an uncaught error here would
+    # leave the user with total silence, the exact failure mode this
+    # file has fixed repeatedly elsewhere.
     try:
-        # See _process_image_gen_and_deliver's own comment above for why
-        # this expansion step exists and what it costs in real latency.
         expanded_prompt = expanded_prompt or council.expand_media_prompt(prompt, "video")
         if expanded_prompt != prompt:
-            # See _process_image_gen_and_deliver's own comment above —
-            # same "PROMPT_EXPANSION" fix, same reason.
             quota.log_usage(
                 user_id, channel, "PROMPT_EXPANSION",
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
-        video_bytes = council.generate_video(expanded_prompt, seconds)
-        if video_bytes is None:
-            # Owner directive, 2026-09-08 (real evidence): video
-            # generation on this CPU-only box now builds real AI
-            # keyframes + classical animation instead of raw video
-            # diffusion (see council.py's generate_video docstring for
-            # the measured 157s-on-GPU-vs-hang-on-CPU evidence behind
-            # that switch) — genuinely a few minutes, not hours, so a
-            # failure here is more likely a mid-deploy restart or one
-            # bad keyframe than the old "no GPU" story. A failure here
-            # is never the user's fault either way — refund the quota
-            # unit this request already reserved.
-            quota.refund_quota(user_id, "IMAGE")
-            _send_telegram_message(
-                chat_id,
-                "تعذّر توليد الفيديو هذه المرة — إما أن الخادم لا يزال يُعيد "
-                "التشغيل بعد تحديث، أو حدث خطأ غير متوقع أثناء التوليد. حاول "
-                "مرة أخرى (لم يُخصَم هذا من حدك اليومي).",
-            )
-            return
-        quota.log_usage(user_id, channel, "VIDEO_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
-        _send_telegram_video(chat_id, video_bytes, prompt)
+        quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
+        _send_telegram_message(
+            chat_id,
+            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج على دفعات مجدولة على معالج رسومي حقيقي، "
+            "وقد يستغرق وصوله ساعات وليس دقائق. سيصلك هنا مباشرة فور الانتهاء.",
+        )
     except Exception:
-        logger.exception("background video pipeline failed for chat_id=%s", chat_id)
+        logger.exception("failed to enqueue real video for chat_id=%s", chat_id)
         quota.refund_quota(user_id, "IMAGE")
-        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
-    finally:
-        _stop_typing_loop(stop_typing, typing_thread)
+        _send_telegram_message(chat_id, "حدث خطأ أثناء جدولة طلب الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
 
 
 # Owner spec, 2026-09-09 ("الافتراضي 6 الى 10 حسب الطلب من المستخدم"):
@@ -877,7 +877,7 @@ def generate_video(
     if not duration_ok:
         raise HTTPException(status_code=429, detail=duration_message)
 
-    background_tasks.add_task(_process_video_and_deliver, user["id"], req.channel, req.chat_id, req.prompt, seconds)
+    background_tasks.add_task(_enqueue_real_video, user["id"], req.channel, req.chat_id, req.prompt, seconds)
 
     return GenerateVideoResponse(accepted=True, quota_message=quota_message)
 
@@ -1079,6 +1079,38 @@ def admin_verify_owner_password(req: VerifyOwnerPasswordRequest, x_internal_secr
     _require_internal(x_internal_secret)
     ok, message = quota.verify_owner_password(req.telegram_id, req.password)
     return {"ok": ok, "message": message}
+
+
+class VideoQueueResultRequest(BaseModel):
+    queue_id: str
+    success: bool
+    error: str | None = None
+
+
+@app.post("/admin/video-queue-result")
+def admin_video_queue_result(req: VideoQueueResultRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12 ("اريد فديو حقيقي وليس شرائح"): called by
+    ai-system/colab/process_video_queue.ipynb (a scheduled Kaggle run,
+    real T4 GPU) after each real CogVideoX-2B attempt — success once
+    the video is actually sent to Telegram directly from Kaggle
+    (this endpoint never handles the video bytes themselves), failure
+    otherwise. Same _require_internal gate as every other /admin/*
+    endpoint; the Kaggle notebook holds NOVA_INTERNAL_SECRET as its own
+    Kaggle Secret, same value already used for Ttbik-server-to-Render
+    calls, no new secret introduced. quota.complete_video updates the
+    queue row and refunds the IMAGE quota unit on failure — never the
+    user's fault either way."""
+    _require_internal(x_internal_secret)
+    row = quota.complete_video(req.queue_id, req.success, req.error)
+    if row is None:
+        raise HTTPException(status_code=404, detail="queue_id not found")
+    if not req.success:
+        _send_telegram_message(
+            row["chatId"],
+            "تعذّر توليد الفيديو الحقيقي هذه المرة أثناء المعالجة على الدفعة المجدولة — حاول مرة أخرى "
+            "(لم يُخصَم هذا من حدك اليومي).",
+        )
+    return {"ok": True}
 
 
 class UsageLogsRequest(BaseModel):

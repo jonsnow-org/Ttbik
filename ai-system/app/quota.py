@@ -529,3 +529,48 @@ def reject_subscription(sub_id: str) -> dict | None:
 def list_telegram_user_ids() -> list[str]:
     res = get_supabase().table("NovaUser").select("telegramId").not_.is_("telegramId", "null").execute()
     return [r["telegramId"] for r in res.data if r.get("telegramId")]
+
+
+def enqueue_video(user_id: str, channel: str, chat_id: str, prompt: str, seconds: int = 6) -> str:
+    """Owner spec, 2026-09-12 ("لا اريد عرض شرائح... اريد فديو حقيقي"):
+    real video needs a real GPU this project has no free LIVE-serving
+    access to — see prisma/migration_25_nova_video_queue.sql's own
+    comment for the honest reasoning. Inserts a PENDING row;
+    ai-system/colab/process_video_queue.ipynb (a scheduled Kaggle run,
+    real T4 GPU) picks it up later and delivers straight to Telegram —
+    real CogVideoX-2B output, not instant. Returns the new row's id."""
+    row_id = str(uuid.uuid4())
+    get_supabase().table("NovaVideoQueue").insert(
+        {
+            "id": row_id, "novaUserId": user_id, "channel": channel, "chatId": str(chat_id),
+            "prompt": prompt, "seconds": seconds,
+        }
+    ).execute()
+    return row_id
+
+
+def complete_video(queue_id: str, success: bool, error: str | None = None) -> dict | None:
+    """Called by main.py's /admin/video-queue-result endpoint, which
+    ai-system/colab/process_video_queue.ipynb POSTs to after each
+    attempt (success once the video is actually sent to Telegram from
+    Kaggle, failure otherwise). Refunds the IMAGE quota unit reserved
+    at enqueue time on failure — the request was never the user's
+    fault either way, same "never charge a user for our own failure"
+    rule already applied everywhere else in this file. Returns the row
+    (for its novaUserId/chatId) so the caller can notify the user, or
+    None if the id doesn't exist."""
+    db = get_supabase()
+    res = db.table("NovaVideoQueue").select("*").eq("id", queue_id).limit(1).execute()
+    if not res.data:
+        return None
+    row = res.data[0]
+    db.table("NovaVideoQueue").update(
+        {
+            "status": "DONE" if success else "FAILED",
+            "error": None if success else (error or "")[:2000],
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", queue_id).execute()
+    if not success:
+        refund_quota(row["novaUserId"], "IMAGE")
+    return row

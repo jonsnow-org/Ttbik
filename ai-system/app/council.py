@@ -892,7 +892,17 @@ def _seconds_to_cogvideox_frames(seconds: int) -> int:
 
 
 def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
-    """Thin wrapper enforcing a real hard wall-clock deadline — see
+    """Owner spec, 2026-09-12 ("لا اريد عرض شرائح... اريد فديو حقيقي"):
+    UNUSED as of this date — main.py's real video path now enqueues to
+    NovaVideoQueue (quota.enqueue_video) for a scheduled Kaggle batch
+    run (ai-system/colab/process_video_queue.ipynb, real CogVideoX-2B
+    on a real T4 GPU) instead of calling this CPU-only keyframe
+    slideshow. Kept, not deleted: the real, working fallback if the
+    Kaggle batch pipeline is ever unavailable and an instant (if
+    honestly-labeled-as-a-slideshow) response is preferred again over
+    no video at all.
+
+    Thin wrapper enforcing a real hard wall-clock deadline — see
     _with_hard_deadline's own docstring (same real bug that made a
     plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
     keep requests' own `timeout=` from ever firing).
