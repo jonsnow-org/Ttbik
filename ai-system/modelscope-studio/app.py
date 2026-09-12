@@ -1147,16 +1147,35 @@ def _add_narration_audio(video_path: str, prompt: str) -> str:
     stretch. If the request fails, or the ffmpeg mux step fails for any
     other reason, this returns the original silent video_path
     unchanged — a silent video is still strictly better than failing
-    the whole request over a missing narration track. Needs a real
-    live test after deploy to confirm which case actually happens
-    here."""
+    the whole request over a missing narration track.
+
+    Owner report, 2026-09-12 (real evidence — a real video request
+    never arrived at all, long past the few-minutes this normally
+    takes): confirmed the real gap — gTTS's own network call has no
+    timeout of its own, so if this network path is silently blocked
+    (packets dropped, not actively refused) rather than cleanly
+    rejected, the call can hang far longer than any reasonable
+    request should wait, blocking the entire video behind an optional
+    narration step. Run in a background thread with a real, short hard
+    deadline below — same pattern as council.py's _with_hard_deadline,
+    inlined here since this module has no shared import path to it."""
     try:
+        import concurrent.futures
+
         import imageio_ffmpeg
         from gtts import gTTS
 
         caption = prompt.strip()[:_NARRATION_MAX_CHARS] or "Nova AI generated video."
         audio_path = video_path.replace(".mp4", "_narration.mp3")
-        gTTS(text=caption, lang="en").save(audio_path)
+
+        def _fetch_narration() -> None:
+            gTTS(text=caption, lang="en").save(audio_path)
+
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            pool.submit(_fetch_narration).result(timeout=20)
+        finally:
+            pool.shutdown(wait=False)
 
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         muxed_path = video_path.replace(".mp4", "_with_audio.mp4")
