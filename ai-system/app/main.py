@@ -834,8 +834,8 @@ def _enqueue_real_video(
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,
-            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج على دفعات مجدولة على معالج رسومي حقيقي، "
-            "وقد يستغرق وصوله ساعات وليس دقائق. سيصلك هنا مباشرة فور الانتهاء.",
+            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، "
+            "فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
         )
     except Exception:
         logger.exception("failed to enqueue real video for chat_id=%s", chat_id)
