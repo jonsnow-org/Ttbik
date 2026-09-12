@@ -41,16 +41,61 @@ file, and says so plainly either way. Only when the owner is convinced
 and sends the explicit go-ahead does implement_new_file actually
 generate the file and open a real PR (dev_agent.create_file — the
 real, bounded extension that makes creating a NEW file possible, still
-branch-only/PR-only, never a direct live write)."""
+branch-only/PR-only, never a direct live write).
+
+Owner follow-up, 2026-09-12 ("بدلا من ان اذهب لكاكلي واعطيه وزن
+وادربه، اعطيه لنوفا مباشرة فاما هو من قوم برفعه لكاكلي او هو يقوم
+بدمجه بنفسه مباشرة كوزن وتدريب وليس كرود برومبت نصي لتعديل الاوامر
+والاستجابة"): propose_training_notebook_change is the real answer —
+Nova cannot itself run/train anything (no GPU, no subprocess/execute
+capability on Render, by permanent design — see dev_agent.py's module
+docstring), but the training notebooks
+(ai-system/colab/merge_and_finetune.ipynb and the other two below) are
+ALREADY wired to a real Kaggle GPU run the moment they change on the
+project's base branch: .github/workflows/deploy-kaggle-notebook.yml
+(and its two siblings) fire on `push` to that exact path and run
+`kaggle kernels push`, which Kaggle itself documents as triggering a
+real execution on its own GPU immediately. So the one missing piece
+was never "can Nova execute code" — it's "can Nova get the owner's
+EXACT training code into that file without an LLM silently rewriting
+it, then merge it once the owner explicitly says so." This function
+does that: extracts the owner's code verbatim from ``` fences in their
+raw message (never re-synthesized by any model — a model asked to
+"copy this exactly" into a JSON field cannot be trusted with
+whitespace-sensitive Python), does a real deterministic
+`ast.parse()` syntax check (not an LLM opinion), and — if that passes
+— appends it as a new notebook cell via plain JSON manipulation, never
+rewriting the rest of the notebook. It NEVER auto-merges (unlike the
+generic DEV/self-improvement flows): merging this specific kind of PR
+immediately burns real, scarce Kaggle GPU quota (the owner's own
+30h/week budget), so it always waits for one more explicit owner
+confirmation first, via the exact same natural-language ACCEPT/REJECT
+path as any other proposal (decide_proposal below, status
+"AWAITING_MERGE")."""
+import ast
+import json
 import logging
 import re
 import uuid
 from datetime import datetime, timezone
 
-from app import council, rag
+from app import council, dev_agent, rag
 from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
+
+# The only three files a real Kaggle GPU run is ever automatically
+# triggered from (see the three .github/workflows/deploy-kaggle-*.yml
+# files' own `on: push: paths:` — each watches exactly one of these).
+# A change proposed to any of these is real training-pipeline code, not
+# app/chat behavior, so it gets the extra "hold for explicit merge"
+# safety this module adds instead of the generic DEV flow's immediate
+# auto-merge.
+TRAINING_NOTEBOOK_PATHS = {
+    "ai-system/colab/merge_and_finetune.ipynb",
+    "ai-system/colab/process_video_queue.ipynb",
+    "ai-system/colab/generate_image_model.ipynb",
+}
 
 # A real, fixed rotating list — concrete capability areas this project
 # has ACTUAL known gaps in (per this same project's real history:
@@ -160,6 +205,101 @@ def _pick_scheduled_topic() -> str:
     return _SELF_IMPROVEMENT_TOPICS[0]
 
 
+def propose_training_notebook_change(file_path: str, raw_message: str, trigger: str) -> str:
+    """See this module's own docstring for the full reasoning. Extracts
+    the owner's code VERBATIM from ``` fences in their raw message
+    (never through any model), syntax-checks it for real, appends it as
+    a new notebook cell via plain JSON editing (never an LLM rewrite of
+    the rest of the file), opens a PR, and — critically — never
+    auto-merges: merging this exact file triggers a real Kaggle GPU
+    training run automatically (see TRAINING_NOTEBOOK_PATHS above), so
+    it always waits for one more explicit owner confirmation first."""
+    if file_path not in TRAINING_NOTEBOOK_PATHS:
+        return f"{file_path} ليس أحد دفاتر التدريب الحقيقية المعروفة — لا يمكن تنفيذ هذا عبر هذا المسار."
+
+    blocks = re.findall(r"```(?:[a-zA-Z]*\n)?(.*?)```", raw_message, re.DOTALL)
+    code = "\n\n".join(b.strip("\n") for b in blocks).strip()
+    if not code:
+        return (
+            "لم أجد كتلة كود صريحة بين علامات ``` في رسالتك — أرسل الكود "
+            "نفسه داخل علامات ``` حتى أُدرجه بدقة تامة دون أي إعادة صياغة "
+            "مني (أي إعادة صياغة قد تغيّر الكود الفعلي، وهذا غير مقبول "
+            "لكود تدريب حقيقي)."
+        )
+
+    try:
+        ast.parse(code)
+    except SyntaxError as e:
+        return (
+            f"فحصت الكود قبل أي شيء آخر ووجدت خطأ نحوي حقيقي فيه، لذا لم أُقدم على أي "
+            f"تعديل: {e.msg} (السطر {e.lineno}). صحّح الكود وأرسله مرة أخرى."
+        )
+
+    try:
+        current_content, sha = dev_agent.get_file(file_path)
+    except dev_agent.DevAgentError as e:
+        return str(e)
+
+    try:
+        notebook = json.loads(current_content)
+    except Exception:
+        return f"تعذّرت قراءة {file_path} كدفتر Jupyter صالح (JSON) — لم أُقدم على أي تعديل."
+
+    notebook.setdefault("cells", []).append(
+        {
+            "cell_type": "code",
+            "metadata": {},
+            "execution_count": None,
+            "outputs": [],
+            "source": code.splitlines(keepends=True),
+        }
+    )
+    new_content = json.dumps(notebook, ensure_ascii=False, indent=1)
+
+    branch_name = f"nova-train-code/{uuid.uuid4().hex[:10]}"
+    try:
+        dev_agent.create_branch(branch_name)
+        dev_agent.update_file(
+            file_path, branch_name, new_content, sha,
+            commit_message="Nova: insert owner-provided training code (verbatim, new cell)",
+        )
+        pr_url, _pr_number = dev_agent.open_pull_request(
+            branch_name,
+            title=f"Nova: كود تدريب من المالك مباشرة — {file_path}",
+            body=(
+                "كود قدّمه المالك مباشرة عبر المحادثة، أُدرج حرفياً كخلية جديدة في "
+                f"`{file_path}` (فحص نحوي حقيقي ناجح، بلا أي إعادة صياغة).\n\n"
+                "**لم يُدمج تلقائياً** — دمج هذا الـPR سيُشغّل تدريباً حقيقياً على "
+                "معالج Kaggle الرسومي فوراً (يستهلك من حصة الساعات الأسبوعية)، لذا "
+                "ينتظر تأكيداً صريحاً إضافياً من المالك."
+            ),
+        )
+    except dev_agent.DevAgentError as e:
+        return str(e)
+
+    proposal_id = uuid.uuid4().hex[:10]
+    get_supabase().table("NovaSelfImprovementProposal").insert(
+        {
+            "id": proposal_id,
+            "topic": "كود تدريب مُقدَّم من المالك مباشرة",
+            "finding": code[:300],
+            "file_path": file_path,
+            "status": "AWAITING_MERGE",
+            "trigger": trigger,
+            "pr_url": pr_url,
+        }
+    ).execute()
+
+    return (
+        f"✅ فحصت الكود نحوياً وهو سليم، وأدرجته حرفياً (كما هو تماماً، بلا أي إعادة "
+        f"صياغة) كخلية جديدة في {file_path}، على طلب Pull Request:\n{pr_url}\n\n"
+        f"⚠️ لم أدمجه بعد عمداً: دمجه سيُشغّل تدريباً حقيقياً على Kaggle فوراً "
+        "ويستهلك من حصتك الأسبوعية (30 ساعة). راجع الـPR، وحين تكون مستعداً قل لي "
+        f"مثلاً \"وافق على الاقتراح رقم {proposal_id}\" لأدمجه فعلياً ويبدأ التدريب "
+        f"الحقيقي، أو \"ارفض الاقتراح رقم {proposal_id}\" لإلغائه دون دمج."
+    )
+
+
 def decide_proposal(proposal_id: str, accept: bool) -> str:
     """Owner spec: the ONLY path from a proposal to a real code change
     — and even then, only when the research step above was confident
@@ -172,8 +312,37 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
     if not rows:
         return f"لا يوجد اقتراح برقم {proposal_id}."
     proposal = rows[0]
-    if proposal["status"] != "PENDING":
+    if proposal["status"] not in ("PENDING", "AWAITING_MERGE"):
         return f"هذا الاقتراح (رقم {proposal_id}) سبق أن تم البت فيه ({proposal['status']})."
+
+    if proposal["status"] == "AWAITING_MERGE":
+        # propose_training_notebook_change already opened the real PR —
+        # this is purely "merge it now or don't", never a fresh code
+        # generation step, and never auto-reached: only a proposal
+        # created by that function ever has this status.
+        if not accept:
+            db.table("NovaSelfImprovementProposal").update(
+                {"status": "REJECTED", "decided_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("id", proposal_id).execute()
+            return (
+                f"تم رفض الاقتراح رقم {proposal_id} — لن أدمجه، ولن يبدأ أي تدريب. "
+                "الـPull Request يبقى مفتوحاً دون دمج على GitHub إن أردت مراجعته أو حذفه يدوياً."
+            )
+        match = re.search(r"/pull/(\d+)", proposal.get("pr_url") or "")
+        if not match:
+            return f"لا أجد رقم الـPull Request المرتبط بالاقتراح رقم {proposal_id} — لا يمكن الدمج."
+        try:
+            dev_agent.merge_pull_request(int(match.group(1)))
+        except dev_agent.DevAgentError as e:
+            return f"تعذّر الدمج: {e} — الـPR ما زال مفتوحاً للمراجعة اليدوية."
+        db.table("NovaSelfImprovementProposal").update(
+            {"status": "ACCEPTED", "decided_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", proposal_id).execute()
+        return (
+            f"✅ تم دمج الاقتراح رقم {proposal_id} فعلياً — سيبدأ تدريب حقيقي على "
+            "معالج Kaggle الرسومي تلقائياً (نفس آلية push الموجودة أصلاً)، وستصلك رسالة "
+            "تلخيصية عند انتهاء التدريب كالمعتاد."
+        )
 
     if not accept:
         db.table("NovaSelfImprovementProposal").update(
@@ -296,8 +465,6 @@ def implement_new_file(proposal_id: str) -> str:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
         cleaned = re.sub(r"\n```\s*$", "", cleaned)
-
-    from app import dev_agent
 
     branch_name = f"nova-self-improve/{uuid.uuid4().hex[:10]}"
     try:

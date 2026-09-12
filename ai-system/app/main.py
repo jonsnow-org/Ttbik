@@ -394,11 +394,11 @@ def _try_handle_dev_agent_command(user: dict, message: str, chat_id: str) -> boo
         _send_telegram_message(chat_id, "يجب تحديد كل من مسار الملف ووصف التعديل بعد ::")
         return True
 
-    _run_dev_agent_proposal(chat_id, file_path, instruction)
+    _run_dev_agent_proposal(chat_id, file_path, instruction, message)
     return True
 
 
-def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str) -> None:
+def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str, raw_message: str) -> None:
     """Shared by both Dev Agent entry points: the explicit
     "/اقتراح_تعديل" command above and the natural-language DEV intent
     in _process_chat_and_deliver below. Both callers already confirmed
@@ -406,7 +406,26 @@ def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str) -> N
     is hardcoded, never conditional on anything read from the message
     itself. No extra thread/BackgroundTask needed — always called from
     within _process_chat_and_deliver, which is ALREADY its own FastAPI
-    BackgroundTask; nothing is waiting on this to return."""
+    BackgroundTask; nothing is waiting on this to return.
+
+    Owner spec, 2026-09-12 ("اعطيه لنوفا مباشرة فاما هو من قوم برفعه
+    لكاكلي او هو يقوم بدمجه بنفسه مباشرة كوزن وتدريب"): a real training
+    notebook (self_improve.TRAINING_NOTEBOOK_PATHS) gets routed to a
+    different, safer function instead of the generic auto-merge path
+    below — see self_improve.propose_training_notebook_change's own
+    docstring for why (verbatim code extraction from raw_message, real
+    syntax check, never auto-merged since merging it burns real Kaggle
+    GPU quota immediately)."""
+    if file_path in self_improve.TRAINING_NOTEBOOK_PATHS:
+        _send_telegram_message(chat_id, f"⚙️ جارٍ فحص الكود وإدراجه في دفتر التدريب {file_path} — لن أدمجه تلقائياً.")
+        try:
+            result_message = self_improve.propose_training_notebook_change(file_path, raw_message, trigger="owner_direct_code")
+        except Exception:
+            logger.exception("training-notebook proposal failed for chat_id=%s file=%s", chat_id, file_path)
+            result_message = "حدث خطأ غير متوقع أثناء إعداد التعديل — راجع سجلات الخادم."
+        _send_telegram_message(chat_id, result_message)
+        return
+
     _send_telegram_message(chat_id, f"⚙️ جارٍ إعداد مقترح تعديل لـ {file_path} — سيصلك رابط Pull Request للمراجعة فور الانتهاء.")
     try:
         result_message = council.propose_code_change(file_path, instruction, auto_merge=True)
@@ -471,7 +490,7 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
 
     if intent_result["intent"] == "DEV":
         quota.refund_quota(user["id"], "TEXT")
-        _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"])
+        _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"], message)
         return
 
     if intent_result["intent"] == "LEARN":

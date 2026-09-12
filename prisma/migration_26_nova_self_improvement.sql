@@ -14,7 +14,12 @@ CREATE TABLE IF NOT EXISTS "NovaSelfImprovementProposal" (
     "usefulness"   TEXT,
     "impact"       TEXT,
     "file_path"    TEXT,
-    "status"       TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | ACCEPTED | REJECTED
+    "status"       TEXT NOT NULL DEFAULT 'PENDING', -- PENDING | AWAITING_MERGE | ACCEPTED | REJECTED
+    -- AWAITING_MERGE (added 2026-09-12, self_improve.propose_training_notebook_change):
+    -- a real PR already exists (owner supplied real training code directly,
+    -- inserted verbatim as a new notebook cell) and only needs the owner's
+    -- explicit merge confirmation — merging it auto-triggers a real Kaggle
+    -- GPU training run, so it is never auto-merged like other proposals.
     "trigger"      TEXT NOT NULL DEFAULT 'scheduled', -- scheduled | owner_directed
     "pr_url"       TEXT,
     "created_at"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
