@@ -42,6 +42,7 @@ Groq)، صور (فهماً عبر نموذجنا، وتوليداً عبر أم�
 | `GEMINI_API_KEY` | https://aistudio.google.com/apikey | سجّل بحساب Google، Create API key |
 | `HF_TOKEN` | https://huggingface.co/settings/tokens | أنشئ حساباً، New token بصلاحية Write |
 | `MODELSCOPE_API_TOKEN` | modelscope.cn → إعدادات الحساب → Access Tokens | أنشئ توكناً (صيغة "ms-xxxxx") |
+| `TAVILY_API_KEY` | https://app.tavily.com/ | سجّل (بريد أو Google/GitHub، بلا بطاقة) — المفتاح يظهر مباشرة في اللوحة (يبدأ بـ"tvly-") — يصلح مشكلة البحث الحي المحظور على Render |
 
 اترك `HF_SPECIALIST_MODEL_ID`، `HF_IMAGE_MODEL_ID`، `HF_VIDEO_MODEL_ID`،
 و`MODELSCOPE_SPACE_URL` فارغة حتى تُشغّل الدفاتر/تنشئ الاستوديو في

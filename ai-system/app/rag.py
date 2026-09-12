@@ -74,7 +74,7 @@ import requests
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
 
-from app.config import GROQ_API_KEY, GROQ_MODEL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+from app.config import GROQ_API_KEY, GROQ_MODEL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, TAVILY_API_KEY
 from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
@@ -272,6 +272,37 @@ def recall(user_id: str, query: str, n_results: int = 3) -> list[str]:
     return results["documents"][0] if results["documents"] else []
 
 
+def _web_search_tavily(query: str, max_results: int) -> list[dict]:
+    """Owner spec, 2026-09-12 ("ابحث عن api مجاني يحل لنا كل مشاكل
+    البحث المباشر والوصول الحي للشبكة"): real research (not guessed)
+    found Tavily — a real search API purpose-built for LLM agents, free
+    (1,000 requests/month, NO credit card required to sign up — checked
+    directly, not assumed after Brave Search API dropped its own
+    card-free tier in Feb 2026). Tried FIRST now: unlike ddgs (which
+    scrapes DuckDuckGo's HTML search and is confirmed blocked on
+    Render's shared cloud IP — see this module's own docstring/history),
+    this is a real, documented REST API call — no scraping, no IP
+    reputation to get caught by. Returns [] (never raises) on any
+    failure — including TAVILY_API_KEY simply not being configured yet
+    — so ddgs/Instant-Answer below remain the real fallback chain,
+    unchanged, exactly as before this existed."""
+    if not TAVILY_API_KEY:
+        return []
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            headers={"Authorization": f"Bearer {TAVILY_API_KEY}", "Content-Type": "application/json"},
+            json={"query": query, "search_depth": "basic", "max_results": max_results},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        return [{"title": r.get("title", ""), "body": r.get("content", "")} for r in results]
+    except Exception as e:
+        logger.info("web_search: Tavily call failed (%s) — falling back to ddgs/Instant Answer", e)
+        return []
+
+
 def _web_search_ddgs(query: str, max_results: int) -> list[dict]:
     with DDGS() as ddgs:
         return list(ddgs.text(query, max_results=max_results))
@@ -315,6 +346,10 @@ def _web_search_duckduckgo_instant_answer(query: str, max_results: int) -> list[
 
 
 def web_search(query: str, max_results: int = 3) -> list[dict]:
+    tavily_results = _web_search_tavily(query, max_results)
+    if tavily_results:
+        return tavily_results
+
     try:
         results = _web_search_ddgs(query, max_results)
         if results:

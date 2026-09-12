@@ -147,3 +147,14 @@ CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/me
 # Hardware: ZeroGPU) per ai-system/huggingface-video/app.py.
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_VIDEO_SPACE_ID = os.environ.get("HF_VIDEO_SPACE_ID", "")
+
+# Owner spec, 2026-09-12 ("ابحث عن api مجاني يحل لنا كل مشاكل البحث
+# المباشر والوصول الحي للشبكة"): real research found Tavily — a real
+# search API built specifically for LLM agents, genuinely free (1,000
+# requests/month, no credit card required to sign up — checked
+# directly). Tried FIRST in rag.py's web_search(), ahead of ddgs
+# (confirmed blocked on Render's shared cloud IP — this is the real fix
+# for that, not a workaround). Free key: https://app.tavily.com/ ->
+# sign up (email or Google/GitHub) -> the API key is shown directly on
+# the dashboard, starts with "tvly-".
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
