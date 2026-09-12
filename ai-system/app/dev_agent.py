@@ -16,8 +16,13 @@ This module is the ENTIRE surface that touches GitHub for this
 feature. It:
   - has NO subprocess/os.system/shell-out capability of any kind —
     only `requests` HTTP calls to GitHub's REST API;
-  - can create a branch, read a file, write a file ON THAT NEW BRANCH
-    ONLY, and open a pull request;
+  - can create a branch, read a file, write OR CREATE a file ON THAT
+    NEW BRANCH ONLY (owner spec, 2026-09-12: "هل تستطيع تنفيذ هذا
+    العمل الهندسي وانشاء ملف جديد" — create_file is the real, bounded
+    extension that made a genuinely new capability possible, not just
+    editing an existing file — same branch-only/PR-only shape, just
+    omitting GitHub's own "sha" field, which is how its API already
+    distinguishes "create" from "overwrite"), and open a pull request;
   - CANNOT merge a pull request, delete a branch, change repo settings,
     or touch NOVA_DEV_AGENT_BASE_BRANCH directly — no function here
     calls any endpoint that could do those things, by construction, not
@@ -139,6 +144,37 @@ def update_file(path: str, branch: str, new_content: str, sha: str, commit_messa
     )
     if not resp.ok:
         raise DevAgentError(f"تعذّر كتابة التعديل على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
+
+
+def create_file(path: str, branch: str, content: str, commit_message: str) -> None:
+    """Owner spec, 2026-09-12 ("هل تستطيع تنفيذ هذا العمل الهندسي وانشاء
+    ملف جديد دون اخطاء... فان كان جوابه مقنعا اقول له نفذ ونعطيه
+    الصلاحية الكاملة"): the real, bounded extension that makes a
+    genuinely NEW capability (not just editing an existing file)
+    possible — still through the exact same safety shape as
+    update_file above: writes ONLY to a fresh branch, never
+    NOVA_DEV_AGENT_BASE_BRANCH directly, still surfaces as a real PR
+    for review/merge, never a direct live write. The only real
+    difference from update_file is the GitHub Contents API call below
+    omitting "sha" — GitHub's own documented way to say "this path
+    doesn't exist yet, create it" instead of "overwrite this exact
+    version of an existing file". Raises DevAgentError instead of
+    silently overwriting if the path unexpectedly already exists (a 422
+    from GitHub in that case) — this function is for creation only, use
+    update_file for an existing file."""
+    _ensure_configured()
+    resp = requests.put(
+        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
+        headers=_headers(),
+        json={
+            "message": commit_message,
+            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "branch": branch,
+        },
+        timeout=30,
+    )
+    if not resp.ok:
+        raise DevAgentError(f"تعذّر إنشاء الملف الجديد على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
 
 
 def open_pull_request(branch: str, title: str, body: str, base_branch: str | None = None) -> tuple[str, int]:

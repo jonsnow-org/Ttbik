@@ -815,6 +815,25 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
       return;
     }
+    // Owner spec, 2026-09-12 ("هل تستطيع تنفيذ هذا العمل الهندسي وانشاء
+    // ملف جديد دون اخطاء... فان كان جوابه مقنعا اقول له نفذ ونعطيه
+    // الصلاحية الكاملة"): for a proposal that needs a brand-new file
+    // (not just editing an existing one) — /تحليل_تطوير asks Nova to
+    // genuinely self-assess (self_improve.assess_feasibility, a real
+    // model call, honest either way), /تنفيذ_تطوير is the owner's
+    // explicit full-permission go-ahead after reading that analysis
+    // (self_improve.implement_new_file — only works once an analysis
+    // already stored a confident file path).
+    if (adminText.startsWith("/تحليل_تطوير ") || adminText.startsWith("/تنفيذ_تطوير ")) {
+      const isAssess = adminText.startsWith("/تحليل_تطوير ");
+      const prefix = isAssess ? "/تحليل_تطوير " : "/تنفيذ_تطوير ";
+      const proposalId = adminText.slice(prefix.length).trim();
+      const endpoint = isAssess ? "/admin/assess-self-improvement" : "/admin/implement-self-improvement";
+      const { ok, data } = await callNovaBackend(endpoint, { proposal_id: proposalId });
+      const message = ok ? data?.message || "خطأ غير معروف" : data?.detail || "تعذر الاتصال بخادم Nova AI.";
+      await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
+      return;
+    }
     if (adminText === "📢 بث جماعي") {
       await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
       return;

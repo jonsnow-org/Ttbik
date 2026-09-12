@@ -1193,6 +1193,34 @@ def admin_decide_self_improvement(req: DecideSelfImprovementRequest, x_internal_
     return {"message": self_improve.decide_proposal(req.proposal_id, req.accept)}
 
 
+class ProposalIdRequest(BaseModel):
+    proposal_id: str
+
+
+@app.post("/admin/assess-self-improvement")
+def admin_assess_self_improvement(req: ProposalIdRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12 ("هل تستطيع تنفيذ هذا العمل الهندسي...
+    فان كان جوابه مقنعا اقول له نفذ"): called by novaBotLogic.ts's
+    "/تحليل_تطوير <id>" — a REAL model call genuinely evaluating
+    whether it can implement a proposal that needs a brand-new file,
+    honest either way (self_improve.assess_feasibility)."""
+    _require_internal(x_internal_secret)
+    return {"message": self_improve.assess_feasibility(req.proposal_id)}
+
+
+@app.post("/admin/implement-self-improvement")
+def admin_implement_self_improvement(req: ProposalIdRequest, x_internal_secret: str | None = Header(default=None)):
+    """Owner spec, 2026-09-12 ("نعطيه الصلاحية الكاملة"): called by
+    novaBotLogic.ts's "/تنفيذ_تطوير <id>" — only reachable after
+    /admin/assess-self-improvement already stored a confident file
+    path. self_improve.implement_new_file does the real work: real
+    file content generated, real branch + new file + PR via
+    dev_agent.create_file, auto-merged (the owner's own explicit,
+    informed go-ahead after reading a real feasibility analysis)."""
+    _require_internal(x_internal_secret)
+    return {"message": self_improve.implement_new_file(req.proposal_id)}
+
+
 class ProposeSelfImprovementRequest(BaseModel):
     topic: str | None = None
 
