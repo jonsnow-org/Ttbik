@@ -85,7 +85,33 @@ async function handleUpdate(newToken: string | null | undefined, botId: string |
     const webhookUrl = `${siteUrl}/api/telegram/${botRow.id}`;
     await newBot.api.setWebhook(webhookUrl, { secret_token: botRow.webhookSecret });
 
-    await prisma.bot.update({ where: { id: botRow.id }, data: { token: newToken } });
+    try {
+      await prisma.bot.update({ where: { id: botRow.id }, data: { token: newToken } });
+    } catch (updateError: any) {
+      // Real incident, 2026-09-12: this kept failing with a unique-
+      // constraint error even after the exact-token-match fix above,
+      // meaning newToken already belongs to SOME row that ISN'T the one
+      // resolved above (targetId picked the wrong bot for a reason not
+      // yet understood from outside the database). Surfacing exactly
+      // which row already holds this token — never the token value
+      // itself — turns the next attempt into a real fix instead of
+      // another guess.
+      if (updateError?.code === "P2002") {
+        const conflictingRow = await prisma.bot.findUnique({ where: { token: newToken } });
+        return NextResponse.json(
+          {
+            success: false,
+            error: "unique constraint on token",
+            resolved_target: { id: botRow.id, template: botRow.template, ownerId: botRow.ownerId },
+            already_holds_this_token: conflictingRow
+              ? { id: conflictingRow.id, template: conflictingRow.template, ownerId: conflictingRow.ownerId, isActive: conflictingRow.isActive }
+              : null,
+          },
+          { status: 409 },
+        );
+      }
+      throw updateError;
+    }
 
     return NextResponse.json({ success: true, message: `Token updated for @${info.username}`, botId: botRow.id });
   } catch (error: any) {
