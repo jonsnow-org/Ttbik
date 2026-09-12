@@ -12,3 +12,13 @@ streamlit==1.41.1
 requests==2.32.3
 pypdf==5.1.0
 python-docx==1.1.2
+
+# Owner spec, 2026-09-12 (Cloudflare Workers AI integration —
+# cloudflare_ai.py): real per-frame watermark/mux for video (ffmpeg via
+# imageio-ffmpeg's bundled static binary, no system apt package needed)
+# and real pixel-level watermark + PNG metadata for images (Pillow) —
+# same two libraries modelscope-studio/requirements.txt already uses for
+# the identical reason there, needed here too since main.py now does
+# this post-processing itself for Cloudflare-sourced media.
+Pillow==11.0.0
+imageio-ffmpeg==0.5.1

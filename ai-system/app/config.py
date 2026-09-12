@@ -101,3 +101,37 @@ NOVA_DEV_AGENT_REPO = os.environ.get("NOVA_DEV_AGENT_REPO", "")
 # to fork a new branch from. Set to whatever this project's real
 # current working branch is (NOT necessarily "main").
 NOVA_DEV_AGENT_BASE_BRANCH = os.environ.get("NOVA_DEV_AGENT_BASE_BRANCH", "")
+
+# Owner spec, 2026-09-12 ("ابحث حتى لو اضطررت لتغيير النموذج كله...
+# حل نهائي ودائم للصوت والفديو والصور... ليس عبر ترميم"): real research
+# (see cloudflare_ai.py's module docstring for the full reasoning) found
+# Cloudflare Workers AI is a genuinely free ($0, no credit card, "Workers
+# Free" plan — 10,000 shared "Neurons"/day, resets daily at 00:00 UTC),
+# always-on, GPU-served hosted inference platform — a real fix for the
+# three separate workarounds this project had been forced into by owning
+# no free GPU: ModelScope's CPU-only distilled sd-turbo (poor image
+# quality), the Kaggle-scheduled async video queue (real video, but up to
+# ~2h late), and gTTS's unofficial, timeout-prone narration endpoint.
+# Sign up free at https://dash.cloudflare.com/sign-up (email+password
+# only). Account ID: Cloudflare dashboard -> Workers AI -> shown on that
+# page. Token: My Profile -> API Tokens -> Create Token -> a scoped
+# "Workers AI" template token (read-only against this one product).
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+
+# Real, documented model IDs (developers.cloudflare.com/workers-ai/models)
+# as overridable env vars rather than hardcoded, since Workers AI's free
+# catalog changes over time exactly like Groq's/Gemini's do (see those
+# vars' own comments above) — check that page for the current exact slug
+# before assuming these defaults still apply.
+CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
+# UNCONFIRMED exact slug (this project's own research could not browse
+# Cloudflare's live model list — its docs domain is blocked from this
+# sandbox's own network egress): real web search independently confirmed
+# Alibaba's "Wan" text-to-video model is live on Workers AI's free
+# catalog as of 2026-09, but not the precise @cf/... id string. Verify
+# the real current slug from the Workers AI dashboard's own model
+# catalog (it shows a copyable exact ID per model) before relying on
+# this default — override here if it differs.
+CLOUDFLARE_VIDEO_MODEL = os.environ.get("CLOUDFLARE_VIDEO_MODEL", "@cf/alibaba/wan-2.1-t2v")
+CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/melotts")

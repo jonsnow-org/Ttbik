@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import council, files, quota, rag, router
+from app import cloudflare_ai, council, files, quota, rag, router
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -96,12 +96,15 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
     upload, not a JSON body, and a longer timeout since video files run
     much larger than a text payload.
 
-    Owner spec, 2026-09-12: real video delivery moved to
-    ai-system/colab/process_video_queue.ipynb, which sends straight to
-    Telegram itself from Kaggle (the video bytes never pass through
-    this server at all now) — this function has no caller left in this
-    file. Kept, not deleted: same real, working sendVideo call this
-    project would need again if delivery ever moves back to Render."""
+    Owner spec, 2026-09-12: real video delivery had briefly moved
+    entirely to ai-system/colab/process_video_queue.ipynb (Kaggle sends
+    straight to Telegram itself, bytes never touching this server) once
+    this became the ONLY real-video path. Now that _enqueue_real_video
+    tries Cloudflare Workers AI first (answers inline, in seconds — see
+    cloudflare_ai.py), this server IS delivering real video bytes again
+    for that fast path; the Kaggle queue (and its own direct-to-Telegram
+    send) remains the fallback for whenever Cloudflare's free daily
+    Neuron quota is already used up."""
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async video to Telegram chat_id=%s", chat_id)
         return
@@ -726,7 +729,22 @@ def _process_image_gen_and_deliver(
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد صورة بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
-        image_bytes = council.generate_image(expanded_prompt)
+        # Owner spec, 2026-09-12 ("حل نهائي ودائم... ليس عبر ترميم"):
+        # tried FIRST — see cloudflare_ai.py's module docstring for why
+        # this is a real quality jump over ModelScope's distilled
+        # sd-turbo, at $0. Returns None (never raises) on any failure,
+        # including today's free daily Neuron quota simply being used
+        # up already — council.generate_image below is the exact same
+        # working fallback this project already had before Cloudflare
+        # existed, now demoted to "used only when Cloudflare didn't
+        # answer" rather than deleted.
+        image_bytes = cloudflare_ai.generate_image(expanded_prompt)
+        if image_bytes is not None:
+            logger.info("image-gen: served by Cloudflare Workers AI (flux)")
+        else:
+            image_bytes = council.generate_image(expanded_prompt)
+            if image_bytes is not None:
+                logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")
         if image_bytes is None:
             # Owner report, 2026-09-09 (real evidence): a failure here
             # is almost always the ModelScope Studio still rebuilding
@@ -817,7 +835,17 @@ def _enqueue_real_video(
     no longer "a few minutes" — it's "whenever the next scheduled batch
     runs" (see that workflow's own schedule for the current interval).
     A real video is worth more than an instant slideshow was, per the
-    owner's own explicit priority."""
+    owner's own explicit priority.
+
+    Owner follow-up, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
+    مقبول"): the Kaggle queue's up-to-~2h wait was then itself rejected
+    as too slow. Real research (not a workaround) found Cloudflare
+    Workers AI — a genuinely free, always-on, GPU-served host that
+    answers real video inline in seconds (see cloudflare_ai.py's module
+    docstring in full). This function now tries that FIRST; the Kaggle
+    queue below is unchanged and still fires automatically as the real
+    fallback for whenever Cloudflare's shared free daily Neuron quota is
+    already used up for the day."""
     # Owner spec, 2026-09-09-era pattern, still real here: this may run
     # inside a FastAPI BackgroundTask with no request/response cycle
     # left to surface an exception on — an uncaught error here would
@@ -831,16 +859,32 @@ def _enqueue_real_video(
                 f"حوّل هذا الطلب إلى وصف احترافي مفصّل لتوليد فيديو بالذكاء الاصطناعي: {prompt}",
                 expanded_prompt,
             )
+
+        # Owner spec, 2026-09-12 ("اي حل لايكون من خمس دقائق... غير
+        # مقبول"): tried FIRST — Cloudflare Workers AI answers inline,
+        # in real seconds, not the Kaggle queue's up-to-~2h batch (see
+        # cloudflare_ai.py's module docstring). Never raises — returns
+        # None on any failure, including today's free daily Neuron quota
+        # already being used up, so the enqueue path below still fires
+        # exactly as it always did whenever this fast path can't answer.
+        video_bytes = cloudflare_ai.generate_video(expanded_prompt, seconds)
+        if video_bytes is not None:
+            logger.info("video-gen: served by Cloudflare Workers AI (real motion, inline) for chat_id=%s", chat_id)
+            quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
+            _send_telegram_video(chat_id, video_bytes, prompt)
+            return
+
+        logger.info("video-gen: Cloudflare unavailable/quota exhausted for chat_id=%s — falling back to the Kaggle queue", chat_id)
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,
-            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، "
-            "فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
+            "🎬 التوليد الفوري وصل حده المجاني اليومي حالياً — أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) "
+            "يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
         )
     except Exception:
-        logger.exception("failed to enqueue real video for chat_id=%s", chat_id)
+        logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)
         quota.refund_quota(user_id, "IMAGE")
-        _send_telegram_message(chat_id, "حدث خطأ أثناء جدولة طلب الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
+        _send_telegram_message(chat_id, "حدث خطأ أثناء توليد الفيديو — حاول مرة أخرى (لم يُخصَم هذا من حدك اليومي).")
 
 
 # Owner spec, 2026-09-09 ("الافتراضي 6 الى 10 حسب الطلب من المستخدم"):
