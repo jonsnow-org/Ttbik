@@ -51,6 +51,7 @@ own network egress cannot reach developers.cloudflare.com to verify the
 exact video model slug directly — said plainly rather than guessed at
 silently).
 """
+import base64
 import io
 import logging
 import subprocess
@@ -106,19 +107,39 @@ def _run(model: str, payload: dict, timeout: int = 60) -> requests.Response | No
 
 
 def _binary_result(resp: requests.Response, model: str) -> bytes | None:
-    """Workers AI's REST API returns the real output as a raw binary
-    body (image/png, video/mp4, audio/mpeg) on success, and only falls
-    back to a JSON body ({"success": false, "errors": [...]}) on
-    failure — confirmed via real, live documentation/example lookups
-    for stable-diffusion-xl, not guessed. Treats an application/json
-    content-type as that failure case; anything else as the real bytes."""
+    """Real production evidence (Render logs, 2026-09-12, the owner's own
+    first live test) CONTRADICTS the docs-page examples this originally
+    assumed: flux-1-schnell's real REST response is
+    {"result": {"image": "<base64 JPEG>"}, "success": true, ...} — a
+    JSON envelope with the actual image base64-encoded inside it, not
+    raw binary. This function now handles BOTH real shapes seen for
+    Workers AI models: a genuine raw binary body (some models really do
+    return that), or this JSON envelope (confirmed real for
+    flux-1-schnell) — trying the JSON shape first since that's the one
+    with live proof behind it, falling back to raw bytes only when the
+    body isn't JSON at all."""
     content_type = resp.headers.get("content-type", "")
-    if "json" in content_type:
-        logger.info("cloudflare-ai: model=%s returned JSON instead of binary (%s)", model, resp.text[:300])
+    if "json" not in content_type:
+        return resp.content or None
+    try:
+        data = resp.json()
+    except Exception:
+        logger.info("cloudflare-ai: model=%s content-type=json but body wasn't valid JSON (%s)", model, resp.text[:200])
         return None
-    if not resp.content:
+    if data.get("success") is False:
+        logger.info("cloudflare-ai: model=%s success=false errors=%s", model, data.get("errors"))
         return None
-    return resp.content
+    result = data.get("result")
+    candidates = [result] if isinstance(result, str) else []
+    if isinstance(result, dict):
+        candidates = [result.get(key) for key in ("image", "video", "audio") if result.get(key)]
+    for candidate in candidates:
+        try:
+            return base64.b64decode(candidate)
+        except Exception:
+            continue
+    logger.info("cloudflare-ai: model=%s JSON result had no decodable image/video/audio field: %s", model, str(result)[:200])
+    return None
 
 
 def generate_image(prompt: str) -> bytes | None:
