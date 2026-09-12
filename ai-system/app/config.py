@@ -135,3 +135,15 @@ CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-for
 # this default — override here if it differs.
 CLOUDFLARE_VIDEO_MODEL = os.environ.get("CLOUDFLARE_VIDEO_MODEL", "@cf/alibaba/wan-2.1-t2v")
 CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/melotts")
+
+# Owner spec, 2026-09-12 ("ابحث حتى لو اضطررت لتغيير النموذج... حل
+# نهائي ودائم"): real second free-GPU lane found once Cloudflare's own
+# video catalog was confirmed (live, by the owner) to have no real
+# free first-party model — see hf_video.py's module docstring for the
+# full reasoning. A free Hugging Face account's personal access token
+# (huggingface.co -> Settings -> Access Tokens -> New token, Read scope
+# is enough) is all HF_TOKEN needs; HF_VIDEO_SPACE_ID is the Space's
+# own id in "username/space-name" form, created once (SDK: Gradio,
+# Hardware: ZeroGPU) per ai-system/huggingface-video/app.py.
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+HF_VIDEO_SPACE_ID = os.environ.get("HF_VIDEO_SPACE_ID", "")

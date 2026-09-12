@@ -22,3 +22,9 @@ python-docx==1.1.2
 # this post-processing itself for Cloudflare-sourced media.
 Pillow==11.0.0
 imageio-ffmpeg==0.5.1
+
+# Owner spec, 2026-09-12 (hf_video.py — real free ZeroGPU video path):
+# the official client for calling a Gradio Space's own API
+# programmatically (Client(space_id, hf_token=...).predict(...)) — the
+# same library HF's own docs use for this, not a hand-rolled HTTP call.
+gradio_client==1.4.0

@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, files, quota, rag, router
+from app import cloudflare_ai, council, files, hf_video, quota, rag, router
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -850,11 +850,15 @@ def _enqueue_real_video(
     HappyHorse, xAI Grok, ByteDance Seedance, Google Gemini, Black
     Forest Labs flux-video, all of them — is tagged "Third-party": billed
     separately from the free 10,000 Neurons/day pool, not actually free.
-    There is, as of this date, NO genuinely free real-video option
-    anywhere that answers in seconds — the Kaggle queue below (up to
-    ~2h) remains the only real, $0 path; a true few-minutes guarantee
-    would need a real paid per-video GPU call (cents each), a tradeoff
-    put to the owner directly rather than assumed here."""
+    Research kept going past that dead end and found a second, real
+    free-GPU lane: Hugging Face Spaces' "ZeroGPU" hardware tier (real
+    NVIDIA H200 time, genuinely free for a personal account) — see
+    hf_video.py's module docstring for the full reasoning and the one
+    honestly-unverified part (whether this backend's server-to-server
+    calls reliably get real GPU time the way a browser visitor does).
+    Tried first below; the Kaggle queue (up to ~2h, but proven reliable
+    since the very first version of this feature) remains the real
+    fallback for whenever that path can't answer — never silence."""
     # Owner spec, 2026-09-09-era pattern, still real here: this may run
     # inside a FastAPI BackgroundTask with no request/response cycle
     # left to surface an exception on — an uncaught error here would
@@ -880,15 +884,28 @@ def _enqueue_real_video(
         # billed separately from the free 10,000 Neurons/day pool, not
         # actually free. cloudflare_ai.generate_video/generate_speech
         # are kept, not deleted, for if Cloudflare ever adds a real
-        # first-party (@cf/...) video model — but calling them here
-        # today would only ever fail, so this goes straight to the real
-        # free option: the Kaggle-scheduled queue (see
-        # quota.enqueue_video / process_video_queue.ipynb).
+        # first-party (@cf/...) video model.
+        #
+        # Tried FIRST now instead: hf_video.py's self-hosted LTX-Video-2B
+        # on Hugging Face's free ZeroGPU tier — real GPU, answers in
+        # real seconds when it works. Honestly unverified whether
+        # server-to-server calls reliably get GPU time (see that
+        # module's docstring) — fails soft to None either way, so the
+        # Kaggle queue below still fires exactly as it always did the
+        # moment this fast path can't answer.
+        video_bytes = hf_video.generate_video(expanded_prompt, seconds)
+        if video_bytes is not None:
+            logger.info("video-gen: served by Hugging Face ZeroGPU (real motion, inline) for chat_id=%s", chat_id)
+            quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
+            _send_telegram_video(chat_id, video_bytes, prompt)
+            return
+
+        logger.info("video-gen: HF ZeroGPU unavailable/quota exhausted for chat_id=%s — falling back to the Kaggle queue", chat_id)
         quota.enqueue_video(user_id, channel, chat_id, expanded_prompt, seconds)
         _send_telegram_message(
             chat_id,
-            "🎬 أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) — يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، "
-            "فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
+            "🎬 التوليد الفوري وصل حده المجاني اليومي حالياً — أُضيف طلبك لطابور توليد فيديو حقيقي (ليس عرض صور) "
+            "يُعالَج كل ساعتين تقريباً على معالج رسومي حقيقي، فقد يستغرق وصوله حتى نحو ساعتين لا أكثر. سيصلك هنا مباشرة فور الانتهاء.",
         )
     except Exception:
         logger.exception("failed to generate/enqueue real video for chat_id=%s", chat_id)

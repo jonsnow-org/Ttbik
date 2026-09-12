@@ -1,0 +1,60 @@
+name: Deploy Hugging Face Video Space
+
+# لماذا هذا الـworkflow موجود: نفس منطق deploy-modelscope-studio.yml
+# بالضبط (راجعه للتفاصيل الكاملة) — لكن هذه المرة يدفع كود
+# ai-system/huggingface-video/app.py إلى مستودع Git الخاص بـSpace حقيقي
+# على Hugging Face (وليس ModelScope)، انظر ai-system/app/hf_video.py
+# لسبب وجود هذا المسار الثاني للفيديو الحقيقي.
+#
+# إعداد لمرة واحدة مطلوب يدوياً قبل أن ينجح هذا الـworkflow: أنشئ
+# Space حقيقياً على huggingface.co (SDK: Gradio، Hardware: ZeroGPU) —
+# هذا الـworkflow يدفع الكود فقط، لا ينشئ الـSpace نفسه.
+#
+# السرّان المطلوبان في إعدادات هذا المستودع على GitHub (Settings ->
+# Secrets and variables -> Actions):
+#   HF_TOKEN         نفس التوكن الذي سيُضبط أيضاً في Render لاستدعاء
+#                     الـSpace وقت التشغيل (huggingface.co -> Settings
+#                     -> Access Tokens -> صلاحية Write كافية للدفع هنا
+#                     وللاستدعاء البرمجي هناك معاً).
+#   HF_VIDEO_SPACE_ID بصيغة "username/space-name" — نفس القيمة التي
+#                     ستُضبط كمتغير HF_VIDEO_SPACE_ID في Render.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/huggingface-video/**"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Clone the Hugging Face Space git repo
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_VIDEO_SPACE_ID: ${{ secrets.HF_VIDEO_SPACE_ID }}
+        run: |
+          git config --global user.name "Nova AI CI"
+          git config --global user.email "ci@nova.local"
+          git clone "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_VIDEO_SPACE_ID}" hf-space
+
+      - name: Copy deploy files into the Space repo
+        run: |
+          cp ai-system/huggingface-video/app.py hf-space/app.py
+          cp ai-system/huggingface-video/requirements.txt hf-space/requirements.txt
+
+      - name: Commit and push to the Space
+        working-directory: hf-space
+        run: |
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+          else
+            git commit -m "Deploy from Ttbik CI (${GITHUB_SHA})"
+            git push
+          fi
