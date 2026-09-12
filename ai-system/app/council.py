@@ -881,6 +881,15 @@ def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
     import requests
 
     num_frames = _seconds_to_cogvideox_frames(seconds)
+    # Owner report, 2026-09-12 (real complaint): a fixed 3 keyframes
+    # regardless of requested duration reads as "the same few pictures
+    # stretched out" on anything longer than a few seconds — more
+    # distinct AI-generated stills per second gives real visual change
+    # to look at, at the cost of more (still fast, sd-turbo) image
+    # calls. One keyframe per ~1.5s of requested duration, floored at
+    # the old fixed 3 and capped at 8 to bound that added cost on a
+    # long request.
+    num_keyframes = max(3, min(8, round(seconds / 1.5)))
     base = MODELSCOPE_SPACE_URL.rstrip("/")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
@@ -890,7 +899,7 @@ def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate_video",
             headers=headers,
-            json={"prompt": prompt, "num_frames": num_frames},
+            json={"prompt": prompt, "num_frames": num_frames, "num_keyframes": num_keyframes},
             timeout=30,
         )
         logger.info("video-gen: ModelScope POST status=%s body=%s", submit.status_code, submit.text[:300])

@@ -789,8 +789,25 @@ def _get_image_pipe():
     return _image_pipe
 
 
-_GEN_SIDE = 384  # generate small, upscale classically — see _generate_one_image
-_DELIVER_SIDE = 640
+_GEN_SIDE = 512  # generate, upscale classically — see _generate_one_image
+_DELIVER_SIDE = 768
+
+# Owner report, 2026-09-12 (real complaint, Telegram): a simple
+# single-subject prompt ("صورة حصان") comes out fine, but a busier
+# multi-subject scene ("بحر وغروب وفتيات يسبحن") comes back with faces
+# that don't read as faces at all. Real, not-guessed cause: this is
+# exactly where the earlier 384px/2-step choice (picked purely for
+# raw speed — see the removed comment this replaces) costs the most.
+# sd-turbo is documented to support 1-4 steps, not just 2, and per-step
+# UNet cost scales with height*width — 384 was the aggressive end of
+# that trade-off. Moved back toward the quality end (512px, 4 steps):
+# still a fraction of a non-turbo model's 20-50 steps at full
+# resolution, but real, additional compute a turbo model can actually
+# use to resolve more than one subject's anatomy correctly. If this
+# still isn't enough for busy multi-subject scenes, the honest next
+# lever is a bigger base model, not more turbo steps — sd-turbo is a
+# small, heavily distilled model and has a real ceiling.
+_TURBO_STEPS = 4
 
 
 def _generate_one_image(prompt: str):
@@ -804,22 +821,18 @@ def _generate_one_image(prompt: str):
     "video-specific" — it was "shrink the expensive AI work, hand the
     rest to cheap classical code". The same pattern applies directly to
     images: a diffusion UNet's per-step cost scales with the number of
-    latent-space positions it processes, which scales with height*width
-    — generating at 384x384 instead of 512x512 is (384/512)^2 ≈ 0.56x
-    the pixel count per step, a real, architecture-level compute cut
-    that stacks with sd-turbo's step-count cut (and helps even the
-    OLD, non-turbo model in the meantime, since it doesn't depend on
-    which candidate actually made it onto ModelScope hub). Image.LANCZOS
-    upscale + a light UnsharpMask afterwards is the classical
-    counterpart to Ken Burns/crossfade for video: zero-AI, zero new
-    dependency (PIL only), recovering a normal-looking delivery size
-    and countering the softness a straight resize would leave behind."""
+    latent-space positions it processes, which scales with height*width.
+    Image.LANCZOS upscale + a light UnsharpMask afterwards is the
+    classical counterpart to Ken Burns/crossfade for video: zero-AI,
+    zero new dependency (PIL only), recovering a normal-looking delivery
+    size and countering the softness a straight resize would leave
+    behind."""
     from PIL import Image as _PILImage, ImageFilter as _PILImageFilter
 
     pipe = _get_image_pipe()
     base_model_id = _get_image_gen_config().get("base_model_id", "")
     if "turbo" in base_model_id.lower():
-        image = pipe(prompt, num_inference_steps=2, guidance_scale=0.0, height=_GEN_SIDE, width=_GEN_SIDE).images[0]
+        image = pipe(prompt, num_inference_steps=_TURBO_STEPS, guidance_scale=0.0, height=_GEN_SIDE, width=_GEN_SIDE).images[0]
     else:
         image = pipe(prompt, num_inference_steps=20, height=_GEN_SIDE, width=_GEN_SIDE).images[0]
     image = image.resize((_DELIVER_SIDE, _DELIVER_SIDE), _PILImage.LANCZOS)
@@ -953,8 +966,11 @@ def _generate_video_cogvideox_gpu_only(prompt: str, num_frames: float = 49) -> s
 # change if it needs re-verifying later.
 _SLIDESHOW_KEYFRAME_SUFFIXES = [
     ", opening moment, wide establishing shot",
-    ", middle moment, medium shot, slightly different angle",
-    ", closing moment, close-up",
+    ", early moment, medium shot, slightly different angle",
+    ", middle moment, close-up on the main subject",
+    ", later moment, different camera angle",
+    ", near-closing moment, dynamic action pose",
+    ", closing moment, final close-up",
 ]
 
 
@@ -1016,7 +1032,69 @@ def _build_slideshow_frames(keyframes: list, total_frames: int) -> list:
     return all_frames[:total_frames] if all_frames else all_frames
 
 
-def generate_video(prompt: str, num_frames: float = 49, num_keyframes: int = 3) -> str:
+_NARRATION_MAX_CHARS = 200
+
+
+def _add_narration_audio(video_path: str, prompt: str) -> str:
+    """Owner report, 2026-09-12 (real complaint, Telegram): every
+    generated video has no audio at all. Real attempt, not guessed to
+    work: gTTS (a thin wrapper around Google Translate's free
+    text-to-speech endpoint — no API key/account needed) speaks a short
+    caption built from the same English prompt already used for the
+    keyframes, muxed under the silent slideshow via ffmpeg. ffmpeg
+    itself comes from imageio-ffmpeg's bundled static binary — pip-only,
+    no apt/system package needed, so this installs the same way
+    everything else on this Studio does (no Dockerfile control here to
+    apt-get a system ffmpeg).
+
+    Honest, unverified part: whether this Studio's runtime network can
+    actually reach Google's TTS endpoint is UNCONFIRMED — this project
+    already found (real evidence, not guessed) that ModelScope's own
+    network cannot reach huggingface.co or github.com, so a similar
+    restriction on Google's endpoint is a real possibility, not a
+    stretch. If the request fails, or the ffmpeg mux step fails for any
+    other reason, this returns the original silent video_path
+    unchanged — a silent video is still strictly better than failing
+    the whole request over a missing narration track. Needs a real
+    live test after deploy to confirm which case actually happens
+    here."""
+    try:
+        import subprocess
+
+        import imageio_ffmpeg
+        from gtts import gTTS
+
+        caption = prompt.strip()[:_NARRATION_MAX_CHARS] or "Nova AI generated video."
+        audio_path = video_path.replace(".mp4", "_narration.mp3")
+        gTTS(text=caption, lang="en").save(audio_path)
+
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        muxed_path = video_path.replace(".mp4", "_with_audio.mp4")
+        # -stream_loop -1 on the (short) narration + -shortest cuts the
+        # final file to the (longer) silent video's own length, so the
+        # narration never abruptly cuts the video short if it's shorter
+        # than the requested duration.
+        subprocess.run(
+            [
+                ffmpeg_exe, "-y",
+                "-i", video_path,
+                "-stream_loop", "-1", "-i", audio_path,
+                "-map", "0:v", "-map", "1:a",
+                "-c:v", "copy", "-c:a", "aac",
+                "-shortest",
+                muxed_path,
+            ],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        return muxed_path
+    except Exception:
+        traceback.print_exc()
+        return video_path
+
+
+def generate_video(prompt: str, num_frames: float = 49, num_keyframes: float = 3) -> str:
     """Returns a base64-encoded MP4 string directly, same shape as
     generate_image's base64 PNG above — but built from real AI
     keyframes + classical animation, NOT CogVideoX (see this module's
@@ -1026,18 +1104,24 @@ def generate_video(prompt: str, num_frames: float = 49, num_keyframes: int = 3) 
     outright — a 100-1000x hardware gap no amount of tuning closes).
     num_frames comes from council.py's _seconds_to_cogvideox_frames
     (still reused as-is — any frame count works for a plain image
-    sequence, no need to change that shared plumbing)."""
+    sequence, no need to change that shared plumbing). num_keyframes
+    now comes from council.py too, scaled with the requested duration
+    (owner report, 2026-09-12: a fixed 3 regardless of length reads as
+    "the same few pictures stretched out" on anything longer than a
+    few seconds) — the gr.Number default of 3 here only applies to a
+    direct call from this Studio's own UI, not the real Telegram path."""
     try:
         from diffusers.utils import export_to_video
 
         keyframes = []
-        for i in range(max(num_keyframes, 2)):
+        for i in range(max(int(num_keyframes), 2)):
             suffix = _SLIDESHOW_KEYFRAME_SUFFIXES[i % len(_SLIDESHOW_KEYFRAME_SUFFIXES)]
             keyframes.append(_generate_one_image(prompt + suffix))
 
         frames = _build_slideshow_frames(keyframes, int(num_frames))
         path = "/tmp/nova_generated_video.mp4"
         export_to_video(frames, path, fps=_VIDEO_FPS)
+        path = _add_narration_audio(path, prompt)
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode("ascii")
     except Exception:
@@ -1070,6 +1154,7 @@ _video_interface = gr.Interface(
     inputs=[
         gr.Textbox(label="prompt"),
         gr.Number(label="num_frames", value=49),
+        gr.Number(label="num_keyframes", value=3),
     ],
     outputs=gr.Textbox(label="video_base64"),
     title="توليد فيديو",

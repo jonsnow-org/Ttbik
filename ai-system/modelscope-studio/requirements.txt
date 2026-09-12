@@ -31,3 +31,11 @@ transformers
 accelerate
 safetensors
 torch
+
+# Owner report, 2026-09-12: real narration audio for generate_video's
+# slideshow — see _add_narration_audio in app.py for the full
+# explanation and the honest caveat about unconfirmed network
+# reachability. imageio-ffmpeg ships a static ffmpeg binary via pip
+# alone (no apt/system package, no Dockerfile control on this Studio).
+gtts
+imageio-ffmpeg
