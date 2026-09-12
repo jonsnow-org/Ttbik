@@ -482,7 +482,9 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # never replaced by a generic "تم!" that would hide whether
         # anything actually happened.
         quota.refund_quota(user["id"], "TEXT")
-        _send_telegram_message(chat_id, rag.learn_now(intent_result["topic"]))
+        reply = rag.learn_now(intent_result["topic"])
+        quota.log_usage(user["id"], channel, "LEARN", intent_result["topic"], reply)
+        _send_telegram_message(chat_id, reply)
         return
 
     if intent_result["intent"] == "IMPROVE":
@@ -494,7 +496,31 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # /admin/decide-self-improvement below.
         quota.refund_quota(user["id"], "TEXT")
         topic = intent_result["topic"] or None
-        _send_telegram_message(chat_id, self_improve.research_and_propose(topic, trigger="owner_directed"))
+        reply = self_improve.research_and_propose(topic, trigger="owner_directed")
+        quota.log_usage(user["id"], channel, "IMPROVE", topic or "(موضوع تلقائي)", reply)
+        _send_telegram_message(chat_id, reply)
+        return
+
+    if intent_result["intent"] == "PROPOSAL_ACTION":
+        # Owner spec, 2026-09-12 ("لا اريد استخدام اوامر بدالات... اريده
+        # ان يفهم كلامي دون هذه الدالات"): the same four real actions
+        # the /موافقة_تطوير, /رفض_تطوير, /تحليل_تطوير, /تنفيذ_تطوير
+        # slash commands already trigger (novaBotLogic.ts) — reachable
+        # now in plain conversation too. Both paths call the exact same
+        # self_improve functions, no duplicated logic.
+        quota.refund_quota(user["id"], "TEXT")
+        action = intent_result["action"]
+        proposal_id = intent_result["proposal_id"]
+        if action == "ACCEPT":
+            reply = self_improve.decide_proposal(proposal_id, accept=True)
+        elif action == "REJECT":
+            reply = self_improve.decide_proposal(proposal_id, accept=False)
+        elif action == "ASSESS":
+            reply = self_improve.assess_feasibility(proposal_id)
+        else:
+            reply = self_improve.implement_new_file(proposal_id)
+        quota.log_usage(user["id"], channel, "PROPOSAL_ACTION", f"[{action}] {proposal_id}", reply)
+        _send_telegram_message(chat_id, reply)
         return
 
     if intent_result["intent"] in ("IMAGE", "VIDEO"):

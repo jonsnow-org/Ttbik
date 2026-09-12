@@ -727,7 +727,18 @@ _DEV_INTENT_ADDENDUM = (
     "حقيقياً ينتظر موافقتك أنت قبل أي تنفيذ. إن كانت كذلك، أجب بهذا "
     'الشكل:\n'
     '{"intent": "IMPROVE", "topic": "المجال المحدَّد الذي يجب البحث فيه '
-    'عن أداة/طريقة لتطوير نظامك، فارغاً إن لم يحدد المستخدم مجالاً معيناً"}'
+    'عن أداة/طريقة لتطوير نظامك، فارغاً إن لم يحدد المستخدم مجالاً معيناً"}\n\n'
+    "أو قد تكون رسالته قراراً بخصوص اقتراح تطوير ذاتي سابق (بدل استخدام "
+    'أوامر ثابتة مثل "/موافقة_تطوير" — افهم قصده من كلامه الطبيعي مباشرة، '
+    'مستفيداً من رقم الاقتراح المذكور في رسالته الحالية أو الظاهر في '
+    'آخر رد منك في سياق المحادثة أدناه إن لم يُعِد ذكره). أمثلة: "وافق '
+    'على الاقتراح رقم كذا" (ACCEPT)، "ارفض الاقتراح كذا" (REJECT)، "هل '
+    'تستطيع تنفيذ هذا الاقتراح بإنشاء ملف جديد بلا أخطاء؟" (ASSESS)، '
+    '"نفّذ، أعطيك الصلاحية الكاملة" (IMPLEMENT). إن كانت كذلك، أجب بهذا '
+    'الشكل:\n'
+    '{"intent": "PROPOSAL_ACTION", "action": "ACCEPT أو REJECT أو ASSESS أو IMPLEMENT", '
+    '"proposal_id": "رقم الاقتراح المحدَّد، فقط إن كنت واثقاً منه تماماً من الرسالة الحالية أو السياق، وإلا اتركه فارغاً"}\n'
+    "لا تخمّن رقم اقتراح غير مؤكد أبداً."
 )
 
 
@@ -761,6 +772,15 @@ def _parse_intent_json(raw: str) -> dict:
         # real rotating topic itself in that case, same as the
         # scheduled weekly trigger.
         return {"intent": intent, "topic": topic}
+    if intent == "PROPOSAL_ACTION":
+        action = str(data.get("action") or "").strip().upper()
+        proposal_id = str(data.get("proposal_id") or "").strip()
+        if action not in ("ACCEPT", "REJECT", "ASSESS", "IMPLEMENT") or not proposal_id:
+            # No confident action/id — never guess which proposal this
+            # is about, same "ambiguous -> TEXT" rule as everywhere else
+            # here.
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "PROPOSAL_ACTION", "action": action, "proposal_id": proposal_id}
     if intent not in ("IMAGE", "VIDEO", "TEXT"):
         intent = "TEXT"
     prompt = str(data.get("prompt") or "").strip()
@@ -809,7 +829,7 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
     كما اتحدث معك الآن" — talk naturally instead of memorizing a fixed
     "/اقتراح_تعديل <path> :: <instruction>" command): main.py passes
     True only when quota.is_platform_owner(user) already confirmed the
-    caller is the owner — adds THREE owner-only options to the schema:
+    caller is the owner — adds FOUR owner-only options to the schema:
     DEV (a real code-change proposal, see dev_agent.py), LEARN (a real,
     on-demand research-and-store command — "اذهب وابحث عن وسائل لتطوير
     قدراتك... وقم بتغذية نفسك بها" — actual execution, not a reply
@@ -817,9 +837,17 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
     spec, same day: "الادوات والتطوير الذاتي يعطيني تقرير... فاقبل او
     ارفض" — researches a way to improve Nova's OWN capabilities and
     produces a real report awaiting the owner's explicit accept/reject,
-    never auto-applied; see self_improve.research_and_propose). A file
-    path/topic the model isn't confident about never gets guessed (see
-    _parse_intent_json) — that falls through to TEXT, same as any other
+    never auto-applied; see self_improve.research_and_propose), and
+    PROPOSAL_ACTION (owner spec, same day: "لا اريد استخدام اوامر
+    بدالات... اريده ان يفهم كلامي دون هذه الدالات" — a plain-language
+    decision on an earlier proposal, e.g. "وافق على الاقتراح رقم كذا"
+    or "نفّذ، أعطيك الصلاحية الكاملة", instead of typing
+    "/موافقة_تطوير <id>" — the slash commands still work too, this is
+    just no longer the only way in; see main.py's PROPOSAL_ACTION
+    branch for the four real actions it can resolve to). A file
+    path/topic/proposal id the model isn't confident about never gets
+    guessed (see _parse_intent_json) — that falls through to TEXT,
+    same as any other
     ambiguous case here."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
     if allow_dev:
