@@ -27,4 +27,18 @@ imageio-ffmpeg==0.5.1
 # the official client for calling a Gradio Space's own API
 # programmatically (Client(space_id, hf_token=...).predict(...)) — the
 # same library HF's own docs use for this, not a hand-rolled HTTP call.
-gradio_client==1.4.0
+#
+# Real deploy failure on Render, 2026-09-12 (confirmed live in this
+# service's own logs, then reproduced locally to find the exact cause):
+# gradio_client==1.4.0 hard-pins "websockets<13.0,>=10.0" — but
+# supabase==2.31.0's own realtime sub-dependency imports
+# websockets.asyncio.client, a submodule that only exists in
+# websockets>=13. pip silently resolved websockets down to 12.0 to
+# satisfy gradio_client's cap instead of erroring, so the real break
+# only surfaced at import time: "ModuleNotFoundError: No module named
+# 'websockets.asyncio'" (app/quota.py -> app/supabase_client.py ->
+# supabase -> realtime). gradio_client==2.7.0 drops that hard cap
+# entirely (confirmed: its own METADATA has no websockets pin at all) —
+# verified locally, a clean venv with this exact version list imports
+# both supabase and gradio_client together with no conflict.
+gradio_client==2.7.0
