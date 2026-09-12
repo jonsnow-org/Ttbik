@@ -10,3 +10,5 @@ Deployment of everything already pushed during that gap.
 Confirmed reconnected to jonsnow-org/Ttbik (green, no error) — this second commit is the real post-reconnect trigger.
 
 Third trigger — after fixing the Vercel GitHub App installation on jonsnow-org (was missing/incomplete before).
+
+Fourth trigger — after a full Disconnect + fresh Connect on the project itself (shows 'Connected just now', not a stale date).
