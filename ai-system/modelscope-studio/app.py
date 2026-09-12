@@ -419,6 +419,22 @@ NOVA_SYSTEM_PROMPT = (
     "— لا تترك أسطراً ناقصة بتعليقات مثل '# أكمل الباقي هنا'."
 )
 
+# Owner spec, 2026-09-12 ("نريد جعل نوفا يتعرف علي كمالك"): mirrors
+# council.py's _OWNER_PERSONA_NOTE (this Studio keeps its own copy of
+# every prompt piece for when IT serves the request first — same
+# established pattern as NOVA_SYSTEM_PROMPT/_SYSTEM_PROMPT above).
+# Distinct from quota.py's is_platform_owner exemption (what the owner
+# is ALLOWED to do — no caps, decided in main.py before this is ever
+# called) — this only changes how Nova addresses them, appended to the
+# system prompt, never replacing the identity guard above.
+_OWNER_PERSONA_NOTE = (
+    "ملاحظة خاصة بهذه المحادثة تحديداً: الشخص الذي تتحدث معه الآن هو "
+    "مالك هذا المشروع ومطوّره الفعلي، وليس عميلاً عادياً — خاطبه على "
+    "هذا الأساس (بصفته صاحب المشروع)، ويمكنك مناقشة تفاصيل تقنية عن "
+    "نوفا نفسه معه بصراحة أكبر إن سأل عنها. هذا لا يغيّر إجابتك الثابتة "
+    "عن هويتك ومن طوّرك إن سُئلت عن ذلك بشكل عام."
+)
+
 # Owner spec, 2026-09-08 (Gemini review, "موجه الخبراء الديناميكي"/
 # dynamic expert router): a 7B model asked to be equally expert at
 # everything, all the time, answers more vaguely than one given a
@@ -552,14 +568,19 @@ def _max_tokens_for(query_type: str) -> int:
     return _MAX_TOKENS_BY_QUERY_TYPE.get(query_type, 400)
 
 
-def generate(message: str, image_base64: str = "", query_type: str = "GENERAL") -> str:
+def generate(message: str, image_base64: str = "", query_type: str = "GENERAL", is_owner: bool = False) -> str:
     try:
         if not image_base64 and _is_identity_question(message):
             return _IDENTITY_ANSWER
 
         temperature = _temperature_for(query_type)
         persona = _EXPERT_PERSONA_BY_QUERY_TYPE.get(query_type, "")
+        # is_owner (council.py: quota.is_platform_owner(user), threaded
+        # through call_modelscope_specialist) — appended after the
+        # query-type persona, never replacing the identity guard above.
         system_content = f"{NOVA_SYSTEM_PROMPT}\n\n{persona}" if persona else NOVA_SYSTEM_PROMPT
+        if is_owner:
+            system_content = f"{system_content}\n\n{_OWNER_PERSONA_NOTE}"
         # A detailed image description ("صف هذه الصورة بالتفصيل") needs
         # real headroom regardless of query_type (main.py's /image
         # handler never even sets one, so this would otherwise silently
@@ -1135,6 +1156,7 @@ _text_interface = gr.Interface(
         gr.Textbox(label="message"),
         gr.Textbox(label="image_base64 (optional)"),
         gr.Textbox(label="query_type (optional, CODE|LIVE_INFO|GENERAL)"),
+        gr.Checkbox(label="is_owner (optional)", value=False),
     ],
     outputs=gr.Textbox(label="Response"),
     title="نص ورؤية",

@@ -286,7 +286,13 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
         return cached_answer, query_type, log_id
 
     context = rag.build_context(user["id"], message, query_type)
-    final_answer = council.answer(message, context, query_type=query_type)
+    # Owner spec, 2026-09-12 ("نريد جعل نوفا يتعرف علي كمالك"): distinct
+    # from the quota/plan exemption above (quota.is_platform_owner
+    # already existed and is unrelated to this) — this is about how
+    # Nova ADDRESSES the owner in conversation, not what they're allowed
+    # to do. Same real check quota.py already uses for the plan
+    # exemption, reused here rather than a second, drifting definition.
+    final_answer = council.answer(message, context, query_type=query_type, is_owner=quota.is_platform_owner(user))
     log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
     rag.remember(user["id"], message, final_answer)
     rag.remember_shared(message, final_answer, query_type)

@@ -190,6 +190,24 @@ _SYSTEM_PROMPT = (
     "— لا تترك أسطراً ناقصة بتعليقات مثل '# أكمل الباقي هنا'."
 )
 
+# Owner spec, 2026-09-12 ("نريد جعل نوفا يتعرف علي كمالك"): distinct
+# from the quota/plan exemption in quota.py (quota.is_platform_owner) —
+# that controls what the owner is ALLOWED to do (no caps); this
+# controls how Nova ADDRESSES them in conversation. Not the same as the
+# fixed _IDENTITY_KEYWORDS story above either — that answers "who
+# developed Nova" (a fixed narrative about the project, asked by any
+# user); this is "who is Nova talking to right now" (this specific
+# conversation, gated on quota.is_platform_owner via main.py). Appended
+# to the system prompt only, never replacing it — the identity guard's
+# fixed story and every other rule above still apply unchanged.
+_OWNER_PERSONA_NOTE = (
+    "ملاحظة خاصة بهذه المحادثة تحديداً: الشخص الذي تتحدث معه الآن هو "
+    "مالك هذا المشروع ومطوّره الفعلي، وليس عميلاً عادياً — خاطبه على "
+    "هذا الأساس (بصفته صاحب المشروع)، ويمكنك مناقشة تفاصيل تقنية عن "
+    "نوفا نفسه معه بصراحة أكبر إن سأل عنها. هذا لا يغيّر إجابتك الثابتة "
+    "عن هويتك ومن طوّرك إن سُئلت عن ذلك بشكل عام."
+)
+
 
 # Owner report, 2026-09-08 (real Telegram evidence, screenshot): "من انت
 # وماهو اسمك" got "أنا نموذج ذكاء اصطناعي تم تطويره بواسطة شركة OpenAI.
@@ -274,13 +292,14 @@ def _groq_client() -> Groq:
     return Groq(api_key=GROQ_API_KEY)
 
 
-def call_groq(message: str, context: str) -> str:
+def call_groq(message: str, context: str, is_owner: bool = False) -> str:
     client = _groq_client()
     user_content = f"السياق:\n{context}\n\nسؤال المستخدم:\n{message}" if context else message
+    system_content = f"{_SYSTEM_PROMPT}\n\n{_OWNER_PERSONA_NOTE}" if is_owner else _SYSTEM_PROMPT
     completion = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
         ],
     )
@@ -405,7 +424,7 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
 
 
 def call_modelscope_specialist(
-    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL"
+    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL", is_owner: bool = False
 ) -> str | None:
     """Thin wrapper enforcing a real hard wall-clock deadline around
     _call_modelscope_specialist_blocking — see _with_hard_deadline's own
@@ -415,12 +434,12 @@ def call_modelscope_specialist(
     result_timeout = 630 if image_base64 else 100  # a little above the inner call's own nominal timeouts
     return _with_hard_deadline(
         _call_modelscope_specialist_blocking, message, context, image_base64=image_base64, query_type=query_type,
-        timeout=result_timeout,
+        is_owner=is_owner, timeout=result_timeout,
     )
 
 
 def _call_modelscope_specialist_blocking(
-    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL"
+    message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL", is_owner: bool = False
 ) -> str | None:
     """OUR OWN model, actually reachable this time (see module
     docstring — hf-inference flatly refuses custom repos, ModelScope's
@@ -490,7 +509,12 @@ def _call_modelscope_specialist_blocking(
         submit = requests.post(
             f"{base}/gradio_api/call/v2/generate",
             headers=headers,
-            json={"message": user_content, "image_base64": image_base64 or "", "query_type": query_type or "GENERAL"},
+            json={
+                "message": user_content,
+                "image_base64": image_base64 or "",
+                "query_type": query_type or "GENERAL",
+                "is_owner": is_owner,
+            },
             timeout=30,
         )
         logger.info("%s: ModelScope POST status=%s body=%s", request_label, submit.status_code, submit.text[:300])
@@ -521,7 +545,7 @@ def _call_modelscope_specialist_blocking(
         return None
 
 
-def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
+def answer(message: str, context: str, query_type: str = "GENERAL", is_owner: bool = False) -> str:
     """OUR OWN model answers first, always — for every query type, not
     just CODE. Groq is an emergency fallback only, used solely when our
     own model isn't configured yet or genuinely unreachable — never a
@@ -541,11 +565,15 @@ def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
     precise, repeatable answers (a wrong digit or invented variable
     name is a real bug), GENERAL conversation reads better with a
     little more natural variety. Reuses a signal already computed for
-    routing instead of adding a new classification pass."""
+    routing instead of adding a new classification pass.
+
+    is_owner (main.py: quota.is_platform_owner(user)) — see
+    _OWNER_PERSONA_NOTE above for what this changes and what it
+    deliberately doesn't."""
     if _is_identity_question(message):
         return _IDENTITY_ANSWER_TEXT
 
-    specialist_answer = call_modelscope_specialist(message, context, query_type=query_type)
+    specialist_answer = call_modelscope_specialist(message, context, query_type=query_type, is_owner=is_owner)
     if specialist_answer:
         if _contains_forbidden_identity_leak(specialist_answer):
             logger.warning("chat answer: OUR OWN model leaked a forbidden identity claim — substituting the real identity answer")
@@ -554,7 +582,7 @@ def answer(message: str, context: str, query_type: str = "GENERAL") -> str:
         return specialist_answer
 
     logger.info("chat answer: our own model unavailable — served by Groq fallback")
-    groq_answer = call_groq(message, context)
+    groq_answer = call_groq(message, context, is_owner=is_owner)
     if _contains_forbidden_identity_leak(groq_answer):
         logger.warning("chat answer: Groq fallback leaked a forbidden identity claim — substituting the real identity answer")
         return _IDENTITY_ANSWER_TEXT

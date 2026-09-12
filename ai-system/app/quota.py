@@ -154,6 +154,15 @@ DEFAULT_VIDEO_SECONDS = 6
 MIN_VIDEO_SECONDS = 4
 
 
+def is_platform_owner(user: dict) -> bool:
+    """The one real check behind every owner exemption below — factored
+    out so main.py's chat pipeline can reuse the exact same condition
+    (to make Nova address the owner as its own developer, not a
+    customer) instead of a third copy of this comparison drifting out
+    of sync with the two already here."""
+    return bool(SUPER_ADMIN_TELEGRAM_ID) and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID
+
+
 def check_video_duration(user: dict, requested_seconds: int | None) -> tuple[bool, int, str]:
     """Returns (allowed, seconds_to_use, message). The platform owner
     skips this like every other cap. requested_seconds is whatever the
@@ -165,7 +174,7 @@ def check_video_duration(user: dict, requested_seconds: int | None) -> tuple[boo
     a request that explicitly exceeds the plan's own ceiling is
     rejected with an upgrade prompt — that's the real business rule
     ("من 15 ثانية وفوق ضمن الخطة المدفوعة"), not a technical limit."""
-    if SUPER_ADMIN_TELEGRAM_ID and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID:
+    if is_platform_owner(user):
         return True, requested_seconds or DEFAULT_VIDEO_SECONDS, "مالك المنصة — بلا حد"
 
     plan = effective_plan(user)
@@ -188,7 +197,7 @@ def check_and_reserve_quota(user: dict, kind: str = "TEXT") -> tuple[bool, int, 
     user, FREE included, is checked against their plan's daily AND
     weekly ceiling for that kind (see PLANS above) — daily resets each
     UTC day, weekly every 7 days, independently."""
-    if SUPER_ADMIN_TELEGRAM_ID and str(user.get("telegramId")) == SUPER_ADMIN_TELEGRAM_ID:
+    if is_platform_owner(user):
         return True, -1, "مالك المنصة — بلا حد"
 
     plan = effective_plan(user)
