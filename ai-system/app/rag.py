@@ -358,16 +358,31 @@ def _recall_knowledge(query: str, category: str, max_age_seconds: float) -> str 
 
 
 def _store_knowledge(query: str, content: str, category: str) -> None:
+    """Owner spec, 2026-09-12 ("قواعد للنموذج كي لا يتخطاها... يتجنب
+    نشر كلمات مرور"): every write to Nova's knowledge bank — the same
+    table merge_and_finetune.ipynb's cell 4ب folds into REAL training
+    weights — passes through guardrails.sanitize_for_storage first, no
+    exceptions. A real, pattern-based floor against storing (and later
+    training on) a leaked password/API key/private key that happened to
+    be sitting in whatever a live web search turned up; see that
+    module's own docstring for what it does and doesn't catch."""
+    from app import guardrails
+
+    safe_content = guardrails.sanitize_for_storage(content)
+    if safe_content is None:
+        logger.info("store_knowledge: rejected by guardrails (query=%s)", query)
+        return
+
     bank = _knowledge_bank()
     doc_id = f"k-{abs(hash(query))}-{int(time.time())}"
-    bank.add(documents=[content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
+    bank.add(documents=[safe_content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
     # Durable twin (see module docstring) — a Supabase hiccup here must
     # never break the answer that's already been built; the in-memory
     # Chroma copy above already has it for this container's lifetime
     # regardless of whether this write succeeds.
     try:
         get_supabase().table("NovaKnowledgeEntry").insert(
-            {"id": doc_id, "query": query, "content": content, "source": category}
+            {"id": doc_id, "query": query, "content": safe_content, "source": category}
         ).execute()
     except Exception:
         logger.exception("store_knowledge: failed to persist to Supabase (query=%s)", query)
@@ -432,3 +447,38 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
                 _store_knowledge(message, analyzed, "general")
 
     return "\n\n".join(parts)
+
+
+def learn_now(topic: str) -> str:
+    """Owner spec, 2026-09-12 ("اذهب وابحث عن وسائل لتطوير قدراتك... وقم
+    بتغذية نفسك بها... التنفيذ الفعلي... وليس مجرد رد دون تنفيذ"): the
+    on-demand twin of build_context's own reactive search-and-store
+    step above — same real actions (web_search, council.analyze_knowledge,
+    the same guardrails-gated _store_knowledge), just triggered directly
+    by an explicit owner command (council.py's LEARN intent) instead of
+    as a side effect of answering an ordinary question. Returns a real
+    status string ready to send straight back to the owner — never
+    silent, so "لم أتخطَّ التنفيذ فعلياً" ["I didn't actually skip
+    execution"] is something the owner can verify from the reply
+    itself, not something they have to take on faith."""
+    try:
+        results = web_search(topic)
+    except Exception:
+        logger.exception("learn_now: web search failed for topic=%s", topic)
+        return f"تعذّر البحث عن \"{topic}\" — حدث خطأ أثناء البحث الحي على الويب."
+    if not results:
+        return f"بحثت فعلاً عن \"{topic}\" لكن لم أجد أي نتائج حية مفيدة الآن — لم يُخزَّن شيء."
+
+    raw_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
+    from app import council, guardrails
+
+    analyzed = council.analyze_knowledge(topic, raw_snippets)
+    safe_content = guardrails.sanitize_for_storage(analyzed)
+    if safe_content is None:
+        return f"بحثت فعلاً عن \"{topic}\" لكن ما وجدته لم يجتز فحص الأمان الداخلي — لم يُخزَّن شيء."
+
+    _store_knowledge(topic, analyzed, "owner_directed")
+    return (
+        f"✅ بحثت فعلاً عن \"{topic}\" الآن وخزّنت ما تعلّمته في بنك معرفتي "
+        f"(سيُستخدم في التدريب الأسبوعي القادم على Kaggle):\n\n{safe_content[:600]}"
+    )

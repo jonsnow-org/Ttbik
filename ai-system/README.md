@@ -116,7 +116,11 @@ variables → Actions):
 2. أضف عبر **Add-ons → Secrets**: `HF_TOKEN`، `HF_USERNAME`،
    `SUPABASE_URL`، `SUPABASE_SERVICE_ROLE_KEY`، `MODELSCOPE_TOKEN`،
    `MODELSCOPE_USERNAME` (إلزامية)، و`GROQ_API_KEY`/`GEMINI_API_KEY`
-   (اختيارية، للتقطير المعرفي وقت التدريب فقط).
+   (اختيارية، للتقطير المعرفي وقت التدريب فقط). أضف أيضاً
+   `NOVA_BOT_TOKEN` و`SUPER_ADMIN_TELEGRAM_ID` (owner spec 2026-09-12:
+   التقرير الأسبوعي الحقيقي — الخلية الأخيرة في هذا الدفتر تُرسل لك
+   عبر تيليجرام ماذا تعلّم نوفا هذا الأسبوع فعلياً وهل تدرّب بأوزان
+   جديدة — نفس القيمتين المستخدمتين أصلاً على Render).
 3. **لا تستخدم "Schedule this notebook" الخاصة بـKaggle** — جربناها
    فعلياً ورفضتها Kaggle نفسها برسالة "Scheduled notebooks cannot use
    GPU"، وهذا الدفتر يحتاج GPU إلزامياً (تدريب Unsloth LoRA على نموذج
@@ -135,6 +139,26 @@ ModelScope، **ويجبر استوديو ModelScope على إعادة التحم
 **أول مرة فقط:** بعد أول تشغيل ناجح، ضع اسم مستودع GGUF (تطبعه آخر
 خلية، مثل `<اسمك>/nova-vision-7b-gguf`) في `MODEL_ID` داخل
 `ai-system/modelscope-studio/app.py`.
+
+### د) التطوير الذاتي التلقائي — نوفا يبحث ويتعلّم بنفسه (owner spec 2026-09-12)
+
+هذا يجعل بنك معرفة نوفا (`NovaKnowledgeEntry`، نفس الجدول الذي يتدرب
+عليه هذا الدفتر أسبوعياً في الخلية 4ب أعلاه) ينمو تلقائياً — لا ينتظر
+سؤال مستخدم حقيقي — عبر بحث حي مجدول يومياً، مع قاعدة أمان حقيقية
+(`ai-system/app/guardrails.py`) تمنع تخزين أي كلمة مرور/مفتاح API/بيانات
+حساسة قبل أي تخزين أو تدريب:
+
+1. في مستودع GitHub → **Settings → Secrets and variables → Actions**،
+   أضف: `SUPABASE_URL`، `SUPABASE_SERVICE_ROLE_KEY`، `GROQ_API_KEY`
+   (نفس القيم الثلاث المستخدمة في Render).
+2. `.github/workflows/gather-knowledge.yml` يعمل تلقائياً كل يوم — لا
+   إعداد إضافي.
+3. كمالك، يمكنك أيضاً أن تأمر نوفا مباشرة داخل محادثة تيليجرام عادية
+   (مثل: "اذهب وابحث عن كذا وتعلّمه الآن") فينفّذ البحث والتخزين فوراً
+   ويؤكد لك ذلك برد حقيقي — انظر `council.py`'s LEARN intent
+   و`rag.py`'s `learn_now`.
+4. التقرير الأسبوعي (الخلية 13 في `merge_and_finetune.ipynb`) يرسل لك
+   تلقائياً عبر تيليجرام ملخصاً حقيقياً لما أُضيف هذا الأسبوع ومصدره.
 
 ## الخطوة 4-ب (اختياري): توليد الصور والفيديو
 

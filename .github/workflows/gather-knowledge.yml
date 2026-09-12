@@ -1,0 +1,47 @@
+name: Gather Web Knowledge (Nova self-feeding)
+
+# لماذا هذا الـworkflow موجود: owner spec 2026-09-12 ("نريد ان نجعله
+# حر آليا... تطوير ذاتي آلي... ليس مجرد جمع وتخزين وحين يُسأل يجيب من
+# الذي خزّنه — هذا ليس تطوير") — نوفا كان يتعلّم من الويب بشكل حي فعلاً
+# (rag.py's build_context)، لكن فقط بشكل رد فعل: عندما يسأل مستخدم
+# حقيقي شيئاً لا يعرفه. هذا الملف يجعل نفس بنك المعرفة (NovaKnowledgeEntry،
+# نفس الجدول الذي يتدرب عليه merge_and_finetune.ipynb أسبوعياً تدريباً
+# حقيقياً) ينمو تلقائياً وبشكل استباقي أيضاً، بجدولة ثابتة، بلا انتظار
+# لسؤال أحد.
+#
+# لماذا GitHub Actions تحديداً وليس Render: عنوان IP الخاص بـRender
+# محظور فعلياً من DuckDuckGo (دليل حقيقي سابق في هذا المشروع، وهو سبب
+# وجود بديل DuckDuckGo Instant Answer الأضعف في rag.py أصلاً) — عناوين
+# GitHub Actions ليست محظورة بنفس الطريقة، فالبحث الحي الفعلي (ddgs)
+# يعمل هنا فعلياً.
+#
+# القيد الحقيقي الوحيد الذي يجب مراعاته: هذا بحث حي فعلي متكرر — أُبقي
+# التشغيل مرة واحدة يومياً فقط (لا كل ساعة) احتراماً حقيقياً لحدود
+# DuckDuckGo، لا لأن الكود يفرض ذلك.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  gather:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install the few real dependencies this script needs (deliberately NOT the full ai-system/requirements.txt)
+        run: pip install requests ddgs
+
+      - name: Run the real gathering script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python ai-system/scripts/gather_knowledge.py

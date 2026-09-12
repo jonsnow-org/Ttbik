@@ -474,6 +474,17 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"])
         return
 
+    if intent_result["intent"] == "LEARN":
+        # Owner spec, 2026-09-12 ("اذهب وابحث... وقم بتغذية نفسك بها...
+        # التنفيذ الفعلي وليس مجرد رد دون تنفيذ"): rag.learn_now does
+        # the real work (live search + Groq synthesis + guardrails-gated
+        # store) and returns a real status string — sent back verbatim,
+        # never replaced by a generic "تم!" that would hide whether
+        # anything actually happened.
+        quota.refund_quota(user["id"], "TEXT")
+        _send_telegram_message(chat_id, rag.learn_now(intent_result["topic"]))
+        return
+
     if intent_result["intent"] in ("IMAGE", "VIDEO"):
         # chat() below already reserved one TEXT quota unit before
         # scheduling this background task — refund it now that real

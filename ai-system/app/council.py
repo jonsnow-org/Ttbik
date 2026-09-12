@@ -710,7 +710,16 @@ _DEV_INTENT_ADDENDUM = (
     'تماماً (لا تخمّن مساراً غير مؤكد أبداً)", "instruction": "وصف دقيق '
     'وواضح لما يجب تغييره في الملف، بأي لغة"}\n'
     "لا تستخدم DEV إلا إذا كان الطلب فعلاً عن تعديل كود/ملف حقيقي، وليس "
-    "مجرد سؤال عام عن البرمجة."
+    "مجرد سؤال عام عن البرمجة.\n\n"
+    "أو قد تكون رسالته طلباً حقيقياً بأن تبحث الآن (فعلاً، وليس فقط "
+    'رداً نصياً) عن موضوع معيّن وتتعلّمه/تُغذّي به بنك معرفتك — مثل '
+    '"اذهب وابحث عن كذا وتعلّمه" أو "طوّر نفسك في مجال كذا". إن كانت '
+    'كذلك، أجب بهذا الشكل:\n'
+    '{"intent": "LEARN", "topic": "الموضوع المحدَّد الذي يجب البحث عنه '
+    'وتعلّمه فعلياً، بصياغة واضحة ومحددة"}\n'
+    "لا تستخدم LEARN لسؤال عادي يريد إجابة فورية فقط — استخدمها فقط "
+    "عندما يطلب صراحة أن تبحث/تتعلّم/تطوّر نفسك في موضوع، كأمر فعلي لا "
+    "مجرد سؤال."
 )
 
 
@@ -732,6 +741,14 @@ def _parse_intent_json(raw: str) -> dict:
             # (harmless), same "ambiguous -> TEXT" rule as IMAGE/VIDEO.
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "DEV", "file_path": file_path, "instruction": dev_instruction}
+    if intent == "LEARN":
+        topic = str(data.get("topic") or "").strip()
+        if not topic:
+            # No confident topic — same "ambiguous -> TEXT" rule as
+            # DEV/IMAGE/VIDEO above rather than researching something
+            # vague.
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "LEARN", "topic": topic}
     if intent not in ("IMAGE", "VIDEO", "TEXT"):
         intent = "TEXT"
     prompt = str(data.get("prompt") or "").strip()
@@ -780,11 +797,14 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
     كما اتحدث معك الآن" — talk naturally instead of memorizing a fixed
     "/اقتراح_تعديل <path> :: <instruction>" command): main.py passes
     True only when quota.is_platform_owner(user) already confirmed the
-    caller is the owner — adds the DEV option to the schema so a plain
-    conversational request can trigger the Dev Agent. A file path the
-    model isn't confident about never gets guessed (see
-    _parse_intent_json) — that falls through to TEXT, same as any
-    other ambiguous case here."""
+    caller is the owner — adds BOTH owner-only options to the schema:
+    DEV (a real code-change proposal, see dev_agent.py) and LEARN (a
+    real, on-demand research-and-store command — owner spec, same day:
+    "اذهب وابحث عن وسائل لتطوير قدراتك... وقم بتغذية نفسك بها" — actual
+    execution, not a reply describing what it would do; see
+    rag.learn_now). A file path/topic the model isn't confident about
+    never gets guessed (see _parse_intent_json) — that falls through to
+    TEXT, same as any other ambiguous case here."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
     if allow_dev:
         instruction += _DEV_INTENT_ADDENDUM
