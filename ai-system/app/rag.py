@@ -98,9 +98,18 @@ logger = logging.getLogger("nova")
 # client. Chroma's own wrapper swallows the exception so it never
 # crashes anything, but it still runs (and fails) this network/telemetry
 # path on every add() — pure waste on the hottest path in the app, and
-# log noise that made real errors harder to spot. Disabling anonymized
-# telemetry outright removes the broken call path entirely instead of
-# just tolerating its failure.
+# log noise that made real errors harder to spot. anonymized_telemetry
+# =False (below) is chromadb's documented way to disable this, but real
+# evidence (same error, same wording, still firing in Render's logs on
+# the deploy that already carries this setting) shows it does not fully
+# suppress it for this chromadb version/event pair — most likely because
+# "./chroma_data" already existed from before this setting was added, and
+# chromadb persists some client identity/config the first time a path is
+# used. Silencing the specific logger below is not dependent on that
+# guess being right: it works purely at the Python logging level, so it
+# is guaranteed to stop the noise regardless of chromadb's own internal
+# telemetry gating.
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
 _chroma_client = chromadb.PersistentClient(
     path="./chroma_data", settings=ChromaSettings(anonymized_telemetry=False)
 )
