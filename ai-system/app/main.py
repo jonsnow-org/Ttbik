@@ -62,7 +62,24 @@ def _log_memory_usage(tag: str) -> None:
 
 @app.on_event("startup")
 def _log_startup_memory() -> None:
-    _log_memory_usage("app startup complete")
+    _log_memory_usage("app startup, before embedder warm-up")
+    # Owner report, 2026-09-13/14 (real, TWICE-reproduced evidence in
+    # Render's own logs): chromadb's ONNX embedding model is loaded
+    # lazily on its first real use — which, before this, always landed
+    # mid-request, on whatever live Telegram message happened to be the
+    # first one after a cold start (a redeploy, or the free tier's own
+    # "spin down after inactivity"). Both captured incidents show the
+    # process getting OOM-killed during or right after that exact
+    # sequence. Forcing that first load HERE, in the startup handler,
+    # moves it before Render ever routes real traffic to this container
+    # — see rag.warm_up_embedder's own docstring for the matching
+    # Dockerfile change that also removes the network download this used
+    # to require on every cold start.
+    try:
+        rag.warm_up_embedder()
+    except Exception:
+        logger.exception("embedder warm-up failed at startup — first real message will pay this cost instead")
+    _log_memory_usage("app startup complete, after embedder warm-up")
 
 
 # Same stripping novaBotLogic.ts's old stripMarkdown() used to do

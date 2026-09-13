@@ -115,6 +115,21 @@ _chroma_client = chromadb.PersistentClient(
 )
 _embedder = embedding_functions.DefaultEmbeddingFunction()
 
+
+def warm_up_embedder() -> None:
+    """Owner report, 2026-09-13/14 (real, twice-reproduced evidence): the
+    ONNX embedding model this function loads is created lazily by
+    chromadb — nothing actually downloads/loads it until the first real
+    embedding call, which used to happen mid-request, during whatever
+    live message triggered it first after each cold start. Called once
+    from main.py's FastAPI startup handler so that first load (now just
+    a local-disk read+init, since the Dockerfile bakes the model file
+    into the image at build time — see that file's own comment) happens
+    before Render ever routes real traffic to this container, not
+    stacked on top of a live message's own memory/latency."""
+    _embedder(["تهيئة"])
+
+
 # How long a cached knowledge-bank answer stays trustworthy before we
 # treat it as stale and search again. Live facts (prices, news) go bad
 # fast — 6 hours is a deliberate middle ground between "never re-search
