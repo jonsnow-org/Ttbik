@@ -720,6 +720,13 @@ _DEV_INTENT_ADDENDUM = (
     "التدريب في هذا المشروع). ضع أي كود مذكور في الرسالة كما هو حرفياً "
     "داخل حقل instruction، دون إعادة صياغته أو تلخيصه أو تصحيحه بأي "
     "شكل.\n\n"
+    "أو قد تكون رسالته طلب بناء شيء جديد كاملاً من عدة ملفات معاً — "
+    'موقع أو صفحة أو تطبيق صغير أو أداة (مثل "اصنع لي صفحة هبوط لخدمة '
+    'كذا" أو "ابنِ لي أداة تحسب كذا"). هذا يختلف عن DEV: DEV تعديل على '
+    "ملف واحد موجود، وهذا إنشاء عدة ملفات جديدة معاً. إن كانت كذلك، أجب "
+    'بهذا الشكل:\n'
+    '{"intent": "BUILD", "instruction": "وصف كامل ودقيق لما يجب بناؤه، '
+    'شاملاً كل تفصيل ذكره المستخدم (الغرض، اللغة، الشكل، أي متطلب خاص)"}\n\n'
     "أو قد تكون رسالته طلباً حقيقياً بأن تبحث الآن (فعلاً، وليس فقط "
     'رداً نصياً) عن موضوع معيّن وتتعلّمه/تُغذّي به بنك معرفتك — مثل '
     '"اذهب وابحث عن كذا وتعلّمه" أو "طوّر نفسك في مجال كذا". إن كانت '
@@ -751,6 +758,20 @@ _DEV_INTENT_ADDENDUM = (
 )
 
 
+def _parse_json_blob(raw: str) -> dict:
+    """Generic "pull the JSON object out of a model's reply" helper —
+    same forgiving shape _parse_intent_json uses below, but without that
+    function's intent-specific interpretation, for callers that define
+    their own schema (propose_app_build)."""
+    match = re.search(r"\{.*\}", raw, re.DOTALL) if raw else None
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return {}
+
+
 def _parse_intent_json(raw: str) -> dict:
     match = re.search(r"\{.*\}", raw, re.DOTALL) if raw else None
     if not match:
@@ -769,6 +790,16 @@ def _parse_intent_json(raw: str) -> dict:
             # (harmless), same "ambiguous -> TEXT" rule as IMAGE/VIDEO.
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "DEV", "file_path": file_path, "instruction": dev_instruction}
+    if intent == "BUILD":
+        build_instruction = str(data.get("instruction") or "").strip()
+        if len(build_instruction) < 10:
+            # Nothing specific enough to build from — same
+            # "ambiguous -> TEXT" rule as every other intent here. A
+            # vague build request becomes a normal conversation where
+            # Nova can ask what exactly is wanted, which is the right
+            # outcome anyway.
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "BUILD", "instruction": build_instruction}
     if intent in ("LEARN", "IMPROVE"):
         topic = str(data.get("topic") or "").strip()
         if intent == "LEARN" and not topic:
@@ -1169,6 +1200,131 @@ def validate_or_repair(file_path: str, content: str, instruction: str) -> tuple[
         f"وبعد محاولة إصلاح واحدة، بقي الخطأ: {message_after}\n"
         f"أخبرني بصياغة أوضح لما تريده بالضبط، أو راجع الملف بنفسك.",
     )
+
+
+_MAX_BUILD_FILES = 5
+
+_APP_PLAN_PROMPT = (
+    "المالك يطلب بناء شيء حقيقي جديد في مشروعنا (موقع/صفحة/تطبيق صغير/أداة). "
+    "خطّط الملفات المطلوبة فعلاً، ولا تخطّط أكثر مما يلزم.\n\n"
+    "أجب حصراً بصيغة JSON صحيحة بلا أي نص إضافي:\n"
+    '{{"summary": "وصف موجز بجملة أو جملتين لما ستبنيه", '
+    f'"files": [{{{{"path": "المسار الحقيقي داخل المستودع", "purpose": "ما يفعله هذا الملف بالضبط"}}}}]}}}}\n\n'
+    f"قواعد إلزامية: {_MAX_BUILD_FILES} ملفات كحد أقصى. مسارات حقيقية متسقة مع بنية المشروع "
+    "(صفحات Next.js تحت src/app/...). ممنوع منعاً باتاً أي ملف تحت .github/ — "
+    "لا تخطّط له أصلاً.\n\n"
+    "الطلب:\n{instruction}"
+)
+
+_APP_FILE_PROMPT = (
+    "أنت تبني هذا: {summary}\n\n"
+    "الطلب الأصلي من المالك: {instruction}\n\n"
+    "الملفات التي ستتكوّن منها هذه الإضافة كاملةً:\n{file_list}\n\n"
+    "اكتب الآن محتوى هذا الملف وحده: {path}\nالغرض منه: {purpose}\n\n"
+    "اجعله متسقاً تماماً مع بقية الملفات أعلاه (نفس الأسماء والمسارات والاستدعاءات بينها). "
+    "أعد فقط المحتوى الكامل النهائي للملف كما سيُكتب حرفياً على القرص، بلا أي شرح أو "
+    "مقدمة أو علامات ```‎ من أي نوع."
+)
+
+
+def propose_app_build(instruction: str, auto_merge: bool = False) -> str:
+    """Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
+    احترافية"): the Dev Agent could only ever touch ONE file per PR,
+    which is fine for "make the greeting friendlier" and useless for
+    "build me a page" — a real page is a component plus a route plus
+    styling, and three separate PRs that each half-work are not a
+    feature.
+
+    Two phases on purpose, rather than asking for every file in one
+    JSON response: a single blob containing several complete source
+    files is exactly the shape that gets truncated or mis-escaped, and
+    then nothing at all is usable. Planning paths first (small, cheap,
+    reliable) and generating each file in its own focused call — with
+    the full plan as context so the files stay consistent with each
+    other — degrades gracefully instead, and lets every file go through
+    the same real validation gate (validate_or_repair) individually.
+
+    Anything that fails validation after its one repair round is
+    dropped from the build and named explicitly in the result, rather
+    than shipping a PR that silently contains a broken file."""
+    raw_plan = call_modelscope_specialist(
+        _APP_PLAN_PROMPT.format(instruction=instruction), "", query_type="CODE"
+    ) or call_groq(_APP_PLAN_PROMPT.format(instruction=instruction), "")
+    plan = _parse_json_blob(raw_plan or "")
+    summary = str(plan.get("summary") or "").strip()
+    raw_files = plan.get("files") if isinstance(plan.get("files"), list) else []
+
+    planned = []
+    for entry in raw_files[:_MAX_BUILD_FILES]:
+        if not isinstance(entry, dict):
+            continue
+        path = str(entry.get("path") or "").strip().lstrip("/")
+        purpose = str(entry.get("purpose") or "").strip()
+        if path:
+            planned.append({"path": path, "purpose": purpose})
+    if not planned:
+        return "لم أستطع وضع خطة ملفات واضحة لهذا الطلب — صِفه لي بتفصيل أكثر (ما الذي تريده بالضبط، ولمن؟)."
+
+    file_list = "\n".join(f"- {item['path']}: {item['purpose']}" for item in planned)
+    built, skipped = [], []
+    for item in planned:
+        prompt = _APP_FILE_PROMPT.format(
+            summary=summary or instruction, instruction=instruction,
+            file_list=file_list, path=item["path"], purpose=item["purpose"],
+        )
+        raw_content = call_modelscope_specialist(prompt, "", query_type="CODE") or call_groq(prompt, "")
+        content = _strip_code_fences(raw_content)
+        if not content:
+            skipped.append(f"{item['path']} (لم يُرجع النموذج محتوى)")
+            continue
+        content, _advisory, failure = validate_or_repair(item["path"], content, item["purpose"] or instruction)
+        if failure:
+            skipped.append(f"{item['path']} (لم يمر بالفحص النحوي)")
+            continue
+        built.append({"path": item["path"], "content": content})
+
+    if not built:
+        return (
+            "خطّطتُ الملفات لكن لم ينجح أي ملف في اجتياز الفحص النحوي، فلم أفتح أي Pull Request:\n"
+            + "\n".join(f"- {s}" for s in skipped)
+        )
+
+    branch_name = f"nova-build/{uuid.uuid4().hex[:10]}"
+    try:
+        dev_agent.create_branch(branch_name)
+        for item in built:
+            dev_agent.upsert_file(
+                item["path"], branch_name, item["content"],
+                commit_message=f"Nova build: {item['path']}",
+            )
+        body = (
+            f"بناء كامل من نوفا (وضع المالك) بناءً على الطلب:\n\n> {instruction}\n\n"
+            f"{summary}\n\n**الملفات:**\n" + "\n".join(f"- `{i['path']}`" for i in built)
+        )
+        if skipped:
+            body += "\n\n**استُبعدت (لم تجتز الفحص النحوي):**\n" + "\n".join(f"- {s}" for s in skipped)
+        body += (
+            "\n\nكل ملف أعلاه مرّ بفحص نحوي حتمي قبل كتابته (`ai-system/app/code_check.py`).\n"
+            "إن كان هذا المشروع موصولاً بـVercel، سيعلّق بوت Vercel هنا برابط معاينة حي "
+            "يمكنك فتحه ورؤية النتيجة بعينك قبل الدمج."
+        )
+        pr_url, pr_number = dev_agent.open_pull_request(
+            branch_name, title=f"Nova build: {(summary or instruction)[:60]}", body=body,
+        )
+        if auto_merge:
+            try:
+                dev_agent.merge_pull_request(pr_number)
+            except dev_agent.DevAgentError as e:
+                return f"بنيتُ {len(built)} ملفاً لكن فشل الدمج التلقائي — الـPR مفتوح للمراجعة:\n{pr_url}\n({e})"
+    except dev_agent.DevAgentError as e:
+        return str(e)
+
+    lines = [f"✅ بنيتُ {len(built)} ملفاً وفتحتُ Pull Request:", pr_url, "", "الملفات:"]
+    lines += [f"- {i['path']}" for i in built]
+    if skipped:
+        lines += ["", "استبعدتُ (لم تجتز الفحص النحوي):"] + [f"- {s}" for s in skipped]
+    lines += ["", "افتح الرابط أعلاه — إن كان Vercel موصولاً ستجد فيه رابط معاينة حي للنتيجة."]
+    return "\n".join(lines)
 
 
 def propose_code_change(file_path: str, instruction: str, auto_merge: bool = False) -> str:

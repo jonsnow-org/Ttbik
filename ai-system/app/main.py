@@ -519,6 +519,28 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"], message)
         return
 
+    if intent_result["intent"] == "BUILD":
+        # Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
+        # احترافية"): several real files in ONE branch and ONE PR — see
+        # council.propose_app_build. Takes minutes (one model call per
+        # file), which is why the owner is told up front rather than
+        # left watching a typing indicator.
+        quota.refund_quota(user["id"], "TEXT")
+        build_instruction = intent_result["instruction"]
+        _send_telegram_message(
+            chat_id,
+            "🏗 جارٍ بناء الملفات — أخطّط الملفات ثم أكتب كل ملف وأفحصه نحوياً قبل إرساله. "
+            "قد يستغرق هذا عدة دقائق، وسيصلك رابط Pull Request فور الانتهاء.",
+        )
+        try:
+            reply = council.propose_app_build(build_instruction, auto_merge=False)
+        except Exception:
+            logger.exception("app build failed for chat_id=%s", chat_id)
+            reply = "حدث خطأ غير متوقع أثناء البناء — راجع سجلات الخادم."
+        quota.log_usage(user["id"], channel, "BUILD", build_instruction, reply)
+        _send_telegram_message(chat_id, reply)
+        return
+
     if intent_result["intent"] == "LEARN":
         # Owner spec, 2026-09-12 ("اذهب وابحث... وقم بتغذية نفسك بها...
         # التنفيذ الفعلي وليس مجرد رد دون تنفيذ"): rag.learn_now does

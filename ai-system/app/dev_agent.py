@@ -71,6 +71,45 @@ def _headers() -> dict:
     }
 
 
+# Real hole found 2026-09-13 while building the multi-file app builder
+# (council.propose_app_build), not a hypothetical: nothing in this module
+# stopped Nova from writing a file under .github/workflows/. A workflow
+# file is not data — GitHub executes it as shell commands on push, with
+# repository secrets in scope. Combined with the owner-directed
+# auto_merge path, that would have been a complete, silent bypass of
+# this project's single most explicit and least negotiable rule
+# ("ممنوع أي صلاحية تنفيذ أوامر Terminal بالكامل" — see this module's
+# own docstring above): no terminal was ever granted, one would simply
+# have been written into existence and handed to GitHub's runners.
+#
+# So these paths are refused at the only layer that touches GitHub at
+# all. Deliberately a hard refusal rather than a warning, and
+# deliberately here rather than in each caller, so that every present
+# and future path into this module inherits it automatically.
+_FORBIDDEN_PATH_PREFIXES = (
+    ".github/workflows/",
+    ".github/actions/",
+)
+
+
+def _reject_forbidden_path(path: str) -> None:
+    # NOT lstrip("./") — that strips any leading "." or "/" CHARACTER,
+    # which turns ".github/workflows/x.yml" into "github/workflows/x.yml"
+    # and silently defeats this entire check. Caught by a real test of
+    # this exact path before it shipped; written out explicitly instead.
+    normalized = (path or "").strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = normalized.lstrip("/")
+    for prefix in _FORBIDDEN_PATH_PREFIXES:
+        if normalized.startswith(prefix):
+            raise DevAgentError(
+                f"مرفوض: {path} — ملفات GitHub Actions تُنفَّذ كأوامر Terminal حقيقية على خوادم GitHub، "
+                "وكتابتها تلقائياً تعني منح صلاحية تنفيذ أوامر التفّت على القاعدة الأساسية للمشروع. "
+                "عدّل هذا الملف بنفسك يدوياً إن أردته."
+            )
+
+
 def _ensure_configured() -> None:
     if not NOVA_DEV_AGENT_GITHUB_TOKEN or not NOVA_DEV_AGENT_REPO or not NOVA_DEV_AGENT_BASE_BRANCH:
         raise DevAgentError(
@@ -131,6 +170,7 @@ def update_file(path: str, branch: str, new_content: str, sha: str, commit_messa
     module (propose_code_change below always passes the freshly
     created branch)."""
     _ensure_configured()
+    _reject_forbidden_path(path)
     resp = requests.put(
         f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
         headers=_headers(),
@@ -163,6 +203,7 @@ def create_file(path: str, branch: str, content: str, commit_message: str) -> No
     from GitHub in that case) — this function is for creation only, use
     update_file for an existing file."""
     _ensure_configured()
+    _reject_forbidden_path(path)
     resp = requests.put(
         f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
         headers=_headers(),
@@ -175,6 +216,27 @@ def create_file(path: str, branch: str, content: str, commit_message: str) -> No
     )
     if not resp.ok:
         raise DevAgentError(f"تعذّر إنشاء الملف الجديد على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
+
+
+def upsert_file(path: str, branch: str, content: str, commit_message: str) -> None:
+    """Writes `path` on `branch` whether or not it already exists —
+    create_file and update_file differ only in whether GitHub is given
+    the current blob sha, and a caller building several files at once
+    (council.propose_app_build) genuinely cannot know in advance which
+    of its files are new. Looks the existing blob up ON THE BRANCH, not
+    on the base branch, so writing the same file twice in one build
+    works correctly instead of failing on a stale sha.
+
+    Same branch-only guarantee as both functions it delegates to: there
+    is no argument here that could target NOVA_DEV_AGENT_BASE_BRANCH."""
+    try:
+        _current, sha = get_file(path, ref=branch)
+    except DevAgentError:
+        sha = None
+    if sha:
+        update_file(path, branch, content, sha, commit_message)
+    else:
+        create_file(path, branch, content, commit_message)
 
 
 def open_pull_request(branch: str, title: str, body: str, base_branch: str | None = None) -> tuple[str, int]:
