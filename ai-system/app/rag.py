@@ -701,6 +701,11 @@ def _analyze_and_store_general_knowledge(message: str, raw_snippets: str) -> Non
         from app import council
 
         analyzed = council.analyze_knowledge(message, raw_snippets)
+        # Same real fix as learn_now — never store generic pretrained
+        # filler as if it were a real finding just because the search
+        # results themselves were too thin/generic to yield one.
+        if analyzed.strip().startswith(council.NO_SPECIFIC_FINDING_MARKER):
+            return
         _store_knowledge(message, analyzed, "general")
     except Exception:
         logger.exception("background analyze_and_store_general_knowledge failed for query=%s", message)
@@ -759,6 +764,21 @@ def learn_now(topic: str) -> str:
     from app import council, guardrails
 
     analyzed = council.analyze_knowledge(topic, raw_snippets)
+    # Owner report, 2026-09-13 (real evidence: LEARN on a broad topic
+    # got back a generic listicle of programmer traits — "التفكير
+    # المنطقي، الصبر، الإبداع، إتقان Git" — "يردد اوامر نصية فقط...
+    # دون تفكير منطقي"): analyze_knowledge now honestly says so via
+    # this exact marker when the real search results had nothing
+    # specific worth keeping, instead of filling the gap with generic
+    # pretrained advice. Honor that here — never store or report
+    # generic filler as if it were a real finding.
+    if analyzed.strip().startswith(council.NO_SPECIFIC_FINDING_MARKER):
+        return (
+            f"بحثت فعلاً عن \"{topic}\" — لكن النتائج الحقيقية التي وجدتها كانت عامة جداً ولا تحتوي "
+            f"شيئاً محدداً يستحق حفظه كمعرفة حقيقية، فلم أخزّن شيئاً بدل اختلاق فقرة عامة تبدو مقنعة. "
+            f"({analyzed.strip()[len(council.NO_SPECIFIC_FINDING_MARKER):].strip(' .:—-')}) "
+            "جرّب موضوعاً أضيق وأكثر تحديداً."
+        )
     safe_content = guardrails.sanitize_for_storage(analyzed)
     if safe_content is None:
         return f"بحثت فعلاً عن \"{topic}\" لكن ما وجدته لم يجتز فحص الأمان الداخلي — لم يُخزَّن شيء."

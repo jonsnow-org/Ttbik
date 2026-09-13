@@ -324,11 +324,29 @@ def detect_dissatisfaction(previous_answer: str, new_message: str) -> bool:
         return False
 
 
+# Owner report, 2026-09-13 (real evidence, LEARN on a broad topic —
+# "طوّر مهاراتك في البرمجة والتصميم..." — got back a generic listicle
+# of traits: "التفكير المنطقي، الصبر، الإبداع، إتقان Git" — exactly the
+# shape of the model's own generic pretrained advice, not anything
+# actually found in a real search): a deterministic, checkable signal
+# for "the real search results had nothing specific worth keeping" —
+# callers (rag.learn_now, rag's background analyze-and-store) check for
+# this EXACT prefix and skip storage/report honestly instead of storing
+# generic filler as if it were a real finding.
+NO_SPECIFIC_FINDING_MARKER = "لا توجد معلومة محددة"
+
 _ANALYZE_KNOWLEDGE_PROMPT = (
-    "لديك نتائج بحث خام من الويب حول سؤال معيّن. لخّصها وادمجها في "
-    "فقرة واحدة واضحة ومباشرة بالعربية تجيب عن السؤال مباشرة، بلا "
-    "ذكر لأسماء المواقع أو أنك تلخّص بحثاً. إن تناقضت النتائج، اذكر "
-    "المعلومة الأكثر اتفاقاً بينها فقط.\n\nالسؤال: {query}\n\nنتائج البحث الخام:\n{raw_snippets}"
+    "لديك نتائج بحث خام حقيقية من الويب حول سؤال معيّن. مهمتك تلخيص ما "
+    "تحتويه هذه النتائج تحديداً — وليس الإجابة من معرفتك العامة المُدرَّبة "
+    "مسبقاً. استخرج فقط الحقائق والتفاصيل المحددة الموجودة فعلاً في "
+    "النتائج أدناه (أسماء أدوات، أرقام، تقنيات محددة، خطوات فعلية)، بلا "
+    "ذكر لأسماء المواقع أو أنك تلخّص بحثاً. لا تُكمل أي فجوة بمعلومات "
+    "عامة أو نصائح نمطية (\"فكر منطقياً\"، \"مارس الصبر\"، \"طوّر مهاراتك\") "
+    f"لم تَرِد فعلاً في النتائج — إن كانت النتائج ضعيفة أو عامة جداً أو لا "
+    f"تحتوي شيئاً محدداً وحقيقياً يستحق الحفظ، ابدأ ردك حرفياً بالعبارة "
+    f'"{NO_SPECIFIC_FINDING_MARKER}" ثم اشرح باختصار لماذا، بدل اختلاق '
+    "فقرة عامة تبدو مقنعة. إن تناقضت النتائج، اذكر المعلومة الأكثر اتفاقاً "
+    "بينها فقط.\n\nالسؤال: {query}\n\nنتائج البحث الخام:\n{raw_snippets}"
 )
 
 
@@ -392,16 +410,32 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
     """Emergency fallback ONLY (see module docstring) — used solely
     when our own vision-capable model isn't trained/configured yet or
     is genuinely unreachable. Gemini's free multimodal tier is a
-    reasonable stand-in for that gap, never the default."""
+    reasonable stand-in for that gap, never the default.
+
+    Owner report, 2026-09-13 (real evidence: a photo sent for analysis
+    got "جارٍ تحليل الصورة..." and then genuinely zero reply, ever):
+    call_modelscope_specialist(image_base64=...) IS already bounded
+    (630s, with_hard_deadline) — but when it fails and this fallback
+    runs, model.generate_content() below was called with no timeout of
+    its own at all. The exact same real bug class that made a plain
+    "مرحبا" hang forever on 2026-09-09 (a stalled network read that
+    never raises and never returns) applies just as much to Gemini's
+    SDK as it did to requests' own streamed calls — nothing about this
+    specific call was ever verified immune to it. Bounded now, same
+    established pattern as every other model call in this project."""
     if not GEMINI_API_KEY:
         return None
     import google.generativeai as genai
 
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(GEMINI_MODEL, system_instruction=_SYSTEM_PROMPT)
-    try:
+
+    def _generate() -> str | None:
         response = model.generate_content([prompt, {"mime_type": mime_type, "data": image_bytes}])
         return response.text
+
+    try:
+        return with_hard_deadline(_generate, timeout=90)
     except Exception:
         return None
 
