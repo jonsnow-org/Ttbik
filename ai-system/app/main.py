@@ -466,7 +466,8 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
             deep_final, trace = deep_result
             log_id = quota.log_usage(user["id"], channel, query_type, message, deep_final)
             rag.remember(user["id"], message, deep_final)
-            rag.remember_shared(message, deep_final, query_type)
+            if not council.is_identity_fallback(deep_final):
+                rag.remember_shared(message, deep_final, query_type)
             deep_think.store_trace(message, deep_final, trace)
             return deep_final, query_type, log_id
 
@@ -479,7 +480,15 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     final_answer = council.answer(message, context, query_type=query_type, is_owner=quota.is_platform_owner(user))
     log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
     rag.remember(user["id"], message, final_answer)
-    rag.remember_shared(message, final_answer, query_type)
+    # Owner report, 2026-09-14 (real evidence: "ما هي عاصمة قطر" got the
+    # fixed identity-disclaimer text back verbatim): see
+    # council.is_identity_fallback's own docstring — this fixed safety
+    # substitution is never a real "solution" to cache against future
+    # unrelated questions, so it must never enter nova_solutions_bank
+    # (the collection recall_cached_answer's embedding search reads from)
+    # in the first place.
+    if not council.is_identity_fallback(final_answer):
+        rag.remember_shared(message, final_answer, query_type)
     return final_answer, query_type, log_id
 
 

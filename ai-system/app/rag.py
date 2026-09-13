@@ -164,6 +164,34 @@ def warm_up_shared_collections() -> None:
     _knowledge_bank()
     _solutions_bank()
     _log_memory("after shared-collection warm-up")
+    _cleanup_identity_fallback_cache()
+
+
+def _cleanup_identity_fallback_cache() -> None:
+    """Owner report, 2026-09-14 (real evidence: "ما هي عاصمة قطر" — a
+    plain factual question — got the fixed identity-disclaimer text back
+    verbatim): before council.is_identity_fallback existed, that fixed
+    text got stored into nova_solutions_bank like any other real worked
+    answer, and recall_cached_answer's embedding search could then match
+    it against a totally unrelated later question. That code path is
+    fixed now (main.py no longer stores it), but any copies already
+    written into this collection before the fix would keep causing wrong
+    cache hits until they aged out naturally — up to _MAX_LIVE_COLLECTION_SIZE
+    documents from now. This deletes any that already exist, using the
+    "answer" metadata field remember_shared always stores (an exact
+    match, not a fuzzy one — so this only ever removes real copies of
+    this exact fixed text, nothing else)."""
+    from app import council
+
+    try:
+        bank = _solutions_bank()
+        existing = bank.get(where={"answer": council._IDENTITY_ANSWER_TEXT}, include=[])
+        ids = existing.get("ids") or []
+        if ids:
+            bank.delete(ids=ids)
+            logger.info("cleaned up %d stale identity-fallback entries from nova_solutions_bank", len(ids))
+    except Exception:
+        logger.exception("_cleanup_identity_fallback_cache failed — a stale entry may still cause a wrong cache hit")
 
 
 # How long a cached knowledge-bank answer stays trustworthy before we

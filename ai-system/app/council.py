@@ -237,6 +237,27 @@ def _is_identity_question(message: str) -> bool:
     return any(keyword.lower() in normalized for keyword in _IDENTITY_KEYWORDS)
 
 
+def is_identity_fallback(answer: str | None) -> bool:
+    """Owner report, 2026-09-14 (real evidence: "ما هي عاصمة قطر" — a
+    plain factual question with no relation to identity at all — got
+    this exact IDENTITY_ANSWER_TEXT back verbatim): main.py's
+    _run_text_pipeline stores EVERY final_answer via rag.remember/
+    remember_shared unconditionally, including this one whenever it
+    fires (either from _is_identity_question or from a real identity
+    leak caught by _contains_forbidden_identity_leak). Once stored, this
+    fixed disclaimer sits in nova_solutions_bank as if it were a real
+    worked answer to whatever question triggered it — and
+    recall_cached_answer's embedding-similarity search can then return
+    it VERBATIM for a totally unrelated LATER question that happens to
+    land within the cache's distance threshold, exactly as observed.
+    This is never a legitimate "solution" to cache in the first place —
+    a fixed safety disclaimer isn't the answer to any real question, so
+    callers should skip storing it via this check rather than needing
+    the cache's distance threshold to somehow rule it out after the
+    fact."""
+    return answer == _IDENTITY_ANSWER_TEXT
+
+
 _SELF_REFERENCE_PATTERNS = [
     "أنا نموذج", "أنا ذكاء اصطناعي", "تم تطويري", "طوّرتني", "طورتني",
     "طُوِّر", "developed by", "created by", "i am chatgpt", "i'm chatgpt",
