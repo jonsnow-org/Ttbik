@@ -3,8 +3,14 @@ Zero-cost RAG — several independent "banks" (ChromaDB collections, all
 free, on-disk) Nova draws from depending on what a message needs,
 instead of one undifferentiated memory:
 
-  - A per-user PRIVATE memory bank (nova_memory_<id>) — continuity
-    with one specific person's own past conversations.
+  - A per-user PRIVATE memory bank — continuity with one specific
+    person's own past conversations. ONE shared collection
+    (nova_memory_all), not one collection per user: a real, measured
+    memory leak (see _memory_collection's own docstring) found a
+    separate named collection per user costs several MB of fixed
+    overhead each regardless of how little data it holds — with enough
+    distinct users this alone can exceed a free-tier memory limit.
+    Isolation between users is by a user_id metadata field instead.
   - A shared LIVE-INFO knowledge bank (nova_knowledge_bank) — caches
     real DuckDuckGo web-search results (free, no API key) across every
     user, so a price looked up for one user on Telegram is immediately
@@ -68,6 +74,7 @@ original design above.
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 import chromadb
@@ -127,37 +134,56 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
         )
 
 
+def _memory_collection():
+    """Render incident, 2026-09-13 (real evidence: Render's own alert
+    recurring — "Web Service nova-ai-backend exceeded its memory
+    limit" — after the earlier rehydration-batch fix, on the SAME day):
+    a separate Chroma collection per user (nova_memory_<user_id>) was
+    the dominant cause, confirmed by direct measurement, not guessed —
+    300 tiny per-user collections (5 short documents each) cost ~1.49GB
+    RSS in a real local test, versus ~309MB for the SAME 1500 documents
+    in ONE shared collection filtered by a user_id metadata field —
+    each separate named collection carries several MB of fixed
+    overhead regardless of how little data it holds, so memory grew
+    with the number of DISTINCT USERS who ever chatted, not with the
+    amount of data — exactly the "recurs as the day goes on" pattern
+    reported. One shared collection scales with total documents
+    instead, like nova_knowledge_bank/nova_solutions_bank already did
+    from day one."""
+    return _chroma_client.get_or_create_collection(name="nova_memory_all", embedding_function=_embedder)
+
+
+def _user_has_memory(col, user_id: str) -> bool:
+    return bool(col.get(where={"user_id": user_id}, limit=1)["ids"])
+
+
 def _collection_for(user_id: str):
     """Owner report, 2026-09-13 (real complaint: "لا يتذكر المحادثة
     والسجل"): root cause confirmed, not guessed — Render's FREE web
     services have an EPHEMERAL filesystem (confirmed via Render's own
     docs: wiped on every redeploy AND every spin-down/restart after
     idle, which free services do routinely). _chroma_client's storage
-    path (./chroma_data) lives on that same disk, so this per-user
-    memory collection was being silently erased roughly daily — it
-    "worked" only within a single container lifetime.
-
-    _knowledge_bank() below already solved the IDENTICAL problem for
-    the shared search-results bank via _rehydrate_knowledge_bank,
-    refilling itself from Supabase (real durable storage) on a cold
-    start — this collection never got that same fix. Now it does,
-    rebuilt from NovaUsageLog (the durable Supabase table every real
-    conversation turn is already logged into by quota.log_usage), the
-    exact source remember() below would have populated this collection
-    from originally, in the same "سؤال سابق: ...\\nإجابة سابقة: ..."
-    document shape recall() already expects."""
-    col = _chroma_client.get_or_create_collection(name=f"nova_memory_{user_id}", embedding_function=_embedder)
-    if col.count() == 0:
+    path (./chroma_data) lives on that same disk, so per-user memory
+    was being silently erased roughly daily — it "worked" only within a
+    single container lifetime. Rehydrates from NovaUsageLog (the
+    durable Supabase table every real conversation turn is already
+    logged into by quota.log_usage) only for THIS user, checked via a
+    cheap local metadata-filtered query (_user_has_memory) rather than
+    the shared collection's own .count(), which now counts every user's
+    documents together and would rehydrate at most once total instead
+    of once per user."""
+    col = _memory_collection()
+    if not _user_has_memory(col, user_id):
         _rehydrate_user_memory(col, user_id)
     return col
 
 
 def _rehydrate_user_memory(col, user_id: str) -> None:
     """Runs at most once per container lifetime per user (only when
-    this user's collection comes up empty) — never allowed to break the
-    request that triggered it: a Supabase hiccup here just means this
-    cold start starts empty for this user, same as before this
-    durability fix existed."""
+    this user has no matching documents yet in the shared collection) —
+    never allowed to break the request that triggered it: a Supabase
+    hiccup here just means this cold start starts empty for this user,
+    same as before this durability fix existed."""
     try:
         rows = (
             get_supabase()
@@ -180,6 +206,7 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
         col,
         documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
+        metadatas=[{"user_id": user_id} for _ in rows],
     )
     logger.info("rehydrate_user_memory: restored %d past turns for user_id=%s after a cold start", len(rows), user_id)
 
@@ -290,8 +317,18 @@ _MIN_SOLUTION_LENGTH = 40
 
 def remember(user_id: str, message: str, answer: str) -> None:
     col = _collection_for(user_id)
-    doc_id = f"{user_id}-{col.count()}"
-    col.add(documents=[f"سؤال سابق: {message}\nإجابة سابقة: {answer}"], ids=[doc_id])
+    # Was f"{user_id}-{col.count()}" — safe when count() meant "this
+    # user's own document count" in a per-user collection, but col.count()
+    # now counts every user's documents in the shared collection, so two
+    # concurrent requests (even for different users) could race on the
+    # same total count and collide on the same id. A random suffix has
+    # no such race.
+    doc_id = f"{user_id}-{uuid.uuid4().hex}"
+    col.add(
+        documents=[f"سؤال سابق: {message}\nإجابة سابقة: {answer}"],
+        ids=[doc_id],
+        metadatas=[{"user_id": user_id}],
+    )
 
 
 def remember_shared(message: str, answer: str, query_type: str) -> None:
@@ -386,9 +423,12 @@ def recall_cached_answer(query: str, query_type: str) -> str | None:
 
 def recall(user_id: str, query: str, n_results: int = 3) -> list[str]:
     col = _collection_for(user_id)
-    if col.count() == 0:
-        return []
-    results = col.query(query_texts=[query], n_results=min(n_results, col.count()))
+    # No more min(n_results, col.count()) guard — col.count() now
+    # counts every user's documents, not just this one's, and chroma
+    # already returns however many actually match a `where` filter
+    # (fewer than n_results, or none) without erroring — verified
+    # directly against this exact chromadb version before relying on it.
+    results = col.query(query_texts=[query], n_results=n_results, where={"user_id": user_id})
     return results["documents"][0] if results["documents"] else []
 
 
