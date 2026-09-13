@@ -103,6 +103,29 @@ def _parse_supabase_ts(value: str) -> float:
     return dt.timestamp()
 
 
+# Render incident, 2026-09-13 (real evidence: Render's own alert — "Web
+# Service nova-ai-backend exceeded its memory limit", auto-restarted):
+# every rehydrate_* below used to hand its whole batch (up to 1000
+# documents) to one single bank.add() call. Chroma's embedding function
+# tokenizes and runs inference on the ENTIRE batch at once before
+# returning — a 1000-document batch spikes peak memory far above what
+# processing the same documents 40 at a time would need, on a free-tier
+# instance with very little headroom to begin with. Chunking changes
+# nothing about what ends up restored (same documents, same ids), only
+# how much memory is live at any one instant while restoring them.
+_REHYDRATE_CHUNK_SIZE = 40
+
+
+def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> None:
+    for start in range(0, len(documents), _REHYDRATE_CHUNK_SIZE):
+        end = start + _REHYDRATE_CHUNK_SIZE
+        collection.add(
+            documents=documents[start:end],
+            ids=ids[start:end],
+            metadatas=metadatas[start:end] if metadatas is not None else None,
+        )
+
+
 def _collection_for(user_id: str):
     """Owner report, 2026-09-13 (real complaint: "لا يتذكر المحادثة
     والسجل"): root cause confirmed, not guessed — Render's FREE web
@@ -152,7 +175,8 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
         return
     if not rows:
         return
-    col.add(
+    _add_in_chunks(
+        col,
         documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
     )
@@ -193,7 +217,8 @@ def _rehydrate_knowledge_bank(bank) -> None:
         return
     if not rows:
         return
-    bank.add(
+    _add_in_chunks(
+        bank,
         documents=[r["content"] for r in rows],
         metadatas=[
             {"ts": _parse_supabase_ts(r["created_at"]), "query": r["query"], "category": r.get("source") or "general"}
@@ -246,7 +271,8 @@ def _rehydrate_solutions_bank(bank) -> None:
     rows = [r for r in rows if len(r.get("answer") or "") >= _MIN_SOLUTION_LENGTH]
     if not rows:
         return
-    bank.add(
+    _add_in_chunks(
+        bank,
         documents=[f"سؤال: {r['message']}\nإجابة: {r['answer']}" for r in rows],
         metadatas=[{"query_type": r["queryType"], "answer": r["answer"]} for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
