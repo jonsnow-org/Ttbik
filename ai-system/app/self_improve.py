@@ -149,8 +149,22 @@ def research_and_propose(topic: str | None, trigger: str) -> str:
         return f"بحثت فعلاً عن \"{chosen_topic}\" لكن لم أجد نتائج حية مفيدة الآن — لا اقتراح هذه المرة."
 
     raw_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
-    raw = council.call_groq(_RESEARCH_PROMPT.format(topic=chosen_topic, raw_snippets=raw_snippets), "")
+    research_prompt = _RESEARCH_PROMPT.format(topic=chosen_topic, raw_snippets=raw_snippets)
+
+    # Owner report, 2026-09-13 (real evidence: asked Nova to research a
+    # skill and got Groq's generic, off-topic paragraph back, "كالببغاء
+    # يكررها"): this used to call Groq exclusively for the actual
+    # reading/understanding of the research — a live-user-facing report
+    # is exactly the kind of visible content this project's own rule
+    # says must come from OUR OWN model, Groq only as the fallback when
+    # ours is unavailable. council.analyze_knowledge got the identical
+    # fix the same day, for the identical reason.
+    raw = council.call_modelscope_specialist(research_prompt, "", query_type="GENERAL")
     parsed = _parse_research_json(raw or "")
+    if not str(parsed.get("finding") or "").strip():
+        raw = council.call_groq(research_prompt, "")
+        parsed = _parse_research_json(raw or "")
+
     finding = str(parsed.get("finding") or "").strip()
     if not finding:
         return f"بحثت فعلاً عن \"{chosen_topic}\" لكن تعذّر تكوين اقتراح واضح من النتائج — لا اقتراح هذه المرة."

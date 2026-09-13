@@ -324,40 +324,48 @@ def detect_dissatisfaction(previous_answer: str, new_message: str) -> bool:
         return False
 
 
+_ANALYZE_KNOWLEDGE_PROMPT = (
+    "لديك نتائج بحث خام من الويب حول سؤال معيّن. لخّصها وادمجها في "
+    "فقرة واحدة واضحة ومباشرة بالعربية تجيب عن السؤال مباشرة، بلا "
+    "ذكر لأسماء المواقع أو أنك تلخّص بحثاً. إن تناقضت النتائج، اذكر "
+    "المعلومة الأكثر اتفاقاً بينها فقط.\n\nالسؤال: {query}\n\nنتائج البحث الخام:\n{raw_snippets}"
+)
+
+
 def analyze_knowledge(query: str, raw_snippets: str) -> str:
-    """Owner spec, 2026-09-08: when Nova has to fall back to a live web
-    search (see rag.py), the raw search-result titles/snippets aren't
-    fit to store as "learned" knowledge as-is — they're fragments from
-    several different pages, often redundant or contradictory. This
-    turns them into one clean, synthesized Arabic paragraph before
-    rag.py stores it in the knowledge bank, so what Nova recalls later
-    (and what the Kaggle notebook eventually trains on) is an actual
-    answer, not a grab-bag of search-result text. Falls back to
-    returning raw_snippets unchanged if Groq isn't configured or the
-    call fails — a slightly rougher stored answer beats storing
-    nothing at all."""
+    """Owner spec, 2026-09-08, corrected 2026-09-13: when Nova has to
+    fall back to a live web search (see rag.py), the raw search-result
+    titles/snippets aren't fit to store as "learned" knowledge as-is —
+    this turns them into one clean, synthesized Arabic paragraph before
+    rag.py stores it in the knowledge bank AND before it is ever shown
+    to the owner as "what Nova learned".
+
+    Owner report, 2026-09-13 (real evidence: asked Nova to research
+    skills to improve its own speed, got back a generic, unrelated
+    paragraph about human employee training — "كالببغاء يكررها ويرد بها
+    دون أن يفهم محتواها"): this function used to call Groq EXCLUSIVELY,
+    with no attempt at our own model at all — a real, direct violation
+    of this project's own founding rule that our own model is the
+    visible voice and Groq only ever helps build it, never speaks in
+    its place. Widening the search itself (more results, broader
+    domains) was NOT the fix, and shipping that alone would have
+    repeated the same failure at larger volume: the actual defect was
+    WHO reads and understands the raw results, not how many of them
+    there are. Fixed the same way every other visible-content path in
+    this file already works (see propose_code_change, e.g.): our own
+    model tries FIRST, Groq is the fallback only when our own model is
+    unavailable or fails — never the other way around for anything the
+    owner or the knowledge bank actually sees."""
+    prompt = _ANALYZE_KNOWLEDGE_PROMPT.format(query=query, raw_snippets=raw_snippets)
+    own_answer = call_modelscope_specialist(prompt, "", query_type="GENERAL")
+    if own_answer and own_answer.strip():
+        return own_answer.strip()
+
     if not GROQ_API_KEY:
         return raw_snippets
     try:
-        client = _groq_client()
-        completion = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "لديك نتائج بحث خام من الويب حول سؤال معيّن. لخّصها وادمجها في "
-                        "فقرة واحدة واضحة ومباشرة بالعربية تجيب عن السؤال مباشرة، بلا "
-                        "ذكر لأسماء المواقع أو أنك تلخّص بحثاً. إن تناقضت النتائج، اذكر "
-                        "المعلومة الأكثر اتفاقاً بينها فقط."
-                    ),
-                },
-                {"role": "user", "content": f"السؤال: {query}\n\nنتائج البحث الخام:\n{raw_snippets}"},
-            ],
-            max_tokens=400,
-        )
-        analyzed = (completion.choices[0].message.content or "").strip()
-        return analyzed or raw_snippets
+        groq_answer = call_groq(prompt, "")
+        return groq_answer.strip() if groq_answer and groq_answer.strip() else raw_snippets
     except Exception:
         return raw_snippets
 
