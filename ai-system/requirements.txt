@@ -50,11 +50,25 @@ gradio_client==2.7.0
 # Chinese, Japanese, Korean — and Arabic is not among them, so the
 # owner's own language had no voice at all without this.
 #
-# Honest about what it is: an unofficial wrapper around Google
-# Translate's TTS endpoint, no SLA, and plausibly blocked on Render's
-# shared cloud IP exactly as ddgs already is. tts.py treats failure as
-# normal and falls back to a text-only reply, so that outcome costs
-# nothing. Pulls only click + requests — verified in a clean venv that
-# it coexists with supabase/gradio_client/chromadb, the conflict class
-# that broke this service once already.
+# Owner report, 2026-09-13 (real evidence: a voice reply said "شاكرنن"
+# instead of "شاكراً"): gTTS is Google Translate's simple TTS endpoint,
+# never built for Arabic grammar — replaced as the FIRST attempt by
+# edge-tts (below), a real, free, no-key wrapper around Microsoft
+# Edge's own neural TTS. gTTS is kept, not deleted, as the real second
+# attempt for exactly the same reason it was chosen originally: it is
+# an unofficial endpoint (Google Translate's), plausibly blocked on
+# Render's shared cloud IP exactly as ddgs already is, and edge-tts is
+# its own kind of unofficial client with the identical risk. tts.py
+# treats either failing as normal and falls back to a text-only reply,
+# so that outcome costs nothing either way. Pulls only click + requests
+# — verified in a clean venv that it coexists with
+# supabase/gradio_client/chromadb, the conflict class that broke this
+# service once already.
 gTTS==2.5.4
+
+# Owner spec, 2026-09-13: real Microsoft Edge neural voices (the same
+# ones Edge/Word's own "Read Aloud" uses) via rany2/edge-tts — a widely
+# used, actively maintained unofficial client, no API key, no card.
+# Pulls aiohttp/certifi/tabulate/typing-extensions only — verified in a
+# clean venv alongside every dependency above with no conflict.
+edge-tts==7.2.8

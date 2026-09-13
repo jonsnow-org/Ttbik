@@ -184,3 +184,15 @@ HF_IMAGE_SPACE_ID = os.environ.get("HF_IMAGE_SPACE_ID", "")
 # sign up (email or Google/GitHub) -> the API key is shown directly on
 # the dashboard, starts with "tvly-".
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
+
+# Owner report, 2026-09-13 (real evidence: a voice reply said "شاكرنن"
+# instead of "شاكراً"): gTTS is literally Google Translate's simple TTS
+# endpoint — never built for Arabic grammar (tanween/case endings), just
+# for reading translated phrases aloud. edge-tts (app/tts.py) is a real,
+# free, no-key wrapper around Microsoft Edge's own online TTS service —
+# the same real neural voices Edge/Word's "Read Aloud" use commercially,
+# genuinely better at Arabic prosody. ar-SA-HamedNeural (Saudi, male) is
+# a reasonable MSA-leaning default; override to any other real Arabic
+# neural voice id (e.g. ar-EG-SalmaNeural, ar-SA-ZariyahNeural) freely —
+# this is a live Microsoft catalog, not fixed by this project.
+EDGE_TTS_ARABIC_VOICE = os.environ.get("EDGE_TTS_ARABIC_VOICE", "ar-SA-HamedNeural")

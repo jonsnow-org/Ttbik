@@ -16,18 +16,28 @@ a feature that fails for its only real user.
 
 So there are two lanes, chosen by the script of the text itself:
 
-  Arabic  -> gTTS. Genuinely free, no key, real Arabic support. Stated
-             plainly: it is an UNOFFICIAL wrapper around Google
-             Translate's TTS endpoint with no SLA, and this project has
-             already been bitten once by exactly this class of
-             dependency (ddgs works fine anywhere except Render's own
-             shared cloud IP, which DuckDuckGo blocks). The same may
-             well happen here. That is survivable by design — see below.
+  Arabic  -> edge-tts FIRST, gTTS as a real fallback.
+             Owner report, 2026-09-13 (real evidence: a voice reply said
+             "شاكرنن" instead of "شاكراً"): gTTS is literally Google
+             Translate's simple TTS endpoint — built for reading a
+             translated phrase aloud, never for Arabic grammar (tanween,
+             case endings), so it mangles exactly the kind of ending
+             that complaint shows. edge-tts is a real, free, no-key
+             wrapper around Microsoft Edge's own online TTS service —
+             the same real neural voices Edge/Word's "Read Aloud"
+             feature uses commercially (EDGE_TTS_ARABIC_VOICE in
+             config.py), genuinely better at Arabic prosody. Still
+             stated plainly: it is an UNOFFICIAL client for a Microsoft
+             endpoint (rany2/edge-tts on GitHub) with no SLA, same real
+             risk class already hit once in this project (ddgs works
+             everywhere except Render's own shared cloud IP, which
+             DuckDuckGo blocks) — so gTTS is kept as the real second
+             attempt, not deleted, and both fail soft to text-only.
   Anything else -> Cloudflare's melotts, which is a real hosted model on
              hardware we already have free quota on.
 
-Failure in either lane returns None, and main.py's caller treats that
-as "text only", which is exactly today's behavior. So the worst case for
+Failure in every lane returns None, and main.py's caller treats that as
+"text only", which is exactly today's behavior. So the worst case for
 this whole feature is the status quo, never a broken or silent reply.
 
 Telegram's sendVoice specifically requires OGG/Opus; an MP3 sent that
@@ -37,6 +47,7 @@ and uses (imageio-ffmpeg, see media_finish.py's identical pattern), and
 falls back to reporting "mp3" — which main.py then delivers via
 sendAudio — if transcoding is unavailable for any reason.
 """
+import asyncio
 import io
 import logging
 import os
@@ -45,6 +56,8 @@ import subprocess
 import tempfile
 
 from app import cloudflare_ai
+from app.concurrency import with_hard_deadline
+from app.config import EDGE_TTS_ARABIC_VOICE
 
 logger = logging.getLogger("nova")
 
@@ -101,6 +114,28 @@ def _to_ogg_opus(mp3_bytes: bytes) -> bytes | None:
         return None
 
 
+def _edge_tts_blocking(text: str) -> bytes | None:
+    """Runs the async edge-tts client to completion in THIS thread via
+    asyncio.run() — safe here specifically because tts.synthesize is
+    always called from a plain worker thread (a FastAPI BackgroundTask
+    running a sync function goes through run_in_threadpool, never the
+    main event loop), so there is no already-running loop to conflict
+    with. Writes to a real temp file because Communicate.save() is
+    itself a file-writing coroutine, not something that hands back
+    bytes directly."""
+    import edge_tts
+
+    async def _run() -> bytes:
+        workdir = tempfile.mkdtemp()
+        out_path = os.path.join(workdir, "out.mp3")
+        communicate = edge_tts.Communicate(text, EDGE_TTS_ARABIC_VOICE, connect_timeout=10, receive_timeout=20)
+        await communicate.save(out_path)
+        with open(out_path, "rb") as f:
+            return f.read()
+
+    return asyncio.run(_run())
+
+
 def synthesize(text: str) -> tuple[bytes, str] | None:
     """Returns (audio_bytes, "ogg"|"mp3"), or None when speech could not
     be produced at all. Never raises: every caller is on a path that has
@@ -112,17 +147,31 @@ def synthesize(text: str) -> tuple[bytes, str] | None:
 
     raw_mp3 = None
     if is_arabic(spoken):
+        # edge-tts first (real neural voice, correct grammar/prosody —
+        # see this module's docstring), gTTS as the real second attempt
+        # since edge-tts is itself an unofficial client with no SLA of
+        # its own. A 25s outer deadline (module already sets its own
+        # ~20s receive_timeout; wrapped again here for the same reason
+        # every other real network call in this project is: a hung
+        # thread inside asyncio has, in the past, outlasted a library's
+        # own nominal timeout).
         try:
-            from gtts import gTTS
-
-            buffer = io.BytesIO()
-            gTTS(text=spoken, lang="ar").write_to_fp(buffer)
-            raw_mp3 = buffer.getvalue()
+            raw_mp3 = with_hard_deadline(_edge_tts_blocking, spoken, timeout=25)
         except Exception as e:
-            # Expected failure mode, not an exceptional one — see this
-            # module's docstring on Render's shared IP.
-            logger.info("tts: Arabic synthesis via gTTS failed (%s) — replying with text only", e)
-            return None
+            logger.info("tts: edge-tts failed (%s) — trying gTTS next", e)
+            raw_mp3 = None
+        if not raw_mp3:
+            try:
+                from gtts import gTTS
+
+                buffer = io.BytesIO()
+                gTTS(text=spoken, lang="ar").write_to_fp(buffer)
+                raw_mp3 = buffer.getvalue()
+            except Exception as e:
+                # Expected failure mode, not an exceptional one — see
+                # this module's docstring on Render's shared IP.
+                logger.info("tts: Arabic synthesis via gTTS also failed (%s) — replying with text only", e)
+                return None
     else:
         try:
             raw_mp3 = cloudflare_ai.generate_speech(spoken)
