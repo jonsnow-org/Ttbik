@@ -94,17 +94,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 تتبع طلبي
               </a>
             </nav>
-            {/* Deliberately OUTSIDE the scrollable nav above — this button
-                (admin login / dashboard access) was getting scrolled out of
-                view entirely on narrow mobile screens, with no visible
-                affordance that the nav even scrolls. Pinned here so it's
-                always reachable without swiping. */}
-            <a
-              href="/admin"
-              className="shrink-0 rounded-full bg-brand-700 px-3.5 py-1.5 text-sm font-bold text-white transition hover:bg-brand-800"
-            >
-              {isOwner ? "لوحة التحكم" : "دخول المالك"}
-            </a>
+            {/* Owner-only. Every visitor used to see a "دخول المالك" login
+                button here — harmless against the real gate (middleware.ts
+                + password cookie), but it has no reason to be shown to
+                anyone but the owner, and a real user flagged it as looking
+                like a leak when it showed up in the header of their own
+                private /nova/connections link. The owner reaches /admin/login
+                by bookmarking it directly; this button is now just the
+                already-logged-in shortcut back to the dashboard. */}
+            {isOwner && (
+              <a
+                href="/admin"
+                className="shrink-0 rounded-full bg-brand-700 px-3.5 py-1.5 text-sm font-bold text-white transition hover:bg-brand-800"
+              >
+                لوحة التحكم
+              </a>
+            )}
           </div>
         </header>
         <div className="mx-auto max-w-6xl px-4 py-2">
