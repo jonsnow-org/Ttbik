@@ -193,6 +193,30 @@ def _cleanup_identity_fallback_cache() -> None:
     except Exception:
         logger.exception("_cleanup_identity_fallback_cache failed — a stale entry may still cause a wrong cache hit")
 
+    # Owner report, 2026-09-14 (real evidence, same day: "من انت" followed
+    # immediately by an unrelated question got the SAME fixed text back
+    # again): the identity fallback also got written into per-user memory
+    # (nova_memory_all) before that write path was guarded too (see
+    # main.py's own comment on this). Unlike nova_solutions_bank, this
+    # collection has no clean "answer" metadata field to filter by — the
+    # fixed text is embedded inside the stored document string itself
+    # ("سؤال سابق: ...\nإجابة سابقة: <fixed text>") — so this fetches
+    # documents and checks their actual text instead of metadata.
+    try:
+        col = _memory_collection()
+        existing = col.get(include=["documents"])
+        ids = existing.get("ids") or []
+        docs = existing.get("documents") or []
+        stale_ids = [
+            id_ for id_, doc in zip(ids, docs)
+            if doc and doc.endswith(f"إجابة سابقة: {council._IDENTITY_ANSWER_TEXT}")
+        ]
+        if stale_ids:
+            col.delete(ids=stale_ids)
+            logger.info("cleaned up %d stale identity-fallback entries from nova_memory_all", len(stale_ids))
+    except Exception:
+        logger.exception("_cleanup_identity_fallback_cache (per-user memory) failed — a stale entry may still surface")
+
 
 # How long a cached knowledge-bank answer stays trustworthy before we
 # treat it as stale and search again. Live facts (prices, news) go bad
