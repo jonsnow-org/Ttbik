@@ -472,8 +472,25 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
         if deep_result:
             deep_final, trace = deep_result
             log_id = quota.log_usage(user["id"], channel, query_type, message, deep_final)
-            rag.remember(user["id"], message, deep_final)
+            # Owner report, 2026-09-14 (real evidence: asking "من انت"
+            # then, in the VERY NEXT message, an unrelated self-rating
+            # question — got the identical fixed identity-disclaimer text
+            # back AGAIN): rag.recall (per-user memory, used by
+            # build_context) has no distance/relevance threshold at all —
+            # unlike recall_cached_answer's solutions-bank lookup, it
+            # always returns whatever it finds as the top-N nearest
+            # neighbors for THIS user, however distantly related. Storing
+            # the identity fallback into per-user memory (rag.remember,
+            # below) meant the very next message from that same user
+            # pulled it back in as "ذاكرة سابقة" context regardless of
+            # real relevance, priming the model to bring up its identity
+            # again and re-trigger the same safety substitution — a
+            # second-order version of the exact bug already fixed for
+            # nova_solutions_bank. Same guard, same reasoning: a fixed
+            # safety disclaimer is never real conversational content
+            # worth remembering, for either bank.
             if not council.is_identity_fallback(deep_final):
+                rag.remember(user["id"], message, deep_final)
                 rag.remember_shared(message, deep_final, query_type)
             deep_think.store_trace(message, deep_final, trace)
             return deep_final, query_type, log_id
@@ -486,15 +503,23 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     # exemption, reused here rather than a second, drifting definition.
     final_answer = council.answer(message, context, query_type=query_type, is_owner=quota.is_platform_owner(user))
     log_id = quota.log_usage(user["id"], channel, query_type, message, final_answer)
-    rag.remember(user["id"], message, final_answer)
-    # Owner report, 2026-09-14 (real evidence: "ما هي عاصمة قطر" got the
-    # fixed identity-disclaimer text back verbatim): see
-    # council.is_identity_fallback's own docstring — this fixed safety
-    # substitution is never a real "solution" to cache against future
-    # unrelated questions, so it must never enter nova_solutions_bank
-    # (the collection recall_cached_answer's embedding search reads from)
-    # in the first place.
+    # Owner report, 2026-09-14 (real evidence: "من انت" followed
+    # immediately by an unrelated self-rating question got the identical
+    # fixed identity-disclaimer text back AGAIN for the second question):
+    # rag.remember used to run unconditionally, storing the identity
+    # fallback into THIS user's own per-user memory — and rag.recall (used
+    # by build_context, unlike recall_cached_answer's solutions-bank
+    # lookup) has NO distance/relevance threshold at all, so it pulled
+    # that fixed text back in as "ذاكرة سابقة" context for the very next
+    # message regardless of real relevance, priming the model to bring up
+    # its identity again and re-trigger the same safety substitution — a
+    # second-order version of the bug already fixed for
+    # nova_solutions_bank (see council.is_identity_fallback's own
+    # docstring). Same guard now applies to BOTH memory writes: a fixed
+    # safety disclaimer is never real conversational content worth
+    # remembering, for either bank.
     if not council.is_identity_fallback(final_answer):
+        rag.remember(user["id"], message, final_answer)
         rag.remember_shared(message, final_answer, query_type)
     return final_answer, query_type, log_id
 
