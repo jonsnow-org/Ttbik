@@ -354,6 +354,40 @@ def _maybe_flag_previous_answer(user_id: str, new_message: str) -> None:
         logger.exception("passive feedback detection failed — skipping")
 
 
+# Owner report, 2026-09-14 ("اريد اصلاح جذري... في حال كان هناك مستخدمين
+# كثر"): every memory fix so far (truncating documents, warming up the
+# embedder/shared banks at startup, chunking rehydration) reduces how
+# much any ONE request/operation costs — real and necessary, but none of
+# them put a CEILING on how many of these requests can run at the exact
+# same moment. Render's own log already shows this container runs a
+# single worker process (WEB_CONCURRENCY=1) with no hard limit on how
+# many messages FastAPI's own background-task threadpool will run
+# concurrently — so enough real users messaging within the same few
+# seconds can always add up to more memory than the free tier's 512MB,
+# no matter how cheap each individual request has been made, because
+# nothing bounds N. A semaphore here is the actual structural fix for
+# "many users, not just one": it caps how many messages can be ACTIVELY
+# generating an answer at the same instant, for every user combined —
+# extra messages beyond that simply wait their turn in the queue (which
+# costs almost nothing in memory, unlike an active request), instead of
+# every arrival piling its own full memory cost on top of all the
+# others. This bounds worst-case memory to roughly baseline + N ×
+# one-request-cost, a real number, regardless of how many total users
+# the bot ever has.
+_CONCURRENT_PIPELINE_LIMIT = threading.Semaphore(2)
+_PIPELINE_BUSY_MESSAGE = "الخادم يعالج عدداً كبيراً من الطلبات الآن — أعد المحاولة خلال لحظات من فضلك."
+
+
+def _run_text_pipeline_bounded(user: dict, channel: str, message: str) -> tuple[str, str, str]:
+    if not _CONCURRENT_PIPELINE_LIMIT.acquire(timeout=90):
+        logger.warning("pipeline concurrency limit hit — replying busy instead of adding a 3rd concurrent request")
+        return _PIPELINE_BUSY_MESSAGE, "GENERAL", ""
+    try:
+        return _run_text_pipeline(user, channel, message)
+    finally:
+        _CONCURRENT_PIPELINE_LIMIT.release()
+
+
 def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str, str]:
     """The one shared brain path: flag previous answer if the user's
     new message reads as a complaint about it -> classify -> build
@@ -837,7 +871,7 @@ def _process_chat_and_deliver_impl(user: dict, channel: str, message: str, chat_
 
     stop_typing, typing_thread = _start_typing_loop(chat_id)
     try:
-        final_answer, _query_type, _log_id = _run_text_pipeline(user, channel, message)
+        final_answer, _query_type, _log_id = _run_text_pipeline_bounded(user, channel, message)
     except Exception:
         logger.exception("background chat pipeline failed for chat_id=%s — sending an error message instead of leaving the user with silence", chat_id)
         final_answer = "حدث خطأ أثناء توليد الإجابة — حاول مرة أخرى."
@@ -881,7 +915,7 @@ def chat(
         background_tasks.add_task(_process_chat_and_deliver, user, req.channel, req.message, req.chat_id)
         return ChatResponse(accepted=True, quota_message=quota_message)
 
-    final_answer, query_type, _log_id = _run_text_pipeline(user, req.channel, req.message)
+    final_answer, query_type, _log_id = _run_text_pipeline_bounded(user, req.channel, req.message)
     return ChatResponse(accepted=True, answer=final_answer, query_type=query_type, quota_message=quota_message)
 
 
@@ -927,7 +961,7 @@ def voice(
         )
         return VoiceResponse(accepted=True, quota_message=quota_message, transcript=transcript)
 
-    final_answer, query_type, _log_id = _run_text_pipeline(user, req.channel, transcript)
+    final_answer, query_type, _log_id = _run_text_pipeline_bounded(user, req.channel, transcript)
     return VoiceResponse(accepted=True, transcript=transcript, answer=final_answer, query_type=query_type, quota_message=quota_message)
 
 
@@ -1390,7 +1424,7 @@ def file_endpoint(
         background_tasks.add_task(_process_chat_and_deliver, user, req.channel, message, req.chat_id)
         return FileResponse(accepted=True, quota_message=quota_message)
 
-    final_answer, _query_type, _log_id = _run_text_pipeline(user, req.channel, message)
+    final_answer, _query_type, _log_id = _run_text_pipeline_bounded(user, req.channel, message)
     return FileResponse(accepted=True, answer=final_answer, quota_message=quota_message)
 
 
