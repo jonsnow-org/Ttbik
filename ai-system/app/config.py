@@ -125,6 +125,23 @@ CLOUDFLARE_API_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
 # vars' own comments above) — check that page for the current exact slug
 # before assuming these defaults still apply.
 CLOUDFLARE_IMAGE_MODEL = os.environ.get("CLOUDFLARE_IMAGE_MODEL", "@cf/black-forest-labs/flux-1-schnell")
+# Owner complaint, 2026-09-12 (real generated image): cartoon-looking
+# output with a deformed hand. The real cause is what flux-1-schnell IS
+# — a model distilled specifically to produce an image in ~4 diffusion
+# steps, trading fidelity for speed. Raising the step count is the one
+# lever that works WITHOUT swapping to a model whose free-tier status
+# this project cannot currently verify (developers.cloudflare.com is
+# blocked from the sandbox that maintains this code, and the owner
+# already confirmed live that Cloudflare's better "Partner" models are
+# billed separately — that is exactly how the video lane turned out to
+# be a dead end).
+#
+# Set to 0 to disable and send the model's own default. cloudflare_ai
+# .generate_image RETRIES WITHOUT this parameter if a request carrying
+# it fails, so an unsupported value or a differently-named parameter on
+# whatever model is configured can never break image generation — it
+# just quietly costs one extra call the first time.
+CLOUDFLARE_IMAGE_STEPS = int(os.environ.get("CLOUDFLARE_IMAGE_STEPS", "8") or 0)
 # UNCONFIRMED exact slug (this project's own research could not browse
 # Cloudflare's live model list — its docs domain is blocked from this
 # sandbox's own network egress): real web search independently confirmed

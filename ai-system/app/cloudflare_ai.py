@@ -62,6 +62,7 @@ from app.config import (
     CLOUDFLARE_ACCOUNT_ID,
     CLOUDFLARE_API_TOKEN,
     CLOUDFLARE_IMAGE_MODEL,
+    CLOUDFLARE_IMAGE_STEPS,
     CLOUDFLARE_TTS_MODEL,
     CLOUDFLARE_VIDEO_MODEL,
 )
@@ -149,7 +150,20 @@ def generate_image(prompt: str) -> bytes | None:
     unchanged). Returns raw PNG/JPEG bytes, already watermarked +
     ownership-tagged below — main.py never needs to touch raw
     un-watermarked bytes from this module."""
-    resp = _run(CLOUDFLARE_IMAGE_MODEL, {"prompt": prompt}, timeout=60)
+    payload = {"prompt": prompt}
+    if CLOUDFLARE_IMAGE_STEPS > 0:
+        payload["steps"] = CLOUDFLARE_IMAGE_STEPS
+    resp = _run(CLOUDFLARE_IMAGE_MODEL, payload, timeout=60)
+    if resp is None and "steps" in payload:
+        # Real caution, not defensive noise: this project cannot reach
+        # Cloudflare's docs to confirm the exact parameter name/ceiling
+        # for whichever model CLOUDFLARE_IMAGE_MODEL points at (see that
+        # var's comment in config.py), and a rejected parameter would
+        # otherwise turn "slightly better images" into "no images at
+        # all". One plain retry makes the quality attempt strictly
+        # optional at runtime instead of a gamble.
+        logger.info("cloudflare-ai: image call with steps=%s failed — retrying with the model's own defaults", CLOUDFLARE_IMAGE_STEPS)
+        resp = _run(CLOUDFLARE_IMAGE_MODEL, {"prompt": prompt}, timeout=60)
     if resp is None:
         return None
     raw = _binary_result(resp, CLOUDFLARE_IMAGE_MODEL)
