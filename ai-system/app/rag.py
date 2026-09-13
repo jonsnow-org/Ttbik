@@ -196,17 +196,41 @@ def _parse_supabase_ts(value: str) -> float:
 # instance with very little headroom to begin with. Chunking changes
 # nothing about what ends up restored (same documents, same ids), only
 # how much memory is live at any one instant while restoring them.
-_REHYDRATE_CHUNK_SIZE = 40
+#
+# Real evidence, 2026-09-14 (per-step memory logging added the same day):
+# even at chunks of 40, ONE chunk of just 22 real documents raised peak
+# RSS by +208MB (282.7 -> 490.8 MB) — far more than 22 short strings
+# should ever cost, and enough on its own to leave almost no headroom
+# before the next chunk. The real, previously-uncapped variable is
+# DOCUMENT LENGTH, not just batch count: nova_solutions_bank's documents
+# are built from r["answer"] — a real worked coding answer can run to
+# thousands of characters, and nothing capped that length before this.
+# Onnxruntime's attention-computation cost (and the memory it needs)
+# grows with sequence length, so a handful of very long documents in one
+# batch can spike memory far more than their count alone suggests.
+# Truncating each document before embedding bounds the worst case per
+# document; the much smaller chunk size bounds the worst case per batch
+# — together they address both plausible causes of the same measured
+# spike without needing to know for certain which one it was.
+_REHYDRATE_CHUNK_SIZE = 8
+_MAX_EMBEDDING_DOCUMENT_CHARS = 1500
+
+
+def _truncate_for_embedding(text: str) -> str:
+    return text[:_MAX_EMBEDDING_DOCUMENT_CHARS]
 
 
 def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> None:
+    documents = [_truncate_for_embedding(d) for d in documents]
     for start in range(0, len(documents), _REHYDRATE_CHUNK_SIZE):
         end = start + _REHYDRATE_CHUNK_SIZE
+        _log_memory(f"before chunk {start}-{min(end, len(documents))} of {len(documents)}")
         collection.add(
             documents=documents[start:end],
             ids=ids[start:end],
             metadatas=metadatas[start:end] if metadatas is not None else None,
         )
+        _log_memory(f"after chunk {start}-{min(end, len(documents))} of {len(documents)}")
 
 
 # Render incident, 2026-09-13 (real evidence: the memory-limit alert
@@ -479,7 +503,7 @@ def remember(user_id: str, message: str, answer: str) -> None:
     # no such race.
     doc_id = f"{user_id}-{uuid.uuid4().hex}"
     col.add(
-        documents=[f"سؤال سابق: {message}\nإجابة سابقة: {answer}"],
+        documents=[_truncate_for_embedding(f"سؤال سابق: {message}\nإجابة سابقة: {answer}")],
         ids=[doc_id],
         metadatas=[{"user_id": user_id, "ts": time.time()}],
     )
@@ -498,7 +522,7 @@ def remember_shared(message: str, answer: str, query_type: str) -> None:
     bank = _solutions_bank()
     doc_id = f"s-{abs(hash(message))}-{int(time.time())}"
     bank.add(
-        documents=[f"سؤال: {message}\nإجابة: {answer}"],
+        documents=[_truncate_for_embedding(f"سؤال: {message}\nإجابة: {answer}")],
         # "answer" stored raw here (not just embedded in the document
         # text above) so recall_cached_answer below can return it
         # directly on a cache hit, without re-parsing "سؤال:...\nإجابة:..."
@@ -760,7 +784,11 @@ def _store_knowledge(query: str, content: str, category: str, domain: str = "GEN
 
     bank = _knowledge_bank()
     doc_id = f"k-{abs(hash(query))}-{int(time.time())}"
-    bank.add(documents=[content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
+    bank.add(
+        documents=[_truncate_for_embedding(content)],
+        metadatas=[{"ts": time.time(), "category": category, "query": query}],
+        ids=[doc_id],
+    )
     _prune_oldest_if_needed(bank)
     return result
 
