@@ -21,6 +21,15 @@ Shares HF_TOKEN and the daily ZeroGPU allowance with hf_video, so heavy
 video use really does eat into image quality on the same day. That is a
 real trade-off of the free tier, not a bug, and it degrades silently
 and safely: every failure here returns None and the next lane answers.
+
+Real constraint found live, 2026-09-13 (see hf_video.py's own docstring
+for the fuller account of it, discovered while setting THIS Space up):
+Hugging Face's web UI only offers the Gradio SDK — the one this Space
+needs — to accounts older than 30 days; a newer account sees only
+`Static`. Nothing to fix here: the account just needs to age past that
+mark, then the exact same manual setup steps work unchanged. Until
+then, HF_IMAGE_SPACE_ID simply stays unset and this whole lane is
+skipped, exactly like any other unconfigured/unavailable case below.
 """
 import logging
 

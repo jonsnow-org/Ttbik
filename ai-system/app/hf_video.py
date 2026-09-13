@@ -42,6 +42,19 @@ deployed there (same git-push CI pattern as ModelScope Studio, see
 personal access token, Read scope is enough since this only calls the
 Space's own public API — Settings -> Access Tokens on huggingface.co)
 and HF_VIDEO_SPACE_ID ("username/space-name") in config.py/Render.
+
+Real constraint found live, 2026-09-13, not documented anywhere else in
+this project before now: creating this Space failed on the owner's
+account (deploy-hf-video-space.yml's own first run — a `git clone` of a
+Space that was never actually created) because Hugging Face's web UI
+only offers the Gradio SDK, even for free ZeroGPU, to accounts OLDER
+THAN 30 DAYS — a brand-new account is restricted to `Static` Spaces
+only. Not a bug in this project, and not fixable by any code here; the
+one real fix is waiting the 30 days out on the same account and
+re-running the exact same setup steps, which need no further changes
+once the account qualifies. Every function below already fails soft to
+quota.enqueue_video's Kaggle queue for exactly this kind of "the Space
+doesn't exist yet" case, so nothing is broken while waiting.
 """
 import logging
 
