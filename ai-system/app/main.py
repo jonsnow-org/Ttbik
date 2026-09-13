@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, files, hf_video, quota, rag, router, self_improve
+from app import cloudflare_ai, council, deep_think, files, hf_video, quota, rag, router, self_improve
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -296,6 +296,32 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
         return cached_answer, query_type, log_id
 
     context = rag.build_context(user["id"], message, query_type)
+
+    # Owner spec, 2026-09-13 ("المساعد الشخصي للمهام الصعبة... التحليل
+    # العميق والتفكير"): hard messages get real multi-step reasoning
+    # (plan -> live evidence -> draft -> self-critique) before the answer
+    # instead of the single pass everything used to get. The VISIBLE
+    # answer still comes from our own model either way — see
+    # deep_think's module docstring for that division and why the added
+    # latency is a few Groq seconds, not another 45-95s. Returns None
+    # for anything it could not complete, which lands on exactly the
+    # pipeline that ran before this existed.
+    if deep_think.should_deep_think(message, query_type):
+        try:
+            deep_result = deep_think.deep_answer(
+                message, context, query_type=query_type, is_owner=quota.is_platform_owner(user)
+            )
+        except Exception:
+            logger.exception("deep_think failed for user_id=%s — falling back to the normal answer path", user["id"])
+            deep_result = None
+        if deep_result:
+            deep_final, trace = deep_result
+            log_id = quota.log_usage(user["id"], channel, query_type, message, deep_final)
+            rag.remember(user["id"], message, deep_final)
+            rag.remember_shared(message, deep_final, query_type)
+            deep_think.store_trace(message, deep_final, trace)
+            return deep_final, query_type, log_id
+
     # Owner spec, 2026-09-12 ("نريد جعل نوفا يتعرف علي كمالك"): distinct
     # from the quota/plan exemption above (quota.is_platform_owner
     # already existed and is unrelated to this) — this is about how

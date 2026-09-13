@@ -64,6 +64,14 @@ DOMAINS = [
     "SECURITY",
     "CONVERSATION_QUALITY",
     "GENERAL_KNOWLEDGE",
+    # Added 2026-09-13 with deep_think.py: not a fact Nova looked up, but
+    # a record of how Nova actually reasoned through a hard question —
+    # stored here specifically so the weekly Kaggle fine-tune (cell 4ب,
+    # which reads this whole table) distills its own best REASONING into
+    # its own weights, not only facts. No new table and no notebook
+    # change needed for that; this domain tag is what keeps it
+    # distinguishable from looked-up knowledge.
+    "DEEP_REASONING",
 ]
 
 _RECONCILE_PROMPT = (
