@@ -42,3 +42,19 @@ imageio-ffmpeg==0.5.1
 # verified locally, a clean venv with this exact version list imports
 # both supabase and gradio_client together with no conflict.
 gradio_client==2.7.0
+
+# Owner spec, 2026-09-13 (voice replies — app/tts.py): needed ONLY for
+# Arabic, and only because the TTS model this project already pays
+# nothing for cannot speak it. MeloTTS (CLOUDFLARE_TTS_MODEL) supports
+# exactly six languages per its own docs — English, Spanish, French,
+# Chinese, Japanese, Korean — and Arabic is not among them, so the
+# owner's own language had no voice at all without this.
+#
+# Honest about what it is: an unofficial wrapper around Google
+# Translate's TTS endpoint, no SLA, and plausibly blocked on Render's
+# shared cloud IP exactly as ddgs already is. tts.py treats failure as
+# normal and falls back to a text-only reply, so that outcome costs
+# nothing. Pulls only click + requests — verified in a clean venv that
+# it coexists with supabase/gradio_client/chromadb, the conflict class
+# that broke this service once already.
+gTTS==2.5.4

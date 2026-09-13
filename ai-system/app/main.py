@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_video, quota, rag, router, self_improve
+from app import cloudflare_ai, council, deep_think, files, hf_video, quota, rag, router, self_improve, tts
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -117,6 +117,32 @@ def _send_telegram_video(chat_id: str, video_bytes: bytes, caption: str) -> None
         )
     except Exception:
         logger.exception("Failed to deliver async video to Telegram chat_id=%s", chat_id)
+
+
+def _send_telegram_voice(chat_id: str, audio_bytes: bytes, audio_format: str) -> None:
+    """Owner spec, 2026-09-13 ("الردود الصوتية"): sends the spoken
+    version of an answer whose text has ALREADY been delivered — so a
+    failure here is logged and swallowed, never surfaced, and never
+    retried. Telegram's sendVoice only accepts OGG/Opus; anything else
+    goes through sendAudio, which accepts MP3 (see tts.py for why both
+    shapes exist)."""
+    if not NOVA_BOT_TOKEN:
+        logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver voice reply to chat_id=%s", chat_id)
+        return
+    method, field, filename, mime = (
+        ("sendVoice", "voice", "nova.ogg", "audio/ogg")
+        if audio_format == "ogg"
+        else ("sendAudio", "audio", "nova.mp3", "audio/mpeg")
+    )
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/{method}",
+            data={"chat_id": chat_id},
+            files={field: (filename, audio_bytes, mime)},
+            timeout=60,
+        )
+    except Exception:
+        logger.exception("Failed to deliver voice reply to Telegram chat_id=%s", chat_id)
 
 
 def _keep_typing_loop(chat_id: str, stop_event: threading.Event, interval: int = 4, action: str = "typing") -> None:
@@ -461,7 +487,7 @@ def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str, raw_
     _send_telegram_message(chat_id, result_message)
 
 
-def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str) -> None:
+def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str, reply_with_voice: bool = False) -> None:
     # This runs inside a FastAPI BackgroundTask, AFTER the HTTP response
     # (accepted: true) has already gone out — there is no request/response
     # cycle left for an exception here to surface on. Without this
@@ -607,7 +633,23 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         final_answer = "حدث خطأ أثناء توليد الإجابة — حاول مرة أخرى."
     finally:
         _stop_typing_loop(stop_typing, typing_thread)
-    _send_telegram_message(chat_id, _strip_markdown(final_answer))
+    clean_answer = _strip_markdown(final_answer)
+    _send_telegram_message(chat_id, clean_answer)
+
+    # Owner spec, 2026-09-13 ("الردود الصوتية"): voice in, voice out —
+    # no command to remember, no setting to toggle. Someone who sent a
+    # voice note is telling you how they'd like to be answered, and
+    # that is a real signal already sitting in the request. Only this
+    # conversational path speaks: the DEV/BUILD/LEARN branches above
+    # return operational status text, which nobody wants read aloud.
+    if reply_with_voice:
+        try:
+            spoken = tts.synthesize(clean_answer)
+        except Exception:
+            logger.exception("voice reply synthesis failed for chat_id=%s — the text answer was already delivered", chat_id)
+            spoken = None
+        if spoken:
+            _send_telegram_voice(chat_id, spoken[0], spoken[1])
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -670,7 +712,9 @@ def voice(
         raise HTTPException(status_code=422, detail="تعذّر فهم الرسالة الصوتية — حاول مرة أخرى بوضوح أكبر.")
 
     if req.channel == "TELEGRAM" and req.chat_id:
-        background_tasks.add_task(_process_chat_and_deliver, user, req.channel, transcript, req.chat_id)
+        background_tasks.add_task(
+            _process_chat_and_deliver, user, req.channel, transcript, req.chat_id, True
+        )
         return VoiceResponse(accepted=True, quota_message=quota_message, transcript=transcript)
 
     final_answer, query_type, _log_id = _run_text_pipeline(user, req.channel, transcript)
