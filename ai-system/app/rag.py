@@ -147,6 +147,31 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
 # container has been running or how much real usage it has served.
 _MAX_LIVE_COLLECTION_SIZE = 4000
 
+# Owner report, 2026-09-13 (real evidence: EVERY message now gets zero
+# reply AND triggers a fresh Render memory-limit alert, right after the
+# pruning fix above shipped): rag.remember()/remember_shared() run
+# synchronously inside the exact function that computes the reply
+# (main.py's handle_chat) — nothing sends the answer to the user until
+# they return. Once any collection had already grown past
+# _MAX_LIVE_COLLECTION_SIZE (which, per the "grows forever" bug this was
+# fixing, they clearly had — likely tens of thousands of documents after
+# this long in production), _prune_oldest_if_needed fired on EVERY single
+# call and did a full col.get(include=["metadatas"]) over the ENTIRE
+# collection, synchronously, before the reply could be sent — pulling
+# the whole backlog into memory and adding huge latency to every message,
+# not just occasionally. That is precisely "no reply ever" + "memory
+# alert every time you send a request". Two independent fixes, both
+# needed: (1) only do the expensive full-collection fetch+sort once
+# every _PRUNE_BATCH_MARGIN overflow documents instead of on every single
+# call once past the cap: pruning back down to max_size each time it
+# does run means the next _PRUNE_BATCH_MARGIN messages see count within
+# margin and skip entirely; (2) run the fetch/sort/delete itself on a
+# background thread, fire-and-forget, so even that occasional expensive
+# pass can never block the reply the user is waiting on. Pruning is
+# maintenance, not correctness — it never needs to be in the response's
+# critical path at all.
+_PRUNE_BATCH_MARGIN = 200
+
 
 def _prune_oldest_if_needed(col, max_size: int | None = None) -> None:
     # max_size=None (not a bound default) reads _MAX_LIVE_COLLECTION_SIZE
@@ -158,18 +183,25 @@ def _prune_oldest_if_needed(col, max_size: int | None = None) -> None:
     if max_size is None:
         max_size = _MAX_LIVE_COLLECTION_SIZE
     count = col.count()
-    if count <= max_size:
+    if count <= max_size + _PRUNE_BATCH_MARGIN:
         return
-    overflow = count - max_size
-    existing = col.get(include=["metadatas"])
-    ids_with_ts = [
-        (id_, (meta or {}).get("ts", 0)) for id_, meta in zip(existing["ids"], existing["metadatas"])
-    ]
-    ids_with_ts.sort(key=lambda pair: pair[1])
-    ids_to_delete = [id_ for id_, _ts in ids_with_ts[:overflow]]
-    if ids_to_delete:
-        col.delete(ids=ids_to_delete)
-        logger.info("pruned %d oldest entries from a shared collection (was %d, cap %d)", len(ids_to_delete), count, max_size)
+    threading.Thread(target=_prune_now, args=(col, count, max_size), daemon=True).start()
+
+
+def _prune_now(col, count: int, max_size: int) -> None:
+    try:
+        overflow = count - max_size
+        existing = col.get(include=["metadatas"])
+        ids_with_ts = [
+            (id_, (meta or {}).get("ts", 0)) for id_, meta in zip(existing["ids"], existing["metadatas"])
+        ]
+        ids_with_ts.sort(key=lambda pair: pair[1])
+        ids_to_delete = [id_ for id_, _ts in ids_with_ts[:overflow]]
+        if ids_to_delete:
+            col.delete(ids=ids_to_delete)
+            logger.info("pruned %d oldest entries from a shared collection (was %d, cap %d)", len(ids_to_delete), count, max_size)
+    except Exception:
+        logger.exception("background prune failed for a shared collection — will retry on a later call")
 
 
 def _memory_collection():
