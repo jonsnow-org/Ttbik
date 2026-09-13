@@ -107,7 +107,7 @@ import uuid
 
 from groq import Groq
 
-from app import dev_agent
+from app import code_check, dev_agent
 from app.config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
@@ -1097,6 +1097,80 @@ _DEV_AGENT_INSTRUCTION_TEMPLATE = (
 )
 
 
+_DEV_AGENT_REPAIR_TEMPLATE = (
+    "الملف التالي الذي كتبتَه للتو لا يمر بفحص نحوي حقيقي — هذا ليس رأياً، بل "
+    "نتيجة مُحلِّل فعلي رفض الملف.\n\n"
+    "الخطأ الحقيقي: {error}\n\n"
+    "هذا هو المحتوى الذي كتبتَه:\n```\n{broken}\n```\n\n"
+    "أصلح هذا الخطأ تحديداً مع الحفاظ على التعديل المطلوب أصلاً ({instruction}) "
+    "كما هو. أعد فقط المحتوى الكامل النهائي للملف كما سيُكتب حرفياً على القرص، "
+    "من أول سطر إلى آخر سطر، بلا أي شرح أو مقدمة أو علامات ```‎ من أي نوع."
+)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Turns a raw model response into real file content. A small model
+    ignoring the "no ``` fences" instruction is a real, observed habit in
+    this project (see app.py's _extract_final_answer) — one shared helper
+    instead of the same two re.sub lines copy-pasted at every site.
+
+    Also guarantees exactly one trailing newline: the .strip() this
+    replaced was removing it, so every file the Dev Agent has ever
+    written landed without a final newline (git's own "\\ No newline at
+    end of file"), unlike every hand-written file in this repo."""
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
+        cleaned = re.sub(r"\n```\s*$", "", cleaned)
+    return f"{cleaned}\n" if cleaned else cleaned
+
+
+def validate_or_repair(file_path: str, content: str, instruction: str) -> tuple[str, str, str]:
+    """Owner spec, 2026-09-13 ("كتابة الاكواد واصلاح الاخطاء"): the real
+    gate that used to be missing entirely — before this, whatever the
+    model produced went straight into a branch and a PR, and the first
+    thing that ever looked at it was Render's own deploy, live, after
+    the merge.
+
+    Returns (final_content, advisory_note, failure_message):
+      - failure_message non-empty -> caller must NOT open a PR; the
+        string is a real, specific explanation ready to send the owner.
+      - advisory_note non-empty -> a soft warning to surface in the PR
+        body (see code_check's two-tier design); never a reason to stop.
+
+    Exactly ONE repair round on purpose, not a loop: a model that fails
+    a deterministic parser twice on the same file is not converging, and
+    an unbounded retry loop against a free-tier quota is its own
+    failure mode. Failing honestly beats grinding."""
+    ok, message = code_check.validate(file_path, content)
+    if ok:
+        return content, message, ""
+
+    logger.info("dev-agent: generated %s failed validation (%s) — attempting one real repair round", file_path, message)
+    repair_prompt = _DEV_AGENT_REPAIR_TEMPLATE.format(
+        error=message, broken=content, instruction=instruction
+    )
+    repaired = _strip_code_fences(
+        call_modelscope_specialist(repair_prompt, "", query_type="CODE") or call_groq(repair_prompt, "")
+    )
+    if not repaired:
+        return content, "", f"الكود الذي ولّدته لم يمر بالفحص النحوي ({message})، ومحاولة الإصلاح لم تُرجع شيئاً — لم أفتح أي Pull Request."
+
+    ok_after, message_after = code_check.validate(file_path, repaired)
+    if ok_after:
+        logger.info("dev-agent: repair round fixed %s", file_path)
+        return repaired, message_after, ""
+
+    return (
+        content,
+        "",
+        f"لم أفتح أي Pull Request عمداً: الكود لم يمر بالفحص النحوي الحقيقي.\n"
+        f"الخطأ الأول: {message}\n"
+        f"وبعد محاولة إصلاح واحدة، بقي الخطأ: {message_after}\n"
+        f"أخبرني بصياغة أوضح لما تريده بالضبط، أو راجع الملف بنفسك.",
+    )
+
+
 def propose_code_change(file_path: str, instruction: str, auto_merge: bool = False) -> str:
     """Owner-only "Dev Agent" entry point — main.py calls this ONLY
     after confirming quota.is_platform_owner(user) for the current
@@ -1143,14 +1217,11 @@ def propose_code_change(file_path: str, instruction: str, auto_merge: bool = Fal
     if not new_content or not new_content.strip():
         return "تعذّر توليد التعديل المقترح — لم يُرجع النموذج محتوى صالحاً. حاول صياغة الطلب بشكل أوضح."
 
-    cleaned = new_content.strip()
-    if cleaned.startswith("```"):
-        # A small model ignoring the "no ``` fences" instruction is a
-        # real, observed habit elsewhere in this project (see
-        # app.py's _extract_final_answer) — stripped defensively rather
-        # than shipping a PR whose file starts with a stray fence line.
-        cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
-        cleaned = re.sub(r"\n```\s*$", "", cleaned)
+    cleaned = _strip_code_fences(new_content)
+
+    cleaned, advisory, failure = validate_or_repair(file_path, cleaned, instruction)
+    if failure:
+        return failure
 
     branch_name = f"nova-dev-agent/{uuid.uuid4().hex[:10]}"
     try:
@@ -1166,6 +1237,7 @@ def propose_code_change(file_path: str, instruction: str, auto_merge: bool = Fal
                 f"مقترح تلقائي من نوفا (وضع المالك)، بناءً على الطلب التالي:\n\n"
                 f"> {instruction}\n\n"
                 f"الملف: `{file_path}`\n\n"
+                + (f"⚠️ {advisory}\n\n" if advisory else "")
                 + ("**دُمج تلقائياً بطلب المالك (auto_merge).**" if auto_merge
                    else "**هذا اقتراح فقط — يتطلب مراجعة بشرية قبل أي دمج، ولم يُدمج تلقائياً.**")
             ),

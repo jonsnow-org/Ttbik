@@ -461,10 +461,15 @@ def implement_new_file(proposal_id: str) -> str:
     if not new_content or not new_content.strip():
         return "تعذّر توليد محتوى الملف الجديد — لم يُنشأ شيء."
 
-    cleaned = new_content.strip()
-    if cleaned.startswith("```"):
-        cleaned = re.sub(r"^```[a-zA-Z]*\n", "", cleaned)
-        cleaned = re.sub(r"\n```\s*$", "", cleaned)
+    cleaned = council._strip_code_fences(new_content)
+
+    # Same real gate as the Dev Agent's own path (council.propose_code_change)
+    # — a brand-new file invented from scratch is if anything MORE likely to
+    # be malformed than an edit to an existing one, so it gets the identical
+    # deterministic check plus one repair round, and is never shipped broken.
+    cleaned, advisory, failure = council.validate_or_repair(file_path, cleaned, proposal["finding"])
+    if failure:
+        return failure
 
     branch_name = f"nova-self-improve/{uuid.uuid4().hex[:10]}"
     try:
@@ -476,6 +481,7 @@ def implement_new_file(proposal_id: str) -> str:
             body=(
                 f"اقتراح تطوير ذاتي رقم {proposal_id} — بناءً على تحليل قدرة حقيقي ووافق عليه المالك صراحة:\n\n"
                 f"{proposal['finding']}"
+                + (f"\n\n⚠️ {advisory}" if advisory else "")
             ),
         )
         dev_agent.merge_pull_request(pr_number)
