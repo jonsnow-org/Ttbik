@@ -218,6 +218,20 @@ _video_model_dir = None
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Qwen25VLChatHandler
 
+# Confirmed present in official llama-cpp-python (0.3.35), but this
+# Studio actually runs a custom "JamePeng" fork wheel (see this file's
+# own comment above, and modelscope-studio/README.md) whose exact
+# export surface was never verified from this environment — no GPU here
+# to test against the real wheel. An ImportError here must never be
+# able to take the whole container down over a pure speed optimization;
+# falling back to "no GPU support detected" reproduces exactly today's
+# working CPU-only behavior.
+try:
+    from llama_cpp import llama_supports_gpu_offload
+except ImportError:
+    def llama_supports_gpu_offload() -> bool:
+        return False
+
 # Owner report, 2026-09-08: ModelScope's own build log calls this box
 # "2 vCPU", but hardcoding n_threads=2 leaves free capacity on the
 # table if the actual container ever has more — os.cpu_count() reads
@@ -228,6 +242,27 @@ from llama_cpp.llama_chat_format import Qwen25VLChatHandler
 # repeatedly and explicitly forbidden.
 _n_threads = os.cpu_count() or 2
 
+# Owner report, 2026-09-13 ("لا احد يستخدم ذكاء يستغرق 5 دقائق للرد"):
+# this box has been CPU-only so far, but ModelScope's own deployment UI
+# now offers real GPU hardware (NVIDIA T4/A10) for this exact Studio.
+# n_gpu_layers defaulted to 0 (CPU-only) because it was never passed at
+# all — the current wheel is also compiled WITHOUT CUDA support, so
+# setting this alone would do nothing until a CUDA-enabled build is
+# actually deployed here (a separate, real step — see the JamePeng-fork
+# vs. upstream chat-handler parameter-name mismatch this session found,
+# not yet resolved).
+#
+# llama_supports_gpu_offload() is llama.cpp's own real, official runtime
+# check (present in every build, CPU-only or not) for whether the
+# COMPILED backend actually has GPU offload support — not a guess about
+# what hardware ModelScope handed this container. On today's CPU-only
+# wheel this returns False and n_gpu_layers stays 0, IDENTICAL to
+# today's behavior (Llama()'s own default when omitted). Once a real
+# CUDA-enabled wheel is deployed here, this same code starts offloading
+# every layer to the GPU automatically — no further code change or
+# per-deployment branching needed.
+_n_gpu_layers = -1 if llama_supports_gpu_offload() else 0
+
 chat_handler = Qwen25VLChatHandler(mmproj_path=MMPROJ_PATH) if MMPROJ_PATH else None
 llm = Llama(
     model_path=MODEL_PATH,
@@ -237,6 +272,7 @@ llm = Llama(
     n_threads_batch=_n_threads,
     n_batch=1024,
     flash_attn=True,
+    n_gpu_layers=_n_gpu_layers,
 )
 
 # Owner spec, 2026-09-08: whoever asks "who made/owns/develops you" must
