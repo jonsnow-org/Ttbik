@@ -268,10 +268,37 @@ def _truncate_for_embedding(text: str) -> str:
     return text[:_MAX_EMBEDDING_DOCUMENT_CHARS]
 
 
+# Owner report, 2026-09-14 (real evidence: a memory-limit alert arrived
+# with ZERO messages ever sent to the bot): every previous fix picked a
+# fixed row/chunk-size limit by extrapolating from one measurement — a
+# guess about what "should" be safe, not a guarantee. The one thing that
+# actually cannot lie is the process's own real RSS, read the same way
+# _log_memory already does. Checking it before every chunk and aborting
+# the REST of this rehydration run the moment it crosses a real safety
+# ceiling turns a guessed-at static limit into an actual hard backstop:
+# whatever caused the last unexplained crash — a longer-than-expected
+# document, request-time memory this run happened to overlap with, or
+# something not yet identified — this now stops digging before the OS
+# OOM-killer has to, instead of relying on getting every input size
+# guess right in advance. Left un-rehydrated rows simply stay
+# un-rehydrated for this run; the same rehydrate_* function tries again
+# (from scratch) on the next cold start, same as any other partial
+# failure already handled here.
+_MEMORY_SAFETY_CEILING_MB = 380
+
+
 def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> None:
     documents = [_truncate_for_embedding(d) for d in documents]
     for start in range(0, len(documents), _REHYDRATE_CHUNK_SIZE):
         end = start + _REHYDRATE_CHUNK_SIZE
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        if rss_mb > _MEMORY_SAFETY_CEILING_MB:
+            logger.warning(
+                "aborting rehydration early at %.1f MB (safety ceiling %d MB, real limit 512 MB) — "
+                "%d of %d documents not restored this run; will retry on the next cold start",
+                rss_mb, _MEMORY_SAFETY_CEILING_MB, len(documents) - start, len(documents),
+            )
+            return
         _log_memory(f"before chunk {start}-{min(end, len(documents))} of {len(documents)}")
         collection.add(
             documents=documents[start:end],
