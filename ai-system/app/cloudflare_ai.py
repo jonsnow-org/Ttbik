@@ -170,7 +170,7 @@ def generate_image(prompt: str) -> bytes | None:
     if raw is None:
         return None
     try:
-        return _watermark_and_tag_image(raw)
+        return watermark_and_tag_image(raw)
     except Exception:
         logger.exception("cloudflare-ai: image watermark/metadata step failed — returning raw image instead of failing the whole request")
         return raw
@@ -209,7 +209,7 @@ def generate_speech(text: str) -> bytes | None:
     return _binary_result(resp, CLOUDFLARE_TTS_MODEL)
 
 
-def _watermark_and_tag_image(png_bytes: bytes) -> bytes:
+def watermark_and_tag_image(png_bytes: bytes) -> bytes:
     """Same real, pixel-level composited watermark + PNG tEXt ownership
     metadata as modelscope-studio/app.py's _add_watermark /
     _png_bytes_with_ownership_metadata — duplicated here (not imported)

@@ -22,7 +22,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app import cloudflare_ai, council, deep_think, files, hf_video, quota, rag, router, self_improve, tts
+from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -898,10 +898,21 @@ def _process_image_gen_and_deliver(
         # working fallback this project already had before Cloudflare
         # existed, now demoted to "used only when Cloudflare didn't
         # answer" rather than deleted.
-        image_bytes = cloudflare_ai.generate_image(expanded_prompt)
+        # Owner spec, 2026-09-13 ("بطريقة احترافية"): our own ZeroGPU
+        # Space goes FIRST now — an undistilled model at 28 steps with a
+        # real negative prompt, which is the actual answer to the
+        # cartoon-looking output with a deformed hand, since Cloudflare's
+        # flux-1-schnell is distilled to ~4 steps and supports no
+        # negative prompt at all. See hf_image.py for why the scarcest
+        # lane is deliberately spent first rather than last.
+        image_bytes = hf_image.generate_image(expanded_prompt)
         if image_bytes is not None:
-            logger.info("image-gen: served by Cloudflare Workers AI (flux)")
+            logger.info("image-gen: served by our own Hugging Face ZeroGPU Space (SD 3.5)")
         else:
+            image_bytes = cloudflare_ai.generate_image(expanded_prompt)
+            if image_bytes is not None:
+                logger.info("image-gen: served by Cloudflare Workers AI (flux)")
+        if image_bytes is None:
             image_bytes = council.generate_image(expanded_prompt)
             if image_bytes is not None:
                 logger.info("image-gen: Cloudflare unavailable/quota exhausted — served by our own ModelScope model instead")

@@ -1,0 +1,62 @@
+name: Deploy Hugging Face Image Space
+
+# لماذا هذا الـworkflow موجود: نفس منطق deploy-hf-video-space.yml
+# بالضبط (راجعه للتفاصيل الكاملة) — لكنه يدفع
+# ai-system/huggingface-image/app.py إلى المساحة الثانية (ZeroGPU)
+# المخصَّصة لتوليد الصور. الحساب المجاني على Hugging Face يملك مساحتَي
+# ZeroGPU، وكانت الثانية غير مستخدَمة إطلاقاً — انظر
+# ai-system/app/hf_image.py وapp.py هناك لسبب وجود هذا المسار وأي
+# نموذج يعمل فيه ولماذا تحديداً.
+#
+# إعداد يدوي مطلوب مرة واحدة قبل أن ينجح هذا الـworkflow:
+#   1. أنشئ Space على huggingface.co (SDK: Gradio، Hardware: ZeroGPU) —
+#      هذا الـworkflow يدفع الكود فقط، ولا ينشئ الـSpace.
+#   2. افتح huggingface.co/stabilityai/stable-diffusion-3.5-medium
+#      ووافق على الترخيص مرة واحدة بنفس الحساب صاحب HF_TOKEN — المستودع
+#      محمي بترخيص، وبدون هذه الموافقة سيفشل تحميل النموذج داخل الـSpace.
+#
+# السرّان المطلوبان في إعدادات هذا المستودع على GitHub (Settings ->
+# Secrets and variables -> Actions):
+#   HF_TOKEN          نفس التوكن المستخدم للفيديو (صلاحية Write).
+#   HF_IMAGE_SPACE_ID بصيغة "username/space-name" — نفس القيمة التي
+#                     ستُضبط كمتغير HF_IMAGE_SPACE_ID في Render.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/huggingface-image/**"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Clone the Hugging Face Space git repo
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_IMAGE_SPACE_ID: ${{ secrets.HF_IMAGE_SPACE_ID }}
+        run: |
+          git config --global user.name "Nova AI CI"
+          git config --global user.email "ci@nova.local"
+          git clone "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_IMAGE_SPACE_ID}" hf-space
+
+      - name: Copy deploy files into the Space repo
+        run: |
+          cp ai-system/huggingface-image/app.py hf-space/app.py
+          cp ai-system/huggingface-image/requirements.txt hf-space/requirements.txt
+
+      - name: Commit and push to the Space
+        working-directory: hf-space
+        run: |
+          git add app.py requirements.txt
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+          else
+            git commit -m "Deploy from Ttbik CI (${GITHUB_SHA})"
+            git push
+          fi

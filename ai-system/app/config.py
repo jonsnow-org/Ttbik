@@ -164,6 +164,15 @@ CLOUDFLARE_TTS_MODEL = os.environ.get("CLOUDFLARE_TTS_MODEL", "@cf/myshell-ai/me
 # Hardware: ZeroGPU) per ai-system/huggingface-video/app.py.
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 HF_VIDEO_SPACE_ID = os.environ.get("HF_VIDEO_SPACE_ID", "")
+# Owner spec, 2026-09-13: a free Hugging Face account is entitled to TWO
+# ZeroGPU Spaces and only one was ever used — see
+# ai-system/huggingface-image/app.py for what runs in the second one and
+# why that particular model (licensing matters here: Nova is sold).
+# Same "username/space-name" form as HF_VIDEO_SPACE_ID, same HF_TOKEN,
+# and the same daily GPU allowance shared between them. Leave empty to
+# disable this lane entirely — image generation then behaves exactly as
+# it did before it existed.
+HF_IMAGE_SPACE_ID = os.environ.get("HF_IMAGE_SPACE_ID", "")
 
 # Owner spec, 2026-09-12 ("ابحث عن api مجاني يحل لنا كل مشاكل البحث
 # المباشر والوصول الحي للشبكة"): real research found Tavily — a real
