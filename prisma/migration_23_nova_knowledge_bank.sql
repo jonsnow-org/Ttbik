@@ -13,3 +13,11 @@ CREATE TABLE IF NOT EXISTS "NovaKnowledgeEntry" (
 
     CONSTRAINT "NovaKnowledgeEntry_pkey" PRIMARY KEY ("id")
 );
+
+-- Added 2026-09-13: this table was created WITHOUT a service_role grant,
+-- unlike NovaVideoQueue (migration_25) and NovaSelfImprovementProposal
+-- (migration_26), both of which had to add one after a real "permission
+-- denied for table" failure appeared in Render's logs. Adding it here
+-- pre-emptively, since deep_think.py now writes reasoning traces to this
+-- same table and would hit exactly that failure silently. Idempotent.
+GRANT SELECT, INSERT, UPDATE ON public."NovaKnowledgeEntry" TO service_role;
