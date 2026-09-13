@@ -261,10 +261,29 @@ def _contains_forbidden_identity_leak(text: str | None) -> bool:
     return has_self_reference and has_forbidden_term
 
 
+# Owner report, 2026-09-13 (real evidence: "Killed" — the Linux OOM
+# killer's own signature — in Render's logs shortly after a cold start,
+# while handling as few as ONE or TWO real messages): _groq_client() used
+# to build a brand-new Groq(api_key=...) — and with it, a brand-new
+# httpx.Client and its own connection pool — on EVERY single call, and
+# this is called at least once per message (council.answer's own
+# call_groq), sometimes 2-3+ times in the same message (dissatisfaction
+# detection, self-critique/deep_think). None of those clients were ever
+# explicitly closed, so their underlying connections/buffers only got
+# reclaimed whenever Python's garbage collector got around to it — real,
+# avoidable per-message churn on the single hottest path in the whole
+# app. One client, created once and reused, removes that churn entirely
+# with no behavior change (same API key, same calls).
+_groq_client_singleton: Groq | None = None
+
+
 def _groq_client() -> Groq:
+    global _groq_client_singleton
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY غير مُعدّ — راجع ai-system/.env.example")
-    return Groq(api_key=GROQ_API_KEY)
+    if _groq_client_singleton is None:
+        _groq_client_singleton = Groq(api_key=GROQ_API_KEY)
+    return _groq_client_singleton
 
 
 def call_groq(message: str, context: str, is_owner: bool = False) -> str:
