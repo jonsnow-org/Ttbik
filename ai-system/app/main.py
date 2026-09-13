@@ -465,6 +465,30 @@ def _try_handle_dev_agent_command(user: dict, message: str, chat_id: str) -> boo
     return True
 
 
+def _run_bounded(fn, *args, timeout: float, **kwargs) -> str:
+    """Owner report, 2026-09-13 (real live evidence: a BUILD-shaped
+    request got "جارٍ المعالجة..." forever, no reply for 14+ minutes):
+    propose_app_build/propose_code_change/propose_app_build_for_connection
+    /propose_code_change_for_connection/diagnose_connection_failure each
+    chain several sequential model calls (a plan call, then one call per
+    file) — every individual call already has its own ~100s internal
+    ceiling (call_modelscope_specialist's own with_hard_deadline use),
+    but nothing bounded the TOTAL across all of them, unlike deep_think
+    (fixed the same real way, same day, for the identical failure
+    shape). A user waiting on a reply that structurally cannot arrive is
+    worse than an honest "this is taking too long" — with_hard_deadline
+    guarantees this can never hang past `timeout` regardless of which
+    internal step is slow; a real exception still propagates normally
+    (only a genuine timeout is converted to this message)."""
+    result = with_hard_deadline(fn, *args, timeout=timeout, **kwargs)
+    if result is None:
+        return (
+            "استغرق هذا وقتاً أطول من المتوقع ولم أستطع إنهاءه — قد يكون الطلب كبيراً جداً، "
+            "أو أن النموذج بطيء حالياً. حاول مرة أخرى بطلب أضيق، أو أعد المحاولة بعد قليل."
+        )
+    return result
+
+
 def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str, raw_message: str) -> None:
     """Shared by both Dev Agent entry points: the explicit
     "/اقتراح_تعديل" command above and the natural-language DEV intent
@@ -495,7 +519,7 @@ def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str, raw_
 
     _send_telegram_message(chat_id, f"⚙️ جارٍ إعداد مقترح تعديل لـ {file_path} — سيصلك رابط Pull Request للمراجعة فور الانتهاء.")
     try:
-        result_message = council.propose_code_change(file_path, instruction, auto_merge=True)
+        result_message = _run_bounded(council.propose_code_change, file_path, instruction, auto_merge=True, timeout=180)
     except Exception:
         logger.exception("dev-agent proposal failed for chat_id=%s file=%s", chat_id, file_path)
         result_message = "حدث خطأ غير متوقع أثناء إعداد المقترح — راجع سجلات الخادم."
@@ -573,7 +597,9 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
             chat_id, f"⚙️ جارٍ إعداد تعديل لـ {connected_path} في مستودعك — سيصلك رابط Pull Request فور الانتهاء.",
         )
         try:
-            reply = council.propose_code_change_for_connection(user["id"], connected_path, connected_instruction)
+            reply = _run_bounded(
+                council.propose_code_change_for_connection, user["id"], connected_path, connected_instruction, timeout=180,
+            )
         except Exception:
             logger.exception("connected-repo dev proposal failed for chat_id=%s", chat_id)
             reply = "حدث خطأ غير متوقع أثناء إعداد التعديل — راجع سجلات الخادم."
@@ -596,7 +622,9 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
             "قد يستغرق هذا عدة دقائق، وسيصلك رابط Pull Request فور الانتهاء.",
         )
         try:
-            reply = council.propose_app_build_for_connection(user["id"], connected_build_instruction)
+            reply = _run_bounded(
+                council.propose_app_build_for_connection, user["id"], connected_build_instruction, timeout=300,
+            )
         except Exception:
             logger.exception("connected-repo app build failed for chat_id=%s", chat_id)
             reply = "حدث خطأ غير متوقع أثناء البناء — راجع سجلات الخادم."
@@ -613,7 +641,7 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # assess-then-implement pattern).
         quota.refund_quota(user["id"], "TEXT")
         try:
-            reply = council.diagnose_connection_failure(user["id"])
+            reply = _run_bounded(council.diagnose_connection_failure, user["id"], timeout=150)
         except Exception:
             logger.exception("connected-repo debug failed for chat_id=%s", chat_id)
             reply = "حدث خطأ غير متوقع أثناء التشخيص — راجع سجلات الخادم."
@@ -635,7 +663,7 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
             "قد يستغرق هذا عدة دقائق، وسيصلك رابط Pull Request فور الانتهاء.",
         )
         try:
-            reply = council.propose_app_build(build_instruction, auto_merge=False)
+            reply = _run_bounded(council.propose_app_build, build_instruction, auto_merge=False, timeout=300)
         except Exception:
             logger.exception("app build failed for chat_id=%s", chat_id)
             reply = "حدث خطأ غير متوقع أثناء البناء — راجع سجلات الخادم."
