@@ -134,6 +134,44 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
         )
 
 
+# Render incident, 2026-09-13 (real evidence: the memory-limit alert
+# recurred on the SAME day as the per-user-collection fix above — that
+# fix closed a real, measured structural leak (fixed overhead per
+# distinct user), but every shared collection here still grows by one
+# document per real conversation turn FOREVER, with no eviction at
+# all — a real, ongoing growth mechanism the earlier fix never touched.
+# A container that stays alive for days between deploys/restarts keeps
+# accumulating documents (and each one's embedding vector) without
+# bound. Capping total size per collection and evicting the OLDEST
+# entries once exceeded keeps memory bounded regardless of how long the
+# container has been running or how much real usage it has served.
+_MAX_LIVE_COLLECTION_SIZE = 4000
+
+
+def _prune_oldest_if_needed(col, max_size: int | None = None) -> None:
+    # max_size=None (not a bound default) reads _MAX_LIVE_COLLECTION_SIZE
+    # at CALL time, not at function-definition time — a plain default
+    # argument value is bound once, at import, so a caller relying on
+    # the module constant (every real caller here) would never see a
+    # change to it. Only matters for tests/tuning today, but a real,
+    # worth-fixing correctness gap regardless.
+    if max_size is None:
+        max_size = _MAX_LIVE_COLLECTION_SIZE
+    count = col.count()
+    if count <= max_size:
+        return
+    overflow = count - max_size
+    existing = col.get(include=["metadatas"])
+    ids_with_ts = [
+        (id_, (meta or {}).get("ts", 0)) for id_, meta in zip(existing["ids"], existing["metadatas"])
+    ]
+    ids_with_ts.sort(key=lambda pair: pair[1])
+    ids_to_delete = [id_ for id_, _ts in ids_with_ts[:overflow]]
+    if ids_to_delete:
+        col.delete(ids=ids_to_delete)
+        logger.info("pruned %d oldest entries from a shared collection (was %d, cap %d)", len(ids_to_delete), count, max_size)
+
+
 def _memory_collection():
     """Render incident, 2026-09-13 (real evidence: Render's own alert
     recurring — "Web Service nova-ai-backend exceeded its memory
@@ -188,7 +226,7 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
         rows = (
             get_supabase()
             .table("NovaUsageLog")
-            .select("id, message, answer")
+            .select("id, message, answer, created_at")
             .eq("novaUserId", user_id)
             .not_.is_("message", "null")
             .not_.is_("answer", "null")
@@ -206,7 +244,7 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
         col,
         documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
-        metadatas=[{"user_id": user_id} for _ in rows],
+        metadatas=[{"user_id": user_id, "ts": _parse_supabase_ts(r["created_at"])} for r in rows],
     )
     logger.info("rehydrate_user_memory: restored %d past turns for user_id=%s after a cold start", len(rows), user_id)
 
@@ -284,7 +322,7 @@ def _rehydrate_solutions_bank(bank) -> None:
         rows = (
             get_supabase()
             .table("NovaUsageLog")
-            .select("id, message, answer, queryType")
+            .select("id, message, answer, queryType, created_at")
             .in_("queryType", ["CODE", "GENERAL"])
             .not_.is_("message", "null")
             .not_.is_("answer", "null")
@@ -302,7 +340,10 @@ def _rehydrate_solutions_bank(bank) -> None:
     _add_in_chunks(
         bank,
         documents=[f"سؤال: {r['message']}\nإجابة: {r['answer']}" for r in rows],
-        metadatas=[{"query_type": r["queryType"], "answer": r["answer"]} for r in rows],
+        metadatas=[
+            {"query_type": r["queryType"], "answer": r["answer"], "ts": _parse_supabase_ts(r["created_at"])}
+            for r in rows
+        ],
         ids=[f"restored-{r['id']}" for r in rows],
     )
     logger.info("rehydrate_solutions_bank: restored %d worked solutions from Supabase after a cold start", len(rows))
@@ -327,8 +368,9 @@ def remember(user_id: str, message: str, answer: str) -> None:
     col.add(
         documents=[f"سؤال سابق: {message}\nإجابة سابقة: {answer}"],
         ids=[doc_id],
-        metadatas=[{"user_id": user_id}],
+        metadatas=[{"user_id": user_id, "ts": time.time()}],
     )
+    _prune_oldest_if_needed(col)
 
 
 def remember_shared(message: str, answer: str, query_type: str) -> None:
@@ -349,9 +391,10 @@ def remember_shared(message: str, answer: str, query_type: str) -> None:
         # directly on a cache hit, without re-parsing "سؤال:...\nإجابة:..."
         # back apart — owner spec 2026-09-08 (Gemini architecture
         # review, "التخزين المؤقت الذكي"/semantic caching).
-        metadatas=[{"query_type": query_type, "answer": answer}],
+        metadatas=[{"query_type": query_type, "answer": answer, "ts": time.time()}],
         ids=[doc_id],
     )
+    _prune_oldest_if_needed(bank)
 
 
 def _recall_solutions(query: str, query_type: str, n_results: int = 2) -> list[str]:
@@ -605,6 +648,7 @@ def _store_knowledge(query: str, content: str, category: str, domain: str = "GEN
     bank = _knowledge_bank()
     doc_id = f"k-{abs(hash(query))}-{int(time.time())}"
     bank.add(documents=[content], metadatas=[{"ts": time.time(), "category": category, "query": query}], ids=[doc_id])
+    _prune_oldest_if_needed(bank)
     return result
 
 
