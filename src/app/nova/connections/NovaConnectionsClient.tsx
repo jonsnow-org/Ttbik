@@ -20,15 +20,25 @@ export default function NovaConnectionsClient({ uid }: { uid: string }) {
 
   const load = useCallback(async () => {
     if (!uid) return;
-    const res = await fetch(`/api/nova/connections?uid=${uid}`);
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || "تعذّر تحميل الحسابات المربوطة");
+    // A thrown error here (network failure, or the server returning a
+    // non-JSON error page instead of JSON) used to leave `loaded` stuck
+    // at false forever — an infinite "جارِ التحميل..." with no buttons
+    // and no error, exactly as a real user hit and reported. Every path
+    // now reaches setLoaded(true).
+    try {
+      const res = await fetch(`/api/nova/connections?uid=${uid}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `تعذّر تحميل الحسابات المربوطة (HTTP ${res.status})`);
+        setLoaded(true);
+        return;
+      }
+      setConnections(data.connections || []);
       setLoaded(true);
-      return;
+    } catch {
+      setError("تعذّر الاتصال بالخادم — تحقّق من الإنترنت وأعد فتح الرابط.");
+      setLoaded(true);
     }
-    setConnections(data.connections || []);
-    setLoaded(true);
   }, [uid]);
 
   useEffect(() => {
@@ -39,32 +49,42 @@ export default function NovaConnectionsClient({ uid }: { uid: string }) {
     e.preventDefault();
     setBusy(true);
     setFormMessage(null);
-    const res = await fetch("/api/nova/connections", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid, service, label, credential, baseBranch: baseBranch || null }),
-    });
-    const data = await res.json();
-    setBusy(false);
-    if (!res.ok) {
-      setFormMessage(data.error || "تعذّر إضافة الربط");
-      return;
+    try {
+      const res = await fetch("/api/nova/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid, service, label, credential, baseBranch: baseBranch || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setBusy(false);
+      if (!res.ok) {
+        setFormMessage(data.error || `تعذّر إضافة الربط (HTTP ${res.status})`);
+        return;
+      }
+      setLabel("");
+      setCredential("");
+      setBaseBranch("");
+      setFormMessage("✅ تم الربط — يمكنك الآن أن تطلب من نوفا العمل على هذا المستودع عبر تيليجرام.");
+      load();
+    } catch {
+      setBusy(false);
+      setFormMessage("تعذّر الاتصال بالخادم — تحقّق من الإنترنت وحاول مجدداً.");
     }
-    setLabel("");
-    setCredential("");
-    setBaseBranch("");
-    setFormMessage("✅ تم الربط — يمكنك الآن أن تطلب من نوفا العمل على هذا المستودع عبر تيليجرام.");
-    load();
   }
 
   async function revoke(connectionId: string) {
     if (!confirm("إلغاء هذا الربط؟ لن يستطيع نوفا الوصول إليه بعد ذلك.")) return;
     setBusy(true);
-    await fetch("/api/nova/connections", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ uid, connectionId }),
-    });
+    try {
+      await fetch("/api/nova/connections", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid, connectionId }),
+      });
+    } catch {
+      // load() below re-reads real state either way — a failed DELETE
+      // just means the item is still there, which the reload will show.
+    }
     setBusy(false);
     load();
   }

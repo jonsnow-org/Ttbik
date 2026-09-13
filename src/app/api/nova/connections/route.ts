@@ -19,21 +19,44 @@ export const dynamic = "force-dynamic";
 // training data. This route is never touched by that pipeline at all.
 const SUPPORTED_SERVICES = ["github"];
 
+// A raw DB error thrown out of a route handler used to leave the client
+// stuck forever on "جارِ التحميل..." (no real JSON body ever arrived, so
+// the client's own res.json() threw too and the page never left its
+// loading state — a real user reported exactly this). The most likely
+// cause in practice: migration_28_nova_connections.sql was written but
+// never actually run against Supabase, so the table doesn't exist yet
+// (Prisma error code P2021). Always answer with real JSON, and name that
+// specific case so it's instantly diagnosable instead of a bare 500.
+function dbErrorResponse(e: unknown) {
+  const code = (e as { code?: string } | null)?.code;
+  if (code === "P2021") {
+    return NextResponse.json(
+      { error: "جدول الربط غير موجود بعد في قاعدة البيانات — شغّل prisma/migration_28_nova_connections.sql على Supabase." },
+      { status: 500 },
+    );
+  }
+  return NextResponse.json({ error: "خطأ في الخادم أثناء الوصول لقاعدة البيانات" }, { status: 500 });
+}
+
 export async function GET(req: NextRequest) {
   const uid = req.nextUrl.searchParams.get("uid") || "";
   if (!uid) return NextResponse.json({ error: "missing uid" }, { status: 400 });
 
-  const user = await prisma.novaUser.findUnique({ where: { id: uid } });
-  if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+  try {
+    const user = await prisma.novaUser.findUnique({ where: { id: uid } });
+    if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  // Never select `credential` here — this endpoint lists what's
-  // connected, it never hands a stored token back to the browser.
-  const connections = await prisma.novaConnection.findMany({
-    where: { novaUserId: uid, status: "ACTIVE" },
-    select: { id: true, service: true, label: true, created_at: true },
-    orderBy: { created_at: "desc" },
-  });
-  return NextResponse.json({ connections });
+    // Never select `credential` here — this endpoint lists what's
+    // connected, it never hands a stored token back to the browser.
+    const connections = await prisma.novaConnection.findMany({
+      where: { novaUserId: uid, status: "ACTIVE" },
+      select: { id: true, service: true, label: true, created_at: true },
+      orderBy: { created_at: "desc" },
+    });
+    return NextResponse.json({ connections });
+  } catch (e) {
+    return dbErrorResponse(e);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -52,22 +75,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "label and credential are required" }, { status: 400 });
   }
 
-  const user = await prisma.novaUser.findUnique({ where: { id: uid } });
-  if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
+  try {
+    const user = await prisma.novaUser.findUnique({ where: { id: uid } });
+    if (!user) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const connection = await prisma.novaConnection.create({
-    data: {
-      id: `conn-${crypto.randomBytes(6).toString("hex")}`,
-      novaUserId: uid,
-      service,
-      label,
-      credential,
-      baseBranch,
-    },
-    select: { id: true, service: true, label: true, created_at: true }, // never echo `credential` back either
-  });
+    const connection = await prisma.novaConnection.create({
+      data: {
+        id: `conn-${crypto.randomBytes(6).toString("hex")}`,
+        novaUserId: uid,
+        service,
+        label,
+        credential,
+        baseBranch,
+      },
+      select: { id: true, service: true, label: true, created_at: true }, // never echo `credential` back either
+    });
 
-  return NextResponse.json({ connection });
+    return NextResponse.json({ connection });
+  } catch (e) {
+    return dbErrorResponse(e);
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -78,13 +105,17 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "missing uid or connectionId" }, { status: 400 });
   }
 
-  // Scoped to (id AND novaUserId) together — without the ownership
-  // check here too, guessing another user's connection id would be
-  // enough to revoke it.
-  const result = await prisma.novaConnection.updateMany({
-    where: { id: connectionId, novaUserId: uid },
-    data: { status: "REVOKED", revoked_at: new Date() },
-  });
-  if (result.count === 0) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ ok: true });
+  try {
+    // Scoped to (id AND novaUserId) together — without the ownership
+    // check here too, guessing another user's connection id would be
+    // enough to revoke it.
+    const result = await prisma.novaConnection.updateMany({
+      where: { id: connectionId, novaUserId: uid },
+      data: { status: "REVOKED", revoked_at: new Date() },
+    });
+    if (result.count === 0) return NextResponse.json({ error: "not found" }, { status: 404 });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return dbErrorResponse(e);
+  }
 }
