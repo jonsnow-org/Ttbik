@@ -102,6 +102,13 @@ def _log_startup_memory() -> None:
     # traffic arrives, and no longer able to fail the deploy itself.
     threading.Thread(target=_warm_up_shared_collections_safely, daemon=True).start()
     _log_memory_usage("app startup complete, after embedder warm-up")
+    # Owner report, 2026-09-14 ("الرد يحتاج 3 دقائق"): real evidence — a
+    # live message hit the FULL 100s hard deadline waiting on ModelScope
+    # (see council.keep_modelscope_warm's own docstring for why: its free
+    # tier spins down when idle, same as Render's own). Starting this
+    # periodic keep-alive here means the Studio is usually already warm
+    # by the time a real message needs it.
+    council.keep_modelscope_warm()
 
 
 def _warm_up_shared_collections_safely() -> None:

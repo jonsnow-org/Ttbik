@@ -480,6 +480,50 @@ def call_gemini_vision(image_bytes: bytes, prompt: str, mime_type: str = "image/
         return None
 
 
+# Owner report, 2026-09-14 ("الرد يحتاج 3 دقائق، قلّله أكثر"): real
+# evidence in Render's own logs — a live message hit the FULL 100s hard
+# deadline waiting on ModelScope's specialist before falling back to
+# Groq, meaning OUR OWN model (the one that is always supposed to
+# answer first — see council.answer's own docstring) was unreachable
+# for that entire 100s, not slow. ModelScope Studio's free tier is
+# "allocated on demand" (confirmed in its own deployment settings) —
+# the same free-tier "spin down when idle, cold-start on the next
+# request" behavior Render's own free instance has, which this project
+# has already hit and diagnosed once for Render itself. A cold Studio
+# needs to wake up before it can answer at all, and a single 100s
+# request often isn't enough time for BOTH the wake-up and a real
+# answer — so the message pays the full 100s timeout for nothing, then
+# Groq answers instead. Keeping the Studio warm with a cheap periodic
+# ping (the same lightweight /config endpoint this module's own POST
+# call already uses for auth) means it is usually already awake by the
+# time a real message needs it, instead of paying this 100s tax on
+# whichever message happens to be first after a period of inactivity.
+def keep_modelscope_warm() -> None:
+    if not MODELSCOPE_SPACE_URL or not MODELSCOPE_API_TOKEN:
+        return
+    import threading
+    import time
+
+    import requests
+
+    base = MODELSCOPE_SPACE_URL.rstrip("/")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Authorization": f"Bearer {MODELSCOPE_API_TOKEN}",
+    }
+
+    def _ping_loop() -> None:
+        while True:
+            try:
+                resp = requests.get(f"{base}/config", headers=headers, timeout=20)
+                logger.info("modelscope keep-alive ping: status=%s", resp.status_code)
+            except Exception as e:
+                logger.info("modelscope keep-alive ping failed (%s) — will retry next cycle", e)
+            time.sleep(600)
+
+    threading.Thread(target=_ping_loop, daemon=True).start()
+
+
 def call_modelscope_specialist(
     message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL", is_owner: bool = False
 ) -> str | None:
