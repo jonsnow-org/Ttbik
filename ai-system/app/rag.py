@@ -79,6 +79,7 @@ from datetime import datetime, timezone
 
 import chromadb
 import requests
+from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
 
@@ -88,7 +89,21 @@ from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
 
-_chroma_client = chromadb.PersistentClient(path="./chroma_data")
+# Owner report, 2026-09-13 (real evidence: Render log —
+# "ERROR:chromadb.telemetry.product.posthog:Failed to send telemetry
+# event CollectionAddEvent: capture() takes 1 positional argument but 3
+# were given" — firing on every single collection write, i.e. on every
+# real message this app ever handles): a version mismatch between
+# chromadb's bundled posthog telemetry call and the installed posthog
+# client. Chroma's own wrapper swallows the exception so it never
+# crashes anything, but it still runs (and fails) this network/telemetry
+# path on every add() — pure waste on the hottest path in the app, and
+# log noise that made real errors harder to spot. Disabling anonymized
+# telemetry outright removes the broken call path entirely instead of
+# just tolerating its failure.
+_chroma_client = chromadb.PersistentClient(
+    path="./chroma_data", settings=ChromaSettings(anonymized_telemetry=False)
+)
 _embedder = embedding_functions.DefaultEmbeddingFunction()
 
 # How long a cached knowledge-bank answer stays trustworthy before we
