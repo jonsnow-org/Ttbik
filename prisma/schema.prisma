@@ -966,6 +966,32 @@ model NovaUser {
   created_at            DateTime  @default(now())
   usageLogs             NovaUsageLog[]
   subscriptions         NovaSubscription[]
+  connections           NovaConnection[]
+}
+
+// Owner spec, 2026-09-13 ("نظام الربط الحقيقي... يضيف نوفا لمواقعه كما
+// اضفتك انا لمواقعي"): the real trust boundary — Nova can only act on
+// an external repo/site when a row exists here. Added via this Next.js
+// route (src/app/api/nova/connections/route.ts) ONLY, gated by the same
+// unguessable-uid pattern the dashboard already uses — never via a
+// Telegram chat message, which would forward the credential to Groq for
+// intent classification AND bake it into next week's training corpus
+// (NovaUsageLog). See ai-system/app/connections.py for the Python side
+// that reads this table (raw Supabase REST, not Prisma — this project's
+// established pattern for tables the FastAPI backend owns day-to-day).
+model NovaConnection {
+  id         String    @id @default(uuid())
+  novaUserId String
+  novaUser   NovaUser  @relation(fields: [novaUserId], references: [id], onDelete: Cascade)
+  service    String    // "github" | "vercel" — see connections.py's SUPPORTED_SERVICES
+  label      String    // e.g. "owner/my-shop"
+  credential String    // the fine-grained PAT / API token itself — see migration_28's own note on why this is plain TEXT, matching this project's existing secret-storage security level
+  baseBranch String?   // GitHub only
+  status     String    @default("ACTIVE") // ACTIVE | REVOKED
+  created_at DateTime  @default(now())
+  revoked_at DateTime?
+
+  @@index([novaUserId])
 }
 
 model NovaUsageLog {

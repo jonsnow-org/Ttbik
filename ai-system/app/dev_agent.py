@@ -39,6 +39,21 @@ quota.is_platform_owner(user) for the current request — there is no
 separate authorization check in this module itself, exactly like the
 existing /admin/* endpoints' _require_internal pattern (one real check,
 done once, upstream).
+
+Owner spec, 2026-09-13 ("نظام الربط الحقيقي... يضيف نوفا لمواقعه كما
+اضفتك انا لمواقعي"): every function below now takes optional
+`token`/`repo`/`base_branch` overrides, all defaulting to None. None
+means "use this project's own fixed env vars" — the exact behavior
+this module has always had, so every existing owner call site
+(propose_code_change, self_improve.py, propose_app_build) is
+byte-for-byte unchanged. A caller acting on a CONNECTED external repo
+(app/connections.py) passes that connection's own stored token/repo
+instead — the same audited, branch-only, PR-only, forbidden-path-
+checked code path, just pointed at a different repository with a
+different credential. Nothing about the safety shape changes: whichever
+repo is targeted, this module still cannot merge, delete a branch,
+change settings, or write straight to that repo's base branch — only
+open a PR, exactly as for this project's own repo.
 """
 import base64
 import logging
@@ -63,9 +78,9 @@ class DevAgentError(Exception):
     token or headers, so this is always safe to relay verbatim."""
 
 
-def _headers() -> dict:
+def _headers(token: str | None = None) -> dict:
     return {
-        "Authorization": f"Bearer {NOVA_DEV_AGENT_GITHUB_TOKEN}",
+        "Authorization": f"Bearer {token or NOVA_DEV_AGENT_GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
@@ -110,21 +125,32 @@ def _reject_forbidden_path(path: str) -> None:
             )
 
 
-def _ensure_configured() -> None:
-    if not NOVA_DEV_AGENT_GITHUB_TOKEN or not NOVA_DEV_AGENT_REPO or not NOVA_DEV_AGENT_BASE_BRANCH:
-        raise DevAgentError(
-            "أداة اقتراح التعديل غير مُعدّة بعد على الخادم — "
-            "NOVA_DEV_AGENT_GITHUB_TOKEN / NOVA_DEV_AGENT_REPO / NOVA_DEV_AGENT_BASE_BRANCH."
-        )
+def _ensure_token_repo(token: str | None, repo: str | None) -> None:
+    if not (token or NOVA_DEV_AGENT_GITHUB_TOKEN) or not (repo or NOVA_DEV_AGENT_REPO):
+        raise DevAgentError("أداة اقتراح التعديل غير مُعدّة بعد — NOVA_DEV_AGENT_GITHUB_TOKEN / NOVA_DEV_AGENT_REPO.")
 
 
-def get_file(path: str, ref: str | None = None) -> tuple[str, str]:
+def _ensure_configured(token: str | None = None, repo: str | None = None, base_branch: str | None = None) -> None:
+    """Full check (token + repo + a base branch to fork/target) — for
+    functions that actually need a base branch by default: get_file,
+    create_branch, open_pull_request. update_file/create_file/
+    merge_pull_request only ever touch an already-named branch or PR
+    number, so they use _ensure_token_repo above instead."""
+    _ensure_token_repo(token, repo)
+    if not (base_branch or NOVA_DEV_AGENT_BASE_BRANCH):
+        raise DevAgentError("أداة اقتراح التعديل غير مُعدّة بعد — لا فرع أساسي محدَّد (NOVA_DEV_AGENT_BASE_BRANCH).")
+
+
+def get_file(path: str, ref: str | None = None, *, token: str | None = None, repo: str | None = None) -> tuple[str, str]:
     """Returns (decoded_text_content, blob_sha). ref defaults to
-    NOVA_DEV_AGENT_BASE_BRANCH — read-only, no branch/PR involved."""
-    _ensure_configured()
+    NOVA_DEV_AGENT_BASE_BRANCH (or `repo`'s own base branch when both
+    `token`/`repo` are given for a connected external repo) — read-only,
+    no branch/PR involved."""
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_configured(token, repo, ref or NOVA_DEV_AGENT_BASE_BRANCH)
     resp = requests.get(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/contents/{path}",
+        headers=_headers(token),
         params={"ref": ref or NOVA_DEV_AGENT_BASE_BRANCH},
         timeout=30,
     )
@@ -139,15 +165,17 @@ def get_file(path: str, ref: str | None = None) -> tuple[str, str]:
     return content, data["sha"]
 
 
-def create_branch(new_branch: str, base_branch: str | None = None) -> None:
-    """Real branch creation via git refs — never touches
-    NOVA_DEV_AGENT_BASE_BRANCH itself, only reads its current tip sha
-    to fork from."""
-    _ensure_configured()
+def create_branch(
+    new_branch: str, base_branch: str | None = None, *, token: str | None = None, repo: str | None = None
+) -> None:
+    """Real branch creation via git refs — never touches the base
+    branch itself, only reads its current tip sha to fork from."""
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_configured(token, repo, base_branch)
     base = base_branch or NOVA_DEV_AGENT_BASE_BRANCH
     ref_resp = requests.get(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/git/ref/heads/{base}",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/git/ref/heads/{base}",
+        headers=_headers(token),
         timeout=30,
     )
     if not ref_resp.ok:
@@ -155,8 +183,8 @@ def create_branch(new_branch: str, base_branch: str | None = None) -> None:
     base_sha = ref_resp.json()["object"]["sha"]
 
     create_resp = requests.post(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/git/refs",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/git/refs",
+        headers=_headers(token),
         json={"ref": f"refs/heads/{new_branch}", "sha": base_sha},
         timeout=30,
     )
@@ -164,16 +192,20 @@ def create_branch(new_branch: str, base_branch: str | None = None) -> None:
         raise DevAgentError(f"تعذّر إنشاء فرع جديد '{new_branch}' ({create_resp.status_code}): {create_resp.text[:300]}")
 
 
-def update_file(path: str, branch: str, new_content: str, sha: str, commit_message: str) -> None:
+def update_file(
+    path: str, branch: str, new_content: str, sha: str, commit_message: str,
+    *, token: str | None = None, repo: str | None = None,
+) -> None:
     """Writes new_content to path ON `branch` ONLY — never called with
-    NOVA_DEV_AGENT_BASE_BRANCH as `branch` from anywhere in this
-    module (propose_code_change below always passes the freshly
-    created branch)."""
-    _ensure_configured()
+    the base branch as `branch` from anywhere in this module
+    (propose_code_change below always passes the freshly created
+    branch)."""
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_token_repo(token, repo)
     _reject_forbidden_path(path)
     resp = requests.put(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/contents/{path}",
+        headers=_headers(token),
         json={
             "message": commit_message,
             "content": base64.b64encode(new_content.encode("utf-8")).decode("ascii"),
@@ -186,7 +218,10 @@ def update_file(path: str, branch: str, new_content: str, sha: str, commit_messa
         raise DevAgentError(f"تعذّر كتابة التعديل على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
 
 
-def create_file(path: str, branch: str, content: str, commit_message: str) -> None:
+def create_file(
+    path: str, branch: str, content: str, commit_message: str,
+    *, token: str | None = None, repo: str | None = None,
+) -> None:
     """Owner spec, 2026-09-12 ("هل تستطيع تنفيذ هذا العمل الهندسي وانشاء
     ملف جديد دون اخطاء... فان كان جوابه مقنعا اقول له نفذ ونعطيه
     الصلاحية الكاملة"): the real, bounded extension that makes a
@@ -202,11 +237,12 @@ def create_file(path: str, branch: str, content: str, commit_message: str) -> No
     silently overwriting if the path unexpectedly already exists (a 422
     from GitHub in that case) — this function is for creation only, use
     update_file for an existing file."""
-    _ensure_configured()
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_token_repo(token, repo)
     _reject_forbidden_path(path)
     resp = requests.put(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/contents/{path}",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/contents/{path}",
+        headers=_headers(token),
         json={
             "message": commit_message,
             "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
@@ -218,7 +254,10 @@ def create_file(path: str, branch: str, content: str, commit_message: str) -> No
         raise DevAgentError(f"تعذّر إنشاء الملف الجديد على الفرع '{branch}' ({resp.status_code}): {resp.text[:300]}")
 
 
-def upsert_file(path: str, branch: str, content: str, commit_message: str) -> None:
+def upsert_file(
+    path: str, branch: str, content: str, commit_message: str,
+    *, token: str | None = None, repo: str | None = None,
+) -> None:
     """Writes `path` on `branch` whether or not it already exists —
     create_file and update_file differ only in whether GitHub is given
     the current blob sha, and a caller building several files at once
@@ -227,27 +266,31 @@ def upsert_file(path: str, branch: str, content: str, commit_message: str) -> No
     on the base branch, so writing the same file twice in one build
     works correctly instead of failing on a stale sha.
 
-    Same branch-only guarantee as both functions it delegates to: there
-    is no argument here that could target NOVA_DEV_AGENT_BASE_BRANCH."""
+    Same branch-only guarantee as every function it delegates to: there
+    is no argument here that could target a repo's base branch."""
     try:
-        _current, sha = get_file(path, ref=branch)
+        _current, sha = get_file(path, ref=branch, token=token, repo=repo)
     except DevAgentError:
         sha = None
     if sha:
-        update_file(path, branch, content, sha, commit_message)
+        update_file(path, branch, content, sha, commit_message, token=token, repo=repo)
     else:
-        create_file(path, branch, content, commit_message)
+        create_file(path, branch, content, commit_message, token=token, repo=repo)
 
 
-def open_pull_request(branch: str, title: str, body: str, base_branch: str | None = None) -> tuple[str, int]:
+def open_pull_request(
+    branch: str, title: str, body: str, base_branch: str | None = None,
+    *, token: str | None = None, repo: str | None = None,
+) -> tuple[str, int]:
     """Returns (html_url, pr_number). Opening a PR is the only function
     in this module that gets anywhere near the live branch by default —
     see merge_pull_request below for the one, explicitly opt-in
     exception the owner asked for."""
-    _ensure_configured()
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_configured(token, repo, base_branch)
     resp = requests.post(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/pulls",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/pulls",
+        headers=_headers(token),
         json={"title": title, "head": branch, "base": base_branch or NOVA_DEV_AGENT_BASE_BRANCH, "body": body},
         timeout=30,
     )
@@ -257,7 +300,7 @@ def open_pull_request(branch: str, title: str, body: str, base_branch: str | Non
     return data["html_url"], data["number"]
 
 
-def merge_pull_request(pr_number: int) -> None:
+def merge_pull_request(pr_number: int, *, token: str | None = None, repo: str | None = None) -> None:
     """Owner spec, 2026-09-12 ("بداية نفعلها لي أنا مع الدمج التلقائي"):
     the ONE explicitly opt-in exception to "never merges" above —
     called ONLY when main.py has confirmed quota.is_platform_owner(user)
@@ -268,10 +311,11 @@ def merge_pull_request(pr_number: int) -> None:
     branch-protection rule blocking the merge) rather than failing
     silently, so the owner finds out the PR is still open awaiting
     manual action."""
-    _ensure_configured()
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    _ensure_token_repo(token, repo)
     resp = requests.put(
-        f"{_API_ROOT}/repos/{NOVA_DEV_AGENT_REPO}/pulls/{pr_number}/merge",
-        headers=_headers(),
+        f"{_API_ROOT}/repos/{resolved_repo}/pulls/{pr_number}/merge",
+        headers=_headers(token),
         json={"merge_method": "squash"},
         timeout=30,
     )
