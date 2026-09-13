@@ -286,6 +286,40 @@ def _truncate_for_embedding(text: str) -> str:
 # failure already handled here.
 _MEMORY_SAFETY_CEILING_MB = 380
 
+# Owner report, 2026-09-14 ("حلل الكود كله من جذوره"، full re-audit
+# after several one-symptom-at-a-time fixes): main.py's own
+# _run_text_pipeline_bounded caps how many messages can be actively
+# ANSWERED at once, but build_context below fires off a background
+# thread (_store_knowledge / _analyze_and_store_general_knowledge —
+# each a real Groq call plus a real chroma embed+add) for every novel
+# question with no existing memory/precedent, and that thread keeps
+# running long after the pipeline semaphore that spawned it has already
+# been released for the NEXT message. Under real concurrent multi-user
+# load, enough simultaneous novel questions could still spawn enough of
+# these background threads at once to add real, unbounded memory/CPU
+# pressure that the pipeline semaphore was never able to see, let alone
+# bound. A small bounded, NON-blocking semaphore closes that gap: at
+# most a couple of these optional background enrichment jobs run at
+# once, and any extra arrival is simply skipped for this turn (this
+# work only ever benefits FUTURE questions, never the current reply, so
+# skipping it costs nothing but slightly less-complete future context)
+# rather than piling on top of whatever is already running.
+_BACKGROUND_KNOWLEDGE_WRITE_LIMIT = threading.BoundedSemaphore(2)
+
+
+def _run_background_knowledge_write(target, args: tuple) -> None:
+    if not _BACKGROUND_KNOWLEDGE_WRITE_LIMIT.acquire(blocking=False):
+        logger.info("skipping a background knowledge-write (%s) — already at the concurrency limit", target.__name__)
+        return
+
+    def _run():
+        try:
+            target(*args)
+        finally:
+            _BACKGROUND_KNOWLEDGE_WRITE_LIMIT.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+
 
 def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> None:
     documents = [_truncate_for_embedding(d) for d in documents]
@@ -914,9 +948,7 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
                 # above — yet it used to block this exact reply on a
                 # Supabase round-trip (up to 20s). Backgrounded so the
                 # bank still fills in, without taxing this user's wait.
-                threading.Thread(
-                    target=_store_knowledge, args=(message, web_snippets, "live_info"), daemon=True
-                ).start()
+                _run_background_knowledge_write(_store_knowledge, (message, web_snippets, "live_info"))
         return "\n\n".join(parts)
 
     # CODE/GENERAL: pull worked precedent from the shared solutions
@@ -966,9 +998,7 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
                 # questions via the knowledge bank, so it now runs after
                 # this reply is already on its way, off the critical path.
                 parts.append("نتائج بحث حية من الويب (بيانات خام):\n" + raw_snippets)
-                threading.Thread(
-                    target=_analyze_and_store_general_knowledge, args=(message, raw_snippets), daemon=True
-                ).start()
+                _run_background_knowledge_write(_analyze_and_store_general_knowledge, (message, raw_snippets))
 
     return "\n\n".join(parts)
 
