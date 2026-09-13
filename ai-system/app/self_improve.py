@@ -79,7 +79,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 
-from app import council, dev_agent, rag
+from app import agent_loop, council, dev_agent, rag
 from app.supabase_client import get_supabase
 
 logger = logging.getLogger("nova")
@@ -446,17 +446,16 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
 
 
 _FEASIBILITY_PROMPT = (
-    "أنت مطالَب بتقييم قدرتك الحقيقية على تنفيذ اقتراح تطوير ذاتي بصدق تام، بلا مبالغة ولا تهوين — "
-    "الصدق هنا أهم من إعطاء إجابة إيجابية. الاقتراح يحتاج إنشاء ملف كود جديد بالكامل في مشروعنا (وليس "
-    "تعديل ملف موجود). حلّل: هل تستطيع فعلاً تصميم وكتابة هذا الملف بشكل صحيح وقابل للتشغيل بلا أخطاء؟\n\n"
-    "هذه هي المسارات الحقيقية الموجودة فعلاً الآن داخل مجلد ai-system/ من مستودعنا — استخدم بالضبط نفس "
-    "اسم المجلد الرئيسي الظاهر هنا (بحروفه وفواصله تماماً، لاحظ أنه \"ai-system\" بشرطة، وليس \"ai_system\" "
-    "بشرطة سفلية أو أي تهجئة أخرى)، واقترح مساراً منسجماً فعلاً مع هذا الهيكل الحقيقي — لا تخترع مجلداً أو "
-    "اصطلاح تسمية غير موجود هنا أصلاً:\n{repo_structure}\n\n"
-    "أجب حصراً بصيغة JSON صحيحة بدون أي نص إضافي:\n"
+    "قيّم قدرتك الحقيقية على تنفيذ اقتراح تطوير ذاتي بصدق تام، بلا مبالغة ولا تهوين — الصدق هنا أهم من "
+    "إعطاء إجابة إيجابية. الاقتراح يحتاج إنشاء ملف كود جديد بالكامل في مشروعنا (وليس تعديل ملف موجود). "
+    "حلّل: هل تستطيع فعلاً تصميم وكتابة هذا الملف بشكل صحيح وقابل للتشغيل بلا أخطاء؟ استخدم الأدوات "
+    "المتاحة لك لترى البنية الحقيقية الفعلية لمشروعنا قبل أن تقترح مساراً — لا تخترع اسم مجلد أو اصطلاح "
+    "تسمية لم تتحقق من وجوده فعلاً (مثلاً: تأكد هل اسم المجلد الرئيسي \"ai-system\" بشرطة أم بشكل آخر، "
+    "بدل افتراض الشائع في بايثون).\n\n"
+    "عندما تصل لقرار نهائي، أنهِ بـ finish يحتوي بصيغة JSON صحيحة بدون أي نص إضافي:\n"
     '{{"can_implement": true أو false, '
     '"reasoning": "شرح صادق وواضح لماذا تستطيع أو لا تستطيع، بجملتين أو ثلاث", '
-    '"proposed_file_path": "المسار المقترح للملف الجديد، منسجماً مع الهيكل الحقيقي أعلاه بالضبط، فقط إن can_implement=true وإلا فارغ", '
+    '"proposed_file_path": "المسار المقترح للملف الجديد، منسجماً فعلاً مع ما رأيته من البنية الحقيقية، فقط إن can_implement=true وإلا فارغ", '
     '"risks": "أخطاء أو مشاكل محتملة حقيقية قد تنتج عن هذا التنفيذ، بجملة أو جملتين"}}\n\n'
     "الاقتراح:\nالموضوع: {topic}\nماذا وجدت: {finding}\nالفائدة: {usefulness}\nالأثر المتوقع: {impact}"
 )
@@ -477,35 +476,83 @@ def assess_feasibility(proposal_id: str) -> str:
     if proposal["status"] != "PENDING":
         return f"هذا الاقتراح (رقم {proposal_id}) سبق أن تم البت فيه ({proposal['status']})."
 
-    # Owner report, 2026-09-13 ("ان لم يتمتع بالقدرة على قراءة
-    # المستودع والمشاريع وسير العمل كله بشكل تلقائي... فكيف سيتمكن من
-    # العمل!!"): real, concrete evidence of exactly this — a proposal
-    # invented "ai_system/modules/" (Python's conventional underscore
-    # package naming) when this project's real top-level directory is
-    # "ai-system", hyphenated, because this prompt never showed the
-    # model the real repository at all. Grounds proposed_file_path in
-    # the REAL current file tree instead of a plausible-sounding guess.
-    try:
-        real_paths = dev_agent.get_repo_tree(prefix="ai-system/")
-    except dev_agent.DevAgentError:
-        logger.exception("assess_feasibility: failed to read the real repo tree for proposal_id=%s", proposal_id)
-        real_paths = []
-    repo_structure = "\n".join(sorted(real_paths)[:200]) if real_paths else "(تعذّرت قراءة شجرة المستودع الحقيقية الآن)"
-    real_top_level = real_paths[0].split("/")[0] if real_paths else "ai-system"
+    # Owner report, 2026-09-13 ("لاحظت انك كل عملك هو اعطاء اوامر
+    # لنوفا وليس جعله هو يعرف ويفكر ويقرأ وينفذ... لماذا هو لايملك ذات
+    # القدرة والمعرفة" — and separately, the real incident this closes:
+    # "ان لم يتمتع بالقدرة على قراءة المستودع... فكيف سيتمكن من
+    # العمل!!"): this used to ALWAYS prefetch the whole real repo tree
+    # myself and cram it into one fixed prompt, whether or not it was
+    # even needed for this proposal — Nova never decided to go look at
+    # anything, I decided for it. Now it runs a real agent_loop: Nova
+    # gets real tools (list real files, read a real file's content) and
+    # decides itself whether/what to check before answering, seeing the
+    # REAL result of each call it makes before deciding the next step —
+    # the same "read the real repo tree" fix in principle, but Nova
+    # doing the reading and reasoning now, not me doing it for it.
+    def _list_files_tool(args: dict) -> str:
+        prefix = str(args.get("prefix") or "ai-system/")
+        try:
+            paths = dev_agent.get_repo_tree(prefix=prefix)
+        except dev_agent.DevAgentError as e:
+            return f"تعذّرت القراءة: {e}"
+        return "\n".join(sorted(paths)[:200]) if paths else "(لا ملفات بهذا المسار)"
 
-    prompt = _FEASIBILITY_PROMPT.format(
+    def _read_file_tool(args: dict) -> str:
+        path = str(args.get("path") or "").strip()
+        if not path:
+            return "يجب تحديد path حقيقي."
+        try:
+            content, _sha = dev_agent.get_file(path)
+        except dev_agent.DevAgentError as e:
+            return f"تعذّرت القراءة: {e}"
+        return content[:3000]
+
+    agent_tools = [
+        agent_loop.Tool(
+            "list_files",
+            'يسرد المسارات الحقيقية الموجودة فعلاً تحت بادئة معينة الآن في مستودعنا. args: {"prefix": "ai-system/"}',
+            _list_files_tool,
+        ),
+        agent_loop.Tool(
+            "read_file",
+            'يقرأ المحتوى الفعلي الحالي لملف حقيقي موجود. args: {"path": "ai-system/app/main.py"}',
+            _read_file_tool,
+        ),
+    ]
+
+    task_prompt = _FEASIBILITY_PROMPT.format(
         topic=proposal["topic"],
         finding=proposal["finding"],
         usefulness=proposal.get("usefulness") or "",
         impact=proposal.get("impact") or "",
-        repo_structure=repo_structure,
     )
-    raw = council.call_modelscope_specialist(prompt, "", query_type="CODE") or council.call_groq(prompt, "")
-    parsed = _parse_research_json(raw or "")
+    result = agent_loop.run_agent_loop(
+        task_prompt,
+        agent_tools,
+        lambda p: council.call_modelscope_specialist(p, "", query_type="CODE") or council.call_groq(p, ""),
+        max_steps=5,
+        step_timeout=100,
+    )
+    parsed = _parse_research_json(result.answer or "")
     can_implement = bool(parsed.get("can_implement"))
     reasoning = str(parsed.get("reasoning") or "").strip()
     proposed_path = str(parsed.get("proposed_file_path") or "").strip()
     risks = str(parsed.get("risks") or "").strip()
+    if not result.finished:
+        reasoning = result.answer  # the honest "couldn't decide within N steps" message
+
+    # Never trust the model's own path claim blindly, even after real
+    # tool use — a deterministic check catches it if it still proposes
+    # something outside this project's real top-level directory, same
+    # "never guess an unconfident path" rule this project already
+    # applies elsewhere. One more real, cheap lookup (not the same as
+    # the old always-on prefetch: this is a verification of the FINAL
+    # answer, not a substitute for Nova's own exploration above).
+    try:
+        real_paths = dev_agent.get_repo_tree(prefix="ai-system/")
+    except dev_agent.DevAgentError:
+        real_paths = []
+    real_top_level = real_paths[0].split("/")[0] if real_paths else "ai-system"
 
     # Never trust the model's own path claim blindly, even with the
     # real structure shown above — a deterministic check catches it if
