@@ -706,6 +706,35 @@ def _analyze_and_store_general_knowledge(message: str, raw_snippets: str) -> Non
         logger.exception("background analyze_and_store_general_knowledge failed for query=%s", message)
 
 
+def store_verified_finding(topic: str, content: str, category: str = "owner_directed") -> str:
+    """Owner spec, 2026-09-13 ("نريد نجاحه في التدريب على المهمة
+    واكتساب خبرة ومعرفة وليس مجرد ملف وحفظ"): the real entry point for
+    self_improve.py's KNOWLEDGE-kind proposals — a finding that IS
+    itself a body of reference knowledge (e.g. grammar rules, factual
+    reference material), not a capability that needs new code. The
+    owner already read and approved this exact content when accepting
+    the proposal, so unlike learn_now above this does NOT re-run
+    analyze_knowledge on it (that distillation already happened once,
+    producing the very "finding" text being stored here) — just the
+    same guardrails gate and the same real, durable write to the
+    knowledge bank every other writer here shares, so it reaches
+    merge_and_finetune.ipynb's weekly training exactly like any other
+    entry."""
+    from app import guardrails
+
+    safe_content = guardrails.sanitize_for_storage(content)
+    if safe_content is None:
+        return f"الاقتراح المقبول عن \"{topic}\" لم يجتز فحص الأمان الداخلي — لم يُخزَّن شيء."
+
+    result = _store_knowledge(topic, safe_content, category)
+    if result == "rejected_guardrails":
+        return f"الاقتراح المقبول عن \"{topic}\" لم يجتز فحص الأمان الداخلي — لم يُخزَّن شيء."
+    if result == "skipped_same":
+        return f"هذا يؤكد معرفة مخزَّنة لديّ مسبقاً عن \"{topic}\" — لا حاجة لتغيير شيء."
+    verb = "حدّثت معرفة سابقة كانت غير دقيقة" if result == "updated" else "خزّنت معرفة جديدة"
+    return f"✅ {verb} عن \"{topic}\" في بنك معرفتي — سيُستخدم فعلياً في التدريب الأسبوعي القادم على Kaggle، لا مجرد ملف محفوظ."
+
+
 def learn_now(topic: str) -> str:
     """Owner spec, 2026-09-12 ("اذهب وابحث عن وسائل لتطوير قدراتك... وقم
     بتغذية نفسك بها... التنفيذ الفعلي... وليس مجرد رد دون تنفيذ"): the

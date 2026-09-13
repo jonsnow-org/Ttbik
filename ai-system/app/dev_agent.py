@@ -165,6 +165,41 @@ def get_file(path: str, ref: str | None = None, *, token: str | None = None, rep
     return content, data["sha"]
 
 
+def get_repo_tree(
+    prefix: str | None = None, ref: str | None = None, *, token: str | None = None, repo: str | None = None
+) -> list[str]:
+    """Owner report, 2026-09-13 ("ان لم يتمتع بالقدرة على قراءة
+    المستودع والمشاريع وسير العمل كله بشكل تلقائي... فكيف سيتمكن من
+    العمل!!"): real, concrete evidence of exactly this failure — a
+    self-improvement proposal invented "ai_system/modules/" (Python's
+    conventional underscore package naming) for a file, when this
+    project's real top-level directory is "ai-system", hyphenated —
+    because self_improve.py's own model call never saw the real
+    repository at all, only a topic string and web-search text. This
+    is the real fix for that class of guess: GitHub's own git trees API
+    (one call, recursive), not a second guess dressed up as a lookup.
+    Returns real file paths only (no directories), optionally filtered
+    to those starting with `prefix` — callers proposing a new
+    ai-system/ file pass prefix="ai-system/" so the model sees the
+    REAL existing structure to match, not the whole monorepo."""
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    resolved_ref = ref or NOVA_DEV_AGENT_BASE_BRANCH
+    _ensure_configured(token, repo, resolved_ref)
+    resp = requests.get(
+        f"{_API_ROOT}/repos/{resolved_repo}/git/trees/{resolved_ref}",
+        headers=_headers(token),
+        params={"recursive": "1"},
+        timeout=30,
+    )
+    if not resp.ok:
+        raise DevAgentError(f"تعذّرت قراءة شجرة ملفات المستودع من GitHub ({resp.status_code}): {resp.text[:300]}")
+    data = resp.json()
+    paths = [item["path"] for item in data.get("tree", []) if item.get("type") == "blob"]
+    if prefix:
+        paths = [p for p in paths if p.startswith(prefix)]
+    return paths
+
+
 def create_branch(
     new_branch: str, base_branch: str | None = None, *, token: str | None = None, repo: str | None = None
 ) -> None:

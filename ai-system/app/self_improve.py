@@ -110,14 +110,35 @@ _SELF_IMPROVEMENT_TOPICS = [
     "طرق مجانية حقيقية لتسريع استضافة نموذج ذكاء اصطناعي ذاتي على معالج رسومي",
 ]
 
+
+def _proposal_id_line(proposal_id: str) -> str:
+    """Owner report, 2026-09-13 (real evidence, screenshot: "/تحليل_تطوير
+    bc3b5d68dd" — "هكذا لا تُنسخ بسهولة"): the id used to sit on the
+    same line as Arabic prose (and, before that fix, a slash command),
+    a real, well-known mobile issue — mixed RTL Arabic + LTR
+    alphanumeric text on one line makes double-tap/long-press
+    selection unreliable on many keyboards. Its own line, with nothing
+    else on it, is a plain, homogeneous LTR run — reliably
+    tap-to-select on any phone."""
+    return f"رقم الاقتراح:\n{proposal_id}"
+
+
 _RESEARCH_PROMPT = (
     "لديك نتائج بحث خام من الويب حول موضوع يخص تطوير قدرات مساعد ذكاء "
-    "اصطناعي اسمه نوفا. اقرأها وأجب حصراً بصيغة JSON صحيحة بدون أي نص "
-    "إضافي، بهذا الشكل تماماً:\n"
-    '{{"finding": "ما هي الأداة/الطريقة/الواجهة البرمجية المحددة التي وجدتها، بجملة أو جملتين واضحتين", '
+    "اصطناعي اسمه نوفا. اقرأها، وقرر أولاً وبصدق: هل ما وجدته هو "
+    "(CODE) أداة/طريقة/واجهة برمجية حقيقية تحتاج كتابة كود جديد ليعمل "
+    "بها نوفا، أم (KNOWLEDGE) مجرد معرفة/حقائق/مرجع يجب أن يتعلمه نوفا "
+    "نفسه ويصبح جزءاً من فهمه (كقواعد لغة، معلومات تاريخية أو علمية، "
+    "أو أي مرجع نصي) — لا حاجة لأي كود لهذا النوع، بل يُحفظ في بنك "
+    "معرفة نوفا ليُدرَّب عليه فعلياً في التدريب الأسبوعي القادم. "
+    "لا تختر CODE لمجرد أن المصدر تقني — اختر KNOWLEDGE كلما كان "
+    "المحتوى نفسه معرفة يجب أن يفهمها نوفا، لا أداة يجب أن يبنيها. "
+    "أجب حصراً بصيغة JSON صحيحة بدون أي نص إضافي، بهذا الشكل تماماً:\n"
+    '{{"kind": "CODE أو KNOWLEDGE", '
+    '"finding": "ما هي الأداة/المعرفة المحددة التي وجدتها، بجملة أو جملتين واضحتين", '
     '"usefulness": "لماذا هذا مفيد تحديداً لنوفا، بجملة أو جملتين", '
-    '"impact": "ما التغيير الفعلي الذي سيحدثه هذا على عمل نوفا الحالي (سرعة/جودة/تكلفة/موثوقية)، بجملة أو جملتين", '
-    '"file_path_guess": "المسار الحقيقي لملف موجود بالفعل في مشروعنا يمكن تعديله لتطبيق هذا، فقط إن كنت واثقاً تماماً، وإلا اتركه فارغاً"}}\n\n'
+    '"impact": "ما التغيير الفعلي الذي سيحدثه هذا على عمل نوفا الحالي (سرعة/جودة/تكلفة/موثوقية/معرفة)، بجملة أو جملتين", '
+    '"file_path_guess": "فقط إن كان kind=CODE: المسار الحقيقي لملف موجود بالفعل في مشروعنا يمكن تعديله لتطبيق هذا، فقط إن كنت واثقاً تماماً، وإلا اتركه فارغاً"}}\n\n'
     "الموضوع: {topic}\n\nنتائج البحث الخام:\n{raw_snippets}"
 )
 
@@ -172,6 +193,18 @@ def research_and_propose(topic: str | None, trigger: str) -> str:
     usefulness = str(parsed.get("usefulness") or "").strip()
     impact = str(parsed.get("impact") or "").strip()
     file_path = str(parsed.get("file_path_guess") or "").strip() or None
+    # Owner report, 2026-09-13 (real evidence: proposal bc3b5d68dd —
+    # Arabic grammar rules, pure reference knowledge — got "implemented"
+    # as an unused static Python module instead of actually being
+    # learned): every proposal used to be treated as CODE by default.
+    # kind lets decide_proposal route a KNOWLEDGE finding into the real
+    # training pipeline (rag.store_verified_finding) instead of always
+    # generating a file nothing ever calls.
+    kind = str(parsed.get("kind") or "").strip().upper()
+    if kind not in ("CODE", "KNOWLEDGE"):
+        kind = "CODE"
+    if kind == "KNOWLEDGE":
+        file_path = None  # never relevant for a pure-knowledge proposal
 
     proposal_id = uuid.uuid4().hex[:10]
     get_supabase().table("NovaSelfImprovementProposal").insert(
@@ -183,17 +216,27 @@ def research_and_propose(topic: str | None, trigger: str) -> str:
             "impact": impact,
             "file_path": file_path,
             "trigger": trigger,
+            "kind": kind,
         }
     ).execute()
 
+    kind_label = "معرفة يتعلمها نوفا نفسه — لا كود" if kind == "KNOWLEDGE" else "كود جديد"
+    accept_hint = (
+        "الموافقة ستُخزّن هذا فعلياً في بنك معرفتي ليُستخدم في التدريب الأسبوعي "
+        "القادم على Kaggle — تعلّم حقيقي، لا مجرد ملف محفوظ."
+        if kind == "KNOWLEDGE"
+        else "الموافقة تبدأ خطوات تنفيذه كتعديل/ملف كود حقيقي."
+    )
     return (
-        f"🔎 اقتراح تطوير ذاتي جديد (رقم {proposal_id}):\n\n"
+        f"🔎 اقتراح تطوير ذاتي جديد ({kind_label}):\n\n"
+        f"{_proposal_id_line(proposal_id)}\n\n"
         f"الموضوع: {chosen_topic}\n\n"
         f"ماذا وجدت: {finding}\n\n"
         f"لماذا مفيد: {usefulness or '(غير محدد)'}\n\n"
         f"الأثر المتوقع على عملي الحالي: {impact or '(غير محدد)'}\n\n"
-        f"للموافقة: /موافقة_تطوير {proposal_id}\n"
-        f"للرفض: /رفض_تطوير {proposal_id}"
+        f"{accept_hint}\n\n"
+        "قل لي بكلامك العادي: وافق على هذا الاقتراح، أو: ارفض هذا الاقتراح — "
+        "وسأفهم أيهما تقصد من رقمه أعلاه."
     )
 
 
@@ -327,7 +370,7 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
         return f"لا يوجد اقتراح برقم {proposal_id}."
     proposal = rows[0]
     if proposal["status"] not in ("PENDING", "AWAITING_MERGE"):
-        return f"هذا الاقتراح (رقم {proposal_id}) سبق أن تم البت فيه ({proposal['status']})."
+        return f"هذا الاقتراح سبق أن تم البت فيه ({proposal['status']}).\n\n{_proposal_id_line(proposal_id)}"
 
     if proposal["status"] == "AWAITING_MERGE":
         # propose_training_notebook_change already opened the real PR —
@@ -339,12 +382,12 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
                 {"status": "REJECTED", "decided_at": datetime.now(timezone.utc).isoformat()}
             ).eq("id", proposal_id).execute()
             return (
-                f"تم رفض الاقتراح رقم {proposal_id} — لن أدمجه، ولن يبدأ أي تدريب. "
-                "الـPull Request يبقى مفتوحاً دون دمج على GitHub إن أردت مراجعته أو حذفه يدوياً."
+                f"تم رفض الاقتراح — لن أدمجه، ولن يبدأ أي تدريب. الـPull Request يبقى مفتوحاً دون دمج على "
+                f"GitHub إن أردت مراجعته أو حذفه يدوياً.\n\n{_proposal_id_line(proposal_id)}"
             )
         match = re.search(r"/pull/(\d+)", proposal.get("pr_url") or "")
         if not match:
-            return f"لا أجد رقم الـPull Request المرتبط بالاقتراح رقم {proposal_id} — لا يمكن الدمج."
+            return f"لا أجد رقم الـPull Request المرتبط بهذا الاقتراح — لا يمكن الدمج.\n\n{_proposal_id_line(proposal_id)}"
         try:
             dev_agent.merge_pull_request(int(match.group(1)))
         except dev_agent.DevAgentError as e:
@@ -353,23 +396,41 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
             {"status": "ACCEPTED", "decided_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", proposal_id).execute()
         return (
-            f"✅ تم دمج الاقتراح رقم {proposal_id} فعلياً — سيبدأ تدريب حقيقي على "
-            "معالج Kaggle الرسومي تلقائياً (نفس آلية push الموجودة أصلاً)، وستصلك رسالة "
-            "تلخيصية عند انتهاء التدريب كالمعتاد."
+            "✅ تم الدمج فعلياً — سيبدأ تدريب حقيقي على معالج Kaggle الرسومي تلقائياً (نفس آلية push "
+            f"الموجودة أصلاً)، وستصلك رسالة تلخيصية عند انتهاء التدريب كالمعتاد.\n\n{_proposal_id_line(proposal_id)}"
         )
 
     if not accept:
         db.table("NovaSelfImprovementProposal").update(
             {"status": "REJECTED", "decided_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", proposal_id).execute()
-        return f"تم رفض الاقتراح رقم {proposal_id} — لن يُنفَّذ أي تغيير."
+        return f"تم رفض الاقتراح.\n\n{_proposal_id_line(proposal_id)}\n\nلن يُنفَّذ أي تغيير."
+
+    # Owner spec, 2026-09-13 ("نريد نجاحه في التدريب على المهمة واكتساب
+    # خبرة ومعرفة وليس مجرد ملف وحفظ"): a KNOWLEDGE-kind proposal is
+    # itself a body of reference material Nova should learn, not a
+    # capability that needs code — accepting it stores it directly in
+    # the real training pipeline (rag.store_verified_finding), never
+    # touching propose_code_change/file_path at all. This is the actual
+    # fix for proposal bc3b5d68dd's real failure mode: an Arabic-grammar
+    # finding became an unused static Python module instead of real
+    # trainable knowledge.
+    if proposal.get("kind") == "KNOWLEDGE":
+        content = proposal["finding"]
+        if proposal.get("usefulness"):
+            content += f"\nلماذا مفيد: {proposal['usefulness']}"
+        store_message = rag.store_verified_finding(proposal["topic"], content)
+        db.table("NovaSelfImprovementProposal").update(
+            {"status": "ACCEPTED", "decided_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", proposal_id).execute()
+        return f"{store_message}\n\n{_proposal_id_line(proposal_id)}"
 
     file_path = proposal.get("file_path")
     if not file_path:
         return (
-            f"هذا الاقتراح (رقم {proposal_id}) يحتاج إنشاء ملف جديد بالكامل، وليس تعديل ملف موجود — "
-            f"لم أنفّذ شيئاً بعد. أرسل \"/تحليل_تطوير {proposal_id}\" لأحلل بصدق هل أستطيع تنفيذه بلا "
-            f"أخطاء، ثم قرر بنفسك بناءً على تحليلي."
+            "هذا الاقتراح يحتاج إنشاء ملف جديد بالكامل، وليس تعديل ملف موجود — لم أنفّذ شيئاً بعد. "
+            "قل لي: حلّل قدرتك على تنفيذ هذا الاقتراح، وسأخبرك بصدق هل أستطيع تنفيذه بلا أخطاء، ثم قرر "
+            f"بنفسك بناءً على تحليلي.\n\n{_proposal_id_line(proposal_id)}"
         )
 
     instruction = f"{proposal['finding']} — الفائدة: {proposal.get('usefulness') or ''} — الأثر المتوقع: {proposal.get('impact') or ''}"
@@ -381,17 +442,21 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
             "pr_url": result_message if result_message.startswith("http") else None,
         }
     ).eq("id", proposal_id).execute()
-    return f"✅ تمت الموافقة على الاقتراح رقم {proposal_id}، ونُفّذ فعلياً:\n{result_message}"
+    return f"✅ تمت الموافقة، ونُفّذ فعلياً:\n{result_message}\n\n{_proposal_id_line(proposal_id)}"
 
 
 _FEASIBILITY_PROMPT = (
     "أنت مطالَب بتقييم قدرتك الحقيقية على تنفيذ اقتراح تطوير ذاتي بصدق تام، بلا مبالغة ولا تهوين — "
     "الصدق هنا أهم من إعطاء إجابة إيجابية. الاقتراح يحتاج إنشاء ملف كود جديد بالكامل في مشروعنا (وليس "
-    "تعديل ملف موجود). حلّل: هل تستطيع فعلاً تصميم وكتابة هذا الملف بشكل صحيح وقابل للتشغيل بلا أخطاء؟ "
+    "تعديل ملف موجود). حلّل: هل تستطيع فعلاً تصميم وكتابة هذا الملف بشكل صحيح وقابل للتشغيل بلا أخطاء؟\n\n"
+    "هذه هي المسارات الحقيقية الموجودة فعلاً الآن داخل مجلد ai-system/ من مستودعنا — استخدم بالضبط نفس "
+    "اسم المجلد الرئيسي الظاهر هنا (بحروفه وفواصله تماماً، لاحظ أنه \"ai-system\" بشرطة، وليس \"ai_system\" "
+    "بشرطة سفلية أو أي تهجئة أخرى)، واقترح مساراً منسجماً فعلاً مع هذا الهيكل الحقيقي — لا تخترع مجلداً أو "
+    "اصطلاح تسمية غير موجود هنا أصلاً:\n{repo_structure}\n\n"
     "أجب حصراً بصيغة JSON صحيحة بدون أي نص إضافي:\n"
     '{{"can_implement": true أو false, '
     '"reasoning": "شرح صادق وواضح لماذا تستطيع أو لا تستطيع، بجملتين أو ثلاث", '
-    '"proposed_file_path": "المسار المقترح للملف الجديد داخل مشروعنا (مثل ai-system/app/xyz.py)، فقط إن can_implement=true وإلا فارغ", '
+    '"proposed_file_path": "المسار المقترح للملف الجديد، منسجماً مع الهيكل الحقيقي أعلاه بالضبط، فقط إن can_implement=true وإلا فارغ", '
     '"risks": "أخطاء أو مشاكل محتملة حقيقية قد تنتج عن هذا التنفيذ، بجملة أو جملتين"}}\n\n'
     "الاقتراح:\nالموضوع: {topic}\nماذا وجدت: {finding}\nالفائدة: {usefulness}\nالأثر المتوقع: {impact}"
 )
@@ -412,11 +477,28 @@ def assess_feasibility(proposal_id: str) -> str:
     if proposal["status"] != "PENDING":
         return f"هذا الاقتراح (رقم {proposal_id}) سبق أن تم البت فيه ({proposal['status']})."
 
+    # Owner report, 2026-09-13 ("ان لم يتمتع بالقدرة على قراءة
+    # المستودع والمشاريع وسير العمل كله بشكل تلقائي... فكيف سيتمكن من
+    # العمل!!"): real, concrete evidence of exactly this — a proposal
+    # invented "ai_system/modules/" (Python's conventional underscore
+    # package naming) when this project's real top-level directory is
+    # "ai-system", hyphenated, because this prompt never showed the
+    # model the real repository at all. Grounds proposed_file_path in
+    # the REAL current file tree instead of a plausible-sounding guess.
+    try:
+        real_paths = dev_agent.get_repo_tree(prefix="ai-system/")
+    except dev_agent.DevAgentError:
+        logger.exception("assess_feasibility: failed to read the real repo tree for proposal_id=%s", proposal_id)
+        real_paths = []
+    repo_structure = "\n".join(sorted(real_paths)[:200]) if real_paths else "(تعذّرت قراءة شجرة المستودع الحقيقية الآن)"
+    real_top_level = real_paths[0].split("/")[0] if real_paths else "ai-system"
+
     prompt = _FEASIBILITY_PROMPT.format(
         topic=proposal["topic"],
         finding=proposal["finding"],
         usefulness=proposal.get("usefulness") or "",
         impact=proposal.get("impact") or "",
+        repo_structure=repo_structure,
     )
     raw = council.call_modelscope_specialist(prompt, "", query_type="CODE") or council.call_groq(prompt, "")
     parsed = _parse_research_json(raw or "")
@@ -425,11 +507,25 @@ def assess_feasibility(proposal_id: str) -> str:
     proposed_path = str(parsed.get("proposed_file_path") or "").strip()
     risks = str(parsed.get("risks") or "").strip()
 
+    # Never trust the model's own path claim blindly, even with the
+    # real structure shown above — a deterministic check catches it if
+    # it still ignores that context, same "never guess an unconfident
+    # path" rule this project already applies elsewhere.
+    if can_implement and proposed_path and real_paths and not proposed_path.startswith(f"{real_top_level}/"):
+        reasoning = (
+            (reasoning + " " if reasoning else "")
+            + f"(تصحيح آلي: المسار المقترح ({proposed_path}) لا يطابق البنية الحقيقية للمستودع — كان يجب أن يبدأ بـ{real_top_level}/)"
+        )
+        can_implement = False
+        proposed_path = ""
+
     if can_implement and proposed_path:
         db.table("NovaSelfImprovementProposal").update({"file_path": proposed_path}).eq("id", proposal_id).execute()
 
     lines = [
-        f"🔍 تحليل قدرتي الحقيقية على تنفيذ الاقتراح رقم {proposal_id}:",
+        "🔍 تحليل قدرتي الحقيقية على تنفيذ هذا الاقتراح:",
+        "",
+        _proposal_id_line(proposal_id),
         "",
         "القرار الصادق: " + ("نعم، أستطيع تنفيذ هذا" if can_implement and proposed_path else "لا، لا أستطيع تنفيذ هذا بثقة كافية"),
         "",
@@ -441,7 +537,7 @@ def assess_feasibility(proposal_id: str) -> str:
             f"الملف الذي سأنشئه: {proposed_path}",
             f"مخاطر محتملة: {risks or '(لا مخاطر واضحة)'}",
             "",
-            f"إن اقتنعت، أعطني الصلاحية الكاملة بـ: /تنفيذ_تطوير {proposal_id}",
+            "إن اقتنعت، قل لي بكلامك العادي: نفّذ هذا الاقتراح.",
         ]
     return "\n".join(lines)
 
@@ -464,7 +560,10 @@ def implement_new_file(proposal_id: str) -> str:
         return f"هذا الاقتراح (رقم {proposal_id}) سبق أن تم البت فيه ({proposal['status']})."
     file_path = proposal.get("file_path")
     if not file_path:
-        return f"لم أحلل قدرتي على تنفيذ هذا الاقتراح بعد — أرسل أولاً \"/تحليل_تطوير {proposal_id}\"."
+        return (
+            f"لم أحلل قدرتي على تنفيذ هذا الاقتراح بعد. قل لي أولاً: حلّل قدرتك على تنفيذ الاقتراح رقم "
+            f"{proposal_id}\n\n{_proposal_id_line(proposal_id)}"
+        )
 
     content_prompt = (
         "أنشئ محتوى ملف بايثون كامل جديد لمشروعنا (Nova AI) ينفّذ هذا التحسين:\n"

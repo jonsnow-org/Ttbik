@@ -1,0 +1,19 @@
+-- Owner report, 2026-09-13 (real evidence: proposal bc3b5d68dd — a
+-- reference of Arabic grammar rules found via web search — got
+-- "implemented" as a new Python module (ai_system/modules/
+-- arabic_grammar.py, a static hardcoded dictionary), which merged
+-- successfully as a PR but taught the model itself NOTHING: "نريد
+-- نجاحه في التدريب على المهمة واكتساب خبرة ومعرفة وليس مجرد ملف
+-- وحفظ" — we want it to succeed at TRAINING and gaining real
+-- knowledge, not just a file and storage.
+--
+-- Root cause: every self-improvement proposal was treated as "needs
+-- new code", regardless of whether the underlying finding was a real
+-- capability/tool (genuinely code-shaped) or a body of reference
+-- knowledge (genuinely training-data-shaped). "kind" lets
+-- research_and_propose classify which one this actually is, so
+-- accepting a KNOWLEDGE proposal routes into the real knowledge bank
+-- (NovaKnowledgeEntry, which merge_and_finetune.ipynb already folds
+-- into real weekly weight training) instead of always generating an
+-- unused code file.
+ALTER TABLE "NovaSelfImprovementProposal" ADD COLUMN IF NOT EXISTS "kind" TEXT NOT NULL DEFAULT 'CODE';
