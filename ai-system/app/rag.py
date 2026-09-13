@@ -260,8 +260,25 @@ def _parse_supabase_ts(value: str) -> float:
 # many rows get rehydrated in the first place (see the .limit() calls
 # in each rehydrate_* function below) bounds the total one-time cost
 # directly, which chunk size alone cannot do.
-_REHYDRATE_CHUNK_SIZE = 20
-_MAX_EMBEDDING_DOCUMENT_CHARS = 1500
+# Real evidence, 2026-09-14 (same day, next incident, this time with the
+# per-chunk memory log already in place): "after chunk 0-20 of 23" for
+# rehydrate_knowledge_bank showed peak RSS jump from ~282MB (right after
+# the embedder warm-up) straight to 457.6MB — a ~175MB jump from ONE
+# chunk of only 20 already-truncated (<=1500 char) documents. That is
+# LARGER than the 132MB gap the 380MB safety ceiling was supposed to
+# leave before the real 512MB limit — the ceiling can only stop the
+# NEXT chunk from starting, it cannot undo a single chunk's own jump
+# once that chunk is already running, so a big enough single-chunk jump
+# can still land past the real limit even with the ceiling in place
+# (and ru_maxrss never comes back down afterward, for the rest of this
+# process's life). Shrinking both the chunk size and the per-document
+# truncation directly shrinks the size of that single worst-case jump,
+# and the ceiling itself drops further to leave real headroom (512 -
+# 220 = 292MB of margin, comfortably above the 175MB jump actually
+# measured) instead of a margin (132MB) smaller than a jump already
+# observed in production.
+_REHYDRATE_CHUNK_SIZE = 5
+_MAX_EMBEDDING_DOCUMENT_CHARS = 600
 
 
 def _truncate_for_embedding(text: str) -> str:
@@ -284,7 +301,7 @@ def _truncate_for_embedding(text: str) -> str:
 # un-rehydrated for this run; the same rehydrate_* function tries again
 # (from scratch) on the next cold start, same as any other partial
 # failure already handled here.
-_MEMORY_SAFETY_CEILING_MB = 380
+_MEMORY_SAFETY_CEILING_MB = 220
 
 # Owner report, 2026-09-14 ("حلل الكود كله من جذوره"، full re-audit
 # after several one-symptom-at-a-time fixes): main.py's own
@@ -321,7 +338,17 @@ def _run_background_knowledge_write(target, args: tuple) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
-def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> None:
+def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | None = None) -> int:
+    """Returns how many documents were ACTUALLY stored — never assume
+    this equals len(documents). Owner report, 2026-09-14 ("رسائل اخطاء
+    صامتة" — real evidence, spotted directly in Render's own logs): this
+    used to return nothing, so every rehydrate_* caller logged "restored
+    N entries" using the ORIGINAL row count regardless of whether the
+    safety-ceiling abort below had actually fired moments earlier — one
+    log line said "93 of 93 documents not restored this run" and the
+    VERY NEXT line said "restored 93 worked solutions", a real
+    contradiction that made a total failure read as a success. Callers
+    must now log the real returned count, not len(rows)."""
     documents = [_truncate_for_embedding(d) for d in documents]
     for start in range(0, len(documents), _REHYDRATE_CHUNK_SIZE):
         end = start + _REHYDRATE_CHUNK_SIZE
@@ -332,7 +359,7 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
                 "%d of %d documents not restored this run; will retry on the next cold start",
                 rss_mb, _MEMORY_SAFETY_CEILING_MB, len(documents) - start, len(documents),
             )
-            return
+            return start
         _log_memory(f"before chunk {start}-{min(end, len(documents))} of {len(documents)}")
         collection.add(
             documents=documents[start:end],
@@ -340,6 +367,7 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
             metadatas=metadatas[start:end] if metadatas is not None else None,
         )
         _log_memory(f"after chunk {start}-{min(end, len(documents))} of {len(documents)}")
+    return len(documents)
 
 
 # Render incident, 2026-09-13 (real evidence: the memory-limit alert
@@ -488,14 +516,17 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
     if not rows:
         return
     _log_memory(f"before embedding {len(rows)} rows in rehydrate_user_memory")
-    _add_in_chunks(
+    stored = _add_in_chunks(
         col,
         documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
         metadatas=[{"user_id": user_id, "ts": _parse_supabase_ts(r["created_at"])} for r in rows],
     )
     _log_memory(f"after embedding {len(rows)} rows in rehydrate_user_memory")
-    logger.info("rehydrate_user_memory: restored %d past turns for user_id=%s after a cold start", len(rows), user_id)
+    logger.info(
+        "rehydrate_user_memory: restored %d of %d past turns for user_id=%s after a cold start",
+        stored, len(rows), user_id,
+    )
 
 
 def _knowledge_bank():
@@ -541,7 +572,7 @@ def _rehydrate_knowledge_bank(bank) -> None:
     if not rows:
         return
     _log_memory(f"before embedding {len(rows)} rows in rehydrate_knowledge_bank")
-    _add_in_chunks(
+    stored = _add_in_chunks(
         bank,
         documents=[r["content"] for r in rows],
         metadatas=[
@@ -551,7 +582,7 @@ def _rehydrate_knowledge_bank(bank) -> None:
         ids=[r["id"] for r in rows],
     )
     _log_memory(f"after embedding {len(rows)} rows in rehydrate_knowledge_bank")
-    logger.info("rehydrate_knowledge_bank: restored %d entries from Supabase after a cold start", len(rows))
+    logger.info("rehydrate_knowledge_bank: restored %d of %d entries from Supabase after a cold start", stored, len(rows))
 
 
 def _solutions_bank():
@@ -602,7 +633,7 @@ def _rehydrate_solutions_bank(bank) -> None:
     if not rows:
         return
     _log_memory(f"before embedding {len(rows)} rows in rehydrate_solutions_bank")
-    _add_in_chunks(
+    stored = _add_in_chunks(
         bank,
         documents=[f"سؤال: {r['message']}\nإجابة: {r['answer']}" for r in rows],
         metadatas=[
@@ -612,7 +643,10 @@ def _rehydrate_solutions_bank(bank) -> None:
         ids=[f"restored-{r['id']}" for r in rows],
     )
     _log_memory(f"after embedding {len(rows)} rows in rehydrate_solutions_bank")
-    logger.info("rehydrate_solutions_bank: restored %d worked solutions from Supabase after a cold start", len(rows))
+    logger.info(
+        "rehydrate_solutions_bank: restored %d of %d worked solutions from Supabase after a cold start",
+        stored, len(rows),
+    )
 
 
 # Below this length an "answer" is almost always a greeting/apology/error
