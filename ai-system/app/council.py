@@ -106,7 +106,7 @@ import uuid
 
 from groq import Groq
 
-from app import code_check, dev_agent
+from app import agent_loop, code_check, dev_agent
 from app.concurrency import with_hard_deadline
 from app.config import (
     GEMINI_API_KEY,
@@ -1512,18 +1512,95 @@ def _propose_code_change_core(
     branch/PR mechanics either way; only which repo/credential/whether
     auto_merge is even offered differs per caller. Extracted 2026-09-13
     once a second real caller needed the exact same logic, rather than
-    a second copy that could drift out of sync with the first."""
+    a second copy that could drift out of sync with the first.
+
+    Owner report, 2026-09-13 ("فكر بطريقة نجعل نوفا يتطور في التفكير
+    والتحليل... في مجال البرمجة والتصميم والاكواد والاصلاح والاستكشاف
+    للاخطاء... وليس أتمته وتلقينه اوامر يجيب بها دون فهم حقيقي"): this
+    used to be exactly one blind model call against only the ONE target
+    file's content, with no way to check anything else and no way to
+    see its own real mistakes before they were already written. Now
+    Nova gets real tools (agent_loop) — read OTHER real files if it
+    decides it needs context (imports, a sibling test, how a pattern is
+    used elsewhere), and check its own draft against the SAME real
+    deterministic validator before ever committing to an answer,
+    revising for real if it fails, exactly the way actually reading and
+    testing a change beats guessing once and hoping.
+
+    The final gate below (validate_or_repair) is UNCHANGED and still
+    mandatory regardless of what the loop produces or how many times it
+    checked itself — this is real defense in depth, not a replacement:
+    a model that used its own check_syntax tool well usually already
+    passes here on the first try, but nothing about the loop is trusted
+    blindly for a path that can auto-merge straight to production."""
     try:
         current_content, sha = dev_agent.get_file(file_path, token=token, repo=repo)
     except dev_agent.DevAgentError as e:
         return str(e)
 
-    prompt = _DEV_AGENT_INSTRUCTION_TEMPLATE.format(
-        file_path=file_path, current_content=current_content, instruction=instruction
+    def _read_file_tool(args: dict) -> str:
+        path = str(args.get("path") or "").strip()
+        if not path:
+            return "يجب تحديد path حقيقي."
+        try:
+            content, _sha = dev_agent.get_file(path, token=token, repo=repo)
+        except dev_agent.DevAgentError as e:
+            return f"تعذّرت القراءة: {e}"
+        return content[:6000]
+
+    def _list_files_tool(args: dict) -> str:
+        prefix = str(args.get("prefix") or "").strip() or None
+        try:
+            paths = dev_agent.get_repo_tree(prefix=prefix, token=token, repo=repo)
+        except dev_agent.DevAgentError as e:
+            return f"تعذّرت القراءة: {e}"
+        return "\n".join(sorted(paths)[:200]) if paths else "(لا ملفات بهذا المسار)"
+
+    def _check_syntax_tool(args: dict) -> str:
+        draft = str(args.get("content") or "")
+        if not draft.strip():
+            return "لا يوجد محتوى فعلي لفحصه — أرسل المحتوى الكامل الذي كتبتَه."
+        ok, message = code_check.validate(file_path, _strip_code_fences(draft))
+        return f"نجح الفحص النحوي: {message}" if ok else f"فشل الفحص النحوي: {message}"
+
+    agent_tools = [
+        agent_loop.Tool(
+            "read_file",
+            'يقرأ المحتوى الفعلي الحالي لأي ملف حقيقي آخر في المستودع (مثلاً لفهم استيراد أو نمط مستخدم). '
+            'args: {"path": "..."}',
+            _read_file_tool,
+        ),
+        agent_loop.Tool(
+            "list_files",
+            'يسرد المسارات الحقيقية الموجودة فعلاً تحت بادئة معينة الآن في المستودع. args: {"prefix": "..."}',
+            _list_files_tool,
+        ),
+        agent_loop.Tool(
+            "check_syntax",
+            'يفحص مسودة كاملة لهذا الملف بفاحص نحوي حقيقي قبل أن تلتزم بها — استخدمه على مسودتك '
+            'قبل finish للتأكد أنها تمر فعلاً. args: {"content": "المحتوى الكامل للمسودة"}',
+            _check_syntax_tool,
+        ),
+    ]
+
+    task_prompt = (
+        f"هذا هو المحتوى الحالي الكامل للملف {file_path} في مشروعنا:\n\n```\n{current_content}\n```\n\n"
+        f"التعديل المطلوب: {instruction}\n\n"
+        "استخدم الأدوات المتاحة إن احتجت فهم سياق حقيقي إضافي (ملف آخر، بنية المشروع)، وتحقّق من "
+        "مسودتك عبر check_syntax قبل أن تُنهي — لا تخمّن أنها صحيحة. أنهِ بـ finish يحتوي فقط المحتوى "
+        "الكامل النهائي للملف بعد تطبيق التعديل، بلا أي تغيير آخر غير مطلوب، وبلا أي شرح أو مقدمة أو "
+        "علامات ```‎ من أي نوع."
     )
-    new_content = call_modelscope_specialist(prompt, "", query_type="CODE") or call_groq(prompt, "")
+    result = agent_loop.run_agent_loop(
+        task_prompt,
+        agent_tools,
+        lambda p: call_modelscope_specialist(p, "", query_type="CODE") or call_groq(p, ""),
+        max_steps=6,
+        step_timeout=100,
+    )
+    new_content = result.answer if result.finished else ""
     if not new_content or not new_content.strip():
-        return "تعذّر توليد التعديل المقترح — لم يُرجع النموذج محتوى صالحاً. حاول صياغة الطلب بشكل أوضح."
+        return "تعذّر توليد التعديل المقترح — لم يصل النموذج لمحتوى نهائي واثق. حاول صياغة الطلب بشكل أوضح."
 
     cleaned = _strip_code_fences(new_content)
 
