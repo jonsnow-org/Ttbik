@@ -104,7 +104,59 @@ def _parse_supabase_ts(value: str) -> float:
 
 
 def _collection_for(user_id: str):
-    return _chroma_client.get_or_create_collection(name=f"nova_memory_{user_id}", embedding_function=_embedder)
+    """Owner report, 2026-09-13 (real complaint: "لا يتذكر المحادثة
+    والسجل"): root cause confirmed, not guessed — Render's FREE web
+    services have an EPHEMERAL filesystem (confirmed via Render's own
+    docs: wiped on every redeploy AND every spin-down/restart after
+    idle, which free services do routinely). _chroma_client's storage
+    path (./chroma_data) lives on that same disk, so this per-user
+    memory collection was being silently erased roughly daily — it
+    "worked" only within a single container lifetime.
+
+    _knowledge_bank() below already solved the IDENTICAL problem for
+    the shared search-results bank via _rehydrate_knowledge_bank,
+    refilling itself from Supabase (real durable storage) on a cold
+    start — this collection never got that same fix. Now it does,
+    rebuilt from NovaUsageLog (the durable Supabase table every real
+    conversation turn is already logged into by quota.log_usage), the
+    exact source remember() below would have populated this collection
+    from originally, in the same "سؤال سابق: ...\\nإجابة سابقة: ..."
+    document shape recall() already expects."""
+    col = _chroma_client.get_or_create_collection(name=f"nova_memory_{user_id}", embedding_function=_embedder)
+    if col.count() == 0:
+        _rehydrate_user_memory(col, user_id)
+    return col
+
+
+def _rehydrate_user_memory(col, user_id: str) -> None:
+    """Runs at most once per container lifetime per user (only when
+    this user's collection comes up empty) — never allowed to break the
+    request that triggered it: a Supabase hiccup here just means this
+    cold start starts empty for this user, same as before this
+    durability fix existed."""
+    try:
+        rows = (
+            get_supabase()
+            .table("NovaUsageLog")
+            .select("id, message, answer")
+            .eq("novaUserId", user_id)
+            .not_.is_("message", "null")
+            .not_.is_("answer", "null")
+            .order("created_at", desc=True)
+            .limit(200)
+            .execute()
+            .data
+        )
+    except Exception:
+        logger.exception("rehydrate_user_memory: failed to read NovaUsageLog for user_id=%s", user_id)
+        return
+    if not rows:
+        return
+    col.add(
+        documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
+        ids=[f"restored-{r['id']}" for r in rows],
+    )
+    logger.info("rehydrate_user_memory: restored %d past turns for user_id=%s after a cold start", len(rows), user_id)
 
 
 def _knowledge_bank():
@@ -159,7 +211,47 @@ def _solutions_bank():
     # live-info cache above, indexed by query_type so a CODE question
     # retrieves worked coding precedent specifically, not an unrelated
     # general-chat answer.
-    return _chroma_client.get_or_create_collection(name="nova_solutions_bank", embedding_function=_embedder)
+    #
+    # Same real ephemeral-disk bug _collection_for was fixed for, same
+    # day (see that function's own docstring) — this shared bank never
+    # got the rehydration _knowledge_bank() already had either.
+    bank = _chroma_client.get_or_create_collection(name="nova_solutions_bank", embedding_function=_embedder)
+    if bank.count() == 0:
+        _rehydrate_solutions_bank(bank)
+    return bank
+
+
+def _rehydrate_solutions_bank(bank) -> None:
+    """Rebuilds from NovaUsageLog using the exact same filter
+    remember_shared applies when first storing an entry (CODE/GENERAL
+    only, answer long enough to be a real worked solution) — so a
+    restored bank contains exactly what would have been in it had the
+    container never restarted, not a looser approximation."""
+    try:
+        rows = (
+            get_supabase()
+            .table("NovaUsageLog")
+            .select("id, message, answer, queryType")
+            .in_("queryType", ["CODE", "GENERAL"])
+            .not_.is_("message", "null")
+            .not_.is_("answer", "null")
+            .order("created_at", desc=True)
+            .limit(1000)
+            .execute()
+            .data
+        )
+    except Exception:
+        logger.exception("rehydrate_solutions_bank: failed to read NovaUsageLog from Supabase")
+        return
+    rows = [r for r in rows if len(r.get("answer") or "") >= _MIN_SOLUTION_LENGTH]
+    if not rows:
+        return
+    bank.add(
+        documents=[f"سؤال: {r['message']}\nإجابة: {r['answer']}" for r in rows],
+        metadatas=[{"query_type": r["queryType"], "answer": r["answer"]} for r in rows],
+        ids=[f"restored-{r['id']}" for r in rows],
+    )
+    logger.info("rehydrate_solutions_bank: restored %d worked solutions from Supabase after a cold start", len(rows))
 
 
 # Below this length an "answer" is almost always a greeting/apology/error
