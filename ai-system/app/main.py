@@ -1017,6 +1017,16 @@ def _process_image_gen_and_deliver(
             )
             return
         quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد صورة] {prompt}", "(صورة)")
+        # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو والصوت"):
+        # quota.log_usage above already durably records this generation
+        # for training/history, but that alone never reaches the ACTIVE
+        # conversation memory rag.recall() searches — only the plain-
+        # text chat path ever called rag.remember(). Without this, a
+        # later "عدّل الصورة نفسها بلون أزرق" had nothing to recall at
+        # all. Stores a real, honest description (the exact prompt used,
+        # not the binary image itself — memory is text-searchable, not
+        # a media store).
+        rag.remember(user_id, f"[طلب توليد صورة] {prompt}", "(تم توليد صورة فعلياً بناءً على هذا الطلب)")
         _send_telegram_photo(chat_id, image_bytes, prompt)
     except Exception:
         logger.exception("background image-gen pipeline failed for chat_id=%s", chat_id)
@@ -1144,6 +1154,10 @@ def _enqueue_real_video(
         if video_bytes is not None:
             logger.info("video-gen: served by Hugging Face ZeroGPU (real motion, inline) for chat_id=%s", chat_id)
             quota.log_usage(user_id, channel, "IMAGE_GEN", f"[توليد فيديو] {prompt}", "(فيديو)")
+            # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو
+            # والصوت") — same real gap as the image-gen path above, see
+            # its own comment for the full reasoning.
+            rag.remember(user_id, f"[طلب توليد فيديو] {prompt}", "(تم توليد فيديو فعلياً بناءً على هذا الطلب)")
             _send_telegram_video(chat_id, video_bytes, prompt)
             return
 
@@ -1495,6 +1509,16 @@ def admin_video_queue_result(req: VideoQueueResultRequest, x_internal_secret: st
             "تعذّر توليد الفيديو الحقيقي هذه المرة أثناء المعالجة على الدفعة المجدولة — حاول مرة أخرى "
             "(لم يُخصَم هذا من حدك اليومي).",
         )
+    else:
+        # Owner report, 2026-09-13 ("لايتذكر سجل الصور والفديو
+        # والصوت"): this success path never logged or remembered
+        # anything at all — the Kaggle-queued video (the common case
+        # today; see hf_video's own honestly-unverified real-GPU-time
+        # question) simply vanished from both durable history AND
+        # active conversation memory the moment it was delivered,
+        # unlike the inline HF path right above it in this same file.
+        quota.log_usage(row["novaUserId"], row["channel"], "IMAGE_GEN", f"[توليد فيديو] {row['prompt']}", "(فيديو)")
+        rag.remember(row["novaUserId"], f"[طلب توليد فيديو] {row['prompt']}", "(تم توليد فيديو فعلياً بناءً على هذا الطلب)")
     return {"ok": True}
 
 
