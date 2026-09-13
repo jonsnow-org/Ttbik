@@ -771,6 +771,15 @@ def _parse_intent_json(raw: str) -> dict:
             # (harmless), same "ambiguous -> TEXT" rule as IMAGE/VIDEO.
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "DEV", "file_path": file_path, "instruction": dev_instruction}
+    if intent == "CONNECTED_DEV":
+        file_path = str(data.get("file_path") or "").strip()
+        connected_instruction = str(data.get("instruction") or "").strip()
+        if not file_path or not connected_instruction:
+            # Same "never guess a path" rule as DEV — doubly true here,
+            # since this path belongs to a repo Nova has never seen
+            # before; the user must have actually named it.
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "CONNECTED_DEV", "file_path": file_path, "instruction": connected_instruction}
     if intent == "BUILD":
         build_instruction = str(data.get("instruction") or "").strip()
         if len(build_instruction) < 10:
@@ -811,6 +820,22 @@ def _parse_intent_json(raw: str) -> dict:
         # image/video quota on a malformed request.
         intent, prompt = "TEXT", ""
     return {"intent": intent, "prompt": prompt}
+
+
+_CONNECTED_DEV_ADDENDUM = (
+    "\n\nملاحظة إضافية (تنطبق على أي مستخدم، وليس المالك فقط): قد تكون "
+    "رسالته طلباً بأن تعمل على موقعه أو تطبيقه أو مستودعه **الخاص به هو** "
+    "الذي ربطه بنوفا مسبقاً (وليس مشروعنا نحن) — مثل \"عدّل ملف كذا في "
+    'مستودعي ليفعل كذا\" أو \"أصلح الخطأ الفلاني في موقعي\". إن كانت '
+    'كذلك، أجب بهذا الشكل:\n'
+    '{"intent": "CONNECTED_DEV", "file_path": "المسار الحقيقي للملف داخل '
+    "مستودعه إن ذكره أو كان واضحاً جداً من السياق، وإلا اتركه فارغاً تماماً "
+    '(لا تخمّن مساراً غير مؤكد أبداً)", "instruction": "وصف دقيق وواضح لما '
+    'يجب تغييره في الملف، بأي لغة"}\n'
+    "لا تستخدم CONNECTED_DEV إلا إذا كان الطلب فعلاً عن تعديل حقيقي في "
+    "موقع/مستودع خاص بهذا المستخدم نفسه — لا تستخدمها لسؤال عام عن "
+    "البرمجة، ولا لطلب يخص مشروعنا نحن (تلك هي DEV، للمالك فقط)."
+)
 
 
 def classify_intent(message: str, recent_context: str = "", allow_dev: bool = False) -> dict:
@@ -871,6 +896,14 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
     same as any other
     ambiguous case here."""
     instruction = _INTENT_CLASSIFY_INSTRUCTION.format(context=recent_context or "(لا يوجد سياق سابق)", message=message)
+    # CONNECTED_DEV is offered to EVERY user, not gated by allow_dev —
+    # owner spec, 2026-09-13 ("يضيف نوفا لمواقعه كما اضفتك انا لمواقعي"):
+    # any authenticated user may ask Nova to act on THEIR OWN connected
+    # repo. Real safety is the connections table itself
+    # (app/connections.py) checked downstream by main.py, not this
+    # classification step — a user with zero connections just gets an
+    # honest "not connected yet" reply instead of a guessed action.
+    instruction += _CONNECTED_DEV_ADDENDUM
     if allow_dev:
         instruction += _DEV_INTENT_ADDENDUM
     raw = None
@@ -1308,42 +1341,20 @@ def propose_app_build(instruction: str, auto_merge: bool = False) -> str:
     return "\n".join(lines)
 
 
-def propose_code_change(file_path: str, instruction: str, auto_merge: bool = False) -> str:
-    """Owner-only "Dev Agent" entry point — main.py calls this ONLY
-    after confirming quota.is_platform_owner(user) for the current
-    request; there is no separate authorization check here, same
-    one-check-done-upstream pattern as the /admin/* endpoints'
-    _require_internal.
-
-    Owner spec, 2026-09-12, verbatim, still the DEFAULT behavior here:
-    "ممنوع التنفيذ الفوري أو الكتابة المباشرة على الفرع الحي بأي شكل...
-    أي تعديل يقترحه نوفا يُنشأ كفرع Git جديد + Pull Request... ولا
-    يُدمج إلا بعد مراجعة." This function never writes to
-    NOVA_DEV_AGENT_BASE_BRANCH directly — dev_agent.create_branch
-    always forks a fresh branch first, dev_agent.update_file only ever
-    targets that fresh branch.
-
-    auto_merge — owner follow-up, 2026-09-12 ("بداية نفعلها لي أنا مع
-    الدمج التلقائي"): the ONE explicit, opt-in exception to "never
-    merges" — main.py only ever passes True here for the owner's own
-    requests specifically (never for any other caller), and even then
-    the change still lands as a real, revertable git commit via
-    GitHub's own merge endpoint (dev_agent.merge_pull_request) — not a
-    direct unreviewed write to the branch. A merge failure (e.g.
-    branch protection) leaves the PR open for manual merge instead of
-    silently discarding the proposal.
-
-    Real, not guessed, reuse: OUR OWN model already answers CODE
-    queries best (query_type="CODE" picks the right persona/temperature
-    in app.py) — the same call_modelscope_specialist/call_groq fallback
-    chain used for every other text answer, just with a different
-    instruction and no conversation context. Returns a plain string
-    ready to send straight to the owner — either the real PR URL or a
-    specific failure reason (dev_agent.DevAgentError messages are
-    already safe to relay verbatim, built only from HTTP status/body,
-    never from the token — see that module's docstring)."""
+def _propose_code_change_core(
+    file_path: str, instruction: str, auto_merge: bool, body_prefix: str,
+    *, token: str | None = None, repo: str | None = None, base_branch: str | None = None,
+    branch_prefix: str = "nova-dev-agent",
+) -> str:
+    """Shared by propose_code_change (owner, this project's own repo)
+    and propose_code_change_for_connection (any user, THEIR OWN
+    connected repo) below — identical generation, validation, and
+    branch/PR mechanics either way; only which repo/credential/whether
+    auto_merge is even offered differs per caller. Extracted 2026-09-13
+    once a second real caller needed the exact same logic, rather than
+    a second copy that could drift out of sync with the first."""
     try:
-        current_content, sha = dev_agent.get_file(file_path)
+        current_content, sha = dev_agent.get_file(file_path, token=token, repo=repo)
     except dev_agent.DevAgentError as e:
         return str(e)
 
@@ -1360,31 +1371,92 @@ def propose_code_change(file_path: str, instruction: str, auto_merge: bool = Fal
     if failure:
         return failure
 
-    branch_name = f"nova-dev-agent/{uuid.uuid4().hex[:10]}"
+    branch_name = f"{branch_prefix}/{uuid.uuid4().hex[:10]}"
     try:
-        dev_agent.create_branch(branch_name)
+        dev_agent.create_branch(branch_name, base_branch, token=token, repo=repo)
         dev_agent.update_file(
             file_path, branch_name, cleaned, sha,
-            commit_message=f"Nova Dev Agent: {instruction[:200]}",
+            commit_message=f"Nova: {instruction[:200]}",
+            token=token, repo=repo,
         )
         pr_url, pr_number = dev_agent.open_pull_request(
             branch_name,
-            title=f"Nova Dev Agent: {instruction[:70]}",
+            title=f"Nova: {instruction[:70]}",
             body=(
-                f"مقترح تلقائي من نوفا (وضع المالك)، بناءً على الطلب التالي:\n\n"
-                f"> {instruction}\n\n"
-                f"الملف: `{file_path}`\n\n"
+                f"{body_prefix}\n\n> {instruction}\n\nالملف: `{file_path}`\n\n"
                 + (f"⚠️ {advisory}\n\n" if advisory else "")
-                + ("**دُمج تلقائياً بطلب المالك (auto_merge).**" if auto_merge
-                   else "**هذا اقتراح فقط — يتطلب مراجعة بشرية قبل أي دمج، ولم يُدمج تلقائياً.**")
+                + ("**دُمج تلقائياً.**" if auto_merge
+                   else "**هذا اقتراح فقط — يتطلب مراجعتك قبل أي دمج، ولم يُدمج تلقائياً.**")
             ),
+            base_branch=base_branch, token=token, repo=repo,
         )
         if auto_merge:
             try:
-                dev_agent.merge_pull_request(pr_number)
+                dev_agent.merge_pull_request(pr_number, token=token, repo=repo)
                 return f"✅ تم إنشاء التعديل ودمجه تلقائياً:\n{pr_url}"
             except dev_agent.DevAgentError as e:
                 return f"تم إنشاء الاقتراح لكن فشل الدمج التلقائي — يبقى مفتوحاً للمراجعة اليدوية:\n{pr_url}\n({e})"
         return f"✅ تم إنشاء اقتراح التعديل كطلب Pull Request للمراجعة:\n{pr_url}"
     except dev_agent.DevAgentError as e:
         return str(e)
+
+
+def propose_code_change(file_path: str, instruction: str, auto_merge: bool = False) -> str:
+    """Owner-only "Dev Agent" entry point — main.py calls this ONLY
+    after confirming quota.is_platform_owner(user) for the current
+    request; there is no separate authorization check here, same
+    one-check-done-upstream pattern as the /admin/* endpoints'
+    _require_internal.
+
+    Owner spec, 2026-09-12, verbatim, still the DEFAULT behavior here:
+    "ممنوع التنفيذ الفوري أو الكتابة المباشرة على الفرع الحي بأي شكل...
+    أي تعديل يقترحه نوفا يُنشأ كفرع Git جديد + Pull Request... ولا
+    يُدمج إلا بعد مراجعة." Never writes to NOVA_DEV_AGENT_BASE_BRANCH
+    directly — dev_agent.create_branch always forks a fresh branch
+    first, dev_agent.update_file only ever targets that fresh branch.
+
+    auto_merge — owner follow-up, 2026-09-12 ("بداية نفعلها لي أنا مع
+    الدمج التلقائي"): the ONE explicit, opt-in exception to "never
+    merges" — main.py only ever passes True here for the owner's own
+    requests specifically. See propose_code_change_for_connection below
+    for why regular users never get this."""
+    return _propose_code_change_core(
+        file_path, instruction, auto_merge,
+        body_prefix="مقترح تلقائي من نوفا (وضع المالك)، بناءً على الطلب التالي:",
+    )
+
+
+def propose_code_change_for_connection(user_id: str, file_path: str, instruction: str) -> str:
+    """Owner spec, 2026-09-13 ("يضيف نوفا لمواقعه كما اضفتك انا
+    لمواقعي... لااريد ان يكون كل مستخدم يكتب في البوت اذهب ونفذ كذا
+    فيقوم بالتنفيذ"): the real, generalized version of the Dev Agent —
+    reachable by ANY authenticated user (see council.classify_intent's
+    CONNECTED_DEV addendum, offered unconditionally, not owner-gated),
+    but real safety comes from the connections table, not from asking
+    who is talking: if this user has no ACTIVE NovaConnection for
+    "github", there is no token/repo to act on and this returns an
+    honest refusal — never a guess, never the owner's own credential.
+
+    auto_merge is NEVER offered here, unlike the owner's own
+    propose_code_change: a regular user's PR always waits for their own
+    review on GitHub. The owner's auto_merge was an explicit, informed,
+    one-time opt-in for their OWN project; extending that same trust to
+    every subscriber's every request by default is a different,
+    unreviewed risk this project has not earned the right to take."""
+    from app.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+
+    from app import connections
+
+    connection = connections.get_connection(user_id, "github", SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    if not connection:
+        return (
+            "لم تربط أي مستودع GitHub بعد — نوفا لا يستطيع العمل على أي موقع لم يُربط صراحة. "
+            "اربط مستودعك أولاً من صفحتك الخاصة في البوت (زر «🔗 ربط حساباتي»)، ثم أعد طلبك."
+        )
+
+    return _propose_code_change_core(
+        file_path, instruction, auto_merge=False,
+        body_prefix=f"مقترح تلقائي من نوفا بناءً على طلبك على مستودعك «{connection['label']}»:",
+        token=connection["credential"], repo=connection["label"], base_branch=connection.get("baseBranch"),
+        branch_prefix="nova-connected",
+    )

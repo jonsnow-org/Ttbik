@@ -134,7 +134,8 @@ function novaMainMenu(): Keyboard {
   // admin-only (see novaAdminMenu below), so it's gone from here.
   return new Keyboard()
     .text("🎬 الاستوديو").row()
-    .text("🎛 لوحتي").text("💎 ترقية")
+    .text("🎛 لوحتي").text("💎 ترقية").row()
+    .text("🔗 ربط حساباتي")
     .resized();
 }
 
@@ -205,7 +206,7 @@ function novaAdminMenu(): Keyboard {
   return new Keyboard()
     .text("🎬 الاستوديو").text("🎛 لوحتي").row()
     .text("📜 سجل المحادثات").text("🔑 مفتاح API").row()
-    .text("⏳ طلبات الاشتراك المعلّقة").row()
+    .text("🔗 ربط حساباتي").text("⏳ طلبات الاشتراك المعلّقة").row()
     .text("📢 بث جماعي")
     .resized();
 }
@@ -1035,6 +1036,31 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     await bot.api.sendMessage(
       chatId,
       `🎛 لوحتك\n\nالخطة: ${planLabel}${expiry}\nرسائل متبقية اليوم: ${remainingText}${plan ? ` من ${plan.daily_text}` : ""}\nصور/فيديو متبقية اليوم: ${remainingImage}${plan ? ` من ${plan.daily_image}` : ""}${weekly}\nعضو منذ: ${new Date(me.user.created_at).toLocaleDateString("ar")}`
+    );
+    return;
+  }
+
+  if (text === "🔗 ربط حساباتي" || text === "/ربط") {
+    // Owner spec, 2026-09-13 ("نظام الربط الحقيقي... يضيف نوفا لمواقعه
+    // كما اضفتك انا لمواقعي"): the ONE place this stays a link rather
+    // than answered directly in the bot (contrast the dashboard's own
+    // "لاتهمنا لوحة الموقع... اجعلها كلها في البوت" precedent above) —
+    // adding a real credential here has to happen on a dedicated page,
+    // never in a chat message. Every ordinary message flows through
+    // council.classify_intent (sent to Groq) and quota.log_usage
+    // (stored durably into NovaUsageLog, which trains next week's
+    // model) — pasting a token in this chat would leak it to a third
+    // party AND bake it into training data. See src/app/nova/connections
+    // and ai-system/app/connections.py for the rest of this feature.
+    const { ok, data } = await callNovaBackend("/whoami", { channel: "TELEGRAM", telegram_id: tgUserId });
+    if (!ok || !data.nova_user_id) {
+      await bot.api.sendMessage(chatId, "تعذر فتح صفحة الربط — حاول مرة أخرى بعد قليل.");
+      return;
+    }
+    const link = `${SITE_URL}/nova/connections?uid=${data.nova_user_id}`;
+    await bot.api.sendMessage(
+      chatId,
+      `🔗 اربط نوفا بمستودعك الخاص من هنا:\n${link}\n\nبعد الربط، يمكنك أن تطلب من نوفا مباشرة هنا في المحادثة أن يعدّل أو يصلح ملفاً في مستودعك — لن يلمس أي شيء لم تربطه صراحة.`
     );
     return;
   }

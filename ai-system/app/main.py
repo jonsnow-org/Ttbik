@@ -560,6 +560,27 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         _run_dev_agent_proposal(chat_id, intent_result["file_path"], intent_result["instruction"], message)
         return
 
+    if intent_result["intent"] == "CONNECTED_DEV":
+        # Owner spec, 2026-09-13 ("يضيف نوفا لمواقعه كما اضفتك انا
+        # لمواقعي"): reachable by ANY user, not owner-gated — real
+        # safety is council.propose_code_change_for_connection's own
+        # connections-table lookup scoped to THIS user's own id, never
+        # this project's repo and never another user's connection.
+        quota.refund_quota(user["id"], "TEXT")
+        connected_path = intent_result["file_path"]
+        connected_instruction = intent_result["instruction"]
+        _send_telegram_message(
+            chat_id, f"⚙️ جارٍ إعداد تعديل لـ {connected_path} في مستودعك — سيصلك رابط Pull Request فور الانتهاء.",
+        )
+        try:
+            reply = council.propose_code_change_for_connection(user["id"], connected_path, connected_instruction)
+        except Exception:
+            logger.exception("connected-repo dev proposal failed for chat_id=%s", chat_id)
+            reply = "حدث خطأ غير متوقع أثناء إعداد التعديل — راجع سجلات الخادم."
+        quota.log_usage(user["id"], channel, "CONNECTED_DEV", f"{connected_path} :: {connected_instruction}", reply)
+        _send_telegram_message(chat_id, reply)
+        return
+
     if intent_result["intent"] == "BUILD":
         # Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
         # احترافية"): several real files in ONE branch and ONE PR — see
