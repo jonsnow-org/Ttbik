@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
+from app.concurrency import with_hard_deadline
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
 # Without this, logger.info() calls throughout this file and council.py
@@ -332,10 +333,24 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
     # latency is a few Groq seconds, not another 45-95s. Returns None
     # for anything it could not complete, which lands on exactly the
     # pipeline that ran before this existed.
+    #
+    # Owner report, 2026-09-13 (real evidence: "قارن لي بين طريقتين..."
+    # got zero reply — not even an error — well past a minute): before
+    # this, deep_answer's own internal steps (three sequential Groq
+    # calls with no timeout of their own, plus rag.web_search) had no
+    # OUTER bound at all — only the one final model call already did.
+    # Any one of the earlier steps hanging silently blocked every step
+    # after it forever. 150s is generous (comfortably above the ~100s
+    # ceiling council.answer's own text path already enforces on its
+    # slowest real step) while still guaranteeing this can never hang
+    # the reply indefinitely the way it just did — a timeout here is
+    # exactly equivalent to deep_answer returning None on its own,
+    # landing on the identical normal-pipeline fallback below.
     if deep_think.should_deep_think(message, query_type):
         try:
-            deep_result = deep_think.deep_answer(
-                message, context, query_type=query_type, is_owner=quota.is_platform_owner(user)
+            deep_result = with_hard_deadline(
+                deep_think.deep_answer, message, context, query_type=query_type,
+                is_owner=quota.is_platform_owner(user), timeout=150,
             )
         except Exception:
             logger.exception("deep_think failed for user_id=%s — falling back to the normal answer path", user["id"])

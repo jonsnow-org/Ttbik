@@ -99,7 +99,6 @@ that the official PyPI llama-cpp-python has no Qwen2.5-VL chat handler
 at all, so plain `pip install llama-cpp-python` cannot serve vision
 regardless of which GGUF files it's given.
 """
-import concurrent.futures
 import json
 import logging
 import re
@@ -108,6 +107,7 @@ import uuid
 from groq import Groq
 
 from app import code_check, dev_agent
+from app.concurrency import with_hard_deadline
 from app.config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
@@ -123,37 +123,10 @@ from app.config import (
 # way to tell which one actually answered any given message without this.
 logger = logging.getLogger("nova")
 
-
-def _with_hard_deadline(fn, *args, timeout: float, **kwargs):
-    """Owner report, 2026-09-09 (real evidence: a plain "مرحبا" got ZERO
-    reply for minutes, not even a fallback error message): a real,
-    well-known gotcha with requests' `timeout=` on a streamed (SSE)
-    response — it bounds each individual socket read, not the total
-    call duration. If ModelScope's queue sends periodic keepalive bytes
-    while a job is genuinely stalled, every single read succeeds well
-    within its own timeout and iter_lines() keeps going indefinitely —
-    the nominal timeout on call_modelscope_specialist/generate_image/
-    generate_video never actually fires, so their Groq-fallback (or
-    honest failure message) never runs either, leaving the user with
-    silence forever.
-
-    This runs `fn` in a separate thread and gives up waiting after
-    `timeout` seconds REGARDLESS of what the socket is doing — the
-    caller gets None back and can fall through to Groq or a real error
-    message on schedule. The abandoned thread is not killed (Python has
-    no safe way to do that) — it either finishes on its own later and
-    its result is discarded, or the underlying `requests` call
-    eventually hits its own timeout and dies there. Either way this
-    function's caller is never blocked past `timeout`."""
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    future = pool.submit(fn, *args, **kwargs)
-    try:
-        return future.result(timeout=timeout)
-    except concurrent.futures.TimeoutError:
-        logger.warning("hard deadline (%ss) hit waiting on %s — treating as unavailable", timeout, getattr(fn, "__name__", fn))
-        return None
-    finally:
-        pool.shutdown(wait=False)
+# with_hard_deadline moved to app/concurrency.py, 2026-09-13, once
+# rag.py needed the exact same real fix for the exact same real bug —
+# see that module's own docstring. Every call site below is unchanged
+# in behavior, just imported rather than defined here.
 
 
 _SYSTEM_PROMPT = (
@@ -429,12 +402,12 @@ def call_modelscope_specialist(
     message: str, context: str, image_base64: str | None = None, query_type: str = "GENERAL", is_owner: bool = False
 ) -> str | None:
     """Thin wrapper enforcing a real hard wall-clock deadline around
-    _call_modelscope_specialist_blocking — see _with_hard_deadline's own
+    _call_modelscope_specialist_blocking — see with_hard_deadline's own
     docstring for the exact real bug this closes (an SSE stream with
     keepalive bytes can make requests' own `timeout=` never fire even
     though a job is genuinely stalled)."""
     result_timeout = 630 if image_base64 else 100  # a little above the inner call's own nominal timeouts
-    return _with_hard_deadline(
+    return with_hard_deadline(
         _call_modelscope_specialist_blocking, message, context, image_base64=image_base64, query_type=query_type,
         is_owner=is_owner, timeout=result_timeout,
     )
@@ -904,10 +877,10 @@ def classify_intent(message: str, recent_context: str = "", allow_dev: bool = Fa
 
 def generate_image(prompt: str) -> bytes | None:
     """Thin wrapper enforcing a real hard wall-clock deadline — see
-    _with_hard_deadline's own docstring (same real bug that made a
+    with_hard_deadline's own docstring (same real bug that made a
     plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
     keep requests' own `timeout=` from ever firing)."""
-    return _with_hard_deadline(_generate_image_blocking, prompt, timeout=1830)
+    return with_hard_deadline(_generate_image_blocking, prompt, timeout=1830)
 
 
 def _generate_image_blocking(prompt: str) -> bytes | None:
@@ -1007,7 +980,7 @@ def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
     no video at all.
 
     Thin wrapper enforcing a real hard wall-clock deadline — see
-    _with_hard_deadline's own docstring (same real bug that made a
+    with_hard_deadline's own docstring (same real bug that made a
     plain "مرحبا" hang forever: an SSE stream with keepalive bytes can
     keep requests' own `timeout=` from ever firing).
 
@@ -1021,7 +994,7 @@ def generate_video(prompt: str, seconds: int = 6) -> bytes | None:
     request is anywhere near that long, something is genuinely stuck,
     not just slow, and the user deserves a real failure message far
     sooner than 4 hours."""
-    return _with_hard_deadline(_generate_video_blocking, prompt, seconds, timeout=1830)
+    return with_hard_deadline(_generate_video_blocking, prompt, seconds, timeout=1830)
 
 
 def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
@@ -1085,7 +1058,7 @@ def _generate_video_blocking(prompt: str, seconds: int = 6) -> bytes | None:
         submit.raise_for_status()
         event_id = submit.json()["event_id"]
         # This is only requests' own per-chunk read timeout (see
-        # _with_hard_deadline's docstring for why that's a different,
+        # with_hard_deadline's docstring for why that's a different,
         # weaker guarantee than total call duration) — the real ceiling
         # on total time is generate_video()'s outer 1830s hard deadline
         # above, which fires regardless of what's set here. Kept

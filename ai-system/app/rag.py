@@ -74,6 +74,7 @@ import requests
 from chromadb.utils import embedding_functions
 from ddgs import DDGS
 
+from app.concurrency import with_hard_deadline
 from app.config import GROQ_API_KEY, GROQ_MODEL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, TAVILY_API_KEY
 from app.supabase_client import get_supabase
 
@@ -303,9 +304,27 @@ def _web_search_tavily(query: str, max_results: int) -> list[dict]:
         return []
 
 
-def _web_search_ddgs(query: str, max_results: int) -> list[dict]:
+def _web_search_ddgs_blocking(query: str, max_results: int) -> list[dict]:
     with DDGS() as ddgs:
         return list(ddgs.text(query, max_results=max_results))
+
+
+def _web_search_ddgs(query: str, max_results: int) -> list[dict]:
+    """Owner report, 2026-09-13 (real evidence: a deep-thinking answer
+    got zero reply, not even an error, well past a minute): ddgs's own
+    default per-engine timeout (5s, verified in its installed source) is
+    real, but `_search_sync` waits on a THREAD POOL across however many
+    search engines its own "auto" backend tries, in batches — a slow or
+    blocked engine can cost multiple multiples of that 5s before this
+    call returns anything at all, worse now that deep_think.py may call
+    this twice in one answer (once per search query the plan produced)
+    ahead of the already-bounded final model call. Wrapped in the same
+    real hard deadline used everywhere else in this project for exactly
+    this failure shape (see app/concurrency.py) — 20s is generous given
+    ddgs's own internal 5s default, and the caller (web_search below)
+    already treats None/[] identically, falling through to the Instant
+    Answer API next exactly as it always has."""
+    return with_hard_deadline(_web_search_ddgs_blocking, query, max_results, timeout=20) or []
 
 
 def _web_search_duckduckgo_instant_answer(query: str, max_results: int) -> list[dict]:
