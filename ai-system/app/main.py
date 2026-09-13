@@ -79,6 +79,18 @@ def _log_startup_memory() -> None:
         rag.warm_up_embedder()
     except Exception:
         logger.exception("embedder warm-up failed at startup — first real message will pay this cost instead")
+    # Owner report, 2026-09-14 (real evidence: EVEN AFTER the embedder
+    # warm-up + Docker bake-in above were confirmed live via a successful
+    # deploy, the process still died shortly after the first real message
+    # — the last thing logged before it did was rehydrate_solutions_bank's
+    # own Supabase query, fetching up to 1000 rows to embed). Both shared
+    # collections (knowledge bank, solutions bank) start every cold start
+    # empty and rehydrate up to 1000 rows each the first time anything
+    # touches them — see rag.warm_up_shared_collections's own docstring.
+    try:
+        rag.warm_up_shared_collections()
+    except Exception:
+        logger.exception("shared-collection warm-up failed at startup — first real message will pay this cost instead")
     _log_memory_usage("app startup complete, after embedder warm-up")
 
 

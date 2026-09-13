@@ -72,6 +72,7 @@ original design above.
      an actual learned fact, not a page of raw snippets.
 """
 import logging
+import resource
 import threading
 import time
 import uuid
@@ -116,6 +117,14 @@ _chroma_client = chromadb.PersistentClient(
 _embedder = embedding_functions.DefaultEmbeddingFunction()
 
 
+def _log_memory(tag: str) -> None:
+    try:
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        logger.info("memory watch [rag:%s]: peak RSS so far = %.1f MB (limit 512 MB)", tag, rss_mb)
+    except Exception:
+        pass
+
+
 def warm_up_embedder() -> None:
     """Owner report, 2026-09-13/14 (real, twice-reproduced evidence): the
     ONNX embedding model this function loads is created lazily by
@@ -127,7 +136,34 @@ def warm_up_embedder() -> None:
     into the image at build time — see that file's own comment) happens
     before Render ever routes real traffic to this container, not
     stacked on top of a live message's own memory/latency."""
+    _log_memory("before embedder warm-up")
     _embedder(["تهيئة"])
+    _log_memory("after embedder warm-up")
+
+
+def warm_up_shared_collections() -> None:
+    """Owner report, 2026-09-14 (real evidence: even AFTER the embedder
+    warm-up + Docker bake-in fixes above shipped and were confirmed live,
+    the process still died shortly after handling the first real message
+    following a cold start — the last thing logged before it did was the
+    exact Supabase query _rehydrate_solutions_bank below issues, fetching
+    up to 1000 rows). Both nova_knowledge_bank and nova_solutions_bank
+    start every cold start empty (the disk is wiped — see _collection_for's
+    own docstring) and each lazily rehydrates up to 1000 Supabase rows,
+    embedding them 40 at a time, the FIRST time anything touches them —
+    which, before this, was always whatever live message happened to
+    arrive first. Calling the two accessors here (they already no-op
+    internally when a collection is non-empty) forces that same one-time
+    work to run during startup instead, exactly like warm_up_embedder
+    above. Per-user memory (_collection_for) is deliberately NOT warmed
+    here — which user will message first isn't known yet — so it still
+    rehydrates (up to 200 rows, the smallest of the three) on that user's
+    first real message; this at least removes the two largest, always-
+    triggered, user-independent costs from the live request path."""
+    _log_memory("before shared-collection warm-up")
+    _knowledge_bank()
+    _solutions_bank()
+    _log_memory("after shared-collection warm-up")
 
 
 # How long a cached knowledge-bank answer stays trustworthy before we
@@ -311,12 +347,14 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
         return
     if not rows:
         return
+    _log_memory(f"before embedding {len(rows)} rows in rehydrate_user_memory")
     _add_in_chunks(
         col,
         documents=[f"سؤال سابق: {r['message']}\nإجابة سابقة: {r['answer']}" for r in rows],
         ids=[f"restored-{r['id']}" for r in rows],
         metadatas=[{"user_id": user_id, "ts": _parse_supabase_ts(r["created_at"])} for r in rows],
     )
+    _log_memory(f"after embedding {len(rows)} rows in rehydrate_user_memory")
     logger.info("rehydrate_user_memory: restored %d past turns for user_id=%s after a cold start", len(rows), user_id)
 
 
@@ -354,6 +392,7 @@ def _rehydrate_knowledge_bank(bank) -> None:
         return
     if not rows:
         return
+    _log_memory(f"before embedding {len(rows)} rows in rehydrate_knowledge_bank")
     _add_in_chunks(
         bank,
         documents=[r["content"] for r in rows],
@@ -363,6 +402,7 @@ def _rehydrate_knowledge_bank(bank) -> None:
         ],
         ids=[r["id"] for r in rows],
     )
+    _log_memory(f"after embedding {len(rows)} rows in rehydrate_knowledge_bank")
     logger.info("rehydrate_knowledge_bank: restored %d entries from Supabase after a cold start", len(rows))
 
 
@@ -408,6 +448,7 @@ def _rehydrate_solutions_bank(bank) -> None:
     rows = [r for r in rows if len(r.get("answer") or "") >= _MIN_SOLUTION_LENGTH]
     if not rows:
         return
+    _log_memory(f"before embedding {len(rows)} rows in rehydrate_solutions_bank")
     _add_in_chunks(
         bank,
         documents=[f"سؤال: {r['message']}\nإجابة: {r['answer']}" for r in rows],
@@ -417,6 +458,7 @@ def _rehydrate_solutions_bank(bank) -> None:
         ],
         ids=[f"restored-{r['id']}" for r in rows],
     )
+    _log_memory(f"after embedding {len(rows)} rows in rehydrate_solutions_bank")
     logger.info("rehydrate_solutions_bank: restored %d worked solutions from Supabase after a cold start", len(rows))
 
 
