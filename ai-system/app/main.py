@@ -15,6 +15,7 @@ Deploy free:  Render.com (Docker web service, free instance type) — see
 import base64
 import logging
 import re
+import resource
 import threading
 
 import requests
@@ -36,6 +37,32 @@ from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRA
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("nova")
 app = FastAPI(title="Nova AI")
+
+
+# Owner report, 2026-09-13 ("اعرف اين الخطأ ولماذا"، real evidence: "Killed"
+# — the Linux OOM killer's own signature — in Render's own logs minutes
+# after a cold start, while this session's OWNER ALONE had sent as few as
+# one or two real messages, not "many concurrent users"): every fix so far
+# (chroma collection pruning, the Groq client singleton) was reasoned from
+# reading the code, not from an actual measured memory number, because
+# Render's FREE tier's own Metrics tab does not expose real memory/CPU
+# usage graphs at all (confirmed live — gated behind a paid-plan banner).
+# This logs this process's own real peak resident memory (RSS, no new
+# dependency — Python's stdlib `resource` module) at startup and around
+# every real message, straight into Render's own (free, always-visible)
+# Logs tab — so the NEXT time memory runs out, these exact log lines show
+# the real number and its real growth over time, instead of another guess.
+def _log_memory_usage(tag: str) -> None:
+    try:
+        rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        logger.info("memory watch [%s]: peak RSS so far = %.1f MB (limit 512 MB)", tag, rss_mb)
+    except Exception:
+        logger.exception("memory watch [%s]: failed to read RSS", tag)
+
+
+@app.on_event("startup")
+def _log_startup_memory() -> None:
+    _log_memory_usage("app startup complete")
 
 
 # Same stripping novaBotLogic.ts's old stripMarkdown() used to do
@@ -527,6 +554,19 @@ def _run_dev_agent_proposal(chat_id: str, file_path: str, instruction: str, raw_
 
 
 def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: str, reply_with_voice: bool = False) -> None:
+    # Thin wrapper so every real message logs its own real memory
+    # before/after reading (see _log_memory_usage above) without touching
+    # the real logic below at all — kept as a separate function so a
+    # failure inside the real pipeline still always logs the "after"
+    # reading via finally.
+    _log_memory_usage(f"before message chat_id={chat_id}")
+    try:
+        _process_chat_and_deliver_impl(user, channel, message, chat_id, reply_with_voice)
+    finally:
+        _log_memory_usage(f"after message chat_id={chat_id}")
+
+
+def _process_chat_and_deliver_impl(user: dict, channel: str, message: str, chat_id: str, reply_with_voice: bool = False) -> None:
     # This runs inside a FastAPI BackgroundTask, AFTER the HTTP response
     # (accepted: true) has already gone out — there is no request/response
     # cycle left for an exception here to surface on. Without this
