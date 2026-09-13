@@ -811,7 +811,16 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const accept = adminText.startsWith("/موافقة_تطوير ");
       const prefix = accept ? "/موافقة_تطوير " : "/رفض_تطوير ";
       const proposalId = adminText.slice(prefix.length).trim();
-      const { ok, data } = await callNovaBackend("/admin/decide-self-improvement", { proposal_id: proposalId, accept });
+      // chat_id lets the backend answer immediately and deliver the
+      // real result later via a direct Telegram push once ACCEPTED
+      // triggers a real (slow) code-change PR — see main.py's own
+      // fix, 2026-09-13 ("تعذّر الاتصال بخادم Nova AI" was really this
+      // 55s fetch timeout firing before a slow own-model call finished).
+      const { ok, data } = await callNovaBackend("/admin/decide-self-improvement", {
+        proposal_id: proposalId,
+        accept,
+        chat_id: String(chatId),
+      });
       const message = ok ? data?.message || "خطأ غير معروف" : data?.detail || "تعذر الاتصال بخادم Nova AI.";
       await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
       return;
@@ -830,7 +839,8 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const prefix = isAssess ? "/تحليل_تطوير " : "/تنفيذ_تطوير ";
       const proposalId = adminText.slice(prefix.length).trim();
       const endpoint = isAssess ? "/admin/assess-self-improvement" : "/admin/implement-self-improvement";
-      const { ok, data } = await callNovaBackend(endpoint, { proposal_id: proposalId });
+      // Same chat_id/background-delivery reasoning as /موافقة_تطوير above.
+      const { ok, data } = await callNovaBackend(endpoint, { proposal_id: proposalId, chat_id: String(chatId) });
       const message = ok ? data?.message || "خطأ غير معروف" : data?.detail || "تعذر الاتصال بخادم Nova AI.";
       await bot.api.sendMessage(chatId, message, { reply_markup: novaAdminMenu() });
       return;

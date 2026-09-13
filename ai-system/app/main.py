@@ -679,7 +679,17 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # never replaced by a generic "تم!" that would hide whether
         # anything actually happened.
         quota.refund_quota(user["id"], "TEXT")
-        reply = rag.learn_now(intent_result["topic"])
+        # Owner report, 2026-09-13 ("قم بتدريب نفسك على توليد الفديو" —
+        # stuck on "جارٍ المعالجة..." with genuinely zero reply, ever):
+        # rag.learn_now chains web_search (up to ~40s) then
+        # council.analyze_knowledge (a full own-model call, ~45-95s) with
+        # no overall bound — the exact same unprotected-slow-chain shape
+        # already fixed for BUILD/CONNECTED_* earlier this same day, just
+        # missed for this one. _send_telegram_message below only ever
+        # fires once learn_now() returns, so with no ceiling a genuinely
+        # slow run (or one that outlasts a Render restart) never sends
+        # anything at all — not even a late reply.
+        reply = _run_bounded(rag.learn_now, intent_result["topic"], timeout=200)
         quota.log_usage(user["id"], channel, "LEARN", intent_result["topic"], reply)
         _send_telegram_message(chat_id, reply)
         return
@@ -693,7 +703,9 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         # /admin/decide-self-improvement below.
         quota.refund_quota(user["id"], "TEXT")
         topic = intent_result["topic"] or None
-        reply = self_improve.research_and_propose(topic, trigger="owner_directed")
+        # Same unprotected-slow-chain shape as LEARN just above
+        # (web_search + a full own-model call, no overall bound).
+        reply = _run_bounded(self_improve.research_and_propose, topic, trigger="owner_directed", timeout=200)
         quota.log_usage(user["id"], channel, "IMPROVE", topic or "(موضوع تلقائي)", reply)
         _send_telegram_message(chat_id, reply)
         return
@@ -713,9 +725,17 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         elif action == "REJECT":
             reply = self_improve.decide_proposal(proposal_id, accept=False)
         elif action == "ASSESS":
-            reply = self_improve.assess_feasibility(proposal_id)
+            # Owner report, 2026-09-13 ("تعذّر الاتصال بخادم Nova AI
+            # حالياً — حاول لاحقاً" after /تحليل_تطوير_...): this ran
+            # one full own-model call with no overall bound, matching
+            # the same unprotected-slow-call shape already fixed for
+            # BUILD/CONNECTED_*/LEARN in this file today.
+            reply = _run_bounded(self_improve.assess_feasibility, proposal_id, timeout=150)
         else:
-            reply = self_improve.implement_new_file(proposal_id)
+            # implement_new_file chains a content-generation model call
+            # plus validate_or_repair's own possible repair call, plus
+            # real GitHub API work — same missing bound.
+            reply = _run_bounded(self_improve.implement_new_file, proposal_id, timeout=250)
         quota.log_usage(user["id"], channel, "PROPOSAL_ACTION", f"[{action}] {proposal_id}", reply)
         _send_telegram_message(chat_id, reply)
         return
@@ -1443,48 +1463,121 @@ def admin_verify_owner_password(req: VerifyOwnerPasswordRequest, x_internal_secr
 class DecideSelfImprovementRequest(BaseModel):
     proposal_id: str
     accept: bool
+    chat_id: str | None = None
+
+
+def _process_decide_proposal_and_deliver(proposal_id: str, accept: bool, chat_id: str) -> None:
+    """Runs in a FastAPI BackgroundTask — see _process_image_gen_and_deliver's
+    own docstring for why this needs its own try/except."""
+    try:
+        reply = _run_bounded(self_improve.decide_proposal, proposal_id, accept, timeout=200)
+    except Exception:
+        logger.exception("decide_proposal background task failed for proposal_id=%s", proposal_id)
+        reply = "حدث خطأ غير متوقع أثناء تنفيذ القرار — حاول مرة أخرى."
+    _send_telegram_message(chat_id, reply)
 
 
 @app.post("/admin/decide-self-improvement")
-def admin_decide_self_improvement(req: DecideSelfImprovementRequest, x_internal_secret: str | None = Header(default=None)):
+def admin_decide_self_improvement(
+    req: DecideSelfImprovementRequest, background_tasks: BackgroundTasks, x_internal_secret: str | None = Header(default=None)
+):
     """Owner spec, 2026-09-12 ("فاقبل او ارفض"): called by
     novaBotLogic.ts's "/موافقة_تطوير <id>" and "/رفض_تطوير <id>"
     handlers, only after its own isAdmin (Telegram ID) check already
     passed — same gate every owner-only admin action here uses.
     self_improve.decide_proposal does the real work: REJECTED just
-    marks the row; ACCEPTED with a confident file_path actually calls
-    dev_agent's real PR machinery (auto_merge=True, same as any other
-    owner-directed code change)."""
+    marks the row (fast); ACCEPTED with a confident file_path actually
+    calls council.propose_code_change (auto_merge=True) — the exact
+    same slow own-model chain already fixed elsewhere in this file
+    today for the identical reason: it routinely exceeds
+    novaBotLogic.ts's 55s fetch timeout, so this used to risk the same
+    false "تعذر الاتصال" this session already traced for the sibling
+    assess/implement-self-improvement endpoints. Same fix: answer
+    immediately, deliver the real result to Telegram once the
+    background work finishes."""
     _require_internal(x_internal_secret)
-    return {"message": self_improve.decide_proposal(req.proposal_id, req.accept)}
+    if req.chat_id:
+        background_tasks.add_task(_process_decide_proposal_and_deliver, req.proposal_id, req.accept, req.chat_id)
+        verb = "الموافقة على" if req.accept else "رفض"
+        return {"message": f"⏳ جارٍ تنفيذ {verb} الاقتراح رقم {req.proposal_id} — سأرسل لك النتيجة هنا فور الانتهاء."}
+    return {"message": _run_bounded(self_improve.decide_proposal, req.proposal_id, req.accept, timeout=200)}
 
 
 class ProposalIdRequest(BaseModel):
     proposal_id: str
+    # Optional so an older caller (or a future WEB/API caller with
+    # nowhere to push an async answer) still gets the old inline
+    # behavior below — only Telegram sends this.
+    chat_id: str | None = None
+
+
+def _process_assess_feasibility_and_deliver(proposal_id: str, chat_id: str) -> None:
+    """Runs in a FastAPI BackgroundTask — see _process_image_gen_and_deliver's
+    own docstring for why this needs its own try/except."""
+    try:
+        reply = _run_bounded(self_improve.assess_feasibility, proposal_id, timeout=150)
+    except Exception:
+        logger.exception("assess_feasibility background task failed for proposal_id=%s", proposal_id)
+        reply = "حدث خطأ غير متوقع أثناء تحليل الاقتراح — حاول مرة أخرى."
+    _send_telegram_message(chat_id, reply)
+
+
+def _process_implement_new_file_and_deliver(proposal_id: str, chat_id: str) -> None:
+    try:
+        reply = _run_bounded(self_improve.implement_new_file, proposal_id, timeout=250)
+    except Exception:
+        logger.exception("implement_new_file background task failed for proposal_id=%s", proposal_id)
+        reply = "حدث خطأ غير متوقع أثناء تنفيذ الاقتراح — حاول مرة أخرى."
+    _send_telegram_message(chat_id, reply)
 
 
 @app.post("/admin/assess-self-improvement")
-def admin_assess_self_improvement(req: ProposalIdRequest, x_internal_secret: str | None = Header(default=None)):
+def admin_assess_self_improvement(
+    req: ProposalIdRequest, background_tasks: BackgroundTasks, x_internal_secret: str | None = Header(default=None)
+):
     """Owner spec, 2026-09-12 ("هل تستطيع تنفيذ هذا العمل الهندسي...
     فان كان جوابه مقنعا اقول له نفذ"): called by novaBotLogic.ts's
     "/تحليل_تطوير <id>" — a REAL model call genuinely evaluating
     whether it can implement a proposal that needs a brand-new file,
-    honest either way (self_improve.assess_feasibility)."""
+    honest either way (self_improve.assess_feasibility).
+
+    Owner report, 2026-09-13 (real evidence: "/تحليل_تطوير_<id>" got
+    "تعذّر الاتصال بخادم Nova AI حالياً"): this endpoint used to answer
+    INLINE in the HTTP response — assess_feasibility's own model call
+    routinely takes longer than novaBotLogic.ts's 55s fetch timeout
+    (callNovaBackend), so the bot gave up and showed a false "can't
+    connect" message even when the backend was still genuinely working.
+    Now matches /chat's own established shape: answer immediately,
+    finish the real work in the background, deliver it straight to
+    Telegram once done — never bound by that 55s ceiling at all."""
     _require_internal(x_internal_secret)
-    return {"message": self_improve.assess_feasibility(req.proposal_id)}
+    if req.chat_id:
+        background_tasks.add_task(_process_assess_feasibility_and_deliver, req.proposal_id, req.chat_id)
+        return {"message": "⏳ جارٍ تحليل قدرتي الحقيقية على تنفيذ هذا الاقتراح — سأرسل لك النتيجة هنا فور الانتهاء."}
+    return {"message": _run_bounded(self_improve.assess_feasibility, req.proposal_id, timeout=150)}
 
 
 @app.post("/admin/implement-self-improvement")
-def admin_implement_self_improvement(req: ProposalIdRequest, x_internal_secret: str | None = Header(default=None)):
+def admin_implement_self_improvement(
+    req: ProposalIdRequest, background_tasks: BackgroundTasks, x_internal_secret: str | None = Header(default=None)
+):
     """Owner spec, 2026-09-12 ("نعطيه الصلاحية الكاملة"): called by
     novaBotLogic.ts's "/تنفيذ_تطوير <id>" — only reachable after
     /admin/assess-self-improvement already stored a confident file
     path. self_improve.implement_new_file does the real work: real
     file content generated, real branch + new file + PR via
     dev_agent.create_file, auto-merged (the owner's own explicit,
-    informed go-ahead after reading a real feasibility analysis)."""
+    informed go-ahead after reading a real feasibility analysis).
+
+    Same real fix as /admin/assess-self-improvement above, for the
+    identical reason: this chains a content-generation model call plus
+    a possible repair call plus real GitHub API work, easily past
+    novaBotLogic.ts's 55s fetch timeout."""
     _require_internal(x_internal_secret)
-    return {"message": self_improve.implement_new_file(req.proposal_id)}
+    if req.chat_id:
+        background_tasks.add_task(_process_implement_new_file_and_deliver, req.proposal_id, req.chat_id)
+        return {"message": "⏳ جارٍ تنفيذ الاقتراح — سأرسل لك رابط الطلب (PR) هنا فور الانتهاء."}
+    return {"message": _run_bounded(self_improve.implement_new_file, req.proposal_id, timeout=250)}
 
 
 class ProposeSelfImprovementRequest(BaseModel):
