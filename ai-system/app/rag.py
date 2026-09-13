@@ -212,7 +212,27 @@ def _parse_supabase_ts(value: str) -> float:
 # document; the much smaller chunk size bounds the worst case per batch
 # — together they address both plausible causes of the same measured
 # spike without needing to know for certain which one it was.
-_REHYDRATE_CHUNK_SIZE = 8
+#
+# Real evidence, 2026-09-14 (same day, next incident): dropping the
+# chunk size to 8 fixed the memory spike but created a NEW real problem
+# — this free instance's CPU allocation is 0.15 vCPU (confirmed live in
+# Render's own dashboard), and embedding just 22 documents measurably
+# took ~37 real seconds. At 8 documents per chunk instead of 40, the
+# SAME total row count now needs 5x as many chunks/round-trips, and
+# since this rehydration runs in a background thread (see
+# rag.warm_up_shared_collections) that shares this same tiny CPU
+# allocation with real live messages, a full 1000-row rehydration could
+# take on the order of an HOUR — starving every real user message of
+# CPU for that whole time, which is exactly the many-minutes-long
+# delays reported right after a cold start. Now that document length is
+# ALSO capped (_MAX_EMBEDDING_DOCUMENT_CHARS below), a batch of
+# truncated documents is far cheaper per-document than the 22
+# untruncated ones that produced the original spike, so the chunk size
+# can safely go back up without reintroducing that spike. Reducing how
+# many rows get rehydrated in the first place (see the .limit() calls
+# in each rehydrate_* function below) bounds the total one-time cost
+# directly, which chunk size alone cannot do.
+_REHYDRATE_CHUNK_SIZE = 20
 _MAX_EMBEDDING_DOCUMENT_CHARS = 1500
 
 
@@ -362,7 +382,14 @@ def _rehydrate_user_memory(col, user_id: str) -> None:
             .not_.is_("message", "null")
             .not_.is_("answer", "null")
             .order("created_at", desc=True)
-            .limit(200)
+            # 200 -> 100, 2026-09-14 (real evidence: on this free
+            # instance's 0.15 vCPU, embedding a real batch measurably
+            # took far longer than its size suggests — see
+            # _REHYDRATE_CHUNK_SIZE's own comment). Unlike the two shared
+            # banks, this rehydration runs on THIS message's own live
+            # path, not in the background — a smaller cap directly bounds
+            # how long a user's first message after a cold start waits.
+            .limit(100)
             .execute()
             .data
         )
@@ -407,7 +434,15 @@ def _rehydrate_knowledge_bank(bank) -> None:
             .table("NovaKnowledgeEntry")
             .select("id, query, content, source, created_at")
             .order("created_at", desc=True)
-            .limit(1000)
+            # 1000 -> 150, 2026-09-14 (real evidence: this background
+            # rehydration shares this free instance's tiny 0.15 vCPU
+            # allocation with real live messages — see
+            # _REHYDRATE_CHUNK_SIZE's own comment for the measured cost
+            # per document and why 1000 rows could take on the order of
+            # an hour, starving real traffic of CPU that whole time).
+            # 150 restores the most-recent, most-likely-relevant slice
+            # of the bank quickly instead of the full history slowly.
+            .limit(150)
             .execute()
             .data
         )
@@ -462,7 +497,12 @@ def _rehydrate_solutions_bank(bank) -> None:
             .not_.is_("message", "null")
             .not_.is_("answer", "null")
             .order("created_at", desc=True)
-            .limit(1000)
+            # 1000 -> 150 — same reasoning as rehydrate_knowledge_bank's
+            # own comment: this was the exact query still running (per
+            # Render's own logs) moments before the container that had
+            # just embedded 22 documents in 37 real seconds went on to
+            # queue up this batch next.
+            .limit(150)
             .execute()
             .data
         )
