@@ -581,6 +581,29 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         _send_telegram_message(chat_id, reply)
         return
 
+    if intent_result["intent"] == "CONNECTED_BUILD":
+        # Owner spec, 2026-09-13 ("تطوير النظام الخاص بالاتصال بالمواقع
+        # وعمله باحترافية في مجال... التصميم والبناء"): the BUILD
+        # multi-file flow, reachable by ANY user for THEIR OWN
+        # connected repo — same real safety as CONNECTED_DEV above
+        # (council.propose_app_build_for_connection's own connections
+        # lookup, never auto_merge for a regular user).
+        quota.refund_quota(user["id"], "TEXT")
+        connected_build_instruction = intent_result["instruction"]
+        _send_telegram_message(
+            chat_id,
+            "🏗 جارٍ بناء الملفات في مستودعك — أخطّط الملفات ثم أكتب كل ملف وأفحصه نحوياً قبل إرساله. "
+            "قد يستغرق هذا عدة دقائق، وسيصلك رابط Pull Request فور الانتهاء.",
+        )
+        try:
+            reply = council.propose_app_build_for_connection(user["id"], connected_build_instruction)
+        except Exception:
+            logger.exception("connected-repo app build failed for chat_id=%s", chat_id)
+            reply = "حدث خطأ غير متوقع أثناء البناء — راجع سجلات الخادم."
+        quota.log_usage(user["id"], channel, "CONNECTED_BUILD", connected_build_instruction, reply)
+        _send_telegram_message(chat_id, reply)
+        return
+
     if intent_result["intent"] == "BUILD":
         # Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
         # احترافية"): several real files in ONE branch and ONE PR — see

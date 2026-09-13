@@ -780,6 +780,11 @@ def _parse_intent_json(raw: str) -> dict:
             # before; the user must have actually named it.
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "CONNECTED_DEV", "file_path": file_path, "instruction": connected_instruction}
+    if intent == "CONNECTED_BUILD":
+        connected_build_instruction = str(data.get("instruction") or "").strip()
+        if len(connected_build_instruction) < 10:
+            return {"intent": "TEXT", "prompt": ""}
+        return {"intent": "CONNECTED_BUILD", "instruction": connected_build_instruction}
     if intent == "BUILD":
         build_instruction = str(data.get("instruction") or "").strip()
         if len(build_instruction) < 10:
@@ -834,7 +839,14 @@ _CONNECTED_DEV_ADDENDUM = (
     'يجب تغييره في الملف، بأي لغة"}\n'
     "لا تستخدم CONNECTED_DEV إلا إذا كان الطلب فعلاً عن تعديل حقيقي في "
     "موقع/مستودع خاص بهذا المستخدم نفسه — لا تستخدمها لسؤال عام عن "
-    "البرمجة، ولا لطلب يخص مشروعنا نحن (تلك هي DEV، للمالك فقط)."
+    "البرمجة، ولا لطلب يخص مشروعنا نحن (تلك هي DEV، للمالك فقط).\n\n"
+    "أو قد تكون رسالته طلب بناء شيء جديد كاملاً (عدة ملفات معاً — صفحة "
+    "أو أداة أو ميزة) **داخل مستودعه الخاص هو** الذي ربطه بنوفا — مثل "
+    '"ابنِ لي صفحة هبوط في مستودعي" أو "أضف ميزة كذا لموقعي". إن كانت '
+    'كذلك، أجب بهذا الشكل:\n'
+    '{"intent": "CONNECTED_BUILD", "instruction": "وصف كامل ودقيق لما '
+    'يجب بناؤه، شاملاً كل تفصيل ذكره المستخدم"}\n'
+    "لا تستخدمها لطلب يخص مشروعنا نحن (تلك هي BUILD، للمالك فقط)."
 )
 
 
@@ -1241,7 +1253,12 @@ _APP_FILE_PROMPT = (
 )
 
 
-def propose_app_build(instruction: str, auto_merge: bool = False) -> str:
+def propose_app_build(
+    instruction: str, auto_merge: bool = False,
+    *, token: str | None = None, repo: str | None = None, base_branch: str | None = None,
+    body_prefix: str = "بناء كامل من نوفا (وضع المالك) بناءً على الطلب:",
+    branch_prefix: str = "nova-build",
+) -> str:
     """Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
     احترافية"): the Dev Agent could only ever touch ONE file per PR,
     which is fine for "make the greeting friendlier" and useless for
@@ -1303,31 +1320,33 @@ def propose_app_build(instruction: str, auto_merge: bool = False) -> str:
             + "\n".join(f"- {s}" for s in skipped)
         )
 
-    branch_name = f"nova-build/{uuid.uuid4().hex[:10]}"
+    branch_name = f"{branch_prefix}/{uuid.uuid4().hex[:10]}"
     try:
-        dev_agent.create_branch(branch_name)
+        dev_agent.create_branch(branch_name, base_branch, token=token, repo=repo)
         for item in built:
             dev_agent.upsert_file(
                 item["path"], branch_name, item["content"],
                 commit_message=f"Nova build: {item['path']}",
+                token=token, repo=repo,
             )
         body = (
-            f"بناء كامل من نوفا (وضع المالك) بناءً على الطلب:\n\n> {instruction}\n\n"
+            f"{body_prefix}\n\n> {instruction}\n\n"
             f"{summary}\n\n**الملفات:**\n" + "\n".join(f"- `{i['path']}`" for i in built)
         )
         if skipped:
             body += "\n\n**استُبعدت (لم تجتز الفحص النحوي):**\n" + "\n".join(f"- {s}" for s in skipped)
         body += (
             "\n\nكل ملف أعلاه مرّ بفحص نحوي حتمي قبل كتابته (`ai-system/app/code_check.py`).\n"
-            "إن كان هذا المشروع موصولاً بـVercel، سيعلّق بوت Vercel هنا برابط معاينة حي "
+            "إن كان هذا المستودع موصولاً بـVercel، سيعلّق بوت Vercel هنا برابط معاينة حي "
             "يمكنك فتحه ورؤية النتيجة بعينك قبل الدمج."
         )
         pr_url, pr_number = dev_agent.open_pull_request(
             branch_name, title=f"Nova build: {(summary or instruction)[:60]}", body=body,
+            base_branch=base_branch, token=token, repo=repo,
         )
         if auto_merge:
             try:
-                dev_agent.merge_pull_request(pr_number)
+                dev_agent.merge_pull_request(pr_number, token=token, repo=repo)
             except dev_agent.DevAgentError as e:
                 return f"بنيتُ {len(built)} ملفاً لكن فشل الدمج التلقائي — الـPR مفتوح للمراجعة:\n{pr_url}\n({e})"
     except dev_agent.DevAgentError as e:
@@ -1339,6 +1358,31 @@ def propose_app_build(instruction: str, auto_merge: bool = False) -> str:
         lines += ["", "استبعدتُ (لم تجتز الفحص النحوي):"] + [f"- {s}" for s in skipped]
     lines += ["", "افتح الرابط أعلاه — إن كان Vercel موصولاً ستجد فيه رابط معاينة حي للنتيجة."]
     return "\n".join(lines)
+
+
+def propose_app_build_for_connection(user_id: str, instruction: str) -> str:
+    """The CONNECTED_BUILD counterpart to propose_code_change_for_connection
+    above — same real trust boundary (this user's own ACTIVE
+    NovaConnection, looked up fresh, never guessed or borrowed from
+    another user or this project's own env vars), same real gate
+    (never auto_merge for a regular user's own repo)."""
+    from app.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+
+    from app import connections
+
+    connection = connections.get_connection(user_id, "github", SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    if not connection:
+        return (
+            "لم تربط أي مستودع GitHub بعد — نوفا لا يستطيع البناء في أي موقع لم يُربط صراحة. "
+            "اربط مستودعك أولاً من صفحتك الخاصة في البوت (زر «🔗 ربط حساباتي»)، ثم أعد طلبك."
+        )
+
+    return propose_app_build(
+        instruction, auto_merge=False,
+        token=connection["credential"], repo=connection["label"], base_branch=connection.get("baseBranch"),
+        body_prefix=f"بناء كامل من نوفا بناءً على طلبك على مستودعك «{connection['label']}»:",
+        branch_prefix="nova-connected-build",
+    )
 
 
 def _propose_code_change_core(
