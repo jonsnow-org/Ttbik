@@ -87,11 +87,28 @@ def _log_startup_memory() -> None:
     # collections (knowledge bank, solutions bank) start every cold start
     # empty and rehydrate up to 1000 rows each the first time anything
     # touches them — see rag.warm_up_shared_collections's own docstring.
+    #
+    # Second real incident, same day: calling that function DIRECTLY here
+    # (blocking this startup handler until it finished) made the very
+    # next deploy fail outright — Render showed it red/"Deploy failed"
+    # instead of the usual live-then-restart pattern, almost certainly
+    # because a FastAPI startup handler blocks Uvicorn from ever binding
+    # its port/answering health checks until it returns, and embedding up
+    # to ~2000 rows took long enough (or enough memory) to trip Render's
+    # own deploy-readiness check before that could happen. Running it on
+    # a background thread instead lets Uvicorn finish starting up and
+    # pass Render's health check immediately, while this same one-time
+    # work still runs moments later — still well before most real
+    # traffic arrives, and no longer able to fail the deploy itself.
+    threading.Thread(target=_warm_up_shared_collections_safely, daemon=True).start()
+    _log_memory_usage("app startup complete, after embedder warm-up")
+
+
+def _warm_up_shared_collections_safely() -> None:
     try:
         rag.warm_up_shared_collections()
     except Exception:
-        logger.exception("shared-collection warm-up failed at startup — first real message will pay this cost instead")
-    _log_memory_usage("app startup complete, after embedder warm-up")
+        logger.exception("shared-collection warm-up failed in background — first real message will pay this cost instead")
 
 
 # Same stripping novaBotLogic.ts's old stripMarkdown() used to do
