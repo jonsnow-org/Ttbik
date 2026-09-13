@@ -66,6 +66,7 @@ original design above.
      an actual learned fact, not a page of raw snippets.
 """
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -586,7 +587,16 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
                 # second model.
                 web_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
                 parts.append("نتائج بحث حية من الويب:\n" + web_snippets)
-                _store_knowledge(message, web_snippets, "live_info")
+                # Real evidence, 2026-09-13 ("لا احد يستخدم ذكاء يستغرق
+                # 5 دقائق للرد"): this write is pure bookkeeping for
+                # FUTURE questions — it has zero bearing on the answer
+                # this turn is about to generate from web_snippets
+                # above — yet it used to block this exact reply on a
+                # Supabase round-trip (up to 20s). Backgrounded so the
+                # bank still fills in, without taxing this user's wait.
+                threading.Thread(
+                    target=_store_knowledge, args=(message, web_snippets, "live_info"), daemon=True
+                ).start()
         return "\n\n".join(parts)
 
     # CODE/GENERAL: pull worked precedent from the shared solutions
@@ -614,18 +624,46 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
             results = web_search(message)
             if results:
                 raw_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
-                # council imported here, not at module load — see the
-                # comment on this same pattern nowhere else needed in
-                # this file; kept local purely to avoid a hypothetical
-                # future circular import if council.py ever needs
-                # rag.py itself (it doesn't today).
-                from app import council
-
-                analyzed = council.analyze_knowledge(message, raw_snippets)
-                parts.append("معلومة من بحث حي على الويب (تحليل Nova للنتائج):\n" + analyzed)
-                _store_knowledge(message, analyzed, "general")
+                # Real evidence, 2026-09-13 ("لا احد يستخدم ذكاء يستغرق
+                # 5 دقائق للرد"): this used to run analyze_knowledge
+                # HERE, synchronously, before the user's own answer was
+                # even generated — a full call to our own model
+                # (~45-95s on this CPU-only free host, per
+                # call_modelscope_specialist's own measured docstring),
+                # then council.answer() below made a SECOND full call to
+                # the same model to actually answer the user. Two heavy
+                # sequential model calls for one reply, on top of
+                # web_search's own up-to-~40s worst case, is exactly how
+                # a text reply reaches minutes.
+                #
+                # Fix: hand the raw snippets straight into context, the
+                # same treatment LIVE_INFO above already gets — the one
+                # real answer call below is perfectly capable of reading
+                # and understanding raw web results itself (that's the
+                # whole point of "our own model must do the real
+                # understanding", not a second preliminary pass). The
+                # nicely-analyzed version is only useful for FUTURE
+                # questions via the knowledge bank, so it now runs after
+                # this reply is already on its way, off the critical path.
+                parts.append("نتائج بحث حية من الويب (بيانات خام):\n" + raw_snippets)
+                threading.Thread(
+                    target=_analyze_and_store_general_knowledge, args=(message, raw_snippets), daemon=True
+                ).start()
 
     return "\n\n".join(parts)
+
+
+def _analyze_and_store_general_knowledge(message: str, raw_snippets: str) -> None:
+    """Runs off the critical path (see build_context's own comment
+    above) — never allowed to affect a live request, since nothing
+    still waiting on it by the time this runs."""
+    try:
+        from app import council
+
+        analyzed = council.analyze_knowledge(message, raw_snippets)
+        _store_knowledge(message, analyzed, "general")
+    except Exception:
+        logger.exception("background analyze_and_store_general_knowledge failed for query=%s", message)
 
 
 def learn_now(topic: str) -> str:
