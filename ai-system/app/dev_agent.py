@@ -321,3 +321,62 @@ def merge_pull_request(pr_number: int, *, token: str | None = None, repo: str | 
     )
     if not resp.ok:
         raise DevAgentError(f"تعذّر الدمج التلقائي ({resp.status_code}): {resp.text[:300]} — الـPR ما زال مفتوحاً للمراجعة اليدوية.")
+
+
+def get_latest_failed_run(base_branch: str | None = None, *, token: str | None = None, repo: str | None = None) -> dict | None:
+    """Owner spec, 2026-09-13 ("استكشاف الاخطاء... باحترافية"): the
+    read-only starting point for real debugging — GitHub's own Actions
+    API, not guessed log scraping. Returns the most recent FAILED run
+    on the given branch (defaults to this repo's/connection's own base
+    branch), or None when there is none / the token lacks Actions read
+    access — real fine-grained PATs need an explicit "Actions: Read"
+    permission for this, separate from contents+pull_requests; a
+    connected user whose token was created scoped only to those two
+    (this project's own owner-token convention) will simply get None
+    here rather than a confusing error, and callers say so plainly."""
+    resolved_repo = repo or NOVA_DEV_AGENT_REPO
+    resolved_branch = base_branch or NOVA_DEV_AGENT_BASE_BRANCH
+    try:
+        resp = requests.get(
+            f"{_API_ROOT}/repos/{resolved_repo}/actions/runs",
+            headers=_headers(token),
+            params={"branch": resolved_branch, "status": "failure", "per_page": 1},
+            timeout=30,
+        )
+    except Exception:
+        return None
+    if not resp.ok:
+        return None
+    runs = resp.json().get("workflow_runs") or []
+    return runs[0] if runs else None
+
+
+def get_run_failure_logs(run_id: int, *, token: str | None = None, repo: str | None = None, max_chars: int = 8000) -> str:
+    """Returns the tail of every FAILED job's log for this run, joined —
+    the tail specifically (not the head) because a real build/test
+    failure's actual error is almost always the last thing printed,
+    with setup/install noise before it. Raises DevAgentError (same
+    class every other real GitHub-side failure in this module uses) if
+    even the job list can't be read — most commonly a token missing
+    Actions read scope."""
+    resp = requests.get(
+        f"{_API_ROOT}/repos/{repo or NOVA_DEV_AGENT_REPO}/actions/runs/{run_id}/jobs",
+        headers=_headers(token),
+        timeout=30,
+    )
+    if not resp.ok:
+        raise DevAgentError(
+            f"تعذّرت قراءة سجلّات التشغيل ({resp.status_code}) — تأكد أن التوكن يملك صلاحية "
+            f"Actions: Read أيضاً، لا contents/pull_requests فقط."
+        )
+    failed_jobs = [j for j in resp.json().get("jobs", []) if j.get("conclusion") == "failure"]
+    chunks = []
+    for job in failed_jobs:
+        log_resp = requests.get(
+            f"{_API_ROOT}/repos/{repo or NOVA_DEV_AGENT_REPO}/actions/jobs/{job['id']}/logs",
+            headers=_headers(token),
+            timeout=30,
+        )
+        if log_resp.ok:
+            chunks.append(f"--- {job.get('name', 'job')} ---\n{log_resp.text[-max_chars:]}")
+    return "\n\n".join(chunks)

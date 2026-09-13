@@ -785,6 +785,8 @@ def _parse_intent_json(raw: str) -> dict:
         if len(connected_build_instruction) < 10:
             return {"intent": "TEXT", "prompt": ""}
         return {"intent": "CONNECTED_BUILD", "instruction": connected_build_instruction}
+    if intent == "CONNECTED_DEBUG":
+        return {"intent": "CONNECTED_DEBUG"}
     if intent == "BUILD":
         build_instruction = str(data.get("instruction") or "").strip()
         if len(build_instruction) < 10:
@@ -846,7 +848,13 @@ _CONNECTED_DEV_ADDENDUM = (
     'كذلك، أجب بهذا الشكل:\n'
     '{"intent": "CONNECTED_BUILD", "instruction": "وصف كامل ودقيق لما '
     'يجب بناؤه، شاملاً كل تفصيل ذكره المستخدم"}\n'
-    "لا تستخدمها لطلب يخص مشروعنا نحن (تلك هي BUILD، للمالك فقط)."
+    "لا تستخدمها لطلب يخص مشروعنا نحن (تلك هي BUILD، للمالك فقط).\n\n"
+    "أو قد تكون رسالته طلباً بأن تشخّص سبب فشل حقيقي (اختبارات فاشلة، "
+    "CI أحمر، بناء لا ينجح) في **مستودعه الخاص هو** المربوط — مثل "
+    '"ليش الاختبارات فاشلة عندي" أو "شخّص خطأ الـCI في مستودعي". إن '
+    'كانت كذلك، أجب بهذا الشكل:\n'
+    '{"intent": "CONNECTED_DEBUG"}\n'
+    "لا تحتاج تفاصيل إضافية لهذه النية — نوفا يقرأ السجلّات الحقيقية بنفسه."
 )
 
 
@@ -1383,6 +1391,80 @@ def propose_app_build_for_connection(user_id: str, instruction: str) -> str:
         body_prefix=f"بناء كامل من نوفا بناءً على طلبك على مستودعك «{connection['label']}»:",
         branch_prefix="nova-connected-build",
     )
+
+
+_DEBUG_LOG_PROMPT = (
+    "أنت خبير في تشخيص أعطال البرمجة الحقيقية. أمامك سجلّ فشل حقيقي من "
+    "GitHub Actions لمستودع مستخدم. اقرأه بعناية وأجب حصراً بصيغة JSON "
+    "صحيحة بدون أي نص إضافي:\n"
+    '{{"root_cause": "السبب الجذري الحقيقي للفشل، بجملتين أو ثلاث واضحة ومحددة، لا عامة", '
+    '"suspected_file": "المسار الأرجح للملف الذي يحتاج تعديلاً لإصلاح هذا، فقط إن كنت واثقاً تماماً من السجلّ نفسه، وإلا اتركه فارغاً", '
+    '"suggested_fix": "وصف دقيق لما يجب تغييره لإصلاح هذا، بجملتين أو ثلاث"}}\n\n'
+    "اسم التشغيل: {run_name}\n\nسجلّ الفشل (آخر جزء منه):\n{logs}"
+)
+
+
+def diagnose_connection_failure(user_id: str) -> str:
+    """Owner spec, 2026-09-13 ("استكشاف الاخطاء... باحترافية"): real
+    debugging, not a guess — reads the connected repo's own latest
+    failed GitHub Actions run via dev_agent.get_latest_failed_run/
+    get_run_failure_logs (GitHub's real API, not scraped), then has OUR
+    OWN model read the actual failure log and diagnose it — same
+    own-model-first rule every other visible-content path in this file
+    already follows (see analyze_knowledge's own correction, same day).
+
+    Read-only by design: names the root cause and, if confident, which
+    file likely needs fixing — the owner explicitly separated
+    "diagnose" from "fix" for exactly this kind of finding elsewhere in
+    this project (assess_feasibility before implement_new_file). A user
+    who agrees with the diagnosis follows up with a normal CONNECTED_DEV
+    request ("أصلح كذا في ملف كذا") to actually get a PR."""
+    from app.config import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+
+    from app import connections
+
+    connection = connections.get_connection(user_id, "github", SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    if not connection:
+        return (
+            "لم تربط أي مستودع GitHub بعد — نوفا لا يستطيع تشخيص أي موقع لم يُربط صراحة. "
+            "اربط مستودعك أولاً من صفحتك الخاصة في البوت (زر «🔗 ربط حساباتي»)، ثم أعد طلبك."
+        )
+
+    token, repo, base_branch = connection["credential"], connection["label"], connection.get("baseBranch")
+    run = dev_agent.get_latest_failed_run(base_branch, token=token, repo=repo)
+    if not run:
+        return (
+            "لم أجد أي تشغيل فاشل حديث على مستودعك — إما أن كل شيء سليم، أو أن التوكن الذي "
+            "ربطته لا يملك صلاحية Actions: Read (منفصلة عن contents/pull_requests). "
+            "أضف هذه الصلاحية للتوكن على GitHub ثم أعد ربطه إن أردت هذه الميزة."
+        )
+
+    try:
+        logs = dev_agent.get_run_failure_logs(run["id"], token=token, repo=repo)
+    except dev_agent.DevAgentError as e:
+        return str(e)
+    if not logs.strip():
+        return f"وجدت تشغيلاً فاشلاً ({run.get('name', 'بلا اسم')}) لكن تعذّر قراءة سجلّه الفعلي."
+
+    prompt = _DEBUG_LOG_PROMPT.format(run_name=run.get("name", ""), logs=logs[:8000])
+    raw = call_modelscope_specialist(prompt, "", query_type="CODE") or call_groq(prompt, "")
+    parsed = _parse_json_blob(raw or "")
+    root_cause = str(parsed.get("root_cause") or "").strip()
+    if not root_cause:
+        return (
+            f"وجدت تشغيلاً فاشلاً حقيقياً ({run.get('name', 'بلا اسم')})، لكن تعذّر تكوين تشخيص واضح "
+            f"من السجلّ. راجعه بنفسك هنا:\n{run.get('html_url', '')}"
+        )
+
+    suspected_file = str(parsed.get("suspected_file") or "").strip()
+    suggested_fix = str(parsed.get("suggested_fix") or "").strip()
+    lines = [f"🔍 شخّصت فشل «{run.get('name', 'التشغيل')}» في مستودعك:", "", f"السبب: {root_cause}"]
+    if suggested_fix:
+        lines += ["", f"الإصلاح المقترح: {suggested_fix}"]
+    if suspected_file:
+        lines += ["", f"الملف الأرجح: `{suspected_file}`", "", f'قل مثلاً: "أصلح هذا في {suspected_file}" لأفتح لك تعديلاً حقيقياً.']
+    lines += ["", f"رابط التشغيل الكامل: {run.get('html_url', '')}"]
+    return "\n".join(lines)
 
 
 def _propose_code_change_core(

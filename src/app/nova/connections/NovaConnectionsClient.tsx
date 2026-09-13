@@ -145,7 +145,7 @@ export default function NovaConnectionsClient({ uid }: { uid: string }) {
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">
-              التوكن (Fine-grained PAT بصلاحية contents + pull_requests فقط)
+              التوكن (Fine-grained PAT بصلاحية contents + pull_requests)
             </label>
             <input
               type="password"
@@ -156,6 +156,9 @@ export default function NovaConnectionsClient({ uid }: { uid: string }) {
               dir="ltr"
               required
             />
+            <p className="mt-1 text-xs text-slate-400">
+              أضف أيضاً صلاحية Actions: Read (اختياري) إن أردت أن يشخّص نوفا أخطاء الـCI الفاشلة في مستودعك.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">الفرع الأساسي (اختياري)</label>

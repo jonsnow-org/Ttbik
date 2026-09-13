@@ -604,6 +604,23 @@ def _process_chat_and_deliver(user: dict, channel: str, message: str, chat_id: s
         _send_telegram_message(chat_id, reply)
         return
 
+    if intent_result["intent"] == "CONNECTED_DEBUG":
+        # Owner spec, 2026-09-13 ("استكشاف الاخطاء... باحترافية"): real
+        # diagnosis of the connected repo's own latest failed GitHub
+        # Actions run — see council.diagnose_connection_failure's own
+        # docstring for why this stops at diagnosis rather than also
+        # opening a PR (the owner's own established
+        # assess-then-implement pattern).
+        quota.refund_quota(user["id"], "TEXT")
+        try:
+            reply = council.diagnose_connection_failure(user["id"])
+        except Exception:
+            logger.exception("connected-repo debug failed for chat_id=%s", chat_id)
+            reply = "حدث خطأ غير متوقع أثناء التشخيص — راجع سجلات الخادم."
+        quota.log_usage(user["id"], channel, "CONNECTED_DEBUG", "تشخيص فشل CI", reply)
+        _send_telegram_message(chat_id, reply)
+        return
+
     if intent_result["intent"] == "BUILD":
         # Owner spec, 2026-09-13 ("بناء التطبيقات وتصميم المواقع بطرق
         # احترافية"): several real files in ONE branch and ONE PR — see
