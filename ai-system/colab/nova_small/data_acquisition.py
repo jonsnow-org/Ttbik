@@ -290,6 +290,89 @@ def generate_synthetic_examples_via_groq(
     return len(paragraphs)
 
 
+def strip_gutenberg_boilerplate(raw_text: str) -> str:
+    """Every Project Gutenberg text wraps the real book content in a
+    standard legal boilerplate header/footer, delimited by real,
+    stable marker lines Gutenberg has used for this exact purpose for
+    decades: "*** START OF THE PROJECT GUTENBERG EBOOK ... ***" and
+    "*** END OF THE PROJECT GUTENBERG EBOOK ... ***" (older texts use
+    a slightly different but still-standard "*END*THE SMALL PRINT"
+    convention). This function is the one part of the Gutenberg
+    pipeline that's fully real-testable without network access — real
+    string processing, verified below against both real marker styles
+    — unlike the actual download, which needs real internet."""
+    start_markers = ["*** START OF THE PROJECT GUTENBERG EBOOK", "*END*THE SMALL PRINT"]
+    end_markers = ["*** END OF THE PROJECT GUTENBERG EBOOK", "End of the Project Gutenberg"]
+
+    start_idx = 0
+    for marker in start_markers:
+        pos = raw_text.find(marker)
+        if pos != -1:
+            line_end = raw_text.find("\n", pos)
+            start_idx = line_end + 1 if line_end != -1 else pos
+            break
+
+    end_idx = len(raw_text)
+    for marker in end_markers:
+        pos = raw_text.find(marker)
+        if pos != -1:
+            end_idx = min(end_idx, pos)
+
+    return raw_text[start_idx:end_idx].strip()
+
+
+def download_gutenberg_book(book_id: int, output_path: str) -> None:
+    """Run this ON KAGGLE (or anywhere with real internet). Project
+    Gutenberg publishes a stable, documented direct-download URL
+    pattern for every book's plain-text edition
+    (gutenberg.org/help/mirroring.html and the site's own "Robot
+    Access" page explicitly document and welcome this kind of
+    automated, script-driven access to individual books) — no scraping
+    of the search/browse pages involved. Every book here is, by
+    Project Gutenberg's own eligibility rules, confirmed public domain
+    in the jurisdiction it was catalogued under — the real, legally
+    clean way to have this project's crawler "read whole books," which
+    the owner asked for and which autonomous_knowledge_crawler.py's own
+    docstring flagged as needing exactly this kind of source rather
+    than an unlicensed archive."""
+    import requests
+
+    url = f"https://www.gutenberg.org/cache/epub/{book_id}/pg{book_id}.txt"
+    resp = requests.get(url, timeout=30, headers={"User-Agent": "NovaSmall-research-crawler/1.0"})
+    resp.raise_for_status()
+    clean_text = strip_gutenberg_boilerplate(resp.text)
+    Path(output_path).write_text(clean_text, encoding="utf-8")
+    print(f"downloaded and cleaned Project Gutenberg book #{book_id} -> {output_path} "
+          f"({len(clean_text):,} real characters of actual book content, boilerplate stripped)")
+
+
+def mirror_gutenberg_corpus(book_ids: list[int], output_dir: str) -> list[str]:
+    """Run this ON KAGGLE. Downloads a real, explicit list of public-
+    domain Gutenberg book IDs (find real ones via Gutenberg's own
+    published catalog at gutenberg.org/ebooks/search — every id there
+    is independently verifiable as public domain by anyone before it's
+    ever added to this list) into individual clean text files, one per
+    book, ready for TextSequenceDataset. For mirroring Gutenberg's
+    ENTIRE catalog rather than a curated list, Gutenberg's own
+    documented bulk method is the real, officially-sanctioned way, not
+    a script like this one hitting their web server book-by-book:
+        rsync -av --del ftp@aleph.gutenberg.org::gutenberg ./gutenberg_mirror/
+    (see gutenberg.org/help/mirroring.html — they built and maintain
+    this specifically so real bulk/automated use doesn't need to touch
+    their web server at all)."""
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    written = []
+    for book_id in book_ids:
+        file_path = output_path / f"gutenberg_{book_id}.txt"
+        try:
+            download_gutenberg_book(book_id, str(file_path))
+            written.append(str(file_path))
+        except Exception as exc:
+            print(f"skipped Gutenberg book #{book_id} due to a real error: {exc}")
+    return written
+
+
 def package_directory_as_kaggle_dataset(local_dir: str, dataset_slug: str, title: str) -> None:
     """Run this from a machine with the Kaggle CLI configured (a real
     ~/.kaggle/kaggle.json API token — see kaggle.com/settings) — turns
@@ -315,11 +398,39 @@ def package_directory_as_kaggle_dataset(local_dir: str, dataset_slug: str, title
 
 
 if __name__ == "__main__":
+    # The one real, network-free thing in this file that CAN be tested
+    # directly here: the Gutenberg boilerplate stripper, against both
+    # of the two real marker conventions Gutenberg has used across its
+    # catalog's history.
+    modern_style = (
+        "Some legal preamble text here.\n"
+        "*** START OF THE PROJECT GUTENBERG EBOOK EXAMPLE BOOK ***\n"
+        "CHAPTER ONE\n\nThis is the real book content that must survive stripping.\n"
+        "*** END OF THE PROJECT GUTENBERG EBOOK EXAMPLE BOOK ***\n"
+        "Some legal trailer text here."
+    )
+    cleaned = strip_gutenberg_boilerplate(modern_style)
+    assert cleaned.startswith("CHAPTER ONE"), f"failed to find the real start of content: {cleaned[:50]!r}"
+    assert "legal preamble" not in cleaned and "legal trailer" not in cleaned, "boilerplate was not fully stripped"
+    assert "book content that must survive" in cleaned
+    print(f"strip_gutenberg_boilerplate OK (modern marker style): extracted exactly the real book content "
+          f"({len(cleaned)} chars), both header and footer boilerplate removed.")
+
+    old_style = (
+        "Legal preamble.\n*END*THE SMALL PRINT! FOR PUBLIC DOMAIN ETEXTS*\n"
+        "ACTUAL STORY TEXT HERE, the real content.\n"
+        "End of the Project Gutenberg Etext of Example"
+    )
+    cleaned_old = strip_gutenberg_boilerplate(old_style)
+    assert "ACTUAL STORY TEXT" in cleaned_old and "Legal preamble" not in cleaned_old
+    print("strip_gutenberg_boilerplate OK (older marker style): same real extraction on the legacy convention.")
+
     print(
-        "This module's functions require real internet access (Kaggle, HuggingFace Hub, or Supabase) "
-        "that this sandbox does not have — verified directly (see this module's own docstring): a real "
-        "attempt to reach huggingface.co, kaggle.com, and commoncrawl.org from this exact environment "
-        "was rejected at the network gateway with '403 Forbidden — policy denial' for all three.\n\n"
-        "Run these functions inside an actual Kaggle notebook (Settings -> Internet -> On) instead, "
+        "\nEverything else in this module requires real internet access (Kaggle, HuggingFace Hub, "
+        "Supabase, or gutenberg.org) that this sandbox does not have — verified directly (see this "
+        "module's own docstring): a real attempt to reach huggingface.co, kaggle.com, and "
+        "commoncrawl.org from this exact environment was rejected at the network gateway with "
+        "'403 Forbidden — policy denial' for all three.\n\n"
+        "Run those functions inside an actual Kaggle notebook (Settings -> Internet -> On) instead, "
         "where each one is ready to use as written."
     )
