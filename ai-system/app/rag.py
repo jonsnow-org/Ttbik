@@ -988,6 +988,26 @@ def build_context(user_id: str, message: str, query_type: str) -> str:
         parts.append("ذاكرة سابقة مع هذا المستخدم:\n" + "\n---\n".join(memory))
 
     if query_type == "LIVE_INFO":
+        # Owner report, 2026-09-14 (real evidence: asking a live price
+        # question, then immediately following up with "في أي دولة هذه
+        # الأسعار ولماذا لم تحدد العملة؟" — a question ABOUT the previous
+        # answer, not a new fact to look up — got back a completely
+        # unrelated web result about Skoda car prices, because this
+        # branch used to fire a brand-new web_search on the follow-up's
+        # own literal text unconditionally, with no regard for whether
+        # relevant memory already existed): unlike the GENERAL/CODE
+        # branch below (which only searches live when NEITHER memory nor
+        # solutions already covers the question), LIVE_INFO never checked
+        # `memory` (already recalled above) before searching — so a
+        # meta/follow-up question about Nova's own recent answer, which
+        # `memory` had just captured, got a fresh, nonsensical web search
+        # instead of a real answer grounded in what was already said.
+        # Skipping the live search when relevant memory already exists
+        # lets the model answer a real follow-up from that memory
+        # instead — same principle GENERAL/CODE already applies, now
+        # applied here too.
+        if memory:
+            return "\n\n".join(parts)
         cached = _recall_knowledge(message, "live_info", _KNOWLEDGE_MAX_AGE_SECONDS)
         if cached:
             parts.append("معلومات محفوظة حديثاً في بنك معلومات Nova (من بحث سابق قريب):\n" + cached)
