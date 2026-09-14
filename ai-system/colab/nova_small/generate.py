@@ -97,6 +97,7 @@ def generate_tokens(
     eos_id: int | None = None,
     forced_ids: list[int | None] | None = None,
     allowed_ranges: list[tuple[int, int] | None] | None = None,
+    stop_ids: set[int] | None = None,
 ) -> torch.Tensor:
     """The one real generation loop everything else in this file is
     built on. prompt_ids: (batch, prompt_len). Returns (batch,
@@ -144,10 +145,19 @@ def generate_tokens(
             next_token = torch.where(finished.unsqueeze(1), torch.full_like(next_token, eos_id), next_token)
             finished = finished | (next_token.squeeze(1) == eos_id)
 
+        # stop_ids generalizes the same idea to any other id that should
+        # halt generation — tool_use.py's own loop stops on
+        # SpecialTokens.SEARCH_END this way, to pause and run a real
+        # search before resuming, rather than needing its own separate
+        # generation loop reimplementing everything above.
+        if stop_ids:
+            is_stop = torch.isin(next_token.squeeze(1), torch.tensor(sorted(stop_ids), device=device))
+            finished = finished | is_stop
+
         generated = torch.cat([generated, next_token], dim=1)
         next_input = next_token
 
-        if eos_id is not None and bool(finished.all()):
+        if (eos_id is not None or stop_ids) and bool(finished.all()):
             break
 
     return generated

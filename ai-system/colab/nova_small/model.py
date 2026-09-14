@@ -118,6 +118,27 @@ class SpecialTokens:
     VIDEO_END = _base + 6
     AUDIO_START = _base + 7  # reserved for audio_tokenizer.py
     AUDIO_END = _base + 8
+    # Owner spec, 2026-09-14: live tool use, e.g. web search, must be a
+    # LEARNED action inside this same model's own generation, not a
+    # hardcoded external function Python always calls for certain query
+    # types the way the current Nova bot's rag.py does — that rigid,
+    # bolted-on design was part of what caused Nova's own production
+    # bugs (see this project's history: an irrelevant search fired for
+    # a question memory already answered, because the decision to
+    # search lived outside the model entirely). SEARCH_START/SEARCH_END
+    # wrap a real text SEARCH QUERY the model itself chooses to write;
+    # RESULT_START/RESULT_END wrap the real retrieved text handed back —
+    # a different pair of delimiters so the model can tell "text I
+    # generated" apart from "text a live search handed me," the same
+    # way IMAGE_START/IMAGE_END already separate modalities without a
+    # separate vocabulary range (a real, published pattern — this is
+    # the mechanism behind tool-use/ReAct-style LLMs). See tool_use.py
+    # for the actual interception loop this makes possible; 3 of
+    # NUM_SPECIAL_TOKENS's 16 reserved ids remain free after these.
+    SEARCH_START = _base + 9
+    SEARCH_END = _base + 10
+    RESULT_START = _base + 11
+    RESULT_END = _base + 12
 
 
 IMAGE_VOCAB_BASE = TEXT_VOCAB_SIZE
