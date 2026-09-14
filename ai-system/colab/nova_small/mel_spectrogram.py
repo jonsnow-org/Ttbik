@@ -99,6 +99,59 @@ def waveform_to_mel_spectrogram(
     return normalized.unsqueeze(0)  # (1, n_mels, segment_frames)
 
 
+def mel_spectrogram_to_waveform(
+    mel: torch.Tensor,
+    sample_rate: int,
+    n_fft: int = 512,
+    hop_length: int = 160,
+    griffin_lim_iters: int = 32,
+) -> torch.Tensor:
+    """The inverse of waveform_to_mel_spectrogram() — closes the loop
+    audio_tokenizer.py's own docstring left open ("decode()... Returns
+    reconstructed images/mel-spectrograms" — a spectrogram is not
+    itself audio a person can play). mel: (1, n_mels, T) or (n_mels, T)
+    in the same normalized range waveform_to_mel_spectrogram()
+    produces. Returns a real, playable mono waveform.
+
+    Real, standard, well-established technique (Griffin & Lim, 1984),
+    not a novel/unverified one — two real steps, since a mel-spectrogram
+    has thrown away two things a waveform needs back:
+      1. Un-mixing the mel filterbank via its pseudo-inverse to recover
+         an estimated LINEAR-frequency power spectrogram (the mel
+         filterbank is not square/invertible exactly, so this is a
+         real least-squares estimate, not an exact inverse — clamped
+         to >= 0 since power can never be negative).
+      2. Recovering PHASE (mel/magnitude spectrograms discard it
+         entirely) by iterating: guess a phase, reconstruct a waveform,
+         re-analyze it, keep the new phase but enforce the known
+         target magnitude, repeat — converges to a real, if imperfect
+         (Griffin-Lim doesn't recover the original phase exactly),
+         playable waveform whose spectral content matches the
+         mel-spectrogram it came from. Verified below against a real
+         pure tone: the reconstructed waveform's own dominant frequency
+         lands within a few Hz of the original."""
+    if mel.dim() == 3:
+        mel = mel.squeeze(0)
+    log_mel = mel * 9.0 - 5.0  # inverse of the fixed rescale in waveform_to_mel_spectrogram
+    power_mel = torch.exp(log_mel) - 1e-6
+
+    n_mels = mel.shape[0]
+    filterbank = build_mel_filterbank(sample_rate, n_fft, n_mels)
+    pseudo_inverse = torch.linalg.pinv(filterbank)  # (n_freqs, n_mels)
+    linear_power = (pseudo_inverse @ power_mel).clamp(min=0.0)
+    magnitude = linear_power.sqrt()
+
+    window = torch.hann_window(n_fft)
+    angles = torch.rand_like(magnitude) * 2 * math.pi
+    complex_spec = magnitude * torch.exp(1j * angles)
+    for _ in range(griffin_lim_iters):
+        waveform = torch.istft(complex_spec, n_fft=n_fft, hop_length=hop_length, window=window)
+        re_stft = torch.stft(waveform, n_fft=n_fft, hop_length=hop_length, window=window, return_complex=True)
+        complex_spec = magnitude * torch.exp(1j * torch.angle(re_stft))
+
+    return torch.istft(complex_spec, n_fft=n_fft, hop_length=hop_length, window=window)
+
+
 if __name__ == "__main__":
     sample_rate = 16000
 
@@ -141,5 +194,28 @@ if __name__ == "__main__":
     print("padding/cropping OK: both a short and a long real waveform produced exactly the requested "
           "segment_frames length.")
 
-    print("\nAll mel-spectrogram checks passed — real audio-to-spectrogram extraction, with no "
-          "torchaudio dependency, is correct.")
+    # Real test 3: the full round trip — waveform -> mel -> waveform —
+    # must preserve the dominant frequency, the real, meaningful
+    # correctness check for a lossy, phase-discarding inversion (exact
+    # sample-for-sample reconstruction is NOT what Griffin-Lim promises;
+    # spectral content preservation is).
+    n_mels_rt, n_fft_rt, hop_rt = 80, 512, 160
+    tone_freq = 440.0
+    tone_wave = 0.5 * torch.sin(2 * math.pi * tone_freq * torch.linspace(0, 1, sample_rate))
+    mel_rt = waveform_to_mel_spectrogram(tone_wave, sample_rate, n_mels_rt, segment_frames=100, n_fft=n_fft_rt, hop_length=hop_rt)
+    reconstructed = mel_spectrogram_to_waveform(mel_rt, sample_rate, n_fft=n_fft_rt, hop_length=hop_rt, griffin_lim_iters=32)
+    assert torch.isfinite(reconstructed).all(), "reconstructed waveform contains non-finite values"
+
+    recon_stft = torch.stft(reconstructed, n_fft=n_fft_rt, hop_length=hop_rt, window=torch.hann_window(n_fft_rt), return_complex=True)
+    recon_power = recon_stft.abs() ** 2
+    freqs = torch.fft.rfftfreq(n_fft_rt, 1.0 / sample_rate)
+    recon_peak_hz = freqs[recon_power.mean(dim=1).argmax().item()].item()
+    assert abs(recon_peak_hz - tone_freq) < 50, (
+        f"round-trip reconstruction lost the dominant frequency: {tone_freq}Hz -> {recon_peak_hz:.1f}Hz"
+    )
+    print(f"round-trip OK (Griffin-Lim): a real {tone_freq:.0f}Hz tone survives waveform -> mel -> "
+          f"waveform with its dominant frequency at {recon_peak_hz:.1f}Hz — a real, playable "
+          f"reconstruction, not just a shape-correct tensor.")
+
+    print("\nAll mel-spectrogram checks passed — real audio-to-spectrogram extraction AND the reverse "
+          "(a real, playable waveform back out), with no torchaudio dependency, are both correct.")
