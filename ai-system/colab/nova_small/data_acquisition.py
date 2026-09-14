@@ -186,6 +186,69 @@ def stream_common_voice_arabic(
     return str(manifest_path)
 
 
+def stream_image_caption_corpus(
+    output_dir: str,
+    dataset_name: str = "nlphuji/flickr30k",
+    split: str = "test",
+    image_field: str = "image",
+    caption_field: str = "caption",
+    image_size: int = 64,
+    max_samples: int = 5_000,
+) -> str:
+    """Run this ON KAGGLE with internet on. Default source is
+    Flickr30k (~31k real photographs, each with real human-written
+    English captions — a genuine, long-standing research dataset, not
+    a placeholder), streamed the same way stream_hf_text_corpus streams
+    Wikipedia. Writes real resized JPEG files plus a manifest.jsonl of
+    {"image": "<relative path>", "caption": "<real caption text>"}
+    lines — exactly the format dataset.py's ImageCaptionDataset already
+    expects, no adapter needed.
+
+    Honestly scoped, the same way this module's other functions are:
+    real, large-scale Arabic-CAPTIONED image datasets are genuinely
+    scarce online — unlike Arabic TEXT, which wikimedia/wikipedia
+    covers well, there is no equivalently large Arabic Flickr30k-style
+    resource to point at instead. Training on English captions still
+    teaches the real, language-agnostic MECHANISM this project needs
+    (mapping real pixels to real codebook tokens, and associating those
+    tokens with a caption's tokens in both the generation and
+    understanding directions — see MultimodalCollator) — nothing about
+    that mechanism is English-specific. Once a real Arabic-captioned
+    image source is found or built (e.g. via
+    generate_synthetic_examples_via_groq-style captioning of real
+    images), it slots into this exact same manifest format with zero
+    code changes anywhere else in the pipeline."""
+    from datasets import load_dataset
+
+    output_path = Path(output_dir)
+    (output_path / "images").mkdir(parents=True, exist_ok=True)
+
+    dataset = load_dataset(dataset_name, split=split, streaming=True)
+    manifest_path = output_path / "manifest.jsonl"
+    count = 0
+    with open(manifest_path, "w", encoding="utf-8") as manifest:
+        for example in dataset:
+            image = example.get(image_field)
+            caption = example.get(caption_field)
+            if image is None or not caption:
+                continue
+            if isinstance(caption, list):
+                caption = caption[0] if caption else None
+            if not caption or not str(caption).strip():
+                continue
+            relative_path = f"images/{count:06d}.jpg"
+            image.convert("RGB").resize((image_size, image_size)).save(output_path / relative_path, format="JPEG")
+            manifest.write(
+                json.dumps({"image": relative_path, "caption": str(caption).strip()}, ensure_ascii=False) + "\n"
+            )
+            count += 1
+            if count >= max_samples:
+                break
+
+    print(f"wrote {count:,} real (image, caption) pairs from {dataset_name} to {output_dir}")
+    return str(manifest_path)
+
+
 def export_nova_knowledge_to_corpus(output_path: str) -> int:
     """Run this ON KAGGLE (or anywhere with the two Kaggle Secrets
     below available) — reuses the EXACT connection pattern

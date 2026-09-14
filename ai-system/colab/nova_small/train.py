@@ -91,6 +91,22 @@ def build_lr_scheduler(
     # that exact pattern as wrong (it silently skips the schedule's
     # first real value), and running this file surfaced its own
     # UserWarning about it before this fix.
+    #
+    # A real second bug this also fixes: PyTorch's LambdaLR only sets
+    # each param group's 'initial_lr' automatically when constructed
+    # with last_epoch=-1 — a genuinely fresh optimizer combined with a
+    # nonzero last_epoch (e.g. continuing training on pretrained
+    # weights with a brand-new optimizer, not one loaded from a real
+    # saved optimizer_state_dict — see kaggle_notebooks' multimodal
+    # stage for exactly this case) raises a real KeyError on
+    # 'initial_lr' otherwise. Setting it explicitly here beforehand
+    # matches what LambdaLR does internally for a fresh construction,
+    # so a nonzero last_epoch works regardless of whether the optimizer
+    # was actually resumed or is fresh.
+    if last_epoch != -1:
+        for group in optimizer.param_groups:
+            group.setdefault("initial_lr", group["lr"])
+
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch=last_epoch)
 
 
@@ -271,7 +287,35 @@ if __name__ == "__main__":
           f"on padded, -100-masked multimodal-shaped batches with finite loss throughout — this is the exact "
           f"path a real continued text+image+audio training run uses.")
 
+    # --- Real bug this file's own history repeats, in a new shape: a
+    # LOADED checkpoint (real nonzero step) continued with a BRAND-NEW
+    # optimizer (not one loaded from a saved optimizer_state_dict) —
+    # exactly the multimodal stage-2 case (weights carried over from
+    # stage 1, but a fresh optimizer for the new image/audio objective).
+    # Before this fix, build_lr_scheduler's last_epoch=start_step-1
+    # raised a real KeyError on 'initial_lr' here.
+    with tempfile.TemporaryDirectory() as tmpdir2:
+        pretrained_model = NovaSmall(small_model_cfg)
+        pretrained_ckpt = Path(tmpdir2) / "pretrained.pt"
+        save_checkpoint(pretrained_ckpt, pretrained_model, step=500)
+        loaded_model, loaded_step, _ = load_checkpoint(pretrained_ckpt)
+        assert loaded_step == 500
+        fresh_optimizer = build_optimizer(loaded_model, lr=1e-4, weight_decay=0.1)  # deliberately NOT loaded from a checkpoint
+        continued_cfg = TrainConfig(
+            seq_len=small_model_cfg.max_seq_len, batch_size=4, grad_accum_steps=1, lr=1e-4,
+            warmup_steps=2, total_steps=loaded_step + 5, checkpoint_every=10**9, log_every=10**9,
+        )
+        continued_loss_history = train(
+            loaded_model, batches[:5], continued_cfg, start_step=loaded_step, resume_optimizer=fresh_optimizer
+        )
+    assert len(continued_loss_history) == 5, "fresh-optimizer continued training from a loaded checkpoint didn't run"
+    assert all(torch.isfinite(torch.tensor(l)) for l in continued_loss_history), "non-finite loss continuing with a fresh optimizer"
+    print(f"fresh-optimizer continued-training OK: loaded a real checkpoint at step {loaded_step}, trained "
+          f"{len(continued_loss_history)} more real steps with a BRAND-NEW optimizer (no KeyError on "
+          f"'initial_lr') — this is exactly the multimodal stage-2 pattern.")
+
     print("\nAll trainer checks passed on a real (small-scale) smoke test — optimizer, LR schedule, "
-          "gradient accumulation/clipping, checkpoint/resume, and the multimodal (input_ids, labels) tuple "
-          "path are all mechanically correct. The real large-scale run (bigger model config, real large "
-          "datasets, many more steps, Kaggle's GPU) is the separate final stage this tool is now ready for.")
+          "gradient accumulation/clipping, checkpoint/resume, the multimodal (input_ids, labels) tuple "
+          "path, and continuing a loaded checkpoint with a fresh optimizer are all mechanically correct. "
+          "The real large-scale run (bigger model config, real large datasets, many more steps, Kaggle's "
+          "GPU) is the separate final stage this tool is now ready for.")
