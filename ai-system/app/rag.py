@@ -71,7 +71,9 @@ original design above.
      council.analyze_knowledge before being stored, so what's kept is
      an actual learned fact, not a page of raw snippets.
 """
+import json
 import logging
+import re
 import resource
 import threading
 import time
@@ -1173,6 +1175,113 @@ def store_verified_finding(topic: str, content: str, category: str = "owner_dire
         return f"هذا يؤكد معرفة مخزَّنة لديّ مسبقاً عن \"{topic}\" — لا حاجة لتغيير شيء."
     verb = "حدّثت معرفة سابقة كانت غير دقيقة" if result == "updated" else "خزّنت معرفة جديدة"
     return f"✅ {verb} عن \"{topic}\" في بنك معرفتي — سيُستخدم فعلياً في التدريب الأسبوعي القادم على Kaggle، لا مجرد ملف محفوظ."
+
+
+# Owner report, 2026-09-14 ("كيف نجعل هذا الاقتراح ليس مجرد اقتراح بسيط
+# ... يستفيد من كم هائل من المعلومات، وليس مجرد اقتراح بسيط — ابتكر
+# طرق وأدوات"): store_verified_finding above stores exactly the ONE
+# piece of content the owner read and approved — real and durable, but
+# a single short paragraph is genuinely thin material for a 7B model's
+# weekly LoRA pass to learn much from. _DEEP_LEARN_BREADTH real,
+# INDEPENDENTLY WEB-SEARCHED sub-angles turn one approved topic into a
+# real, much larger body of grounded knowledge instead: the model itself
+# proposes specific, non-overlapping sub-questions that would genuinely
+# broaden coverage of the approved topic, then EACH one goes through the
+# exact same trusted, already-verified pipeline every other real finding
+# in this file uses (web_search -> council.analyze_knowledge, which
+# refuses to fabricate when results are thin -> guardrails ->
+# knowledge_store.store_or_update) — no new, untested path, just the
+# existing one run several times instead of once. A sub-question that
+# turns up nothing specific is honestly skipped (NO_SPECIFIC_FINDING_MARKER),
+# never padded with invented filler just to hit a quota.
+_DEEP_LEARN_BREADTH = 6
+
+
+def _generate_subtopics(topic: str, seed_content: str, breadth: int) -> list[str]:
+    from app import knowledge_store
+
+    prompt = (
+        f"لديك موضوع معرفي رئيسي تمت الموافقة عليه لتعلّمه: \"{topic}\".\n"
+        f"المحتوى الأساسي المعتمَد:\n{seed_content[:1000]}\n\n"
+        f"اقترح بالضبط {breadth} أسئلة فرعية محددة وغير متكررة فيما بينها، تُغطّي جوانب حقيقية "
+        "مختلفة من نفس هذا الموضوع (وليس إعادة صياغة لنفس السؤال)، بحيث يمكن البحث عن كل سؤال "
+        "منها فعلياً على الويب والحصول على إجابة واقعية محددة له. "
+        'أجب حصراً بمصفوفة JSON من نصوص، بلا أي شرح إضافي، مثل: ["سؤال 1", "سؤال 2", ...]'
+    )
+    raw = knowledge_store._groq_call(prompt, GROQ_API_KEY, GROQ_MODEL)
+    match = re.search(r"\[.*\]", raw, re.DOTALL) if raw else None
+    if not match:
+        return []
+    try:
+        parsed = json.loads(match.group(0))
+    except Exception:
+        return []
+    return [str(q).strip() for q in parsed if str(q).strip()][:breadth]
+
+
+def deep_learn_topic(topic: str, content: str, category: str = "owner_directed") -> str:
+    """The real entry point for turning one approved KNOWLEDGE proposal
+    into a genuinely large, real body of grounded knowledge instead of
+    one paragraph — see the module comment above _DEEP_LEARN_BREADTH for
+    the full reasoning. Always stores the owner-approved seed content
+    first (via store_verified_finding, unchanged), then independently
+    researches and stores several real sub-angles on top of it. Never
+    raises and never blocks on a single failed sub-topic — a partial
+    result (seed + fewer sub-topics than requested) is still real
+    progress, reported honestly rather than silently padded."""
+    seed_result = store_verified_finding(topic, content, category)
+
+    subtopics = []
+    try:
+        subtopics = _generate_subtopics(topic, content, _DEEP_LEARN_BREADTH)
+    except Exception:
+        logger.exception("deep_learn_topic: failed to generate sub-topics for topic=%s", topic)
+
+    if not subtopics:
+        return (
+            f"{seed_result}\n\nملاحظة: لم أتمكن من توليد أسئلة فرعية إضافية لتوسيع هذا الموضوع الآن "
+            "— خُزِّن المحتوى الأساسي المعتمَد فقط."
+        )
+
+    stored_topics: list[str] = []
+    skipped_topics: list[str] = []
+    for sub_question in subtopics:
+        try:
+            results = web_search(sub_question)
+            if not results:
+                skipped_topics.append(sub_question)
+                continue
+            raw_snippets = "\n".join(f"- {r.get('title', '')}: {r.get('body', '')}" for r in results)
+            from app import council
+
+            analyzed = council.analyze_knowledge(sub_question, raw_snippets)
+            if analyzed.strip().startswith(council.NO_SPECIFIC_FINDING_MARKER):
+                skipped_topics.append(sub_question)
+                continue
+            sub_result = store_verified_finding(sub_question, analyzed, category)
+            if sub_result.startswith("✅"):
+                stored_topics.append(sub_question)
+            else:
+                skipped_topics.append(sub_question)
+        except Exception:
+            logger.exception("deep_learn_topic: sub-topic research failed for %s (topic=%s)", sub_question, topic)
+            skipped_topics.append(sub_question)
+
+    report = [
+        seed_result,
+        f"\nبالإضافة لذلك، بحثت فعلاً في {len(subtopics)} زاوية فرعية حقيقية من نفس الموضوع "
+        f"وخزّنت {len(stored_topics)} منها كمعرفة حقيقية جديدة (وليس مجرد الاقتراح الأصلي وحده):",
+    ]
+    for q in stored_topics:
+        report.append(f"  ✅ {q}")
+    if skipped_topics:
+        report.append(f"تخطّيت {len(skipped_topics)} زاوية لم تُعطِ نتائج بحث محددة كفاية (بدل اختلاق شيء):")
+        for q in skipped_topics:
+            report.append(f"  ⏭️ {q}")
+    report.append(
+        f"\nالإجمالي: {1 + len(stored_topics)} إدخال معرفة حقيقي مرتبط بهذا الموضوع سيُستخدم في التدريب الأسبوعي القادم."
+    )
+    return "\n".join(report)
 
 
 def learn_now(topic: str) -> str:

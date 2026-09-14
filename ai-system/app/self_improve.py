@@ -410,16 +410,26 @@ def decide_proposal(proposal_id: str, accept: bool) -> str:
     # خبرة ومعرفة وليس مجرد ملف وحفظ"): a KNOWLEDGE-kind proposal is
     # itself a body of reference material Nova should learn, not a
     # capability that needs code — accepting it stores it directly in
-    # the real training pipeline (rag.store_verified_finding), never
-    # touching propose_code_change/file_path at all. This is the actual
-    # fix for proposal bc3b5d68dd's real failure mode: an Arabic-grammar
-    # finding became an unused static Python module instead of real
-    # trainable knowledge.
+    # the real training pipeline, never touching propose_code_change/
+    # file_path at all. This is the actual fix for proposal bc3b5d68dd's
+    # real failure mode: an Arabic-grammar finding became an unused
+    # static Python module instead of real trainable knowledge.
+    #
+    # Owner report, 2026-09-14 ("كيف نجعل هذا الاقتراح ليس مجرد اقتراح
+    # بسيط... يستفيد من كم هائل من المعلومات"): store_verified_finding
+    # alone stores exactly the one paragraph the owner read — real, but
+    # genuinely thin material for a weekly LoRA pass on a 7B model.
+    # rag.deep_learn_topic still stores that exact approved seed first
+    # (unchanged), then independently researches several real, web-
+    # grounded sub-angles of the same topic and stores each one too —
+    # turning one accepted proposal into several real knowledge entries
+    # instead of one, using the same trusted, already-verified pipeline
+    # every other real finding in this project goes through.
     if proposal.get("kind") == "KNOWLEDGE":
         content = proposal["finding"]
         if proposal.get("usefulness"):
             content += f"\nلماذا مفيد: {proposal['usefulness']}"
-        store_message = rag.store_verified_finding(proposal["topic"], content)
+        store_message = rag.deep_learn_topic(proposal["topic"], content)
         db.table("NovaSelfImprovementProposal").update(
             {"status": "ACCEPTED", "decided_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", proposal_id).execute()
