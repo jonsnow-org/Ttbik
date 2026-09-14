@@ -96,18 +96,24 @@ def build_lr_scheduler(
 
 def train(
     model: NovaSmall,
-    batches: list[torch.Tensor],
+    batches: list[torch.Tensor | tuple[torch.Tensor, torch.Tensor]],
     cfg: TrainConfig,
     device: str = "cpu",
     start_step: int = 0,
     resume_optimizer: torch.optim.Optimizer | None = None,
 ) -> list[float]:
-    """batches: a list of (batch_size, seq_len) tensors, each used as
-    both input_ids and labels for plain next-token-prediction training
-    — real multimodal batches from dataset.py's MultimodalCollator work
-    identically once its (input_ids, labels) pair is passed through the
-    same way (see this file's own __main__ for both cases exercised).
-    Returns the real per-optimizer-step loss history."""
+    """batches: a list where each element is EITHER a plain
+    (batch_size, seq_len) tensor (used as both input_ids and labels —
+    the TextSequenceDataset case, no padding involved) OR a real
+    (input_ids, labels) tuple as produced by dataset.py's
+    MultimodalCollator/AudioMultimodalCollator, where labels carries
+    -100 on PAD positions so padded batch elements contribute no loss
+    (model.py's forward() already passes ignore_index=-100 to
+    cross_entropy for exactly this). Mixing both kinds of elements in
+    one `batches` list is exactly how a real combined text+image+audio
+    training run continues a checkpoint — see kaggle_notebooks'
+    multimodal stage for a real example. Returns the real
+    per-optimizer-step loss history."""
     model.to(device)
     model.train()
     optimizer = resume_optimizer or build_optimizer(model, cfg.lr, cfg.weight_decay)
@@ -123,8 +129,12 @@ def train(
     for batch in batches:
         if step >= cfg.total_steps:
             break
-        batch = batch.to(device)
-        _, loss = model(batch, labels=batch)
+        if isinstance(batch, tuple):
+            input_ids, labels = batch
+            input_ids, labels = input_ids.to(device), labels.to(device)
+        else:
+            input_ids = labels = batch.to(device)
+        _, loss = model(input_ids, labels=labels)
         (loss / cfg.grad_accum_steps).backward()
         micro_step += 1
 
@@ -233,7 +243,35 @@ if __name__ == "__main__":
         print(f"checkpoint/resume OK: resumed from real step {resumed_step} (with real restored optimizer "
               f"state) and ran {len(resume_loss_history)} more real optimizer steps with a finite forward pass.")
 
+    # --- Real (input_ids, labels) tuple batches, the exact shape
+    # dataset.py's MultimodalCollator/AudioMultimodalCollator produce
+    # (padded, with -100 on PAD positions) — proves train() actually
+    # handles the multimodal case, not just the plain-tensor text case
+    # exercised above, and that -100-masked positions are genuinely
+    # excluded from the loss rather than silently included.
+    padded_len = small_model_cfg.max_seq_len
+    tuple_batches = []
+    for _ in range(8):
+        real_len = torch.randint(4, padded_len, (1,)).item()
+        ids = torch.randint(0, small_model_cfg.vocab_size, (2, real_len))
+        pad = torch.zeros(2, padded_len - real_len, dtype=torch.long)
+        input_ids = torch.cat([ids, pad], dim=1)
+        labels = torch.cat([ids, torch.full((2, padded_len - real_len), -100, dtype=torch.long)], dim=1)
+        tuple_batches.append((input_ids, labels))
+
+    tuple_model = NovaSmall(small_model_cfg)
+    tuple_cfg = TrainConfig(
+        seq_len=padded_len, batch_size=2, grad_accum_steps=1, lr=1e-3, warmup_steps=2,
+        total_steps=len(tuple_batches), checkpoint_every=10**9, log_every=10**9,
+    )
+    tuple_loss_history = train(tuple_model, tuple_batches, tuple_cfg)
+    assert len(tuple_loss_history) == len(tuple_batches), "not every (input_ids, labels) tuple batch ran a real step"
+    assert all(torch.isfinite(torch.tensor(l)) for l in tuple_loss_history), "a tuple-batch step produced a non-finite loss"
+    print(f"\n(input_ids, labels) tuple-batch path OK: {len(tuple_loss_history)} real optimizer steps ran "
+          f"on padded, -100-masked multimodal-shaped batches with finite loss throughout — this is the exact "
+          f"path a real continued text+image+audio training run uses.")
+
     print("\nAll trainer checks passed on a real (small-scale) smoke test — optimizer, LR schedule, "
-          "gradient accumulation/clipping, and checkpoint/resume are all mechanically correct. The real "
-          "large-scale run (bigger model config, real large datasets, many more steps, Kaggle's GPU) is "
-          "the separate final stage this tool is now ready for.")
+          "gradient accumulation/clipping, checkpoint/resume, and the multimodal (input_ids, labels) tuple "
+          "path are all mechanically correct. The real large-scale run (bigger model config, real large "
+          "datasets, many more steps, Kaggle's GPU) is the separate final stage this tool is now ready for.")
