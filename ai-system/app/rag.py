@@ -116,6 +116,15 @@ _chroma_client = chromadb.PersistentClient(
 )
 _embedder = embedding_functions.DefaultEmbeddingFunction()
 
+# Set for real by warm_up_embedder() once this process has actually
+# measured its own baseline — see that function's own comment. Starts
+# at 0 so an EARLY rehydration attempt (before warm-up has run, which
+# should not normally happen since main.py's startup handler calls
+# warm_up_embedder first) still gets a real ceiling relative to
+# whatever tiny baseline exists at that moment, never a hardcoded
+# number picked without measuring anything.
+_baseline_rss_mb = 0.0
+
 
 def _log_memory(tag: str) -> None:
     try:
@@ -136,9 +145,29 @@ def warm_up_embedder() -> None:
     into the image at build time — see that file's own comment) happens
     before Render ever routes real traffic to this container, not
     stacked on top of a live message's own memory/latency."""
+    global _baseline_rss_mb
     _log_memory("before embedder warm-up")
     _embedder(["تهيئة"])
     _log_memory("after embedder warm-up")
+    # Owner report, 2026-09-14 ("جعلتها تصمت في الخلفية فقط" — real
+    # evidence: EVERY rehydration since the previous fix logged "restored
+    # 0 of N" — a total, permanent, silent failure, not a safety margin):
+    # _MEMORY_SAFETY_CEILING_MB was a hardcoded 220MB, picked without
+    # checking it against this process's own real baseline — which is
+    # ~285.7MB right after THIS warm-up alone (loading the embedding
+    # model is not optional; that cost cannot go away). A ceiling BELOW
+    # the unavoidable baseline means the very first safety check in
+    # _add_in_chunks always fails, before a single document is ever
+    # embedded — rehydration was not made safer, it was disabled
+    # entirely, on every cold start, forever. Recording the REAL
+    # measured baseline here — instead of guessing another fixed number
+    # — lets the safety ceiling be computed relative to whatever this
+    # process's actual baseline turns out to be, so it can never again
+    # sit below a cost that hasn't even happened yet.
+    try:
+        _baseline_rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    except Exception:
+        _baseline_rss_mb = 0.0
 
 
 def warm_up_shared_collections() -> None:
@@ -325,7 +354,24 @@ def _truncate_for_embedding(text: str) -> str:
 # un-rehydrated for this run; the same rehydrate_* function tries again
 # (from scratch) on the next cold start, same as any other partial
 # failure already handled here.
-_MEMORY_SAFETY_CEILING_MB = 220
+#
+# Owner report, 2026-09-14 ("جعلتها تصمت في الخلفية فقط" — real evidence:
+# every rehydration after this shipped logged "restored 0 of N", a
+# TOTAL and PERMANENT failure, not a safety margin): this was a
+# hardcoded absolute 220MB, picked without checking it against this
+# process's own real baseline — which measures ~285.7MB right after the
+# embedder warm-up alone (an unavoidable cost, not something rehydration
+# added). A ceiling BELOW the baseline means the very first check in
+# _add_in_chunks always fails before a single document is ever
+# embedded — this didn't make rehydration safer, it silently disabled
+# it completely, on every cold start, hiding total failure behind a
+# log line that reads like routine caution. The margin below is now
+# added ON TOP OF warm_up_embedder's own measured baseline
+# (_baseline_rss_mb) instead of standing alone as an absolute number —
+# so it can never again sit below a cost that hasn't even happened yet,
+# regardless of what that baseline turns out to be on any given
+# instance or chromadb/onnxruntime version.
+_MEMORY_SAFETY_MARGIN_MB = 150
 
 # Owner report, 2026-09-14 ("حلل الكود كله من جذوره"، full re-audit
 # after several one-symptom-at-a-time fixes): main.py's own
@@ -374,14 +420,15 @@ def _add_in_chunks(collection, *, documents: list, ids: list, metadatas: list | 
     contradiction that made a total failure read as a success. Callers
     must now log the real returned count, not len(rows)."""
     documents = [_truncate_for_embedding(d) for d in documents]
+    ceiling_mb = _baseline_rss_mb + _MEMORY_SAFETY_MARGIN_MB
     for start in range(0, len(documents), _REHYDRATE_CHUNK_SIZE):
         end = start + _REHYDRATE_CHUNK_SIZE
         rss_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-        if rss_mb > _MEMORY_SAFETY_CEILING_MB:
+        if rss_mb > ceiling_mb:
             logger.warning(
-                "aborting rehydration early at %.1f MB (safety ceiling %d MB, real limit 512 MB) — "
-                "%d of %d documents not restored this run; will retry on the next cold start",
-                rss_mb, _MEMORY_SAFETY_CEILING_MB, len(documents) - start, len(documents),
+                "aborting rehydration early at %.1f MB (baseline %.1f MB + margin %d MB = ceiling %.1f MB, "
+                "real limit 512 MB) — %d of %d documents not restored this run; will retry on the next cold start",
+                rss_mb, _baseline_rss_mb, _MEMORY_SAFETY_MARGIN_MB, ceiling_mb, len(documents) - start, len(documents),
             )
             return start
         _log_memory(f"before chunk {start}-{min(end, len(documents))} of {len(documents)}")
