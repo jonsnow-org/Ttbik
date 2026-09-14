@@ -59,17 +59,45 @@ class ContentSafetyFilter:
     this model — see model.py's design history. Filtering it out of
     the TRAINING DATA (so the model never learns it as a pattern in the
     first place) is more robust than relying only on inference-time
-    refusal behavior learned from limited examples."""
+    refusal behavior learned from limited examples.
+
+    Matching is done on WHOLE WORDS (regex \\b...\\b), not raw
+    substrings — a real, directly-identified false positive otherwise:
+    plain `"nude" in text.lower()` matches inside "denuded" (a real
+    English pathology term — "denuded epithelium"), silently discarding
+    legitimate medical text that has nothing to do with the blocked
+    term. Word-boundary matching fixes every case where a blocked term
+    is embedded INSIDE an unrelated longer word.
+
+    What this does NOT fix, stated honestly rather than glossed over:
+    a blocked term used as its OWN standalone word but in a different,
+    legitimate sense (e.g. Arabic "عاري" meaning "bare/exposed" in a
+    real clinical phrase like "الجذر العاري" — an exposed tooth root, a
+    real periodontics term) still matches, because the word itself is
+    genuinely ambiguous, not misparsed. No string-matching filter can
+    resolve that — it needs real contextual judgment. Concretely, the
+    practical stakes of that residual case are small: it costs losing
+    ONE document/line from a large real corpus (a data-quality/coverage
+    question), not blocking any user or capability — very different
+    from the same ambiguity showing up at inference time in serve.py's
+    authenticated endpoints, which is why those endpoints (see
+    serve.py) rely on organization accountability instead, not this
+    filter."""
 
     def __init__(self, extra_blocked_terms: set[str] | None = None):
+        import re
+
         self._blocked_terms = set(_UNSAFE_KEYWORDS)
         if extra_blocked_terms:
             self._blocked_terms |= extra_blocked_terms
+        self._patterns = [
+            (term, re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE))
+            for term in self._blocked_terms
+        ]
 
     def check_text(self, text: str) -> SafetyVerdict:
-        lowered = text.lower()
-        for term in self._blocked_terms:
-            if term.lower() in lowered:
+        for term, pattern in self._patterns:
+            if pattern.search(text):
                 return SafetyVerdict(is_safe=False, reason=f"matched blocked term: {term!r}")
         return SafetyVerdict(is_safe=True)
 
@@ -386,6 +414,22 @@ if __name__ == "__main__":
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+
+        # --- 0. ContentSafetyFilter: word-boundary matching, not raw
+        #        substring — a real false positive this fixes: plain
+        #        substring matching flagged "denuded" (a real pathology
+        #        term, "denuded epithelium") just because it contains
+        #        "nude". The blocked term itself, as its own word, must
+        #        still be caught.
+        safety_filter = ContentSafetyFilter()
+        assert safety_filter.check_text("the biopsy showed denuded epithelium in the affected area").is_safe, (
+            "false positive: 'denuded' must NOT match the blocked term 'nude' embedded inside it"
+        )
+        assert not safety_filter.check_text("an explicit nude image was uploaded").is_safe, (
+            "true positive missed: the standalone word 'nude' must still be caught"
+        )
+        print("ContentSafetyFilter OK: word-boundary matching lets 'denuded' (real medical vocabulary) "
+              "through while still catching the standalone blocked word 'nude'.")
 
         # --- 1. Real text pipeline: PER-LINE safety filtering ----------
         # Mirrors the real shard format data_acquisition.py produces:
