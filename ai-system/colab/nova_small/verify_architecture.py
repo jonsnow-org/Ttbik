@@ -148,16 +148,16 @@ def forward_numpy(vocab_size, d_model, n_layers, n_heads, n_kv_heads, mlp_hidden
 
 
 def main() -> None:
-    # TOTAL_VOCAB_SIZE from model.py (40,208 = 32000 text + 8192 image +
-    # 0 audio(reserved) + 16 special) — kept as a literal here rather than
+    # TOTAL_VOCAB_SIZE from model.py (42,256 = 32000 text + 8192 image +
+    # 2048 audio + 16 special) — kept as a literal here rather than
     # imported so this stays a genuinely independent cross-check, not a
     # reimplementation that would silently agree with a bug in model.py's
     # own constant.
-    cfg = dict(vocab_size=40208, d_model=1280, n_layers=26, n_heads=20, n_kv_heads=10, mlp_hidden=3328)
+    cfg = dict(vocab_size=42256, d_model=1280, n_layers=26, n_heads=20, n_kv_heads=10, mlp_hidden=3328)
 
     n_params = count_parameters_analytic(**cfg)
     print(f"Analytic parameter count: {n_params:,} ({n_params / 1e6:.1f}M)")
-    target = 511_596_800  # real torch-measured count in model.py's own __main__ block
+    target = 514_218_240  # real torch-measured count in model.py's own __main__ block
     tolerance = 0.001  # this must match almost exactly, not just be "close" — it's the same math, not an estimate
     assert abs(n_params - target) / target < tolerance, (
         f"parameter count {n_params:,} does not match model.py's real torch-measured {target:,} "

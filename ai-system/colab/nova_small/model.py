@@ -62,17 +62,24 @@ sentence, it is the exact same autoregressive mechanism, which is the
 whole point: the actual creative/generative intelligence for every
 modality lives here, once, not once per modality.
 
-Vocabulary layout (total 40,208 entries; see the constants below):
-  [0, TEXT_VOCAB_SIZE)                                 -> real text tokens
-  [TEXT_VOCAB_SIZE, TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE)   -> image_tokenizer.py's codebook ids, offset
-  [..., + NUM_SPECIAL_TOKENS)                           -> control tokens (see SpecialTokens below);
-                                                            VIDEO/AUDIO ranges reserved now, populated
-                                                            when audio_tokenizer.py (video reuses the
-                                                            image codebook per-frame) is built next
-Expanding the vocabulary this way (32000 -> 40208) is the "قليلاً"
-(slight) size increase the owner explicitly approved: 511.6M
-parameters total, up from 501.1M text-only — see this file's own
-__main__ block and verify_architecture.py for the re-verified count.
+Vocabulary layout (total 42,256 entries; see the constants below):
+  [0, TEXT_VOCAB_SIZE)                                              -> real text tokens
+  [TEXT_VOCAB_SIZE, TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE)                -> image_tokenizer.py's codebook ids, offset
+  [TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE, ...+AUDIO_VOCAB_SIZE)           -> audio_tokenizer.py's codebook ids, offset
+  [..., + NUM_SPECIAL_TOKENS)                                        -> control tokens (see SpecialTokens below)
+Video has no vocabulary range of its own: per owner spec, it reuses
+the image codebook per-frame (a video is just a sequence of
+<IMAGE_START>...<IMAGE_END> blocks wrapped in one outer
+<VIDEO_START>...<VIDEO_END>, exactly what video_tokenizer.py builds) —
+see that file's own docstring.
+
+Expanding the vocabulary (32000 text-only -> 40208 with images ->
+42256 with audio) is the "قليلاً" (slight) size increase the owner
+explicitly approved each step, in service of correctness: 514.2M
+parameters total now, up from 501.1M text-only — see this file's own
+__main__ block, verify_architecture.py, and
+verify_multimodal_integration.py for the re-verified counts and a real
+end-to-end proof across every modality.
 """
 
 from dataclasses import dataclass
@@ -89,8 +96,8 @@ import torch.nn.functional as F
 # silently corrupt every generated image without ever raising an error.
 TEXT_VOCAB_SIZE = 32000
 IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
-AUDIO_VOCAB_SIZE = 0  # reserved; becomes nonzero once audio_tokenizer.py exists
-NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities
+AUDIO_VOCAB_SIZE = 2048  # must equal audio_tokenizer.AudioTokenizerConfig.num_codes
+NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities (e.g. per-frame video markers)
 TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
 
 
@@ -112,6 +119,43 @@ class SpecialTokens:
     AUDIO_END = _base + 8
 
 
+IMAGE_VOCAB_BASE = TEXT_VOCAB_SIZE
+AUDIO_VOCAB_BASE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE
+
+
+def _offset_to_vocab_id(token_id: int | torch.Tensor, base: int) -> int | torch.Tensor:
+    """Shared arithmetic behind every modality's *_token_id_to_vocab_id()
+    below — kept as ONE function (rather than duplicated per modality,
+    which is exactly how the tensor-range-check bug below first slipped
+    in) since every modality does the identical thing: add a fixed base
+    offset so its own codebook ids occupy a reserved slice of the one
+    shared vocabulary."""
+    return base + token_id
+
+
+def _vocab_id_to_offset_token_id(
+    vocab_id: int | torch.Tensor, base: int, size: int, range_name: str
+) -> int | torch.Tensor:
+    """Shared arithmetic behind every modality's vocab_id_to_*_token_id()
+    below. A Python chained comparison (`a <= x < b`) on a multi-element
+    tensor raises "ambiguous truth value" instead of checking
+    element-wise — a real bug first found here for images, when a batch
+    of ~256 per-image ids (never a single scalar) is exactly how real
+    training/inference always calls this. Centralizing the check here
+    means that fix applies to every modality, including this one for
+    audio, rather than needing to be independently remembered and
+    re-applied per modality."""
+    if isinstance(vocab_id, torch.Tensor):
+        in_range = (vocab_id >= base) & (vocab_id < base + size)
+        if not torch.all(in_range):
+            bad = vocab_id[~in_range]
+            raise ValueError(f"vocab ids {bad.tolist()} are not in the {range_name}-token range")
+    else:
+        if not (base <= vocab_id < base + size):
+            raise ValueError(f"vocab id {vocab_id} is not in the {range_name}-token range")
+    return vocab_id - base
+
+
 def image_token_id_to_vocab_id(image_token_id: int | torch.Tensor) -> int | torch.Tensor:
     """Converts an image_tokenizer.py codebook id (in [0, IMAGE_VOCAB_SIZE))
     to this model's shared vocabulary id — the offset every image token
@@ -119,26 +163,28 @@ def image_token_id_to_vocab_id(image_token_id: int | torch.Tensor) -> int | torc
     or is trained to predict. Accepts a plain int or a real tensor of any
     shape (real usage is always a batch of ~256 ids per image, never one
     id at a time)."""
-    return TEXT_VOCAB_SIZE + image_token_id
+    return _offset_to_vocab_id(image_token_id, IMAGE_VOCAB_BASE)
 
 
 def vocab_id_to_image_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tensor:
     """The inverse of image_token_id_to_vocab_id — used when reading
     this model's own generated output back out to hand to
-    image_tokenizer.decode(). Accepts a plain int or a real tensor of any
-    shape; a Python chained comparison (`a <= x < b`) on a multi-element
-    tensor raises "ambiguous truth value" instead of checking
-    element-wise, so the two input kinds need genuinely different range
-    checks here, not just different call sites."""
-    if isinstance(vocab_id, torch.Tensor):
-        in_range = (vocab_id >= TEXT_VOCAB_SIZE) & (vocab_id < TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE)
-        if not torch.all(in_range):
-            bad = vocab_id[~in_range]
-            raise ValueError(f"vocab ids {bad.tolist()} are not in the image-token range")
-    else:
-        if not (TEXT_VOCAB_SIZE <= vocab_id < TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE):
-            raise ValueError(f"vocab id {vocab_id} is not in the image-token range")
-    return vocab_id - TEXT_VOCAB_SIZE
+    image_tokenizer.decode()."""
+    return _vocab_id_to_offset_token_id(vocab_id, IMAGE_VOCAB_BASE, IMAGE_VOCAB_SIZE, "image")
+
+
+def audio_token_id_to_vocab_id(audio_token_id: int | torch.Tensor) -> int | torch.Tensor:
+    """Converts an audio_tokenizer.py codebook id (in [0, AUDIO_VOCAB_SIZE))
+    to this model's shared vocabulary id — the audio counterpart to
+    image_token_id_to_vocab_id() above."""
+    return _offset_to_vocab_id(audio_token_id, AUDIO_VOCAB_BASE)
+
+
+def vocab_id_to_audio_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tensor:
+    """The inverse of audio_token_id_to_vocab_id — used when reading
+    this model's own generated output back out to hand to
+    audio_tokenizer.decode()."""
+    return _vocab_id_to_offset_token_id(vocab_id, AUDIO_VOCAB_BASE, AUDIO_VOCAB_SIZE, "audio")
 
 
 @dataclass
@@ -346,11 +392,12 @@ class NovaSmall(nn.Module):
 
 def build_default_model() -> NovaSmall:
     """The owner's actual ~500M target configuration, now including the
-    shared text+image (+reserved audio/video) vocabulary — see this
-    module's own docstring for how these exact numbers were reached
-    (511.6M parameters with the expanded vocabulary, verified both here
-    with real torch below and independently in
-    nova_small/verify_architecture.py without needing torch/GPU)."""
+    shared text+image+audio (video reuses the image codebook per-frame)
+    vocabulary — see this module's own docstring for how these exact
+    numbers were reached (514.2M parameters with the expanded
+    vocabulary, verified both here with real torch below and
+    independently in nova_small/verify_architecture.py without needing
+    torch/GPU)."""
     cfg = NovaSmallConfig(
         vocab_size=TOTAL_VOCAB_SIZE,
         d_model=1280,
