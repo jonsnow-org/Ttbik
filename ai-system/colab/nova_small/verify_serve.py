@@ -184,16 +184,35 @@ def main() -> None:
                               headers={"X-Nova-Org-Key": valid_key}, timeout=10)
         assert resp.status_code == 400, f"an unknown category should be rejected with 400, got {resp.status_code}"
 
+        # Real clinical notes, including genital/anatomical terms a
+        # keyword filter can't tell apart from misuse, must NOT be
+        # blocked here — by design, this field is not filtered.
+        # Accountability is the organization's revocable key and the
+        # reviewed usage log, exercised right below.
         resp = requests.post(f"{_BASE_URL}/generate/medical/image",
-                              json={"category": "labor_stage_2_delivery", "notes": "explicit sexual content"},
-                              headers={"X-Nova-Org-Key": valid_key}, timeout=10)
-        assert resp.status_code == 400, f"unsafe notes should be rejected with 400, got {resp.status_code}"
-        print("/generate/medical/image rejection OK: an unknown category and unsafe notes are both "
-              "rejected with 400 — free text cannot smuggle in an arbitrary description.")
+                              json={"category": "labor_stage_2_delivery",
+                                    "notes": "crowning visible at the vaginal opening, perineum intact"},
+                              headers={"X-Nova-Org-Key": valid_key}, timeout=60)
+        resp.raise_for_status()
+        assert resp.headers["content-type"] == "image/png"
+        print("/generate/medical/image notes OK: real clinical notes using real anatomical terms are NOT "
+              "blocked — the fixed category (rejected above when unknown) is the only enforced gate on notes.")
 
         resp = requests.post(f"{_BASE_URL}/generate/medical/image", json={"category": "labor_stage_2_delivery"}, timeout=10)
         assert resp.status_code == 401, f"the medical endpoint must require auth too, got {resp.status_code}"
         print("/generate/medical/image auth OK: also requires a valid organization key, like the /ask/* endpoints.")
+
+        # --- real accountability check: since these endpoints no
+        #     longer filter free text, the usage log must actually
+        #     contain the real request text, or there is nothing for an
+        #     operator to review to catch misuse and revoke a key.
+        usage = key_store.get_usage_log(key_store.verify_api_key(valid_key).org_id)
+        logged_details = [entry.detail or "" for entry in usage]
+        assert any("what is this?" in d for d in logged_details), "the /ask/image question must be in the usage log"
+        assert any("vaginal opening" in d for d in logged_details), "the /generate/medical/image notes must be in the usage log"
+        print(f"usage log OK: {len(usage)} real entries recorded for this organization, including the real "
+              f"request text — this is the real data a trusted operator reviews to catch an organization "
+              f"asking for things outside its stated purpose, and revoke its key.")
 
     finally:
         server.terminate()

@@ -105,16 +105,21 @@ _safety_filter = ContentSafetyFilter()
 
 
 def _require_safe_text(text: str) -> None:
-    """A real, enforced check every free-text prompt/question goes
-    through BEFORE any generation happens — this was a genuine gap
-    until now: none of the endpoints below applied any content
-    filtering at all, only the offline training-data pipeline did.
-    Honestly scoped: this keyword filter can catch an explicit request
-    outright, but it CANNOT reliably tell a clinical description of a
-    real medical event from a sexualized description that reuses the
-    same anatomical vocabulary — that distinction needs judgment a
-    string match doesn't have. This is a real safety net, not proof
-    that every unsafe prompt gets caught."""
+    """Applied ONLY to the fully anonymous, unauthenticated endpoints
+    below (/generate/text, /generate/image, /generate/audio,
+    /generate/video) — there is no organization key on those, so no
+    account to hold responsible and nothing to revoke; this keyword
+    filter is the only real check available there. It is honestly
+    scoped: it can catch an explicit request outright, but it CANNOT
+    reliably tell a clinical description of a real medical event from a
+    sexualized one that reuses the same anatomical vocabulary — that
+    distinction needs judgment a string match doesn't have. For that
+    reason it is deliberately NOT applied to the authenticated
+    organization endpoints (/ask/image, /ask/video,
+    /generate/medical/image) — those rely instead on a real,
+    individually revocable per-organization key plus a real reviewed
+    usage log (see api_keys.py and medical_generation_templates.py for
+    why)."""
     verdict = _safety_filter.check_text(text)
     if not verdict.is_safe:
         raise HTTPException(status_code=400, detail=f"prompt rejected by content safety filter: {verdict.reason}")
@@ -343,6 +348,11 @@ def generate_medical_image_endpoint(
     req: MedicalGenerationRequest,
     x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
 ) -> Response:
+    # No content filter on req.notes here by design — see
+    # medical_generation_templates.py's docstring: accountability for
+    # this endpoint is the organization's own revocable key plus the
+    # real request text recorded below for operator review, not a
+    # keyword match that can't tell real clinical language from misuse.
     organization = _require_organization(x_nova_org_key)
     try:
         prompt_result = build_structured_prompt(req.category, req.notes)
@@ -366,7 +376,11 @@ def generate_medical_image_endpoint(
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    _api_key_store.record_usage(organization.org_id, "/generate/medical/image")
+    # Real request detail logged for review — the actual category and
+    # any notes, so a trusted operator can see, per organization,
+    # whether requests stay within that organization's stated purpose.
+    log_detail = f"category={req.category}" + (f" notes={req.notes}" if req.notes else "")
+    _api_key_store.record_usage(organization.org_id, "/generate/medical/image", detail=log_detail)
     return Response(content=buffer.getvalue(), media_type="image/png")
 
 
@@ -387,8 +401,14 @@ async def ask_image_endpoint(
     question: str = Form(...),
     x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
 ) -> dict:
+    # No content filter on `question` here by design — see
+    # medical_generation_templates.py's docstring: a doctor describing
+    # or asking about real anatomy (including genital anatomy, for real
+    # clinical reasons) must not be blocked by a keyword match that
+    # can't tell that apart from misuse. Accountability is the
+    # organization's own revocable key plus the real question text
+    # recorded below for operator review.
     organization = _require_organization(x_nova_org_key)
-    _require_safe_text(question)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -410,7 +430,7 @@ async def ask_image_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    _api_key_store.record_usage(organization.org_id, "/ask/image")
+    _api_key_store.record_usage(organization.org_id, "/ask/image", detail=f"question={question}")
     return {"organization": organization.name, "answer": answer}
 
 
@@ -421,8 +441,10 @@ async def ask_video_endpoint(
     num_frames: int = Form(2),
     x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
 ) -> dict:
+    # Same real, deliberate choice as /ask/image above: no content
+    # filter on `question` — accountability is the organization's key
+    # and the reviewed usage log, not a keyword match.
     organization = _require_organization(x_nova_org_key)
-    _require_safe_text(question)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -456,7 +478,7 @@ async def ask_video_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    _api_key_store.record_usage(organization.org_id, "/ask/video")
+    _api_key_store.record_usage(organization.org_id, "/ask/video", detail=f"question={question}")
     return {"organization": organization.name, "answer": answer}
 
 

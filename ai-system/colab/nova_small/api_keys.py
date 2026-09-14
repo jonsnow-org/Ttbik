@@ -93,6 +93,7 @@ class OrganizationKeyStore:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     org_id INTEGER NOT NULL,
                     endpoint TEXT NOT NULL,
+                    detail TEXT,
                     timestamp REAL NOT NULL,
                     FOREIGN KEY (org_id) REFERENCES organizations(org_id)
                 )
@@ -137,19 +138,50 @@ class OrganizationKeyStore:
         with self._connect() as conn:
             conn.execute("UPDATE organizations SET revoked = 1 WHERE org_id = ?", (org_id,))
 
-    def record_usage(self, org_id: int, endpoint: str) -> None:
+    def record_usage(self, org_id: int, endpoint: str, detail: str | None = None) -> None:
         """A real, queryable audit trail — which organization used
-        which endpoint, and when. A single shared secret could never
-        tell you this at all."""
+        which endpoint, when, and (for the authenticated medical/
+        research endpoints, which no longer run free text through a
+        content filter — see serve.py) what the actual request text
+        was. This is what makes post-hoc review possible at all: an
+        operator can pull an organization's real request history via
+        get_usage_log() and decide, from real content, whether that
+        organization is asking for things outside its stated purpose —
+        and revoke its key if so. Without storing `detail`, there would
+        be nothing to review and "monitoring" would be a name for doing
+        nothing."""
         now = time.time()
         with self._connect() as conn:
-            conn.execute("INSERT INTO usage_log (org_id, endpoint, timestamp) VALUES (?, ?, ?)", (org_id, endpoint, now))
+            conn.execute(
+                "INSERT INTO usage_log (org_id, endpoint, detail, timestamp) VALUES (?, ?, ?, ?)",
+                (org_id, endpoint, detail, now),
+            )
             conn.execute("UPDATE organizations SET last_used_at = ? WHERE org_id = ?", (now, org_id))
 
     def usage_count(self, org_id: int) -> int:
         with self._connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS c FROM usage_log WHERE org_id = ?", (org_id,)).fetchone()
         return row["c"]
+
+    def get_usage_log(self, org_id: int, limit: int = 200) -> list["UsageLogEntry"]:
+        """Real request history for one organization, newest first —
+        the actual tool a trusted operator uses to spot an organization
+        asking for things unrelated to its stated purpose, per the
+        revoke-on-misuse model this project now relies on instead of a
+        live content filter for these endpoints."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT endpoint, detail, timestamp FROM usage_log WHERE org_id = ? ORDER BY timestamp DESC LIMIT ?",
+                (org_id, limit),
+            ).fetchall()
+        return [UsageLogEntry(endpoint=r["endpoint"], detail=r["detail"], timestamp=r["timestamp"]) for r in rows]
+
+
+@dataclass
+class UsageLogEntry:
+    endpoint: str
+    detail: str | None
+    timestamp: float
 
 
 if __name__ == "__main__":
@@ -181,12 +213,18 @@ if __name__ == "__main__":
         assert store.verify_api_key(key_b) is not None, "revoking org A must NOT affect org B"
         print("revoke_organization OK: revoking one organization's key does not touch any other organization's access.")
 
-        # --- 4. Real usage logging ------------------------------------
+        # --- 4. Real usage logging, including the real request text so
+        #        post-hoc review is actually possible ------------------
         org_b = store.verify_api_key(key_b)
-        store.record_usage(org_b.org_id, "/ask/image")
-        store.record_usage(org_b.org_id, "/ask/video")
+        store.record_usage(org_b.org_id, "/ask/image", detail="what is this structure?")
+        store.record_usage(org_b.org_id, "/ask/video", detail="describe the procedure shown")
         assert store.usage_count(org_b.org_id) == 2
-        print("record_usage OK: real, queryable audit trail — 2 real calls logged for org B.")
+        log = store.get_usage_log(org_b.org_id)
+        assert len(log) == 2
+        assert log[0].endpoint == "/ask/video" and log[0].detail == "describe the procedure shown"
+        assert log[1].endpoint == "/ask/image" and log[1].detail == "what is this structure?"
+        print("record_usage/get_usage_log OK: 2 real calls logged for org B, newest first, WITH the real "
+              "request text — this is the real data an operator reviews to catch misuse and revoke a key.")
 
         # --- 5. Persistence: a FRESH store instance pointed at the same
         #        db file must see the exact same state, proving this is
