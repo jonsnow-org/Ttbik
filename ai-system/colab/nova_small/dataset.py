@@ -29,11 +29,14 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import soundfile as sf
 import torch
 from PIL import Image
 
+from audio_tokenizer import AudioTokenizer
 from image_tokenizer import ImageTokenizer
-from model import SpecialTokens, TEXT_VOCAB_SIZE, image_token_id_to_vocab_id
+from mel_spectrogram import waveform_to_mel_spectrogram
+from model import SpecialTokens, TEXT_VOCAB_SIZE, audio_token_id_to_vocab_id, image_token_id_to_vocab_id
 from text_tokenizer import NovaTextTokenizer
 
 # A real, working baseline — see this module's own docstring for why it
@@ -168,6 +171,57 @@ class ImageCaptionDataset(torch.utils.data.Dataset):
         return caption, tensor
 
 
+class AudioTranscriptDataset(torch.utils.data.Dataset):
+    """The audio counterpart to ImageCaptionDataset — real (audio
+    file, transcript) pairs. manifest_path is a JSONL file, one
+    {"audio": "<path>", "sentence": "<text>"} object per line (the
+    exact same shape data_acquisition.py's stream_common_voice_arabic
+    and multimodal_media_analysis.py's analyze_and_store_audio already
+    write), paths resolved relative to the manifest's own directory.
+    Converts each real .wav file to a real mel-spectrogram via
+    mel_spectrogram.py (no torchaudio dependency — checked directly to
+    be unavailable for this project's torch build)."""
+
+    def __init__(
+        self,
+        manifest_path: str,
+        n_mels: int,
+        segment_frames: int,
+        safety_filter: ContentSafetyFilter | None = None,
+    ):
+        safety_filter = safety_filter or ContentSafetyFilter()
+        manifest_dir = Path(manifest_path).parent
+        self.n_mels = n_mels
+        self.segment_frames = segment_frames
+        self.entries: list[tuple[Path, str]] = []
+        skipped = 0
+        with open(manifest_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                verdict = safety_filter.check_text(record["sentence"])
+                if not verdict.is_safe:
+                    skipped += 1
+                    continue
+                self.entries.append((manifest_dir / record["audio"], record["sentence"]))
+        self.skipped_entries = skipped
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def __getitem__(self, idx: int) -> tuple[str, torch.Tensor]:
+        audio_path, transcript = self.entries[idx]
+        waveform, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1)  # real stereo-to-mono downmix, not just dropping a channel
+        mel = waveform_to_mel_spectrogram(
+            torch.from_numpy(waveform), sample_rate, self.n_mels, self.segment_frames
+        )
+        return transcript, mel
+
+
 class MultimodalCollator:
     """Turns a batch of ImageCaptionDataset's raw (caption, image)
     pairs into the exact padded (input_ids, labels) tensors
@@ -175,31 +229,60 @@ class MultimodalCollator:
     <IMAGE_START>, real offset image-codebook ids from a FROZEN,
     already-trained image_tokenizer, real <IMAGE_END>, then PAD out to
     the batch's longest sequence with loss ignored (-100) on PAD
-    positions so padding never influences the loss."""
+    positions so padding never influences the loss.
 
-    def __init__(self, text_tokenizer: NovaTextTokenizer, image_tokenizer: ImageTokenizer):
+    Owner spec, 2026-09-14 ("فاهم شيء في النموذج هو الرؤية والتحليل...
+    يجب ان يكون كاملا" — vision UNDERSTANDING, not just generation,
+    must be complete): a caption-then-image sequence only ever teaches
+    NovaSmall to predict image tokens FROM a caption (generation).
+    Predicting a caption FROM image tokens (real image understanding —
+    "what does this picture show") needs the REVERSE ordering as real
+    training data too — nothing else about the architecture changes,
+    since both directions are just next-token prediction over the same
+    shared autoregressive sequence (see model.py's own docstring on
+    why this is possible with no separate vision-understanding module).
+    both_directions=True (the default) builds BOTH orderings from every
+    (image, caption) pair, so the same training run teaches generation
+    and understanding together rather than only ever reinforcing one.
+    See verify_bidirectional_vision.py for direct, separate evidence
+    that both capabilities actually improve with training, not just
+    one of them."""
+
+    def __init__(self, text_tokenizer: NovaTextTokenizer, image_tokenizer: ImageTokenizer, both_directions: bool = True):
         self.text_tokenizer = text_tokenizer
         self.image_tokenizer = image_tokenizer
+        self.both_directions = both_directions
 
-    @torch.no_grad()
-    def __call__(self, batch: list[tuple[str, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+    @staticmethod
+    def build_generation_sequence(caption_ids: list[int], image_ids: list[int]) -> list[int]:
+        """caption -> image: given the caption, continue with image
+        tokens — the generation direction."""
+        return (
+            [SpecialTokens.BOS] + caption_ids
+            + [SpecialTokens.IMAGE_START] + image_ids + [SpecialTokens.IMAGE_END, SpecialTokens.EOS]
+        )
+
+    @staticmethod
+    def build_understanding_sequence(caption_ids: list[int], image_ids: list[int]) -> list[int]:
+        """image -> caption: given the image, continue with a caption —
+        the understanding/captioning direction."""
+        return (
+            [SpecialTokens.BOS, SpecialTokens.IMAGE_START] + image_ids + [SpecialTokens.IMAGE_END]
+            + caption_ids + [SpecialTokens.EOS]
+        )
+
+    def encode_batch_images(self, batch: list[tuple[str, torch.Tensor]]) -> torch.Tensor:
+        """(batch, tokens_per_image) real offset image-codebook ids —
+        exposed separately so verify_bidirectional_vision.py can build
+        isolated single-direction eval batches with the exact same
+        frozen tokenizer, not a second, possibly-inconsistent copy of
+        this encoding step."""
         images = torch.stack([image for _, image in batch], dim=0)
-        image_token_grids = self.image_tokenizer.encode(images)  # (batch, grid, grid), the FROZEN tokenizer's own codes
-        tokens_per_image = self.image_tokenizer.cfg.tokens_per_image
-        offset_image_tokens = image_token_id_to_vocab_id(image_token_grids.view(images.shape[0], -1))
+        image_token_grids = self.image_tokenizer.encode(images)
+        return image_token_id_to_vocab_id(image_token_grids.view(images.shape[0], -1))
 
-        sequences = []
-        for (caption, _), image_ids in zip(batch, offset_image_tokens):
-            caption_ids = self.text_tokenizer.encode(caption)
-            sequence = (
-                [SpecialTokens.BOS]
-                + caption_ids
-                + [SpecialTokens.IMAGE_START]
-                + image_ids.tolist()
-                + [SpecialTokens.IMAGE_END, SpecialTokens.EOS]
-            )
-            sequences.append(sequence)
-
+    @staticmethod
+    def _pad_sequences(sequences: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
         max_len = max(len(s) for s in sequences)
         input_ids = torch.full((len(sequences), max_len), SpecialTokens.PAD, dtype=torch.long)
         labels = torch.full((len(sequences), max_len), -100, dtype=torch.long)
@@ -207,6 +290,75 @@ class MultimodalCollator:
             input_ids[i, : len(seq)] = torch.tensor(seq, dtype=torch.long)
             labels[i, : len(seq)] = torch.tensor(seq, dtype=torch.long)
         return input_ids, labels
+
+    @torch.no_grad()
+    def __call__(self, batch: list[tuple[str, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+        offset_image_tokens = self.encode_batch_images(batch)
+
+        sequences = []
+        for (caption, _), image_ids in zip(batch, offset_image_tokens):
+            caption_ids = self.text_tokenizer.encode(caption)
+            image_ids_list = image_ids.tolist()
+            sequences.append(self.build_generation_sequence(caption_ids, image_ids_list))
+            if self.both_directions:
+                sequences.append(self.build_understanding_sequence(caption_ids, image_ids_list))
+
+        return self._pad_sequences(sequences)
+
+
+class AudioMultimodalCollator:
+    """The audio counterpart to MultimodalCollator — same bidirectional
+    principle (owner spec: audio understanding/analysis, not just
+    generation, "يجب ان يكون كاملا"): transcript-then-audio teaches
+    text-to-speech generation (already built via audio_tokenizer.py);
+    audio-then-transcript teaches real speech UNDERSTANDING
+    (transcription) — both from the one shared autoregressive
+    sequence, both_directions=True by default builds both from every
+    (audio, transcript) pair."""
+
+    def __init__(self, text_tokenizer: NovaTextTokenizer, audio_tokenizer: AudioTokenizer, both_directions: bool = True):
+        self.text_tokenizer = text_tokenizer
+        self.audio_tokenizer = audio_tokenizer
+        self.both_directions = both_directions
+
+    @staticmethod
+    def build_generation_sequence(transcript_ids: list[int], audio_ids: list[int]) -> list[int]:
+        """transcript -> audio: text-to-speech direction."""
+        return (
+            [SpecialTokens.BOS] + transcript_ids
+            + [SpecialTokens.AUDIO_START] + audio_ids + [SpecialTokens.AUDIO_END, SpecialTokens.EOS]
+        )
+
+    @staticmethod
+    def build_understanding_sequence(transcript_ids: list[int], audio_ids: list[int]) -> list[int]:
+        """audio -> transcript: speech-recognition/understanding direction."""
+        return (
+            [SpecialTokens.BOS, SpecialTokens.AUDIO_START] + audio_ids + [SpecialTokens.AUDIO_END]
+            + transcript_ids + [SpecialTokens.EOS]
+        )
+
+    def encode_batch_audio(self, batch: list[tuple[str, torch.Tensor]]) -> torch.Tensor:
+        mels = torch.stack([mel for _, mel in batch], dim=0)
+        audio_token_grids = self.audio_tokenizer.encode(mels)
+        return audio_token_id_to_vocab_id(audio_token_grids.view(mels.shape[0], -1))
+
+    @staticmethod
+    def _pad_sequences(sequences: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:
+        return MultimodalCollator._pad_sequences(sequences)
+
+    @torch.no_grad()
+    def __call__(self, batch: list[tuple[str, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+        offset_audio_tokens = self.encode_batch_audio(batch)
+
+        sequences = []
+        for (transcript, _), audio_ids in zip(batch, offset_audio_tokens):
+            transcript_ids = self.text_tokenizer.encode(transcript)
+            audio_ids_list = audio_ids.tolist()
+            sequences.append(self.build_generation_sequence(transcript_ids, audio_ids_list))
+            if self.both_directions:
+                sequences.append(self.build_understanding_sequence(transcript_ids, audio_ids_list))
+
+        return self._pad_sequences(sequences)
 
 
 if __name__ == "__main__":
@@ -274,5 +426,51 @@ if __name__ == "__main__":
         print(f"end-to-end OK: real files -> dataset -> collator -> NovaSmall.forward() -> finite loss "
               f"({loss.item():.4f}).")
 
+        # --- 4. Real audio+transcript pipeline: safety filtering + collate
+        from audio_tokenizer import AudioTokenizerConfig
+        import numpy as np
+
+        audio_tokenizer_cfg = AudioTokenizerConfig(
+            n_mels=16, segment_frames=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=64
+        )
+        audio_tokenizer = AudioTokenizer(audio_tokenizer_cfg)
+
+        sample_rate = 16000
+        for i, freq in enumerate([220, 440]):
+            samples = (0.3 * np.sin(2 * np.pi * freq * np.linspace(0, 0.5, int(sample_rate * 0.5)))).astype("float32")
+            sf.write(str(tmp / f"clip{i}.wav"), samples, sample_rate)
+        unsafe_samples = (0.1 * np.sin(2 * np.pi * 880 * np.linspace(0, 0.5, int(sample_rate * 0.5)))).astype("float32")
+        sf.write(str(tmp / "clip2.wav"), unsafe_samples, sample_rate)
+
+        audio_manifest_path = tmp / "audio_manifest.jsonl"
+        with open(audio_manifest_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"audio": "clip0.wav", "sentence": "a low tone"}) + "\n")
+            f.write(json.dumps({"audio": "clip1.wav", "sentence": "a higher tone"}) + "\n")
+            f.write(json.dumps({"audio": "clip2.wav", "sentence": "nsfw content here"}) + "\n")  # must be filtered
+
+        audio_dataset = AudioTranscriptDataset(
+            str(audio_manifest_path), n_mels=audio_tokenizer_cfg.n_mels, segment_frames=audio_tokenizer_cfg.segment_frames
+        )
+        assert audio_dataset.skipped_entries == 1, f"expected 1 unsafe entry skipped, got {audio_dataset.skipped_entries}"
+        assert len(audio_dataset) == 2
+        transcript0, mel0 = audio_dataset[0]
+        assert mel0.shape == (1, audio_tokenizer_cfg.n_mels, audio_tokenizer_cfg.segment_frames)
+        print(f"AudioTranscriptDataset OK: {audio_dataset.skipped_entries} unsafe entry correctly excluded, "
+              f"{len(audio_dataset)} real (transcript, audio) pairs loaded from real .wav files.")
+
+        audio_collator = AudioMultimodalCollator(tokenizer, audio_tokenizer)
+        audio_batch = [audio_dataset[0], audio_dataset[1]]
+        audio_input_ids, audio_labels = audio_collator(audio_batch)
+        assert audio_input_ids.shape == audio_labels.shape
+        assert (audio_input_ids == SpecialTokens.PAD).sum() == (audio_labels == -100).sum()
+        assert audio_input_ids.shape[0] == 4, "both_directions=True should double the 2-sample batch to 4 sequences"
+        print(f"AudioMultimodalCollator OK: built a real padded batch {tuple(audio_input_ids.shape)} "
+              f"(both directions) from raw audio/transcripts via the frozen audio tokenizer.")
+
+        audio_logits, audio_loss = model(audio_input_ids, labels=audio_labels)
+        assert torch.isfinite(audio_loss), f"audio loss is not finite: {audio_loss}"
+        print(f"end-to-end OK: real audio files -> dataset -> collator -> NovaSmall.forward() -> finite "
+              f"loss ({audio_loss.item():.4f}).")
+
     print("\nAll data pipeline checks passed — real files become real, safety-filtered, correctly "
-          "shaped training batches.")
+          "shaped training batches, for text, image, AND audio.")
