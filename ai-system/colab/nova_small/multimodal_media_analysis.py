@@ -105,16 +105,19 @@ def hamming_distance(hash_a: str, hash_b: str) -> int:
     return bin(int_a ^ int_b).count("1")
 
 
-def extract_video_frames_and_audio(video_path: str, output_dir: str, num_frames: int = 3) -> tuple[list[str], str]:
+def extract_video_frames(video_path: str, output_dir: str, num_frames: int = 3) -> list[str]:
     """Real ffmpeg calls (via the bundled binary imageio_ffmpeg ships,
     so no system package/network install is needed even in a locked-
-    down environment) — the standard, well-established way to turn a
-    video into the two things this pipeline actually knows how to
-    "read": a handful of representative still frames (treated as
-    ordinary images from here on) and the full audio track (treated as
-    ordinary audio). num_frames evenly-spaced frames, not just the
-    first one, since a single frame from a multi-scene video is a poor
-    representative of the whole clip."""
+    down environment) — samples num_frames evenly-spaced representative
+    still frames (treated as ordinary images from here on), not just
+    the first one, since a single frame from a multi-scene video is a
+    poor representative of the whole clip. Split out from audio
+    extraction (see extract_video_frames_and_audio below) so a caller
+    that only needs frames — e.g. serve.py's /ask/video, which never
+    uses the audio track — doesn't fail on a real, valid video that
+    simply has no audio stream (a real, common case: this exact bug
+    was caught by running a real silent test clip through the combined
+    function, not a hypothetical concern)."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -123,13 +126,35 @@ def extract_video_frames_and_audio(video_path: str, output_dir: str, num_frames:
     for i in range(num_frames):
         timestamp = duration * (i + 0.5) / num_frames  # sample the MIDDLE of each equal segment, not the very start/end
         frame_path = output_path / f"frame_{i:03d}.jpg"
-        subprocess.run(
+        result = subprocess.run(
             [_FFMPEG, "-y", "-ss", str(timestamp), "-i", video_path, "-vframes", "1", str(frame_path)],
-            check=True, capture_output=True,
+            capture_output=True, text=True,
         )
+        # A real, caught failure mode: ffmpeg can exit 0 while writing
+        # NO output file at all if a seek timestamp lands on an awkward
+        # boundary in a very short clip (confirmed live: a 1-second,
+        # 2fps test clip silently produced no file for one requested
+        # timestamp) — check=True alone would not catch this, since the
+        # process itself "succeeded." Failing loudly here, with the
+        # real ffmpeg output attached, beats a confusing
+        # FileNotFoundError far downstream in an unrelated caller.
+        if result.returncode != 0 or not frame_path.exists():
+            raise RuntimeError(
+                f"ffmpeg did not produce frame {i} (timestamp={timestamp:.3f}s of a {duration:.3f}s video) "
+                f"from {video_path}: returncode={result.returncode}\n{result.stderr}"
+            )
         frame_paths.append(str(frame_path))
+    return frame_paths
 
-    audio_path = output_path / "audio.wav"
+
+def extract_video_frames_and_audio(video_path: str, output_dir: str, num_frames: int = 3) -> tuple[list[str], str]:
+    """The combined case: real still frames AND the full audio track —
+    for callers (like analyze_and_store_video below) that genuinely
+    need both. Requires the video to actually have an audio stream;
+    use extract_video_frames() alone for a caller that doesn't need
+    audio at all."""
+    frame_paths = extract_video_frames(video_path, output_dir, num_frames=num_frames)
+    audio_path = Path(output_dir) / "audio.wav"
     subprocess.run(
         [_FFMPEG, "-y", "-i", video_path, "-vn", "-ar", "16000", "-ac", "1", str(audio_path)],
         check=True, capture_output=True,

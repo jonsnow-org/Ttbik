@@ -278,6 +278,51 @@ def generate_video(
     )
 
 
+def build_image_understanding_prompt(
+    image_tokenizer, image: torch.Tensor, question_ids: list[int]
+) -> torch.Tensor:
+    """The reverse direction of generate_image(): given a REAL image
+    (not one the model made up) plus an optional real question already
+    encoded by the caller's text tokenizer, builds the exact prompt
+    shape dataset.py's own build_understanding_sequence() trains the
+    model to continue from — <BOS><IMAGE_START>[real image
+    tokens]<IMAGE_END>[question text]. Hand the result to
+    generate_text() for the actual free-form answer generation; this
+    function only builds the prompt. Batch size 1 only (matches
+    tool_use.py's own restriction, for the same reason: a single live
+    request, not a training batch)."""
+    if image.shape[0] != 1:
+        raise ValueError("build_image_understanding_prompt only supports batch size 1")
+    device = image.device
+    token_grid = image_tokenizer.encode(image)
+    offset_tokens = image_token_id_to_vocab_id(token_grid.view(1, -1))
+    prefix = torch.tensor(
+        [[SpecialTokens.BOS, SpecialTokens.IMAGE_START]], dtype=torch.long, device=device
+    )
+    suffix = torch.tensor(
+        [[SpecialTokens.IMAGE_END] + question_ids], dtype=torch.long, device=device
+    )
+    return torch.cat([prefix, offset_tokens, suffix], dim=1)
+
+
+def build_video_understanding_prompt(image_tokenizer, video: torch.Tensor, question_ids: list[int]) -> torch.Tensor:
+    """The video counterpart — video: (1, num_frames, 3, H, W). Reuses
+    video_tokenizer.encode_video() exactly as training does, so the
+    prompt this builds is identical in shape to what
+    MedicalVideoCollator.build_understanding_sequence() (and the
+    general-purpose video collator, were one built) trains the model
+    on: <BOS><VIDEO_START>[per-frame image spans]<VIDEO_END>[question]."""
+    if video.shape[0] != 1:
+        raise ValueError("build_video_understanding_prompt only supports batch size 1")
+    from video_tokenizer import encode_video
+
+    device = video.device
+    video_span = encode_video(image_tokenizer, video)  # already includes VIDEO_START/END + per-frame IMAGE_START/END
+    bos = torch.tensor([[SpecialTokens.BOS]], dtype=torch.long, device=device)
+    question = torch.tensor([question_ids], dtype=torch.long, device=device)
+    return torch.cat([bos, video_span, question], dim=1)
+
+
 def extract_image_tokens(sequence: torch.Tensor, tokens_per_image: int) -> torch.Tensor:
     """Finds the LAST <IMAGE_START> ... <IMAGE_END> span in a generated
     sequence and returns its tokens_per_image tokens, converted back to
@@ -376,5 +421,29 @@ if __name__ == "__main__":
     print(f"generate_video OK: {num_frames} frames each with correct IMAGE_START/END delimiters, "
           f"decoded into real {tuple(decoded_video.shape)} frames via video_tokenizer.decode_video().")
 
+    # --- 5. The reverse direction: real media in, real text answer out
+    #        (the mechanism behind the live "ask about an uploaded
+    #        clip" feature — never touches training data).
+    real_image = torch.rand(1, 3, image_tokenizer.cfg.image_size, image_tokenizer.cfg.image_size) * 2 - 1
+    question_ids = torch.randint(0, TEXT_VOCAB_SIZE, (5,)).tolist()
+    image_prompt = build_image_understanding_prompt(image_tokenizer, real_image, question_ids)
+    expected_prompt_len = 2 + tokens_per_image + 1 + len(question_ids)  # BOS + IMAGE_START + tokens + IMAGE_END + question
+    assert image_prompt.shape == (1, expected_prompt_len), f"unexpected prompt shape {image_prompt.shape}"
+    image_answer = generate_text(model, image_prompt, max_new_tokens=15)
+    assert image_answer.shape[1] > image_prompt.shape[1], "no new tokens were generated for the answer"
+    assert torch.equal(image_answer[:, : image_prompt.shape[1]], image_prompt), "generation altered the given prompt"
+    print(f"build_image_understanding_prompt + generate_text OK: a real image + a real question produced "
+          f"{image_answer.shape[1] - image_prompt.shape[1]} real answer tokens (content is meaningless "
+          f"pre-training, exactly like every other generation path here — this proves the mechanism).")
+
+    real_video = torch.rand(1, num_frames, 3, image_tokenizer.cfg.image_size, image_tokenizer.cfg.image_size) * 2 - 1
+    video_prompt = build_video_understanding_prompt(image_tokenizer, real_video, question_ids)
+    video_answer = generate_text(model, video_prompt, max_new_tokens=15)
+    assert video_answer.shape[1] > video_prompt.shape[1]
+    assert torch.equal(video_answer[:, : video_prompt.shape[1]], video_prompt)
+    print(f"build_video_understanding_prompt + generate_text OK: a real video + a real question produced "
+          f"{video_answer.shape[1] - video_prompt.shape[1]} real answer tokens.")
+
     print("\nAll generation checks passed — text, image, audio, and video can all genuinely be "
-          "generated from this one model with a real KV-cache and correct per-modality constraints.")
+          "generated from this one model with a real KV-cache and correct per-modality constraints, "
+          "and the reverse (media-in, text-answer-out) direction works too.")

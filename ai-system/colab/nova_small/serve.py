@@ -29,6 +29,22 @@ training happens. This service tests the PLUMBING (does a prompt
 really turn into a real image/audio/video file, end to end, with no
 crashes) — not output quality, which is a training-data question, not
 a serving-code one.
+
+/ask/image and /ask/video (owner spec: a verified organization asks a
+real, live question about a real clip THEY provide — e.g. a clinician
+photographing something during a real teaching session — WITHOUT that
+clip ever becoming training data): authenticated via a real
+per-organization API key (api_keys.py — see that module's own
+docstring for why this replaced an earlier, rejected idea of one
+shared hardcoded "magic code"). Organizations are registered OFFLINE,
+by a trusted operator calling
+OrganizationKeyStore.register_organization() directly (e.g. from a
+one-off admin script) — deliberately NOT exposed as an HTTP endpoint
+here, so there is no way for an arbitrary caller to mint their own key
+over the network. These two endpoints are entirely separate from
+medical_dataset.py's training-data pipeline: nothing an organization
+uploads here is stored, added to a manifest, or trained on — it is
+used once, for one real answer, and discarded.
 """
 
 import io
@@ -39,16 +55,19 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
-from fastapi import FastAPI
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 from pydantic import BaseModel
 
 import imageio_ffmpeg
 
+from api_keys import Organization, OrganizationKeyStore
 from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
 from checkpoint import load_checkpoint
 from generate import (
+    build_image_understanding_prompt,
+    build_video_understanding_prompt,
     extract_audio_tokens,
     extract_image_tokens,
     generate_audio,
@@ -59,6 +78,7 @@ from generate import (
 from image_tokenizer import ImageTokenizer, ImageTokenizerConfig
 from mel_spectrogram import mel_spectrogram_to_waveform
 from model import AUDIO_VOCAB_SIZE, IMAGE_VOCAB_SIZE, NovaSmall, SpecialTokens
+from multimodal_media_analysis import extract_video_frames
 from text_tokenizer import NovaTextTokenizer, train_text_tokenizer
 from video_tokenizer import decode_video
 
@@ -72,6 +92,30 @@ app = FastAPI(title="Nova Small — serving backend (pre-training smoke test)")
 # function already knows how to load instead (see its own docstring);
 # swapping to it is a config change, not a code change.
 _state: dict = {}
+
+# One real, persistent key store for this process — see api_keys.py's
+# own docstring for why SQLite (not a shared secret) and how this
+# would swap to Supabase for durability across redeploys later.
+_api_key_store = OrganizationKeyStore(os.environ.get("NOVA_SMALL_API_KEYS_DB", "nova_small_api_keys.db"))
+
+
+def _require_organization(x_nova_org_key: str | None) -> Organization:
+    """The real auth check every /ask/* endpoint goes through — no
+    key, an unknown key, or a revoked key are all rejected identically
+    with 401, so a caller can't distinguish "wrong key" from "revoked
+    key" from timing/response differences."""
+    if not x_nova_org_key:
+        raise HTTPException(status_code=401, detail="missing X-Nova-Org-Key header")
+    organization = _api_key_store.verify_api_key(x_nova_org_key)
+    if organization is None:
+        raise HTTPException(status_code=401, detail="invalid or revoked API key")
+    return organization
+
+
+def _load_image_tensor(raw_bytes: bytes, image_size: int) -> torch.Tensor:
+    image = Image.open(io.BytesIO(raw_bytes)).convert("RGB").resize((image_size, image_size))
+    tensor = torch.tensor(list(image.getdata()), dtype=torch.float32).view(image_size, image_size, 3)
+    return (tensor.permute(2, 0, 1) / 127.5 - 1.0).unsqueeze(0)
 
 
 def load_model(checkpoint_path: str | None = None) -> None:
@@ -256,6 +300,83 @@ def generate_video_endpoint(req: VideoRequest) -> Response:
         video_bytes = output_path.read_bytes()
 
     return Response(content=video_bytes, media_type="video/mp4")
+
+
+@app.post("/ask/image")
+async def ask_image_endpoint(
+    file: UploadFile = File(...),
+    question: str = Form(...),
+    x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
+) -> dict:
+    organization = _require_organization(x_nova_org_key)
+    model: NovaSmall = _state["model"]
+    tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
+    image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
+
+    raw_bytes = await file.read()
+    image_tensor = _load_image_tensor(raw_bytes, image_tokenizer.cfg.image_size)
+    question_ids = tokenizer.encode(question)
+    prompt = build_image_understanding_prompt(image_tokenizer, image_tensor, question_ids)
+
+    max_new_tokens = 60
+    # Same real, stated caveat as /generate/text: constrain sampling to
+    # this bootstrap tokenizer's own real vocab range until the actual
+    # production tokenizer is trained (see that endpoint's own comment).
+    out = generate_tokens(
+        model, prompt, max_new_tokens=max_new_tokens,
+        temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS,
+        allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
+    )
+    answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
+    answer = tokenizer.decode(answer_ids)
+
+    _api_key_store.record_usage(organization.org_id, "/ask/image")
+    return {"organization": organization.name, "answer": answer}
+
+
+@app.post("/ask/video")
+async def ask_video_endpoint(
+    file: UploadFile = File(...),
+    question: str = Form(...),
+    num_frames: int = Form(2),
+    x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
+) -> dict:
+    organization = _require_organization(x_nova_org_key)
+    model: NovaSmall = _state["model"]
+    tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
+    image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
+
+    raw_bytes = await file.read()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        video_path = Path(tmpdir) / "upload.mp4"
+        video_path.write_bytes(raw_bytes)
+        # Frames only — this endpoint never uses the audio track, and
+        # requiring one would reject a real, valid silent video for no
+        # reason (a real case caught by testing with an actual silent
+        # clip, not a hypothetical). Reuses the exact real ffmpeg
+        # extraction already built and verified in
+        # multimodal_media_analysis.py.
+        frame_paths = extract_video_frames(str(video_path), tmpdir, num_frames=num_frames)
+        frames = [
+            _load_image_tensor(Path(p).read_bytes(), image_tokenizer.cfg.image_size)[0]
+            for p in frame_paths
+        ]
+        video_tensor = torch.stack(frames, dim=0).unsqueeze(0)  # (1, num_frames, 3, H, W)
+
+    question_ids = tokenizer.encode(question)
+    prompt = build_video_understanding_prompt(image_tokenizer, video_tensor, question_ids)
+
+    max_new_tokens = 60
+    out = generate_tokens(
+        model, prompt, max_new_tokens=max_new_tokens,
+        temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS,
+        allowed_ranges=[(0, tokenizer.vocab_size)] * max_new_tokens,
+    )
+    answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
+    answer = tokenizer.decode(answer_ids)
+
+    _api_key_store.record_usage(organization.org_id, "/ask/video")
+    return {"organization": organization.name, "answer": answer}
 
 
 if __name__ == "__main__":
