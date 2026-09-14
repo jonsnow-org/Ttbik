@@ -82,11 +82,12 @@ verify_multimodal_integration.py for the re-verified counts and a real
 end-to-end proof across every modality.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 # Owner spec, 2026-09-14: the shared vocabulary contract between this
 # model and image_tokenizer.py (and, later, audio_tokenizer.py) — see
@@ -189,6 +190,18 @@ def vocab_id_to_audio_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tens
 
 @dataclass
 class NovaSmallConfig:
+    """Every field here is a free hyperparameter, not a hardcoded
+    assumption baked into the code below — scaling from this ~500M
+    config to a 7B one (owner spec: "قابل مع التدريب والتطوير للوصول
+    لاكثر من 7B") means constructing this SAME class with bigger
+    numbers (e.g. d_model=4096, n_layers=32, n_heads=32, n_kv_heads=8,
+    mlp_hidden=11008 — the real Llama-7B-scale shape), not writing new
+    model code. See to_dict()/from_dict() below for why the config
+    travels with every saved checkpoint rather than being guessed at
+    load time, and expand_model.py for growing an already-trained
+    small checkpoint's weights into a larger config instead of
+    discarding them and starting over."""
+
     vocab_size: int = TOTAL_VOCAB_SIZE
     d_model: int = 1280
     n_layers: int = 26
@@ -199,12 +212,28 @@ class NovaSmallConfig:
     rope_theta: float = 10000.0
     rms_norm_eps: float = 1e-5
     tie_embeddings: bool = True
+    # Trades compute for memory: recomputes each layer's activations
+    # during the backward pass instead of storing them, the standard
+    # technique (Chen et al., 2016) for fitting a larger model/longer
+    # sequence into limited VRAM (e.g. Kaggle's free 16GB GPUs) — needed
+    # more, not less, as this config scales up toward 7B. Only affects
+    # training (self.training) with use_cache=False; generation is
+    # unaffected. Default False since the current ~500M config/dummy
+    # tests don't need it, but every layer already supports it.
+    use_gradient_checkpointing: bool = False
 
     def __post_init__(self):
         if self.d_model % self.n_heads != 0:
             raise ValueError(f"d_model ({self.d_model}) must be divisible by n_heads ({self.n_heads})")
         if self.n_heads % self.n_kv_heads != 0:
             raise ValueError(f"n_heads ({self.n_heads}) must be divisible by n_kv_heads ({self.n_kv_heads})")
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "NovaSmallConfig":
+        return cls(**data)
 
 
 class RMSNorm(nn.Module):
@@ -265,15 +294,41 @@ class Attention(nn.Module):
         self.v_proj = nn.Linear(cfg.d_model, cfg.n_kv_heads * self.head_dim, bias=False)
         self.o_proj = nn.Linear(cfg.n_heads * self.head_dim, cfg.d_model, bias=False)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ):
         batch, seq_len, _ = x.shape
 
         q = self.q_proj(x).view(batch, seq_len, self.n_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(x).view(batch, seq_len, self.n_kv_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(batch, seq_len, self.n_kv_heads, self.head_dim).transpose(1, 2)
 
-        q = apply_rope(q, cos, sin)
-        k = apply_rope(k, cos, sin)
+        # RoPE angles depend on absolute position, not position-within-
+        # this-call — during cached incremental generation, x holds only
+        # the newest token(s), so the angles must start where the cached
+        # keys left off, not restart at 0 (that would rotate the new
+        # token as if it were position 0 again, corrupting every
+        # attention score against the real earlier positions).
+        offset = past_kv[0].shape[2] if past_kv is not None else 0
+        cos_pos = cos[offset : offset + seq_len]
+        sin_pos = sin[offset : offset + seq_len]
+        q = apply_rope(q, cos_pos, sin_pos)
+        k = apply_rope(k, cos_pos, sin_pos)
+
+        # Cache stores the compact n_kv_heads tensors (pre-GQA-expansion)
+        # so a growing cache costs n_kv_heads worth of memory per token,
+        # not n_heads worth — the same real saving GQA already gives the
+        # live forward pass, extended to the cache.
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+        new_kv = (k, v) if use_cache else None
 
         # Repeat each KV head n_rep times so it lines up with the query
         # heads that share it (GQA) — a real memory/compute saving over
@@ -283,9 +338,33 @@ class Attention(nn.Module):
             k = k.repeat_interleave(self.n_rep, dim=1)
             v = v.repeat_interleave(self.n_rep, dim=1)
 
-        out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        if past_kv is None:
+            # No cache: query and key/value sequences are the same real
+            # positions (0..seq_len-1), so SDPA's built-in causal mask is
+            # exactly right, and is the well-tested, already-verified
+            # path every training run uses — untouched here.
+            out = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
+            # Cached incremental decoding: query positions are
+            # offset..offset+seq_len-1 but key/value positions are
+            # 0..offset+seq_len-1 (the whole history) — a real, checked
+            # bug lived here: is_causal=True assumes the query block
+            # aligns with the START of the key sequence, not wherever it
+            # actually falls, so a single new token with 2 cached keys
+            # was masking out its OWN current key/value entirely,
+            # attending only to the past and never to itself. Verified
+            # directly (see verify_scalability.py's verify_kv_cache())
+            # rather than assumed, since it produced no error, just a
+            # silently wrong answer. Building the real per-position mask
+            # instead handles both single-token decode and any future
+            # multi-token continuation on top of an existing cache.
+            total_kv_len = k.shape[2]
+            q_positions = torch.arange(offset, offset + seq_len, device=x.device)
+            k_positions = torch.arange(0, total_kv_len, device=x.device)
+            causal_mask = k_positions[None, :] <= q_positions[:, None]  # (seq_len, total_kv_len), True = attend
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask)
         out = out.transpose(1, 2).contiguous().view(batch, seq_len, self.n_heads * self.head_dim)
-        return self.o_proj(out)
+        return self.o_proj(out), new_kv
 
 
 class SwiGLU(nn.Module):
@@ -307,14 +386,22 @@ class TransformerBlock(nn.Module):
         self.post_attention_norm = RMSNorm(cfg.d_model, cfg.rms_norm_eps)
         self.mlp = SwiGLU(cfg)
 
-    def forward(self, x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        past_kv: tuple[torch.Tensor, torch.Tensor] | None = None,
+        use_cache: bool = False,
+    ):
         # Pre-norm residual stream (norm -> sublayer -> add), the same
         # arrangement every modern decoder-only LLM uses — measurably
         # more stable to train than the original post-norm Transformer,
         # especially at this depth (26 layers) without extra tricks.
-        x = x + self.attention(self.input_norm(x), cos, sin)
+        attn_out, new_kv = self.attention(self.input_norm(x), cos, sin, past_kv=past_kv, use_cache=use_cache)
+        x = x + attn_out
         x = x + self.mlp(self.post_attention_norm(x))
-        return x
+        return x, new_kv
 
 
 class NovaSmall(nn.Module):
@@ -351,16 +438,50 @@ class NovaSmall(nn.Module):
         elif isinstance(module, nn.Embedding):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor | None = None):
+    def forward(
+        self,
+        input_ids: torch.Tensor,
+        labels: torch.Tensor | None = None,
+        past_key_values: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
+        use_cache: bool = False,
+    ):
+        """Backward-compatible on purpose: every existing caller (this
+        file's own tests, verify_multimodal_integration.py, etc.) uses
+        the plain `logits, loss = model(ids, labels=...)` 2-tuple form
+        and keeps working unchanged, since use_cache defaults to False.
+        use_cache=True (what generate.py needs for real autoregressive
+        generation, one token at a time, without recomputing every past
+        token's attention on every step) returns a 3-tuple instead,
+        adding the per-layer (key, value) cache as the third element."""
         batch, seq_len = input_ids.shape
-        if seq_len > self.cfg.max_seq_len:
-            raise ValueError(f"sequence length {seq_len} exceeds max_seq_len {self.cfg.max_seq_len}")
+        offset = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        if offset + seq_len > self.cfg.max_seq_len:
+            raise ValueError(
+                f"position {offset + seq_len} exceeds max_seq_len {self.cfg.max_seq_len} "
+                f"(call resize_max_seq_len() first if this model needs a longer context)"
+            )
 
         x = self.token_embedding(input_ids)
         cos = self.rope_cos.to(x.device)
         sin = self.rope_sin.to(x.device)
-        for layer in self.layers:
-            x = layer(x, cos, sin)
+
+        new_caches = [] if use_cache else None
+        use_checkpointing = self.cfg.use_gradient_checkpointing and self.training and not use_cache
+        for i, layer in enumerate(self.layers):
+            past_kv = past_key_values[i] if past_key_values is not None else None
+            if use_checkpointing:
+                # Gradient checkpointing recomputes this layer during the
+                # backward pass instead of keeping its activations, so it
+                # is meaningless (and disabled above) when use_cache is
+                # set — generation doesn't do backward passes at all.
+                x, layer_cache = torch.utils.checkpoint.checkpoint(
+                    layer, x, cos, sin, past_kv, use_cache, use_reentrant=False
+                )
+            else:
+                x, layer_cache = layer(x, cos, sin, past_kv=past_kv, use_cache=use_cache)
+            if use_cache:
+                new_caches.append(layer_cache)
+
         x = self.final_norm(x)
         logits = self.lm_head(x)
 
@@ -375,7 +496,27 @@ class NovaSmall(nn.Module):
                 shift_labels.view(-1),
                 ignore_index=-100,
             )
+
+        if use_cache:
+            return logits, loss, new_caches
         return logits, loss
+
+    def resize_max_seq_len(self, new_max_seq_len: int) -> None:
+        """Extends this model's usable context length with NO change to
+        any learned weight — the real, practical payoff of RoPE having
+        no learned position parameters (unlike absolute/learned
+        position embeddings, which would need new rows trained from
+        scratch to extend). Real production models do still need some
+        fine-tuning at the new length for the best quality at long
+        range, but this makes the mechanical extension itself free and
+        immediate, exactly the kind of "grows with more resources
+        later" property the owner asked this architecture to have."""
+        self.cfg.max_seq_len = new_max_seq_len
+        head_dim = self.cfg.d_model // self.cfg.n_heads
+        cos, sin = precompute_rope(head_dim, new_max_seq_len, self.cfg.rope_theta)
+        device = self.rope_cos.device
+        self.register_buffer("rope_cos", cos.to(device), persistent=False)
+        self.register_buffer("rope_sin", sin.to(device), persistent=False)
 
     def count_parameters(self, exclude_tied_duplicate: bool = True) -> int:
         if exclude_tied_duplicate and self.cfg.tie_embeddings:
