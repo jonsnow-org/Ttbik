@@ -419,13 +419,14 @@ function scopeMenu(lang: Lang): Keyboard {
 function phoneRequestMenu(lang: Lang): Keyboard {
   return new Keyboard().requestContact(t(lang, "btnSharePhone")).row().text(backLabel(lang)).resized();
 }
+// No trailing "🔙 القائمة الرئيسية" here on purpose, same reasoning as
+// mainMenu() — this IS the Super Admin's home screen, so a "back to here"
+// button on it would just re-send the exact same panel (owner report,
+// 2026-09-14).
 const ADMIN_MENU = new Keyboard()
-  .text("📢 إعلان إجباري شامل").row()
-  .text("📣 إذاعة لكل المستخدمين").row()
-  .text("📊 الإحصائيات والأرباح").row()
-  .text("➕ شحن رصيد").row()
-  .text("🔌 فحص الويبهوك").row()
-  .text("🔙 القائمة الرئيسية")
+  .text("📢 إعلان إجباري شامل").text("📣 إذاعة لكل المستخدمين").row()
+  .text("📊 الإحصائيات والأرباح").text("➕ شحن رصيد").row()
+  .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري")
   .resized();
 // A bot's own creator is also a full participant in their own bot — not a
 // separate, exclusive role — per owner instruction (2026-08-31): "لوحة
@@ -1142,7 +1143,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, `تم الإرسال: ${sent} نجح، ${failed} فشل.`, { reply_markup: ownerMainMenu(lang) });
     return;
   }
-  if (text === "📢 قناة الاشتراك الإجباري" && tgUserId === botRow.ownerId) {
+  if (text === "📢 قناة الاشتراك الإجباري" && (tgUserId === botRow.ownerId || tgUserId === SUPER_ADMIN_ID)) {
     await setPending(user.id, { mode: "owner_channel_setup" });
     await bot.api.sendMessage(
       chatId,
@@ -1151,13 +1152,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     );
     return;
   }
-  if (pending?.mode === "owner_channel_setup" && tgUserId === botRow.ownerId) {
+  if (pending?.mode === "owner_channel_setup" && (tgUserId === botRow.ownerId || tgUserId === SUPER_ADMIN_ID)) {
+    const homeMenu = tgUserId === SUPER_ADMIN_ID ? ADMIN_MENU : ownerMainMenu(lang);
     const cancel = text.trim() === "إلغاء";
     const channel = cancel ? null : normalizeChannelHandle(text);
     await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
     await setPending(user.id, null);
     if (cancel) {
-      await bot.api.sendMessage(chatId, "✅ تم إلغاء الاشتراك الإجباري.", { reply_markup: ownerMainMenu(lang) });
+      await bot.api.sendMessage(chatId, "✅ تم إلغاء الاشتراك الإجباري.", { reply_markup: homeMenu });
       return;
     }
     // Two real checks, not just "does the channel exist": (1) getChat
@@ -1178,7 +1180,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
           "\n⚠️ القناة صحيحة لكن البوت لا يستطيع التحقق من أعضائها. أضف البوت إلى القناة **كمشرف (Admin)** — هذا شرط إلزامي من تلجرام نفسه للتحقق من انضمام الأعضاء، وإلا سيستمر البوت برفض الجميع حتى بعد انضمامهم فعلاً.";
       }
     }
-    await bot.api.sendMessage(chatId, `✅ تم تفعيل الاشتراك الإجباري في القناة @${channel}.${warning}`, { reply_markup: ownerMainMenu(lang) });
+    await bot.api.sendMessage(chatId, `✅ تم تفعيل الاشتراك الإجباري في القناة @${channel}.${warning}`, { reply_markup: homeMenu });
     return;
   }
 
