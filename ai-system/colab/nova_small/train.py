@@ -55,6 +55,18 @@ class TrainConfig:
     checkpoint_dir: str = "checkpoints"
     checkpoint_every: int = 500
     log_every: int = 10
+    # A real, directly-hit failure this defends against: a ~108M-param
+    # model's checkpoint (weights + AdamW's two moment buffers, roughly
+    # 4x the raw parameter count) is over 1GB on its own — a long real
+    # run checkpointing every few hundred steps accumulates ONE NEW FILE
+    # per checkpoint forever, and a multi-hour Kaggle run blew straight
+    # through Kaggle's ~20GB /kaggle/working quota this way ("Your
+    # notebook tried to use more disk space than is available", real
+    # incident, 2026-09-14) — with the notebook's own final save/render
+    # step then failing too, since there was no disk left to write it.
+    # Keeping only the N most recent checkpoints bounds disk use to a
+    # small constant regardless of how long the run goes.
+    keep_last_n_checkpoints: int = 2
 
 
 def build_optimizer(model: NovaSmall, lr: float, weight_decay: float) -> torch.optim.AdamW:
@@ -170,8 +182,27 @@ def train(
                 ckpt_path = Path(cfg.checkpoint_dir) / f"step_{step}.pt"
                 save_checkpoint(ckpt_path, model, step, optimizer=optimizer)
                 print(f"  saved checkpoint: {ckpt_path}")
+                _prune_old_checkpoints(Path(cfg.checkpoint_dir), cfg.keep_last_n_checkpoints)
 
     return loss_history
+
+
+def _prune_old_checkpoints(checkpoint_dir: Path, keep_last_n: int) -> None:
+    """Deletes every step_*.pt checkpoint except the keep_last_n most
+    recent ones (by step number) — the real, direct fix for a real
+    incident: unbounded checkpoint accumulation over a long run exceeded
+    Kaggle's disk quota and crashed the notebook (see TrainConfig's own
+    docstring for the full incident). keep_last_n <= 0 disables pruning
+    entirely (keeps everything), for callers that want every checkpoint
+    on a machine with real disk to spare."""
+    if keep_last_n <= 0:
+        return
+    checkpoints = sorted(
+        checkpoint_dir.glob("step_*.pt"),
+        key=lambda p: int(p.stem.split("_")[1]),
+    )
+    for stale in checkpoints[:-keep_last_n]:
+        stale.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
@@ -258,6 +289,24 @@ if __name__ == "__main__":
         assert torch.isfinite(logits_after).all()
         print(f"checkpoint/resume OK: resumed from real step {resumed_step} (with real restored optimizer "
               f"state) and ran {len(resume_loss_history)} more real optimizer steps with a finite forward pass.")
+
+    # --- Checkpoint pruning: the real fix for a real incident (a
+    # multi-hour Kaggle run's unbounded checkpoint accumulation exceeded
+    # Kaggle's disk quota and crashed the notebook). Checkpointing often
+    # enough to produce many more than keep_last_n_checkpoints must leave
+    # only that many real files on disk, always including the newest.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        prune_cfg = TrainConfig(
+            **{**train_cfg.__dict__, "checkpoint_dir": tmpdir, "checkpoint_every": 2, "keep_last_n_checkpoints": 2}
+        )
+        train(NovaSmall(small_model_cfg), batches, prune_cfg)
+        remaining = sorted(Path(tmpdir).glob("step_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+        assert len(remaining) == 2, f"expected exactly 2 checkpoints kept on disk, found {len(remaining)}: {remaining}"
+        highest_step_saved = (prune_cfg.total_steps // prune_cfg.checkpoint_every) * prune_cfg.checkpoint_every
+        assert int(remaining[-1].stem.split("_")[1]) == highest_step_saved, "the newest checkpoint must never be pruned"
+        print(f"checkpoint pruning OK: {prune_cfg.total_steps // prune_cfg.checkpoint_every} real checkpoints were "
+              f"saved over the run, but only the {len(remaining)} most recent remain on disk — exactly the fix for "
+              f"the real 'notebook tried to use more disk space than is available' incident.")
 
     # --- Real (input_ids, labels) tuple batches, the exact shape
     # dataset.py's MultimodalCollator/AudioMultimodalCollator produce
