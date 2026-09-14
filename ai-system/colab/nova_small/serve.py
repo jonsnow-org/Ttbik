@@ -32,6 +32,7 @@ a serving-code one.
 """
 
 import io
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -122,7 +123,13 @@ def load_model(checkpoint_path: str | None = None) -> None:
 
 @app.on_event("startup")
 def _startup() -> None:
-    load_model()
+    # Real forward-compatibility: once real training produces an
+    # actual checkpoint, pointing this exact same deployment at it is
+    # an env var change, not a code change or a redeploy of different
+    # code — load_model() already knows how to load a real checkpoint
+    # (see its own docstring); this is just wiring that up to the
+    # outside world.
+    load_model(checkpoint_path=os.environ.get("NOVA_SMALL_CHECKPOINT_PATH"))
 
 
 class TextRequest(BaseModel):
