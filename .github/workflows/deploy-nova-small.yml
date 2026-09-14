@@ -1,0 +1,66 @@
+name: Deploy Nova Small
+
+# سير عمل النشر التلقائي لخادم NovaSmall (ai-system/colab/nova_small)،
+# منفصل تماماً عن نشر نوفا الحالي حماية للخدمة الحيّة العاملة.
+#
+# لماذا Render Deploy Hook بدل الاعتماد على "Auto-Deploy" المدمج في
+# Render مباشرة: هذا مستودع واحد يضم عدة خدمات (نوفا الحالي،
+# modelscope-studio، NovaSmall...)؛ الطبقة المجانية في Render لا تدعم
+# فلترة النشر حسب المسار المتغيّر، فتفعيل Auto-Deploy المباشر هناك
+# سيعيد نشر خدمة NovaSmall عند أي تعديل في أي جزء آخر من المستودع —
+# مسار push.paths أدناه يحل هذا بدقة: لا نشر إلا عند تغيّر ملفات
+# NovaSmall فعلياً.
+#
+# لماذا تشغيل verify_serve.py قبل النشر: نفس فحص فعلي حقيقي (خادم HTTP
+# حقيقي، طلبات حقيقية، ملفات ناتجة حقيقية) يُشغَّل يدوياً أثناء التطوير
+# — تشغيله هنا يمنع نشر كود معطوب فعلياً إلى Render بدل اكتشاف العطل
+# بعد النشر.
+#
+# ملاحظة مهمة: واجهة الويب (ai-system/colab/nova_small/web/web_app.py)
+# لا تحتاج أي سير عمل هنا — Streamlit Community Cloud، بعد ربطها مرة
+# واحدة عبر لوحتها الخاصة بهذا الفرع وهذا الملف، تُعيد النشر تلقائياً
+# بنفسها عند أي دفع جديد، دون أي إعداد إضافي هنا.
+
+on:
+  push:
+    branches:
+      - claude/free-services-marketplace-h6rwk2
+    paths:
+      - "ai-system/colab/nova_small/**"
+      - "!ai-system/colab/nova_small/web/**"
+  workflow_dispatch: {}
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-system/colab/nova_small
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies (+ requests, test-only)
+        run: |
+          pip install -r requirements.txt
+          pip install requests
+
+      - name: Run the real end-to-end serving verification
+        run: python3 verify_serve.py
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_NOVA_SMALL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "RENDER_NOVA_SMALL_DEPLOY_HOOK secret غير مُعرَّف بعد — تخطي إطلاق النشر (الاختبارات أعلاه نجحت فعلاً)."
+            echo "أضف الـsecret من إعدادات مستودع GitHub بعد إنشاء خدمة Render وتعطيل Auto-Deploy فيها، ونسخ رابط Deploy Hook من صفحة الخدمة."
+            exit 0
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+          echo "تم إطلاق نشر حقيقي على Render."
