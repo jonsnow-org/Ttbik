@@ -367,8 +367,13 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row();
+  // No "🔙 Back to main menu" button here on purpose — this IS the main
+  // menu, so pressing it would just re-send the exact same screen (owner
+  // report, 2026-09-14: confusing to see it while already home). Every
+  // real sub-screen (walletMenu, typeMenu, etc.) still has one, since
+  // those genuinely need a way back.
   if (novaAssistConfigured()) kb.text(t(lang, "btnAskNova")).row();
-  return kb.text(t(lang, "btnContactAdmin")).row().text(backLabel(lang)).resized();
+  return kb.resized();
 }
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
@@ -440,7 +445,6 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnContactAdmin")).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -714,7 +718,11 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     }
   }
   if (text === t(lang, "btnFaq")) {
-    const faqKb = new Keyboard().text(t(lang, "btnWantOwnBot")).row().text(backLabel(lang)).resized();
+    const faqKb = new Keyboard()
+      .text(t(lang, "btnWantOwnBot")).row()
+      .text(t(lang, "btnContactAdmin")).row()
+      .text(backLabel(lang))
+      .resized();
     await bot.api.sendMessage(chatId, t(lang, "faqBody"), { reply_markup: faqKb });
     return;
   }
