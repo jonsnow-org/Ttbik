@@ -61,6 +61,17 @@ def main() -> None:
         assert health["status"] == "ok"
         assert health["model_params"] > 0
 
+        # --- content safety gate: a real blocked prompt must be
+        #     rejected BEFORE any generation happens, on every endpoint
+        #     that takes free text — this was a real gap (zero
+        #     filtering existed anywhere in this file) until now.
+        resp = requests.post(f"{_BASE_URL}/generate/image", json={"prompt": "explicit sexual content"}, timeout=10)
+        assert resp.status_code == 400, f"an unsafe prompt should be rejected with 400, got {resp.status_code}"
+        resp = requests.post(f"{_BASE_URL}/generate/video", json={"prompt": "nsfw scene", "num_frames": 2}, timeout=10)
+        assert resp.status_code == 400, f"an unsafe video prompt should be rejected with 400, got {resp.status_code}"
+        print("content safety gate OK: a real unsafe prompt is rejected with 400 before any generation runs, "
+              "on both /generate/image and /generate/video.")
+
         # --- text ---
         resp = requests.post(f"{_BASE_URL}/generate/text", json={"prompt": "hello", "max_new_tokens": 20}, timeout=60)
         resp.raise_for_status()
@@ -149,6 +160,40 @@ def main() -> None:
         assert isinstance(data["answer"], str)
         print(f"/ask/video OK: real uploaded video + real question, valid key accepted, real answer back "
               f"({len(data['answer'])} chars).")
+
+        # --- /generate/medical/image: fixed categories only, no free
+        #     text drives the core description ---
+        resp = requests.get(f"{_BASE_URL}/generate/medical/categories", headers={"X-Nova-Org-Key": valid_key}, timeout=10)
+        resp.raise_for_status()
+        categories = resp.json()["categories"]
+        assert "labor_stage_2_delivery" in categories and len(categories) >= 5
+        print(f"/generate/medical/categories OK: {len(categories)} real fixed clinical categories listed.")
+
+        resp = requests.post(f"{_BASE_URL}/generate/medical/image",
+                              json={"category": "labor_stage_2_delivery"},
+                              headers={"X-Nova-Org-Key": valid_key}, timeout=60)
+        resp.raise_for_status()
+        assert resp.headers["content-type"] == "image/png"
+        image = Image.open(__import__("io").BytesIO(resp.content))
+        assert image.format == "PNG"
+        print(f"/generate/medical/image OK: a real fixed category produced a real, valid "
+              f"{image.size[0]}x{image.size[1]} PNG.")
+
+        resp = requests.post(f"{_BASE_URL}/generate/medical/image",
+                              json={"category": "not_a_real_category"},
+                              headers={"X-Nova-Org-Key": valid_key}, timeout=10)
+        assert resp.status_code == 400, f"an unknown category should be rejected with 400, got {resp.status_code}"
+
+        resp = requests.post(f"{_BASE_URL}/generate/medical/image",
+                              json={"category": "labor_stage_2_delivery", "notes": "explicit sexual content"},
+                              headers={"X-Nova-Org-Key": valid_key}, timeout=10)
+        assert resp.status_code == 400, f"unsafe notes should be rejected with 400, got {resp.status_code}"
+        print("/generate/medical/image rejection OK: an unknown category and unsafe notes are both "
+              "rejected with 400 — free text cannot smuggle in an arbitrary description.")
+
+        resp = requests.post(f"{_BASE_URL}/generate/medical/image", json={"category": "labor_stage_2_delivery"}, timeout=10)
+        assert resp.status_code == 401, f"the medical endpoint must require auth too, got {resp.status_code}"
+        print("/generate/medical/image auth OK: also requires a valid organization key, like the /ask/* endpoints.")
 
     finally:
         server.terminate()

@@ -65,6 +65,8 @@ import imageio_ffmpeg
 from api_keys import Organization, OrganizationKeyStore
 from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
 from checkpoint import load_checkpoint
+from dataset import ContentSafetyFilter
+from medical_generation_templates import build_structured_prompt
 from generate import (
     build_image_understanding_prompt,
     build_video_understanding_prompt,
@@ -97,6 +99,25 @@ _state: dict = {}
 # own docstring for why SQLite (not a shared secret) and how this
 # would swap to Supabase for durability across redeploys later.
 _api_key_store = OrganizationKeyStore(os.environ.get("NOVA_SMALL_API_KEYS_DB", "nova_small_api_keys.db"))
+
+
+_safety_filter = ContentSafetyFilter()
+
+
+def _require_safe_text(text: str) -> None:
+    """A real, enforced check every free-text prompt/question goes
+    through BEFORE any generation happens — this was a genuine gap
+    until now: none of the endpoints below applied any content
+    filtering at all, only the offline training-data pipeline did.
+    Honestly scoped: this keyword filter can catch an explicit request
+    outright, but it CANNOT reliably tell a clinical description of a
+    real medical event from a sexualized description that reuses the
+    same anatomical vocabulary — that distinction needs judgment a
+    string match doesn't have. This is a real safety net, not proof
+    that every unsafe prompt gets caught."""
+    verdict = _safety_filter.check_text(text)
+    if not verdict.is_safe:
+        raise HTTPException(status_code=400, detail=f"prompt rejected by content safety filter: {verdict.reason}")
 
 
 def _require_organization(x_nova_org_key: str | None) -> Organization:
@@ -190,6 +211,17 @@ class VideoRequest(BaseModel):
     num_frames: int = 2
 
 
+class MedicalGenerationRequest(BaseModel):
+    """Deliberately no free-form `prompt` field: category must be one
+    of medical_generation_templates.MEDICAL_CATEGORIES's own fixed
+    keys — see that module's own docstring for why this structural
+    choice, not a smarter filter, is the real fix for free text being
+    unable to reliably separate a clinical description from a
+    sexualized one that reuses the same anatomical words."""
+    category: str
+    notes: str | None = None
+
+
 @app.get("/health")
 def health() -> dict:
     model: NovaSmall = _state["model"]
@@ -202,6 +234,7 @@ def health() -> dict:
 
 @app.post("/generate/text")
 def generate_text_endpoint(req: TextRequest) -> dict:
+    _require_safe_text(req.prompt)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
@@ -229,6 +262,7 @@ def generate_text_endpoint(req: TextRequest) -> dict:
 
 @app.post("/generate/image")
 def generate_image_endpoint(req: MediaRequest) -> Response:
+    _require_safe_text(req.prompt)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -252,6 +286,7 @@ def generate_image_endpoint(req: MediaRequest) -> Response:
 
 @app.post("/generate/audio")
 def generate_audio_endpoint(req: MediaRequest) -> Response:
+    _require_safe_text(req.prompt)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     audio_tokenizer: AudioTokenizer = _state["audio_tokenizer"]
@@ -273,6 +308,7 @@ def generate_audio_endpoint(req: MediaRequest) -> Response:
 
 @app.post("/generate/video")
 def generate_video_endpoint(req: VideoRequest) -> Response:
+    _require_safe_text(req.prompt)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -302,6 +338,49 @@ def generate_video_endpoint(req: VideoRequest) -> Response:
     return Response(content=video_bytes, media_type="video/mp4")
 
 
+@app.post("/generate/medical/image")
+def generate_medical_image_endpoint(
+    req: MedicalGenerationRequest,
+    x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
+) -> Response:
+    organization = _require_organization(x_nova_org_key)
+    try:
+        prompt_result = build_structured_prompt(req.category, req.notes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    model: NovaSmall = _state["model"]
+    tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
+    image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
+
+    prompt_ids = torch.tensor([tokenizer.encode(prompt_result.prompt)], dtype=torch.long)
+    tokens_per_image = image_tokenizer.cfg.tokens_per_image
+    sequence = generate_image(model, prompt_ids, tokens_per_image=tokens_per_image, top_k=40)
+    raw_tokens = extract_image_tokens(sequence, tokens_per_image)
+    grid = raw_tokens.view(1, image_tokenizer.cfg.latent_grid_size, image_tokenizer.cfg.latent_grid_size)
+
+    with torch.no_grad():
+        decoded = image_tokenizer.decode(grid)[0]
+    pixels = ((decoded.clamp(-1, 1) + 1) * 127.5).byte().permute(1, 2, 0).numpy()
+    image = Image.fromarray(pixels, mode="RGB")
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    _api_key_store.record_usage(organization.org_id, "/generate/medical/image")
+    return Response(content=buffer.getvalue(), media_type="image/png")
+
+
+@app.get("/generate/medical/categories")
+def list_medical_categories(x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key")) -> dict:
+    """Lets an authenticated organization discover the real fixed
+    category list it must choose from — never a hint that free text
+    would also work."""
+    _require_organization(x_nova_org_key)
+    from medical_generation_templates import MEDICAL_CATEGORIES
+
+    return {"categories": sorted(MEDICAL_CATEGORIES)}
+
+
 @app.post("/ask/image")
 async def ask_image_endpoint(
     file: UploadFile = File(...),
@@ -309,6 +388,7 @@ async def ask_image_endpoint(
     x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
 ) -> dict:
     organization = _require_organization(x_nova_org_key)
+    _require_safe_text(question)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -342,6 +422,7 @@ async def ask_video_endpoint(
     x_nova_org_key: str | None = Header(default=None, alias="X-Nova-Org-Key"),
 ) -> dict:
     organization = _require_organization(x_nova_org_key)
+    _require_safe_text(question)
     model: NovaSmall = _state["model"]
     tokenizer: NovaTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
