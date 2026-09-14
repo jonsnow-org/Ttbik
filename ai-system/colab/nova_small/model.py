@@ -34,16 +34,45 @@ standard:
 Sizing (see count_parameters() below, and
 nova_small/verify_architecture.py for an independent, non-torch numpy
 cross-check of the same math before this was ever run against real
-torch/GPU): vocab_size=32000, d_model=1280, n_layers=26, n_heads=20,
-n_kv_heads=10, mlp_hidden=3328, tied input/output embeddings ->
-501.1M parameters — the owner's own "500" target, not a round number
-picked after the fact.
+torch/GPU): d_model=1280, n_layers=26, n_heads=20, n_kv_heads=10,
+mlp_hidden=3328, tied input/output embeddings.
 
 Deliberately NOT wired to any base model's weights, tokenizer files, or
 config — a fresh nn.Module tree with randomly-initialized weights.
 Training this from scratch (not fine-tuning) is what makes the
 resulting weights genuinely the owner's own, unlike a LoRA adapter on
 top of someone else's base.
+
+Owner spec, 2026-09-14 ("نبني نماذج مصغرة وندمجها في عقل نموذجنا"):
+this SAME transformer is also the image/video/audio generator, not a
+separate network wearing a different name — see
+nova_small/image_tokenizer.py's own docstring for the full reasoning
+(the real "VQ-VAE + autoregressive transformer" split used by DALL-E
+2021/VQGAN and later multimodal-token systems). The mechanism for that
+is entirely in the VOCABULARY: image_tokenizer.py turns a real image
+into a short sequence of discrete "visual word" ids from its own
+8192-entry codebook, and those ids get a fixed OFFSET added
+(TEXT_VOCAB_SIZE below) so they occupy their own reserved range in this
+model's single shared vocabulary, never colliding with a real text
+token id. This model then just does next-token prediction over that
+combined vocabulary exactly as it already does for pure text — writing
+an <IMAGE_START> special token, then a real sequence of image-token
+ids, then <IMAGE_END>, is not a different code path from writing a
+sentence, it is the exact same autoregressive mechanism, which is the
+whole point: the actual creative/generative intelligence for every
+modality lives here, once, not once per modality.
+
+Vocabulary layout (total 40,208 entries; see the constants below):
+  [0, TEXT_VOCAB_SIZE)                                 -> real text tokens
+  [TEXT_VOCAB_SIZE, TEXT_VOCAB_SIZE+IMAGE_VOCAB_SIZE)   -> image_tokenizer.py's codebook ids, offset
+  [..., + NUM_SPECIAL_TOKENS)                           -> control tokens (see SpecialTokens below);
+                                                            VIDEO/AUDIO ranges reserved now, populated
+                                                            when audio_tokenizer.py (video reuses the
+                                                            image codebook per-frame) is built next
+Expanding the vocabulary this way (32000 -> 40208) is the "قليلاً"
+(slight) size increase the owner explicitly approved: 511.6M
+parameters total, up from 501.1M text-only — see this file's own
+__main__ block and verify_architecture.py for the re-verified count.
 """
 
 from dataclasses import dataclass
@@ -52,10 +81,69 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Owner spec, 2026-09-14: the shared vocabulary contract between this
+# model and image_tokenizer.py (and, later, audio_tokenizer.py) — see
+# the module docstring above for why this lives here as the single
+# source of truth rather than each file guessing compatible offsets
+# independently, which is exactly the kind of mismatch that would
+# silently corrupt every generated image without ever raising an error.
+TEXT_VOCAB_SIZE = 32000
+IMAGE_VOCAB_SIZE = 8192  # must equal image_tokenizer.ImageTokenizerConfig.num_codes
+AUDIO_VOCAB_SIZE = 0  # reserved; becomes nonzero once audio_tokenizer.py exists
+NUM_SPECIAL_TOKENS = 16  # a few named below are used now; the rest are headroom for later modalities
+TOTAL_VOCAB_SIZE = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE + NUM_SPECIAL_TOKENS
+
+
+class SpecialTokens:
+    """Real token ids, not placeholders — every one of these is a valid
+    id in [TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE,
+    TOTAL_VOCAB_SIZE), reserved so it can never collide with a real
+    text or image token id."""
+
+    _base = TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE
+    BOS = _base + 0
+    EOS = _base + 1
+    PAD = _base + 2
+    IMAGE_START = _base + 3
+    IMAGE_END = _base + 4
+    VIDEO_START = _base + 5  # reserved for when video (a per-frame sequence of image tokens) is wired in
+    VIDEO_END = _base + 6
+    AUDIO_START = _base + 7  # reserved for audio_tokenizer.py
+    AUDIO_END = _base + 8
+
+
+def image_token_id_to_vocab_id(image_token_id: int | torch.Tensor) -> int | torch.Tensor:
+    """Converts an image_tokenizer.py codebook id (in [0, IMAGE_VOCAB_SIZE))
+    to this model's shared vocabulary id — the offset every image token
+    must go through before being placed in a sequence this model reads
+    or is trained to predict. Accepts a plain int or a real tensor of any
+    shape (real usage is always a batch of ~256 ids per image, never one
+    id at a time)."""
+    return TEXT_VOCAB_SIZE + image_token_id
+
+
+def vocab_id_to_image_token_id(vocab_id: int | torch.Tensor) -> int | torch.Tensor:
+    """The inverse of image_token_id_to_vocab_id — used when reading
+    this model's own generated output back out to hand to
+    image_tokenizer.decode(). Accepts a plain int or a real tensor of any
+    shape; a Python chained comparison (`a <= x < b`) on a multi-element
+    tensor raises "ambiguous truth value" instead of checking
+    element-wise, so the two input kinds need genuinely different range
+    checks here, not just different call sites."""
+    if isinstance(vocab_id, torch.Tensor):
+        in_range = (vocab_id >= TEXT_VOCAB_SIZE) & (vocab_id < TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE)
+        if not torch.all(in_range):
+            bad = vocab_id[~in_range]
+            raise ValueError(f"vocab ids {bad.tolist()} are not in the image-token range")
+    else:
+        if not (TEXT_VOCAB_SIZE <= vocab_id < TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE):
+            raise ValueError(f"vocab id {vocab_id} is not in the image-token range")
+    return vocab_id - TEXT_VOCAB_SIZE
+
 
 @dataclass
 class NovaSmallConfig:
-    vocab_size: int = 32000
+    vocab_size: int = TOTAL_VOCAB_SIZE
     d_model: int = 1280
     n_layers: int = 26
     n_heads: int = 20
@@ -257,12 +345,14 @@ class NovaSmall(nn.Module):
 
 
 def build_default_model() -> NovaSmall:
-    """The owner's actual ~500M target configuration — see this
+    """The owner's actual ~500M target configuration, now including the
+    shared text+image (+reserved audio/video) vocabulary — see this
     module's own docstring for how these exact numbers were reached
-    (501.1M parameters, verified independently in
+    (511.6M parameters with the expanded vocabulary, verified both here
+    with real torch below and independently in
     nova_small/verify_architecture.py without needing torch/GPU)."""
     cfg = NovaSmallConfig(
-        vocab_size=32000,
+        vocab_size=TOTAL_VOCAB_SIZE,
         d_model=1280,
         n_layers=26,
         n_heads=20,

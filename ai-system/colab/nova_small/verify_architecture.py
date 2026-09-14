@@ -148,16 +148,22 @@ def forward_numpy(vocab_size, d_model, n_layers, n_heads, n_kv_heads, mlp_hidden
 
 
 def main() -> None:
-    cfg = dict(vocab_size=32000, d_model=1280, n_layers=26, n_heads=20, n_kv_heads=10, mlp_hidden=3328)
+    # TOTAL_VOCAB_SIZE from model.py (40,208 = 32000 text + 8192 image +
+    # 0 audio(reserved) + 16 special) — kept as a literal here rather than
+    # imported so this stays a genuinely independent cross-check, not a
+    # reimplementation that would silently agree with a bug in model.py's
+    # own constant.
+    cfg = dict(vocab_size=40208, d_model=1280, n_layers=26, n_heads=20, n_kv_heads=10, mlp_hidden=3328)
 
     n_params = count_parameters_analytic(**cfg)
     print(f"Analytic parameter count: {n_params:,} ({n_params / 1e6:.1f}M)")
-    target = 500_000_000
-    tolerance = 0.05  # within 5% of the owner's stated ~500M target
+    target = 511_596_800  # real torch-measured count in model.py's own __main__ block
+    tolerance = 0.001  # this must match almost exactly, not just be "close" — it's the same math, not an estimate
     assert abs(n_params - target) / target < tolerance, (
-        f"parameter count {n_params:,} is more than {tolerance:.0%} away from the {target:,} target"
+        f"parameter count {n_params:,} does not match model.py's real torch-measured {target:,} "
+        f"within {tolerance:.1%} — the analytic formula and model.py have diverged"
     )
-    print(f"OK: within {tolerance:.0%} of the {target/1e6:.0f}M target.")
+    print(f"OK: matches model.py's real torch-measured count ({target:,}) within {tolerance:.1%}.")
 
     print("\nRunning a full forward pass with a smaller layer count (for speed) to verify shapes/finiteness...")
     small_cfg = dict(cfg)
