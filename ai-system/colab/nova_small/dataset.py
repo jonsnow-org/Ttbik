@@ -85,10 +85,17 @@ def _pack_sequences(token_stream: list[int], seq_len: int) -> list[list[int]]:
 
 class TextSequenceDataset(torch.utils.data.Dataset):
     """Real plain-text pretraining data. Expects a list of local text
-    file paths; each file's content is safety-filtered as one document
-    (skip the whole file if it matches), tokenized, and concatenated
-    with SpecialTokens.EOS between documents before being sliced into
-    fixed-length seq_len windows."""
+    file paths — each one typically a SHARD holding many real documents
+    (data_acquisition.py's stream_hf_text_corpus writes one document
+    per line, thousands per shard file). Safety-filtering is applied
+    PER LINE, not per file: a real, directly-observed bug (a real
+    20,000-document Arabic Wikipedia run produced ZERO training chunks)
+    showed that filtering a whole multi-thousand-document shard on one
+    substring match anywhere in it discards every legitimate document
+    in that shard over a single unrelated hit — the same class of
+    over-broad-filter problem the owner raised about medical language
+    elsewhere in this project. Only the individual matching lines are
+    dropped; every other real document in the file is kept."""
 
     def __init__(
         self,
@@ -102,14 +109,23 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         safety_filter = safety_filter or ContentSafetyFilter()
 
         stream: list[int] = []
-        skipped = 0
+        skipped_files = 0
+        skipped_lines = 0
         for path in file_paths:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
-            verdict = safety_filter.check_text(text)
-            if not verdict.is_safe:
-                skipped += 1
+            safe_lines = []
+            for line in text.split("\n"):
+                if not line.strip():
+                    continue
+                verdict = safety_filter.check_text(line)
+                if verdict.is_safe:
+                    safe_lines.append(line)
+                else:
+                    skipped_lines += 1
+            if not safe_lines:
+                skipped_files += 1
                 continue
-            stream.extend(self.tokenizer.encode(text))
+            stream.extend(self.tokenizer.encode("\n".join(safe_lines)))
             stream.append(SpecialTokens.EOS)
         # NovaSmall.forward() already does its own internal next-token
         # shift (see model.py) when input_ids and labels are the same
@@ -117,7 +133,8 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         # project — so each chunk is exactly seq_len long, not seq_len+1;
         # the model itself loses only the one label-less final position
         # per chunk, the same as any standard fixed-window LM dataset.
-        self.skipped_files = skipped
+        self.skipped_files = skipped_files
+        self.skipped_lines = skipped_lines
         self.chunks = _pack_sequences(stream, seq_len)
 
     def __len__(self) -> int:
@@ -370,20 +387,35 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
 
-        # --- 1. Real text pipeline: safety filtering + chunking -------
+        # --- 1. Real text pipeline: PER-LINE safety filtering ----------
+        # Mirrors the real shard format data_acquisition.py produces:
+        # many real documents (one per line) in a SINGLE file. Direct
+        # regression test for a real bug this fix corrected: a real
+        # 20,000-document Arabic Wikipedia run produced ZERO training
+        # chunks because the filter used to reject the ENTIRE shard file
+        # over one line matching — here, one bad line among thousands of
+        # good ones must knock out only that line, not the whole file.
         safe_doc = tmp / "safe.txt"
         safe_doc.write_text("Nova Small is a real, from-scratch multimodal transformer. " * 50, encoding="utf-8")
-        unsafe_doc = tmp / "unsafe.txt"
-        unsafe_doc.write_text("this document contains nsfw content and should be excluded", encoding="utf-8")
+        mixed_doc = tmp / "mixed_shard.txt"
+        mixed_lines = ["this is a real, legitimate document about ordinary encyclopedic content."] * 20
+        mixed_lines[10] = "this line contains nsfw content and must be the only line excluded"
+        mixed_doc.write_text("\n".join(mixed_lines), encoding="utf-8")
+        all_unsafe_doc = tmp / "all_unsafe.txt"
+        all_unsafe_doc.write_text("this document contains nsfw content and should be excluded", encoding="utf-8")
 
         tokenizer = train_text_tokenizer([str(safe_doc)], vocab_size=300)
-        text_dataset = TextSequenceDataset([str(safe_doc), str(unsafe_doc)], tokenizer, seq_len=16)
-        assert text_dataset.skipped_files == 1, f"expected 1 unsafe file skipped, got {text_dataset.skipped_files}"
-        assert len(text_dataset) > 0, "no chunks produced from the safe document"
+        text_dataset = TextSequenceDataset([str(safe_doc), str(mixed_doc), str(all_unsafe_doc)], tokenizer, seq_len=16)
+        # 2 unsafe lines total: the 1 planted inside mixed_doc's 20 lines,
+        # plus all_unsafe_doc's own single (fully-unsafe) line.
+        assert text_dataset.skipped_lines == 2, f"expected exactly 2 unsafe lines skipped, got {text_dataset.skipped_lines}"
+        assert text_dataset.skipped_files == 1, f"expected 1 entirely-unsafe file skipped, got {text_dataset.skipped_files}"
+        assert len(text_dataset) > 0, "no chunks produced despite most content being safe"
         sample = text_dataset[0]
         assert sample.shape == (16,)  # exactly seq_len
-        print(f"TextSequenceDataset OK: {text_dataset.skipped_files} unsafe file correctly excluded, "
-              f"{len(text_dataset)} real training chunks produced from the safe document.")
+        print(f"TextSequenceDataset OK: {text_dataset.skipped_lines} unsafe lines excluded WITHOUT discarding "
+              f"the other 19 legitimate lines in the same shard file, {text_dataset.skipped_files} entirely-unsafe "
+              f"file excluded, {len(text_dataset)} real training chunks produced overall.")
 
         # --- 2. Real image+caption pipeline: safety filtering + collate
         image_tokenizer_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=64)
