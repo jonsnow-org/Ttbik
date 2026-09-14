@@ -38,6 +38,12 @@ export const STR: Dict = {
   btnSharePhone: { ar: "📱 مشاركة رقم الهاتف", en: "📱 Share phone number" },
   btnWantOwnBot: { ar: "ℹ️ أريد بوتاً مماثلاً", en: "ℹ️ I want a bot like this" },
   btnProceedPurchase: { ar: "💳 متابعة للشراء", en: "💳 Proceed to purchase" },
+  btnContactAdmin: { ar: "📩 راسل الأدمن", en: "📩 Message Admin" },
+  contactAdminPrompt: {
+    ar: "📩 اكتب رسالتك الآن وسأرسلها مباشرة لمالك المنصة. سيصلك رده هنا في نفس هذه المحادثة بمجرد أن يرد.",
+    en: "📩 Type your message now and I'll send it straight to the platform owner. Their reply will arrive right here as soon as they respond.",
+  },
+  contactAdminSent: { ar: "✅ تم إرسال رسالتك للأدمن، بانتظار الرد.", en: "✅ Your message was sent to the admin — waiting for a reply." },
 
   welcome: { ar: "🚀 مرحباً بك في منصة الإعلانات! اختر من القائمة أدناه:", en: "🚀 Welcome to the ads platform! Choose from the menu below:" },
   adminNote: { ar: "\n\n🛠 أنت مالك المنصة — أرسل /admin لفتح لوحة التحكم.", en: "\n\n🛠 You're the platform owner — send /admin to open the control panel." },
@@ -49,6 +55,25 @@ export const STR: Dict = {
   walletTitle: { ar: "💳 قسم المحفظة", en: "💳 Wallet" },
   walletBalance: { ar: "رصيدك الحالي: {balance}\nاختر العملية المطلوبة:", en: "Your balance: {balance}\nChoose an action:" },
   referralLink: { ar: "🔗 رابط الإحالة الخاص بك:\n{link}", en: "🔗 Your referral link:\n{link}" },
+  // {count} = real, live count of prisma.user.count({ referredBy: this
+  // user's id }) — computed fresh every time this screen is shown, never
+  // cached, so it can never drift from the real number.
+  referralContestIntro: {
+    ar: "🏆 مسابقة: أول 3 أشخاص يدعون 500 عضو حقيقي إلى هذا البوت يحصلون على بوت مماثل خاص بهم، بكل وظائفه — البوت نفسه مجاناً بالكامل (وليس الإعلانات عليه).\n\n📊 عدد من دعوتهم حتى الآن: {count} / 500",
+    en: "🏆 Contest: the first 3 people to invite 500 real members to this bot get their own identical bot, with every feature — the bot itself is completely free (not the ads run on it).\n\n📊 Real invites so far: {count} / 500",
+  },
+  referralContestWon: {
+    ar: "\n\n🎉 مبروك! وصلت إلى 500 دعوة حقيقية وأنت من أول 3 فائزين في هذه المسابقة. راسل الأدمن الآن من زر «📩 راسل الأدمن» ليفعّل بوتك الخاص.",
+    en: "\n\n🎉 Congratulations! You've reached 500 real invites and are one of the first 3 winners of this contest. Message the admin now via the \"📩 Message Admin\" button to get your own bot activated.",
+  },
+  referralContestFull: {
+    ar: "\n\nملاحظة: الفائزون الثلاثة في هذه المسابقة مكتملون بالفعل — يمكنك الاستمرار بالإحالة لربح عمولة حقيقية من كل شخص تدعوه.",
+    en: "\n\nNote: this contest's 3 winner slots are already taken — you can still keep inviting for real, ongoing commission on everyone you refer.",
+  },
+  referralOwnerB2B: {
+    ar: "\n\n🎁 كمنشئ لهذا البوت، رابط منفصل خاص بك لدعوة منشئي بوتات آخرين — تربح 5% من صافي أرباح المنصة من كل بوت يُفعَّل عبره، مدى الحياة:\n{link}",
+    en: "\n\n🎁 As this bot's creator, here's your separate link for inviting other bot owners — you earn 5% of the platform's net profit from every bot activated through it, for life:\n{link}",
+  },
   langCurrent: { ar: "اختر لغتك المفضّلة:", en: "Choose your preferred language:" },
   langSet: { ar: "✅ تم تعيين اللغة إلى العربية.", en: "✅ Language set to English." },
   faqBody: {

@@ -75,6 +75,16 @@ model User {
   // basic browser fingerprinting has real false-positive risk (shared
   // devices, NAT).
   multiAccountFlag Boolean     @default(false)
+  // Set once, the first time this user's referral count (people with
+  // User.referredBy == this user's id) reaches the "invite 500, win a free
+  // bot" contest threshold AND fewer than 3 winners exist yet for their
+  // current bot — see checkAndMarkContestWinner() in adBotLogic.ts. Null
+  // means "hasn't won" (still eligible, or the 3 slots are already taken).
+  // A DateTime (not a boolean) so the exact qualifying moment is on record
+  // for the manual admin review this contest requires (owner spec,
+  // 2026-09-14: winners are verified and given a free bot by the admin by
+  // hand, not auto-provisioned).
+  contestWinnerAt DateTime?
   // Tracks a mid-flight multi-step conversation (e.g. "creating an ad,
   // waiting for the budget"). Vercel serverless functions don't keep
   // in-memory state between requests, so this has to live in the DB —

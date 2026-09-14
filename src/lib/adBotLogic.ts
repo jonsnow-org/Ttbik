@@ -132,7 +132,8 @@ type PendingAction =
   | { mode: "myads_manage"; adId: string }
   | { mode: "myads_cancel_confirm"; adId: string }
   | { mode: "myads_topup_amount"; adId: string }
-  | { mode: "myads_delete_confirm"; adId: string };
+  | { mode: "myads_delete_confirm"; adId: string }
+  | { mode: "contacting_admin" };
 
 // Per-platform inline "action" button label for the شاهد واربح carousel —
 // exempted from the reply-keyboard-only rule per explicit owner instruction
@@ -241,6 +242,64 @@ async function isChannelMember(bot: TelegramBot, channelHandle: string, tgUserId
   }
 }
 
+// "Invite 500, first 3 win a free bot" contest (owner spec, 2026-09-14).
+const REFERRAL_CONTEST_TARGET = 500;
+const REFERRAL_CONTEST_MAX_WINNERS = 3;
+
+// Real, live count, computed fresh every time — User.referredBy has no
+// separate cached counter column (see prisma/schema.prisma), and a live
+// query is cheap enough at this scale that caching would only risk drift
+// for no real benefit.
+async function countReferrals(userId: string): Promise<number> {
+  return prisma.user.count({ where: { referredBy: userId } });
+}
+
+// Records the exact moment this user first crosses the contest threshold,
+// but only while fewer than REFERRAL_CONTEST_MAX_WINNERS winners exist yet
+// for THIS bot instance (each deployed AD_BOT clone has its own owner who
+// may be running their own separate contest, so the 3-winner cap is scoped
+// per bot, not platform-wide). Deliberately does NOT auto-provision a free
+// bot — per owner spec this is reviewed and activated by hand — it only
+// marks the win and pings the admin so they know to follow up.
+async function checkAndMarkContestWinner(
+  bot: TelegramBot,
+  botRow: BotRow,
+  user: { id: string; contestWinnerAt: Date | null },
+  referralCount: number
+): Promise<boolean> {
+  if (user.contestWinnerAt) return true;
+  if (referralCount < REFERRAL_CONTEST_TARGET) return false;
+  const winnersSoFar = await prisma.user.count({ where: { botId: botRow.id, contestWinnerAt: { not: null } } });
+  if (winnersSoFar >= REFERRAL_CONTEST_MAX_WINNERS) return false;
+  await prisma.user.update({ where: { id: user.id }, data: { contestWinnerAt: new Date() } });
+  if (SUPER_ADMIN_ID) {
+    await bot.api
+      .sendMessage(
+        SUPER_ADMIN_ID,
+        `🏆 فائز جديد في مسابقة الـ500 دعوة!\n\nمعرف المستخدم: ${user.id}\nعدد إحالاته الحقيقية: ${referralCount}\nترتيبه بين الفائزين: ${winnersSoFar + 1} من ${REFERRAL_CONTEST_MAX_WINNERS}\n\nراجع الأمر، ثم فعّل له بوتاً مجانياً (نفس آلية أكواد التفعيل المستخدمة للشراء المدفوع، بدون طلب دفعة).`
+      )
+      .catch(() => null);
+  }
+  return true;
+}
+
+// "Message Admin" — forwards a user's message to SUPER_ADMIN with the
+// sender's id embedded (via ADMIN_CONTACT_ID_MARKER) in the message TEXT
+// itself, not just Telegram metadata — this is what lets the admin's own
+// native "reply" to that exact message be matched back to the right user
+// with no extra DB table (see the reply-relay check near the top of
+// handleAdBotUpdate).
+const ADMIN_CONTACT_ID_MARKER = "🆔";
+function buildAdminContactMessage(fromUserId: string, fromUsername: string | undefined, body: string): string {
+  const usernameNote = fromUsername ? ` (@${fromUsername})` : "";
+  return `📩 رسالة جديدة من مستخدم في البوت${usernameNote}:\n\n${body}\n\n${ADMIN_CONTACT_ID_MARKER}:${fromUserId}`;
+}
+function extractAdminContactTargetId(repliedToText: string | undefined | null): string | null {
+  if (!repliedToText) return null;
+  const match = repliedToText.match(new RegExp(`${ADMIN_CONTACT_ID_MARKER}:(\\d+)`));
+  return match ? match[1] : null;
+}
+
 // Basic auto-moderation word filter — not exhaustive, a first-pass net for
 // the obvious cases (adult content, drugs, gambling, scams). Anything past
 // this is expected to reach the report/FLAGGED path instead.
@@ -309,7 +368,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row();
   if (novaAssistConfigured()) kb.text(t(lang, "btnAskNova")).row();
-  return kb.text(backLabel(lang)).resized();
+  return kb.text(t(lang, "btnContactAdmin")).row().text(backLabel(lang)).resized();
 }
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
@@ -381,6 +440,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
+    .text(t(lang, "btnContactAdmin")).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -409,6 +469,7 @@ function topLevelTexts(lang: Lang): string[] {
     t(lang, "btnWantOwnBot"),
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
+    t(lang, "btnContactAdmin"),
   ];
 }
 function isBack(lang: Lang, text: string): boolean {
@@ -484,6 +545,19 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
 
   const text = String(msg.text || "").trim();
   if (!text) return;
+
+  // Admin replying to a "Message Admin" forward — a plain native Telegram
+  // reply, not a slash command, per owner spec ("الرد عليه" — reply to
+  // them). Checked before anything else so it can never be swallowed by
+  // /start or any other branch below.
+  if (tgUserId === SUPER_ADMIN_ID && msg.reply_to_message?.text) {
+    const targetId = extractAdminContactTargetId(msg.reply_to_message.text);
+    if (targetId) {
+      await bot.api.sendMessage(Number(targetId), `📩 رد الأدمن:\n\n${text}`).catch(() => null);
+      await bot.api.sendMessage(chatId, "✅ تم إرسال ردك للمستخدم.");
+      return;
+    }
+  }
 
   if (text.startsWith("/start")) {
     const payload = text.slice(6).trim();
@@ -577,7 +651,40 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === t(lang, "btnReferrals")) {
     const me = await bot.api.getMe();
-    await bot.api.sendMessage(chatId, t(lang, "referralLink", { link: `https://t.me/${me.username}?start=${user.id}` }), { reply_markup: mainMenu(lang) });
+    const isOwnerViewing = tgUserId === botRow.ownerId;
+    const referralCount = await countReferrals(user.id);
+    const justWon = await checkAndMarkContestWinner(bot, botRow, user, referralCount);
+
+    let body = t(lang, "referralContestIntro", { count: referralCount });
+    if (justWon) {
+      body += t(lang, "referralContestWon");
+    } else if (referralCount >= REFERRAL_CONTEST_TARGET) {
+      body += t(lang, "referralContestFull");
+    }
+    body += `\n\n${t(lang, "referralLink", { link: `https://t.me/${me.username}?start=${user.id}` })}`;
+    if (isOwnerViewing) {
+      const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+      body += t(lang, "referralOwnerB2B", { link: `${site}/bots?ref=${botRow.ownerId}` });
+    }
+
+    await bot.api.sendMessage(chatId, body, { reply_markup: isOwnerViewing ? ownerMainMenu(lang) : mainMenu(lang) });
+    return;
+  }
+  if (text === t(lang, "btnContactAdmin")) {
+    await setPending(user.id, { mode: "contacting_admin" });
+    await bot.api.sendMessage(chatId, t(lang, "contactAdminPrompt"));
+    return;
+  }
+  if (pending?.mode === "contacting_admin") {
+    await setPending(user.id, null);
+    if (SUPER_ADMIN_ID) {
+      await bot.api
+        .sendMessage(SUPER_ADMIN_ID, buildAdminContactMessage(user.id, msg.from.username, text))
+        .catch(() => null);
+    }
+    await bot.api.sendMessage(chatId, t(lang, "contactAdminSent"), {
+      reply_markup: tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang),
+    });
     return;
   }
   if (text === t(lang, "btnStats")) {
