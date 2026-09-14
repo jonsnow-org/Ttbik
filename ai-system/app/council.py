@@ -154,6 +154,23 @@ _SYSTEM_PROMPT = (
     "بوضوح إن وردا في المصدر. إن كان المصدر نفسه لا يحدد الدولة أو العملة، "
     "قل ذلك صراحة في إجابتك الأولى ('المصدر لم يحدد الدولة/العملة') بدل عرض "
     "أرقام مجردة يظنها القارئ مؤكدة المصدر والعملة.\n\n"
+    # Owner report, 2026-09-14 (real evidence, same day, next incident:
+    # asking "كم سعر الليمون اليوم" — no country mentioned at all —
+    # got a confident answer for a specific Egyptian market/currency as
+    # if that were obviously what was meant, with no acknowledgment that
+    # the question itself never specified a country): stating a source's
+    # country/currency (the instruction above) is not enough on its own
+    # when the USER's own question never named a country in the first
+    # place — silently picking whichever country the search happened to
+    # surface and presenting it as the answer is misleading, not helpful.
+    "إذا كان سؤال المستخدم نفسه لا يذكر أي دولة إطلاقاً (مثل 'كم سعر كذا "
+    "اليوم' بدون تحديد بلد)، والموضوع يعتمد أصلاً على الدولة (أسعار سلع "
+    "محلية، أخبار محلية...)، فيجب أن تبدأ إجابتك بالإشارة الصريحة إلى أن "
+    "السؤال لم يحدد دولة، ثم تقدّم ما وجدته مع ذكر الدولة/السوق الفعلي "
+    "بوضوح كمثال محدد وليس كإجابة عامة نهائية — مثال: 'لم تُحدّد دولة في "
+    "سؤالك، وهذا سعر وجدته لسوق العبور في مصر تحديداً — الأسعار تختلف في "
+    "دول أخرى.' لا تقدّم نتيجة دولة واحدة بثقة كأنها الإجابة الوحيدة "
+    "الصحيحة عالمياً لسؤال عام لم يحدد بلداً.\n\n"
     "لا تختلق أبداً أي رابط (URL) لم يصلك حرفياً في السياق أو نتائج البحث — "
     "هذا يشمل روابط صور من مواقع مثل Unsplash/Pexels وروابط أي صفحة أخرى. "
     "رابط مُختلَق يبدو حقيقياً أخطر من إجابة خاطئة، لأن المستخدم سيضغط عليه "
