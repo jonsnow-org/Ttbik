@@ -293,12 +293,36 @@ def stream_image_caption_corpus(
     return str(manifest_path)
 
 
+def _get_secret(name: str) -> str:
+    """Reads one named secret from whichever notebook platform this is
+    actually running on — Kaggle Secrets, Colab Secrets, or a plain
+    environment variable (local/other) — tried in that order, first
+    match wins. Keeps every caller platform-agnostic instead of hard
+    failing with an unrelated ImportError on any platform but Kaggle."""
+    try:
+        from kaggle_secrets import UserSecretsClient
+        return UserSecretsClient().get_secret(name)
+    except Exception:
+        pass
+    try:
+        from google.colab import userdata
+        return userdata.get(name)
+    except Exception:
+        pass
+    import os
+    value = os.environ.get(name)
+    if value is None:
+        raise RuntimeError(f"Secret '{name}' not found in Kaggle Secrets, Colab Secrets, or the environment.")
+    return value
+
+
 def export_nova_knowledge_to_corpus(output_path: str) -> int:
-    """Run this ON KAGGLE (or anywhere with the two Kaggle Secrets
-    below available) — reuses the EXACT connection pattern
+    """Run this on Kaggle, Colab, or anywhere with the two secrets
+    below available (as a Kaggle Secret, a Colab Secret, or a plain
+    env var) — reuses the EXACT connection pattern
     colab/merge_and_finetune.ipynb's own cell 4 already proved works in
-    real production use: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY as
-    Kaggle Secrets, plain REST calls, no new library or auth scheme.
+    real production use: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY,
+    plain REST calls, no new library or auth scheme.
 
     Pulls every real row from NovaKnowledgeEntry (query, content — live
     web searches Nova already resolved and analyzed for real users) and
@@ -310,11 +334,9 @@ def export_nova_knowledge_to_corpus(output_path: str) -> int:
     costs nothing further to "acquire," unlike every external source
     above."""
     import requests
-    from kaggle_secrets import UserSecretsClient
 
-    secrets = UserSecretsClient()
-    supabase_url = secrets.get_secret("SUPABASE_URL")
-    supabase_key = secrets.get_secret("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_url = _get_secret("SUPABASE_URL")
+    supabase_key = _get_secret("SUPABASE_SERVICE_ROLE_KEY")
     headers = {"apikey": supabase_key, "Authorization": f"Bearer {supabase_key}"}
 
     knowledge_resp = requests.get(
