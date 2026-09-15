@@ -31,6 +31,7 @@ Real, standard training details, not simplified away:
     interrupted Kaggle session (9-12 hour limit) can actually resume.
 """
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -67,6 +68,22 @@ class TrainConfig:
     # Keeping only the N most recent checkpoints bounds disk use to a
     # small constant regardless of how long the run goes.
     keep_last_n_checkpoints: int = 2
+    # A real second incident this defends against: picking total_steps
+    # from a short speed calibration (e.g. 20 steps) and trusting it for
+    # the WHOLE run is a real, hit failure mode — real throughput can run
+    # slower over hours than a brief early sample suggested, and a
+    # Kaggle "Save & Run All" job that runs past its real hard limit
+    # gets SIGKILLed (exit code 137) with NO chance to save a final
+    # checkpoint or let later notebook cells run at all (real incident,
+    # 2026-09-15: a run was killed at exactly 43201s, Kaggle's own
+    # observed 12-hour ceiling for this environment). None (default)
+    # disables this — set it to a real number of seconds, with margin
+    # below whatever hard limit applies, and train() checks real elapsed
+    # wall-clock time (not just step count) and stops itself gracefully,
+    # so whatever ran so far is saved and the notebook's own later cells
+    # (final save, printouts) still get to run normally instead of being
+    # killed mid-flight.
+    max_wall_clock_seconds: float | None = None
 
 
 def build_optimizer(model: NovaSmall, lr: float, weight_decay: float) -> torch.optim.AdamW:
@@ -153,9 +170,14 @@ def train(
     optimizer.zero_grad()
     micro_step = 0
     step = start_step
+    start_time = time.time()
+    stopped_early_for_time = False
 
     for batch in batches:
         if step >= cfg.total_steps:
+            break
+        if cfg.max_wall_clock_seconds is not None and (time.time() - start_time) >= cfg.max_wall_clock_seconds:
+            stopped_early_for_time = True
             break
         if isinstance(batch, tuple):
             input_ids, labels = batch
@@ -183,6 +205,18 @@ def train(
                 save_checkpoint(ckpt_path, model, step, optimizer=optimizer)
                 print(f"  saved checkpoint: {ckpt_path}")
                 _prune_old_checkpoints(Path(cfg.checkpoint_dir), cfg.keep_last_n_checkpoints)
+
+    if stopped_early_for_time:
+        # A real, guaranteed-fresh checkpoint at the exact stopping point
+        # — never rely on step % checkpoint_every having lined up with
+        # the moment the time budget ran out, or real progress since the
+        # last periodic save is silently lost.
+        final_path = Path(cfg.checkpoint_dir) / f"step_{step}.pt"
+        save_checkpoint(final_path, model, step, optimizer=optimizer)
+        _prune_old_checkpoints(Path(cfg.checkpoint_dir), cfg.keep_last_n_checkpoints)
+        print(f"  stopped early at step {step}/{cfg.total_steps}: hit max_wall_clock_seconds="
+              f"{cfg.max_wall_clock_seconds:.0f}s — saved {final_path} and returning normally so later "
+              f"notebook cells still run (instead of Kaggle killing the whole session mid-flight).")
 
     return loss_history
 
@@ -307,6 +341,29 @@ if __name__ == "__main__":
         print(f"checkpoint pruning OK: {prune_cfg.total_steps // prune_cfg.checkpoint_every} real checkpoints were "
               f"saved over the run, but only the {len(remaining)} most recent remain on disk — exactly the fix for "
               f"the real 'notebook tried to use more disk space than is available' incident.")
+
+    # --- max_wall_clock_seconds: the real fix for a real incident (a
+    # Kaggle run hit the environment's actual 12-hour hard limit and was
+    # SIGKILLed with no checkpoint saved at the cutoff and no chance for
+    # later notebook cells to run at all). A real, tiny time budget here
+    # must make train() stop itself well before exhausting `batches`,
+    # save a real checkpoint at exactly that point, and return normally.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        time_limited_cfg = TrainConfig(
+            **{**train_cfg.__dict__, "checkpoint_dir": tmpdir, "checkpoint_every": 10**9, "max_wall_clock_seconds": 0.15}
+        )
+        time_limited_history = train(NovaSmall(small_model_cfg), batches, time_limited_cfg)
+        assert 0 < len(time_limited_history) < len(batches), (
+            f"expected an early, partial stop (some steps, not all {len(batches)}), got {len(time_limited_history)}"
+        )
+        time_limited_ckpts = list(Path(tmpdir).glob("step_*.pt"))
+        assert time_limited_ckpts, "no checkpoint was saved when stopping early for max_wall_clock_seconds"
+        _, saved_step, _ = load_checkpoint(time_limited_ckpts[0])
+        assert saved_step == len(time_limited_history)
+        print(f"max_wall_clock_seconds OK: stopped after {len(time_limited_history)}/{len(batches)} real steps "
+              f"once the time budget ran out, with a real checkpoint saved at that exact step and train() "
+              f"returning normally — this is what lets a Kaggle run save real progress and finish cleanly "
+              f"instead of being killed mid-flight at the platform's own hard time limit.")
 
     # --- Real (input_ids, labels) tuple batches, the exact shape
     # dataset.py's MultimodalCollator/AudioMultimodalCollator produce
