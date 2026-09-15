@@ -666,6 +666,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     } else if (referralCount >= REFERRAL_CONTEST_TARGET) {
       body += t(lang, "referralContestFull");
     }
+    body += t(lang, "referralEarningInfo");
     body += `\n\n${t(lang, "referralLink", { link: `https://t.me/${me.username}?start=${user.id}` })}`;
     if (isOwnerViewing) {
       const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");

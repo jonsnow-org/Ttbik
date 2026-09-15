@@ -70,6 +70,10 @@ export const STR: Dict = {
     ar: "\n\nملاحظة: الفائزون الثلاثة في هذه المسابقة مكتملون بالفعل — يمكنك الاستمرار بالإحالة لربح عمولة حقيقية من كل شخص تدعوه.",
     en: "\n\nNote: this contest's 3 winner slots are already taken — you can still keep inviting for real, ongoing commission on everyone you refer.",
   },
+  referralEarningInfo: {
+    ar: "\n\n💰 بالإضافة إلى المسابقة: تربح 5% من أرباح كل شخص تدعوه من كل مهمة يُنجزها، مدى الحياة، بلا حد أقصى — تُضاف تلقائياً لرصيدك فور إنجازه المهمة.",
+    en: "\n\n💰 On top of the contest: you earn 5% of every task reward completed by anyone you refer, for life, with no limit — credited to your balance automatically the moment they complete it.",
+  },
   referralOwnerB2B: {
     ar: "\n\n🎁 كمنشئ لهذا البوت، رابط منفصل خاص بك لدعوة منشئي بوتات آخرين — تربح 5% من صافي أرباح المنصة من كل بوت يُفعَّل عبره، مدى الحياة:\n{link}",
     en: "\n\n🎁 As this bot's creator, here's your separate link for inviting other bot owners — you earn 5% of the platform's net profit from every bot activated through it, for life:\n{link}",
