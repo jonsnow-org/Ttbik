@@ -55,14 +55,20 @@ def save_checkpoint(
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Write to a temp file and rename atomically — a crash or an
-    # out-of-disk error mid-write must not leave a half-written
-    # checkpoint sitting at the real filename, since that would look
-    # like a valid, loadable file right up until something tries to
-    # load it.
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    torch.save(payload, tmp_path)
-    tmp_path.replace(path)
+    # NOTE (2026-09-16): this used to write to a temp file and rename()
+    # atomically -- safe on a real local disk, but a real, confirmed
+    # incident on a Google-Drive-mounted checkpoint_dir: Drive's FUSE
+    # mount does not reliably honor rename() for large (>1GB) files --
+    # tmp_path.replace(path) returned with no exception, "saved
+    # checkpoint" printed, and the destination file never actually
+    # existed afterward (every checkpoint silently vanishing). Writing
+    # directly to the final path avoids the broken rename; the
+    # existence+size check below turns any future silent write failure
+    # into a loud, catchable error instead of hours of lost training
+    # discovered only when trying to resume.
+    torch.save(payload, path)
+    if not path.exists() or path.stat().st_size == 0:
+        raise IOError(f"checkpoint write to {path} did not take effect (Drive sync issue?)")
 
 
 def load_checkpoint(
