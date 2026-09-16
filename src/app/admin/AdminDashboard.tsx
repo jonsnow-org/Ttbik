@@ -53,6 +53,9 @@ export default function AdminDashboard() {
           <Link href="/admin/analytics" className="text-sm font-semibold text-brand-700 hover:underline">
             إحصائيات الزوار ←
           </Link>
+          <Link href="/admin/platform" className="text-sm font-semibold text-brand-700 hover:underline">
+            🖥️ تتبع البوتات المُنشأة ←
+          </Link>
         </div>
       </div>
       <p className="mb-4 text-xs text-slate-500">

@@ -18,21 +18,23 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Queue (in priority order)
 
-- [ ] **0. Created-bots tracking panel inside Super Admin** (owner directive,
-      2026-09-03) — a screen in the existing `/admin/platform` Super Admin
-      dashboard (or the SUPER_ADMIN's in-bot `/admin` panel — pick whichever
-      fits the existing admin UI better) listing every `Bot` row: token
-      (masked), owner Telegram id, template, created_at, totalRevenue,
-      isActive. Actions per row: disable (flip `Bot.isActive` — webhook
-      handler must already refuse updates for an inactive bot, verify/add
-      that check), delete (remove the Bot row + cascade its Ads/Users per
-      existing FK behavior — confirm before wiring, this is destructive),
-      and whatever "إزالة" beyond delete turns out to mean once discussed
-      with the owner (e.g. revoke webhook without deleting history?). This
-      exists because AD_BOT is manually sold and MARRIAGE_BOT is entirely
-      owner-only, both manually controlled (see AGENT_BUS.md Product
-      rules) — the owner needs to be able to shut one down without
-      touching the database by hand.
+- [x] **0. Created-bots tracking panel inside Super Admin** (owner directive,
+      2026-09-03; shipped 2026-09-16) — `/admin/platform` lists every `Bot`
+      row (masked token, owner id, template, created_at, totalRevenue,
+      ownerBalance, isActive) via `GET /api/admin/bots`, with a per-row
+      disable/enable toggle (`PATCH /api/admin/bots/[id]`) flipping
+      `Bot.isActive` — the webhook handler
+      (`src/app/api/telegram/[botId]/route.ts`) already refuses any update
+      for an inactive bot, verified, no change needed there. Linked from
+      the main `/admin` dashboard.
+      **Delete deliberately NOT built**: the backlog's cascade assumption
+      was wrong — `Ad`/`User`/`Transaction` relations have no
+      `onDelete: Cascade` in the real schema (default RESTRICT), so a raw
+      delete throws a foreign-key error, and forcing a real cascade would
+      irreversibly destroy real financial history. Needs an explicit
+      owner decision on what happens to a deleted bot's existing
+      Ads/Users/Transactions before this is safe to build. Disabling
+      already fully covers "shut this down" without that risk.
 - [ ] **0b. Paid features inside the owner's own MARRIAGE_BOT instance**
       (owner directive, 2026-09-03) — MARRIAGE_BOT itself stays exclusively
       the owner's private bot, never sold or activated for anyone else
