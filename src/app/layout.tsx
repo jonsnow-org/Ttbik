@@ -7,6 +7,7 @@ import AdServiceWorker from "@/components/AdServiceWorker";
 import AdSlot from "@/components/AdSlot";
 import MultitagScript from "@/components/MultitagScript";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
+import MobileNav from "@/components/MobileNav";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 const SITE_TITLE = "سوق تولز — سوق الخدمات الرقمية المصغّرة";
@@ -77,12 +78,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
               <Logo className="h-7 w-7" /> سوق تولز
             </a>
-            <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm font-semibold text-slate-600 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <nav className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-sm font-semibold text-slate-600 lg:flex">
               <a href="/#categories" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 الأقسام
-              </a>
-              <a href="/how-it-works" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                كيف يعمل الموقع؟
               </a>
               <a
                 href="/free-tools"
@@ -90,10 +88,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 🎁 أدوات مجانية
               </a>
+              <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+                🤖 منشئ البوتات
+              </a>
+              <a href="/how-it-works" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+                كيف يعمل الموقع؟
+              </a>
               <a href="/order/lookup" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 تتبع طلبي
               </a>
             </nav>
+            <div className="flex-1 lg:hidden" />
             {/* Owner-only. Every visitor used to see a "دخول المالك" login
                 button here — harmless against the real gate (middleware.ts
                 + password cookie), but it has no reason to be shown to
@@ -102,10 +107,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 private /nova/connections link. The owner reaches /admin/login
                 by bookmarking it directly; this button is now just the
                 already-logged-in shortcut back to the dashboard. */}
+            <MobileNav isOwner={isOwner} />
             {isOwner && (
               <a
                 href="/admin"
-                className="shrink-0 rounded-full bg-brand-700 px-3.5 py-1.5 text-sm font-bold text-white transition hover:bg-brand-800"
+                className="hidden shrink-0 rounded-full bg-brand-700 px-3.5 py-1.5 text-sm font-bold text-white transition hover:bg-brand-800 lg:inline-block"
               >
                 لوحة التحكم
               </a>

@@ -50,11 +50,8 @@ export default async function HomePage() {
             <Link href="/bots" className="rounded-full bg-indigo-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-800">
               منشئ البوتات
             </Link>
-            <Link href="/tools" className="rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              كل الأدوات
-            </Link>
             <Link href="/free-tools" className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700">
-              أدوات مجانية
+              كل الأدوات المجانية
             </Link>
           </div>
         </div>
