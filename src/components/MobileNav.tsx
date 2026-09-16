@@ -45,6 +45,7 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
       label: "قسم البوتات",
       links: [
         { href: "/bots", label: "🤖 منشئ البوتات" },
+        { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
         { href: "/#categories", label: "الأقسام والخدمات" },
         { href: "/tools", label: "🎬 أدوات الاستوديو" },
       ],

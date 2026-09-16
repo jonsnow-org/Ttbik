@@ -232,6 +232,10 @@ export const STR: Dict = {
     en: "⚠️ The monitoring window hasn't finished yet. If you just opened the link, wait for the countdown on that page to finish and tap \"Continue\" there, then tap this button again.",
   },
   carouselSuccess: { ar: "🎉 تم إضافة {amount} لرصيدك بنجاح!\nرصيدك الآن: {balance}.", en: "🎉 {amount} added to your balance!\nYour balance is now: {balance}." },
+  carouselSuccessReferralNudge: {
+    ar: "\n\n💡 ادعُ صديقاً بهذا الرابط وستربح 5% إضافية من كل مهمة يُنجزها، مدى الحياة:\n{link}",
+    en: "\n\n💡 Invite a friend with this link and earn an extra 5% of every task they complete, for life:\n{link}",
+  },
   carouselCancelled: { ar: "تم إلغاء التصفح.", en: "Browsing cancelled." },
   carouselDone: { ar: "🎉 لا مزيد من الإعلانات المتاحة حالياً.", en: "🎉 No more ads available right now." },
 

@@ -1944,7 +1944,18 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
       return;
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-    await bot.api.editMessageText(chatId, messageId, t(lang, "carouselSuccess", { amount: fmtCpc(result.workerCut), balance: fmt(result.newBalance) })).catch(() => null);
+    // A light, occasional referral nudge appended right at the moment a
+    // user just earned real money — the best psychological moment to ask,
+    // not buried behind a menu button they have to go find themselves.
+    // Random (~1-in-7) rather than every single completion, since a user
+    // can watch dozens of ads per session and a nudge on every one would
+    // just be noise they tune out.
+    let successText = t(lang, "carouselSuccess", { amount: fmtCpc(result.workerCut), balance: fmt(result.newBalance) });
+    if (Math.random() < 0.15) {
+      const me = await bot.api.getMe();
+      successText += t(lang, "carouselSuccessReferralNudge", { link: `https://t.me/${me.username}?start=${tgUserId}` });
+    }
+    await bot.api.editMessageText(chatId, messageId, successText).catch(() => null);
     if (result.adExpired) {
       const ownerUser = await prisma.user.findUnique({ where: { id: ad.userId }, select: { language: true } });
       await sendCampaignEndedReport(bot, ad, asLang(ownerUser?.language));
