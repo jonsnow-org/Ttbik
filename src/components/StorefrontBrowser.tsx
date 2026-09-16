@@ -125,20 +125,22 @@ export default function StorefrontBrowser({
                     <Link
                       key={s.id}
                       href={`/service/${s.slug}`}
-                      className="group flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      className={`group relative flex flex-col justify-between overflow-hidden rounded-2xl bg-gradient-to-br ${theme.gradient} p-5 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl`}
                     >
+                      <div className="pointer-events-none absolute -left-6 -top-8 h-24 w-24 rounded-full bg-white/10" />
                       <div>
-                        <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] font-semibold text-slate-500">
-                          {getDeliveryKind(s).label}
-                        </span>
-                        <h3 className={`mt-2 font-bold text-slate-900 ${theme.groupHoverText}`}>{s.name_ar}</h3>
-                        <p className="mt-2 text-sm text-slate-500">{s.short_desc_ar}</p>
+                        <div className="flex items-center justify-between">
+                          <CategoryIcon slug={active.slug} className="h-7 w-7 text-white/90" />
+                          <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-bold text-white backdrop-blur">
+                            {getDeliveryKind(s).label}
+                          </span>
+                        </div>
+                        <h3 className="mt-3 font-extrabold text-white">{s.name_ar}</h3>
+                        <p className="mt-2 text-sm text-white/80">{s.short_desc_ar}</p>
                       </div>
-                      <div className="mt-4 flex items-center justify-between">
-                        <span className={`text-lg font-extrabold ${s.price_usd === 0 ? "text-emerald-700" : theme.badgeText}`}>
-                          {formatUsd(s.price_usd)}
-                        </span>
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${s.price_usd === 0 ? "bg-emerald-50 text-emerald-700" : `${theme.badgeBg} ${theme.badgeText}`}`}>
+                      <div className="relative mt-4 flex items-center justify-between">
+                        <span className="text-lg font-extrabold text-white">{formatUsd(s.price_usd)}</span>
+                        <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-white backdrop-blur transition group-hover:bg-white group-hover:text-slate-900">
                           {s.price_usd === 0 ? "احصل عليه الآن" : "جرّب النسخة المحدودة"}
                         </span>
                       </div>

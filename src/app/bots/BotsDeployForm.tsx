@@ -110,12 +110,15 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
       <SectionBackdrop tone="bots" />
-      <h1 className="mb-2 text-2xl font-bold">تفعيل بوت تليجرام</h1>
-      <p className="mb-6 text-sm text-gray-600">
+      <span className="mx-auto mb-3 block w-fit rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-bold text-indigo-700">
+        🤖 منشئ البوتات
+      </span>
+      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تفعيل بوت تليجرام</h1>
+      <p className="mb-6 text-sm text-slate-600">
         الصق توكن البوت من @BotFather (أو الرسالة كاملة)، أدخل آيدي تيليجرامك، واختر القالب. البوت يُفعَّل فوراً على توكنك.
       </p>
 
-      <form onSubmit={handleDeploy} className="space-y-4">
+      <form onSubmit={handleDeploy} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div>
           <label className="mb-1 block text-sm font-medium">Bot Token من BotFather</label>
           <input
@@ -124,7 +127,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             value={token}
             onChange={(e) => setToken(extractBotToken(e.target.value))}
             placeholder="الصق التوكن أو رسالة BotFather كاملة"
-            className="w-full rounded border p-2 font-mono text-sm text-black"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <div>
@@ -135,7 +138,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             value={ownerId}
             onChange={(e) => setOwnerId(e.target.value.replace(/\D/g, ""))}
             placeholder="مثال: 987654321"
-            className="w-full rounded border p-2 font-mono text-sm text-black"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <p className="mt-1 text-xs text-gray-500">
             احصل عليه مجاناً من{" "}
@@ -151,7 +154,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium">اختر قالب البوت</label>
-          <select value={template} onChange={(e) => setTemplate(e.target.value)} className="w-full rounded border bg-white p-2 text-black">
+          <select
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
             <option value="AD_BOT">بوت الإعلانات والمهام</option>
             {/* بوت التعارف والزواج الشرعي، بوت فرص العمل/المتجر، والبوت
                 الطبي مخفية عن أي زائر عادي عمداً — كلها خاصة بمالك المنصة
@@ -186,7 +193,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded border p-2 font-mono text-sm text-black"
+              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
         ) : (
@@ -198,32 +205,32 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
               value={activationCode}
               onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
               placeholder="احصل عليه من داخل أي بوت على المنصة عبر زر «أريد بوتاً مماثلاً»"
-              className="w-full rounded border p-2 font-mono text-sm text-black"
+              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             <p className="mt-1 text-xs text-gray-500">مرتبط بآيدي المالك أعلاه فقط. كل كود يفعّل بوتاً واحداً مرة واحدة ولا يُعاد استخدامه.</p>
           </div>
         )}
-        <button type="submit" disabled={loading} className={`w-full rounded py-2 font-bold text-white disabled:opacity-50 ${theme.button}`}>
+        <button type="submit" disabled={loading} className={`w-full rounded-xl py-2.5 font-bold text-white shadow-sm transition disabled:opacity-50 ${theme.button}`}>
           {loading ? "جاري ربط وتفعيل البوت..." : "تفعيل البوت على تلجرام فوراً"}
         </button>
       </form>
       {status && (
         <div className="mt-4 space-y-3">
-          <div className="whitespace-pre-wrap rounded bg-gray-100 p-3 text-sm">{status}</div>
+          <div className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{status}</div>
           {botUsername && (
-            <div className="flex flex-col gap-2 rounded border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
               <a
                 href={`https://t.me/${botUsername}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center justify-center rounded bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+                className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700"
               >
                 افتح @{botUsername} على تليجرام
               </a>
               <button
                 type="button"
                 onClick={copyLink}
-                className="rounded border border-emerald-300 bg-white px-3 py-2 text-sm text-emerald-800 hover:bg-emerald-100"
+                className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm text-emerald-800 transition hover:bg-emerald-100"
               >
                 {copied ? "تم النسخ ✓" : "نسخ الرابط"}
               </button>
