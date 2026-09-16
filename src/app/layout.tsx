@@ -9,6 +9,7 @@ import MultitagScript from "@/components/MultitagScript";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import StickyBottomAd from "@/components/StickyBottomAd";
+import { LIVE_BOTS } from "@/lib/liveBots";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 const SITE_TITLE = "سوق تولز — سوق الخدمات الرقمية المصغّرة";
@@ -48,6 +49,11 @@ const ORGANIZATION_JSON_LD = {
   name: "سوق تولز",
   url: SITE_URL,
   description: SITE_DESCRIPTION,
+  // Links the site entity to its real live Telegram bot(s) for search
+  // engines (Google's "sameAs" entity-linking) -- owner directive
+  // 2026-09-16: help the bots themselves surface in search, not just
+  // this site's own pages.
+  sameAs: LIVE_BOTS.map((b) => b.href),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

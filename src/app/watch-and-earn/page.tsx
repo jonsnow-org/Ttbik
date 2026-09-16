@@ -44,12 +44,29 @@ const FAQ_JSON_LD = {
   })),
 };
 
+// Same SoftwareApplication entity as /bots -- owner directive 2026-09-16:
+// help the live bot itself surface in search results, from every page
+// that links to it, not just one.
+const SOFTWARE_JSON_LD = LIVE_BOTS[0] && {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: LIVE_BOTS[0].title,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Telegram",
+  description: LIVE_BOTS[0].desc,
+  url: LIVE_BOTS[0].href,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+};
+
 export default function WatchAndEarnPage() {
   const botLink = LIVE_BOTS[0]?.href;
 
   return (
     <div className="relative mx-auto max-w-3xl px-4 py-12">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }} />
+      {SOFTWARE_JSON_LD && (
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_JSON_LD) }} />
+      )}
       <span className="inline-block rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-bold text-indigo-700">
         💰 اربح مالاً حقيقياً
       </span>

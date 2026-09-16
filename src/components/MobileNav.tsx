@@ -48,7 +48,6 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
         { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
         { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
-        { href: "/bots/advertise", label: "📢 احجز مساحة إعلانية" },
         { href: "/#categories", label: "الأقسام والخدمات" },
         { href: "/tools", label: "🎬 أدوات الاستوديو" },
       ],

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getCategoryTheme } from "@/lib/categoryTheme";
 import SectionBackdrop from "@/components/SectionBackdrop";
+import { LIVE_BOTS } from "@/lib/liveBots";
 
 const theme = getCategoryTheme("bots");
 
@@ -117,6 +118,24 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
       <p className="mb-6 text-sm text-slate-600">
         الصق توكن البوت من @BotFather (أو الرسالة كاملة)، أدخل آيدي تيليجرامك، واختر القالب. البوت يُفعَّل فوراً على توكنك.
       </p>
+
+      {/* Direct embedded link to the already-live bot, for a visitor who
+          just wants to try a real bot right now instead of deploying their
+          own instance (owner directive 2026-09-16: surface bots' direct
+          links on more pages, not just the homepage). */}
+      {LIVE_BOTS[0] && (
+        <a
+          href={LIVE_BOTS[0].href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mb-6 flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-br from-sky-600 to-indigo-700 p-4 text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <span className="text-sm font-bold">🤖 تريد تجربة بوت حقيقي فوراً بدل تفعيل واحد بنفسك؟</span>
+          <span className="shrink-0 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold backdrop-blur">
+            جرّب البوت ←
+          </span>
+        </a>
+      )}
 
       <form onSubmit={handleDeploy} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div>
