@@ -722,10 +722,16 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   if (text === t(lang, "btnFaq")) {
     const faqKb = new Keyboard()
       .text(t(lang, "btnWantOwnBot")).row()
+      .text(t(lang, "btnFreeTools")).row()
       .text(t(lang, "btnContactAdmin")).row()
       .text(backLabel(lang))
       .resized();
     await bot.api.sendMessage(chatId, t(lang, "faqBody"), { reply_markup: faqKb });
+    return;
+  }
+  if (text === t(lang, "btnFreeTools")) {
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    await bot.api.sendMessage(chatId, t(lang, "freeToolsPromo", { link: `${site}/free-tools?utm_source=adbot&utm_medium=telegram` }));
     return;
   }
   if (text === t(lang, "btnAskNova")) {

@@ -37,6 +37,11 @@ export const STR: Dict = {
   btnLangEn: { ar: "🇬🇧 English", en: "🇬🇧 English" },
   btnSharePhone: { ar: "📱 مشاركة رقم الهاتف", en: "📱 Share phone number" },
   btnWantOwnBot: { ar: "ℹ️ أريد بوتاً مماثلاً", en: "ℹ️ I want a bot like this" },
+  btnFreeTools: { ar: "🌐 أدوات مجانية إضافية", en: "🌐 More free tools" },
+  freeToolsPromo: {
+    ar: "🎁 لدينا أيضاً أدوات مجانية بالكامل تعمل مباشرة في متصفحك، بلا تسجيل ولا حدود استخدام — حاسبة الزكاة، محول التاريخ الهجري، مولّد سيرة ذاتية وفواتير عربية، بطاقة أعمال رقمية، ومحول عملات رقمية وغيرها:\n{link}",
+    en: "🎁 We also have completely free tools that work right in your browser, no signup or usage limits — zakat calculator, Hijri date converter, Arabic CV and invoice generators, a digital business card, a crypto converter, and more:\n{link}",
+  },
   btnProceedPurchase: { ar: "💳 متابعة للشراء", en: "💳 Proceed to purchase" },
   btnContactAdmin: { ar: "📩 راسل الأدمن", en: "📩 Message Admin" },
   contactAdminPrompt: {
