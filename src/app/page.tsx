@@ -103,13 +103,14 @@ export default async function HomePage() {
               href={bot.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-600 to-indigo-700 p-6 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl"
             >
-              <span className="inline-block rounded-full bg-sky-50 px-2.5 py-0.5 text-[11px] font-bold text-sky-700">
-                افتح على تليجرام
+              <span className="text-4xl">🤖</span>
+              <h3 className="mt-3 text-lg font-extrabold">{bot.title}</h3>
+              <p className="mt-1.5 text-sm text-sky-100">{bot.desc}</p>
+              <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-bold backdrop-blur transition group-hover:bg-white group-hover:text-indigo-700">
+                افتح على تليجرام ←
               </span>
-              <h3 className="mt-2 font-bold text-slate-900 group-hover:text-brand-700">{bot.title}</h3>
-              <p className="mt-1 text-sm text-slate-500">{bot.desc}</p>
             </a>
           ))}
         </div>
