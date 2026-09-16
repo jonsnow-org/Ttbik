@@ -167,6 +167,16 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
             {isOwner && <option value="NOVA_BOT">Nova AI (مساعد ذكاء اصطناعي مجاني)</option>}
           </select>
+          {!isOwner && (
+            <p className="mt-2 text-xs text-slate-500">
+              🔒 هذا هو القالب العام الوحيد المتاح للجميع. القوالب الخاصة بك (الزواج، فرص العمل، الطبي، Nova AI)
+              تظهر هنا تلقائياً فقط بعد تسجيل دخولك كمالك من{" "}
+              <a href="/admin" className="font-bold text-indigo-700 underline">
+                لوحة التحكم /admin
+              </a>{" "}
+              في نفس هذا المتصفح — هذا ليس عطلاً، بل حماية مقصودة حتى لا تظهر هذه القوالب لأي زائر آخر.
+            </p>
+          )}
         </div>
         {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" ? (
           <div>
