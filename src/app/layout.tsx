@@ -8,6 +8,7 @@ import AdSlot from "@/components/AdSlot";
 import MultitagScript from "@/components/MultitagScript";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
+import StickyBottomAd from "@/components/StickyBottomAd";
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 const SITE_TITLE = "سوق تولز — سوق الخدمات الرقمية المصغّرة";
@@ -149,6 +150,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </footer>
+        <StickyBottomAd />
       </body>
     </html>
   );
