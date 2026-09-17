@@ -12,6 +12,19 @@ from telegram import (
 
 MINI_APP_URL = "https://ttbik.vercel.app/mini-app"
 
+INFO_TEXT = (
+    "ℹ️ طريقة الاستخدام\n\n"
+    "1) أرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر.\n"
+    "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n"
+    "3) الملف يُرسل لك في المحادثة ويُحفظ في قناة الأرشيف.\n\n"
+    "📱 التطبيق المصغر (Mini-App)\n"
+    "زر Mini-App يظهر أسفل الشات يسار الرسالة.\n"
+    "يفتح داخل تيليجرام ويعرض الرئيسية والأحدث.\n"
+    "يظهر فقط ما سمحت بنشره من إعداداتي.\n\n"
+    "⚙️ الخصوصية\n"
+    "من إعداداتي تقدر تمنع ظهور تنزيلاتك في التطبيق."
+)
+
 
 def mini_app_info() -> WebAppInfo:
     return WebAppInfo(url=MINI_APP_URL)
@@ -30,14 +43,16 @@ def owner_main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton("📊 إحصائيات"), KeyboardButton("📢 قنوات الاشتراك")],
         [KeyboardButton("📱 التطبيق المصغر"), KeyboardButton("⚙️ إعدادات البوت")],
         [KeyboardButton("👥 إدارة المستخدمين"), KeyboardButton("💎 الميزات المدفوعة")],
-        [KeyboardButton("📥 تجربة التحميل")],
+        [KeyboardButton("📥 تجربة التحميل"), KeyboardButton("ℹ️ معلومات")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
 def user_main_keyboard(mini_app_enabled: bool = False) -> ReplyKeyboardMarkup:
-    row2 = [KeyboardButton("⚙️ إعداداتي"), KeyboardButton("❓ مساعدة")]
-    keyboard = [[KeyboardButton("📥 تحميل وسائط")], row2]
+    keyboard = [
+        [KeyboardButton("📥 تحميل وسائط")],
+        [KeyboardButton("⚙️ إعداداتي"), KeyboardButton("ℹ️ معلومات")],
+    ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
