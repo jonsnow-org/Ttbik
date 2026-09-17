@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo)
+// Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands)
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -24,12 +24,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [meRes, webhookRes] = await Promise.all([
+    const [meRes, webhookRes, commandsRes] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
+      fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
+    const commandsJson = await commandsRes.json();
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -42,6 +44,15 @@ export async function POST(req: NextRequest) {
       ? new Date(webhook.result.last_synchronization_error_date * 1000).toISOString()
       : null;
 
+    const commands = Array.isArray(commandsJson?.result)
+      ? commandsJson.result
+          .filter((c: { command?: string }) => typeof c?.command === "string")
+          .map((c: { command: string; description?: string }) => ({
+            command: c.command,
+            description: typeof c.description === "string" ? c.description : "",
+          }))
+      : [];
+
     return NextResponse.json({
       ok: true,
       bot: {
@@ -51,6 +62,7 @@ export async function POST(req: NextRequest) {
         canJoinGroups: me.result.can_join_groups,
         canReadAllGroupMessages: me.result.can_read_all_group_messages,
         supportsInlineQueries: Boolean(me.result.supports_inline_queries),
+        commands,
       },
       webhook: {
         url: webhook.result?.url || null,
@@ -63,6 +75,7 @@ export async function POST(req: NextRequest) {
         allowedUpdates: Array.isArray(webhook.result?.allowed_updates)
           ? webhook.result.allowed_updates
           : [],
+        hasCustomCertificate: Boolean(webhook.result?.has_custom_certificate),
       },
     });
   } catch {

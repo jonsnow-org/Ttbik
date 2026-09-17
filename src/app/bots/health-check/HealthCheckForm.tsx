@@ -13,6 +13,7 @@ type Result = {
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
+    commands?: { command: string; description: string }[];
   };
   webhook?: {
     url: string | null;
@@ -23,6 +24,7 @@ type Result = {
     ipAddress?: string | null;
     maxConnections?: number | null;
     allowedUpdates?: string[];
+    hasCustomCertificate?: boolean;
   };
   error?: string;
 };
@@ -81,7 +83,7 @@ export default function HealthCheckForm() {
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تحقق من حالة بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
         الصق توكن أي بوت (توكن فقط، لا نطلب أي بيانات أخرى) لتتحقق فوراً هل لا يزال فعّالاً، وهل الويبهوك (Webhook)
-        الخاص به يعمل بلا أخطاء. لا نحفظ التوكن أبداً — الفحص لحظي مباشر عبر خوادم تليجرام نفسها.
+        الخاص به يعمل بلا أخطاء، وما الأوامر المسجّلة لدى BotFather. لا نحفظ التوكن أبداً — الفحص لحظي مباشر عبر خوادم تليجرام نفسها.
       </p>
 
       <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -134,6 +136,17 @@ export default function HealthCheckForm() {
             {result.bot.supportsInlineQueries != null && (
               <li>استعلامات إنلاين: {result.bot.supportsInlineQueries ? "مفعّلة" : "غير مفعّلة"}</li>
             )}
+            <li>
+              أوامر BotFather المسجّلة:{" "}
+              {(result.bot.commands?.length ?? 0) === 0
+                ? "لا يوجد (القائمة فارغة)"
+                : `${result.bot.commands!.length} أمر`}
+            </li>
+            {(result.bot.commands?.length ?? 0) > 0 && (
+              <li className="text-xs text-slate-600">
+                {result.bot.commands!.map((c) => `/${c.command}`).join(" · ")}
+              </li>
+            )}
             {result.webhook?.url ? (
               <>
                 <li>حالة الويبهوك: مُفعَّل ✅</li>
@@ -144,6 +157,10 @@ export default function HealthCheckForm() {
                 {result.webhook.maxConnections != null && (
                   <li>أقصى اتصالات متزامنة: {result.webhook.maxConnections}</li>
                 )}
+                <li>
+                  شهادة مخصصة على الويبهوك:{" "}
+                  {result.webhook.hasCustomCertificate ? "نعم" : "لا (شهادة المزود الافتراضي)"}
+                </li>
                 {(result.webhook.allowedUpdates?.length ?? 0) > 0 && (
                   <li className="text-xs text-slate-600">
                     التحديثات المسموحة: {result.webhook.allowedUpdates!.join("، ")}
