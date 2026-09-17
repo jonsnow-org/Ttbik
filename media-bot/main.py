@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -29,6 +30,7 @@ from keyboards import (
     menu_button_webapp,
     menu_button_default,
     mini_app_info,
+    INFO_TEXT,
 )
 from services.force_sub import require_subscription
 from services.downloader import extract_info, download_media
@@ -96,7 +98,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user.id == cfg.owner_id:
         await update.message.reply_text(
             "👑 لوحة مالك البوت\n\n"
-            "من هنا تضبط قنوات الاشتراك، زر Open للتطبيق المصغر، والإحصائيات.",
+            "قنوات الاشتراك، زر Mini-App، الإحصائيات، ومعلومات الاستخدام.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -139,7 +141,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• عدد المستخدمين المسجّلين: {n}\n"
             f"• عدد التحميلات: {store.downloads}\n"
             f"• قنوات الاشتراك الإجباري: {len(store.force_sub_channels)}\n"
-            f"• زر Open / التطبيق المصغر: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            f"• زر Mini-App: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
         )
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
@@ -151,7 +153,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text in ("📱 التطبيق المصغر", "🌐 الموجز العام"):
         await update.message.reply_text(
             "📱 التطبيق المصغر داخل تيليجرام\n\n"
-            "عند تفعيله يظهر زر Open أسفل المحادثة (يسار حقل الرسالة) مثل بوتات التيك توك.\n"
+            "عند تفعيله يظهر زر Mini-App أسفل المحادثة يسار حقل الرسالة.\n"
             "يفتح واجهة داخل تيليجرام: الرئيسية + الأحدث.\n"
             "يظهر فقط ما سمح المستخدم بنشره من تنزيلاته.\n\n"
             f"الحالة الآن: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
@@ -162,7 +164,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"• قناة الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
             f"• الاشتراك الإجباري: {chans}\n"
-            f"• زر Open: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            f"• زر Mini-App: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
         )
     elif text == "👥 إدارة المستخدمين":
         await update.message.reply_text(
@@ -173,6 +175,8 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             "بنية الميزات المدفوعة جاهزة ويمكن تفعيل أي ميزة لاحقاً بضغطة."
         )
+    elif text == "ℹ️ معلومات":
+        await update.message.reply_text(INFO_TEXT)
     elif text in ("📥 تجربة التحميل", "🔙 رجوع للقائمة الرئيسية"):
         await update.message.reply_text("لوحة المالك:", reply_markup=owner_main_keyboard())
     elif text.startswith("http"):
@@ -207,21 +211,8 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             "إذا أوقفتها، محتواك يبقى خاصاً بك فقط.",
             reply_markup=user_settings_keyboard(share),
         )
-    elif text == "📱 فتح التطبيق المصغر":
-        if not store.mini_app_enabled:
-            await update.message.reply_text("التطبيق المصغر غير مفعّل حالياً.")
-            return
-        await update.message.reply_text(
-            "افتح التطبيق المصغر من زر Open أسفل المحادثة، أو من الزر التالي:",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("📱 فتح داخل تيليجرام", web_app=mini_app_info())]]
-            ),
-        )
-    elif text == "❓ مساعدة":
-        await update.message.reply_text(
-            "أرسل أي رابط من يوتيوب أو تيك توك أو إنستغرام أو تويتر...\n"
-            "سأعطيك خيارات الجودة والصوت والرسالة الصوتية."
-        )
+    elif text in ("ℹ️ معلومات", "❓ مساعدة"):
+        await update.message.reply_text(INFO_TEXT)
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
@@ -312,9 +303,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _save(context.bot)
             await _sync_menu_button(context.bot)
             await query.edit_message_text(
-                "تم تفعيل زر Open أسفل المحادثة. أغلق المحادثة وافتحها من جديد إن لم يظهر."
+                "تم تفعيل زر Mini-App أسفل المحادثة. أغلق المحادثة وافتحها من جديد إن لم يظهر."
                 if store.mini_app_enabled
-                else "تم إيقاف زر Open.",
+                else "تم إيقاف زر Mini-App.",
                 reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
             )
             return
@@ -391,6 +382,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def _post_init(app: Application) -> None:
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(2)
     await _sync_menu_button(app.bot)
 
 
@@ -402,7 +395,11 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
     logger.info("Media bot started. Owner ID: %s", cfg.owner_id)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        close_loop=False,
+    )
 
 
 if __name__ == "__main__":
