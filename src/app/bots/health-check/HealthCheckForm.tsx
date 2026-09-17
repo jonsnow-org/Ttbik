@@ -28,6 +28,7 @@ export default function HealthCheckForm() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
 
   async function check(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +52,18 @@ export default function HealthCheckForm() {
       setResult({ error: "تعذّر الفحص، حاول مجدداً." });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function copyWebhook() {
+    const url = result?.webhook?.url;
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(true);
+      setTimeout(() => setCopiedUrl(false), 2000);
+    } catch {
+      setCopiedUrl(false);
     }
   }
 
@@ -116,7 +129,15 @@ export default function HealthCheckForm() {
             {result.webhook?.url ? (
               <>
                 <li>حالة الويبهوك: مُفعَّل ✅</li>
+                <li className="break-all font-mono text-xs text-slate-600">
+                  الرابط: {result.webhook.url}
+                </li>
                 <li>تحديثات بانتظار المعالجة: {result.webhook.pendingUpdateCount}</li>
+                {(result.webhook.pendingUpdateCount ?? 0) > 10 && (
+                  <li className="text-amber-800">
+                    ⚠️ تراكم تحديثات مرتفع — الويبهوك قد يكون بطيئاً أو متوقفاً.
+                  </li>
+                )}
                 {result.webhook.lastErrorMessage && (
                   <li className="text-rose-700">
                     ⚠️ آخر خطأ: {result.webhook.lastErrorMessage}
@@ -130,14 +151,25 @@ export default function HealthCheckForm() {
               <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
             )}
           </ul>
-          <a
-            href={`https://t.me/${result.bot.username}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
-          >
-            افتح @{result.bot.username} على تليجرام
-          </a>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={`https://t.me/${result.bot.username}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
+            >
+              افتح @{result.bot.username} على تليجرام
+            </a>
+            {result.webhook?.url && (
+              <button
+                type="button"
+                onClick={copyWebhook}
+                className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800 hover:bg-indigo-50"
+              >
+                {copiedUrl ? "تم نسخ الرابط ✓" : "نسخ رابط الويبهوك"}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </main>
