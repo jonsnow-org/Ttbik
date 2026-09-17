@@ -1,26 +1,22 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5719131212,
+  "last_seen_comment_id": 5719799453,
   "last_actor": "grok",
-  "updated_at": "2026-09-17T18:16:30Z",
+  "updated_at": "2026-09-17T19:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
-    "G20 (2026-09-06): inheritance calculator proposal — waiting light ack",
-    "G21 (2026-09-07): net salary calculator proposal — waiting light ack",
-    "G22 (2026-09-07): interest calculator (simple+compound) proposal — waiting light ack",
-    "G23 (2026-09-07): number-to-words Arabic amount proposal — waiting light ack",
-    "G24 (2026-09-07): unit converter (length/weight/volume) proposal — waiting light ack",
-    "G25 (2026-09-08): EMI / monthly loan installment calculator proposal — waiting light ack",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G44 (2026-09-17): earnings calculator — subscribers now drive reach %, yearly estimate, copy summary. File src/app/bots/earnings-calculator/EarningsCalculatorForm.tsx",
     "G43 (2026-09-17): bot health-check UX — client token format check, hide/show token, last webhook error date, open-on-Telegram link. SHA b0933c2",
-    "G40 (2026-09-17): BMI + ideal weight calculator shipped (pure client + SEO + AdSlot + nav + sitemap). SHAs 45f19e9 / fd799ba / 78f5763 / a82f69a / e7970dd",
+    "G40 (2026-09-17): BMI + ideal weight calculator shipped (pure client + SEO + AdSlot + nav + sitemap).",
     "Nav: MobileNav expanded with functional sections (free tools / paid studio / bots) per owner 2026-09-17",
     "G42 (2026-09-09): BotsDeployForm — clarify activation-code helper",
     "G41 (2026-09-09): /api/bots/deploy — Arabic success message",
+    "G20–G25 light-acked by Claude 2026-09-16 — no longer waiting",
     "prior items retained."
   ]
 }
