@@ -12,10 +12,17 @@ function extractBotToken(raw: string): string {
   return m ? m[1] : trimmed;
 }
 
+/**
+ * Owner-only creator for the Media Download Bot.
+ * Protected by isOwnerServer() — never visible or usable by others.
+ * After activation the real control happens INSIDE the Telegram bot
+ * (Owner Panel vs User Panel as reply/inline keyboards), not on this form.
+ */
 export default function MediaBotCreator() {
   const [token, setToken] = useState("");
   const [ownerId, setOwnerId] = useState("");
   const [archiveChannelId, setArchiveChannelId] = useState("");
+  const [forceSubChannel, setForceSubChannel] = useState("");
   const [botName, setBotName] = useState("");
   const [enableGlobalFeed, setEnableGlobalFeed] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -39,18 +46,21 @@ export default function MediaBotCreator() {
 
     setLoading(true);
     try {
-      // Placeholder — real deploy will call a dedicated API once the Python worker is ready.
-      // For now we just validate and show the next steps clearly.
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, 700));
 
       setStatus(
-        `✅ تم التحقق من البيانات.\n\n` +
-          `الخطوات التالية (يدوية حالياً حتى يكتمل الـ worker):\n` +
-          `1. أنشئ قناة تيليجرام خاصة للأرشيف وأضف البوت كمشرف.\n` +
-          `2. انسخ آيدي القناة (يبدأ بـ -100) وضعه في الحقل أعلاه.\n` +
-          `3. انشر خدمة media-bot على Render Free وضع التوكن + آيدي القناة كـ env.\n` +
-          `4. بعد الربط سيظهر البوت هنا كـ "نشط".\n\n` +
-          `التوكن لن يُحفظ أبداً في قاعدة بيانات الموقع.`
+        `✅ تم التحقق من البيانات بنجاح.\n\n` +
+          `📌 مهم:\n` +
+          `• هذا النموذج مجرد قالب تفعيل على الموقع.\n` +
+          `• بعد تشغيل الـ worker ستظهر داخل البوت نفسه لوحتان:\n` +
+          `  1) لوحة مالك البوت (أزرار تحكم كاملة)\n` +
+          `  2) لوحة المستخدم العادي\n\n` +
+          `الخطوات التالية:\n` +
+          `1. أنشئ قناة أرشيف خاصة وأضف البوت كمشرف.\n` +
+          `2. (اختياري) أنشئ قناة اشتراك إجباري.\n` +
+          `3. انشر خدمة media-bot على Render Free.\n` +
+          `4. بعد الربط أرسل /start داخل البوت لرؤية لوحة المالك.\n\n` +
+          `التوكن لن يُحفظ أبداً في موقع سوق تولز.`
       );
     } catch (err: any) {
       setStatus(`❌ خطأ: ${err.message}`);
@@ -61,6 +71,10 @@ export default function MediaBotCreator() {
 
   return (
     <form onSubmit={handleCreate} className="mt-8 space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        🔒 هذه الصفحة خاصة بالمالك فقط. لا يمكن لأي زائر آخر الوصول إليها أو تفعيل بوتات.
+      </div>
+
       <div>
         <label className="mb-1 block text-sm font-semibold text-slate-700">اسم البوت (للعرض فقط)</label>
         <input
@@ -94,13 +108,11 @@ export default function MediaBotCreator() {
           placeholder="420066855"
           className="w-full rounded-xl border border-slate-300 px-3 py-2.5 font-mono text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
-        <p className="mt-1 text-xs text-slate-500">احصل عليه من @userinfobot</p>
+        <p className="mt-1 text-xs text-slate-500">هذا الآيدي سيحصل على لوحة مالك البوت داخل التيليجرام</p>
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-semibold text-slate-700">
-          آيدي قناة الأرشيف (اختياري الآن — مطلوب لاحقاً)
-        </label>
+        <label className="mb-1 block text-sm font-semibold text-slate-700">آيدي قناة الأرشيف (التخزين الدائم)</label>
         <input
           type="text"
           value={archiveChannelId}
@@ -109,7 +121,21 @@ export default function MediaBotCreator() {
           className="w-full rounded-xl border border-slate-300 px-3 py-2.5 font-mono text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
         />
         <p className="mt-1 text-xs text-slate-500">
-          قناة خاصة يُضاف إليها البوت كمشرف. تُستخدم كمخزن دائم لـ file_id + الرابط (حل مشكلة Ephemeral Storage).
+          قناة خاصة — أضف البوت كمشرف. تُستخدم لحفظ file_id + الرابط.
+        </p>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-sm font-semibold text-slate-700">قناة الاشتراك الإجباري (اختياري)</label>
+        <input
+          type="text"
+          value={forceSubChannel}
+          onChange={(e) => setForceSubChannel(e.target.value.trim())}
+          placeholder="@YourChannel أو -100xxxxxxxxxx"
+          className="w-full rounded-xl border border-slate-300 px-3 py-2.5 font-mono text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          إذا وُضعت، يجب على كل مستخدم الانضمام إليها قبل استخدام البوت. يمكن تغييرها لاحقاً من لوحة المالك داخل البوت.
         </p>
       </div>
 
@@ -122,11 +148,10 @@ export default function MediaBotCreator() {
           className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
         />
         <label htmlFor="globalFeed" className="text-sm text-slate-700">
-          <span className="font-semibold">تفعيل الموجز العام الاختياري (Mini App Feed)</span>
+          <span className="font-semibold">تفعيل الموجز العام (Mini App Feed) — مفتاح المالك</span>
           <br />
           <span className="text-slate-500">
-            عند التفعيل، الفيديوهات العامة التي يحمّلها المستخدمون تظهر في موجز مشترك داخل تطبيق مصغر.
-            يمكن للمستخدم إيقاف مشاركة محتواه الخاص من إعدادات البوت. المحتوى الخاص لا يظهر أبداً بدون موافقة.
+            المفتاح الرئيسي. حتى لو كان مفعّلاً، كل مستخدم يقرر من إعدادات البوت هل محتواه يظهر في الموجز أم لا.
           </span>
         </label>
       </div>
@@ -136,7 +161,7 @@ export default function MediaBotCreator() {
         disabled={loading}
         className="w-full rounded-xl bg-violet-600 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
       >
-        {loading ? "جاري التحقق..." : "إنشاء / ربط بوت الوسائط"}
+        {loading ? "جاري التحقق..." : "تفعيل بوت الوسائط (قالب فقط)"}
       </button>
 
       {status && (
@@ -146,15 +171,14 @@ export default function MediaBotCreator() {
       )}
 
       <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-4 text-xs leading-relaxed text-violet-900">
-        <p className="font-bold">الميزات المخطط لها في هذا البوت (مجانية دائماً):</p>
+        <p className="font-bold">بعد التفعيل ستظهر داخل البوت لوحتان منفصلتان:</p>
         <ul className="mt-2 list-inside list-disc space-y-1">
-          <li>تحميل متعدد المنصات + اختيار جودة + استخراج صوت + رسالة صوتية (PTT)</li>
-          <li>كاش دائم عبر قناة تيليجرام (file_id)</li>
-          <li>تقطيع ذكي للفيديوهات الكبيرة أو رابط بث مؤقت</li>
-          <li>واجهة إيقاظ ذكية عند نوم Render</li>
-          <li>ملخص ترجمة سريع + لقطات تشويق أساسية</li>
-          <li>وضع مجموعات + تنظيف الروابط</li>
-          <li>أعلام ميزات مدفوعة جاهزة للتفعيل لاحقاً بضغطة</li>
+          <li>
+            <strong>لوحة مالك البوت</strong>: إحصائيات، قناة الاشتراك الإجباري، تفعيل/إيقاف الموجز، إدارة المستخدمين، الميزات المدفوعة...
+          </li>
+          <li>
+            <strong>لوحة المستخدم</strong>: تحميل، إعدادات الخصوصية (هل يظهر محتواي في الموجز؟)، حد الاستخدام، مساعدة...
+          </li>
         </ul>
       </div>
     </form>
