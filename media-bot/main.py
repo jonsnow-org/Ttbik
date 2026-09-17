@@ -1,4 +1,4 @@
-"""Media Download Bot — owner panel, user panel, downloads, mini-app toggle."""
+"""Media Download Bot — owner panel, user panel, downloads, native Mini App."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from telegram import Update
+from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -26,7 +26,9 @@ from keyboards import (
     owner_force_sub_keyboard,
     owner_mini_app_keyboard,
     user_settings_keyboard,
-    MINI_APP_URL,
+    menu_button_webapp,
+    menu_button_default,
+    mini_app_info,
 )
 from services.force_sub import require_subscription
 from services.downloader import extract_info, download_media
@@ -74,16 +76,27 @@ async def _save(bot) -> None:
     await persist(bot, cfg.archive_channel_id)
 
 
+async def _sync_menu_button(bot) -> None:
+    try:
+        if store.mini_app_enabled:
+            await bot.set_chat_menu_button(menu_button=menu_button_webapp())
+        else:
+            await bot.set_chat_menu_button(menu_button=menu_button_default())
+    except Exception as e:
+        logger.warning("set_chat_menu_button failed: %s", e)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
         return
     store.touch_user(user.id)
+    await _sync_menu_button(context.bot)
 
     if user.id == cfg.owner_id:
         await update.message.reply_text(
             "👑 لوحة مالك البوت\n\n"
-            "من هنا تضبط قنوات الاشتراك، التطبيق المصغر، والإحصائيات — من داخل البوت مباشرة.",
+            "من هنا تضبط قنوات الاشتراك، زر Open للتطبيق المصغر، والإحصائيات.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -126,7 +139,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• عدد المستخدمين المسجّلين: {n}\n"
             f"• عدد التحميلات: {store.downloads}\n"
             f"• قنوات الاشتراك الإجباري: {len(store.force_sub_channels)}\n"
-            f"• التطبيق المصغر: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            f"• زر Open / التطبيق المصغر: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
         )
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
@@ -137,9 +150,10 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     elif text in ("📱 التطبيق المصغر", "🌐 الموجز العام"):
         await update.message.reply_text(
-            "📱 التطبيق المصغر (Mini App)\n\n"
-            "يفتح من داخل تيليجرام ويعرض الرئيسية + الأحدث.\n"
-            "يظهر فيه فقط ما سمح المستخدم بنشره من تنزيلاته (صورة / فيديو / صوت).\n\n"
+            "📱 التطبيق المصغر داخل تيليجرام\n\n"
+            "عند تفعيله يظهر زر Open أسفل المحادثة (يسار حقل الرسالة) مثل بوتات التيك توك.\n"
+            "يفتح واجهة داخل تيليجرام: الرئيسية + الأحدث.\n"
+            "يظهر فقط ما سمح المستخدم بنشره من تنزيلاته.\n\n"
             f"الحالة الآن: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
             reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
         )
@@ -148,7 +162,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"• قناة الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
             f"• الاشتراك الإجباري: {chans}\n"
-            f"• التطبيق المصغر: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            f"• زر Open: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
         )
     elif text == "👥 إدارة المستخدمين":
         await update.message.reply_text(
@@ -189,7 +203,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         share = store.get_share(user.id)
         await update.message.reply_text(
             "إعدادات الخصوصية:\n"
-            "إذا فعّلت السماح، ما تنزّله (صورة/فيديو/صوت) يمكن أن يظهر في التطبيق المصغر.\n"
+            "إذا فعّلت السماح، ما تنزّله يمكن أن يظهر في التطبيق المصغر داخل تيليجرام.\n"
             "إذا أوقفتها، محتواك يبقى خاصاً بك فقط.",
             reply_markup=user_settings_keyboard(share),
         )
@@ -197,12 +211,10 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if not store.mini_app_enabled:
             await update.message.reply_text("التطبيق المصغر غير مفعّل حالياً.")
             return
-        from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-
         await update.message.reply_text(
-            "افتح التطبيق المصغر لعرض الرئيسية والأحدث.",
+            "افتح التطبيق المصغر من زر Open أسفل المحادثة، أو من الزر التالي:",
             reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("📱 فتح التطبيق", url=MINI_APP_URL)]]
+                [[InlineKeyboardButton("📱 فتح داخل تيليجرام", web_app=mini_app_info())]]
             ),
         )
     elif text == "❓ مساعدة":
@@ -298,8 +310,11 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if data == "owner_toggle_mini_app":
             store.mini_app_enabled = not store.mini_app_enabled
             await _save(context.bot)
+            await _sync_menu_button(context.bot)
             await query.edit_message_text(
-                f"التطبيق المصغر الآن: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
+                "تم تفعيل زر Open أسفل المحادثة. أغلق المحادثة وافتحها من جديد إن لم يظهر."
+                if store.mini_app_enabled
+                else "تم إيقاف زر Open.",
                 reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
             )
             return
@@ -375,9 +390,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     _pending_url.pop(user_id, None)
 
 
+async def _post_init(app: Application) -> None:
+    await _sync_menu_button(app.bot)
+
+
 def main() -> None:
     _start_health_server()
-    app = Application.builder().token(cfg.bot_token).build()
+    app = Application.builder().token(cfg.bot_token).post_init(_post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
