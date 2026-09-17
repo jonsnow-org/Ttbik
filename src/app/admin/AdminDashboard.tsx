@@ -20,7 +20,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 8000); // in-site live notifications, no Telegram needed
+    const interval = setInterval(load, 8000);
     return () => clearInterval(interval);
   }, [load]);
 
@@ -46,7 +46,10 @@ export default function AdminDashboard() {
         <h1 className="text-xl font-extrabold text-slate-900">
           لوحة التحكم — {pending.length} طلب بانتظار المراجعة
         </h1>
-        <div className="flex gap-4">
+        <div className="flex flex-wrap gap-4">
+          <Link href="/admin-tools" className="text-sm font-semibold text-violet-700 hover:underline">
+            🛠️ أدوات الأدمن (جروك) ←
+          </Link>
           <Link href="/admin/nova" className="text-sm font-semibold text-brand-700 hover:underline">
             لوحة Nova AI ←
           </Link>
