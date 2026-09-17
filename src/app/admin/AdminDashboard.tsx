@@ -50,6 +50,9 @@ export default function AdminDashboard() {
           <Link href="/admin-tools" className="text-sm font-semibold text-violet-700 hover:underline">
             🛠️ أدوات الأدمن (جروك) ←
           </Link>
+          <Link href="/bots" className="text-sm font-semibold text-indigo-700 hover:underline">
+            🤖 منشئ بوتات كلود ←
+          </Link>
           <Link href="/admin/nova" className="text-sm font-semibold text-brand-700 hover:underline">
             لوحة Nova AI ←
           </Link>
