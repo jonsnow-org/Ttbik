@@ -6,23 +6,8 @@ import Logo from "@/components/Logo";
 
 /**
  * Mobile-only hamburger + slide-in drawer for site-wide navigation.
- *
- * REAL BUG FIXED HERE (found by actually running the built site and
- * clicking the button, not guessing from a screenshot): the drawer used
- * to render as a direct child of <header>, which has `backdrop-blur`
- * (backdrop-filter). A `filter`/`backdrop-filter` on an ancestor creates
- * a new containing block for `position: fixed` descendants in every
- * modern browser — so the drawer's `fixed inset-0` was sizing itself to
- * the header's own ~72px height instead of the full viewport, making it
- * effectively invisible (confirmed via computed-style inspection: the
- * drawer's real rendered height was 72px). Fixed by rendering the drawer
- * through a portal straight into document.body, escaping the header's
- * filter context entirely — only the hamburger button itself stays
- * inline in the header row.
- *
- * Owner directive 2026-09-17: keep sections high-level only.
- * Do NOT list every individual free tool here — that makes the drawer
- * too long. Tools live inside /free-tools with proper cards.
+ * Owner directive: keep sections high-level only.
+ * Claude bots creator is clearly labeled to distinguish from Grok admin tools.
  */
 export default function MobileNav({ isOwner }: { isOwner: boolean }) {
   const [open, setOpen] = useState(false);
@@ -53,7 +38,7 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
     {
       label: "قسم البوتات",
       links: [
-        { href: "/bots", label: "🤖 منشئ البوتات" },
+        { href: "/bots", label: "🤖 منشئ بوتات كلود" },
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
         { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
         { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
@@ -117,7 +102,7 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
                 onClick={() => setOpen(false)}
                 className="block rounded-xl bg-violet-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-violet-700"
               >
-                🛠️ أدوات الأدمن
+                🛠️ أدوات الأدمن (جروك)
               </a>
               <a
                 href="/admin"
