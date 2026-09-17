@@ -5,9 +5,8 @@ import { createPortal } from "react-dom";
 import Logo from "@/components/Logo";
 
 /**
- * Mobile-only hamburger + slide-in drawer for site-wide navigation.
- * Owner directive: keep sections high-level only.
- * Claude bots creator is clearly labeled to distinguish from Grok admin tools.
+ * Mobile-only hamburger + slide-in drawer.
+ * Claude bot creator is NOT in the public menu — only inside /admin for the owner.
  */
 export default function MobileNav({ isOwner }: { isOwner: boolean }) {
   const [open, setOpen] = useState(false);
@@ -38,7 +37,6 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
     {
       label: "قسم البوتات",
       links: [
-        { href: "/bots", label: "🤖 منشئ بوتات كلود" },
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
         { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
         { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
@@ -103,6 +101,13 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
                 className="block rounded-xl bg-violet-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-violet-700"
               >
                 🛠️ أدوات الأدمن (جروك)
+              </a>
+              <a
+                href="/bots"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl bg-indigo-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-indigo-700"
+              >
+                🤖 منشئ بوتات كلود
               </a>
               <a
                 href="/admin"
