@@ -1,67 +1,56 @@
-"""
-Forced subscription check.
-If FORCE_SUB_CHANNEL is set, user must be a member before using the bot.
-"""
+"""Forced subscription check for one or two channels."""
 
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 if TYPE_CHECKING:
     from telegram import Bot
-    from telegram.ext import ContextTypes
 
 logger = logging.getLogger(__name__)
 
 
-async def is_subscribed(bot: "Bot", user_id: int, channel: str | None) -> bool:
-    """Return True if no channel is required or user is already a member."""
-    if not channel:
-        return True
+def _join_url(channel: str) -> str:
+    if channel.startswith("@"):
+        return f"https://t.me/{channel[1:]}"
+    cid = str(channel).replace("-100", "")
+    return f"https://t.me/c/{cid}"
 
+
+async def is_subscribed(bot: "Bot", user_id: int, channel: str) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
-        status = member.status
-        return status in ("member", "administrator", "creator")
+        return member.status in ("member", "administrator", "creator")
     except Exception as e:
-        logger.warning("force_sub check failed for %s: %s", user_id, e)
-        # Fail open to avoid locking everyone out if channel is misconfigured
-        return True
+        logger.warning("force_sub check failed for %s on %s: %s", user_id, channel, e)
+        return False
 
 
 async def require_subscription(
     bot: "Bot",
     user_id: int,
-    channel: str | None,
+    channels: list[str],
     chat_id: int,
 ) -> bool:
-    """
-    If user is not subscribed, send a join message and return False.
-    Otherwise return True (allowed to proceed).
-    """
-    if await is_subscribed(bot, user_id, channel):
+    if not channels:
         return True
 
-    # Build a friendly join link
-    if channel.startswith("@"):
-        link = f"https://t.me/{channel[1:]}"
-    else:
-        link = f"https://t.me/c/{str(channel).replace('-100', '')}"
+    missing: list[str] = []
+    for ch in channels:
+        if not await is_subscribed(bot, user_id, ch):
+            missing.append(ch)
 
-    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+    if not missing:
+        return True
 
-    kb = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔔 اشترك الآن", url=link)],
-         [InlineKeyboardButton("✅ تحققت من الاشتراك", callback_data="check_sub")]]
-    )
+    rows = [[InlineKeyboardButton(f"🔔 اشترك: {ch}", url=_join_url(ch))] for ch in missing]
+    rows.append([InlineKeyboardButton("✅ تحققت من الاشتراك", callback_data="check_sub")])
 
-    await bot.send_message(
-        chat_id=chat_id,
-        text=(
-            "⚠️ يجب الاشتراك في القناة أولاً لاستخدام البوت.\n\n"
-            "بعد الاشتراك اضغط «تحققت من الاشتراك»."
-        ),
-        reply_markup=kb,
-    )
+    text = "⚠️ يجب الاشتراك في القنوات التالية أولاً:\n\n" + "\n".join(missing)
+    text += "\n\nبعد الاشتراك اضغط «تحققت من الاشتراك»."
+
+    await bot.send_message(chat_id=chat_id, text=text, reply_markup=InlineKeyboardMarkup(rows))
     return False
