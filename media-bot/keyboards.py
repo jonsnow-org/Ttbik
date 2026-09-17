@@ -1,8 +1,28 @@
 """Telegram keyboards — Owner Panel vs User Panel."""
 
-from telegram import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import (
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo,
+    MenuButtonWebApp,
+    MenuButtonDefault,
+)
 
 MINI_APP_URL = "https://ttbik.vercel.app/mini-app"
+
+
+def mini_app_info() -> WebAppInfo:
+    return WebAppInfo(url=MINI_APP_URL)
+
+
+def menu_button_webapp() -> MenuButtonWebApp:
+    return MenuButtonWebApp(text="Open", web_app=mini_app_info())
+
+
+def menu_button_default() -> MenuButtonDefault:
+    return MenuButtonDefault()
 
 
 def owner_main_keyboard() -> ReplyKeyboardMarkup:
@@ -18,8 +38,6 @@ def owner_main_keyboard() -> ReplyKeyboardMarkup:
 def user_main_keyboard(mini_app_enabled: bool = False) -> ReplyKeyboardMarkup:
     row2 = [KeyboardButton("⚙️ إعداداتي"), KeyboardButton("❓ مساعدة")]
     keyboard = [[KeyboardButton("📥 تحميل وسائط")], row2]
-    if mini_app_enabled:
-        keyboard.insert(1, [KeyboardButton("📱 فتح التطبيق المصغر")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
@@ -45,10 +63,10 @@ def owner_force_sub_keyboard(channels: list[str]) -> InlineKeyboardMarkup:
 
 
 def owner_mini_app_keyboard(enabled: bool) -> InlineKeyboardMarkup:
-    label = "🔴 إيقاف التطبيق المصغر" if enabled else "🟢 تفعيل التطبيق المصغر"
+    label = "🔴 إيقاف زر Open" if enabled else "🟢 تفعيل زر Open داخل تيليجرام"
     rows = [[InlineKeyboardButton(label, callback_data="owner_toggle_mini_app")]]
     if enabled:
-        rows.append([InlineKeyboardButton("فتح التطبيق المصغر", url=MINI_APP_URL)])
+        rows.append([InlineKeyboardButton("تجربة التطبيق المصغر", web_app=mini_app_info())])
     rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
