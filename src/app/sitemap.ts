@@ -21,6 +21,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/terms`, changeFrequency: "yearly", priority: 0.2 },
     { url: `${base}/privacy`, changeFrequency: "yearly", priority: 0.2 },
     { url: `${base}/free-tools`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/bmi-calculator`, changeFrequency: "monthly", priority: 0.9 },
     {
       url: `${base}/free-tools/qr-generator`,
       changeFrequency: "monthly",
