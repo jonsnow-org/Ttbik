@@ -21,8 +21,8 @@ import Logo from "@/components/Logo";
  * inline in the header row.
  *
  * Structure below groups links the way the owner asked explicitly:
- * Home, "my" (Claude-owned) section, and Grok's section marked with a
- * visible G badge — a map of who owns what, not just a flat link list.
+ * Home, functional sections (free tools, paid studio, bots), and Grok's
+ * free-tools section marked with a visible G badge.
  */
 export default function MobileNav({ isOwner }: { isOwner: boolean }) {
   const [open, setOpen] = useState(false);
@@ -42,6 +42,25 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
       links: [{ href: "/", label: "🏠 الصفحة الرئيسية" }],
     },
     {
+      label: "الأدوات المجانية",
+      badge: "G",
+      links: [
+        { href: "/free-tools", label: "🎁 كل الأدوات المجانية" },
+        { href: "/free-tools/bmi-calculator", label: "⚖️ حاسبة BMI والوزن المثالي" },
+        { href: "/free-tools/zakat-calculator", label: "🕌 حاسبة الزكاة" },
+        { href: "/free-tools/vat-calculator", label: "🧾 حاسبة VAT" },
+        { href: "/free-tools/profit-margin", label: "📈 هامش الربح" },
+        { href: "/free-tools/qr-generator", label: "📱 مولّد QR" },
+        { href: "/free-tools/url-shortener", label: "🔗 مصغّر روابط" },
+      ],
+    },
+    {
+      label: "الأدوات المدفوعة (استوديو)",
+      links: [
+        { href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" },
+      ],
+    },
+    {
       label: "قسم البوتات",
       links: [
         { href: "/bots", label: "🤖 منشئ البوتات" },
@@ -49,13 +68,7 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
         { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
         { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
         { href: "/#categories", label: "الأقسام والخدمات" },
-        { href: "/tools", label: "🎬 أدوات الاستوديو" },
       ],
-    },
-    {
-      label: "قسم الأدوات المجانية",
-      badge: "G",
-      links: [{ href: "/free-tools", label: "🎁 كل الأدوات المجانية" }],
     },
     {
       label: "عام",
