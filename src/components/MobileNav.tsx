@@ -111,13 +111,22 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
             </div>
           ))}
           {isOwner && (
-            <a
-              href="/admin"
-              onClick={() => setOpen(false)}
-              className="block rounded-xl bg-brand-700 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-brand-800"
-            >
-              لوحة التحكم
-            </a>
+            <>
+              <a
+                href="/admin-tools"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl bg-violet-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-violet-700"
+              >
+                🛠️ أدوات الأدمن
+              </a>
+              <a
+                href="/admin"
+                onClick={() => setOpen(false)}
+                className="block rounded-xl bg-brand-700 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-brand-800"
+              >
+                لوحة التحكم
+              </a>
+            </>
           )}
         </nav>
       </div>
