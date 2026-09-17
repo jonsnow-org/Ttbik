@@ -20,9 +20,9 @@ import Logo from "@/components/Logo";
  * filter context entirely — only the hamburger button itself stays
  * inline in the header row.
  *
- * Structure below groups links the way the owner asked explicitly:
- * Home, functional sections (free tools, paid studio, bots), and Grok's
- * free-tools section marked with a visible G badge.
+ * Owner directive 2026-09-17: keep sections high-level only.
+ * Do NOT list every individual free tool here — that makes the drawer
+ * too long. Tools live inside /free-tools with proper cards.
  */
 export default function MobileNav({ isOwner }: { isOwner: boolean }) {
   const [open, setOpen] = useState(false);
@@ -44,21 +44,11 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
     {
       label: "الأدوات المجانية",
       badge: "G",
-      links: [
-        { href: "/free-tools", label: "🎁 كل الأدوات المجانية" },
-        { href: "/free-tools/bmi-calculator", label: "⚖️ حاسبة BMI والوزن المثالي" },
-        { href: "/free-tools/zakat-calculator", label: "🕌 حاسبة الزكاة" },
-        { href: "/free-tools/vat-calculator", label: "🧾 حاسبة VAT" },
-        { href: "/free-tools/profit-margin", label: "📈 هامش الربح" },
-        { href: "/free-tools/qr-generator", label: "📱 مولّد QR" },
-        { href: "/free-tools/url-shortener", label: "🔗 مصغّر روابط" },
-      ],
+      links: [{ href: "/free-tools", label: "🎁 كل الأدوات المجانية" }],
     },
     {
-      label: "الأدوات المدفوعة (استوديو)",
-      links: [
-        { href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" },
-      ],
+      label: "الأدوات المدفوعة",
+      links: [{ href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" }],
     },
     {
       label: "قسم البوتات",
