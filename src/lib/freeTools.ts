@@ -3,6 +3,11 @@
 // tool only needs to be added here once instead of drifting between pages.
 export const FREE_TOOLS = [
   {
+    href: "/free-tools/bmi-calculator",
+    title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي",
+    desc: "احسب BMI والتصنيف (نحافة/طبيعي/زيادة/سمنة) والوزن المثالي التقريبي — فوري وبلا تسجيل.",
+  },
+  {
     href: "/free-tools/qr-generator",
     title: "مولّد رمز QR",
     desc: "أنشئ رمز QR لأي رابط أو نص — حجم وألوان قابلة للتخصيص وتنزيل PNG فوري داخل المتصفح.",
