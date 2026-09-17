@@ -1,6 +1,7 @@
 """
 Media Download Bot — entry point.
 Owner Panel vs User Panel + real download flow with archive cache.
+Includes a tiny HTTP health server so Render Web Service detects an open port.
 """
 
 from __future__ import annotations
@@ -8,7 +9,8 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-from pathlib import Path
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
 from telegram.ext import (
@@ -46,6 +48,26 @@ cfg = Config.from_env()
 _pending_url: dict[int, str] = {}
 
 
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format, *args):
+        return  # silence access logs
+
+
+def _start_health_server() -> None:
+    """Bind PORT so Render Web Service health-check succeeds."""
+    port = int(os.environ.get("PORT", "10000"))
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    logger.info("Health server listening on port %s", port)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
@@ -63,7 +85,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Force-sub check for normal users
     ok = await require_subscription(
         context.bot, user.id, cfg.force_sub_channel, update.effective_chat.id
     )
@@ -117,7 +138,6 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🔙 رجوع للقائمة الرئيسية":
         await update.message.reply_text("لوحة المالك:", reply_markup=owner_main_keyboard())
     elif text.startswith("http"):
-        # Owner can also download
         await _handle_url(update, context, text)
     else:
         await update.message.reply_text("استخدم الأزرار في لوحة المالك.")
@@ -132,7 +152,6 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     user = update.effective_user
     text = (update.message.text or "").strip()
 
-    # Force-sub on every interaction
     ok = await require_subscription(
         context.bot, user.id, cfg.force_sub_channel, update.effective_chat.id
     )
@@ -159,7 +178,6 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
-    """Show quality keyboard after receiving a URL."""
     user = update.effective_user
     if not user or not update.message:
         return
@@ -210,7 +228,6 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text("انتهت صلاحية الطلب. أرسل الرابط من جديد.")
         return
 
-    # Map callback to quality / media_type
     mapping = {
         "dl_720": ("720", "video"),
         "dl_480": ("480", "video"),
@@ -223,7 +240,6 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     quality, media_type = mapping[data]
 
-    # 1) Try cache first
     cached = get_cached_file_id(url, media_type, quality)
     if cached:
         await query.edit_message_text("⚡ موجود في الأرشيف — جاري الإرسال...")
@@ -241,7 +257,6 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.edit_message_text("❌ فشل التحميل. جرّب جودة أقل أو رابطاً آخر.")
         return
 
-    # Archive + get file_id
     file_id = await archive_and_get_file_id(
         context.bot,
         cfg.archive_channel_id,
@@ -252,7 +267,6 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         result.title,
     )
 
-    # Send to user
     ok = await send_from_cache_or_file(
         context.bot,
         query.message.chat_id,
@@ -262,7 +276,6 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         result.title,
     )
 
-    # Cleanup temp file
     try:
         parent = result.path.parent
         if parent.exists() and parent.name.startswith("mediabot_"):
@@ -279,6 +292,8 @@ async def quality_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 def main() -> None:
+    _start_health_server()
+
     app = Application.builder().token(cfg.bot_token).build()
 
     app.add_handler(CommandHandler("start", start))
