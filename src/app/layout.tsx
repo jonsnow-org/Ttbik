@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { headers } from "next/headers";
 import "./globals.css";
 import Logo from "@/components/Logo";
 import { isOwnerServer } from "@/lib/isOwner";
@@ -36,9 +37,6 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
   },
   other: {
-    // Monetag (3nbf4.com) site-ownership verification — meta-tag method,
-    // an alternative to the sw_1.js service-worker file also present at
-    // the site root. Do not remove; required for the ad network's checks.
     monetag: "36da4061f0ef04286fa5040bef5547dc",
   },
 };
@@ -49,14 +47,23 @@ const ORGANIZATION_JSON_LD = {
   name: "سوق تولز",
   url: SITE_URL,
   description: SITE_DESCRIPTION,
-  // Links the site entity to its real live Telegram bot(s) for search
-  // engines (Google's "sameAs" entity-linking) -- owner directive
-  // 2026-09-16: help the bots themselves surface in search, not just
-  // this site's own pages.
   sameAs: LIVE_BOTS.map((b) => b.href),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const pathname = headers().get("x-pathname") || "";
+  const isMiniApp = pathname.startsWith("/mini-app");
+
+  if (isMiniApp) {
+    return (
+      <html lang="ar" dir="rtl">
+        <body className="min-h-screen bg-[#17212b] font-sans text-white antialiased">
+          {children}
+        </body>
+      </html>
+    );
+  }
+
   const isOwner = isOwnerServer();
 
   return (
@@ -64,7 +71,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }} />
         <AdServiceWorker />
-        {/* Monetag In-Page Push (zone 11710148) — passive, no visual footprint, safe site-wide */}
         <Script
           id="monetag-inpage-push"
           strategy="afterInteractive"
@@ -109,14 +115,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
             </nav>
             <div className="flex-1 lg:hidden" />
-            {/* Owner-only. Every visitor used to see a "دخول المالك" login
-                button here — harmless against the real gate (middleware.ts
-                + password cookie), but it has no reason to be shown to
-                anyone but the owner, and a real user flagged it as looking
-                like a leak when it showed up in the header of their own
-                private /nova/connections link. The owner reaches /admin/login
-                by bookmarking it directly; this button is now just the
-                already-logged-in shortcut back to the dashboard. */}
             <MobileNav isOwner={isOwner} />
             {isOwner && (
               <a
