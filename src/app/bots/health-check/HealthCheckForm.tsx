@@ -14,6 +14,8 @@ type Result = {
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
     commands?: { command: string; description: string }[];
+    description?: string;
+    shortDescription?: string;
   };
   webhook?: {
     url: string | null;
@@ -83,7 +85,7 @@ export default function HealthCheckForm() {
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تحقق من حالة بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
         الصق توكن أي بوت (توكن فقط، لا نطلب أي بيانات أخرى) لتتحقق فوراً هل لا يزال فعّالاً، وهل الويبهوك (Webhook)
-        الخاص به يعمل بلا أخطاء، وما الأوامر المسجّلة لدى BotFather. لا نحفظ التوكن أبداً — الفحص لحظي مباشر عبر خوادم تليجرام نفسها.
+        الخاص به يعمل بلا أخطاء، وما الأوامر والوصف المسجّلة لدى BotFather. لا نحفظ التوكن أبداً — الفحص لحظي مباشر عبر خوادم تليجرام نفسها.
       </p>
 
       <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -131,6 +133,18 @@ export default function HealthCheckForm() {
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {result.bot.firstName}</li>
             {result.bot.id != null && <li>المعرّف: {result.bot.id}</li>}
+            <li>
+              الوصف المختصر:{" "}
+              {result.bot.shortDescription?.trim()
+                ? result.bot.shortDescription
+                : "غير مضبوط في BotFather"}
+            </li>
+            <li>
+              الوصف الكامل:{" "}
+              {result.bot.description?.trim()
+                ? result.bot.description
+                : "غير مضبوط في BotFather"}
+            </li>
             <li>يمكنه الانضمام لمجموعات: {result.bot.canJoinGroups ? "نعم" : "لا"}</li>
             <li>قراءة كل رسائل المجموعة: {result.bot.canReadAllGroupMessages ? "نعم" : "لا"}</li>
             {result.bot.supportsInlineQueries != null && (
