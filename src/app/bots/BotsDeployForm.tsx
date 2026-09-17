@@ -10,9 +10,7 @@ const theme = getCategoryTheme("bots");
 /** Extract bot token if user pastes full BotFather message (e.g. "Done! Congratulations... token is 123:ABC") */
 function extractBotToken(raw: string): string {
   const trimmed = raw.trim();
-  // Already looks like a pure token
   if (/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(trimmed)) return trimmed;
-  // BotFather EN / AR variants + any standalone token in the paste
   const m =
     trimmed.match(
       /(?:token is|Use this token to access the HTTP API:|API Token:|Your bot token is|التوكن هو|رمز البوت|التوكن)\s*[:：]?\s*([\d]{6,12}:[A-Za-z0-9_-]{30,})/i
@@ -21,10 +19,6 @@ function extractBotToken(raw: string): string {
   return m ? m[1] : trimmed;
 }
 
-// AdSlot is a Server Component (reads cookies via next/headers) — a
-// Client Component like this one can't import it directly, only receive
-// it already-rendered as a prop from the Server Component that renders
-// this one (src/app/bots/page.tsx).
 export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; adSlot: React.ReactNode }) {
   const [token, setToken] = useState("");
   const [template, setTemplate] = useState("AD_BOT");
@@ -41,7 +35,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     const params = new URLSearchParams(window.location.search);
     const r = params.get("ref");
     if (r) setRef(r.replace(/\D/g, ""));
-    // Auto-fill paid activation / order code from common query keys (one-order-one-bot flow)
     const code = params.get("code") || params.get("order") || params.get("activation") || params.get("activationCode");
     if (code) setActivationCode(code.trim().toUpperCase());
     const oid = params.get("ownerId") || params.get("owner");
@@ -54,8 +47,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     setBotUsername(null);
     setCopied(false);
 
-    // Client-side guards — avoid round-trip for obvious bad input
-    // Re-run extract in case state lagged behind a long paste
     const trimmedToken = extractBotToken(token);
     if (trimmedToken !== token.trim()) setToken(trimmedToken);
     if (!/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(trimmedToken)) {
@@ -86,7 +77,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
       const data = await res.json();
       if (data.success) {
         setStatus(`✅ ${data.message}`);
-        // Extract @username from message like "Bot @MyBot activated successfully!"
         const match = String(data.message || "").match(/@([A-Za-z0-9_]+)/);
         if (match) setBotUsername(match[1]);
       } else {
@@ -112,17 +102,13 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
     <main className="relative mx-auto max-w-lg px-4 py-10">
       <SectionBackdrop tone="bots" />
       <span className="mx-auto mb-3 block w-fit rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-bold text-indigo-700">
-        🤖 منشئ البوتات
+        🤖 منشئ بوتات كلود
       </span>
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تفعيل بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
-        الصق توكن البوت من @BotFather (أو الرسالة كاملة)، أدخل آيدي تيليجرامك، واختر القالب. البوت يُفعَّل فوراً على توكنك.
+        هذا منشئ قوالب كلود (إعلانات، زواج، وظائف...). منشئ بوت الوسائط الخاص بجروك موجود في أدوات الأدمن.
       </p>
 
-      {/* Direct embedded link to the already-live bot, for a visitor who
-          just wants to try a real bot right now instead of deploying their
-          own instance (owner directive 2026-09-16: surface bots' direct
-          links on more pages, not just the homepage). */}
       {LIVE_BOTS[0] && (
         <a
           href={LIVE_BOTS[0].href}
@@ -168,7 +154,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             <a href="https://t.me/getidsbot" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
               @getidsbot
             </a>
-            {" "}— ابدأ المحادثة وأرسل أي رسالة، سيرد عليك بالرقم.
           </p>
         </div>
         <div>
@@ -179,15 +164,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           >
             <option value="AD_BOT">بوت الإعلانات والمهام</option>
-            {/* بوت التعارف والزواج الشرعي، بوت فرص العمل/المتجر، والبوت
-                الطبي مخفية عن أي زائر عادي عمداً — كلها خاصة بمالك المنصة
-                فقط وليست متاحة للتفعيل أو البيع لأي طرف آخر إطلاقاً (راجع
-                docs/AGENT_BUS.md، توضيح المالك 2026-09-03 و2026-09-05
-                و2026-09-04)؛ الخيارات تظهر فقط لك أنت (isOwner). STORE و
-                HOSPITAL أُخفيا أيضاً — القالبان لا يزالان قيد الإعداد فعلياً
-                (راجع docs/claude-feature-backlog.md). NOVA_BOT (2026-09-05)
-                نفس القيد على التفعيل (نشر المالك فقط)، لكن البوت بعد نشره
-                منتج عام لمستخدمين خارجيين حقيقيين — راجع novaBotLogic.ts. */}
             {isOwner && <option value="MARRIAGE_BOT">بوت التعارف والزواج الشرعي</option>}
             {isOwner && <option value="JOBS_BOT">بوت فرص العمل والمتجر</option>}
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
@@ -195,12 +171,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
-              🔒 هذا هو القالب العام الوحيد المتاح للجميع. القوالب الخاصة بك (الزواج، فرص العمل، الطبي، Nova AI)
-              تظهر هنا تلقائياً فقط بعد تسجيل دخولك كمالك من{" "}
+              🔒 هذا هو القالب العام الوحيد المتاح للجميع. القوالب الخاصة تظهر بعد تسجيل الدخول من{" "}
               <a href="/admin" className="font-bold text-indigo-700 underline">
                 لوحة التحكم /admin
-              </a>{" "}
-              في نفس هذا المتصفح — هذا ليس عطلاً، بل حماية مقصودة حتى لا تظهر هذه القوالب لأي زائر آخر.
+              </a>
+              .
             </p>
           )}
         </div>
@@ -226,7 +201,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
               placeholder="احصل عليه من داخل أي بوت على المنصة عبر زر «أريد بوتاً مماثلاً»"
               className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
-            <p className="mt-1 text-xs text-gray-500">مرتبط بآيدي المالك أعلاه فقط. كل كود يفعّل بوتاً واحداً مرة واحدة ولا يُعاد استخدامه.</p>
           </div>
         )}
         <button type="submit" disabled={loading} className={`w-full rounded-xl py-2.5 font-bold text-white shadow-sm transition disabled:opacity-50 ${theme.button}`}>
