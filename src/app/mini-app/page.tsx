@@ -1,36 +1,60 @@
-import type { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = {
-  title: "التطبيق المصغر | سوق تولز",
-  description: "موجز الوسائط المشترك — الرئيسية والأحدث من التنزيلات المسموح بنشرها.",
-};
+import { useEffect, useState } from "react";
+
+type Tab = "home" | "video" | "photo" | "audio";
 
 export default function MiniAppPage() {
+  const [tab, setTab] = useState<Tab>("home");
+  const [name, setName] = useState("");
+
+  useEffect(() => {
+    const tg = (window as any).Telegram?.WebApp;
+    if (!tg) return;
+    tg.ready();
+    tg.expand();
+    try {
+      tg.setHeaderColor("#17212b");
+      tg.setBackgroundColor("#17212b");
+    } catch {}
+    const u = tg.initDataUnsafe?.user;
+    if (u?.first_name) setName(u.first_name);
+  }, []);
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "home", label: "الرئيسية" },
+    { id: "video", label: "فيديو" },
+    { id: "photo", label: "صور" },
+    { id: "audio", label: "صوت" },
+  ];
+
   return (
-    <div className="mx-auto min-h-screen max-w-lg bg-slate-50 px-4 py-8">
-      <header className="mb-6">
-        <p className="text-xs font-bold text-violet-600">📱 التطبيق المصغر</p>
-        <h1 className="mt-1 text-2xl font-extrabold text-slate-900">الرئيسية</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          يظهر هنا فقط المحتوى الذي سمح أصحابه بعرضه من داخل إعدادات البوت.
-        </p>
+    <div className="min-h-screen bg-[#17212b] px-4 pb-8 pt-5 text-white">
+      <header className="mb-5">
+        <p className="text-xs text-white/60">التطبيق المصغر</p>
+        <h1 className="mt-1 text-xl font-extrabold">{name ? `مرحباً ${name}` : "الرئيسية"}</h1>
+        <p className="mt-1 text-sm text-white/70">الأحدث من التنزيلات المسموح بنشرها فقط.</p>
       </header>
 
-      <nav className="mb-6 flex gap-2">
-        <span className="rounded-full bg-violet-600 px-4 py-1.5 text-xs font-bold text-white">الأحدث</span>
-        <span className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-          فيديو
-        </span>
-        <span className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-          صور
-        </span>
-        <span className="rounded-full bg-white px-4 py-1.5 text-xs font-bold text-slate-600 ring-1 ring-slate-200">
-          صوت
-        </span>
-      </nav>
+      <div className="mb-5 flex gap-2 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`shrink-0 rounded-full px-4 py-1.5 text-xs font-bold ${
+              tab === t.id ? "bg-[#6ab3f3] text-[#17212b]" : "bg-white/10 text-white"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-        لا يوجد محتوى منشور بعد.\nفعّل «السماح بعرض تنزيلاتي» من إعدادات البوت ثم حمّل رابطاً.
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/70">
+        لا يوجد محتوى منشور بعد.
+        <br />
+        من إعدادات البوت فعّل السماح بعرض تنزيلاتك ثم حمّل رابطاً.
       </div>
     </div>
   );
