@@ -18,7 +18,7 @@ def mini_app_info() -> WebAppInfo:
 
 
 def menu_button_webapp() -> MenuButtonWebApp:
-    return MenuButtonWebApp(text="Open", web_app=mini_app_info())
+    return MenuButtonWebApp(text="Mini-App", web_app=mini_app_info())
 
 
 def menu_button_default() -> MenuButtonDefault:
@@ -63,7 +63,7 @@ def owner_force_sub_keyboard(channels: list[str]) -> InlineKeyboardMarkup:
 
 
 def owner_mini_app_keyboard(enabled: bool) -> InlineKeyboardMarkup:
-    label = "🔴 إيقاف زر Open" if enabled else "🟢 تفعيل زر Open داخل تيليجرام"
+    label = "🔴 إيقاف زر Mini-App" if enabled else "🟢 تفعيل زر Mini-App أسفل الشات"
     rows = [[InlineKeyboardButton(label, callback_data="owner_toggle_mini_app")]]
     if enabled:
         rows.append([InlineKeyboardButton("تجربة التطبيق المصغر", web_app=mini_app_info())])
