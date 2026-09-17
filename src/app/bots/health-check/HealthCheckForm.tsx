@@ -12,12 +12,17 @@ type Result = {
     firstName: string;
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
+    supportsInlineQueries?: boolean;
   };
   webhook?: {
     url: string | null;
     pendingUpdateCount: number;
     lastErrorMessage: string | null;
     lastErrorDate?: string | null;
+    lastSyncErrorDate?: string | null;
+    ipAddress?: string | null;
+    maxConnections?: number | null;
+    allowedUpdates?: string[];
   };
   error?: string;
 };
@@ -126,12 +131,24 @@ export default function HealthCheckForm() {
             {result.bot.id != null && <li>المعرّف: {result.bot.id}</li>}
             <li>يمكنه الانضمام لمجموعات: {result.bot.canJoinGroups ? "نعم" : "لا"}</li>
             <li>قراءة كل رسائل المجموعة: {result.bot.canReadAllGroupMessages ? "نعم" : "لا"}</li>
+            {result.bot.supportsInlineQueries != null && (
+              <li>استعلامات إنلاين: {result.bot.supportsInlineQueries ? "مفعّلة" : "غير مفعّلة"}</li>
+            )}
             {result.webhook?.url ? (
               <>
                 <li>حالة الويبهوك: مُفعَّل ✅</li>
                 <li className="break-all font-mono text-xs text-slate-600">
                   الرابط: {result.webhook.url}
                 </li>
+                {result.webhook.ipAddress && <li>عنوان IP للويبهوك: {result.webhook.ipAddress}</li>}
+                {result.webhook.maxConnections != null && (
+                  <li>أقصى اتصالات متزامنة: {result.webhook.maxConnections}</li>
+                )}
+                {(result.webhook.allowedUpdates?.length ?? 0) > 0 && (
+                  <li className="text-xs text-slate-600">
+                    التحديثات المسموحة: {result.webhook.allowedUpdates!.join("، ")}
+                  </li>
+                )}
                 <li>تحديثات بانتظار المعالجة: {result.webhook.pendingUpdateCount}</li>
                 {(result.webhook.pendingUpdateCount ?? 0) > 10 && (
                   <li className="text-amber-800">
@@ -144,6 +161,11 @@ export default function HealthCheckForm() {
                     {result.webhook.lastErrorDate
                       ? ` (${new Date(result.webhook.lastErrorDate).toLocaleString("ar")})`
                       : ""}
+                  </li>
+                )}
+                {result.webhook.lastSyncErrorDate && (
+                  <li className="text-amber-800">
+                    آخر خطأ مزامنة: {new Date(result.webhook.lastSyncErrorDate).toLocaleString("ar")}
                   </li>
                 )}
               </>

@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
     const lastErrorDate = webhook.result?.last_error_date
       ? new Date(webhook.result.last_error_date * 1000).toISOString()
       : null;
+    const lastSyncDate = webhook.result?.last_synchronization_error_date
+      ? new Date(webhook.result.last_synchronization_error_date * 1000).toISOString()
+      : null;
 
     return NextResponse.json({
       ok: true,
@@ -47,12 +50,19 @@ export async function POST(req: NextRequest) {
         firstName: me.result.first_name,
         canJoinGroups: me.result.can_join_groups,
         canReadAllGroupMessages: me.result.can_read_all_group_messages,
+        supportsInlineQueries: Boolean(me.result.supports_inline_queries),
       },
       webhook: {
         url: webhook.result?.url || null,
         pendingUpdateCount: webhook.result?.pending_update_count ?? 0,
         lastErrorMessage: webhook.result?.last_error_message || null,
         lastErrorDate,
+        lastSyncErrorDate: lastSyncDate,
+        ipAddress: webhook.result?.ip_address || null,
+        maxConnections: webhook.result?.max_connections ?? null,
+        allowedUpdates: Array.isArray(webhook.result?.allowed_updates)
+          ? webhook.result.allowed_updates
+          : [],
       },
     });
   } catch {
