@@ -3,26 +3,48 @@
 import { useState } from "react";
 import SectionBackdrop from "@/components/SectionBackdrop";
 
+const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
+
 type Result = {
-  bot?: { username: string; firstName: string; canJoinGroups: boolean; canReadAllGroupMessages: boolean };
-  webhook?: { url: string | null; pendingUpdateCount: number; lastErrorMessage: string | null };
+  bot?: {
+    id?: number;
+    username: string;
+    firstName: string;
+    canJoinGroups: boolean;
+    canReadAllGroupMessages: boolean;
+  };
+  webhook?: {
+    url: string | null;
+    pendingUpdateCount: number;
+    lastErrorMessage: string | null;
+    lastErrorDate?: string | null;
+  };
   error?: string;
 };
 
 export default function HealthCheckForm() {
   const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   async function check(e: React.FormEvent) {
     e.preventDefault();
+    const extracted = token.trim().match(/\b(\d{6,12}:[A-Za-z0-9_-]{30,})\b/)?.[1] || token.trim();
+    if (!TOKEN_RE.test(extracted)) {
+      setLocalError("صيغة التوكن غير صحيحة. الشكل: أرقام ثم : ثم مفتاح طويل من BotFather.");
+      setResult(null);
+      return;
+    }
+    setLocalError(null);
     setLoading(true);
     setResult(null);
     try {
       const res = await fetch("/api/bots/health-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token: extracted }),
       });
       setResult(await res.json());
     } catch {
@@ -45,14 +67,29 @@ export default function HealthCheckForm() {
       </p>
 
       <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <input
-          type="text"
-          required
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="الصق توكن البوت هنا"
-          className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        />
+        <div className="relative">
+          <input
+            type={showToken ? "text" : "password"}
+            required
+            autoComplete="off"
+            spellCheck={false}
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value);
+              setLocalError(null);
+            }}
+            placeholder="الصق توكن البوت هنا"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 pe-20 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button
+            type="button"
+            onClick={() => setShowToken((v) => !v)}
+            className="absolute inset-y-0 end-2 text-xs font-bold text-indigo-700"
+          >
+            {showToken ? "إخفاء" : "إظهار"}
+          </button>
+        </div>
+        {localError && <p className="text-sm text-rose-700">{localError}</p>}
         <button
           type="submit"
           disabled={loading}
@@ -73,19 +110,34 @@ export default function HealthCheckForm() {
           <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{result.bot.username}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {result.bot.firstName}</li>
+            {result.bot.id != null && <li>المعرّف: {result.bot.id}</li>}
             <li>يمكنه الانضمام لمجموعات: {result.bot.canJoinGroups ? "نعم" : "لا"}</li>
+            <li>قراءة كل رسائل المجموعة: {result.bot.canReadAllGroupMessages ? "نعم" : "لا"}</li>
             {result.webhook?.url ? (
               <>
                 <li>حالة الويبهوك: مُفعَّل ✅</li>
                 <li>تحديثات بانتظار المعالجة: {result.webhook.pendingUpdateCount}</li>
                 {result.webhook.lastErrorMessage && (
-                  <li className="text-rose-700">⚠️ آخر خطأ: {result.webhook.lastErrorMessage}</li>
+                  <li className="text-rose-700">
+                    ⚠️ آخر خطأ: {result.webhook.lastErrorMessage}
+                    {result.webhook.lastErrorDate
+                      ? ` (${new Date(result.webhook.lastErrorDate).toLocaleString("ar")})`
+                      : ""}
+                  </li>
                 )}
               </>
             ) : (
               <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
             )}
           </ul>
+          <a
+            href={`https://t.me/${result.bot.username}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
+          >
+            افتح @{result.bot.username} على تليجرام
+          </a>
         </div>
       )}
     </main>

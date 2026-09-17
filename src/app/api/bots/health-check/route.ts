@@ -35,9 +35,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
     }
 
+    const lastErrorDate = webhook.result?.last_error_date
+      ? new Date(webhook.result.last_error_date * 1000).toISOString()
+      : null;
+
     return NextResponse.json({
       ok: true,
       bot: {
+        id: me.result.id,
         username: me.result.username,
         firstName: me.result.first_name,
         canJoinGroups: me.result.can_join_groups,
@@ -47,6 +52,7 @@ export async function POST(req: NextRequest) {
         url: webhook.result?.url || null,
         pendingUpdateCount: webhook.result?.pending_update_count ?? 0,
         lastErrorMessage: webhook.result?.last_error_message || null,
+        lastErrorDate,
       },
     });
   } catch {
