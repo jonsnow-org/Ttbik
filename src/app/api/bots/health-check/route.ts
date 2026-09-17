@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands)
+// Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
+// + getMyDescription + getMyShortDescription).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -24,14 +25,18 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [meRes, webhookRes, commandsRes] = await Promise.all([
+    const [meRes, webhookRes, commandsRes, descRes, shortDescRes] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
+      fetch(`https://api.telegram.org/bot${token}/getMyDescription`),
+      fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
     const commandsJson = await commandsRes.json();
+    const descJson = await descRes.json().catch(() => ({}));
+    const shortDescJson = await shortDescRes.json().catch(() => ({}));
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -53,6 +58,13 @@ export async function POST(req: NextRequest) {
           }))
       : [];
 
+    const description =
+      typeof descJson?.result?.description === "string" ? descJson.result.description : "";
+    const shortDescription =
+      typeof shortDescJson?.result?.short_description === "string"
+        ? shortDescJson.result.short_description
+        : "";
+
     return NextResponse.json({
       ok: true,
       bot: {
@@ -63,6 +75,8 @@ export async function POST(req: NextRequest) {
         canReadAllGroupMessages: me.result.can_read_all_group_messages,
         supportsInlineQueries: Boolean(me.result.supports_inline_queries),
         commands,
+        description,
+        shortDescription,
       },
       webhook: {
         url: webhook.result?.url || null,
