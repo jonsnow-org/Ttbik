@@ -19,7 +19,7 @@ INFO_TEXT = (
     "3) الملف يُرسل لك في المحادثة ويُحفظ في قناة الأرشيف.\n\n"
     "📱 التطبيق المصغر (Mini-App)\n"
     "الزر المربع بجانب حقل الرسالة (يسار) يفتح التطبيق داخل تيليجرام.\n"
-    "يعرض الرائج والأحدث وملفك الشخصي وتنزيلاتك المنشورة.\n\n"
+    "يعرض الرائج وملفك الشخصي وتنزيلاتك المنشورة.\n\n"
     "⚙️ الخصوصية\n"
     "من إعداداتي تقدر تمنع ظهور تنزيلاتك في التطبيق."
 )
@@ -38,7 +38,6 @@ def menu_button_default() -> MenuButtonDefault:
 
 
 def owner_main_keyboard() -> ReplyKeyboardMarkup:
-    # بدون «التطبيق المصغر» و«تجربة التحميل» — التحميل بإرسال الرابط مباشرة
     keyboard = [
         [KeyboardButton("📊 إحصائيات"), KeyboardButton("📢 قنوات الاشتراك")],
         [KeyboardButton("⚙️ إعدادات البوت"), KeyboardButton("👥 إدارة المستخدمين")],
@@ -56,7 +55,11 @@ def user_main_keyboard(mini_app_enabled: bool = True) -> ReplyKeyboardMarkup:
 
 
 def user_settings_keyboard(share_to_feed: bool) -> InlineKeyboardMarkup:
-    label = "✅ السماح بعرض تنزيلاتي في التطبيق" if share_to_feed else "🚫 إخفاء تنزيلاتي عن التطبيق"
+    # الزر يعرض الإجراء المعاكس للحالة الحالية
+    if share_to_feed:
+        label = "🔴 إيقاف عرض تنزيلاتي في التطبيق"
+    else:
+        label = "🟢 تشغيل عرض تنزيلاتي في التطبيق"
     keyboard = [
         [InlineKeyboardButton(label, callback_data="toggle_share_feed")],
         [InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")],
@@ -77,7 +80,6 @@ def owner_force_sub_keyboard(channels: list[str]) -> InlineKeyboardMarkup:
 
 
 def owner_mini_app_keyboard(enabled: bool) -> InlineKeyboardMarkup:
-    # بقي للتوافق إن استُدعي من كود قديم — الزر الأساسي هو Menu Button
     label = "🔴 إيقاف زر Mini-App" if enabled else "🟢 تفعيل زر Mini-App أسفل الشات"
     rows = [[InlineKeyboardButton(label, callback_data="owner_toggle_mini_app")]]
     if enabled:
