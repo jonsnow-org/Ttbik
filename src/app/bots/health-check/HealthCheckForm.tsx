@@ -46,6 +46,7 @@ type Result = {
     isHttps?: boolean;
     host?: string | null;
     tokenEmbeddedInUrl?: boolean;
+    hostIsIp?: boolean;
   };
   error?: string;
 };
@@ -101,6 +102,13 @@ function isPrivateWebhookHost(host?: string | null) {
   );
 }
 
+function isRawIpHost(host?: string | null, flagged?: boolean) {
+  if (flagged) return true;
+  if (!host) return false;
+  const h = host.split(":")[0];
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(h);
+}
+
 function commandsMissingDescriptions(cmds?: BotCommand[]) {
   if (!cmds || cmds.length === 0) return false;
   return cmds.every((c) => !c.description?.trim());
@@ -111,7 +119,9 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   const w = result.webhook;
   const b = result.bot;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates اليدوي.");
-  if ((w?.pendingUpdateCount ?? 0) > 10) notes.push(`تراكم تحديثات معلّق (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
+  const pending = w?.pendingUpdateCount ?? 0;
+  if (pending > 10) notes.push(`تراكم تحديثات معلّق (${pending}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
+  else if (pending > 0) notes.push(`يوجد تحديثات معلّقة (${pending}) — الويبهوك ربما متأخر قليلاً.`);
   if (w?.lastErrorMessage) {
     const when = fmtDate(w.lastErrorDate);
     notes.push(when ? `آخر خطأ ويبهوك (${when}): ${w.lastErrorMessage}` : `آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
@@ -122,6 +132,12 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if (w?.lastSyncErrorDate) notes.push("يوجد خطأ مزامنة أخير على الويبهوك.");
   if (w?.url && isPrivateWebhookHost(w.host)) {
     notes.push("مضيف الويبهوك محلي/خاص — خوادم تليجرام على الإنترنت لن تصله.");
+  }
+  if (w?.url && isRawIpHost(w.host, w.hostIsIp) && !isPrivateWebhookHost(w.host)) {
+    notes.push("مضيف الويبهوك عنوان IP خام — شهادات TLS على IP غالباً تفشل؛ استخدم نطاقاً.");
+  }
+  if (w?.url && w.maxConnections != null && w.maxConnections < 10) {
+    notes.push(`أقصى اتصالات منخفض (${w.maxConnections}) — قد يتراكم الطابور تحت الحمل.`);
   }
   const omitted = omittedCoreUpdates(w?.allowedUpdates);
   if (w?.url && omitted.length) {
@@ -148,7 +164,7 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if (b?.botFatherName?.trim() && b.firstName && b.botFatherName.trim() !== b.firstName) {
     notes.push(`اسم BotFather («${b.botFatherName.trim()}») يختلف عن first_name («${b.firstName}»).`);
   }
-  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ") || n.startsWith("allowedUpdates") || n.startsWith("مضيف الويبهوك محلي") || n.startsWith("رابط الويبهوك يحتوي التوكن"))) {
+  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ") || n.startsWith("allowedUpdates") || n.startsWith("مضيف الويبهوك محلي") || n.startsWith("مضيف الويبهوك عنوان IP") || n.startsWith("رابط الويبهوك يحتوي التوكن"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
   }
   if (notes.length) return { tone: "warn", title: "البوت حي ويحتاج ضبطاً قبل الإطلاق", notes };
@@ -227,6 +243,8 @@ export default function HealthCheckForm() {
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
       w?.url && isPrivateWebhookHost(w.host) ? "مضيف محلي/خاص: نعم" : "",
+      w?.url && isRawIpHost(w.host, w.hostIsIp) ? "مضيف IP خام: نعم" : "",
+      w?.maxConnections != null && w.maxConnections < 10 ? `أقصى اتصالات منخفض: ${w.maxConnections}` : "",
       w?.ipAddress ? `عنوان IP: ${w.ipAddress}` : "",
       w?.maxConnections != null ? `أقصى اتصالات: ${w.maxConnections}` : "",
       w?.url ? `HTTPS: ${w.isHttps === false ? "لا" : "نعم"}` : "",
@@ -326,8 +344,13 @@ export default function HealthCheckForm() {
                 <li className="break-all font-mono text-xs">{w.url}</li>
                 {w.host && <li>المضيف: {w.host}</li>}
                 {privateHost && <li className="text-rose-700">مضيف محلي/خاص — تليجرام العلني لن يصل إليه</li>}
+                {isRawIpHost(w.host, w.hostIsIp) && !privateHost && (
+                  <li className="text-rose-700">مضيف IP خام — فضّل نطاقاً بشهادة TLS صحيحة</li>
+                )}
                 {w.ipAddress && <li>عنوان IP: {w.ipAddress}</li>}
-                {w.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
+                {w.maxConnections != null && (
+                  <li className={w.maxConnections < 10 ? "text-amber-800" : undefined}>أقصى اتصالات: {w.maxConnections}</li>
+                )}
                 <li>HTTPS: {w.isHttps === false ? "لا" : "نعم"}</li>
                 <li>شهادة TLS مخصصة: {yn(w.hasCustomCertificate)}</li>
                 <li>التحديثات المسموحة: {(w.allowedUpdates?.length ?? 0) > 0 ? w.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}</li>
