@@ -18,9 +18,8 @@ INFO_TEXT = (
     "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n"
     "3) الملف يُرسل لك في المحادثة ويُحفظ في قناة الأرشيف.\n\n"
     "📱 التطبيق المصغر (Mini-App)\n"
-    "زر Mini-App يظهر أسفل الشات يسار الرسالة.\n"
-    "يفتح داخل تيليجرام ويعرض الرئيسية والأحدث.\n"
-    "يظهر فقط ما سمحت بنشره من إعداداتي.\n\n"
+    "الزر المربع بجانب حقل الرسالة (يسار) يفتح التطبيق داخل تيليجرام.\n"
+    "يعرض الرائج والأحدث وملفك الشخصي وتنزيلاتك المنشورة.\n\n"
     "⚙️ الخصوصية\n"
     "من إعداداتي تقدر تمنع ظهور تنزيلاتك في التطبيق."
 )
@@ -39,16 +38,16 @@ def menu_button_default() -> MenuButtonDefault:
 
 
 def owner_main_keyboard() -> ReplyKeyboardMarkup:
+    # بدون «التطبيق المصغر» و«تجربة التحميل» — التحميل بإرسال الرابط مباشرة
     keyboard = [
         [KeyboardButton("📊 إحصائيات"), KeyboardButton("📢 قنوات الاشتراك")],
-        [KeyboardButton("📱 التطبيق المصغر"), KeyboardButton("⚙️ إعدادات البوت")],
-        [KeyboardButton("👥 إدارة المستخدمين"), KeyboardButton("💎 الميزات المدفوعة")],
-        [KeyboardButton("📥 تجربة التحميل"), KeyboardButton("ℹ️ معلومات")],
+        [KeyboardButton("⚙️ إعدادات البوت"), KeyboardButton("👥 إدارة المستخدمين")],
+        [KeyboardButton("💎 الميزات المدفوعة"), KeyboardButton("ℹ️ معلومات")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def user_main_keyboard(mini_app_enabled: bool = False) -> ReplyKeyboardMarkup:
+def user_main_keyboard(mini_app_enabled: bool = True) -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📥 تحميل وسائط")],
         [KeyboardButton("⚙️ إعداداتي"), KeyboardButton("ℹ️ معلومات")],
@@ -78,10 +77,11 @@ def owner_force_sub_keyboard(channels: list[str]) -> InlineKeyboardMarkup:
 
 
 def owner_mini_app_keyboard(enabled: bool) -> InlineKeyboardMarkup:
+    # بقي للتوافق إن استُدعي من كود قديم — الزر الأساسي هو Menu Button
     label = "🔴 إيقاف زر Mini-App" if enabled else "🟢 تفعيل زر Mini-App أسفل الشات"
     rows = [[InlineKeyboardButton(label, callback_data="owner_toggle_mini_app")]]
     if enabled:
-        rows.append([InlineKeyboardButton("تجربة التطبيق المصغر", web_app=mini_app_info())])
+        rows.append([InlineKeyboardButton("فتح التطبيق المصغر", web_app=mini_app_info())])
     rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
