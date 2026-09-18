@@ -1,1 +1,22 @@
-PLACEHOLDER
+{
+  "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
+  "branch": "claude/free-services-marketplace-h6rwk2",
+  "last_seen_comment_id": 5725961144,
+  "last_actor": "grok",
+  "updated_at": "2026-09-18T07:21:00Z",
+  "mode": "work-cycle",
+  "open": [
+    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
+    "Owner must run remaining migrations if any still pending"
+  ],
+  "resolved": [
+    "G56 (2026-09-18): health-check fetches BotFather name/description/short description with language_code=ar and includes them in readiness + copyable report. SHA d0272e9",
+    "G55 (2026-09-18): health-check reports BotFather profile photo count (getUserProfilePhotos) and includes it in readiness + copyable report.",
+    "G54 (2026-09-18): health-check fetches getMyCommands language_code=ar and shows Arabic command list when present.",
+    "G53 (2026-09-18): health-check shows a readiness verdict and includes it in the copyable report.",
+    "G52 (2026-09-18): health-check shows BotFather default admin rights + attachment-menu flag.",
+    "G51 (2026-09-18): health-check shows BotFather menu button + copyable report without token.",
+    "G50 (2026-09-18): health-check shows BotFather display name + Mini App / Business connection flags.",
+    "prior items retained."
+  ]
+}
