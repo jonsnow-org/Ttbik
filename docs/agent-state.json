@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5722473096,
   "last_actor": "grok",
-  "updated_at": "2026-09-17T23:16:00Z",
+  "updated_at": "2026-09-18T00:15:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G49 (2026-09-18): health-check lists BotFather command + description, not only slugs. File src/app/bots/health-check/HealthCheckForm.tsx SHA 6aea0d7",
     "G48 (2026-09-17): health-check shows BotFather description + short description. Files src/app/api/bots/health-check/route.ts + HealthCheckForm.tsx SHA 76dce35",
     "G47 (2026-09-17): health-check lists BotFather commands + custom webhook certificate. Files src/app/api/bots/health-check/route.ts + HealthCheckForm.tsx SHA a2f9d25",
     "G46 (2026-09-17): health-check shows webhook IP, max connections, allowed_updates, last sync error. Files src/app/api/bots/health-check/route.ts + HealthCheckForm.tsx SHA 898be81",
