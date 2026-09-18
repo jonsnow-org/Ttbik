@@ -40,8 +40,10 @@ async def publish_feed_item(
     thumbnail: str | None,
     sharer_name: str,
     sharer_id: str,
+    tags: list[str] | None = None,
+    squad_code: str | None = None,
 ) -> dict[str, Any] | None:
-    item = {
+    item: dict[str, Any] = {
         "id": uuid.uuid4().hex[:12],
         "file_id": file_id,
         "media_type": media_type,
@@ -51,6 +53,8 @@ async def publish_feed_item(
         "sharer_name": (sharer_name or "مستخدم")[:40],
         "sharer_id": str(sharer_id),
         "clones": 0,
+        "tags": tags or ["عام"],
+        "squad_code": squad_code or "",
         "created_at": int(time.time()),
     }
     remember_local(item)
@@ -78,3 +82,19 @@ async def publish_feed_item(
         logger.warning("feed publish failed: %s", e)
 
     return item
+
+
+async def increment_clone(item_id: str) -> None:
+    api = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
+    secret = (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
+    if not secret:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            await client.patch(
+                api,
+                json={"id": item_id, "action": "clone"},
+                headers={"x-feed-secret": secret, "content-type": "application/json"},
+            )
+    except Exception as e:
+        logger.warning("clone increment failed: %s", e)
