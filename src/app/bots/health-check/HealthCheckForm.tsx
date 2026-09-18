@@ -10,9 +10,12 @@ type Result = {
     id?: number;
     username: string;
     firstName: string;
+    botFatherName?: string;
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
+    canConnectToBusiness?: boolean;
+    hasMainWebApp?: boolean;
     commands?: { command: string; description: string }[];
     description?: string;
     shortDescription?: string;
@@ -132,6 +135,9 @@ export default function HealthCheckForm() {
           <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{result.bot.username}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {result.bot.firstName}</li>
+            {result.bot.botFatherName?.trim() && result.bot.botFatherName.trim() !== result.bot.firstName && (
+              <li>اسم BotFather المعروض: {result.bot.botFatherName}</li>
+            )}
             {result.bot.id != null && <li>المعرّف: {result.bot.id}</li>}
             <li>
               الوصف المختصر:{" "}
@@ -150,6 +156,14 @@ export default function HealthCheckForm() {
             {result.bot.supportsInlineQueries != null && (
               <li>استعلامات إنلاين: {result.bot.supportsInlineQueries ? "مفعّلة" : "غير مفعّلة"}</li>
             )}
+            <li>
+              Mini App (واجهة رئيسية):{" "}
+              {result.bot.hasMainWebApp ? "مضبوطة" : "غير مضبوطة"}
+            </li>
+            <li>
+              اتصال Telegram Business:{" "}
+              {result.bot.canConnectToBusiness ? "مسموح" : "غير مسموح"}
+            </li>
             <li>
               أوامر BotFather المسجّلة:{" "}
               {(result.bot.commands?.length ?? 0) === 0
@@ -208,7 +222,7 @@ export default function HealthCheckForm() {
                 )}
               </>
             ) : (
-              <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
+              <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
             )}
           </ul>
           <div className="flex flex-wrap gap-2">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
-// + getMyDescription + getMyShortDescription).
+// + getMyDescription + getMyShortDescription + getMyName).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -25,18 +25,20 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [meRes, webhookRes, commandsRes, descRes, shortDescRes] = await Promise.all([
+    const [meRes, webhookRes, commandsRes, descRes, shortDescRes, nameRes] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
       fetch(`https://api.telegram.org/bot${token}/getMyDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
+      fetch(`https://api.telegram.org/bot${token}/getMyName`),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
     const commandsJson = await commandsRes.json();
     const descJson = await descRes.json().catch(() => ({}));
     const shortDescJson = await shortDescRes.json().catch(() => ({}));
+    const nameJson = await nameRes.json().catch(() => ({}));
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -64,6 +66,8 @@ export async function POST(req: NextRequest) {
       typeof shortDescJson?.result?.short_description === "string"
         ? shortDescJson.result.short_description
         : "";
+    const botFatherName =
+      typeof nameJson?.result?.name === "string" ? nameJson.result.name : "";
 
     return NextResponse.json({
       ok: true,
@@ -71,9 +75,12 @@ export async function POST(req: NextRequest) {
         id: me.result.id,
         username: me.result.username,
         firstName: me.result.first_name,
+        botFatherName,
         canJoinGroups: me.result.can_join_groups,
         canReadAllGroupMessages: me.result.can_read_all_group_messages,
         supportsInlineQueries: Boolean(me.result.supports_inline_queries),
+        canConnectToBusiness: Boolean(me.result.can_connect_to_business),
+        hasMainWebApp: Boolean(me.result.has_main_web_app),
         commands,
         description,
         shortDescription,
