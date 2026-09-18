@@ -1,4 +1,4 @@
-"""yt-dlp + TikWM + Cobalt fallbacks for cloud-IP blocks."""
+"""Downloader: TikWM (primary for TikTok) → yt-dlp → Cobalt."""
 
 from __future__ import annotations
 
@@ -10,24 +10,23 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-EXTRACT_TIMEOUT = 50
+EXTRACT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 180
 
-_YT_CLIENT_GROUPS = [
-    ["android"],
-    ["tv"],
-    ["web_safari"],
-    ["mweb"],
-]
-
+_YT_CLIENT_GROUPS = [["android"], ["tv"], ["web_safari"], ["mweb"]]
 _TIKTOK_API_HOSTS = [
     "api16-normal-c-useast1a.tiktokv.com",
     "api22-normal-c-useast2a.tiktokv.com",
-    "api19-normal-c-useast1a.tiktokv.com",
 ]
+
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
 
 
 @dataclass
@@ -61,15 +60,12 @@ def normalize_url(url: str) -> str:
     u = re.sub(r"([?&])(fbclid|si|feature|utm_[^=]+|pp)=[^&]*", r"\1", u, flags=re.I)
     u = u.replace("?&", "?").rstrip("?&")
     u = u.rstrip("/")
-
     m = re.search(r"(?:youtube\.com/shorts/|youtube\.com/embed/|youtu\.be/)([\w-]{6,})", u, re.I)
     if m:
         return f"https://www.youtube.com/watch?v={m.group(1)}"
-
     m = re.search(r"[?&]v=([\w-]{6,})", u, re.I)
     if m and "youtu" in u.lower():
         return f"https://www.youtube.com/watch?v={m.group(1)}"
-
     return u
 
 
@@ -77,16 +73,11 @@ async def resolve_redirects(url: str) -> str:
     try:
         import httpx
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-            )
-        }
-        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, headers=headers) as client:
+        headers = {"User-Agent": _UA}
+        async with httpx.AsyncClient(follow_redirects=True, timeout=12.0, headers=headers) as client:
             try:
                 r = await client.head(url)
-                if str(r.url) and str(r.url) != url:
+                if str(r.url) != url:
                     return str(r.url)
             except Exception:
                 pass
@@ -108,86 +99,86 @@ def _write_cookies_file() -> str | None:
         with open(path, "w", encoding="utf-8") as f:
             if not raw.startswith("#"):
                 f.write("# Netscape HTTP Cookie File\n")
-            f.write(raw)
-            if not raw.endswith("\n"):
-                f.write("\n")
+            f.write(raw if raw.endswith("\n") else raw + "\n")
         return path
     return None
 
 
-def _generic_opts(outdir: str | None = None, tiktok_host: str | None = None) -> dict[str, Any]:
-    opts: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "restrictfilenames": True,
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "retries": 3,
-        "extractor_retries": 2,
-        "fragment_retries": 3,
-        "ignoreerrors": False,
-        "geo_bypass": True,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 "
-                "Mobile/15E148 Safari/604.1"
+# ---------------------------------------------------------------------------
+# TikWM — primary for TikTok (works from datacenter IPs)
+# ---------------------------------------------------------------------------
+async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
+    """Inline TikWM — no fragile imports."""
+    try:
+        import httpx
+    except Exception as e:
+        return None, f"tikwm: httpx missing ({e})"
+
+    endpoints = [
+        f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1",
+        f"https://tikwm.com/api/?url={quote(url, safe='')}&hd=1",
+    ]
+    meta = None
+    async with httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers={"User-Agent": _UA}) as client:
+        for ep in endpoints:
+            try:
+                r = await client.get(ep)
+                logger.info("tikwm status=%s url=%s", r.status_code, ep[:60])
+                if r.status_code >= 400:
+                    continue
+                js = r.json()
+                if js.get("code") != 0:
+                    logger.warning("tikwm code=%s msg=%s", js.get("code"), js.get("msg"))
+                    continue
+                d = js.get("data") or {}
+                play = d.get("hdplay") or d.get("play") or d.get("wmplay")
+                music = d.get("music")
+                media = music if audio_only and music else play
+                if not media:
+                    continue
+                meta = {
+                    "media": media,
+                    "title": (d.get("title") or "TikTok")[:120],
+                    "thumbnail": d.get("cover") or d.get("origin_cover"),
+                }
+                break
+            except Exception as e:
+                logger.warning("tikwm request: %s", e)
+
+    if not meta:
+        return None, "tikwm: resolve failed (no media url)"
+
+    suffix = ".mp3" if audio_only else ".mp4"
+    tmp = tempfile.mkdtemp(prefix="tikwm_")
+    path = Path(tmp) / f"media{suffix}"
+    try:
+        async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
+            async with client.stream(
+                "GET",
+                meta["media"],
+                headers={"User-Agent": _UA, "Referer": "https://www.tiktok.com/"},
+            ) as r:
+                if r.status_code >= 400:
+                    return None, f"tikwm: download HTTP {r.status_code}"
+                with open(path, "wb") as f:
+                    async for chunk in r.aiter_bytes(64 * 1024):
+                        f.write(chunk)
+        size = path.stat().st_size
+        if size < 1000:
+            return None, f"tikwm: file too small ({size})"
+        logger.info("tikwm OK size=%s", size)
+        return (
+            DownloadResult(
+                path=path,
+                title=meta["title"],
+                media_type="audio" if audio_only else "video",
+                filesize=size,
+                thumbnail=meta.get("thumbnail"),
             ),
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.tiktok.com/",
-        },
-    }
-    if tiktok_host:
-        opts["extractor_args"] = {"tiktok": {"api_hostname": [tiktok_host]}}
-    cookies = _write_cookies_file()
-    if cookies:
-        opts["cookiefile"] = cookies
-    if outdir:
-        opts["outtmpl"] = os.path.join(outdir, "%(id)s.%(ext)s")
-    return opts
-
-
-def _youtube_opts(outdir: str | None = None, clients: list[str] | None = None) -> dict[str, Any]:
-    opts: dict[str, Any] = {
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "restrictfilenames": True,
-        "noplaylist": True,
-        "socket_timeout": 30,
-        "retries": 3,
-        "extractor_retries": 2,
-        "fragment_retries": 3,
-        "ignoreerrors": False,
-        "geo_bypass": True,
-        "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-        "extractor_args": {
-            "youtube": {"player_client": clients or ["android", "tv"]},
-        },
-    }
-    cookies = _write_cookies_file()
-    if cookies:
-        opts["cookiefile"] = cookies
-    if outdir:
-        opts["outtmpl"] = os.path.join(outdir, "%(id)s.%(ext)s")
-    return opts
-
-
-def _to_media_info(info: dict, fallback_url: str) -> MediaInfo:
-    return MediaInfo(
-        title=info.get("title") or "بدون عنوان",
-        duration=info.get("duration"),
-        thumbnail=info.get("thumbnail"),
-        webpage_url=info.get("webpage_url") or fallback_url,
-        extractor=info.get("extractor") or info.get("extractor_key") or "unknown",
-    )
+            "",
+        )
+    except Exception as e:
+        return None, f"tikwm: download error {e}"
 
 
 async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
@@ -196,24 +187,31 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
 
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
-        # Prefer TikWM for metadata too
+        # quick metadata via tikwm
         try:
-            from services.providers import tikwm_resolve
+            import httpx
 
-            meta = await tikwm_resolve(url)
-            if meta:
-                return (
-                    MediaInfo(
-                        title=meta.get("title") or "TikTok",
-                        duration=meta.get("duration"),
-                        thumbnail=meta.get("thumbnail"),
-                        webpage_url=url,
-                        extractor="tikwm",
-                    ),
-                    "",
+            async with httpx.AsyncClient(timeout=25.0, headers={"User-Agent": _UA}) as client:
+                r = await client.get(
+                    f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1"
                 )
+                if r.status_code < 400:
+                    js = r.json()
+                    if js.get("code") == 0 and js.get("data"):
+                        d = js["data"]
+                        return (
+                            MediaInfo(
+                                title=(d.get("title") or "TikTok")[:120],
+                                duration=int(d.get("duration") or 0) or None,
+                                thumbnail=d.get("cover") or d.get("origin_cover"),
+                                webpage_url=url,
+                                extractor="tikwm",
+                            ),
+                            "",
+                        )
         except Exception as e:
-            last_err = str(e)
+            last_err = f"tikwm-meta: {e}"
+            logger.warning(last_err)
 
     try:
         import yt_dlp
@@ -227,44 +225,69 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             try:
 
                 def _run() -> dict | None:
-                    opts = _youtube_opts(clients=clients)
-                    opts["skip_download"] = True
+                    opts = {
+                        "quiet": True,
+                        "no_warnings": True,
+                        "skip_download": True,
+                        "noplaylist": True,
+                        "socket_timeout": 25,
+                        "extractor_args": {"youtube": {"player_client": clients}},
+                    }
+                    ck = _write_cookies_file()
+                    if ck:
+                        opts["cookiefile"] = ck
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         return ydl.extract_info(url, download=False)
 
                 info = await asyncio.wait_for(asyncio.to_thread(_run), timeout=EXTRACT_TIMEOUT)
                 if info:
-                    return _to_media_info(info, url), ""
-            except asyncio.TimeoutError:
-                last_err = f"timeout yt {clients}"
+                    return (
+                        MediaInfo(
+                            title=info.get("title") or "YouTube",
+                            duration=info.get("duration"),
+                            thumbnail=info.get("thumbnail"),
+                            webpage_url=info.get("webpage_url") or url,
+                            extractor="youtube",
+                        ),
+                        "",
+                    )
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
-                logger.warning("yt extract %s: %s", clients, last_err)
-                if "Sign in to confirm" in last_err or "not a bot" in last_err:
+                if "Sign in" in last_err or "not a bot" in last_err:
                     break
-
-        # Still show quality buttons — download may need cookies
         return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
 
-    hosts = _TIKTOK_API_HOSTS if is_tiktok(url) else [None]
-    for host in hosts:
-        try:
+    # generic yt-dlp
+    try:
 
-            def _run_g() -> dict | None:
-                opts = _generic_opts(tiktok_host=host)
-                opts["skip_download"] = True
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    return ydl.extract_info(url, download=False)
+        def _run_g() -> dict | None:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "skip_download": True,
+                "noplaylist": True,
+                "socket_timeout": 25,
+            }
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                return ydl.extract_info(url, download=False)
 
-            info = await asyncio.wait_for(asyncio.to_thread(_run_g), timeout=EXTRACT_TIMEOUT)
-            if info:
-                return _to_media_info(info, url), ""
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
+        info = await asyncio.wait_for(asyncio.to_thread(_run_g), timeout=EXTRACT_TIMEOUT)
+        if info:
+            return (
+                MediaInfo(
+                    title=info.get("title") or "media",
+                    duration=info.get("duration"),
+                    thumbnail=info.get("thumbnail"),
+                    webpage_url=info.get("webpage_url") or url,
+                    extractor=info.get("extractor") or "generic",
+                ),
+                "",
+            )
+    except Exception as e:
+        last_err = f"{type(e).__name__}: {e}"
 
     if is_tiktok(url):
         return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
-
     return None, last_err or "extract failed"
 
 
@@ -274,150 +297,143 @@ async def download_media(
     media_type: str = "video",
 ) -> tuple[DownloadResult | None, str]:
     url = normalize_url(url)
-    last_err = ""
     audio_only = media_type in ("audio", "voice")
+    errors: list[str] = []
 
+    # ---- 1) TikTok → TikWM first ----
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
-        url = normalize_url(await resolve_redirects(url))
-        # ---- TikWM first (works on Render) ----
         try:
-            from services.providers import provider_download_tiktok
+            url = normalize_url(await resolve_redirects(url))
+        except Exception:
+            pass
+        result, err = await _tikwm_download(url, audio_only=audio_only)
+        if result:
+            return result, ""
+        errors.append(err or "tikwm failed")
+        logger.warning("TikWM failed: %s", err)
 
-            path, title, thumb, err = await provider_download_tiktok(url, audio_only=audio_only)
-            if path:
-                return (
-                    DownloadResult(
-                        path=path,
-                        title=title or "TikTok",
-                        media_type=media_type,
-                        filesize=path.stat().st_size,
-                        thumbnail=thumb,
-                    ),
-                    "",
-                )
-            last_err = err or "tikwm failed"
-            logger.warning("tikwm: %s", last_err)
-        except Exception as e:
-            last_err = str(e)
-            logger.warning("tikwm exception: %s", e)
-
+    # ---- 2) yt-dlp ----
     tmp = tempfile.mkdtemp(prefix="mediabot_")
-
     try:
         import yt_dlp
     except Exception as e:
-        if is_tiktok(url):
-            return None, last_err or str(e)
-        return await _download_via_cobalt(url, quality, media_type, str(e))
+        errors.append(f"yt-dlp missing: {e}")
+        yt_dlp = None  # type: ignore
 
-    def _apply_format(opts: dict[str, Any]) -> None:
-        if audio_only:
-            opts.update(
-                {
-                    "format": "bestaudio/best",
-                    "postprocessors": [
-                        {
-                            "key": "FFmpegExtractAudio",
-                            "preferredcodec": "mp3" if media_type == "audio" else "opus",
-                            "preferredquality": "192",
-                        }
-                    ],
-                }
-            )
-        else:
-            fmt = {
-                "360": "best[height<=360]/bestvideo[height<=360]+bestaudio/best",
-                "480": "best[height<=480]/bestvideo[height<=480]+bestaudio/best",
-                "720": "best[height<=720]/bestvideo[height<=720]+bestaudio/best",
-            }.get(quality, "best[height<=720]/best")
-            opts["format"] = fmt
-            opts["merge_output_format"] = "mp4"
-
-    if is_youtube(url):
-        groups: list = _YT_CLIENT_GROUPS
-    elif is_tiktok(url):
-        groups = [(h,) for h in _TIKTOK_API_HOSTS]
-    else:
-        groups = [(None,)]
-
-    for group in groups:
-        try:
-            if is_youtube(url):
-                opts = _youtube_opts(tmp, clients=list(group))
+    if yt_dlp is not None:
+        def _opts(outdir: str) -> dict[str, Any]:
+            o: dict[str, Any] = {
+                "quiet": True,
+                "no_warnings": True,
+                "noprogress": True,
+                "restrictfilenames": True,
+                "noplaylist": True,
+                "socket_timeout": 30,
+                "retries": 2,
+                "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s"),
+            }
+            ck = _write_cookies_file()
+            if ck:
+                o["cookiefile"] = ck
+            if audio_only:
+                o["format"] = "bestaudio/best"
+                o["postprocessors"] = [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3" if media_type == "audio" else "opus",
+                        "preferredquality": "192",
+                    }
+                ]
             else:
-                host = group[0] if group and group[0] else None
-                opts = _generic_opts(tmp, tiktok_host=host)
-            _apply_format(opts)
+                fmt = {
+                    "360": "best[height<=360]/best",
+                    "480": "best[height<=480]/best",
+                    "720": "best[height<=720]/best",
+                }.get(quality, "best[height<=720]/best")
+                o["format"] = fmt
+                o["merge_output_format"] = "mp4"
+            return o
 
-            def _run() -> dict | None:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    return ydl.extract_info(url, download=True)
+        attempts: list[dict[str, Any]] = []
+        if is_youtube(url):
+            for clients in _YT_CLIENT_GROUPS:
+                o = _opts(tmp)
+                o["extractor_args"] = {"youtube": {"player_client": clients}}
+                attempts.append(o)
+        elif is_tiktok(url):
+            for host in _TIKTOK_API_HOSTS:
+                o = _opts(tmp)
+                o["extractor_args"] = {"tiktok": {"api_hostname": [host]}}
+                o["http_headers"] = {"User-Agent": _UA, "Referer": "https://www.tiktok.com/"}
+                attempts.append(o)
+        else:
+            attempts.append(_opts(tmp))
 
-            info = await asyncio.wait_for(asyncio.to_thread(_run), timeout=DOWNLOAD_TIMEOUT)
-            if not info:
-                continue
+        for opts in attempts:
+            try:
 
-            filepath = None
-            if info.get("requested_downloads"):
-                filepath = info["requested_downloads"][0].get("filepath")
-            if not filepath:
-                files = sorted(Path(tmp).glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-                files = [f for f in files if f.is_file() and not f.name.endswith(".part")]
-                if files:
-                    filepath = str(files[0])
+                def _run() -> dict | None:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        return ydl.extract_info(url, download=True)
 
-            if filepath and os.path.isfile(filepath):
-                path = Path(filepath)
-                return (
-                    DownloadResult(
-                        path=path,
-                        title=info.get("title") or path.stem,
-                        media_type=media_type,
-                        filesize=path.stat().st_size,
-                        thumbnail=info.get("thumbnail"),
-                    ),
-                    "",
-                )
-        except asyncio.TimeoutError:
-            last_err = "timeout"
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
-            logger.warning("yt-dlp download: %s", last_err)
-            if "Sign in to confirm" in last_err or "not a bot" in last_err:
-                break
-            if "status code 0" in last_err:
-                break
+                info = await asyncio.wait_for(asyncio.to_thread(_run), timeout=DOWNLOAD_TIMEOUT)
+                if not info:
+                    continue
+                filepath = None
+                if info.get("requested_downloads"):
+                    filepath = info["requested_downloads"][0].get("filepath")
+                if not filepath:
+                    files = [
+                        f
+                        for f in sorted(Path(tmp).glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
+                        if f.is_file() and not f.name.endswith(".part")
+                    ]
+                    if files:
+                        filepath = str(files[0])
+                if filepath and os.path.isfile(filepath):
+                    path = Path(filepath)
+                    return (
+                        DownloadResult(
+                            path=path,
+                            title=info.get("title") or path.stem,
+                            media_type=media_type,
+                            filesize=path.stat().st_size,
+                            thumbnail=info.get("thumbnail"),
+                        ),
+                        "",
+                    )
+            except asyncio.TimeoutError:
+                errors.append("yt-dlp: timeout")
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                errors.append(f"yt-dlp: {msg[:120]}")
+                logger.warning("yt-dlp: %s", msg)
+                if "Sign in" in msg or "not a bot" in msg or "status code 0" in msg:
+                    break
 
-    # Cobalt last resort (needs JWT on many instances — may fail)
-    logger.info("falling back to Cobalt for %s", url[:60])
-    return await _download_via_cobalt(url, quality, media_type, last_err)
+    # ---- 3) Cobalt last ----
+    try:
+        from services.cobalt import cobalt_download_to_file
 
-
-async def _download_via_cobalt(
-    url: str, quality: str, media_type: str, prev_err: str
-) -> tuple[DownloadResult | None, str]:
-    from services.cobalt import cobalt_download_to_file
-
-    audio_only = media_type in ("audio", "voice")
-    path, title, err = await cobalt_download_to_file(
-        url, quality=quality, audio_only=audio_only
-    )
-    if not path:
-        hint = ""
-        if is_youtube(url) and ("bot" in (prev_err or "").lower() or "Sign in" in (prev_err or "")):
-            hint = (
-                " | يوتيوب محجوب من سيرفر Render. "
-                "ضع محتوى cookies.txt في متغير YTDLP_COOKIES"
+        path, title, err = await cobalt_download_to_file(
+            url, quality=quality, audio_only=audio_only
+        )
+        if path:
+            return (
+                DownloadResult(
+                    path=path,
+                    title=title or "media",
+                    media_type=media_type,
+                    filesize=path.stat().st_size,
+                ),
+                "",
             )
-        return None, f"yt-dlp: {(prev_err or '')[:100]} | cobalt: {err}{hint}"
+        errors.append(f"cobalt: {err}")
+    except Exception as e:
+        errors.append(f"cobalt: {e}")
 
-    return (
-        DownloadResult(
-            path=path,
-            title=title or "media",
-            media_type=media_type,
-            filesize=path.stat().st_size,
-            thumbnail=None,
-        ),
-        "",
-    )
+    # Helpful hint for YouTube bot-check
+    joined = " | ".join(errors) if errors else "all providers failed"
+    if is_youtube(url) and any("bot" in e.lower() or "Sign in" in e for e in errors):
+        joined += " | ضع YTDLP_COOKIES في Render"
+    return None, joined
