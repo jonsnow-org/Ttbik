@@ -57,7 +57,7 @@ _waiting_channel: set[int] = set()
 _waiting_squad_join: set[int] = set()
 
 if cfg.force_sub_channel and not store.force_sub_channels:
-    store.force_sub_channels = [cfg.force_sub_channel]
+    store.force_sub_channels = [cfg.force_sub_channels]
 store.mini_app_enabled = True
 store.set_share(cfg.owner_id, True)
 
@@ -149,7 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
         await update.message.reply_text(
-            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.\n\nاختبار: /testdl رابط",
+            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.\n\nاختبار كامل: /testdl رابط",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -567,36 +567,96 @@ async def _maybe_publish_feed(
 
 
 async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only: force download test and report which provider worked."""
+    """Owner-only: full pipeline test — download + archive + feed publish."""
     user = update.effective_user
     if not user or user.id != cfg.owner_id or not update.message:
         return
     args = context.args or []
     url = args[0] if args else "https://vt.tiktok.com/ZSqnF27su/"
-    await update.message.reply_text(f"🧪 اختبار التحميل\n{url}")
+    await update.message.reply_text(f"🧪 اختبار كامل (تحميل + أرشيف + رائج)\n{url}")
     try:
         from services.downloader import download_media, is_tiktok, normalize_url
 
         nurl = normalize_url(url)
-        await update.message.reply_text(f"normalize={nurl}\nis_tiktok={is_tiktok(nurl)}")
+        await update.message.reply_text(
+            f"normalize={nurl}\nis_tiktok={is_tiktok(nurl)}\n"
+            f"ARCHIVE={cfg.archive_channel_id or '❌ غير مضبوط'}"
+        )
         result, err = await download_media(nurl, quality="720", media_type="video")
-        if result:
-            await update.message.reply_text(
-                f"✅ نجح\ntitle={result.title[:80]}\nsize={result.filesize}\npath={result.path}"
-            )
-            try:
-                with open(result.path, "rb") as f:
-                    await context.bot.send_video(
-                        chat_id=update.effective_chat.id, video=f, caption=result.title[:100]
-                    )
-            except Exception:
-                with open(result.path, "rb") as f:
-                    await context.bot.send_document(
-                        chat_id=update.effective_chat.id, document=f, caption=result.title[:100]
-                    )
+        if not result:
+            await update.message.reply_text(f"❌ فشل التحميل\n{err}")
+            return
+
+        await update.message.reply_text(
+            f"✅ تحميل نجح\ntitle={result.title[:80]}\nsize={result.filesize}"
+        )
+
+        fid = await archive_and_get_file_id(
+            context.bot,
+            cfg.archive_channel_id,
+            str(result.path),
+            nurl,
+            "video",
+            "720",
+            result.title,
+            downloader_name=user.first_name or "owner",
+            downloader_id=user.id,
+        )
+        if fid:
+            await update.message.reply_text(f"✅ أرشيف نجح\nfile_id={fid[:40]}...")
+            set_cached_file_id(nurl, "video", "720", fid)
+            store.file_cache[f"{nurl}|video|720"] = fid
         else:
-            await update.message.reply_text(f"❌ فشل\n{err}")
+            await update.message.reply_text(
+                "⚠️ الأرشيف فشل — تأكد من ARCHIVE_CHANNEL_ID وأن البوت مشرف في القناة"
+            )
+
+        ok, sent_id = await send_from_cache_or_file(
+            context.bot,
+            update.effective_chat.id,
+            fid,
+            str(result.path),
+            "video",
+            result.title,
+        )
+        final_fid = sent_id or fid or ""
+        if ok:
+            await update.message.reply_text("✅ أُرسل إليك")
+        else:
+            await update.message.reply_text("⚠️ تعذر الإرسال لك")
+
+        if final_fid:
+            store.set_share(user.id, True)
+            item = await publish_feed_item(
+                file_id=final_fid,
+                media_type="video",
+                title=result.title,
+                url=nurl,
+                thumbnail=result.thumbnail,
+                sharer_name=user.first_name or "owner",
+                sharer_id=str(user.id),
+                tags=guess_tags(result.title),
+            )
+            if item:
+                await update.message.reply_text(
+                    f"✅ نُشر في الرائج\nid={item.get('id')}\nافتح Mini-App → رائج الآن"
+                )
+            else:
+                await update.message.reply_text("⚠️ نشر الرائج فشل (تحقق FEED_SECRET / FEED_API_URL)")
+        else:
+            await update.message.reply_text("⚠️ لا يوجد file_id — تخطي الرائج")
+
+        store.record_download(user.id)
+        await _save(context.bot)
+
+        try:
+            parent = result.path.parent
+            if parent.exists() and str(parent).startswith("/tmp"):
+                shutil.rmtree(parent, ignore_errors=True)
+        except Exception:
+            pass
     except Exception as e:
+        logger.exception("testdl")
         await update.message.reply_text(f"💥 exception: {type(e).__name__}: {e}")
 
 
@@ -624,7 +684,7 @@ async def _post_init(app: Application) -> None:
     store.set_share(cfg.owner_id, True)
     store.last_wakeup = time.time()
     await _force_menu_button(app.bot)
-    logger.info("Bot ready owner=%s", cfg.owner_id)
+    logger.info("Bot ready owner=%s archive=%s", cfg.owner_id, cfg.archive_channel_id)
 
 
 def main() -> None:
