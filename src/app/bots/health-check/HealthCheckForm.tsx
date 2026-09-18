@@ -63,6 +63,10 @@ function enabledRights(rights?: Record<string, boolean>) {
   return Object.entries(rights).filter(([, v]) => v).map(([k]) => k);
 }
 
+function yn(v?: boolean) {
+  return v ? "نعم" : "لا";
+}
+
 function fmtDate(iso?: string | null) {
   if (!iso) return "";
   try {
@@ -156,9 +160,15 @@ export default function HealthCheckForm() {
       ...verdict.notes.map((n) => `- ${n}`),
       `@${b.username} (المعرّف: ${b.id ?? "—"})`,
       `الاسم: ${b.firstName}`,
+      `ينضم للمجموعات: ${yn(b.canJoinGroups)}`,
+      `يقرأ كل رسائل المجموعة: ${yn(b.canReadAllGroupMessages)}`,
+      `إنلاين: ${yn(b.supportsInlineQueries)}`,
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
+      w?.ipAddress ? `عنوان IP: ${w.ipAddress}` : "",
+      w?.maxConnections != null ? `أقصى اتصالات: ${w.maxConnections}` : "",
       w?.url ? `HTTPS: ${w.isHttps === false ? "لا" : "نعم"}` : "",
+      w?.url ? `شهادة TLS مخصصة: ${yn(w.hasCustomCertificate)}` : "",
       `التحديثات المسموحة: ${(w?.allowedUpdates?.length ?? 0) > 0 ? w!.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}`,
       w?.lastErrorDate ? `وقت آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
     ].filter(Boolean);
@@ -203,6 +213,10 @@ export default function HealthCheckForm() {
             <li>الاسم: {b.firstName}</li>
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>صورة الملف: {(b.profilePhotoCount ?? 0) > 0 ? `${b.profilePhotoCount} صورة` : "غير مضبوطة"}</li>
+            <li>الانضمام للمجموعات: {yn(b.canJoinGroups)}</li>
+            <li>قراءة كل رسائل المجموعة: {yn(b.canReadAllGroupMessages)}</li>
+            <li>استعلامات إنلاين: {yn(b.supportsInlineQueries)}</li>
+            <li>ويب آب رئيسي: {yn(b.hasMainWebApp)}</li>
             <li>الوصف المختصر: {b.shortDescription?.trim() || "غير مضبوط"}</li>
             <li>الوصف العربي (ar): {b.descriptionAr?.trim() || "غير مضبوط"}</li>
             <li>أوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
@@ -213,7 +227,10 @@ export default function HealthCheckForm() {
                 <li>الويبهوك: مفعّل</li>
                 <li className="break-all font-mono text-xs">{w.url}</li>
                 {w.host && <li>المضيف: {w.host}</li>}
+                {w.ipAddress && <li>عنوان IP: {w.ipAddress}</li>}
+                {w.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
                 <li>HTTPS: {w.isHttps === false ? "لا" : "نعم"}</li>
+                <li>شهادة TLS مخصصة: {yn(w.hasCustomCertificate)}</li>
                 <li>التحديثات المسموحة: {(w.allowedUpdates?.length ?? 0) > 0 ? w.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}</li>
                 <li>تحديثات معلّقة: {w.pendingUpdateCount}</li>
                 {w.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
