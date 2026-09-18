@@ -59,6 +59,8 @@ _waiting_squad_join: set[int] = set()
 if cfg.force_sub_channel and not store.force_sub_channels:
     store.force_sub_channels = [cfg.force_sub_channel]
 store.mini_app_enabled = True
+# Owner always shares to feed
+store.set_share(cfg.owner_id, True)
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
@@ -91,13 +93,11 @@ async def _force_menu_button(bot) -> None:
 
 
 async def _cold_start_notice(update: Update) -> None:
-    """Smart Cold-Start UX — tell user if service may be waking."""
     now = time.time()
-    if now - store.last_wakeup > 12 * 60:  # likely slept
+    if now - store.last_wakeup > 12 * 60:
         if update.message:
             await update.message.reply_text(
-                "⏳ محرك البوت يستيقظ من وضع التوفير...\n"
-                "ثوانٍ معدودة ويجهز طلبك 🚀"
+                "⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀"
             )
     store.last_wakeup = now
 
@@ -114,6 +114,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if args and args[0].startswith("clone_"):
         item_id = args[0].replace("clone_", "", 1)
         item = find_local(item_id)
+        if not item:
+            # try remote lookup
+            from services.feed import _api_url, _secret
+            import httpx
+
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.put(
+                        _api_url(),
+                        json={"id": item_id},
+                        headers={"x-feed-secret": _secret()},
+                    )
+                    if r.status_code < 400:
+                        item = (r.json() or {}).get("item")
+            except Exception:
+                item = None
         if not item:
             await update.message.reply_text("انتهت صلاحية هذا الملف أو غير موجود. حمّل الرابط من جديد.")
             return
@@ -133,6 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if user.id == cfg.owner_id:
+        store.set_share(user.id, True)
         await update.message.reply_text(
             "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.",
             reply_markup=owner_main_keyboard(),
@@ -188,17 +205,14 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(
             f"• الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
             f"• الاشتراك: {chans}\n"
-            "• Mini-App: مفعّل"
+            "• Mini-App: مفعّل\n"
+            "• نشر المالك في الرائج: دائماً"
         )
     elif text == "👥 إدارة المستخدمين":
         await update.message.reply_text(f"عدد المستخدمين: {len(store.known_users)}")
     elif text == "💎 الميزات المدفوعة":
         await update.message.reply_text(
-            "بنية جاهزة:\n"
-            "• حدود يومية أعلى للمشتركين\n"
-            "• أولوية سرعة\n"
-            "• غرف خاصة بلا حدود\n"
-            "التفعيل لاحقاً بضغطة من لوحة المالك."
+            "بنية جاهزة:\n• حدود يومية أعلى\n• أولوية سرعة\n• غرف خاصة\nالتفعيل لاحقاً."
         )
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
@@ -261,6 +275,8 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         return
     store.touch_user(user.id)
     is_owner = user.id == cfg.owner_id
+    if is_owner:
+        store.set_share(user.id, True)
 
     allowed, limit_msg = store.can_download(user.id, is_owner)
     if not allowed:
@@ -314,10 +330,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if data == "perk_info":
         await query.edit_message_text(
-            "🎁 نظام التحفيز:\n"
-            "• بدون مشاركة: حد يومي أساسي\n"
-            "• مع المشاركة: حد أعلى + شارة مساهم في الموجز\n"
-            "• الاستنساخ من الرائج فوري عبر الكاش",
+            "🎁 نظام التحفيز:\n• بدون مشاركة: حد يومي أساسي\n• مع المشاركة: حد أعلى + شارة مساهم\n• الاستنساخ من الرائج فوري",
             reply_markup=user_settings_keyboard(store.get_share(user_id)),
         )
         return
@@ -342,7 +355,6 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text(note, reply_markup=user_settings_keyboard(new_val))
         return
 
-    # Squads
     if data == "squad_create":
         code = store.create_squad(user_id)
         await _save(context.bot)
@@ -381,12 +393,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 ch = store.force_sub_channels[idx]
                 store.remove_force_channel(ch)
                 await _save(context.bot)
-                await query.edit_message_text(f"تم حذف {ch}", reply_markup=owner_force_sub_keyboard(store.force_sub_channels))
+                await query.edit_message_text(
+                    f"تم حذف {ch}", reply_markup=owner_force_sub_keyboard(store.force_sub_channels)
+                )
             except Exception:
                 await query.edit_message_text("تعذر الحذف.")
             return
 
-    # Summary
     if data == "dl_summary":
         url = _pending_url.get(user_id)
         if not url:
@@ -499,7 +512,6 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if ok:
         store.record_download(user_id)
         store.touch_user(user_id)
-        await _save(context.bot)
         if final_id:
             await _maybe_publish_feed(
                 user_id=user_id,
@@ -510,6 +522,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 thumbnail=result.thumbnail or meta.get("thumbnail"),
                 from_user=from_user,
             )
+        await _save(context.bot)
         await query.edit_message_text(f"✅ تم بنجاح · {limit_msg}")
     else:
         await query.edit_message_text("⚠️ فشل الإرسال (قد يتجاوز حد 50MB).")
@@ -528,14 +541,20 @@ async def _maybe_publish_feed(
     from_user,
 ) -> None:
     is_owner = user_id == cfg.owner_id
-    share = is_owner or store.get_share(user_id)
+    # Owner always publishes; others only if share enabled
+    if is_owner:
+        store.set_share(user_id, True)
+        share = True
+    else:
+        share = store.get_share(user_id)
     if not share:
+        logger.info("skip feed publish user=%s share=off", user_id)
         return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     tags = guess_tags(title)
     squad = store.get_user_squad(user_id)
     try:
-        await publish_feed_item(
+        item = await publish_feed_item(
             file_id=file_id,
             media_type=media_type,
             title=title,
@@ -546,6 +565,7 @@ async def _maybe_publish_feed(
             tags=tags,
             squad_code=squad,
         )
+        logger.info("feed published id=%s", (item or {}).get("id"))
     except Exception as e:
         logger.warning("publish feed: %s", e)
 
@@ -571,6 +591,7 @@ async def _post_init(app: Application) -> None:
             await asyncio.sleep(2)
     await asyncio.sleep(2)
     store.mini_app_enabled = True
+    store.set_share(cfg.owner_id, True)
     store.last_wakeup = time.time()
     await _force_menu_button(app.bot)
     logger.info("Bot ready owner=%s", cfg.owner_id)
