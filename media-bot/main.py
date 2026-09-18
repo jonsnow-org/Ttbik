@@ -57,7 +57,7 @@ _waiting_channel: set[int] = set()
 _waiting_squad_join: set[int] = set()
 
 if cfg.force_sub_channel and not store.force_sub_channels:
-    store.force_sub_channels = [cfg.force_sub_channels]
+    store.force_sub_channels = [cfg.force_sub_channel]
 store.mini_app_enabled = True
 store.set_share(cfg.owner_id, True)
 
@@ -141,7 +141,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         if ok:
             await increment_clone(item_id)
-            await update.message.reply_text("⚡ تم الإرسال فوراً من الكاش (استنساخ بضغطة).")
+            await update.message.reply_text("⚡ تم الإرسال فوراً من الكاش.")
         else:
             await update.message.reply_text("❌ تعذر الإرسال.")
         return
@@ -149,7 +149,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
         await update.message.reply_text(
-            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.\n\nاختبار كامل: /testdl رابط",
+            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -289,7 +289,7 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         info, err = None, str(e)
 
     if not info:
-        detail = f"\n\n🔧 {err[:300]}" if err and is_owner else ""
+        detail = f"\n\n🔧 {err[:200]}" if err and is_owner else ""
         await status_msg.edit_text(
             "❌ تعذر قراءة الرابط.\nجرّب رابطاً مباشراً من يوتيوب / تيك توك / إنستغرام."
             + detail
@@ -308,9 +308,8 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     tags = guess_tags(info.title, info.extractor)
     await status_msg.edit_text(
         f"✅ {info.title[:80]}\n"
-        f"⏱ {duration} · 📡 {info.extractor}\n"
-        f"🏷 {' · '.join(tags)}\n"
-        f"📊 {limit_msg}\n\nاختر:",
+        f"⏱ {duration}\n"
+        f"📊 {limit_msg}\n\nاختر الجودة:",
         reply_markup=quality_keyboard(show_summary=is_yt),
     )
 
@@ -406,17 +405,17 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not url:
             await query.edit_message_text("انتهت صلاحية الطلب.")
             return
-        await query.edit_message_text("🧠 جاري استخراج الترجمة وتلخيصها...")
+        await query.edit_message_text("🧠 جاري التلخيص...")
         points, lang = await youtube_subtitle_summary(normalize_url(url))
         if not points:
             await query.edit_message_text(
-                "تعذر جلب ترجمة لهذا الفيديو.\nيمكنك التحميل بالجودة مباشرة.",
+                "تعذر جلب ترجمة.\nيمكنك التحميل مباشرة.",
                 reply_markup=quality_keyboard(show_summary=False),
             )
             return
         body = "\n".join(f"• {p}" for p in points)
         await query.edit_message_text(
-            f"🧠 ملخص سريع ({lang or 'auto'}):\n\n{body}\n\nهل تريد التحميل؟",
+            f"🧠 ملخص ({lang or 'auto'}):\n\n{body}\n\nهل تريد التحميل؟",
             reply_markup=quality_keyboard(show_summary=False),
         )
         return
@@ -454,7 +453,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"{url}|{media_type}|{quality}"
     )
     if cached:
-        await query.edit_message_text("⚡ من الأرشيف — جاري الإرسال...")
+        await query.edit_message_text("⚡ من الأرشيف...")
         ok, fid = await send_from_cache_or_file(
             context.bot, query.message.chat_id, cached, None, media_type, meta.get("title") or "cached"
         )
@@ -470,17 +469,17 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 from_user=from_user,
             )
             await _save(context.bot)
-            await query.edit_message_text(f"✅ تم من الأرشيف · {limit_msg}")
+            await query.edit_message_text(f"✅ تم · {limit_msg}")
             return
 
-    await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق حتى 3 دقائق.")
+    await query.edit_message_text("⬇️ جاري التحميل...")
     try:
         result, dl_err = await download_media(url, quality=quality, media_type=media_type)
     except Exception as e:
         result, dl_err = None, str(e)
     if not result:
-        detail = f"\n\n🔧 {dl_err[:400]}" if dl_err and is_owner else ""
-        await query.edit_message_text("❌ فشل التحميل. جرّب جودة أقل أو رابطاً آخر." + detail)
+        detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
+        await query.edit_message_text("❌ فشل التحميل." + detail)
         return
 
     file_id = await archive_and_get_file_id(
@@ -525,7 +524,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             from_user=from_user,
         )
         await _save(context.bot)
-        await query.edit_message_text(f"✅ تم التحميل · {limit_msg}")
+        await query.edit_message_text(f"✅ تم · {limit_msg}")
     else:
         await query.edit_message_text("❌ تعذر إرسال الملف.")
 
@@ -544,7 +543,6 @@ async def _maybe_publish_feed(
         return
     share = True if user_id == cfg.owner_id else store.get_share(user_id)
     if not share:
-        logger.info("skip feed publish user=%s share=off", user_id)
         return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     tags = guess_tags(title)
@@ -567,29 +565,19 @@ async def _maybe_publish_feed(
 
 
 async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Owner-only: full pipeline test — download + archive + feed publish."""
+    """Owner-only quiet full pipeline."""
     user = update.effective_user
     if not user or user.id != cfg.owner_id or not update.message:
         return
     args = context.args or []
     url = args[0] if args else "https://vt.tiktok.com/ZSqnF27su/"
-    await update.message.reply_text(f"🧪 اختبار كامل (تحميل + أرشيف + رائج)\n{url}")
+    status = await update.message.reply_text("⏳ جاري المعالجة...")
     try:
-        from services.downloader import download_media, is_tiktok, normalize_url
-
         nurl = normalize_url(url)
-        await update.message.reply_text(
-            f"normalize={nurl}\nis_tiktok={is_tiktok(nurl)}\n"
-            f"ARCHIVE={cfg.archive_channel_id or '❌ غير مضبوط'}"
-        )
         result, err = await download_media(nurl, quality="720", media_type="video")
         if not result:
-            await update.message.reply_text(f"❌ فشل التحميل\n{err}")
+            await status.edit_text(f"❌ فشل\n{(err or '')[:200]}")
             return
-
-        await update.message.reply_text(
-            f"✅ تحميل نجح\ntitle={result.title[:80]}\nsize={result.filesize}"
-        )
 
         fid = await archive_and_get_file_id(
             context.bot,
@@ -603,13 +591,8 @@ async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             downloader_id=user.id,
         )
         if fid:
-            await update.message.reply_text(f"✅ أرشيف نجح\nfile_id={fid[:40]}...")
             set_cached_file_id(nurl, "video", "720", fid)
             store.file_cache[f"{nurl}|video|720"] = fid
-        else:
-            await update.message.reply_text(
-                "⚠️ الأرشيف فشل — تأكد من ARCHIVE_CHANNEL_ID وأن البوت مشرف في القناة"
-            )
 
         ok, sent_id = await send_from_cache_or_file(
             context.bot,
@@ -620,14 +603,9 @@ async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             result.title,
         )
         final_fid = sent_id or fid or ""
-        if ok:
-            await update.message.reply_text("✅ أُرسل إليك")
-        else:
-            await update.message.reply_text("⚠️ تعذر الإرسال لك")
-
         if final_fid:
             store.set_share(user.id, True)
-            item = await publish_feed_item(
+            await publish_feed_item(
                 file_id=final_fid,
                 media_type="video",
                 title=result.title,
@@ -637,27 +615,21 @@ async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 sharer_id=str(user.id),
                 tags=guess_tags(result.title),
             )
-            if item:
-                await update.message.reply_text(
-                    f"✅ نُشر في الرائج\nid={item.get('id')}\nافتح Mini-App → رائج الآن"
-                )
-            else:
-                await update.message.reply_text("⚠️ نشر الرائج فشل (تحقق FEED_SECRET / FEED_API_URL)")
-        else:
-            await update.message.reply_text("⚠️ لا يوجد file_id — تخطي الرائج")
-
         store.record_download(user.id)
         await _save(context.bot)
-
         try:
             parent = result.path.parent
             if parent.exists() and str(parent).startswith("/tmp"):
                 shutil.rmtree(parent, ignore_errors=True)
         except Exception:
             pass
+        await status.edit_text("✅ تم" + (" · أرشيف+رائج" if final_fid else ""))
     except Exception as e:
         logger.exception("testdl")
-        await update.message.reply_text(f"💥 exception: {type(e).__name__}: {e}")
+        try:
+            await status.edit_text(f"❌ {type(e).__name__}")
+        except Exception:
+            pass
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
