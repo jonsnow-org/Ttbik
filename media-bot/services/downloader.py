@@ -1,4 +1,4 @@
-"""yt-dlp + Cobalt fallback. Handles cloud-IP blocks from YT/TikTok."""
+"""yt-dlp + TikWM + Cobalt fallbacks for cloud-IP blocks."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ _YT_CLIENT_GROUPS = [
     ["mweb"],
 ]
 
-# Rotate TikTok API hosts (datacenter IPs often get status 0 on default host)
 _TIKTOK_API_HOSTS = [
     "api16-normal-c-useast1a.tiktokv.com",
     "api22-normal-c-useast2a.tiktokv.com",
@@ -99,13 +98,11 @@ async def resolve_redirects(url: str) -> str:
 
 
 def _write_cookies_file() -> str | None:
-    """Support YTDLP_COOKIES as file path OR raw Netscape cookies content."""
     raw = (os.getenv("YTDLP_COOKIES") or "").strip()
     if not raw:
         return None
     if os.path.isfile(raw):
         return raw
-    # treat as cookie file contents
     if "# Netscape" in raw or "youtube.com" in raw or "\t" in raw:
         path = "/tmp/ytdlp_cookies.txt"
         with open(path, "w", encoding="utf-8") as f:
@@ -126,9 +123,9 @@ def _generic_opts(outdir: str | None = None, tiktok_host: str | None = None) -> 
         "restrictfilenames": True,
         "noplaylist": True,
         "socket_timeout": 30,
-        "retries": 4,
+        "retries": 3,
         "extractor_retries": 2,
-        "fragment_retries": 4,
+        "fragment_retries": 3,
         "ignoreerrors": False,
         "geo_bypass": True,
         "http_headers": {
@@ -199,10 +196,30 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
 
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
+        # Prefer TikWM for metadata too
+        try:
+            from services.providers import tikwm_resolve
+
+            meta = await tikwm_resolve(url)
+            if meta:
+                return (
+                    MediaInfo(
+                        title=meta.get("title") or "TikTok",
+                        duration=meta.get("duration"),
+                        thumbnail=meta.get("thumbnail"),
+                        webpage_url=url,
+                        extractor="tikwm",
+                    ),
+                    "",
+                )
+        except Exception as e:
+            last_err = str(e)
 
     try:
         import yt_dlp
     except Exception as e:
+        if is_tiktok(url):
+            return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
         return None, f"yt-dlp missing: {e}"
 
     if is_youtube(url):
@@ -224,18 +241,11 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                 last_err = f"{type(e).__name__}: {e}"
                 logger.warning("yt extract %s: %s", clients, last_err)
                 if "Sign in to confirm" in last_err or "not a bot" in last_err:
-                    break  # cookies needed; don't spam clients
+                    break
 
-        # Cobalt can still get metadata indirectly — mark as youtube-cobalt
-        return MediaInfo(
-            title="فيديو يوتيوب",
-            duration=None,
-            thumbnail=None,
-            webpage_url=url,
-            extractor="youtube-cobalt",
-        ), ""  # allow quality picker; download will use cobalt
+        # Still show quality buttons — download may need cookies
+        return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
 
-    # TikTok / generic
     hosts = _TIKTOK_API_HOSTS if is_tiktok(url) else [None]
     for host in hosts:
         try:
@@ -249,21 +259,11 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             info = await asyncio.wait_for(asyncio.to_thread(_run_g), timeout=EXTRACT_TIMEOUT)
             if info:
                 return _to_media_info(info, url), ""
-        except asyncio.TimeoutError:
-            last_err = "timeout generic"
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
-            logger.warning("generic extract host=%s: %s", host, last_err)
 
-    # Still allow user to pick quality — cobalt will handle download
     if is_tiktok(url):
-        return MediaInfo(
-            title="فيديو تيك توك",
-            duration=None,
-            thumbnail=None,
-            webpage_url=url,
-            extractor="tiktok-cobalt",
-        ), ""
+        return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
 
     return None, last_err or "extract failed"
 
@@ -275,17 +275,39 @@ async def download_media(
 ) -> tuple[DownloadResult | None, str]:
     url = normalize_url(url)
     last_err = ""
+    audio_only = media_type in ("audio", "voice")
 
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
+        # ---- TikWM first (works on Render) ----
+        try:
+            from services.providers import provider_download_tiktok
+
+            path, title, thumb, err = await provider_download_tiktok(url, audio_only=audio_only)
+            if path:
+                return (
+                    DownloadResult(
+                        path=path,
+                        title=title or "TikTok",
+                        media_type=media_type,
+                        filesize=path.stat().st_size,
+                        thumbnail=thumb,
+                    ),
+                    "",
+                )
+            last_err = err or "tikwm failed"
+            logger.warning("tikwm: %s", last_err)
+        except Exception as e:
+            last_err = str(e)
+            logger.warning("tikwm exception: %s", e)
 
     tmp = tempfile.mkdtemp(prefix="mediabot_")
-    audio_only = media_type in ("audio", "voice")
 
     try:
         import yt_dlp
     except Exception as e:
-        # try cobalt only
+        if is_tiktok(url):
+            return None, last_err or str(e)
         return await _download_via_cobalt(url, quality, media_type, str(e))
 
     def _apply_format(opts: dict[str, Any]) -> None:
@@ -311,11 +333,10 @@ async def download_media(
             opts["format"] = fmt
             opts["merge_output_format"] = "mp4"
 
-    # ---- yt-dlp attempts ----
     if is_youtube(url):
-        groups = _YT_CLIENT_GROUPS
+        groups: list = _YT_CLIENT_GROUPS
     elif is_tiktok(url):
-        groups = [(h,) for h in _TIKTOK_API_HOSTS]  # type: ignore
+        groups = [(h,) for h in _TIKTOK_API_HOSTS]
     else:
         groups = [(None,)]
 
@@ -367,7 +388,7 @@ async def download_media(
             if "status code 0" in last_err:
                 break
 
-    # ---- Cobalt fallback ----
+    # Cobalt last resort (needs JWT on many instances — may fail)
     logger.info("falling back to Cobalt for %s", url[:60])
     return await _download_via_cobalt(url, quality, media_type, last_err)
 
@@ -382,8 +403,13 @@ async def _download_via_cobalt(
         url, quality=quality, audio_only=audio_only
     )
     if not path:
-        combined = f"yt-dlp: {prev_err[:120]} | cobalt: {err}"
-        return None, combined
+        hint = ""
+        if is_youtube(url) and ("bot" in (prev_err or "").lower() or "Sign in" in (prev_err or "")):
+            hint = (
+                " | يوتيوب محجوب من سيرفر Render. "
+                "ضع محتوى cookies.txt في متغير YTDLP_COOKIES"
+            )
+        return None, f"yt-dlp: {(prev_err or '')[:100]} | cobalt: {err}{hint}"
 
     return (
         DownloadResult(
