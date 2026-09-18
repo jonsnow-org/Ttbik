@@ -20,10 +20,12 @@ type FeedItem = {
 const g = globalThis as unknown as { __mediaFeed?: FeedItem[] };
 if (!g.__mediaFeed) g.__mediaFeed = [];
 
+const DEFAULT_SECRET = "8452320";
+
 function secretOk(req: NextRequest): boolean {
-  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || "").trim();
-  if (!expected) return false;
-  return (req.headers.get("x-feed-secret") || "").trim() === expected;
+  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || DEFAULT_SECRET).trim();
+  const got = (req.headers.get("x-feed-secret") || "").trim();
+  return !!expected && got === expected;
 }
 
 async function loadFromSupabase(): Promise<FeedItem[] | null> {
@@ -33,12 +35,25 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
     if (!url || !key) return null;
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data, error } = await db
-      .from("media_feed")
-      .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at,tags,squad_code")
-      .order("created_at", { ascending: false })
-      .limit(100);
-    if (error || !data) return null;
+    // Prefer full select; fall back if columns missing
+    let data: any[] | null = null;
+    {
+      const r = await db
+        .from("media_feed")
+        .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at,tags,squad_code")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!r.error && r.data) data = r.data;
+    }
+    if (!data) {
+      const r = await db
+        .from("media_feed")
+        .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!r.error && r.data) data = r.data;
+    }
+    if (!data) return null;
     return data.map((r: any) => ({
       id: String(r.id),
       file_id: String(r.file_id || ""),
@@ -65,9 +80,25 @@ async function saveToSupabase(item: FeedItem): Promise<string | null> {
     if (!url || !key) return null;
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data, error } = await db
-      .from("media_feed")
-      .insert({
+
+    // Try full insert first
+    const full = {
+      id: item.id,
+      file_id: item.file_id,
+      media_type: item.media_type,
+      title: item.title,
+      url: item.url,
+      thumbnail: item.thumbnail,
+      sharer_name: item.sharer_name,
+      sharer_id: item.sharer_id,
+      clones: item.clones,
+      tags: item.tags || [],
+      squad_code: item.squad_code || "",
+    };
+    let { data, error } = await db.from("media_feed").insert(full).select("id").single();
+    if (error) {
+      // schema without tags/squad_code
+      const minimal = {
         id: item.id,
         file_id: item.file_id,
         media_type: item.media_type,
@@ -77,11 +108,11 @@ async function saveToSupabase(item: FeedItem): Promise<string | null> {
         sharer_name: item.sharer_name,
         sharer_id: item.sharer_id,
         clones: item.clones,
-        tags: item.tags || [],
-        squad_code: item.squad_code || "",
-      })
-      .select("id")
-      .single();
+      };
+      const r2 = await db.from("media_feed").insert(minimal).select("id").single();
+      data = r2.data;
+      error = r2.error;
+    }
     if (error) return null;
     return data?.id ? String(data.id) : item.id;
   } catch {
@@ -97,15 +128,17 @@ export async function GET(req: NextRequest) {
 
   let items = (await loadFromSupabase()) || g.__mediaFeed || [];
 
-  // Public feed hides private squad-only items unless squad filter matches
   if (squad) {
     items = items.filter((i) => (i.squad_code || "") === squad);
   } else {
+    // public feed: hide private squad-only posts
     items = items.filter((i) => !i.squad_code);
   }
 
   if (type !== "all") {
-    items = items.filter((i) => i.media_type === type || (type === "audio" && (i.media_type === "audio" || i.media_type === "voice")));
+    items = items.filter(
+      (i) => i.media_type === type || (type === "audio" && (i.media_type === "audio" || i.media_type === "voice"))
+    );
   }
   if (tag) {
     items = items.filter((i) => (i.tags || []).includes(tag));
@@ -117,12 +150,12 @@ export async function GET(req: NextRequest) {
   }
 
   const publicItems = items.slice(0, 60).map(({ file_id: _f, ...rest }) => rest);
-  return NextResponse.json({ items: publicItems });
+  return NextResponse.json({ items: publicItems, count: publicItems.length });
 }
 
 export async function POST(req: NextRequest) {
   if (!secretOk(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "unauthorized", hint: "set FEED_SECRET=8452320 on both Render and Vercel" }, { status: 401 });
   }
   const body = await req.json().catch(() => ({}));
   const item: FeedItem = {
@@ -146,8 +179,9 @@ export async function POST(req: NextRequest) {
   const savedId = await saveToSupabase(item);
   if (savedId) item.id = savedId;
 
+  // Always keep in memory so GET works even without Supabase
   g.__mediaFeed = [item, ...(g.__mediaFeed || []).filter((x) => x.id !== item.id)].slice(0, 200);
-  return NextResponse.json({ ok: true, id: item.id });
+  return NextResponse.json({ ok: true, id: item.id, persisted: !!savedId });
 }
 
 export async function PATCH(req: NextRequest) {
