@@ -114,6 +114,12 @@ function commandsMissingDescriptions(cmds?: BotCommand[]) {
   return cmds.every((c) => !c.description?.trim());
 }
 
+const CMD_NAME_RE = /^[a-z0-9_]{1,32}$/;
+
+function invalidCommandNames(cmds?: BotCommand[]) {
+  return (cmds ?? []).filter((c) => !CMD_NAME_RE.test(c.command));
+}
+
 function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
   const notes: string[] = [];
   const w = result.webhook;
@@ -153,6 +159,21 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   if (commandsMissingDescriptions(b?.commands)) {
     notes.push("الأوامر مسجلة بدون وصف في BotFather — القائمة تظهر ناقصة للزبون.");
+  }
+  const badCmds = invalidCommandNames(b?.commands);
+  if (badCmds.length) {
+    notes.push(
+      `أسماء أوامر غير صالحة في BotFather (${badCmds
+        .slice(0, 5)
+        .map((c) => `/${c.command}`)
+        .join("، ")}${badCmds.length > 5 ? "…" : ""}) — المسموح: أحرف إنجليزية صغيرة وأرقام وشرطة سفلية حتى 32 حرفاً.`,
+    );
+  }
+  if ((b?.commands?.length ?? 0) > 100) {
+    notes.push(`عدد الأوامر (${b?.commands?.length}) يتجاوز حد تليجرام 100 — القائمة قد تُرفض أو تُقصّ.`);
+  }
+  if (b?.description?.trim() && !b?.shortDescription?.trim()) {
+    notes.push("يوجد وصف طويل لكن الوصف المختصر فارغ — قائمة الدردشات تعرض الموجز فقط.");
   }
   if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف مسجل في BotFather.");
   if ((b?.commands?.length ?? 0) > 0 && (b?.commandsAr?.length ?? 0) === 0) notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
@@ -257,6 +278,14 @@ export default function HealthCheckForm() {
       `قائمة المرفقات: ${yn(b.addedToAttachmentMenu)}`,
       cmdLines.length ? `أوامر:` : "",
       ...cmdLines,
+      invalidCommandNames(b.commands).length
+        ? `أوامر بأسماء غير صالحة: ${invalidCommandNames(b.commands)
+            .slice(0, 8)
+            .map((c) => `/${c.command}`)
+            .join("، ")}`
+        : "",
+      (b.commands?.length ?? 0) > 100 ? `عدد الأوامر يتجاوز 100: ${b.commands!.length}` : "",
+      b.description?.trim() && !b.shortDescription?.trim() ? "الوصف المختصر فارغ مع وجود وصف طويل" : "",
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
       w?.url && isPrivateWebhookHost(w.host) ? "مضيف محلي/خاص: نعم" : "",
@@ -336,6 +365,17 @@ export default function HealthCheckForm() {
             <li>الوصف المختصر العربي: {b.shortDescriptionAr?.trim() || "غير مضبوط"}</li>
             <li>الوصف العربي (ar): {b.descriptionAr?.trim() || "غير مضبوط"}</li>
             <li>أوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
+            {invalidCommandNames(b.commands).length > 0 && (
+              <li className="text-amber-800">
+                أوامر بأسماء غير صالحة: {invalidCommandNames(b.commands).slice(0, 6).map((c) => `/${c.command}`).join("، ")}
+              </li>
+            )}
+            {(b.commands?.length ?? 0) > 100 && (
+              <li className="text-amber-800">عدد الأوامر يتجاوز حد تليجرام 100</li>
+            )}
+            {!!b.description?.trim() && !b.shortDescription?.trim() && (
+              <li className="text-amber-800">الوصف المختصر فارغ — قائمة الدردشات لن تعرض موجزاً</li>
+            )}
             {commandPreview.length > 0 && (
               <li>
                 أوامر BotFather:
