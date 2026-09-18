@@ -5,6 +5,24 @@ import SectionBackdrop from "@/components/SectionBackdrop";
 
 const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
 
+const RIGHTS_AR: Record<string, string> = {
+  is_anonymous: "مشرف مجهول",
+  can_manage_chat: "إدارة المحادثة",
+  can_delete_messages: "حذف الرسائل",
+  can_manage_video_chats: "إدارة المكالمات",
+  can_restrict_members: "تقييد الأعضاء",
+  can_promote_members: "ترقية المشرفين",
+  can_change_info: "تعديل المعلومات",
+  can_invite_users: "دعوة أعضاء",
+  can_post_stories: "نشر قصص",
+  can_edit_stories: "تعديل القصص",
+  can_delete_stories: "حذف القصص",
+  can_post_messages: "نشر المنشورات",
+  can_edit_messages: "تعديل المنشورات",
+  can_pin_messages: "تثبيت الرسائل",
+  can_manage_topics: "إدارة المواضيع",
+};
+
 type MenuButton = {
   type?: string;
   text?: string;
@@ -22,10 +40,13 @@ type Result = {
     supportsInlineQueries?: boolean;
     canConnectToBusiness?: boolean;
     hasMainWebApp?: boolean;
+    addedToAttachmentMenu?: boolean;
     commands?: { command: string; description: string }[];
     description?: string;
     shortDescription?: string;
     menuButton?: MenuButton;
+    groupAdminRights?: Record<string, boolean>;
+    channelAdminRights?: Record<string, boolean>;
   };
   webhook?: {
     url: string | null;
@@ -50,6 +71,13 @@ function menuLabel(menu?: MenuButton) {
   if (menu.type === "commands") return "قائمة الأوامر";
   if (menu.type === "default") return "الافتراضي (أوامر)";
   return menu.type;
+}
+
+function enabledRights(rights?: Record<string, boolean>) {
+  if (!rights) return [];
+  return Object.entries(rights)
+    .filter(([, v]) => v)
+    .map(([k]) => RIGHTS_AR[k] || k);
 }
 
 export default function HealthCheckForm() {
@@ -102,6 +130,8 @@ export default function HealthCheckForm() {
     const b = result?.bot;
     const w = result?.webhook;
     if (!b) return;
+    const g = enabledRights(b.groupAdminRights);
+    const ch = enabledRights(b.channelAdminRights);
     const lines = [
       `تقرير فحص بوت — سوق تولز`,
       `@${b.username} (المعرّف: ${b.id ?? "—"})`,
@@ -112,6 +142,9 @@ export default function HealthCheckForm() {
       `أوامر BotFather: ${b.commands?.length ?? 0}`,
       `Mini App رئيسي: ${b.hasMainWebApp ? "مضبوط" : "غير مضبوط"}`,
       `Telegram Business: ${b.canConnectToBusiness ? "مسموح" : "غير مسموح"}`,
+      `قائمة المرفقات: ${b.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}`,
+      `صلاحيات المجموعات الافتراضية: ${g.length ? g.join("، ") : "لا شيء مفعّل"}`,
+      `صلاحيات القنوات الافتراضية: ${ch.length ? ch.join("، ") : "لا شيء مفعّل"}`,
     ].filter(Boolean);
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -207,6 +240,22 @@ export default function HealthCheckForm() {
               اتصال Telegram Business:{" "}
               {result.bot.canConnectToBusiness ? "مسموح" : "غير مسموح"}
             </li>
+            <li>
+              قائمة مرفقات تليجرام:{" "}
+              {result.bot.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}
+            </li>
+            <li>
+              صلاحيات المشرف الافتراضية للمجموعات:{" "}
+              {enabledRights(result.bot.groupAdminRights).length
+                ? enabledRights(result.bot.groupAdminRights).join("، ")
+                : "لا شيء مفعّل في BotFather"}
+            </li>
+            <li>
+              صلاحيات المشرف الافتراضية للقنوات:{" "}
+              {enabledRights(result.bot.channelAdminRights).length
+                ? enabledRights(result.bot.channelAdminRights).join("، ")
+                : "لا شيء مفعّل في BotFather"}
+            </li>
             <li className="break-all">
               زر قائمة الدردشة (قائمة BotFather): {menuLabel(result.bot.menuButton)}
             </li>
@@ -268,7 +317,7 @@ export default function HealthCheckForm() {
                 )}
               </>
             ) : (
-              <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
+              <li className="text-amber-700">⚠️ لا يوجد ويبهوك مُفعَّل لهذا البوت حالياً.</li>
             )}
           </ul>
           <div className="flex flex-wrap gap-2">
