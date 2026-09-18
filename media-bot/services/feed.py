@@ -13,6 +13,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _local_feed: list[dict[str, Any]] = []
+DEFAULT_SECRET = "8452320"
+
+
+def _secret() -> str:
+    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or DEFAULT_SECRET).strip()
+
+
+def _api_url() -> str:
+    return (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
 
 
 def local_items(limit: int = 50) -> list[dict[str, Any]]:
@@ -59,21 +68,42 @@ async def publish_feed_item(
     }
     remember_local(item)
 
-    api = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
-    secret = (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
-    if not secret:
-        logger.warning("FEED_SECRET missing — item kept only in bot memory")
-        return item
+    api = _api_url()
+    secret = _secret()
+    logger.info("Publishing feed item to %s id=%s sharer=%s", api, item["id"], sharer_id)
 
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(
                 api,
                 json=item,
                 headers={"x-feed-secret": secret, "content-type": "application/json"},
             )
+            logger.info("feed API status=%s body=%s", r.status_code, r.text[:300])
             if r.status_code >= 400:
-                logger.warning("feed API %s: %s", r.status_code, r.text[:200])
+                # retry without optional fields (older table schema)
+                minimal = {
+                    "id": item["id"],
+                    "file_id": item["file_id"],
+                    "media_type": item["media_type"],
+                    "title": item["title"],
+                    "url": item["url"],
+                    "thumbnail": item["thumbnail"],
+                    "sharer_name": item["sharer_name"],
+                    "sharer_id": item["sharer_id"],
+                    "clones": 0,
+                    "created_at": item["created_at"],
+                }
+                r2 = await client.post(
+                    api,
+                    json=minimal,
+                    headers={"x-feed-secret": secret, "content-type": "application/json"},
+                )
+                logger.info("feed API retry status=%s body=%s", r2.status_code, r2.text[:300])
+                if r2.status_code < 400:
+                    data = r2.json()
+                    if isinstance(data, dict) and data.get("id"):
+                        item["id"] = data["id"]
             else:
                 data = r.json()
                 if isinstance(data, dict) and data.get("id"):
@@ -85,10 +115,8 @@ async def publish_feed_item(
 
 
 async def increment_clone(item_id: str) -> None:
-    api = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
-    secret = (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
-    if not secret:
-        return
+    api = _api_url()
+    secret = _secret()
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
             await client.patch(
