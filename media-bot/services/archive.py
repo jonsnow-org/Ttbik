@@ -35,12 +35,21 @@ async def archive_and_get_file_id(
     media_type: str,
     quality: str,
     title: str,
+    downloader_name: str | None = None,
+    downloader_id: int | None = None,
 ) -> str | None:
     if not archive_channel_id:
         logger.warning("No ARCHIVE_CHANNEL_ID — skipping permanent archive")
         return None
 
-    caption = f"🔗 {url}\n📁 {media_type}:{quality}\n📌 {title[:200]}"
+    who = downloader_name or "مستخدم"
+    uid = f" ({downloader_id})" if downloader_id else ""
+    caption = (
+        f"🔗 {url}\n"
+        f"📁 {media_type}:{quality}\n"
+        f"📌 {title[:180]}\n"
+        f"👤 بواسطة: {who}{uid}"
+    )
 
     try:
         if media_type == "voice":
