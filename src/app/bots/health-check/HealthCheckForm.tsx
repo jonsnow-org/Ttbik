@@ -13,17 +13,25 @@ type Result = {
     username: string;
     firstName: string;
     botFatherName?: string;
+    botFatherNameAr?: string;
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
+    canConnectToBusiness?: boolean;
     hasMainWebApp?: boolean;
+    addedToAttachmentMenu?: boolean;
     profilePhotoCount?: number;
     commands?: BotCommand[];
     commandsAr?: BotCommand[];
+    commandsPrivate?: BotCommand[];
+    commandsGroups?: BotCommand[];
     description?: string;
     shortDescription?: string;
+    descriptionAr?: string;
+    shortDescriptionAr?: string;
     menuButton?: MenuButton;
     groupAdminRights?: Record<string, boolean>;
+    channelAdminRights?: Record<string, boolean>;
   };
   webhook?: {
     url: string | null;
@@ -62,6 +70,13 @@ function hoursSince(iso?: string | null) {
   return (Date.now() - t) / 36e5;
 }
 
+function enabledRights(rights?: Record<string, boolean>) {
+  if (!rights) return [];
+  return Object.entries(rights)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+}
+
 function collectNotes(result: Result): string[] {
   const notes: string[] = [];
   const w = result.webhook;
@@ -94,8 +109,14 @@ function collectNotes(result: Result): string[] {
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف في BotFather.");
+  if (!b?.descriptionAr?.trim() && !b?.shortDescriptionAr?.trim()) {
+    notes.push("لا يوجد وصف عربي (language_code=ar) في BotFather.");
+  }
   if (w?.tokenEmbeddedInUrl) notes.push("رابط الويبهوك يحتوي التوكن — خطر تسريب.");
   if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي.");
+  if (b?.menuButton?.type === "web_app" && !b.menuButton.webAppUrl) {
+    notes.push("زر القائمة مضبوط كـ Web App بلا رابط.");
+  }
   return notes;
 }
 
@@ -159,6 +180,8 @@ export default function HealthCheckForm() {
     : notes.length
       ? "warn"
       : "ok";
+  const groupRights = enabledRights(b?.groupAdminRights);
+  const channelRights = enabledRights(b?.channelAdminRights);
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -222,12 +245,31 @@ export default function HealthCheckForm() {
           <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{b.username}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {b.firstName || "—"}</li>
+            {(b.botFatherName || b.botFatherNameAr) && (
+              <li>اسم BotFather: {b.botFatherNameAr || b.botFatherName}</li>
+            )}
             {b.id != null && <li>المعرّف: {b.id}</li>}
-            <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
+            <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0} — خاص: {b.commandsPrivate?.length ?? 0} — مجموعات: {b.commandsGroups?.length ?? 0}</li>
             <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
+            {b.descriptionAr?.trim() && <li>الوصف العربي: {b.descriptionAr}</li>}
+            {b.shortDescription?.trim() && <li>وصف قصير: {b.shortDescription}</li>}
+            {b.shortDescriptionAr?.trim() && <li>وصف قصير عربي: {b.shortDescriptionAr}</li>}
             <li>ينضم للمجموعات: {yn(b.canJoinGroups)}</li>
             <li>يقرأ كل رسائل المجموعة: {yn(b.canReadAllGroupMessages)}</li>
             <li>إنلاين: {yn(b.supportsInlineQueries)}</li>
+            <li>بوابة الأعمال: {yn(b.canConnectToBusiness)}</li>
+            <li>Web App رئيسي: {yn(b.hasMainWebApp)}</li>
+            {b.menuButton?.type && (
+              <li>
+                زر القائمة: {b.menuButton.type}
+                {b.menuButton.text ? ` — ${b.menuButton.text}` : ""}
+              </li>
+            )}
+            {b.menuButton?.webAppUrl ? (
+              <li className="break-all font-mono text-xs">Web App: {b.menuButton.webAppUrl}</li>
+            ) : null}
+            {groupRights.length > 0 && <li>صلاحيات مجموعة افتراضية: {groupRights.length}</li>}
+            {channelRights.length > 0 && <li>صلاحيات قناة افتراضية: {channelRights.length}</li>}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
             {w?.host && <li>المضيف: {w.host}</li>}
             {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
