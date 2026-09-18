@@ -46,6 +46,7 @@ type Result = {
     host?: string | null;
     tokenEmbeddedInUrl?: boolean;
     hostIsIp?: boolean;
+    ipAddress?: string | null;
   };
   error?: string;
 };
@@ -102,6 +103,11 @@ function collectNotes(result: Result): string[] {
   if (w?.url && w.hostIsIp) notes.push("مضيف الويبهوك عنوان IP خام — فضّل نطاقاً.");
   if (w?.url && w.maxConnections != null && w.maxConnections < 10) {
     notes.push(`أقصى اتصالات منخفض (${w.maxConnections}).`);
+  }
+  const allowed = w?.allowedUpdates ?? [];
+  if (w?.url && allowed.length > 0) {
+    if (!allowed.includes("message")) notes.push("allowed_updates يستثني message — البوت لن يستقبل الرسائل العادية.");
+    if (!allowed.includes("callback_query")) notes.push("allowed_updates يستثني callback_query — أزرار القوائم قد لا تعمل.");
   }
   if (b?.canJoinGroups === false) notes.push("البوت ممنوع من الانضمام للمجموعات.");
   if (b?.canJoinGroups && b.canReadAllGroupMessages === false) {
@@ -175,13 +181,14 @@ export default function HealthCheckForm() {
   const b = result?.bot;
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
-  const tone = notes.some((n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب"))
+  const tone = notes.some((n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب") || n.includes("allowed_updates"))
     ? "bad"
     : notes.length
       ? "warn"
       : "ok";
   const groupRights = enabledRights(b?.groupAdminRights);
   const channelRights = enabledRights(b?.channelAdminRights);
+  const allowedList = w?.allowedUpdates ?? [];
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -272,7 +279,11 @@ export default function HealthCheckForm() {
             {channelRights.length > 0 && <li>صلاحيات قناة افتراضية: {channelRights.length}</li>}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
             {w?.host && <li>المضيف: {w.host}</li>}
+            {w?.ipAddress ? <li className="font-mono text-xs">IP الويبهوك: {w.ipAddress}</li> : null}
             {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
+            <li>
+              أنواع التحديثات: {allowedList.length === 0 ? "الكل (افتراضي)" : allowedList.join(", ")}
+            </li>
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
             {w?.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
           </ul>

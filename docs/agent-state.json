@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5737385240,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T23:24:30Z",
+  "updated_at": "2026-09-18T23:26:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -11,6 +11,7 @@
     "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
+    "G73 HealthCheckForm surfaces webhook allowed_updates + IP + warns if message/callback_query filtered out.",
     "G72 HealthCheckForm surfaces unused API fields (AR descriptions, menu button, scoped commands, business/webapp flags). SHA c49411b2.",
     "G71 HealthCheckForm.tsx restored as complete working client (SHA fbac49dc).",
     "G69-G53 health-check series retained.",
