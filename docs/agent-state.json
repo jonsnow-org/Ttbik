@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5732821833,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T16:20:00Z",
+  "updated_at": "2026-09-18T17:10:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G66 (2026-09-18): health-check warn when can_join_groups but privacy mode on (cannot read all group messages).",
     "G65 (2026-09-18): health-check warn raw-IP webhook host + low maxConnections + soft pending queue. SHAs d133917 / fabfa5b",
     "G64 (2026-09-18): health-check command scopes (private/group) + warn if webhook URL embeds the bot token. SHAs 357f0d0 / 0605b45",
     "G63 (2026-09-18): health-check list BotFather command descriptions + warn if all empty. SHA 38d3261",
