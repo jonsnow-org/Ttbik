@@ -26,10 +26,8 @@ from keyboards import (
     user_main_keyboard,
     quality_keyboard,
     owner_force_sub_keyboard,
-    owner_mini_app_keyboard,
     user_settings_keyboard,
     menu_button_webapp,
-    menu_button_default,
     INFO_TEXT,
 )
 from services.force_sub import require_subscription
@@ -56,7 +54,8 @@ _waiting_channel: set[int] = set()
 
 if cfg.force_sub_channel and not store.force_sub_channels:
     store.force_sub_channels = [cfg.force_sub_channel]
-store.mini_app_enabled = store.mini_app_enabled or cfg.enable_global_feed
+# Always keep Mini-App menu button ON (user requirement)
+store.mini_app_enabled = True
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
@@ -81,12 +80,11 @@ async def _save(bot) -> None:
     await persist(bot, cfg.archive_channel_id)
 
 
-async def _sync_menu_button(bot) -> None:
+async def _force_menu_button(bot) -> None:
+    """Always set the WebApp menu button so the square appears next to the input."""
     try:
-        if store.mini_app_enabled:
-            await bot.set_chat_menu_button(menu_button=menu_button_webapp())
-        else:
-            await bot.set_chat_menu_button(menu_button=menu_button_default())
+        await bot.set_chat_menu_button(menu_button=menu_button_webapp())
+        logger.info("Menu button Mini-App set")
     except Exception as e:
         logger.warning("set_chat_menu_button failed: %s", e)
 
@@ -96,7 +94,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user or not update.message:
         return
     store.touch_user(user.id)
-    await _sync_menu_button(context.bot)
+    # Re-assert menu button every /start (Telegram sometimes drops it)
+    await _force_menu_button(context.bot)
 
     args = context.args or []
     if args and args[0].startswith("clone_"):
@@ -118,7 +117,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if user.id == cfg.owner_id:
         await update.message.reply_text(
-            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة، أو استخدم الأزرار.",
+            "👑 لوحة مالك البوت\n\n"
+            "أرسل أي رابط للتحميل مباشرة.\n"
+            "زر Mini-App المربع بجانب حقل الرسالة يفتح التطبيق المصغر.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -130,8 +131,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(
-        "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر...",
-        reply_markup=user_main_keyboard(store.mini_app_enabled),
+        "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر...\n"
+        "أو افتح التطبيق المصغر من الزر المربع بجانب الرسالة.",
+        reply_markup=user_main_keyboard(True),
     )
 
 
@@ -161,7 +163,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• عدد المستخدمين المسجّلين: {n}\n"
             f"• عدد التحميلات: {store.downloads}\n"
             f"• قنوات الاشتراك الإجباري: {len(store.force_sub_channels)}\n"
-            f"• زر Mini-App: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            "• زر Mini-App: مفعّل دائماً"
         )
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
@@ -169,32 +171,31 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"قنوات الاشتراك الإجباري الحالية:\n{current}\n\nيمكنك إضافة حتى قناتين.",
             reply_markup=owner_force_sub_keyboard(store.force_sub_channels),
         )
-    elif text in ("📱 التطبيق المصغر", "🌐 الموجز العام"):
-        await update.message.reply_text(
-            "📱 التطبيق المصغر داخل تيليجرام\n\n"
-            "عند تفعيله يظهر زر Mini-App أسفل المحادثة.\n"
-            "التنزيلات المنشورة تظهر في «الرائج» و«الأحدث».\n\n"
-            f"الحالة: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
-            reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
-        )
     elif text == "⚙️ إعدادات البوت":
         chans = ", ".join(store.force_sub_channels) or "لا"
         await update.message.reply_text(
             f"• قناة الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
             f"• الاشتراك الإجباري: {chans}\n"
-            f"• زر Mini-App: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
+            "• زر Mini-App: مفعّل دائماً (بجانب حقل الرسالة)"
         )
     elif text == "👥 إدارة المستخدمين":
         await update.message.reply_text(f"عدد المستخدمين: {len(store.known_users)}")
     elif text == "💎 الميزات المدفوعة":
-        await update.message.reply_text("بنية الميزات المدفوعة جاهزة للتفعيل لاحقاً.")
+        await update.message.reply_text("بنية الميزات المدفوعة جاهزة للتفعيل لاحقاً بضغطة زر.")
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
-    elif text in ("📥 تجربة التحميل", "🔙 رجوع للقائمة الرئيسية"):
-        await update.message.reply_text("أرسل رابطاً للتحميل.", reply_markup=owner_main_keyboard())
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
+        # تجاهل الأزرار المحذوفة القديمة إن بقيت ظاهرة في الكاش
+        if text in ("📱 التطبيق المصغر", "📥 تجربة التحميل", "🌐 الموجز العام"):
+            await update.message.reply_text(
+                "تم حذف هذا الزر.\n"
+                "• للتحميل: أرسل الرابط مباشرة.\n"
+                "• للتطبيق المصغر: الزر المربع بجانب حقل الرسالة.",
+                reply_markup=owner_main_keyboard(),
+            )
+            return
         await update.message.reply_text("استخدم الأزرار أو أرسل رابطاً.", reply_markup=owner_main_keyboard())
 
 
@@ -232,7 +233,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         await update.message.reply_text(
             "أرسل رابطاً أو استخدم الأزرار.",
-            reply_markup=user_main_keyboard(store.mini_app_enabled),
+            reply_markup=user_main_keyboard(True),
         )
 
 
@@ -330,14 +331,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await query.edit_message_text("تعذر الحذف.")
             return
         if data == "owner_toggle_mini_app":
-            store.mini_app_enabled = not store.mini_app_enabled
+            # Always keep ON
+            store.mini_app_enabled = True
             await _save(context.bot)
-            await _sync_menu_button(context.bot)
+            await _force_menu_button(context.bot)
             await query.edit_message_text(
-                "تم تفعيل زر Mini-App. أغلق المحادثة وافتحها من جديد."
-                if store.mini_app_enabled
-                else "تم إيقاف زر Mini-App.",
-                reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
+                "زر Mini-App مفعّل دائماً.\n"
+                "أغلق المحادثة وافتحها من جديد إن لم يظهر الزر المربع."
             )
             return
 
@@ -489,8 +489,9 @@ async def _post_init(app: Application) -> None:
             logger.warning("delete_webhook attempt %s: %s", attempt + 1, e)
             await asyncio.sleep(2)
     await asyncio.sleep(3)
-    await _sync_menu_button(app.bot)
-    logger.info("Bot ready. Owner=%s", cfg.owner_id)
+    store.mini_app_enabled = True
+    await _force_menu_button(app.bot)
+    logger.info("Bot ready. Owner=%s Mini-App menu forced ON", cfg.owner_id)
 
 
 def main() -> None:
