@@ -1,7 +1,8 @@
-"""In-memory store + archive-channel persistence."""
+"""In-memory store + archive-channel persistence (as document)."""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import time
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 SETTINGS_MARKER = "#MB_SETTINGS"
 FREE_DAILY_LIMIT = 8
-SHARE_DAILY_LIMIT = 20  # Engagement-to-Perks: higher limit when share ON
+SHARE_DAILY_LIMIT = 20
 
 
 @dataclass
@@ -25,15 +26,13 @@ class Store:
     user_share: dict[str, bool] = field(default_factory=dict)
     known_users: list[int] = field(default_factory=list)
     downloads: int = 0
-    # user_id -> {"date": "YYYY-MM-DD", "count": n}
     daily_usage: dict[str, dict] = field(default_factory=dict)
-    # file cache key -> file_id (survives via persist)
     file_cache: dict[str, str] = field(default_factory=dict)
-    # squad_code -> {"owner": uid, "members": [uids], "name": str}
     squads: dict[str, dict] = field(default_factory=dict)
-    user_squad: dict[str, str] = field(default_factory=dict)  # user_id -> squad_code
+    user_squad: dict[str, str] = field(default_factory=dict)
     settings_message_id: int | None = None
     last_wakeup: float = 0.0
+    last_persist_ts: float = 0.0
 
     def touch_user(self, user_id: int) -> None:
         if user_id not in self.known_users:
@@ -88,11 +87,10 @@ class Store:
             return "🏅 مساهم مميز · حد يومي مرتفع"
         return "حد مجاني عادي — فعّل المشاركة لمضاعفة الحد"
 
-    # ---- squads ----
     def create_squad(self, owner_id: int, name: str = "غرفة خاصة") -> str:
         import secrets
 
-        code = secrets.token_hex(3).upper()  # 6 hex chars
+        code = secrets.token_hex(3).upper()
         self.squads[code] = {
             "owner": owner_id,
             "members": [owner_id],
@@ -126,7 +124,6 @@ class Store:
     def get_user_squad(self, user_id: int) -> str | None:
         return self.user_squad.get(str(user_id))
 
-    # ---- force sub ----
     def add_force_channel(self, channel: str) -> str:
         ch = channel.strip()
         if not ch:
@@ -187,43 +184,36 @@ store = Store()
 
 
 async def persist(bot: "Bot", archive_channel_id: str | None) -> None:
+    """Save settings as a silent DOCUMENT (not a visible JSON text message)."""
     if not archive_channel_id:
         return
-    text = f"{SETTINGS_MARKER}\n{store.to_json()}"
+    # throttle: max once per 30s to avoid channel spam
+    now = time.time()
+    if now - store.last_persist_ts < 30:
+        return
+    store.last_persist_ts = now
+
+    payload = store.to_json().encode("utf-8")
+    bio = io.BytesIO(payload)
+    bio.name = "mb_settings.json"
+
     try:
-        if store.settings_message_id:
-            await bot.edit_message_text(
-                chat_id=archive_channel_id,
-                message_id=store.settings_message_id,
-                text=text,
-            )
-        else:
-            msg = await bot.send_message(
-                chat_id=archive_channel_id,
-                text=text,
-                disable_notification=True,
-            )
-            store.settings_message_id = msg.message_id
+        # Prefer editing is not possible for documents easily; send new silent doc
+        # and keep last message id for reference only.
+        msg = await bot.send_document(
+            chat_id=archive_channel_id,
+            document=bio,
+            caption=SETTINGS_MARKER,
+            disable_notification=True,
+        )
+        store.settings_message_id = msg.message_id
+        # try delete older settings docs is not reliable via Bot API history
+        logger.info("settings persisted as document msg=%s", msg.message_id)
     except Exception as e:
-        logger.warning("persist settings failed: %s", e)
-        try:
-            msg = await bot.send_message(
-                chat_id=archive_channel_id,
-                text=text,
-                disable_notification=True,
-            )
-            store.settings_message_id = msg.message_id
-        except Exception as e2:
-            logger.warning("persist retry failed: %s", e2)
+        logger.warning("persist settings document failed: %s", e)
 
 
 async def load_from_archive(bot: "Bot", archive_channel_id: str | None) -> None:
-    """Best-effort: scan recent channel messages for SETTINGS_MARKER."""
     if not archive_channel_id:
         return
-    try:
-        # Telegram Bot API cannot freely history-scan; owner can forward.
-        # We rely on in-process memory + last persist message id if known.
-        logger.info("store load: using in-memory + last persist (channel scan limited by Bot API)")
-    except Exception as e:
-        logger.warning("load_from_archive: %s", e)
+    logger.info("store load: in-memory (Bot API cannot scan channel history freely)")
