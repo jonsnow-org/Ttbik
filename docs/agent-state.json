@@ -1,29 +1,18 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5732821833,
+  "last_seen_comment_id": 5733528649,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T17:10:00Z",
+  "updated_at": "2026-09-18T17:14:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
-    "G66 (2026-09-18): health-check warn when can_join_groups but privacy mode on (cannot read all group messages).",
-    "G65 (2026-09-18): health-check warn raw-IP webhook host + low maxConnections + soft pending queue. SHAs d133917 / fabfa5b",
-    "G64 (2026-09-18): health-check command scopes (private/group) + warn if webhook URL embeds the bot token. SHAs 357f0d0 / 0605b45",
-    "G63 (2026-09-18): health-check list BotFather command descriptions + warn if all empty. SHA 38d3261",
-    "G62 (2026-09-18): health-check warn on private/localhost webhook host + empty group admin rights + show full description and command preview. SHA 5267c7b",
-    "G61 (2026-09-18): health-check UI BotFather names + business/attachment flags + shortDescriptionAr. SHA 15909ae",
-    "G60 (2026-09-18): health-check warn if allowedUpdates omits message/callback_query + show channel admin rights. SHA 7fdf6aa",
-    "G59 (2026-09-18): health-check UI getMe group flags + webhook IP/maxConnections/custom TLS. SHA 916e17f",
-    "G58 (2026-09-18): health-check last webhook error timestamp in UI + copy report. SHA 9510b0b",
-    "G57 (2026-09-18): health-check webhook host + HTTPS + sync-error readiness. SHAs 150e7c2 / a94d2f6",
-    "G56 (2026-09-18): health-check BotFather ar name/description.",
-    "G55 (2026-09-18): health-check profile photo count.",
-    "G54 (2026-09-18): health-check getMyCommands language_code=ar.",
-    "G53 (2026-09-18): health-check readiness + copyable report.",
+    "G66 (2026-09-18): health-check warn when group privacy mode is on. SHA 4a02359",
+    "G65 (2026-09-18): health-check warn raw-IP webhook host + low maxConnections + soft pending queue.",
+    "G64-G53 health-check series retained.",
     "prior items retained."
   ]
 }
