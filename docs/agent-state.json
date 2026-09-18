@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5727958779,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T09:21:00Z",
+  "updated_at": "2026-09-18T10:18:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G59 (2026-09-18): health-check UI getMe group flags + webhook IP/maxConnections/custom TLS. SHA 916e17f",
     "G58 (2026-09-18): health-check last webhook error timestamp in UI + copy report. SHA 9510b0b",
     "G57 (2026-09-18): health-check webhook host + HTTPS + sync-error readiness. SHAs 150e7c2 / a94d2f6",
     "G56 (2026-09-18): health-check BotFather ar name/description.",
