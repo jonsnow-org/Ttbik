@@ -1,19 +1,17 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5736328781,
+  "last_seen_comment_id": 5736340463,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T21:25:00Z",
+  "updated_at": "2026-09-18T21:26:00Z",
   "mode": "work-cycle",
   "open": [
-    "URGENT: HealthCheckForm.tsx accidentally overwritten with placeholder text in 69e7c1d / 6c78749 / 98aebda — restore from blob 6a3eb368 (commit eb107c86) immediately.",
-    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
+    "URGENT: HealthCheckForm.tsx accidentally overwritten — restore from blob 6a3eb368 / commit eb107c86.",
+    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
-    "G69 (2026-09-18): health-check warn recent 24h webhook/sync errors + webhook host pointing at telegram.org + missing @username. SHA 392d435",
-    "G68 (2026-09-18): health-check warn invalid BotFather command names + commands>100 + missing short description. SHA 202867c",
-    "G67-G53 health-check series retained.",
+    "G69-G53 health-check series retained.",
     "prior items retained."
   ]
 }
