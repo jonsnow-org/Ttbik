@@ -1,4 +1,4 @@
-"""Downloader: TikWM (TikTok) → yt-dlp (YT clients rotation) → Cobalt."""
+"""Downloader: TikWM (TikTok) → yt-dlp → Cobalt."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 EXTRACT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 180
 
-# Order matters — android_vr / tv_downgraded often skip PO-token walls
 _YT_CLIENT_GROUPS = [
     ["android_vr"],
     ["tv_downgraded"],
@@ -35,6 +34,10 @@ _TIKTOK_API_HOSTS = [
 _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_UA_MOBILE = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 )
 
 
@@ -82,11 +85,11 @@ async def resolve_redirects(url: str) -> str:
     try:
         import httpx
 
-        headers = {"User-Agent": _UA}
-        async with httpx.AsyncClient(follow_redirects=True, timeout=12.0, headers=headers) as client:
+        headers = {"User-Agent": _UA_MOBILE}
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15.0, headers=headers) as client:
             try:
                 r = await client.head(url)
-                if str(r.url) != url:
+                if str(r.url) != url and "tiktok.com" in str(r.url):
                     return str(r.url)
             except Exception:
                 pass
@@ -114,8 +117,30 @@ def _write_cookies_file() -> str | None:
 
 
 def _proxy() -> str | None:
+    """Return PROXY_URL only if it looks like a real proxy (not the docs placeholder)."""
     p = (os.getenv("PROXY_URL") or os.getenv("HTTPS_PROXY") or "").strip()
-    return p or None
+    if not p:
+        return None
+    low = p.lower()
+    # reject common placeholders that break yt-dlp with "nonnumeric port: 'port'"
+    if any(
+        x in low
+        for x in (
+            "user:pass",
+            "host:port",
+            "username:password",
+            "example.com",
+            "127.0.0.1:0",
+            "proxy.example",
+        )
+    ):
+        logger.warning("Ignoring invalid/placeholder PROXY_URL=%s", p[:40])
+        return None
+    # must look like scheme://...
+    if not re.match(r"^https?://", p, re.I) and not re.match(r"^socks5?://", p, re.I):
+        logger.warning("Ignoring PROXY_URL without scheme: %s", p[:40])
+        return None
+    return p
 
 
 async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
@@ -124,37 +149,68 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
     except Exception as e:
         return None, f"tikwm: httpx missing ({e})"
 
+    # Prefer full tiktok.com URL
+    try:
+        url = await resolve_redirects(url)
+    except Exception:
+        pass
+
     endpoints = [
         f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1",
         f"https://tikwm.com/api/?url={quote(url, safe='')}&hd=1",
     ]
     meta = None
-    async with httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers={"User-Agent": _UA}) as client:
-        for ep in endpoints:
-            try:
-                r = await client.get(ep)
-                if r.status_code >= 400:
-                    continue
-                js = r.json()
-                if js.get("code") != 0:
-                    continue
-                d = js.get("data") or {}
-                play = d.get("hdplay") or d.get("play") or d.get("wmplay")
-                music = d.get("music")
-                media = music if audio_only and music else play
-                if not media:
-                    continue
-                meta = {
-                    "media": media,
-                    "title": (d.get("title") or "TikTok")[:120],
-                    "thumbnail": d.get("cover") or d.get("origin_cover"),
-                }
-                break
-            except Exception as e:
-                logger.warning("tikwm request: %s", e)
+    last_status = ""
+    headers_list = [
+        {"User-Agent": _UA_MOBILE, "Accept": "application/json"},
+        {"User-Agent": _UA, "Accept": "application/json", "Referer": "https://www.tikwm.com/"},
+    ]
+
+    for headers in headers_list:
+        async with httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers) as client:
+            for ep in endpoints:
+                for attempt in range(2):
+                    try:
+                        if attempt:
+                            await asyncio.sleep(1.2)  # rate-limit friendly
+                        r = await client.get(ep)
+                        last_status = f"HTTP {r.status_code}"
+                        if r.status_code == 403 or r.status_code == 429:
+                            logger.warning("tikwm %s on %s", r.status_code, ep[:50])
+                            continue
+                        if r.status_code >= 400:
+                            continue
+                        js = r.json()
+                        if js.get("code") != 0:
+                            last_status = f"code={js.get('code')} msg={js.get('msg')}"
+                            # rate limit message → wait and retry
+                            if "limit" in str(js.get("msg") or "").lower():
+                                await asyncio.sleep(1.5)
+                                continue
+                            continue
+                        d = js.get("data") or {}
+                        play = d.get("hdplay") or d.get("play") or d.get("wmplay")
+                        music = d.get("music")
+                        media = music if audio_only and music else play
+                        if not media:
+                            last_status = "no media url"
+                            continue
+                        meta = {
+                            "media": media,
+                            "title": (d.get("title") or "TikTok")[:120],
+                            "thumbnail": d.get("cover") or d.get("origin_cover"),
+                        }
+                        break
+                    except Exception as e:
+                        last_status = str(e)
+                        logger.warning("tikwm: %s", e)
+                if meta:
+                    break
+        if meta:
+            break
 
     if not meta:
-        return None, "tikwm: resolve failed"
+        return None, f"tikwm: resolve failed ({last_status})"
 
     suffix = ".mp3" if audio_only else ".mp4"
     tmp = tempfile.mkdtemp(prefix="tikwm_")
@@ -164,10 +220,10 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
             async with client.stream(
                 "GET",
                 meta["media"],
-                headers={"User-Agent": _UA, "Referer": "https://www.tiktok.com/"},
+                headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"},
             ) as r:
                 if r.status_code >= 400:
-                    return None, f"tikwm: HTTP {r.status_code}"
+                    return None, f"tikwm: download HTTP {r.status_code}"
                 with open(path, "wb") as f:
                     async for chunk in r.aiter_bytes(64 * 1024):
                         f.write(chunk)
@@ -197,7 +253,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
         try:
             import httpx
 
-            async with httpx.AsyncClient(timeout=25.0, headers={"User-Agent": _UA}) as client:
+            async with httpx.AsyncClient(timeout=25.0, headers={"User-Agent": _UA_MOBILE}) as client:
                 r = await client.get(f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1")
                 if r.status_code < 400:
                     js = r.json()
@@ -215,12 +271,11 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                         )
         except Exception as e:
             last_err = str(e)
+        return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
 
     try:
         import yt_dlp
     except Exception as e:
-        if is_tiktok(url):
-            return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
         return None, f"yt-dlp missing: {e}"
 
     if is_youtube(url):
@@ -260,8 +315,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                     )
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
-                if "Sign in" in last_err or "not a bot" in last_err:
-                    continue  # try next client
+                continue
         return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
 
     try:
@@ -292,8 +346,6 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
     except Exception as e:
         last_err = f"{type(e).__name__}: {e}"
 
-    if is_tiktok(url):
-        return MediaInfo("فيديو تيك توك", None, None, url, "tikwm"), ""
     return None, last_err or "extract failed"
 
 
@@ -307,10 +359,6 @@ async def download_media(
     errors: list[str] = []
 
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
-        try:
-            url = normalize_url(await resolve_redirects(url))
-        except Exception:
-            pass
         result, err = await _tikwm_download(url, audio_only=audio_only)
         if result:
             return result, ""
@@ -416,9 +464,10 @@ async def download_media(
                 msg = f"{type(e).__name__}: {e}"
                 errors.append(f"yt-dlp: {msg[:100]}")
                 logger.warning("yt-dlp: %s", msg)
-                # try next client for bot wall
                 if "Sign in" in msg or "not a bot" in msg:
                     continue
+                if "nonnumeric port" in msg:
+                    break
                 if "status code 0" in msg:
                     break
 
@@ -446,8 +495,8 @@ async def download_media(
     if is_youtube(url) and any("bot" in e.lower() or "Sign in" in e for e in errors):
         if not _proxy():
             joined = (
-                "يوتيوب يحظر سيرفرات Render.\n"
-                "الحل المجاني: أضف PROXY_URL (بروكسي سكني) في Environment.\n"
-                "أو YTDLP_COOKIES إن توفرت."
+                "يوتيوب يحظر IP سيرفر Render.\n"
+                "احذف PROXY_URL إن كان مثالاً وهمياً.\n"
+                "للحل: بروكسي سكني حقيقي في PROXY_URL."
             )
     return None, joined
