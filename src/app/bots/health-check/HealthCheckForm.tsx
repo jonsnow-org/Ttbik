@@ -63,12 +63,26 @@ function enabledRights(rights?: Record<string, boolean>) {
   return Object.entries(rights).filter(([, v]) => v).map(([k]) => k);
 }
 
+function fmtDate(iso?: string | null) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("ar");
+  } catch {
+    return iso;
+  }
+}
+
 function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
   const notes: string[] = [];
   const w = result.webhook;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates اليدوي.");
   if ((w?.pendingUpdateCount ?? 0) > 10) notes.push(`تراكم تحديثات معلّق (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
-  if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
+  if (w?.lastErrorMessage) {
+    const when = fmtDate(w.lastErrorDate);
+    notes.push(when ? `آخر خطأ ويبهوك (${when}): ${w.lastErrorMessage}` : `آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
+  } else if (w?.lastErrorDate) {
+    notes.push(`يوجد تاريخ خطأ ويبهوك بدون نص: ${fmtDate(w.lastErrorDate)}`);
+  }
   if (w?.url && w.isHttps === false) notes.push("رابط الويبهوك ليس HTTPS — تليجرام يرفض الاستقبال غالباً.");
   if (w?.lastSyncErrorDate) notes.push("يوجد خطأ مزامنة أخير على الويبهوك.");
   if ((result.bot?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
@@ -78,7 +92,7 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if ((result.bot?.description?.trim() || result.bot?.shortDescription?.trim()) && !result.bot?.descriptionAr?.trim() && !result.bot?.shortDescriptionAr?.trim()) {
     notes.push("لا يوجد وصف عربي (لغة ar) في BotFather.");
   }
-  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS"))) {
+  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
   }
   if (notes.length) return { tone: "warn", title: "البوت حي ويحتاج ضبطاً قبل الإطلاق", notes };
@@ -146,6 +160,7 @@ export default function HealthCheckForm() {
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
       w?.url ? `HTTPS: ${w.isHttps === false ? "لا" : "نعم"}` : "",
       `التحديثات المسموحة: ${(w?.allowedUpdates?.length ?? 0) > 0 ? w!.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}`,
+      w?.lastErrorDate ? `وقت آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
     ].filter(Boolean);
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
@@ -202,7 +217,8 @@ export default function HealthCheckForm() {
                 <li>التحديثات المسموحة: {(w.allowedUpdates?.length ?? 0) > 0 ? w.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}</li>
                 <li>تحديثات معلّقة: {w.pendingUpdateCount}</li>
                 {w.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
-                {w.lastSyncErrorDate && <li className="text-amber-800">خطأ مزامنة: {new Date(w.lastSyncErrorDate).toLocaleString("ar")}</li>}
+                {w.lastErrorDate && <li className="text-rose-700">وقت آخر خطأ: {fmtDate(w.lastErrorDate)}</li>}
+                {w.lastSyncErrorDate && <li className="text-amber-800">خطأ مزامنة: {fmtDate(w.lastSyncErrorDate)}</li>}
               </>
             ) : (
               <li className="text-amber-700">لا يوجد ويبهوك مفعّل</li>
@@ -211,7 +227,7 @@ export default function HealthCheckForm() {
           <div className="flex flex-wrap gap-2">
             <a href={`https://t.me/${b.username}`} target="_blank" rel="noopener noreferrer" className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800">افتح @{b.username}</a>
             {w?.url && <button type="button" onClick={copyWebhook} className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800">{copiedUrl ? "تم نسخ الرابط" : "نسخ الويبهوك"}</button>}
-            <button type="button" onClick={copyReport} className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800">{copiedReport ? "تم نسخ التقرير" : "نسخ ملخص الفحص"}</button>
+            <button type="button" onClick={copyReport} className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800">{copiedReport ? "تم نسخ التقرير" : "نسخ ملخص الفحص"}</button>}
           </div>
         </div>
       )}
