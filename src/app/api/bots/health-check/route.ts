@@ -185,6 +185,14 @@ export async function POST(req: NextRequest) {
           ? webhook.result.allowed_updates
           : [],
         hasCustomCertificate: Boolean(webhook.result?.has_custom_certificate),
+        isHttps: typeof webhook.result?.url === "string" && webhook.result.url.startsWith("https://"),
+        host: (() => {
+          try {
+            return webhook.result?.url ? new URL(webhook.result.url).host : null;
+          } catch {
+            return null;
+          }
+        })(),
       },
     });
   } catch {
