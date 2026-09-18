@@ -29,6 +29,8 @@ type MenuButton = {
   webAppUrl?: string;
 };
 
+type BotCommand = { command: string; description: string };
+
 type Result = {
   bot?: {
     id?: number;
@@ -41,7 +43,8 @@ type Result = {
     canConnectToBusiness?: boolean;
     hasMainWebApp?: boolean;
     addedToAttachmentMenu?: boolean;
-    commands?: { command: string; description: string }[];
+    commands?: BotCommand[];
+    commandsAr?: BotCommand[];
     description?: string;
     shortDescription?: string;
     menuButton?: MenuButton;
@@ -90,6 +93,9 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if (!result.bot?.description?.trim() && !result.bot?.shortDescription?.trim()) {
     notes.push("لا يوجد وصف مسجل في BotFather.");
   }
+  if ((result.bot?.commands?.length ?? 0) > 0 && (result.bot?.commandsAr?.length ?? 0) === 0) {
+    notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
+  }
   if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
   }
@@ -97,6 +103,19 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
     return { tone: "warn", title: "البوت حي ويحتاج ضبطاً قبل الإطلاق", notes };
   }
   return { tone: "ok", title: "جاهز للتشغيل: ويبهوك سليم وأوامر مسجلة", notes: [] };
+}
+
+function CommandList({ items }: { items: BotCommand[] }) {
+  return (
+    <ul className="mt-1 space-y-1 rounded-xl border border-emerald-100 bg-white/70 p-3 text-xs text-slate-700">
+      {items.map((c) => (
+        <li key={c.command} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+          <span className="font-mono font-bold text-indigo-800">/{c.command}</span>
+          <span className="text-slate-600">{c.description?.trim() || "بدون وصف"}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 export default function HealthCheckForm() {
@@ -162,6 +181,7 @@ export default function HealthCheckForm() {
       w?.pendingUpdateCount != null ? `تحديثات معلّقة: ${w.pendingUpdateCount}` : "",
       `زر القائمة: ${menuLabel(b.menuButton)}`,
       `أوامر BotFather: ${b.commands?.length ?? 0}`,
+      `أوامر عربية (ar): ${b.commandsAr?.length ?? 0}`,
       `Mini App رئيسي: ${b.hasMainWebApp ? "مضبوط" : "غير مضبوط"}`,
       `Telegram Business: ${b.canConnectToBusiness ? "مسموح" : "غير مسموح"}`,
       `قائمة المرفقات: ${b.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}`,
@@ -314,14 +334,18 @@ export default function HealthCheckForm() {
             </li>
             {(result.bot.commands?.length ?? 0) > 0 && (
               <li>
-                <ul className="mt-1 space-y-1 rounded-xl border border-emerald-100 bg-white/70 p-3 text-xs text-slate-700">
-                  {result.bot.commands!.map((c) => (
-                    <li key={c.command} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
-                      <span className="font-mono font-bold text-indigo-800">/{c.command}</span>
-                      <span className="text-slate-600">{c.description?.trim() || "بدون وصف"}</span>
-                    </li>
-                  ))}
-                </ul>
+                <CommandList items={result.bot.commands!} />
+              </li>
+            )}
+            <li>
+              أوامر عربية (لغة ar):{" "}
+              {(result.bot.commandsAr?.length ?? 0) === 0
+                ? "غير مضبوطة — الزبائن العربي يرى القائمة الافتراضية فقط"
+                : `${result.bot.commandsAr!.length} أمر`}
+            </li>
+            {(result.bot.commandsAr?.length ?? 0) > 0 && (
+              <li>
+                <CommandList items={result.bot.commandsAr!} />
               </li>
             )}
             {result.webhook?.url ? (

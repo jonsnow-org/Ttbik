@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
-// + getMyDescription + getMyShortDescription + getMyName + getChatMenuButton
-// + getMyDefaultAdministratorRights for groups and channels).
+// + getMyCommands?language_code=ar + getMyDescription + getMyShortDescription + getMyName
+// + getChatMenuButton + getMyDefaultAdministratorRights for groups and channels).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -29,6 +29,17 @@ function pickRights(raw: unknown): Record<string, boolean> {
   return out;
 }
 
+function parseCommands(json: unknown): { command: string; description: string }[] {
+  const result = (json as { result?: unknown })?.result;
+  if (!Array.isArray(result)) return [];
+  return result
+    .filter((c: { command?: string }) => typeof c?.command === "string")
+    .map((c: { command: string; description?: string }) => ({
+      command: c.command,
+      description: typeof c.description === "string" ? c.description : "",
+    }));
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? extractToken(body.token) : "";
@@ -42,6 +53,7 @@ export async function POST(req: NextRequest) {
       meRes,
       webhookRes,
       commandsRes,
+      commandsArRes,
       descRes,
       shortDescRes,
       nameRes,
@@ -52,6 +64,7 @@ export async function POST(req: NextRequest) {
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
+      fetch(`https://api.telegram.org/bot${token}/getMyCommands?language_code=ar`),
       fetch(`https://api.telegram.org/bot${token}/getMyDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyName`),
@@ -64,6 +77,7 @@ export async function POST(req: NextRequest) {
     const me = await meRes.json();
     const webhook = await webhookRes.json();
     const commandsJson = await commandsRes.json();
+    const commandsArJson = await commandsArRes.json().catch(() => ({}));
     const descJson = await descRes.json().catch(() => ({}));
     const shortDescJson = await shortDescRes.json().catch(() => ({}));
     const nameJson = await nameRes.json().catch(() => ({}));
@@ -82,14 +96,8 @@ export async function POST(req: NextRequest) {
       ? new Date(webhook.result.last_synchronization_error_date * 1000).toISOString()
       : null;
 
-    const commands = Array.isArray(commandsJson?.result)
-      ? commandsJson.result
-          .filter((c: { command?: string }) => typeof c?.command === "string")
-          .map((c: { command: string; description?: string }) => ({
-            command: c.command,
-            description: typeof c.description === "string" ? c.description : "",
-          }))
-      : [];
+    const commands = parseCommands(commandsJson);
+    const commandsAr = parseCommands(commandsArJson);
 
     const description =
       typeof descJson?.result?.description === "string" ? descJson.result.description : "";
@@ -127,6 +135,7 @@ export async function POST(req: NextRequest) {
         hasMainWebApp: Boolean(me.result.has_main_web_app),
         addedToAttachmentMenu: Boolean(me.result.added_to_attachment_menu),
         commands,
+        commandsAr,
         description,
         shortDescription,
         menuButton,
