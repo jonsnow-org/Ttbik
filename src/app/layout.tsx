@@ -57,7 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (isMiniApp) {
     return (
       <html lang="ar" dir="rtl">
-        <body className="min-h-screen bg-[#17212b] font-sans text-white antialiased">
+        <body className="min-h-screen bg-[#e3f2fd] font-sans text-slate-800 antialiased">
           {children}
         </body>
       </html>
