@@ -1,1 +1,260 @@
-see-local-file
+"use client";
+
+import { useState } from "react";
+import SectionBackdrop from "@/components/SectionBackdrop";
+
+const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
+
+type MenuButton = { type?: string; text?: string; webAppUrl?: string };
+type BotCommand = { command: string; description: string };
+type Result = {
+  bot?: {
+    id?: number;
+    username: string;
+    firstName: string;
+    botFatherName?: string;
+    canJoinGroups: boolean;
+    canReadAllGroupMessages: boolean;
+    supportsInlineQueries?: boolean;
+    hasMainWebApp?: boolean;
+    profilePhotoCount?: number;
+    commands?: BotCommand[];
+    commandsAr?: BotCommand[];
+    description?: string;
+    shortDescription?: string;
+    menuButton?: MenuButton;
+    groupAdminRights?: Record<string, boolean>;
+  };
+  webhook?: {
+    url: string | null;
+    pendingUpdateCount: number;
+    lastErrorMessage: string | null;
+    lastErrorDate?: string | null;
+    lastSyncErrorDate?: string | null;
+    maxConnections?: number | null;
+    allowedUpdates?: string[];
+    hasCustomCertificate?: boolean;
+    isHttps?: boolean;
+    host?: string | null;
+    tokenEmbeddedInUrl?: boolean;
+    hostIsIp?: boolean;
+  };
+  error?: string;
+};
+
+function yn(v?: boolean) {
+  return v ? "نعم" : "لا";
+}
+
+function fmtDate(iso?: string | null) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("ar");
+  } catch {
+    return iso;
+  }
+}
+
+function hoursSince(iso?: string | null) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return (Date.now() - t) / 36e5;
+}
+
+function collectNotes(result: Result): string[] {
+  const notes: string[] = [];
+  const w = result.webhook;
+  const b = result.bot;
+  if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates.");
+  const pending = w?.pendingUpdateCount ?? 0;
+  if (pending > 10) notes.push(`تراكم تحديثات معلّق (${pending}).`);
+  else if (pending > 0) notes.push(`تحديثات معلّقة (${pending}).`);
+  if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
+  if (w?.url && w.isHttps === false) notes.push("رابط الويبهوك ليس HTTPS.");
+  if (w?.url && hoursSince(w.lastErrorDate) != null && hoursSince(w.lastErrorDate)! <= 24) {
+    notes.push(`خطأ ويبهوك خلال آخر 24 ساعة (${fmtDate(w.lastErrorDate)}).`);
+  }
+  if (w?.url && (w.host === "api.telegram.org" || (w.host || "").endsWith(".telegram.org"))) {
+    notes.push("مضيف الويبهوك يشير إلى خوادم تليجرام — عيّن رابط خادمك.");
+  }
+  if (!b?.username?.trim()) {
+    notes.push("البوت بلا @username.");
+  } else if (!b.username.trim().toLowerCase().endsWith("bot")) {
+    notes.push(`المعرف @${b.username.trim()} لا ينتهي بـ bot.`);
+  }
+  if (!b?.firstName?.trim()) notes.push("الاسم الظاهر (first_name) فارغ.");
+  if (w?.url && w.hostIsIp) notes.push("مضيف الويبهوك عنوان IP خام — فضّل نطاقاً.");
+  if (w?.url && w.maxConnections != null && w.maxConnections < 10) {
+    notes.push(`أقصى اتصالات منخفض (${w.maxConnections}).`);
+  }
+  if (b?.canJoinGroups === false) notes.push("البوت ممنوع من الانضمام للمجموعات.");
+  if (b?.canJoinGroups && b.canReadAllGroupMessages === false) {
+    notes.push("وضع الخصوصية مفعّل: البوت لا يقرأ كل رسائل المجموعة.");
+  }
+  if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف في BotFather.");
+  if (w?.tokenEmbeddedInUrl) notes.push("رابط الويبهوك يحتوي التوكن — خطر تسريب.");
+  if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي.");
+  return notes;
+}
+
+export default function HealthCheckForm() {
+  const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<Result | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function check(e: React.FormEvent) {
+    e.preventDefault();
+    const extracted = token.trim().match(/\b(\d{6,12}:[A-Za-z0-9_-]{30,})\b/)?.[1] || token.trim();
+    if (!TOKEN_RE.test(extracted)) {
+      setLocalError("صيغة التوكن غير صحيحة.");
+      setResult(null);
+      return;
+    }
+    setLocalError(null);
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/bots/health-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: extracted }),
+      });
+      setResult(await res.json());
+    } catch {
+      setResult({ error: "تعذّر الفحص، حاول مجدداً." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyReport() {
+    const b = result?.bot;
+    if (!b) return;
+    const notes = collectNotes(result!);
+    const lines = [
+      "تقرير فحص بوت — سوق تولز",
+      `@${b.username} — ${b.firstName}`,
+      ...notes.map((n) => `- ${n}`),
+      `ويبهوك: ${result?.webhook?.url || "غير مفعّل"}`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  const b = result?.bot;
+  const w = result?.webhook;
+  const notes = result?.bot ? collectNotes(result) : [];
+  const tone = notes.some((n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب"))
+    ? "bad"
+    : notes.length
+      ? "warn"
+      : "ok";
+
+  return (
+    <main className="relative mx-auto max-w-lg px-4 py-10">
+      <SectionBackdrop tone="bots" />
+      <span className="mx-auto mb-3 block w-fit rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-bold text-indigo-700">
+        🔍 فاحص صحة البوتات
+      </span>
+      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تحقق من حالة بوت تليجرام</h1>
+      <p className="mb-6 text-sm text-slate-600">
+        الصق توكن البوت فقط. لا نحفظ التوكن — الفحص لحظي عبر خوادم تليجرام.
+      </p>
+      <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative">
+          <input
+            type={showToken ? "text" : "password"}
+            required
+            autoComplete="off"
+            spellCheck={false}
+            value={token}
+            onChange={(e) => {
+              setToken(e.target.value);
+              setLocalError(null);
+            }}
+            placeholder="الصق توكن البوت هنا"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 pe-20 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <button type="button" onClick={() => setShowToken((v) => !v)} className="absolute inset-y-0 end-2 text-xs font-bold text-indigo-700">
+            {showToken ? "إخفاء" : "إظهار"}
+          </button>
+        </div>
+        {localError && <p className="text-sm text-rose-700">{localError}</p>}
+        <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-700 py-2.5 font-bold text-white hover:bg-indigo-800 disabled:opacity-50">
+          {loading ? "جاري الفحص..." : "افحص الآن"}
+        </button>
+      </form>
+      {result?.error && (
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{result.error}</div>
+      )}
+      {b && (
+        <div className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          <div
+            className={
+              tone === "ok"
+                ? "rounded-xl border border-emerald-300 bg-white/80 p-3 text-sm text-emerald-900"
+                : tone === "warn"
+                  ? "rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                  : "rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+            }
+          >
+            <p className="font-bold">
+              {tone === "ok" ? "✅ جاهز" : tone === "warn" ? "⚠️ يحتاج ضبطاً" : "❌ مشكلة في الويبهوك"}
+            </p>
+            {notes.length > 0 && (
+              <ul className="mt-1 list-disc space-y-0.5 ps-5">
+                {notes.map((n) => (
+                  <li key={n}>{n}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{b.username}</p>
+          <ul className="space-y-1 text-sm text-slate-700">
+            <li>الاسم: {b.firstName || "—"}</li>
+            {b.id != null && <li>المعرّف: {b.id}</li>}
+            <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
+            <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
+            <li>ينضم للمجموعات: {yn(b.canJoinGroups)}</li>
+            <li>يقرأ كل رسائل المجموعة: {yn(b.canReadAllGroupMessages)}</li>
+            <li>إنلاين: {yn(b.supportsInlineQueries)}</li>
+            <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
+            {w?.host && <li>المضيف: {w.host}</li>}
+            {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
+            <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
+            {w?.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
+          </ul>
+          <div className="flex flex-wrap gap-2">
+            {b.username ? (
+              <a
+                href={`https://t.me/${b.username}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
+              >
+                افتح @{b.username}
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={copyReport}
+              className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800"
+            >
+              {copied ? "تم نسخ التقرير" : "نسخ ملخص الفحص"}
+            </button>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
