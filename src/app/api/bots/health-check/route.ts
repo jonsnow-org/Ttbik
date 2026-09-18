@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
       menuRes,
       groupRightsRes,
       channelRightsRes,
+      commandsPrivRes,
+      commandsGroupRes,
     ] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
@@ -86,6 +88,12 @@ export async function POST(req: NextRequest) {
       fetch(
         `https://api.telegram.org/bot${token}/getMyDefaultAdministratorRights?for_channels=true`,
       ),
+      fetch(
+        `https://api.telegram.org/bot${token}/getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_private_chats" }))}`,
+      ),
+      fetch(
+        `https://api.telegram.org/bot${token}/getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_group_chats" }))}`,
+      ),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
@@ -100,6 +108,8 @@ export async function POST(req: NextRequest) {
     const menuJson = await menuRes.json().catch(() => ({}));
     const groupRightsJson = await groupRightsRes.json().catch(() => ({}));
     const channelRightsJson = await channelRightsRes.json().catch(() => ({}));
+    const commandsPrivJson = await commandsPrivRes.json().catch(() => ({}));
+    const commandsGroupJson = await commandsGroupRes.json().catch(() => ({}));
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -127,6 +137,8 @@ export async function POST(req: NextRequest) {
 
     const commands = parseCommands(commandsJson);
     const commandsAr = parseCommands(commandsArJson);
+    const commandsPrivate = parseCommands(commandsPrivJson);
+    const commandsGroups = parseCommands(commandsGroupJson);
 
     const description = pickText(descJson, "description");
     const shortDescription = pickText(shortDescJson, "short_description");
@@ -165,6 +177,8 @@ export async function POST(req: NextRequest) {
         profilePhotoCount,
         commands,
         commandsAr,
+        commandsPrivate,
+        commandsGroups,
         description,
         shortDescription,
         descriptionAr,
@@ -193,6 +207,7 @@ export async function POST(req: NextRequest) {
             return null;
           }
         })(),
+        tokenEmbeddedInUrl: typeof webhook.result?.url === "string" && webhook.result.url.includes(token),
       },
     });
   } catch {
