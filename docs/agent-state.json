@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5730500950,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T13:18:00Z",
+  "updated_at": "2026-09-18T14:44:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G63 (2026-09-18): health-check list BotFather command descriptions + warn if all empty. SHA 38d3261",
     "G62 (2026-09-18): health-check warn on private/localhost webhook host + empty group admin rights + show full description and command preview. SHA 5267c7b",
     "G61 (2026-09-18): health-check UI BotFather names + business/attachment flags + shortDescriptionAr. SHA 15909ae",
     "G60 (2026-09-18): health-check warn if allowedUpdates omits message/callback_query + show channel admin rights. SHA 7fdf6aa",
