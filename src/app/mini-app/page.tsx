@@ -13,6 +13,7 @@ type FeedItem = {
   sharer_name?: string;
   sharer_id?: string;
   clones?: number;
+  likes?: number;
   created_at?: number;
 };
 
@@ -28,7 +29,7 @@ function timeAgo(ts?: number) {
   if (!ts) return "";
   const s = Math.max(0, Math.floor(Date.now() / 1000) - ts);
   if (s < 60) return "الآن";
-  if (s < 3600) return `${Math.floor(s / 60)} د`
+  if (s < 3600) return `${Math.floor(s / 60)} د`;
   if (s < 86400) return `${Math.floor(s / 3600)} س`;
   return `${Math.floor(s / 86400)} ي`;
 }
@@ -36,9 +37,12 @@ function timeAgo(ts?: number) {
 export default function MiniAppPage() {
   const [tab, setTab] = useState<Tab>("trending");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [userId, setUserId] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [liked, setLiked] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -46,13 +50,15 @@ export default function MiniAppPage() {
     tg.ready();
     tg.expand();
     try {
-      tg.setHeaderColor("#0e1621");
-      tg.setBackgroundColor("#0e1621");
+      tg.setHeaderColor("#1e88e5");
+      tg.setBackgroundColor("#e3f2fd");
       tg.MainButton.hide();
     } catch {}
     const u = tg.initDataUnsafe?.user;
-    if (u?.first_name) setName(u.first_name);
+    if (u?.first_name) setName(u.first_name + (u.last_name ? ` ${u.last_name}` : ""));
+    if (u?.username) setUsername(u.username);
     if (u?.id) setUserId(String(u.id));
+    if (u?.photo_url) setPhotoUrl(u.photo_url);
   }, []);
 
   const load = useCallback(async () => {
@@ -62,7 +68,10 @@ export default function MiniAppPage() {
       let type = "all";
       if (tab === "video") type = "video";
       if (tab === "audio") type = "audio";
-      const r = await fetch(`/api/media-feed?sort=${sort}&type=${type}`, { cache: "no-store" });
+      // For profile tab, load all then filter client-side by sharer_id
+      const qType = tab === "me" ? "all" : type;
+      const qSort = tab === "me" ? "latest" : sort;
+      const r = await fetch(`/api/media-feed?sort=${qSort}&type=${qType}`, { cache: "no-store" });
       const j = await r.json();
       setItems(Array.isArray(j.items) ? j.items : []);
     } catch {
@@ -73,21 +82,30 @@ export default function MiniAppPage() {
   }, [tab]);
 
   useEffect(() => {
-    if (tab === "me") {
-      setLoading(false);
-      return;
-    }
     load();
-  }, [tab, load]);
+  }, [load]);
 
   const visible = useMemo(() => {
     if (tab === "me") return items.filter((i) => i.sharer_id && userId && i.sharer_id === userId);
     return items;
   }, [items, tab, userId]);
 
+  const myStats = useMemo(() => {
+    const mine = items.filter((i) => i.sharer_id && userId && i.sharer_id === userId);
+    return {
+      posts: mine.length,
+      clones: mine.reduce((a, b) => a + (b.clones || 0), 0),
+      likes: mine.reduce((a, b) => a + (b.likes || 0), 0),
+    };
+  }, [items, userId]);
+
   const cloneHref = (id: string) => {
     if (BOT_USERNAME) return `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}`;
     return `https://ttbik.vercel.app/mini-app`;
+  };
+
+  const toggleLike = (id: string) => {
+    setLiked((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -99,112 +117,26 @@ export default function MiniAppPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0e1621] text-white pb-24">
-      {/* Hero */}
-      <div className="relative overflow-hidden px-4 pt-6 pb-4">
-        <div className="absolute -top-20 -left-10 h-40 w-40 rounded-full bg-violet-600/30 blur-3xl" />
-        <div className="absolute -top-10 right-0 h-32 w-32 rounded-full bg-sky-500/20 blur-3xl" />
-        <p className="relative text-[11px] font-bold tracking-wide text-sky-300/90">TELEGRAM MINI APP</p>
-        <h1 className="relative mt-1 text-2xl font-black">{name ? `أهلاً ${name}` : "موجز الوسائط"}</h1>
-        <p className="relative mt-1 text-sm text-white/55">
-          الرائج · استنساخ فوري · مشاركة اختيارية
-        </p>
-      </div>
+    <div className="min-h-screen bg-[#e3f2fd] text-slate-800">
+      {/* Blue header */}
+      <header className="sticky top-0 z-20 bg-gradient-to-l from-[#1565c0] to-[#1e88e5] px-4 pb-3 pt-4 text-white shadow-lg shadow-blue-900/20">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold tracking-wider text-blue-100/90">TELEGRAM MINI APP</p>
+            <h1 className="text-lg font-black">{name ? `أهلاً ${name.split(" ")[0]}` : "موجز الوسائط"}</h1>
+          </div>
+          <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white/20 ring-2 ring-white/40">
+            {photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-lg font-black">{(name || "U").slice(0, 1)}</span>
+            )}
+          </div>
+        </div>
 
-      {/* Content */}
-      <div className="px-4">
-        {tab === "me" ? (
-          <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-sky-500 text-xl font-black">
-                {(name || "U").slice(0, 1)}
-              </div>
-              <div>
-                <p className="font-extrabold">{name || "زائر"}</p>
-                <p className="text-xs text-white/50">مشاركاتك في الموجز تظهر هنا</p>
-              </div>
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-black/25 p-3 text-center">
-                <p className="text-lg font-black text-sky-300">{visible.length}</p>
-                <p className="text-[11px] text-white/50">منشورات</p>
-              </div>
-              <div className="rounded-2xl bg-black/25 p-3 text-center">
-                <p className="text-lg font-black text-violet-300">
-                  {visible.reduce((a, b) => a + (b.clones || 0), 0)}
-                </p>
-                <p className="text-[11px] text-white/50">استنساخ</p>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="mt-6 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-28 animate-pulse rounded-3xl bg-white/5" />
-            ))}
-          </div>
-        ) : visible.length === 0 ? (
-          <div className="mt-8 rounded-3xl border border-dashed border-white/15 bg-white/5 p-8 text-center">
-            <div className="text-4xl">📭</div>
-            <p className="mt-3 font-bold">لا يوجد محتوى بعد</p>
-            <p className="mt-1 text-sm text-white/50">
-              من البوت: إعداداتي ← تفعيل المشاركة، ثم حمّل رابطاً ليظهر هنا.
-            </p>
-          </div>
-        ) : (
-          <div className={`${tab === "me" ? "mt-4" : "mt-1"} space-y-3`}>
-            {visible.map((item) => (
-              <article
-                key={item.id}
-                className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/10 to-white/[0.03] shadow-lg shadow-black/20"
-              >
-                <div className="relative aspect-[16/9] bg-[#15202b]">
-                  {item.thumbnail ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={item.thumbnail} alt="" className="h-full w-full object-cover opacity-90" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-violet-900/40 to-sky-900/40 text-5xl">
-                      {typeIcon(item.media_type)}
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0e1621] via-transparent to-transparent" />
-                  <span className="absolute left-3 top-3 rounded-full bg-black/50 px-2.5 py-1 text-[11px] font-bold backdrop-blur">
-                    {typeIcon(item.media_type)}{" "}
-                    {item.media_type === "audio" || item.media_type === "voice" ? "صوت" : "فيديو"}
-                  </span>
-                  {tab === "trending" && (
-                    <span className="absolute right-3 top-3 rounded-full bg-orange-500/90 px-2.5 py-1 text-[11px] font-black">
-                      🔥 رائج
-                    </span>
-                  )}
-                </div>
-                <div className="p-4">
-                  <h3 className="line-clamp-2 text-[15px] font-extrabold leading-snug">{item.title}</h3>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/55">
-                    <span className="rounded-full bg-white/10 px-2 py-0.5">
-                      بواسطة {item.sharer_name || "مستخدم"}
-                    </span>
-                    <span>{timeAgo(item.created_at)}</span>
-                    <span>⚡ {item.clones || 0} استنساخ</span>
-                  </div>
-                  <a
-                    href={cloneHref(item.id)}
-                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-l from-sky-500 to-violet-600 py-2.5 text-sm font-black text-white shadow-lg shadow-violet-900/30 active:scale-[0.98]"
-                  >
-                    تحميل فوري
-                  </a>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-white/10 bg-[#0e1621]/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-lg items-center justify-between">
+        {/* Top tabs */}
+        <nav className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
           {tabs.map((t) => {
             const active = tab === t.id;
             return (
@@ -212,23 +144,142 @@ export default function MiniAppPage() {
                 key={t.id}
                 type="button"
                 onClick={() => setTab(t.id)}
-                className={`flex min-w-[3.5rem] flex-col items-center gap-0.5 rounded-2xl px-2 py-1.5 text-[10px] font-bold transition ${
-                  active ? "text-sky-300" : "text-white/45"
+                className={`flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold transition ${
+                  active
+                    ? "bg-white text-[#1565c0] shadow"
+                    : "bg-white/15 text-white/90 hover:bg-white/25"
                 }`}
               >
-                <span
-                  className={`flex h-8 w-8 items-center justify-center rounded-xl text-base ${
-                    active ? "bg-sky-500/20 ring-1 ring-sky-400/40" : "bg-transparent"
-                  }`}
-                >
-                  {t.icon}
-                </span>
+                <span>{t.icon}</span>
                 {t.label}
               </button>
             );
           })}
-        </div>
-      </nav>
+        </nav>
+      </header>
+
+      <div className="px-3 pb-8 pt-3">
+        {/* Profile card */}
+        {tab === "me" && (
+          <div className="mb-4 overflow-hidden rounded-3xl bg-white shadow-md shadow-blue-900/10">
+            <div className="h-20 bg-gradient-to-l from-[#1565c0] to-[#42a5f5]" />
+            <div className="relative px-4 pb-4">
+              <div className="-mt-10 flex items-end gap-3">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-white bg-gradient-to-br from-blue-500 to-sky-400 text-2xl font-black text-white shadow-lg">
+                  {photoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photoUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    (name || "U").slice(0, 1)
+                  )}
+                </div>
+                <div className="mb-1 flex-1">
+                  <p className="text-lg font-black text-slate-800">{name || "زائر"}</p>
+                  <p className="text-xs text-slate-500">{username ? `@${username}` : userId ? `ID ${userId}` : "—"}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl bg-blue-50 py-2.5 text-center">
+                  <p className="text-lg font-black text-[#1565c0]">{myStats.posts}</p>
+                  <p className="text-[10px] font-bold text-slate-500">منشورات</p>
+                </div>
+                <div className="rounded-2xl bg-sky-50 py-2.5 text-center">
+                  <p className="text-lg font-black text-sky-600">{myStats.clones}</p>
+                  <p className="text-[10px] font-bold text-slate-500">استنساخ</p>
+                </div>
+                <div className="rounded-2xl bg-rose-50 py-2.5 text-center">
+                  <p className="text-lg font-black text-rose-500">{myStats.likes}</p>
+                  <p className="text-[10px] font-bold text-slate-500">إعجابات</p>
+                </div>
+              </div>
+
+              <p className="mt-3 text-center text-[11px] text-slate-400">
+                تنزيلاتك المنشورة تظهر هنا عند تفعيل المشاركة من إعدادات البوت
+              </p>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-36 animate-pulse rounded-3xl bg-white/80" />
+            ))}
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-blue-200 bg-white p-8 text-center shadow-sm">
+            <div className="text-4xl">📭</div>
+            <p className="mt-3 font-bold text-slate-700">لا يوجد محتوى بعد</p>
+            <p className="mt-1 text-sm text-slate-500">
+              من البوت: إعداداتي ← تفعيل المشاركة، ثم حمّل رابطاً ليظهر هنا.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {visible.map((item) => {
+              const isLiked = !!liked[item.id];
+              const likeCount = (item.likes || 0) + (isLiked ? 1 : 0);
+              return (
+                <article
+                  key={item.id}
+                  className="overflow-hidden rounded-3xl bg-white shadow-md shadow-blue-900/8 ring-1 ring-blue-100"
+                >
+                  <div className="relative aspect-[16/9] bg-slate-100">
+                    {item.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.thumbnail} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-100 to-sky-100 text-5xl">
+                        {typeIcon(item.media_type)}
+                      </div>
+                    )}
+                    <span className="absolute left-2 top-2 rounded-full bg-black/45 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur">
+                      {typeIcon(item.media_type)}{" "}
+                      {item.media_type === "audio" || item.media_type === "voice" ? "صوت" : "فيديو"}
+                    </span>
+                    {tab === "trending" && (
+                      <span className="absolute right-2 top-2 rounded-full bg-orange-500 px-2.5 py-1 text-[11px] font-black text-white">
+                        🔥 رائج
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-3.5">
+                    <h3 className="line-clamp-2 text-[15px] font-extrabold leading-snug text-slate-800">{item.title}</h3>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">
+                        {item.sharer_name || "مستخدم"}
+                      </span>
+                      <span>{timeAgo(item.created_at)}</span>
+                      <span>⚡ {item.clones || 0}</span>
+                    </div>
+
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleLike(item.id)}
+                        className={`flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold transition ${
+                          isLiked
+                            ? "bg-rose-50 text-rose-600 ring-1 ring-rose-200"
+                            : "bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        {isLiked ? "❤️" : "🤍"} {likeCount}
+                      </button>
+                      <a
+                        href={cloneHref(item.id)}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-l from-[#1565c0] to-[#1e88e5] py-2.5 text-sm font-black text-white shadow-md shadow-blue-600/25 active:scale-[0.98]"
+                      >
+                        تحميل فوري
+                      </a>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
