@@ -1,20 +1,20 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5726661464,
+  "last_seen_comment_id": 5727310345,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T08:22:00Z",
+  "updated_at": "2026-09-18T08:28:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
-    "G57 (2026-09-18): health-check reports webhook host + HTTPS flag, flags non-HTTPS and last sync error in readiness + copyable report, always shows allowed updates (empty = all).",
-    "G56 (2026-09-18): health-check fetches BotFather name/description/short description with language_code=ar and includes them in readiness + copyable report. SHAs d0272e9 / 397b158",
-    "G55 (2026-09-18): health-check reports BotFather profile photo count.",
-    "G54 (2026-09-18): health-check fetches getMyCommands language_code=ar.",
-    "G53 (2026-09-18): health-check readiness verdict + copyable report.",
+    "G57 (2026-09-18): health-check webhook host + HTTPS + sync-error readiness. SHAs 150e7c2 / a94d2f6",
+    "G56 (2026-09-18): health-check BotFather ar name/description.",
+    "G55 (2026-09-18): health-check profile photo count.",
+    "G54 (2026-09-18): health-check getMyCommands language_code=ar.",
+    "G53 (2026-09-18): health-check readiness + copyable report.",
     "prior items retained."
   ]
 }
