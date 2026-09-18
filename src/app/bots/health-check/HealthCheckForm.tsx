@@ -98,6 +98,11 @@ function isPrivateWebhookHost(host?: string | null) {
   );
 }
 
+function commandsMissingDescriptions(cmds?: BotCommand[]) {
+  if (!cmds || cmds.length === 0) return false;
+  return cmds.every((c) => !c.description?.trim());
+}
+
 function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
   const notes: string[] = [];
   const w = result.webhook;
@@ -124,6 +129,9 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
     notes.push("الانضمام للمجموعات مسموح لكن لا توجد صلاحيات أدمن افتراضية للمجموعات.");
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  if (commandsMissingDescriptions(b?.commands)) {
+    notes.push("الأوامر مسجلة بدون وصف في BotFather — القائمة تظهر ناقصة للزبون.");
+  }
   if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف مسجل في BotFather.");
   if ((b?.commands?.length ?? 0) > 0 && (b?.commandsAr?.length ?? 0) === 0) notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
   if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي في BotFather.");
@@ -192,7 +200,7 @@ export default function HealthCheckForm() {
     if (!b) return;
     const verdict = readiness(result!);
     const omitted = omittedCoreUpdates(w?.allowedUpdates);
-    const cmdPreview = (b.commands ?? []).slice(0, 8).map((c) => `/${c.command}`).join(" ");
+    const cmdLines = (b.commands ?? []).slice(0, 12).map((c) => `/${c.command}${c.description?.trim() ? ` — ${c.description.trim()}` : " — بدون وصف"}`);
     const lines = [
       `تقرير فحص بوت — سوق تولز`,
       `الخلاصة: ${verdict.title}`,
@@ -207,7 +215,8 @@ export default function HealthCheckForm() {
       `إنلاين: ${yn(b.supportsInlineQueries)}`,
       `اتصال Telegram Business: ${yn(b.canConnectToBusiness)}`,
       `قائمة المرفقات: ${yn(b.addedToAttachmentMenu)}`,
-      cmdPreview ? `أوامر ظاهرة: ${cmdPreview}` : "",
+      cmdLines.length ? `أوامر:` : "",
+      ...cmdLines,
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
       w?.url && isPrivateWebhookHost(w.host) ? "مضيف محلي/خاص: نعم" : "",
@@ -233,7 +242,7 @@ export default function HealthCheckForm() {
   const w = result?.webhook;
   const omitted = omittedCoreUpdates(w?.allowedUpdates);
   const privateHost = isPrivateWebhookHost(w?.host);
-  const commandPreview = (b?.commands ?? []).slice(0, 8);
+  const commandPreview = (b?.commands ?? []).slice(0, 12);
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -277,7 +286,17 @@ export default function HealthCheckForm() {
             <li>الوصف العربي (ar): {b.descriptionAr?.trim() || "غير مضبوط"}</li>
             <li>أوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
             {commandPreview.length > 0 && (
-              <li>أوامر ظاهرة: {commandPreview.map((c) => `/${c.command}`).join(" ")}{(b.commands?.length ?? 0) > commandPreview.length ? "…" : ""}</li>
+              <li>
+                أوامر BotFather:
+                <ul className="mt-1 list-disc space-y-0.5 ps-5 text-xs">
+                  {commandPreview.map((c) => (
+                    <li key={c.command}>
+                      /{c.command} — {c.description?.trim() || "بدون وصف"}
+                    </li>
+                  ))}
+                  {(b.commands?.length ?? 0) > commandPreview.length && <li>…</li>}
+                </ul>
+              </li>
             )}
             <li>زر القائمة: {menuLabel(b.menuButton)}</li>
             <li>صلاحيات مجموعات: {enabledRights(b.groupAdminRights).join(", ") || "لا شيء"}</li>
