@@ -43,6 +43,7 @@ type Result = {
     canConnectToBusiness?: boolean;
     hasMainWebApp?: boolean;
     addedToAttachmentMenu?: boolean;
+    profilePhotoCount?: number;
     commands?: BotCommand[];
     commandsAr?: BotCommand[];
     description?: string;
@@ -95,6 +96,9 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   }
   if ((result.bot?.commands?.length ?? 0) > 0 && (result.bot?.commandsAr?.length ?? 0) === 0) {
     notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
+  }
+  if ((result.bot?.profilePhotoCount ?? 0) === 0) {
+    notes.push("لا توجد صورة ملف شخصي في BotFather.");
   }
   if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
@@ -185,6 +189,7 @@ export default function HealthCheckForm() {
       `Mini App رئيسي: ${b.hasMainWebApp ? "مضبوط" : "غير مضبوط"}`,
       `Telegram Business: ${b.canConnectToBusiness ? "مسموح" : "غير مسموح"}`,
       `قائمة المرفقات: ${b.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}`,
+      `صورة الملف الشخصي: ${(b.profilePhotoCount ?? 0) > 0 ? `${b.profilePhotoCount} صورة` : "غير مضبوطة"}`,
       `صلاحيات المجموعات الافتراضية: ${g.length ? g.join("، ") : "لا شيء مفعّل"}`,
       `صلاحيات القنوات الافتراضية: ${ch.length ? ch.join("، ") : "لا شيء مفعّل"}`,
     ].filter(Boolean);
@@ -282,6 +287,12 @@ export default function HealthCheckForm() {
               <li>اسم BotFather المعروض: {result.bot.botFatherName}</li>
             )}
             {result.bot.id != null && <li>المعرّف: {result.bot.id}</li>}
+            <li>
+              صورة الملف الشخصي:{" "}
+              {(result.bot.profilePhotoCount ?? 0) > 0
+                ? `${result.bot.profilePhotoCount} صورة مضبوطة في BotFather`
+                : "غير مضبوطة — البوت يظهر بدون أفاتار"}
+            </li>
             <li>
               الوصف المختصر:{" "}
               {result.bot.shortDescription?.trim()
