@@ -59,7 +59,6 @@ _waiting_squad_join: set[int] = set()
 if cfg.force_sub_channel and not store.force_sub_channels:
     store.force_sub_channels = [cfg.force_sub_channel]
 store.mini_app_enabled = True
-# Owner always shares to feed
 store.set_share(cfg.owner_id, True)
 
 
@@ -115,7 +114,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         item_id = args[0].replace("clone_", "", 1)
         item = find_local(item_id)
         if not item:
-            # try remote lookup
             from services.feed import _api_url, _secret
             import httpx
 
@@ -284,14 +282,17 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         return
 
     status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط...")
+    err = ""
     try:
-        info = await extract_info(url)
-    except Exception:
-        info = None
+        info, err = await extract_info(url)
+    except Exception as e:
+        info, err = None, str(e)
 
     if not info:
+        detail = f"\n\n🔧 {err[:300]}" if err and is_owner else ""
         await status_msg.edit_text(
             "❌ تعذر قراءة الرابط.\nجرّب رابطاً مباشراً من يوتيوب / تيك توك / إنستغرام."
+            + detail
         )
         return
 
@@ -473,9 +474,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
     await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق حتى 3 دقائق.")
-    result = await download_media(url, quality=quality, media_type=media_type)
+    try:
+        result, dl_err = await download_media(url, quality=quality, media_type=media_type)
+    except Exception as e:
+        result, dl_err = None, str(e)
     if not result:
-        await query.edit_message_text("❌ فشل التحميل. جرّب جودة أقل أو رابطاً آخر.")
+        detail = f"\n\n🔧 {dl_err[:300]}" if dl_err and is_owner else ""
+        await query.edit_message_text("❌ فشل التحميل. جرّب جودة أقل أو رابطاً آخر." + detail)
         return
 
     file_id = await archive_and_get_file_id(
@@ -541,7 +546,6 @@ async def _maybe_publish_feed(
     from_user,
 ) -> None:
     is_owner = user_id == cfg.owner_id
-    # Owner always publishes; others only if share enabled
     if is_owner:
         store.set_share(user_id, True)
         share = True
