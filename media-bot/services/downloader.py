@@ -1,4 +1,4 @@
-"""Downloader: TikWM (primary for TikTok) → yt-dlp → Cobalt."""
+"""Downloader: TikWM (TikTok) → yt-dlp (YT clients rotation) → Cobalt."""
 
 from __future__ import annotations
 
@@ -17,7 +17,16 @@ logger = logging.getLogger(__name__)
 EXTRACT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 180
 
-_YT_CLIENT_GROUPS = [["android"], ["tv"], ["web_safari"], ["mweb"]]
+# Order matters — android_vr / tv_downgraded often skip PO-token walls
+_YT_CLIENT_GROUPS = [
+    ["android_vr"],
+    ["tv_downgraded"],
+    ["android"],
+    ["tv"],
+    ["web_safari"],
+    ["mweb"],
+    ["web_embedded"],
+]
 _TIKTOK_API_HOSTS = [
     "api16-normal-c-useast1a.tiktokv.com",
     "api22-normal-c-useast2a.tiktokv.com",
@@ -104,11 +113,12 @@ def _write_cookies_file() -> str | None:
     return None
 
 
-# ---------------------------------------------------------------------------
-# TikWM — primary for TikTok (works from datacenter IPs)
-# ---------------------------------------------------------------------------
+def _proxy() -> str | None:
+    p = (os.getenv("PROXY_URL") or os.getenv("HTTPS_PROXY") or "").strip()
+    return p or None
+
+
 async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
-    """Inline TikWM — no fragile imports."""
     try:
         import httpx
     except Exception as e:
@@ -123,12 +133,10 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
         for ep in endpoints:
             try:
                 r = await client.get(ep)
-                logger.info("tikwm status=%s url=%s", r.status_code, ep[:60])
                 if r.status_code >= 400:
                     continue
                 js = r.json()
                 if js.get("code") != 0:
-                    logger.warning("tikwm code=%s msg=%s", js.get("code"), js.get("msg"))
                     continue
                 d = js.get("data") or {}
                 play = d.get("hdplay") or d.get("play") or d.get("wmplay")
@@ -146,7 +154,7 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
                 logger.warning("tikwm request: %s", e)
 
     if not meta:
-        return None, "tikwm: resolve failed (no media url)"
+        return None, "tikwm: resolve failed"
 
     suffix = ".mp3" if audio_only else ".mp4"
     tmp = tempfile.mkdtemp(prefix="tikwm_")
@@ -159,14 +167,13 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
                 headers={"User-Agent": _UA, "Referer": "https://www.tiktok.com/"},
             ) as r:
                 if r.status_code >= 400:
-                    return None, f"tikwm: download HTTP {r.status_code}"
+                    return None, f"tikwm: HTTP {r.status_code}"
                 with open(path, "wb") as f:
                     async for chunk in r.aiter_bytes(64 * 1024):
                         f.write(chunk)
         size = path.stat().st_size
         if size < 1000:
             return None, f"tikwm: file too small ({size})"
-        logger.info("tikwm OK size=%s", size)
         return (
             DownloadResult(
                 path=path,
@@ -178,7 +185,7 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
             "",
         )
     except Exception as e:
-        return None, f"tikwm: download error {e}"
+        return None, f"tikwm: {e}"
 
 
 async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
@@ -187,14 +194,11 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
 
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         url = normalize_url(await resolve_redirects(url))
-        # quick metadata via tikwm
         try:
             import httpx
 
             async with httpx.AsyncClient(timeout=25.0, headers={"User-Agent": _UA}) as client:
-                r = await client.get(
-                    f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1"
-                )
+                r = await client.get(f"https://www.tikwm.com/api/?url={quote(url, safe='')}&hd=1")
                 if r.status_code < 400:
                     js = r.json()
                     if js.get("code") == 0 and js.get("data"):
@@ -210,8 +214,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                             "",
                         )
         except Exception as e:
-            last_err = f"tikwm-meta: {e}"
-            logger.warning(last_err)
+            last_err = str(e)
 
     try:
         import yt_dlp
@@ -225,17 +228,21 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             try:
 
                 def _run() -> dict | None:
-                    opts = {
+                    opts: dict[str, Any] = {
                         "quiet": True,
                         "no_warnings": True,
                         "skip_download": True,
                         "noplaylist": True,
                         "socket_timeout": 25,
+                        "force_ipv4": True,
                         "extractor_args": {"youtube": {"player_client": clients}},
                     }
                     ck = _write_cookies_file()
                     if ck:
                         opts["cookiefile"] = ck
+                    px = _proxy()
+                    if px:
+                        opts["proxy"] = px
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         return ydl.extract_info(url, download=False)
 
@@ -254,10 +261,9 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             except Exception as e:
                 last_err = f"{type(e).__name__}: {e}"
                 if "Sign in" in last_err or "not a bot" in last_err:
-                    break
+                    continue  # try next client
         return MediaInfo("فيديو يوتيوب", None, None, url, "youtube"), ""
 
-    # generic yt-dlp
     try:
 
         def _run_g() -> dict | None:
@@ -300,7 +306,6 @@ async def download_media(
     audio_only = media_type in ("audio", "voice")
     errors: list[str] = []
 
-    # ---- 1) TikTok → TikWM first ----
     if is_tiktok(url) or re.search(r"(vm\.|vt\.)", url, re.I):
         try:
             url = normalize_url(await resolve_redirects(url))
@@ -310,9 +315,7 @@ async def download_media(
         if result:
             return result, ""
         errors.append(err or "tikwm failed")
-        logger.warning("TikWM failed: %s", err)
 
-    # ---- 2) yt-dlp ----
     tmp = tempfile.mkdtemp(prefix="mediabot_")
     try:
         import yt_dlp
@@ -321,6 +324,7 @@ async def download_media(
         yt_dlp = None  # type: ignore
 
     if yt_dlp is not None:
+
         def _opts(outdir: str) -> dict[str, Any]:
             o: dict[str, Any] = {
                 "quiet": True,
@@ -330,11 +334,15 @@ async def download_media(
                 "noplaylist": True,
                 "socket_timeout": 30,
                 "retries": 2,
+                "force_ipv4": True,
                 "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s"),
             }
             ck = _write_cookies_file()
             if ck:
                 o["cookiefile"] = ck
+            px = _proxy()
+            if px:
+                o["proxy"] = px
             if audio_only:
                 o["format"] = "bestaudio/best"
                 o["postprocessors"] = [
@@ -406,12 +414,14 @@ async def download_media(
                 errors.append("yt-dlp: timeout")
             except Exception as e:
                 msg = f"{type(e).__name__}: {e}"
-                errors.append(f"yt-dlp: {msg[:120]}")
+                errors.append(f"yt-dlp: {msg[:100]}")
                 logger.warning("yt-dlp: %s", msg)
-                if "Sign in" in msg or "not a bot" in msg or "status code 0" in msg:
+                # try next client for bot wall
+                if "Sign in" in msg or "not a bot" in msg:
+                    continue
+                if "status code 0" in msg:
                     break
 
-    # ---- 3) Cobalt last ----
     try:
         from services.cobalt import cobalt_download_to_file
 
@@ -432,8 +442,12 @@ async def download_media(
     except Exception as e:
         errors.append(f"cobalt: {e}")
 
-    # Helpful hint for YouTube bot-check
     joined = " | ".join(errors) if errors else "all providers failed"
     if is_youtube(url) and any("bot" in e.lower() or "Sign in" in e for e in errors):
-        joined += " | ضع YTDLP_COOKIES في Render"
+        if not _proxy():
+            joined = (
+                "يوتيوب يحظر سيرفرات Render.\n"
+                "الحل المجاني: أضف PROXY_URL (بروكسي سكني) في Environment.\n"
+                "أو YTDLP_COOKIES إن توفرت."
+            )
     return None, joined
