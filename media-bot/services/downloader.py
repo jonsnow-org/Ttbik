@@ -14,8 +14,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MAX_SAFE_BYTES = 48 * 1024 * 1024
-EXTRACT_TIMEOUT = 45
-DOWNLOAD_TIMEOUT = 180
+EXTRACT_TIMEOUT = 55
+DOWNLOAD_TIMEOUT = 200
 
 
 @dataclass
@@ -39,9 +39,26 @@ class DownloadResult:
 def normalize_url(url: str) -> str:
     """Normalize share redirects that break yt-dlp."""
     u = (url or "").strip()
-    # Facebook share short links often fail; keep as-is but strip tracking junk
-    u = re.sub(r"([?&])(fbclid|utm_[^=]+)=[^&]*", r"\1", u)
+    # Strip common tracking params
+    u = re.sub(
+        r"([?&])(fbclid|si|feature|utm_[^=]+|pp)=[^&]*",
+        r"\1",
+        u,
+        flags=re.I,
+    )
     u = u.replace("?&", "?").rstrip("?&")
+
+    # YouTube Shorts → watch URL (more reliable)
+    m = re.search(r"(?:youtube\.com/shorts/|youtu\.be/)([\w-]{6,})", u, re.I)
+    if m and "shorts" in u.lower():
+        u = f"https://www.youtube.com/watch?v={m.group(1)}"
+
+    # youtu.be short
+    m = re.search(r"youtu\.be/([\w-]{6,})", u, re.I)
+    if m and "youtube.com/watch" not in u:
+        u = f"https://www.youtube.com/watch?v={m.group(1)}"
+
+    # TikTok vm/vt short links stay as-is (yt-dlp resolves them)
     return u
 
 
@@ -52,15 +69,26 @@ def _base_opts(outdir: str | None = None) -> dict[str, Any]:
         "noprogress": True,
         "restrictfilenames": True,
         "noplaylist": True,
-        "socket_timeout": 25,
-        "retries": 2,
-        "extractor_retries": 2,
+        "socket_timeout": 30,
+        "retries": 3,
+        "extractor_retries": 3,
+        "fragment_retries": 3,
+        "ignoreerrors": False,
+        "geo_bypass": True,
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
+            "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+        },
+        # Help YouTube / age-gated / SABR issues on cloud IPs
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web", "ios"],
+                "player_skip": ["webpage", "configs"],
+            }
         },
     }
     if outdir:
@@ -95,7 +123,7 @@ async def extract_info(url: str) -> MediaInfo | None:
         logger.error("extract_info timeout for %s", url[:80])
         return None
     except Exception as e:
-        logger.exception("extract_info failed: %s", e)
+        logger.error("extract_info failed for %s: %s", url[:80], e)
         return None
 
 
@@ -126,9 +154,9 @@ async def download_media(
             )
         else:
             format_map = {
-                "360": "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360][ext=mp4]/best[height<=360]/best",
-                "480": "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best[height<=480]/best",
-                "720": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best[height<=720]/best",
+                "360": "bestvideo[height<=360]+bestaudio/best[height<=360]/best",
+                "480": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+                "720": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
             }
             opts["format"] = format_map.get(quality, format_map["720"])
             opts["merge_output_format"] = "mp4"
@@ -166,5 +194,5 @@ async def download_media(
         logger.error("download_media timeout for %s", url[:80])
         return None
     except Exception as e:
-        logger.exception("download_media failed: %s", e)
+        logger.error("download_media failed for %s: %s", url[:80], e)
         return None
