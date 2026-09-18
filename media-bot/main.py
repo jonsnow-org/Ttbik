@@ -1,4 +1,4 @@
-"""Media Download Bot — owner panel, user panel, downloads, native Mini App."""
+"""Media Download Bot — owner/user panels, downloads, Mini App feed publish, clone."""
 
 from __future__ import annotations
 
@@ -40,6 +40,7 @@ from services.archive import (
     send_from_cache_or_file,
 )
 from services.store import store, persist
+from services.feed import publish_feed_item, find_local
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 cfg = Config.from_env()
 _pending_url: dict[int, str] = {}
+_pending_meta: dict[int, dict] = {}
 _waiting_channel: set[int] = set()
 
 if cfg.force_sub_channel and not store.force_sub_channels:
@@ -95,10 +97,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store.touch_user(user.id)
     await _sync_menu_button(context.bot)
 
+    # Deep-link: /start clone_<id>
+    args = context.args or []
+    if args and args[0].startswith("clone_"):
+        item_id = args[0].replace("clone_", "", 1)
+        item = find_local(item_id)
+        if not item:
+            await update.message.reply_text("انتهت صلاحية هذا الملف أو غير موجود. حمّل الرابط من جديد.")
+            return
+        ok = await send_from_cache_or_file(
+            context.bot,
+            update.effective_chat.id,
+            item.get("file_id"),
+            None,
+            item.get("media_type") or "video",
+            item.get("title") or "media",
+        )
+        await update.message.reply_text("✅ تم الإرسال فوراً من الكاش." if ok else "❌ تعذر الإرسال.")
+        return
+
     if user.id == cfg.owner_id:
         await update.message.reply_text(
             "👑 لوحة مالك البوت\n\n"
-            "قنوات الاشتراك، زر Mini-App، الإحصائيات، ومعلومات الاستخدام.",
+            "أرسل أي رابط للتحميل مباشرة، أو استخدم الأزرار.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -110,7 +131,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     await update.message.reply_text(
-        "مرحباً 👋\nأرسل رابط فيديو أو صوت من يوتيوب / تيك توك / إنستغرام...",
+        "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر...",
         reply_markup=user_main_keyboard(store.mini_app_enabled),
     )
 
@@ -153,9 +174,8 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text in ("📱 التطبيق المصغر", "🌐 الموجز العام"):
         await update.message.reply_text(
             "📱 التطبيق المصغر داخل تيليجرام\n\n"
-            "عند تفعيله يظهر زر Mini-App أسفل المحادثة يسار حقل الرسالة.\n"
-            "يفتح واجهة داخل تيليجرام: الرئيسية + الأحدث.\n"
-            "يظهر فقط ما سمح المستخدم بنشره من تنزيلاته.\n\n"
+            "عند تفعيله يظهر زر Mini-App أسفل المحادثة.\n"
+            "التنزيلات التي يُسمح بنشرها تظهر في «الرائج» و«الأحدث».\n\n"
             f"الحالة الآن: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
             reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
         )
@@ -167,22 +187,20 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• زر Mini-App: {'مفعّل' if store.mini_app_enabled else 'متوقف'}"
         )
     elif text == "👥 إدارة المستخدمين":
-        await update.message.reply_text(
-            f"عدد المستخدمين: {len(store.known_users)}\n"
-            "الحظر التفصيلي سيُضاف في التحديث التالي."
-        )
+        await update.message.reply_text(f"عدد المستخدمين: {len(store.known_users)}")
     elif text == "💎 الميزات المدفوعة":
-        await update.message.reply_text(
-            "بنية الميزات المدفوعة جاهزة ويمكن تفعيل أي ميزة لاحقاً بضغطة."
-        )
+        await update.message.reply_text("بنية الميزات المدفوعة جاهزة للتفعيل لاحقاً.")
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
     elif text in ("📥 تجربة التحميل", "🔙 رجوع للقائمة الرئيسية"):
-        await update.message.reply_text("لوحة المالك:", reply_markup=owner_main_keyboard())
+        await update.message.reply_text(
+            "أرسل رابطاً للتحميل أو استخدم الأزرار.",
+            reply_markup=owner_main_keyboard(),
+        )
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
-        await update.message.reply_text("استخدم أزرار لوحة المالك.", reply_markup=owner_main_keyboard())
+        await update.message.reply_text("استخدم الأزرار أو أرسل رابطاً.", reply_markup=owner_main_keyboard())
 
 
 async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -206,9 +224,10 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     elif text == "⚙️ إعداداتي":
         share = store.get_share(user.id)
         await update.message.reply_text(
-            "إعدادات الخصوصية:\n"
-            "إذا فعّلت السماح، ما تنزّله يمكن أن يظهر في التطبيق المصغر داخل تيليجرام.\n"
-            "إذا أوقفتها، محتواك يبقى خاصاً بك فقط.",
+            "إعدادات الخصوصية والمكافآت:\n"
+            "• تفعيل المشاركة ينشر تنزيلاتك في التطبيق المصغر (الرائج/الأحدث).\n"
+            "• المكافأة: شارة مساهم + أولوية أوضح في الموجز.\n"
+            "• يمكنك الإيقاف في أي وقت.",
             reply_markup=user_settings_keyboard(share),
         )
     elif text in ("ℹ️ معلومات", "❓ مساعدة"):
@@ -228,13 +247,26 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         return
     store.touch_user(user.id)
 
-    status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط...")
-    info = await extract_info(url)
+    status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط (حد أقصى 45 ثانية)...")
+    try:
+        info = await extract_info(url)
+    except Exception:
+        info = None
+
     if not info:
-        await status_msg.edit_text("❌ تعذر قراءة الرابط. تأكد أنه صحيح ومدعوم.")
+        await status_msg.edit_text(
+            "❌ تعذر قراءة الرابط.\n"
+            "جرّب رابط يوتيوب / تيك توك / إنستغرام مباشر.\n"
+            "روابط فيسبوك المختصرة قد تفشل بدون كوكيز."
+        )
         return
 
     _pending_url[user.id] = url
+    _pending_meta[user.id] = {
+        "title": info.title,
+        "thumbnail": info.thumbnail,
+        "extractor": info.extractor,
+    }
     duration = f"{info.duration // 60}:{info.duration % 60:02d}" if info.duration else "؟"
     await status_msg.edit_text(
         f"✅ {info.title[:80]}\n⏱ المدة: {duration}\n📡 المصدر: {info.extractor}\n\nاختر الجودة:",
@@ -266,7 +298,15 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         new_val = not store.get_share(user_id)
         store.set_share(user_id, new_val)
         await _save(context.bot)
-        await query.edit_message_reply_markup(reply_markup=user_settings_keyboard(new_val))
+        note = (
+            "✅ المشاركة مفعّلة — تنزيلاتك قد تظهر في الرائج مع شارة مساهم."
+            if new_val
+            else "تم إخفاء تنزيلاتك عن التطبيق المصغر."
+        )
+        await query.edit_message_text(
+            note,
+            reply_markup=user_settings_keyboard(new_val),
+        )
         return
 
     if user_id == cfg.owner_id:
@@ -276,7 +316,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
             _waiting_channel.add(user_id)
             await query.edit_message_text(
-                "أرسل الآن يوزر القناة أو آيديها\nمثال: @MyChannel أو -1001234567890\n\n"
+                "أرسل يوزر القناة أو آيديها\nمثال: @MyChannel أو -1001234567890\n"
                 "تأكد أن البوت مشرف في القناة."
             )
             return
@@ -303,7 +343,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await _save(context.bot)
             await _sync_menu_button(context.bot)
             await query.edit_message_text(
-                "تم تفعيل زر Mini-App أسفل المحادثة. أغلق المحادثة وافتحها من جديد إن لم يظهر."
+                "تم تفعيل زر Mini-App. أغلق المحادثة وافتحها من جديد."
                 if store.mini_app_enabled
                 else "تم إيقاف زر Mini-App.",
                 reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
@@ -313,6 +353,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     url = _pending_url.get(user_id)
     if data == "dl_cancel":
         _pending_url.pop(user_id, None)
+        _pending_meta.pop(user_id, None)
         await query.edit_message_text("تم الإلغاء.")
         return
 
@@ -330,21 +371,35 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     quality, media_type = mapping[data]
+    meta = _pending_meta.get(user_id) or {}
+
     cached = get_cached_file_id(url, media_type, quality)
     if cached:
         await query.edit_message_text("⚡ موجود في الأرشيف — جاري الإرسال...")
         ok = await send_from_cache_or_file(
-            context.bot, query.message.chat_id, cached, None, media_type, "cached"
+            context.bot, query.message.chat_id, cached, None, media_type, meta.get("title") or "cached"
         )
         if ok:
             store.downloads += 1
+            await _maybe_publish_feed(
+                context,
+                user_id=user_id,
+                file_id=cached,
+                media_type=media_type,
+                title=meta.get("title") or "media",
+                url=url,
+                thumbnail=meta.get("thumbnail"),
+                from_user=query.from_user,
+            )
             await query.edit_message_text("✅ تم الإرسال من الأرشيف.")
             return
 
-    await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق بعض الوقت.")
+    await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق حتى 3 دقائق.")
     result = await download_media(url, quality=quality, media_type=media_type)
     if not result:
-        await query.edit_message_text("❌ فشل التحميل. جرّب جودة أقل أو رابطاً آخر.")
+        await query.edit_message_text(
+            "❌ فشل التحميل.\nجرّب جودة أقل أو رابط يوتيوب/تيك توك مباشر."
+        )
         return
 
     file_id = await archive_and_get_file_id(
@@ -356,14 +411,22 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         quality,
         result.title,
     )
+    # If archive failed, still try send from local path and get file_id from user send
+    send_id = file_id
     ok = await send_from_cache_or_file(
         context.bot,
         query.message.chat_id,
-        file_id,
+        send_id,
         str(result.path),
         media_type,
         result.title,
     )
+
+    # If we sent by path only, archive again is already done; file_id may still be None
+    if ok and not send_id:
+        # best-effort: re-archive already attempted
+        pass
+
     try:
         parent = result.path.parent
         if parent.exists() and parent.name.startswith("mediabot_"):
@@ -375,10 +438,55 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         store.downloads += 1
         store.touch_user(user_id)
         await _save(context.bot)
+        if send_id:
+            await _maybe_publish_feed(
+                context,
+                user_id=user_id,
+                file_id=send_id,
+                media_type=media_type,
+                title=result.title,
+                url=url,
+                thumbnail=result.thumbnail or meta.get("thumbnail"),
+                from_user=query.from_user,
+            )
         await query.edit_message_text("✅ تم التحميل والإرسال بنجاح.")
     else:
-        await query.edit_message_text("⚠️ تم التحميل لكن فشل الإرسال. حاول مرة أخرى.")
+        await query.edit_message_text("⚠️ تم التحميل لكن فشل الإرسال (قد يتجاوز حد تيليجرام 50MB).")
     _pending_url.pop(user_id, None)
+    _pending_meta.pop(user_id, None)
+
+
+async def _maybe_publish_feed(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    user_id: int,
+    file_id: str,
+    media_type: str,
+    title: str,
+    url: str,
+    thumbnail: str | None,
+    from_user,
+) -> None:
+    """Publish to Mini App feed if user opted in (owner always can publish)."""
+    is_owner = user_id == cfg.owner_id
+    share = is_owner or store.get_share(user_id)
+    if not share:
+        return
+    if not store.mini_app_enabled and not is_owner:
+        return
+    name = getattr(from_user, "first_name", None) or "مستخدم"
+    try:
+        await publish_feed_item(
+            file_id=file_id,
+            media_type=media_type,
+            title=title,
+            url=url,
+            thumbnail=thumbnail,
+            sharer_name=name,
+            sharer_id=str(user_id),
+        )
+    except Exception as e:
+        logger.warning("publish feed: %s", e)
 
 
 async def _post_init(app: Application) -> None:
