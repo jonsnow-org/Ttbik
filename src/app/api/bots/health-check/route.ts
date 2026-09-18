@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
-// + getMyDescription + getMyShortDescription + getMyName).
+// + getMyDescription + getMyShortDescription + getMyName + getChatMenuButton).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -25,13 +25,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [meRes, webhookRes, commandsRes, descRes, shortDescRes, nameRes] = await Promise.all([
+    const [meRes, webhookRes, commandsRes, descRes, shortDescRes, nameRes, menuRes] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
       fetch(`https://api.telegram.org/bot${token}/getMyDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyName`),
+      fetch(`https://api.telegram.org/bot${token}/getChatMenuButton`),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
     const descJson = await descRes.json().catch(() => ({}));
     const shortDescJson = await shortDescRes.json().catch(() => ({}));
     const nameJson = await nameRes.json().catch(() => ({}));
+    const menuJson = await menuRes.json().catch(() => ({}));
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -69,6 +71,16 @@ export async function POST(req: NextRequest) {
     const botFatherName =
       typeof nameJson?.result?.name === "string" ? nameJson.result.name : "";
 
+    const menuRaw = menuJson?.ok ? menuJson.result : null;
+    const menuButton = menuRaw && typeof menuRaw === "object"
+      ? {
+          type: typeof menuRaw.type === "string" ? menuRaw.type : "default",
+          text: typeof menuRaw.text === "string" ? menuRaw.text : "",
+          webAppUrl:
+            typeof menuRaw.web_app?.url === "string" ? menuRaw.web_app.url : "",
+        }
+      : { type: "unknown", text: "", webAppUrl: "" };
+
     return NextResponse.json({
       ok: true,
       bot: {
@@ -84,6 +96,7 @@ export async function POST(req: NextRequest) {
         commands,
         description,
         shortDescription,
+        menuButton,
       },
       webhook: {
         url: webhook.result?.url || null,
