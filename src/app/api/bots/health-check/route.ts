@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 // Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
 // + getMyCommands?language_code=ar + getMyDescription + getMyShortDescription + getMyName
-// + getChatMenuButton + getMyDefaultAdministratorRights for groups and channels).
+// + getChatMenuButton + getMyDefaultAdministratorRights for groups and channels
+// + getUserProfilePhotos for BotFather avatar presence).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -89,6 +90,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
     }
 
+    let profilePhotoCount = 0;
+    try {
+      const photosRes = await fetch(
+        `https://api.telegram.org/bot${token}/getUserProfilePhotos?user_id=${me.result.id}&limit=1`,
+      );
+      const photosJson = await photosRes.json();
+      if (photosJson?.ok && typeof photosJson.result?.total_count === "number") {
+        profilePhotoCount = photosJson.result.total_count;
+      }
+    } catch {
+      profilePhotoCount = 0;
+    }
+
     const lastErrorDate = webhook.result?.last_error_date
       ? new Date(webhook.result.last_error_date * 1000).toISOString()
       : null;
@@ -134,6 +148,7 @@ export async function POST(req: NextRequest) {
         canConnectToBusiness: Boolean(me.result.can_connect_to_business),
         hasMainWebApp: Boolean(me.result.has_main_web_app),
         addedToAttachmentMenu: Boolean(me.result.added_to_attachment_menu),
+        profilePhotoCount,
         commands,
         commandsAr,
         description,
