@@ -3,13 +3,15 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5736780573,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T22:12:00Z",
+  "updated_at": "2026-09-18T23:24:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
-    "Owner must run remaining migrations if any still pending"
+    "Owner must run remaining migrations if any still pending",
+    "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
+    "G72 HealthCheckForm surfaces unused API fields (AR descriptions, menu button, scoped commands, business/webapp flags). SHA c49411b2.",
     "G71 HealthCheckForm.tsx restored as complete working client (SHA fbac49dc).",
     "G69-G53 health-check series retained.",
     "prior items retained."
