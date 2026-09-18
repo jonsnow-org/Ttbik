@@ -157,8 +157,15 @@ export default function HealthCheckForm() {
                 : `${result.bot.commands!.length} أمر`}
             </li>
             {(result.bot.commands?.length ?? 0) > 0 && (
-              <li className="text-xs text-slate-600">
-                {result.bot.commands!.map((c) => `/${c.command}`).join(" · ")}
+              <li>
+                <ul className="mt-1 space-y-1 rounded-xl border border-emerald-100 bg-white/70 p-3 text-xs text-slate-700">
+                  {result.bot.commands!.map((c) => (
+                    <li key={c.command} className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                      <span className="font-mono font-bold text-indigo-800">/{c.command}</span>
+                      <span className="text-slate-600">{c.description?.trim() || "بدون وصف"}</span>
+                    </li>
+                  ))}
+                </ul>
               </li>
             )}
             {result.webhook?.url ? (
