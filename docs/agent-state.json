@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5735004337,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T19:20:00Z",
+  "updated_at": "2026-09-18T20:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G69 (2026-09-18): health-check warn recent 24h webhook/sync errors + webhook host pointing at telegram.org + missing @username. SHA 392d435",
     "G68 (2026-09-18): health-check warn invalid BotFather command names + commands>100 + missing short description. SHA 202867c",
     "G67 (2026-09-18): health-check warn non-HTTPS chat-menu web app + custom TLS cert + main web app vs menu mismatch. SHA 95c89d4",
     "G66 (2026-09-18): health-check warn when group privacy mode is on. SHA 4a02359",
