@@ -80,6 +80,25 @@ function enabledRights(rights?: Record<string, boolean>) {
     .map(([k]) => RIGHTS_AR[k] || k);
 }
 
+function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
+  const notes: string[] = [];
+  const w = result.webhook;
+  if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates اليدوي.");
+  if ((w?.pendingUpdateCount ?? 0) > 10) notes.push(`تراكم تحديثات معلّق (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
+  if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
+  if ((result.bot?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  if (!result.bot?.description?.trim() && !result.bot?.shortDescription?.trim()) {
+    notes.push("لا يوجد وصف مسجل في BotFather.");
+  }
+  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم"))) {
+    return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
+  }
+  if (notes.length) {
+    return { tone: "warn", title: "البوت حي ويحتاج ضبطاً قبل الإطلاق", notes };
+  }
+  return { tone: "ok", title: "جاهز للتشغيل: ويبهوك سليم وأوامر مسجلة", notes: [] };
+}
+
 export default function HealthCheckForm() {
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -132,8 +151,11 @@ export default function HealthCheckForm() {
     if (!b) return;
     const g = enabledRights(b.groupAdminRights);
     const ch = enabledRights(b.channelAdminRights);
+    const verdict = readiness(result!);
     const lines = [
       `تقرير فحص بوت — سوق تولز`,
+      `الخلاصة: ${verdict.title}`,
+      ...verdict.notes.map((n) => `- ${n}`),
       `@${b.username} (المعرّف: ${b.id ?? "—"})`,
       `الاسم: ${b.firstName}`,
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
@@ -154,6 +176,8 @@ export default function HealthCheckForm() {
       setCopiedReport(false);
     }
   }
+
+  const verdict = result?.bot ? readiness(result) : null;
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -208,6 +232,29 @@ export default function HealthCheckForm() {
 
       {result?.bot && (
         <div className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          {verdict && (
+            <div
+              className={
+                verdict.tone === "ok"
+                  ? "rounded-xl border border-emerald-300 bg-white/80 p-3 text-sm text-emerald-900"
+                  : verdict.tone === "warn"
+                    ? "rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                    : "rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
+              }
+            >
+              <p className="font-bold">
+                {verdict.tone === "ok" ? "✅ " : verdict.tone === "warn" ? "⚠️ " : "❌ "}
+                {verdict.title}
+              </p>
+              {verdict.notes.length > 0 && (
+                <ul className="mt-1 list-disc space-y-0.5 ps-5">
+                  {verdict.notes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{result.bot.username}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {result.bot.firstName}</li>
