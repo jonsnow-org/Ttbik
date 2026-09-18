@@ -12,10 +12,11 @@ type FeedItem = {
   sharer_name: string;
   sharer_id: string;
   clones: number;
+  tags?: string[];
+  squad_code?: string;
   created_at: number;
 };
 
-// Warm-instance memory (survives soft reuse on Vercel; Supabase is the durable path).
 const g = globalThis as unknown as { __mediaFeed?: FeedItem[] };
 if (!g.__mediaFeed) g.__mediaFeed = [];
 
@@ -34,9 +35,9 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data, error } = await db
       .from("media_feed")
-      .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at")
+      .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at,tags,squad_code")
       .order("created_at", { ascending: false })
-      .limit(80);
+      .limit(100);
     if (error || !data) return null;
     return data.map((r: any) => ({
       id: String(r.id),
@@ -48,6 +49,8 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
       sharer_name: String(r.sharer_name || "مستخدم"),
       sharer_id: String(r.sharer_id || ""),
       clones: Number(r.clones || 0),
+      tags: Array.isArray(r.tags) ? r.tags : [],
+      squad_code: String(r.squad_code || ""),
       created_at: r.created_at ? Math.floor(new Date(r.created_at).getTime() / 1000) : 0,
     }));
   } catch {
@@ -74,6 +77,8 @@ async function saveToSupabase(item: FeedItem): Promise<string | null> {
         sharer_name: item.sharer_name,
         sharer_id: item.sharer_id,
         clones: item.clones,
+        tags: item.tags || [],
+        squad_code: item.squad_code || "",
       })
       .select("id")
       .single();
@@ -87,10 +92,23 @@ async function saveToSupabase(item: FeedItem): Promise<string | null> {
 export async function GET(req: NextRequest) {
   const type = (req.nextUrl.searchParams.get("type") || "all").toLowerCase();
   const sort = (req.nextUrl.searchParams.get("sort") || "latest").toLowerCase();
+  const tag = (req.nextUrl.searchParams.get("tag") || "").trim();
+  const squad = (req.nextUrl.searchParams.get("squad") || "").trim();
 
   let items = (await loadFromSupabase()) || g.__mediaFeed || [];
+
+  // Public feed hides private squad-only items unless squad filter matches
+  if (squad) {
+    items = items.filter((i) => (i.squad_code || "") === squad);
+  } else {
+    items = items.filter((i) => !i.squad_code);
+  }
+
   if (type !== "all") {
-    items = items.filter((i) => i.media_type === type || (type === "video" && i.media_type === "video"));
+    items = items.filter((i) => i.media_type === type || (type === "audio" && (i.media_type === "audio" || i.media_type === "voice")));
+  }
+  if (tag) {
+    items = items.filter((i) => (i.tags || []).includes(tag));
   }
   if (sort === "trending") {
     items = [...items].sort((a, b) => (b.clones || 0) - (a.clones || 0) || (b.created_at || 0) - (a.created_at || 0));
@@ -98,7 +116,6 @@ export async function GET(req: NextRequest) {
     items = [...items].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
-  // Never expose raw file_id publicly in list — clone uses id only via bot deep-link.
   const publicItems = items.slice(0, 60).map(({ file_id: _f, ...rest }) => rest);
   return NextResponse.json({ items: publicItems });
 }
@@ -118,6 +135,8 @@ export async function POST(req: NextRequest) {
     sharer_name: String(body.sharer_name || "مستخدم").slice(0, 40),
     sharer_id: String(body.sharer_id || ""),
     clones: Number(body.clones || 0),
+    tags: Array.isArray(body.tags) ? body.tags.map(String).slice(0, 5) : [],
+    squad_code: String(body.squad_code || ""),
     created_at: Number(body.created_at || Math.floor(Date.now() / 1000)),
   };
   if (!item.file_id) {
@@ -131,7 +150,35 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, id: item.id });
 }
 
-/** Internal lookup for clone by id — requires secret */
+export async function PATCH(req: NextRequest) {
+  if (!secretOk(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const body = await req.json().catch(() => ({}));
+  const id = String(body.id || "");
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const mem = (g.__mediaFeed || []).find((x) => x.id === id);
+  if (mem && body.action === "clone") {
+    mem.clones = (mem.clones || 0) + 1;
+  }
+
+  try {
+    const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+    const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+    if (url && key && body.action === "clone") {
+      const { createClient } = await import("@supabase/supabase-js");
+      const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+      const { data } = await db.from("media_feed").select("clones").eq("id", id).maybeSingle();
+      const next = Number(data?.clones || 0) + 1;
+      await db.from("media_feed").update({ clones: next }).eq("id", id);
+    }
+  } catch {
+    /* ignore */
+  }
+  return NextResponse.json({ ok: true });
+}
+
 export async function PUT(req: NextRequest) {
   if (!secretOk(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -162,6 +209,8 @@ export async function PUT(req: NextRequest) {
             sharer_name: String(data.sharer_name || ""),
             sharer_id: String(data.sharer_id || ""),
             clones: Number(data.clones || 0),
+            tags: Array.isArray(data.tags) ? data.tags : [],
+            squad_code: String(data.squad_code || ""),
             created_at: data.created_at ? Math.floor(new Date(data.created_at).getTime() / 1000) : 0,
           },
         });
