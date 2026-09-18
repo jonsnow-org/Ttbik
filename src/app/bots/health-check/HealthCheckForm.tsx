@@ -76,6 +76,13 @@ function fmtDate(iso?: string | null) {
   }
 }
 
+function omittedCoreUpdates(allowed?: string[]) {
+  if (!allowed || allowed.length === 0) return [];
+  const set = new Set(allowed);
+  const core = ["message", "callback_query"];
+  return core.filter((t) => !set.has(t));
+}
+
 function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
   const notes: string[] = [];
   const w = result.webhook;
@@ -89,6 +96,11 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   }
   if (w?.url && w.isHttps === false) notes.push("رابط الويبهوك ليس HTTPS — تليجرام يرفض الاستقبال غالباً.");
   if (w?.lastSyncErrorDate) notes.push("يوجد خطأ مزامنة أخير على الويبهوك.");
+  const omitted = omittedCoreUpdates(w?.allowedUpdates);
+  if (w?.url && omitted.length) {
+    notes.push(`allowedUpdates تستبعد أنواعاً أساسية (${omitted.join(", ")}) — البوت قد لا يستقبل رسائل أو أزرار الأزرار.`);
+  }
+  if (result.bot?.canJoinGroups === false) notes.push("البوت ممنوع من الانضمام للمجموعات في BotFather.");
   if ((result.bot?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   if (!result.bot?.description?.trim() && !result.bot?.shortDescription?.trim()) notes.push("لا يوجد وصف مسجل في BotFather.");
   if ((result.bot?.commands?.length ?? 0) > 0 && (result.bot?.commandsAr?.length ?? 0) === 0) notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
@@ -96,7 +108,7 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if ((result.bot?.description?.trim() || result.bot?.shortDescription?.trim()) && !result.bot?.descriptionAr?.trim() && !result.bot?.shortDescriptionAr?.trim()) {
     notes.push("لا يوجد وصف عربي (لغة ar) في BotFather.");
   }
-  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ"))) {
+  if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ") || n.startsWith("allowedUpdates"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
   }
   if (notes.length) return { tone: "warn", title: "البوت حي ويحتاج ضبطاً قبل الإطلاق", notes };
@@ -154,6 +166,7 @@ export default function HealthCheckForm() {
     const w = result?.webhook;
     if (!b) return;
     const verdict = readiness(result!);
+    const omitted = omittedCoreUpdates(w?.allowedUpdates);
     const lines = [
       `تقرير فحص بوت — سوق تولز`,
       `الخلاصة: ${verdict.title}`,
@@ -170,6 +183,7 @@ export default function HealthCheckForm() {
       w?.url ? `HTTPS: ${w.isHttps === false ? "لا" : "نعم"}` : "",
       w?.url ? `شهادة TLS مخصصة: ${yn(w.hasCustomCertificate)}` : "",
       `التحديثات المسموحة: ${(w?.allowedUpdates?.length ?? 0) > 0 ? w!.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}`,
+      omitted.length ? `أنواع مستبعدة أساسية: ${omitted.join(", ")}` : "",
       w?.lastErrorDate ? `وقت آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
     ].filter(Boolean);
     try {
@@ -184,6 +198,7 @@ export default function HealthCheckForm() {
   const verdict = result?.bot ? readiness(result) : null;
   const b = result?.bot;
   const w = result?.webhook;
+  const omitted = omittedCoreUpdates(w?.allowedUpdates);
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -222,6 +237,7 @@ export default function HealthCheckForm() {
             <li>أوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
             <li>زر القائمة: {menuLabel(b.menuButton)}</li>
             <li>صلاحيات مجموعات: {enabledRights(b.groupAdminRights).join(", ") || "لا شيء"}</li>
+            <li>صلاحيات قنوات: {enabledRights(b.channelAdminRights).join(", ") || "لا شيء"}</li>
             {w?.url ? (
               <>
                 <li>الويبهوك: مفعّل</li>
@@ -232,6 +248,7 @@ export default function HealthCheckForm() {
                 <li>HTTPS: {w.isHttps === false ? "لا" : "نعم"}</li>
                 <li>شهادة TLS مخصصة: {yn(w.hasCustomCertificate)}</li>
                 <li>التحديثات المسموحة: {(w.allowedUpdates?.length ?? 0) > 0 ? w.allowedUpdates!.join(", ") : "كل الأنواع (الافتراضي)"}</li>
+                {omitted.length > 0 && <li className="text-rose-700">أنواع أساسية مستبعدة: {omitted.join(", ")}</li>}
                 <li>تحديثات معلّقة: {w.pendingUpdateCount}</li>
                 {w.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
                 {w.lastErrorDate && <li className="text-rose-700">وقت آخر خطأ: {fmtDate(w.lastErrorDate)}</li>}
