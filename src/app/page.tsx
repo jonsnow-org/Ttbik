@@ -10,26 +10,24 @@ import { LIVE_BOTS } from "@/lib/liveBots";
 export const revalidate = 30;
 
 async function getStorefront() {
-  const db = supabasePublic();
-  const [{ data: categories }, { data: services }] = await Promise.all([
-    db.from("categories").select("*").order("sort_order"),
-    db.from("services").select("*").eq("is_active", true).order("sort_order"),
-  ]);
-  return {
-    categories: (categories ?? []) as Category[],
-    services: (services ?? []) as Service[],
-  };
+  try {
+    const db = supabasePublic();
+    const [{ data: categories }, { data: services }] = await Promise.all([
+      db.from("categories").select("*").order("sort_order"),
+      db.from("services").select("*").eq("is_active", true).order("sort_order"),
+    ]);
+    return {
+      categories: (categories ?? []) as Category[],
+      services: (services ?? []) as Service[],
+    };
+  } catch {
+    // Avoid failing the whole production deploy when env/DB is briefly unavailable at build.
+    return { categories: [] as Category[], services: [] as Service[] };
+  }
 }
 
 export default async function HomePage() {
   const { categories, services } = await getStorefront();
-  // Only categories with real, live services are shown. "automation-sites",
-  // "ai-translation" and "content-design" are all gone entirely now —
-  // automation-sites' products were retired as locked code
-  // (migration_catalog_cleanup_2026_09_03.sql), and ai-translation/
-  // content-design's 7 dead AI-wrapper services were merged into two real
-  // free tools (/free-tools/writing-assistant, /free-tools/text-analyzer)
-  // and the categories deleted (migration_merge_ai_tools_2026_09_03.sql).
   const visible = categories.filter((c) => ["telegram-bots", "creative-studio"].includes(c.slug));
 
   return (
