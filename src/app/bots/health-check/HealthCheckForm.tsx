@@ -5,6 +5,12 @@ import SectionBackdrop from "@/components/SectionBackdrop";
 
 const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
 
+type MenuButton = {
+  type?: string;
+  text?: string;
+  webAppUrl?: string;
+};
+
 type Result = {
   bot?: {
     id?: number;
@@ -19,6 +25,7 @@ type Result = {
     commands?: { command: string; description: string }[];
     description?: string;
     shortDescription?: string;
+    menuButton?: MenuButton;
   };
   webhook?: {
     url: string | null;
@@ -34,6 +41,17 @@ type Result = {
   error?: string;
 };
 
+function menuLabel(menu?: MenuButton) {
+  if (!menu?.type || menu.type === "unknown") return "غير معروف";
+  if (menu.type === "web_app") {
+    const label = menu.text?.trim() ? `ويب آب («${menu.text.trim()}»)` : "ويب آب";
+    return menu.webAppUrl ? `${label} — ${menu.webAppUrl}` : label;
+  }
+  if (menu.type === "commands") return "قائمة الأوامر";
+  if (menu.type === "default") return "الافتراضي (أوامر)";
+  return menu.type;
+}
+
 export default function HealthCheckForm() {
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
@@ -41,6 +59,7 @@ export default function HealthCheckForm() {
   const [result, setResult] = useState<Result | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedReport, setCopiedReport] = useState(false);
 
   async function check(e: React.FormEvent) {
     e.preventDefault();
@@ -76,6 +95,30 @@ export default function HealthCheckForm() {
       setTimeout(() => setCopiedUrl(false), 2000);
     } catch {
       setCopiedUrl(false);
+    }
+  }
+
+  async function copyReport() {
+    const b = result?.bot;
+    const w = result?.webhook;
+    if (!b) return;
+    const lines = [
+      `تقرير فحص بوت — سوق تولز`,
+      `@${b.username} (المعرّف: ${b.id ?? "—"})`,
+      `الاسم: ${b.firstName}`,
+      `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
+      w?.pendingUpdateCount != null ? `تحديثات معلّقة: ${w.pendingUpdateCount}` : "",
+      `زر القائمة: ${menuLabel(b.menuButton)}`,
+      `أوامر BotFather: ${b.commands?.length ?? 0}`,
+      `Mini App رئيسي: ${b.hasMainWebApp ? "مضبوط" : "غير مضبوط"}`,
+      `Telegram Business: ${b.canConnectToBusiness ? "مسموح" : "غير مسموح"}`,
+    ].filter(Boolean);
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopiedReport(true);
+      setTimeout(() => setCopiedReport(false), 2000);
+    } catch {
+      setCopiedReport(false);
     }
   }
 
@@ -164,6 +207,9 @@ export default function HealthCheckForm() {
               اتصال Telegram Business:{" "}
               {result.bot.canConnectToBusiness ? "مسموح" : "غير مسموح"}
             </li>
+            <li className="break-all">
+              زر قائمة الدردشة (قائمة BotFather): {menuLabel(result.bot.menuButton)}
+            </li>
             <li>
               أوامر BotFather المسجّلة:{" "}
               {(result.bot.commands?.length ?? 0) === 0
@@ -243,6 +289,13 @@ export default function HealthCheckForm() {
                 {copiedUrl ? "تم نسخ الرابط ✓" : "نسخ رابط الويبهوك"}
               </button>
             )}
+            <button
+              type="button"
+              onClick={copyReport}
+              className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800 hover:bg-indigo-50"
+            >
+              {copiedReport ? "تم نسخ التقرير ✓" : "نسخ ملخص الفحص"}
+            </button>
           </div>
         </div>
       )}
