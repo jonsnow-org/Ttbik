@@ -9,7 +9,7 @@ import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -29,7 +29,6 @@ from keyboards import (
     user_settings_keyboard,
     menu_button_webapp,
     menu_button_default,
-    mini_app_info,
     INFO_TEXT,
 )
 from services.force_sub import require_subscription
@@ -38,6 +37,7 @@ from services.archive import (
     get_cached_file_id,
     archive_and_get_file_id,
     send_from_cache_or_file,
+    set_cached_file_id,
 )
 from services.store import store, persist
 from services.feed import publish_feed_item, find_local
@@ -97,7 +97,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store.touch_user(user.id)
     await _sync_menu_button(context.bot)
 
-    # Deep-link: /start clone_<id>
     args = context.args or []
     if args and args[0].startswith("clone_"):
         item_id = args[0].replace("clone_", "", 1)
@@ -105,7 +104,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not item:
             await update.message.reply_text("انتهت صلاحية هذا الملف أو غير موجود. حمّل الرابط من جديد.")
             return
-        ok = await send_from_cache_or_file(
+        ok, _ = await send_from_cache_or_file(
             context.bot,
             update.effective_chat.id,
             item.get("file_id"),
@@ -118,8 +117,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if user.id == cfg.owner_id:
         await update.message.reply_text(
-            "👑 لوحة مالك البوت\n\n"
-            "أرسل أي رابط للتحميل مباشرة، أو استخدم الأزرار.",
+            "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة، أو استخدم الأزرار.",
             reply_markup=owner_main_keyboard(),
         )
         return
@@ -167,16 +165,15 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
         await update.message.reply_text(
-            f"قنوات الاشتراك الإجباري الحالية:\n{current}\n\n"
-            "يمكنك إضافة حتى قناتين، أو حذف أي قناة من الأزرار.",
+            f"قنوات الاشتراك الإجباري الحالية:\n{current}\n\nيمكنك إضافة حتى قناتين.",
             reply_markup=owner_force_sub_keyboard(store.force_sub_channels),
         )
     elif text in ("📱 التطبيق المصغر", "🌐 الموجز العام"):
         await update.message.reply_text(
             "📱 التطبيق المصغر داخل تيليجرام\n\n"
             "عند تفعيله يظهر زر Mini-App أسفل المحادثة.\n"
-            "التنزيلات التي يُسمح بنشرها تظهر في «الرائج» و«الأحدث».\n\n"
-            f"الحالة الآن: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
+            "التنزيلات المنشورة تظهر في «الرائج» و«الأحدث».\n\n"
+            f"الحالة: {'مفعّل ✅' if store.mini_app_enabled else 'متوقف 🔴'}",
             reply_markup=owner_mini_app_keyboard(store.mini_app_enabled),
         )
     elif text == "⚙️ إعدادات البوت":
@@ -193,10 +190,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
     elif text in ("📥 تجربة التحميل", "🔙 رجوع للقائمة الرئيسية"):
-        await update.message.reply_text(
-            "أرسل رابطاً للتحميل أو استخدم الأزرار.",
-            reply_markup=owner_main_keyboard(),
-        )
+        await update.message.reply_text("أرسل رابطاً للتحميل.", reply_markup=owner_main_keyboard())
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
@@ -225,8 +219,8 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         share = store.get_share(user.id)
         await update.message.reply_text(
             "إعدادات الخصوصية والمكافآت:\n"
-            "• تفعيل المشاركة ينشر تنزيلاتك في التطبيق المصغر (الرائج/الأحدث).\n"
-            "• المكافأة: شارة مساهم + أولوية أوضح في الموجز.\n"
+            "• تفعيل المشاركة ينشر تنزيلاتك في التطبيق المصغر.\n"
+            "• المكافأة: شارة مساهم في الموجز.\n"
             "• يمكنك الإيقاف في أي وقت.",
             reply_markup=user_settings_keyboard(share),
         )
@@ -256,8 +250,8 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     if not info:
         await status_msg.edit_text(
             "❌ تعذر قراءة الرابط.\n"
-            "جرّب رابط يوتيوب / تيك توك / إنستغرام مباشر.\n"
-            "روابط فيسبوك المختصرة قد تفشل بدون كوكيز."
+            "جرّب يوتيوب / تيك توك / إنستغرام مباشر.\n"
+            "روابط فيسبوك المختصرة غالباً تفشل."
         )
         return
 
@@ -299,25 +293,21 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         store.set_share(user_id, new_val)
         await _save(context.bot)
         note = (
-            "✅ المشاركة مفعّلة — تنزيلاتك قد تظهر في الرائج مع شارة مساهم."
+            "✅ المشاركة مفعّلة — تنزيلاتك قد تظهر في الرائج."
             if new_val
             else "تم إخفاء تنزيلاتك عن التطبيق المصغر."
         )
-        await query.edit_message_text(
-            note,
-            reply_markup=user_settings_keyboard(new_val),
-        )
+        await query.edit_message_text(note, reply_markup=user_settings_keyboard(new_val))
         return
 
     if user_id == cfg.owner_id:
         if data == "owner_add_force_sub":
             if len(store.force_sub_channels) >= 2:
-                await query.edit_message_text("الحد الأقصى قناتان. احذف واحدة أولاً.")
+                await query.edit_message_text("الحد الأقصى قناتان.")
                 return
             _waiting_channel.add(user_id)
             await query.edit_message_text(
-                "أرسل يوزر القناة أو آيديها\nمثال: @MyChannel أو -1001234567890\n"
-                "تأكد أن البوت مشرف في القناة."
+                "أرسل يوزر القناة أو آيديها\nمثال: @MyChannel\nالبوت يجب أن يكون مشرفاً."
             )
             return
         if data == "owner_clear_force_sub":
@@ -376,15 +366,14 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cached = get_cached_file_id(url, media_type, quality)
     if cached:
         await query.edit_message_text("⚡ موجود في الأرشيف — جاري الإرسال...")
-        ok = await send_from_cache_or_file(
+        ok, fid = await send_from_cache_or_file(
             context.bot, query.message.chat_id, cached, None, media_type, meta.get("title") or "cached"
         )
         if ok:
             store.downloads += 1
             await _maybe_publish_feed(
-                context,
                 user_id=user_id,
-                file_id=cached,
+                file_id=fid or cached,
                 media_type=media_type,
                 title=meta.get("title") or "media",
                 url=url,
@@ -397,9 +386,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق حتى 3 دقائق.")
     result = await download_media(url, quality=quality, media_type=media_type)
     if not result:
-        await query.edit_message_text(
-            "❌ فشل التحميل.\nجرّب جودة أقل أو رابط يوتيوب/تيك توك مباشر."
-        )
+        await query.edit_message_text("❌ فشل التحميل.\nجرّب جودة أقل أو رابط يوتيوب/تيك توك.")
         return
 
     file_id = await archive_and_get_file_id(
@@ -411,21 +398,17 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         quality,
         result.title,
     )
-    # If archive failed, still try send from local path and get file_id from user send
-    send_id = file_id
-    ok = await send_from_cache_or_file(
+    ok, sent_id = await send_from_cache_or_file(
         context.bot,
         query.message.chat_id,
-        send_id,
+        file_id,
         str(result.path),
         media_type,
         result.title,
     )
-
-    # If we sent by path only, archive again is already done; file_id may still be None
-    if ok and not send_id:
-        # best-effort: re-archive already attempted
-        pass
+    final_id = sent_id or file_id
+    if final_id:
+        set_cached_file_id(url, media_type, quality, final_id)
 
     try:
         parent = result.path.parent
@@ -438,11 +421,10 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         store.downloads += 1
         store.touch_user(user_id)
         await _save(context.bot)
-        if send_id:
+        if final_id:
             await _maybe_publish_feed(
-                context,
                 user_id=user_id,
-                file_id=send_id,
+                file_id=final_id,
                 media_type=media_type,
                 title=result.title,
                 url=url,
@@ -451,13 +433,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         await query.edit_message_text("✅ تم التحميل والإرسال بنجاح.")
     else:
-        await query.edit_message_text("⚠️ تم التحميل لكن فشل الإرسال (قد يتجاوز حد تيليجرام 50MB).")
+        await query.edit_message_text("⚠️ فشل الإرسال (قد يتجاوز حد 50MB).")
     _pending_url.pop(user_id, None)
     _pending_meta.pop(user_id, None)
 
 
 async def _maybe_publish_feed(
-    context: ContextTypes.DEFAULT_TYPE,
     *,
     user_id: int,
     file_id: str,
@@ -467,12 +448,9 @@ async def _maybe_publish_feed(
     thumbnail: str | None,
     from_user,
 ) -> None:
-    """Publish to Mini App feed if user opted in (owner always can publish)."""
     is_owner = user_id == cfg.owner_id
     share = is_owner or store.get_share(user_id)
     if not share:
-        return
-    if not store.mini_app_enabled and not is_owner:
         return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     try:
