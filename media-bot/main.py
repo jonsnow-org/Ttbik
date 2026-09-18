@@ -10,6 +10,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from telegram import Update
+from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -467,24 +468,56 @@ async def _maybe_publish_feed(
         logger.warning("publish feed: %s", e)
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    err = context.error
+    if isinstance(err, Conflict):
+        logger.warning("Conflict (another poller) — will retry. %s", err)
+        return
+    if isinstance(err, (NetworkError, TimedOut)):
+        logger.warning("Network issue: %s", err)
+        return
+    logger.exception("Unhandled error: %s", err)
+
+
 async def _post_init(app: Application) -> None:
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    await asyncio.sleep(2)
+    for attempt in range(3):
+        try:
+            await app.bot.delete_webhook(drop_pending_updates=True)
+            logger.info("delete_webhook ok (attempt %s)", attempt + 1)
+            break
+        except Exception as e:
+            logger.warning("delete_webhook attempt %s: %s", attempt + 1, e)
+            await asyncio.sleep(2)
+    await asyncio.sleep(3)
     await _sync_menu_button(app.bot)
+    logger.info("Bot ready. Owner=%s", cfg.owner_id)
 
 
 def main() -> None:
     _start_health_server()
-    app = Application.builder().token(cfg.bot_token).post_init(_post_init).build()
+    app = (
+        Application.builder()
+        .token(cfg.bot_token)
+        .post_init(_post_init)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(30.0)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
-    logger.info("Media bot started. Owner ID: %s", cfg.owner_id)
+    app.add_error_handler(error_handler)
+    logger.info("Media bot starting. Owner ID: %s", cfg.owner_id)
     app.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
         close_loop=False,
+        poll_interval=1.0,
+        timeout=25,
+        bootstrap_retries=5,
     )
 
 
