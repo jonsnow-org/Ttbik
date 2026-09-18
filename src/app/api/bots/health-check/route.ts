@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Stateless proxy to Telegram's own free Bot API (getMe + getWebhookInfo + getMyCommands
-// + getMyDescription + getMyShortDescription + getMyName + getChatMenuButton).
+// + getMyDescription + getMyShortDescription + getMyName + getChatMenuButton
+// + getMyDefaultAdministratorRights for groups and channels).
 // — never persists the token anywhere (no DB write, no logging of the
 // request body), same privacy bar as the token pasted into /bots' own
 // deploy form. Real, zero-cost utility: lets anyone verify a bot token is
@@ -16,6 +17,18 @@ function extractToken(raw: string): string {
   return m ? m[1] : trimmed;
 }
 
+type AdminRights = Record<string, boolean | undefined>;
+
+function pickRights(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== "object") return {};
+  const src = raw as AdminRights;
+  const out: Record<string, boolean> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (typeof v === "boolean") out[k] = v;
+  }
+  return out;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? extractToken(body.token) : "";
@@ -25,7 +38,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const [meRes, webhookRes, commandsRes, descRes, shortDescRes, nameRes, menuRes] = await Promise.all([
+    const [
+      meRes,
+      webhookRes,
+      commandsRes,
+      descRes,
+      shortDescRes,
+      nameRes,
+      menuRes,
+      groupRightsRes,
+      channelRightsRes,
+    ] = await Promise.all([
       fetch(`https://api.telegram.org/bot${token}/getMe`),
       fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
@@ -33,6 +56,10 @@ export async function POST(req: NextRequest) {
       fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
       fetch(`https://api.telegram.org/bot${token}/getMyName`),
       fetch(`https://api.telegram.org/bot${token}/getChatMenuButton`),
+      fetch(`https://api.telegram.org/bot${token}/getMyDefaultAdministratorRights`),
+      fetch(
+        `https://api.telegram.org/bot${token}/getMyDefaultAdministratorRights?for_channels=true`,
+      ),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
@@ -41,6 +68,8 @@ export async function POST(req: NextRequest) {
     const shortDescJson = await shortDescRes.json().catch(() => ({}));
     const nameJson = await nameRes.json().catch(() => ({}));
     const menuJson = await menuRes.json().catch(() => ({}));
+    const groupRightsJson = await groupRightsRes.json().catch(() => ({}));
+    const channelRightsJson = await channelRightsRes.json().catch(() => ({}));
 
     if (!me.ok) {
       return NextResponse.json({ error: "التوكن غير صالح أو تم إلغاؤه من BotFather." }, { status: 200 });
@@ -81,6 +110,9 @@ export async function POST(req: NextRequest) {
         }
       : { type: "unknown", text: "", webAppUrl: "" };
 
+    const groupAdminRights = groupRightsJson?.ok ? pickRights(groupRightsJson.result) : {};
+    const channelAdminRights = channelRightsJson?.ok ? pickRights(channelRightsJson.result) : {};
+
     return NextResponse.json({
       ok: true,
       bot: {
@@ -93,10 +125,13 @@ export async function POST(req: NextRequest) {
         supportsInlineQueries: Boolean(me.result.supports_inline_queries),
         canConnectToBusiness: Boolean(me.result.can_connect_to_business),
         hasMainWebApp: Boolean(me.result.has_main_web_app),
+        addedToAttachmentMenu: Boolean(me.result.added_to_attachment_menu),
         commands,
         description,
         shortDescription,
         menuButton,
+        groupAdminRights,
+        channelAdminRights,
       },
       webhook: {
         url: webhook.result?.url || null,
