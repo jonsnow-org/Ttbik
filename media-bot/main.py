@@ -54,7 +54,6 @@ _waiting_channel: set[int] = set()
 
 if cfg.force_sub_channel and not store.force_sub_channels:
     store.force_sub_channels = [cfg.force_sub_channel]
-# Always keep Mini-App menu button ON (user requirement)
 store.mini_app_enabled = True
 
 
@@ -81,7 +80,6 @@ async def _save(bot) -> None:
 
 
 async def _force_menu_button(bot) -> None:
-    """Always set the WebApp menu button so the square appears next to the input."""
     try:
         await bot.set_chat_menu_button(menu_button=menu_button_webapp())
         logger.info("Menu button Mini-App set")
@@ -94,7 +92,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user or not update.message:
         return
     store.touch_user(user.id)
-    # Re-assert menu button every /start (Telegram sometimes drops it)
     await _force_menu_button(context.bot)
 
     args = context.args or []
@@ -187,12 +184,9 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
-        # تجاهل الأزرار المحذوفة القديمة إن بقيت ظاهرة في الكاش
         if text in ("📱 التطبيق المصغر", "📥 تجربة التحميل", "🌐 الموجز العام"):
             await update.message.reply_text(
-                "تم حذف هذا الزر.\n"
-                "• للتحميل: أرسل الرابط مباشرة.\n"
-                "• للتطبيق المصغر: الزر المربع بجانب حقل الرسالة.",
+                "تم حذف هذا الزر.\n• للتحميل: أرسل الرابط مباشرة.\n• للتطبيق: الزر المربع بجانب الرسالة.",
                 reply_markup=owner_main_keyboard(),
             )
             return
@@ -221,8 +215,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         share = store.get_share(user.id)
         await update.message.reply_text(
             "إعدادات الخصوصية والمكافآت:\n"
-            "• تفعيل المشاركة ينشر تنزيلاتك في التطبيق المصغر.\n"
-            "• المكافأة: شارة مساهم في الموجز.\n"
+            "• تشغيل المشاركة ينشر تنزيلاتك في التطبيق المصغر.\n"
             "• يمكنك الإيقاف في أي وقت.",
             reply_markup=user_settings_keyboard(share),
         )
@@ -243,7 +236,7 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         return
     store.touch_user(user.id)
 
-    status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط (حد أقصى 45 ثانية)...")
+    status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط...")
     try:
         info = await extract_info(url)
     except Exception:
@@ -252,8 +245,8 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     if not info:
         await status_msg.edit_text(
             "❌ تعذر قراءة الرابط.\n"
-            "جرّب يوتيوب / تيك توك / إنستغرام مباشر.\n"
-            "روابط فيسبوك المختصرة غالباً تفشل."
+            "جرّب رابطاً مباشراً من يوتيوب / تيك توك / إنستغرام / تويتر.\n"
+            "بعض الروابط المحمية أو المختصرة تفشل."
         )
         return
 
@@ -277,6 +270,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.answer()
     data = query.data or ""
     user_id = query.from_user.id
+    from_user = query.from_user
 
     if data == "close_msg":
         await query.edit_message_text("تم.")
@@ -297,7 +291,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         note = (
             "✅ المشاركة مفعّلة — تنزيلاتك قد تظهر في الرائج."
             if new_val
-            else "تم إخفاء تنزيلاتك عن التطبيق المصغر."
+            else "تم إيقاف المشاركة — تنزيلاتك لن تظهر في التطبيق."
         )
         await query.edit_message_text(note, reply_markup=user_settings_keyboard(new_val))
         return
@@ -331,14 +325,10 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await query.edit_message_text("تعذر الحذف.")
             return
         if data == "owner_toggle_mini_app":
-            # Always keep ON
             store.mini_app_enabled = True
             await _save(context.bot)
             await _force_menu_button(context.bot)
-            await query.edit_message_text(
-                "زر Mini-App مفعّل دائماً.\n"
-                "أغلق المحادثة وافتحها من جديد إن لم يظهر الزر المربع."
-            )
+            await query.edit_message_text("زر Mini-App مفعّل دائماً.")
             return
 
     url = _pending_url.get(user_id)
@@ -363,6 +353,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     quality, media_type = mapping[data]
     meta = _pending_meta.get(user_id) or {}
+    dname = getattr(from_user, "first_name", None) or "مستخدم"
 
     cached = get_cached_file_id(url, media_type, quality)
     if cached:
@@ -379,7 +370,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 title=meta.get("title") or "media",
                 url=url,
                 thumbnail=meta.get("thumbnail"),
-                from_user=query.from_user,
+                from_user=from_user,
             )
             await query.edit_message_text("✅ تم الإرسال من الأرشيف.")
             return
@@ -387,7 +378,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text("⬇️ جاري التحميل... قد يستغرق حتى 3 دقائق.")
     result = await download_media(url, quality=quality, media_type=media_type)
     if not result:
-        await query.edit_message_text("❌ فشل التحميل.\nجرّب جودة أقل أو رابط يوتيوب/تيك توك.")
+        await query.edit_message_text("❌ فشل التحميل.\nجرّب جودة أقل أو رابطاً آخر.")
         return
 
     file_id = await archive_and_get_file_id(
@@ -398,6 +389,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         media_type,
         quality,
         result.title,
+        downloader_name=dname,
+        downloader_id=user_id,
     )
     ok, sent_id = await send_from_cache_or_file(
         context.bot,
@@ -430,7 +423,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 title=result.title,
                 url=url,
                 thumbnail=result.thumbnail or meta.get("thumbnail"),
-                from_user=query.from_user,
+                from_user=from_user,
             )
         await query.edit_message_text("✅ تم التحميل والإرسال بنجاح.")
     else:
@@ -452,10 +445,11 @@ async def _maybe_publish_feed(
     is_owner = user_id == cfg.owner_id
     share = is_owner or store.get_share(user_id)
     if not share:
+        logger.info("skip feed publish (share off) user=%s", user_id)
         return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     try:
-        await publish_feed_item(
+        item = await publish_feed_item(
             file_id=file_id,
             media_type=media_type,
             title=title,
@@ -464,6 +458,7 @@ async def _maybe_publish_feed(
             sharer_name=name,
             sharer_id=str(user_id),
         )
+        logger.info("feed published id=%s", (item or {}).get("id"))
     except Exception as e:
         logger.warning("publish feed: %s", e)
 
@@ -491,7 +486,7 @@ async def _post_init(app: Application) -> None:
     await asyncio.sleep(3)
     store.mini_app_enabled = True
     await _force_menu_button(app.bot)
-    logger.info("Bot ready. Owner=%s Mini-App menu forced ON", cfg.owner_id)
+    logger.info("Bot ready. Owner=%s", cfg.owner_id)
 
 
 def main() -> None:
