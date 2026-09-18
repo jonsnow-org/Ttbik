@@ -86,6 +86,7 @@ function omittedCoreUpdates(allowed?: string[]) {
 function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string; notes: string[] } {
   const notes: string[] = [];
   const w = result.webhook;
+  const b = result.bot;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates اليدوي.");
   if ((w?.pendingUpdateCount ?? 0) > 10) notes.push(`تراكم تحديثات معلّق (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
   if (w?.lastErrorMessage) {
@@ -100,13 +101,16 @@ function readiness(result: Result): { tone: "ok" | "warn" | "bad"; title: string
   if (w?.url && omitted.length) {
     notes.push(`allowedUpdates تستبعد أنواعاً أساسية (${omitted.join(", ")}) — البوت قد لا يستقبل رسائل أو أزرار الأزرار.`);
   }
-  if (result.bot?.canJoinGroups === false) notes.push("البوت ممنوع من الانضمام للمجموعات في BotFather.");
-  if ((result.bot?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
-  if (!result.bot?.description?.trim() && !result.bot?.shortDescription?.trim()) notes.push("لا يوجد وصف مسجل في BotFather.");
-  if ((result.bot?.commands?.length ?? 0) > 0 && (result.bot?.commandsAr?.length ?? 0) === 0) notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
-  if ((result.bot?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي في BotFather.");
-  if ((result.bot?.description?.trim() || result.bot?.shortDescription?.trim()) && !result.bot?.descriptionAr?.trim() && !result.bot?.shortDescriptionAr?.trim()) {
+  if (b?.canJoinGroups === false) notes.push("البوت ممنوع من الانضمام للمجموعات في BotFather.");
+  if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف مسجل في BotFather.");
+  if ((b?.commands?.length ?? 0) > 0 && (b?.commandsAr?.length ?? 0) === 0) notes.push("لا توجد قائمة أوامر عربية (لغة ar) في BotFather.");
+  if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي في BotFather.");
+  if ((b?.description?.trim() || b?.shortDescription?.trim()) && !b?.descriptionAr?.trim() && !b?.shortDescriptionAr?.trim()) {
     notes.push("لا يوجد وصف عربي (لغة ar) في BotFather.");
+  }
+  if (b?.botFatherName?.trim() && b.firstName && b.botFatherName.trim() !== b.firstName) {
+    notes.push(`اسم BotFather («${b.botFatherName.trim()}») يختلف عن first_name («${b.firstName}»).`);
   }
   if (notes.some((n) => n.startsWith("آخر خطأ") || n.startsWith("تراكم") || n.includes("ليس HTTPS") || n.startsWith("يوجد تاريخ خطأ") || n.startsWith("allowedUpdates"))) {
     return { tone: "bad", title: "البوت حي لكن الويبهوك فيه مشكلة", notes };
@@ -173,9 +177,13 @@ export default function HealthCheckForm() {
       ...verdict.notes.map((n) => `- ${n}`),
       `@${b.username} (المعرّف: ${b.id ?? "—"})`,
       `الاسم: ${b.firstName}`,
+      b.botFatherName?.trim() ? `اسم BotFather: ${b.botFatherName.trim()}` : "",
+      b.botFatherNameAr?.trim() ? `اسم BotFather عربي: ${b.botFatherNameAr.trim()}` : "",
       `ينضم للمجموعات: ${yn(b.canJoinGroups)}`,
       `يقرأ كل رسائل المجموعة: ${yn(b.canReadAllGroupMessages)}`,
       `إنلاين: ${yn(b.supportsInlineQueries)}`,
+      `اتصال Telegram Business: ${yn(b.canConnectToBusiness)}`,
+      `قائمة المرفقات: ${yn(b.addedToAttachmentMenu)}`,
       `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
       w?.host ? `مضيف الويبهوك: ${w.host}` : "",
       w?.ipAddress ? `عنوان IP: ${w.ipAddress}` : "",
@@ -226,13 +234,18 @@ export default function HealthCheckForm() {
           <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{b.username}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             <li>الاسم: {b.firstName}</li>
+            {b.botFatherName?.trim() && <li>اسم BotFather: {b.botFatherName.trim()}</li>}
+            {b.botFatherNameAr?.trim() && <li>اسم BotFather عربي: {b.botFatherNameAr.trim()}</li>}
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>صورة الملف: {(b.profilePhotoCount ?? 0) > 0 ? `${b.profilePhotoCount} صورة` : "غير مضبوطة"}</li>
             <li>الانضمام للمجموعات: {yn(b.canJoinGroups)}</li>
             <li>قراءة كل رسائل المجموعة: {yn(b.canReadAllGroupMessages)}</li>
             <li>استعلامات إنلاين: {yn(b.supportsInlineQueries)}</li>
             <li>ويب آب رئيسي: {yn(b.hasMainWebApp)}</li>
+            <li>اتصال Telegram Business: {yn(b.canConnectToBusiness)}</li>
+            <li>قائمة المرفقات: {yn(b.addedToAttachmentMenu)}</li>
             <li>الوصف المختصر: {b.shortDescription?.trim() || "غير مضبوط"}</li>
+            <li>الوصف المختصر العربي: {b.shortDescriptionAr?.trim() || "غير مضبوط"}</li>
             <li>الوصف العربي (ar): {b.descriptionAr?.trim() || "غير مضبوط"}</li>
             <li>أوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0}</li>
             <li>زر القائمة: {menuLabel(b.menuButton)}</li>
