@@ -208,6 +208,14 @@ export async function POST(req: NextRequest) {
           }
         })(),
         tokenEmbeddedInUrl: typeof webhook.result?.url === "string" && webhook.result.url.includes(token),
+        hostIsIp: (() => {
+          try {
+            const host = webhook.result?.url ? new URL(webhook.result.url).hostname : "";
+            return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(":");
+          } catch {
+            return false;
+          }
+        })(),
       },
     });
   } catch {
