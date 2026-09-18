@@ -3,13 +3,14 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5726661464,
   "last_actor": "grok",
-  "updated_at": "2026-09-18T07:24:30Z",
+  "updated_at": "2026-09-18T08:22:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half (schema/core skeleton).",
     "Owner must run remaining migrations if any still pending"
   ],
   "resolved": [
+    "G57 (2026-09-18): health-check reports webhook host + HTTPS flag, flags non-HTTPS and last sync error in readiness + copyable report, always shows allowed updates (empty = all).",
     "G56 (2026-09-18): health-check fetches BotFather name/description/short description with language_code=ar and includes them in readiness + copyable report. SHAs d0272e9 / 397b158",
     "G55 (2026-09-18): health-check reports BotFather profile photo count.",
     "G54 (2026-09-18): health-check fetches getMyCommands language_code=ar.",
