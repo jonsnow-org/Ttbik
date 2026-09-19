@@ -166,7 +166,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     await update.message.reply_text(
         f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{store.perk_label(user.id)}",
-        reply_markup=user_main_keyboard(True),
+        reply_markup=user_main_keyboard(),
     )
 
 
@@ -301,7 +301,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
-        await update.message.reply_text("أرسل رابطاً أو استخدم الأزرار.", reply_markup=user_main_keyboard(True))
+        await update.message.reply_text("أرسل رابطاً أو استخدم الأزرار.", reply_markup=user_main_keyboard())
 
 
 async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:

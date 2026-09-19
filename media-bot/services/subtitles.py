@@ -137,8 +137,6 @@ def guess_tags(title: str, extractor: str = "") -> list[str]:
         ("طبخ|recipe|مطبخ|food", "طبخ"),
         ("podcast|بودكاست|محاضرة", "بودكاست"),
     ]
-    import re
-
     for pat, tag in rules:
         if re.search(pat, t, re.I):
             tags.append(tag)

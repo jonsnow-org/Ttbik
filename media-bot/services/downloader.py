@@ -349,29 +349,20 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
             except Exception as e:
                 errors.append(f"yt-dlp: {type(e).__name__}: {e}")
                 continue
-    # Cobalt fallback
+    # Cobalt fallback. Real regression (fixed): this used to post directly
+    # to the single official api.cobalt.tools endpoint -- but that one is
+    # bot-protected and unreliable from datacenter IPs (Render included),
+    # which is exactly why services/cobalt.py exists with 5 community
+    # instances and real, already-verified COBALT_API_KEY support (see its
+    # own comment for the confirmed error.api.auth.jwt.missing fix). That
+    # module had become dead code, imported nowhere, while this function
+    # quietly fell back to the one endpoint least likely to work.
     try:
-        import httpx
-        cobalt = (os.getenv("COBALT_API_URL") or "https://api.cobalt.tools/").rstrip("/") + "/"
-        headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": _UA}
-        key = (os.getenv("COBALT_API_KEY") or "").strip()
-        if key:
-            headers["Authorization"] = f"Api-Key {key}"
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            r = await client.post(cobalt, headers=headers, json={"url": url, "downloadMode": "audio" if audio_only else "auto", "videoQuality": quality if quality in ("360", "480", "720") else "720"})
-            if r.status_code < 400:
-                js = r.json()
-                media_url = js.get("url") or (js.get("tunnel") if isinstance(js.get("tunnel"), str) else None)
-                if media_url:
-                    path = Path(tmp) / ("media.mp3" if audio_only else "media.mp4")
-                    async with client.stream("GET", media_url) as rr:
-                        with open(path, "wb") as f:
-                            async for chunk in rr.aiter_bytes(64 * 1024):
-                                f.write(chunk)
-                    if path.stat().st_size > 1000:
-                        return DownloadResult(path=path, title="media", media_type="audio" if audio_only else "video", filesize=path.stat().st_size), ""
-            else:
-                errors.append(f"cobalt HTTP {r.status_code}")
+        from services.cobalt import cobalt_download_to_file
+        cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
+        if cobalt_path:
+            return DownloadResult(path=cobalt_path, title=cobalt_title or "media", media_type="audio" if audio_only else "video", filesize=cobalt_path.stat().st_size), ""
+        errors.append(cobalt_err or "cobalt failed")
     except Exception as e:
         errors.append(f"cobalt: {e}")
     joined = " | ".join(errors[-4:]) if errors else "download failed"

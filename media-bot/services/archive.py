@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -51,35 +53,41 @@ async def archive_and_get_file_id(
         f"👤 بواسطة: {who}{uid}"
     )
 
+    # Real bug (fixed): passing an open file handle here made
+    # python-telegram-bot read the WHOLE file synchronously (a plain
+    # .read() call) before building the upload request -- that read runs
+    # on this same coroutine, so for a real video file it blocks the
+    # entire event loop for however long that disk read takes, during
+    # which every OTHER user's message sits unprocessed. Reading the
+    # bytes via a thread first keeps the actual disk I/O off the event
+    # loop; only the (already-async) network upload happens inline.
     try:
+        data = await asyncio.to_thread(Path(file_path).read_bytes)
         if media_type == "voice":
-            with open(file_path, "rb") as f:
-                msg = await bot.send_voice(
-                    chat_id=archive_channel_id,
-                    voice=f,
-                    caption=caption,
-                    disable_notification=True,
-                )
+            msg = await bot.send_voice(
+                chat_id=archive_channel_id,
+                voice=data,
+                caption=caption,
+                disable_notification=True,
+            )
             file_id = msg.voice.file_id if msg.voice else None
         elif media_type == "audio":
-            with open(file_path, "rb") as f:
-                msg = await bot.send_audio(
-                    chat_id=archive_channel_id,
-                    audio=f,
-                    caption=caption,
-                    title=title[:64],
-                    disable_notification=True,
-                )
+            msg = await bot.send_audio(
+                chat_id=archive_channel_id,
+                audio=data,
+                caption=caption,
+                title=title[:64],
+                disable_notification=True,
+            )
             file_id = msg.audio.file_id if msg.audio else None
         else:
-            with open(file_path, "rb") as f:
-                msg = await bot.send_video(
-                    chat_id=archive_channel_id,
-                    video=f,
-                    caption=caption,
-                    supports_streaming=True,
-                    disable_notification=True,
-                )
+            msg = await bot.send_video(
+                chat_id=archive_channel_id,
+                video=data,
+                caption=caption,
+                supports_streaming=True,
+                disable_notification=True,
+            )
             file_id = msg.video.file_id if msg.video else None
 
         if file_id:
@@ -113,18 +121,16 @@ async def send_from_cache_or_file(
             return True, msg.video.file_id if msg.video else file_id
 
         if file_path:
+            data = await asyncio.to_thread(Path(file_path).read_bytes)
             if media_type == "voice":
-                with open(file_path, "rb") as f:
-                    msg = await bot.send_voice(chat_id=chat_id, voice=f)
+                msg = await bot.send_voice(chat_id=chat_id, voice=data)
                 fid = msg.voice.file_id if msg.voice else None
                 return True, fid
             if media_type == "audio":
-                with open(file_path, "rb") as f:
-                    msg = await bot.send_audio(chat_id=chat_id, audio=f, title=title[:64])
+                msg = await bot.send_audio(chat_id=chat_id, audio=data, title=title[:64])
                 fid = msg.audio.file_id if msg.audio else None
                 return True, fid
-            with open(file_path, "rb") as f:
-                msg = await bot.send_video(chat_id=chat_id, video=f, supports_streaming=True)
+            msg = await bot.send_video(chat_id=chat_id, video=data, supports_streaming=True)
             fid = msg.video.file_id if msg.video else None
             return True, fid
     except Exception as e:

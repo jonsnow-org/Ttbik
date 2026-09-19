@@ -51,7 +51,7 @@ def owner_main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def user_main_keyboard(mini_app_enabled: bool = True) -> ReplyKeyboardMarkup:
+def user_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📥 تحميل وسائط")],
         [KeyboardButton("👥 غرفتي"), KeyboardButton("⚙️ إعداداتي")],

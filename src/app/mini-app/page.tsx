@@ -9,7 +9,7 @@ type CommentRow = { id: string; post_id: string; parent_id: string | null; from_
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
-const LS = { follow: "mb_following", views: "mb_views", profile: "mb_profile", share: "mb_share_public", liked: "mb_liked" };
+const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked" };
 
 function typeIcon(t: string) { if (t === "audio" || t === "voice") return "🎵"; if (t === "photo") return "🖼️"; return "🎬"; }
 function platformBadge(url?: string) { const u = (url || "").toLowerCase(); if (u.includes("tiktok")) return { label: "TikTok", color: "bg-pink-500" }; if (u.includes("youtu")) return { label: "YouTube", color: "bg-red-500" }; if (u.includes("instagram")) return { label: "IG", color: "bg-fuchsia-500" }; if (u.includes("twitter") || u.includes("x.com")) return { label: "X", color: "bg-slate-700" }; return { label: "Media", color: "bg-sky-500" }; }
@@ -56,7 +56,6 @@ export default function MiniAppPage() {
   const [profileSection, setProfileSection] = useState<ProfileSection>("all");
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [sharePublic, setSharePublic] = useState(true);
   const [search, setSearch] = useState("");
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
@@ -99,7 +98,6 @@ export default function MiniAppPage() {
     }
     setFollowing(loadJSON(LS.follow, {}));
     setLiked(loadJSON(LS.liked, {}));
-    setSharePublic(loadJSON(LS.share, true));
     const prof = loadJSON<{ name?: string; status?: string }>(LS.profile, {});
     if (prof.name) { setDisplayName(prof.name); setEditName(prof.name); }
     if (prof.status) setStatusLine(prof.status);
