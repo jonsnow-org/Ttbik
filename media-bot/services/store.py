@@ -23,8 +23,14 @@ SHARE_DAILY_LIMIT = 20
 class Store:
     force_sub_channels: list[str] = field(default_factory=list)
     mini_app_enabled: bool = True
+    # public feed share
     user_share: dict[str, bool] = field(default_factory=dict)
+    # private room share (only when user is in a squad)
+    user_share_room: dict[str, bool] = field(default_factory=dict)
     known_users: list[int] = field(default_factory=list)
+    # user_id -> unix ts first seen / last seen
+    user_joined: dict[str, int] = field(default_factory=dict)
+    user_last_seen: dict[str, int] = field(default_factory=dict)
     downloads: int = 0
     daily_usage: dict[str, dict] = field(default_factory=dict)
     file_cache: dict[str, str] = field(default_factory=dict)
@@ -35,14 +41,30 @@ class Store:
     last_persist_ts: float = 0.0
 
     def touch_user(self, user_id: int) -> None:
+        key = str(user_id)
+        now = int(time.time())
         if user_id not in self.known_users:
             self.known_users.append(user_id)
+        if key not in self.user_joined:
+            self.user_joined[key] = now
+        self.user_last_seen[key] = now
 
     def set_share(self, user_id: int, value: bool) -> None:
+        """Public feed share."""
         self.user_share[str(user_id)] = value
 
-    def get_share(self, user_id: int) -> bool:
+    def get_share_public(self, user_id: int) -> bool:
         return bool(self.user_share.get(str(user_id), False))
+
+    def set_share_room(self, user_id: int, value: bool) -> None:
+        self.user_share_room[str(user_id)] = value
+
+    def get_share_room(self, user_id: int) -> bool:
+        return bool(self.user_share_room.get(str(user_id), False))
+
+    def get_share(self, user_id: int) -> bool:
+        """Perk / higher limit: active if public OR room share is on."""
+        return self.get_share_public(user_id) or self.get_share_room(user_id)
 
     def _today(self) -> str:
         return time.strftime("%Y-%m-%d", time.gmtime())
@@ -68,7 +90,7 @@ class Store:
             return (
                 False,
                 f"وصلت للحد المجاني ({FREE_DAILY_LIMIT}/يوم).\n"
-                f"فعّل المشاركة من إعداداتي لرفع الحد إلى {SHARE_DAILY_LIMIT}.",
+                f"فعّل المشاركة (عام أو غرفة) لرفع الحد إلى {SHARE_DAILY_LIMIT}.",
             )
         return True, f"{used + 1}/{limit}"
 
@@ -83,8 +105,14 @@ class Store:
         self.downloads += 1
 
     def perk_label(self, user_id: int) -> str:
-        if self.get_share(user_id):
-            return "🏅 مساهم مميز · حد يومي مرتفع"
+        pub = self.get_share_public(user_id)
+        room = self.get_share_room(user_id)
+        if pub and room:
+            return "🏅 مساهم · موجز عام + غرفة خاصة"
+        if pub:
+            return "🏅 مساهم · موجز عام"
+        if room:
+            return "🏠 مساهم · غرفة خاصة فقط"
         return "حد مجاني عادي — فعّل المشاركة لمضاعفة الحد"
 
     def create_squad(self, owner_id: int, name: str = "غرفة خاصة") -> str:
@@ -98,6 +126,8 @@ class Store:
             "created_at": int(time.time()),
         }
         self.user_squad[str(owner_id)] = code
+        # default: publish downloads into this room only
+        self.set_share_room(owner_id, True)
         return code
 
     def join_squad(self, user_id: int, code: str) -> str:
@@ -110,7 +140,8 @@ class Store:
             members.append(user_id)
             sq["members"] = members
         self.user_squad[str(user_id)] = code
-        return f"انضممت إلى «{sq.get('name', code)}» ({len(members)} أعضاء)."
+        self.set_share_room(user_id, True)
+        return f"انضممت إلى «{sq.get('name', code)}» ({len(members)} أعضاء).\nتم تفعيل نشر تنزيلاتك داخل الغرفة تلقائياً."
 
     def leave_squad(self, user_id: int) -> str:
         code = self.user_squad.pop(str(user_id), None)
@@ -119,10 +150,38 @@ class Store:
         sq = self.squads.get(code)
         if sq and user_id in (sq.get("members") or []):
             sq["members"] = [m for m in sq["members"] if m != user_id]
-        return "غادرت الغرفة."
+        self.set_share_room(user_id, False)
+        return "غادرت الغرفة. تم إيقاف نشر الغرفة."
 
     def get_user_squad(self, user_id: int) -> str | None:
         return self.user_squad.get(str(user_id))
+
+    def bot_stats(self) -> dict:
+        now = int(time.time())
+        day = 86400
+        today = self._today()
+        new_24h = sum(1 for ts in self.user_joined.values() if now - int(ts) < day)
+        active_24h = sum(1 for ts in self.user_last_seen.values() if now - int(ts) < day)
+        online_15m = sum(1 for ts in self.user_last_seen.values() if now - int(ts) < 15 * 60)
+        active_today_dl = sum(
+            1
+            for row in self.daily_usage.values()
+            if row.get("date") == today and int(row.get("count") or 0) > 0
+        )
+        pub = sum(1 for v in self.user_share.values() if v)
+        room = sum(1 for v in self.user_share_room.values() if v)
+        return {
+            "users": len(self.known_users),
+            "new_24h": new_24h,
+            "active_24h": active_24h,
+            "online_15m": online_15m,
+            "downloads": self.downloads,
+            "active_downloaders_today": active_today_dl,
+            "squads": len(self.squads),
+            "share_public": pub,
+            "share_room": room,
+            "force_sub": len(self.force_sub_channels),
+        }
 
     def add_force_channel(self, channel: str) -> str:
         ch = channel.strip()
@@ -157,7 +216,10 @@ class Store:
                 "force_sub_channels": self.force_sub_channels,
                 "mini_app_enabled": self.mini_app_enabled,
                 "user_share": self.user_share,
+                "user_share_room": self.user_share_room,
                 "known_users": self.known_users[-5000:],
+                "user_joined": dict(list(self.user_joined.items())[-5000:]),
+                "user_last_seen": dict(list(self.user_last_seen.items())[-5000:]),
                 "downloads": self.downloads,
                 "daily_usage": self.daily_usage,
                 "file_cache": dict(list(self.file_cache.items())[-500:]),
@@ -172,7 +234,10 @@ class Store:
         self.force_sub_channels = list(data.get("force_sub_channels") or [])[:2]
         self.mini_app_enabled = bool(data.get("mini_app_enabled", True))
         self.user_share = dict(data.get("user_share") or {})
+        self.user_share_room = dict(data.get("user_share_room") or {})
         self.known_users = [int(x) for x in (data.get("known_users") or [])]
+        self.user_joined = {str(k): int(v) for k, v in (data.get("user_joined") or {}).items()}
+        self.user_last_seen = {str(k): int(v) for k, v in (data.get("user_last_seen") or {}).items()}
         self.downloads = int(data.get("downloads") or 0)
         self.daily_usage = dict(data.get("daily_usage") or {})
         self.file_cache = dict(data.get("file_cache") or {})
@@ -187,7 +252,6 @@ async def persist(bot: "Bot", archive_channel_id: str | None) -> None:
     """Save settings as a silent DOCUMENT (not a visible JSON text message)."""
     if not archive_channel_id:
         return
-    # throttle: max once per 30s to avoid channel spam
     now = time.time()
     if now - store.last_persist_ts < 30:
         return
@@ -198,17 +262,12 @@ async def persist(bot: "Bot", archive_channel_id: str | None) -> None:
     bio.name = "mb_settings.json"
 
     try:
-        # Prefer editing is not possible for documents easily; send new silent doc
-        # and keep last message id for reference only.
         msg = await bot.send_document(
             chat_id=archive_channel_id,
             document=bio,
             caption=SETTINGS_MARKER,
             disable_notification=True,
         )
-        # Pinned specifically so load_from_archive() can find this exact
-        # snapshot again after a restart via getChat().pinned_message --
-        # the only channel-history-independent lookup the Bot API offers.
         try:
             if store.settings_message_id:
                 await bot.unpin_chat_message(chat_id=archive_channel_id, message_id=store.settings_message_id)
@@ -225,15 +284,6 @@ async def persist(bot: "Bot", archive_channel_id: str | None) -> None:
 
 
 async def load_from_archive(bot: "Bot", archive_channel_id: str | None) -> None:
-    """Restore settings after a restart/redeploy.
-
-    The Bot API has no "scan channel history" call, so persist() keeps the
-    latest settings snapshot PINNED in the archive channel specifically so
-    getChat() -- which DOES return pinned_message -- can find it again here.
-    Without this, every restart (frequent on a free hosting tier) silently
-    wiped known_users, file_cache, squads, user_share and force_sub_channels
-    back to empty/defaults, which is exactly what was happening before this
-    function did anything real."""
     if not archive_channel_id:
         return
     try:
@@ -251,7 +301,9 @@ async def load_from_archive(bot: "Bot", archive_channel_id: str | None) -> None:
         store.settings_message_id = pinned.message_id
         logger.info(
             "store load: restored %d known users, %d squads, %d force-sub channel(s)",
-            len(store.known_users), len(store.squads), len(store.force_sub_channels),
+            len(store.known_users),
+            len(store.squads),
+            len(store.force_sub_channels),
         )
     except Exception as e:
         logger.warning("store load from archive failed: %s", e)

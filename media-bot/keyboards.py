@@ -18,13 +18,14 @@ INFO_TEXT = (
     "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n"
     "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n"
     "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n"
-    "🎁 مكافأة المشاركة\n"
-    "فعّل عرض تنزيلاتك في التطبيق ← حد يومي أعلى + شارة مساهم.\n\n"
+    "🎁 المشاركة (اختر وضعاً)\n"
+    "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n"
+    "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n"
+    "• إيقاف: لا يُنشر في التطبيق\n"
+    "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n"
     "👥 الغرف الخاصة\n"
-    "• أنشئ غرفة لتحصل على رمز دعوة (مثال: 8A038B).\n"
-    "• شارك الرمز مع أصدقائك → ينضمون بزر «الانضمام برمز».\n"
-    "• تنزيلات أعضاء الغرفة لا تظهر في الموجز العام.\n"
-    "• غرفة واحدة لكل مستخدم — لإنشاء جديدة غادر الحالية أولاً.\n\n"
+    "أنشئ غرفة → يُفعَّل نشر الغرفة تلقائياً.\n"
+    "شارك الرمز مع أصدقائك.\n\n"
     "📱 Mini-App: الزر المربع بجانب حقل الرسالة."
 )
 
@@ -59,29 +60,36 @@ def user_main_keyboard(mini_app_enabled: bool = True) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 
-def user_settings_keyboard(share_to_feed: bool) -> InlineKeyboardMarkup:
-    if share_to_feed:
-        label = "🔴 إيقاف عرض تنزيلاتي في التطبيق"
-        perk = "✅ المكافأة نشطة: حد يومي مرتفع + شارة مساهم"
+def user_settings_keyboard(
+    share_public: bool,
+    share_room: bool,
+    has_squad: bool = False,
+) -> InlineKeyboardMarkup:
+    """Three-way share control: public feed / private room / off."""
+    pub_label = "🔴 إيقاف الموجز العام" if share_public else "🟢 تفعيل الموجز العام"
+    rows = [[InlineKeyboardButton(pub_label, callback_data="share_public_toggle")]]
+    if has_squad:
+        room_label = "🔴 إيقاف نشر الغرفة" if share_room else "🏠 تفعيل نشر الغرفة"
+        rows.append([InlineKeyboardButton(room_label, callback_data="share_room_toggle")])
     else:
-        label = "🟢 تشغيل عرض تنزيلاتي في التطبيق"
-        perk = "🎁 فعّل المشاركة لرفع الحد اليومي"
-    keyboard = [
-        [InlineKeyboardButton(label, callback_data="toggle_share_feed")],
-        [InlineKeyboardButton(perk, callback_data="perk_info")],
-        [InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")],
-    ]
-    return InlineKeyboardMarkup(keyboard)
+        rows.append(
+            [InlineKeyboardButton("🏠 أنشئ غرفة أولاً لنشر خاص", callback_data="squad_create")]
+        )
+    if share_public or share_room:
+        rows.append([InlineKeyboardButton("⏹ إيقاف كل النشر", callback_data="share_off")])
+    rows.append([InlineKeyboardButton("🎁 عن المكافأة والحدود", callback_data="perk_info")])
+    rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
+    return InlineKeyboardMarkup(rows)
 
 
 def squad_keyboard(has_squad: bool, code: str | None = None, members: int = 0) -> InlineKeyboardMarkup:
-    """When already in a room: no create button — show status + leave/join only."""
     rows: list[list[InlineKeyboardButton]] = []
     if has_squad and code:
         rows.append(
             [InlineKeyboardButton(f"✅ غرفتك: {code} · {members} أعضاء", callback_data="squad_info")]
         )
-        rows.append([InlineKeyboardButton("📋 نسخ الرمز / شرح", callback_data="squad_info")])
+        rows.append([InlineKeyboardButton("🏠 إعداد نشر الغرفة", callback_data="share_room_toggle")])
+        rows.append([InlineKeyboardButton("📋 شرح الغرفة", callback_data="squad_info")])
         rows.append([InlineKeyboardButton("🚪 مغادرة الغرفة", callback_data="squad_leave")])
         rows.append([InlineKeyboardButton("🔑 الانضمام لغرفة أخرى", callback_data="squad_join")])
     else:
