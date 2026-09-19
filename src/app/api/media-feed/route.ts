@@ -16,6 +16,9 @@ type FeedItem = {
   likes?: number;
   tags?: string[];
   squad_code?: string;
+  duration_sec?: number;
+  quality?: string;
+  hidden?: boolean;
   created_at: number;
 };
 
@@ -32,7 +35,6 @@ function secretOk(req: NextRequest): boolean {
 
 function sbCreds(): { url: string; key: string } | null {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  // Prefer service role for writes; fall back to anon for reads only
   const key = (
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
@@ -63,53 +65,43 @@ function mapRow(r: any): FeedItem {
     likes: Number(r.likes || 0),
     tags: Array.isArray(r.tags) ? r.tags : [],
     squad_code: String(r.squad_code || ""),
+    duration_sec: Number(r.duration_sec || 0),
+    quality: String(r.quality || ""),
+    hidden: !!r.hidden,
     created_at: created,
   };
 }
 
 async function loadFromSupabase(): Promise<FeedItem[] | null> {
   const creds = sbCreds();
-  if (!creds) {
-    console.warn("[media-feed] no Supabase creds");
-    return null;
-  }
+  if (!creds) return null;
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(creds.url, creds.key, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // Full columns first
     let r = await db
       .from("media_feed")
       .select(
-        "id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,views,likes,created_at,tags,squad_code"
+        "id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,views,likes,created_at,tags,squad_code,duration_sec,quality,hidden"
       )
       .order("created_at", { ascending: false })
-      .limit(150);
+      .limit(200);
 
     if (r.error) {
-      console.warn("[media-feed] load full error:", r.error.message);
       r = await db
         .from("media_feed")
         .select("id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,created_at")
         .order("created_at", { ascending: false })
-        .limit(150);
-      if (r.error) {
-        console.warn("[media-feed] load minimal error:", r.error.message);
-        return null;
-      }
+        .limit(200);
+      if (r.error) return null;
     }
 
-    const rows = r.data || [];
-    // Warm memory cache from DB so brief cold starts still have data in-process
-    const mapped = rows.map(mapRow);
-    if (mapped.length) {
-      g.__mediaFeed = mapped;
-    }
+    const mapped = (r.data || []).map(mapRow);
+    if (mapped.length) g.__mediaFeed = mapped;
     return mapped;
-  } catch (e) {
-    console.warn("[media-feed] load exception:", e);
+  } catch {
     return null;
   }
 }
@@ -122,9 +114,7 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
   }
   try {
     const { createClient } = await import("@supabase/supabase-js");
-    const db = createClient(url, key, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
+    const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 
     const row: Record<string, unknown> = {
       id: item.id,
@@ -140,19 +130,14 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
       likes: item.likes || 0,
       tags: item.tags || [],
       squad_code: item.squad_code || "",
+      duration_sec: item.duration_sec || 0,
+      quality: item.quality || "",
+      hidden: false,
       created_at: new Date((item.created_at || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
     };
 
-    // Upsert so re-publishes don't fail on PK
-    let { data, error } = await db
-      .from("media_feed")
-      .upsert(row, { onConflict: "id" })
-      .select("id")
-      .single();
-
+    let { data, error } = await db.from("media_feed").upsert(row, { onConflict: "id" }).select("id").single();
     if (error) {
-      console.warn("[media-feed] upsert full error:", error.message);
-      // Retry without optional columns (older schema)
       const minimal = {
         id: item.id,
         file_id: item.file_id,
@@ -167,17 +152,11 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
       const r2 = await db.from("media_feed").upsert(minimal, { onConflict: "id" }).select("id").single();
       data = r2.data;
       error = r2.error;
-      if (error) {
-        console.warn("[media-feed] upsert minimal error:", error.message);
-        return { id: null, error: error.message };
-      }
+      if (error) return { id: null, error: error.message };
     }
-
     return { id: data?.id ? String(data.id) : item.id };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.warn("[media-feed] save exception:", msg);
-    return { id: null, error: msg };
+    return { id: null, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -186,9 +165,10 @@ export async function GET(req: NextRequest) {
   const sort = (req.nextUrl.searchParams.get("sort") || "latest").toLowerCase();
   const tag = (req.nextUrl.searchParams.get("tag") || "").trim();
   const squad = (req.nextUrl.searchParams.get("squad") || "").trim();
+  const q = (req.nextUrl.searchParams.get("q") || "").trim().toLowerCase();
+  const includeHidden = req.nextUrl.searchParams.get("admin") === "1";
 
   const fromDb = await loadFromSupabase();
-  // Merge DB + memory (memory may have items just posted on this instance)
   const byId = new Map<string, FeedItem>();
   for (const it of fromDb || []) byId.set(it.id, it);
   for (const it of g.__mediaFeed || []) {
@@ -196,11 +176,9 @@ export async function GET(req: NextRequest) {
   }
   let items = Array.from(byId.values());
 
-  if (squad) {
-    items = items.filter((i) => (i.squad_code || "") === squad);
-  } else {
-    items = items.filter((i) => !i.squad_code);
-  }
+  if (!includeHidden) items = items.filter((i) => !i.hidden);
+  if (squad) items = items.filter((i) => (i.squad_code || "") === squad);
+  else items = items.filter((i) => !i.squad_code);
 
   if (type !== "all") {
     items = items.filter(
@@ -209,9 +187,16 @@ export async function GET(req: NextRequest) {
         (type === "audio" && (i.media_type === "audio" || i.media_type === "voice"))
     );
   }
-  if (tag) {
-    items = items.filter((i) => (i.tags || []).includes(tag));
+  if (tag) items = items.filter((i) => (i.tags || []).includes(tag));
+  if (q) {
+    items = items.filter(
+      (i) =>
+        i.title.toLowerCase().includes(q) ||
+        (i.sharer_name || "").toLowerCase().includes(q) ||
+        (i.url || "").toLowerCase().includes(q)
+    );
   }
+
   if (sort === "trending") {
     items = [...items].sort(
       (a, b) => (b.clones || 0) - (a.clones || 0) || (b.created_at || 0) - (a.created_at || 0)
@@ -230,10 +215,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   if (!secretOk(req)) {
-    return NextResponse.json(
-      { error: "unauthorized", hint: "set FEED_SECRET=8452320 on both Render and Vercel" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const body = await req.json().catch(() => ({}));
   const item: FeedItem = {
@@ -250,15 +232,14 @@ export async function POST(req: NextRequest) {
     likes: Number(body.likes || 0),
     tags: Array.isArray(body.tags) ? body.tags.map(String).slice(0, 5) : [],
     squad_code: String(body.squad_code || ""),
+    duration_sec: Number(body.duration_sec || 0),
+    quality: String(body.quality || ""),
     created_at: Number(body.created_at || Math.floor(Date.now() / 1000)),
   };
-  if (!item.file_id) {
-    return NextResponse.json({ error: "file_id required" }, { status: 400 });
-  }
+  if (!item.file_id) return NextResponse.json({ error: "file_id required" }, { status: 400 });
 
   const saved = await saveToSupabase(item);
   if (saved.id) item.id = saved.id;
-
   g.__mediaFeed = [item, ...(g.__mediaFeed || []).filter((x) => x.id !== item.id)].slice(0, 200);
 
   return NextResponse.json({
@@ -270,9 +251,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!secretOk(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  if (!secretOk(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const id = String(body.id || "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -283,6 +262,8 @@ export async function PATCH(req: NextRequest) {
     if (action === "clone") mem.clones = (mem.clones || 0) + 1;
     if (action === "view") mem.views = (mem.views || 0) + 1;
     if (action === "like") mem.likes = (mem.likes || 0) + 1;
+    if (action === "hide") mem.hidden = true;
+    if (action === "unhide") mem.hidden = false;
   }
 
   try {
@@ -290,16 +271,15 @@ export async function PATCH(req: NextRequest) {
     const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
     if (url && key) {
       const { createClient } = await import("@supabase/supabase-js");
-      const db = createClient(url, key, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      const col = action === "view" ? "views" : action === "like" ? "likes" : "clones";
-      const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
-      const next = Number((data as any)?.[col] || 0) + 1;
-      await db
-        .from("media_feed")
-        .update({ [col]: next })
-        .eq("id", id);
+      const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+      if (action === "hide" || action === "unhide") {
+        await db.from("media_feed").update({ hidden: action === "hide" }).eq("id", id);
+      } else {
+        const col = action === "view" ? "views" : action === "like" ? "likes" : "clones";
+        const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
+        const next = Number((data as any)?.[col] || 0) + 1;
+        await db.from("media_feed").update({ [col]: next }).eq("id", id);
+      }
     }
   } catch {
     /* ignore */
@@ -308,9 +288,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  if (!secretOk(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  if (!secretOk(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const id = String(body.id || "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
