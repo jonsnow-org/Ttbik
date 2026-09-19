@@ -15,6 +15,10 @@ ai-system/**/__pycache__
 ai-system/chroma_data
 ai-system/**/*.pyc
 
+# media-bot/ (Python telegram bot)
+media-bot/**/__pycache__
+media-bot/**/*.pyc
+
 # Sham Small's real per-organization API key database (api_keys.py) —
 # a real SQLite file holding hashed keys must never be committed, same
 # as any other credentials store.
