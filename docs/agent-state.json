@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5741466586,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T11:32:00Z",
+  "updated_at": "2026-09-19T12:36:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -11,6 +11,7 @@
     "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
+    "G85 EarningsCalculatorForm required views/post + required reach % to hit monthly target. SHA 404040c.",
     "G84 EarningsCalculatorForm required posts/month + required fill rate to hit monthly target. SHA d144adc.",
     "G83 EarningsCalculatorForm target monthly ($50/100/250/500) + required CPM + yearly ARPU + gap vs target. SHA 3727e30.",
     "G82 EarningsCalculatorForm views presets (500/1k/2k/5k) + per-subscriber monthly ARPU. SHA 9657a00.",
