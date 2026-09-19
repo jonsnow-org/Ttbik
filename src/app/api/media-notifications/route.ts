@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   const { data } = await db
     .from("media_notifications")
-    .select("id,from_id,from_name,type,read,created_at")
+    .select("id,from_id,from_name,type,read,created_at,post_id")
     .eq("to_id", userId)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       type: String(n.type || "follow"),
       read: !!n.read,
       at: n.created_at ? Math.floor(new Date(n.created_at).getTime() / 1000) : 0,
+      postId: n.post_id ? String(n.post_id) : undefined,
     })),
   });
 }
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
       from_id: fromId,
       from_name: String(body.from_name || "مستخدم").slice(0, 40),
       type: String(body.type || "follow"),
+      post_id: body.post_id ? String(body.post_id) : null,
     });
   }
   return NextResponse.json({ ok: true });

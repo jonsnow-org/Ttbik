@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
 type FeedItem = { id: string; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number };
-type Notif = { id: string; type: "follow" | "like"; fromId: string; fromName: string; at: number; read: boolean };
+type Notif = { id: string; type: "follow" | "like" | "comment" | "reply"; fromId: string; fromName: string; at: number; read: boolean; postId?: string };
+type CommentRow = { id: string; post_id: string; parent_id: string | null; from_id: string; from_name: string; body: string; created_at: number };
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
@@ -15,6 +16,26 @@ function platformBadge(url?: string) { const u = (url || "").toLowerCase(); if (
 function timeAgo(ts?: number) { if (!ts) return ""; const s = Math.max(0, Math.floor(Date.now() / 1000) - ts); if (s < 60) return "الآن"; if (s < 3600) return `${Math.floor(s / 60)} د`; if (s < 86400) return `${Math.floor(s / 3600)} س`; return `${Math.floor(s / 86400)} ي`; }
 function loadJSON<T>(key: string, fb: T): T { try { const r = localStorage.getItem(key); return r ? (JSON.parse(r) as T) : fb; } catch { return fb; } }
 function saveJSON(key: string, val: unknown) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+// Renders one comment plus every reply under it, at any depth (a reply to
+// a reply nests one level deeper again), since comments are only ever
+// related to each other by parent_id -- there's no fixed "depth" field.
+function CommentThread({ comment, all, depth, onReply }: { comment: CommentRow; all: CommentRow[]; depth: number; onReply: (c: CommentRow) => void }) {
+  const children = all.filter((c) => c.parent_id === comment.id);
+  return (
+    <div className={depth ? "mr-3 mt-2 border-r-2 border-sky-100 pr-2" : "mt-2"}>
+      <div className="rounded-2xl bg-slate-50 px-3 py-2">
+        <p className="text-[11px] font-bold text-sky-700">{comment.from_name}</p>
+        <p className="whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+        <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
+          <span>{timeAgo(comment.created_at)}</span>
+          <button type="button" onClick={() => onReply(comment)} className="font-bold text-sky-600">رد</button>
+        </div>
+      </div>
+      {children.map((c) => (<CommentThread key={c.id} comment={c} all={all} depth={depth + 1} onReply={onReply} />))}
+    </div>
+  );
+}
 
 export default function MiniAppPage() {
   const [tab, setTab] = useState<Tab>("trending");
@@ -45,6 +66,11 @@ export default function MiniAppPage() {
   const [chatMsgs, setChatMsgs] = useState<{ id: string; from_id: string; from_name: string; body: string; created_at: number }[]>([]);
   const [dmInput, setDmInput] = useState("");
   const [inboxUnread, setInboxUnread] = useState(0);
+  const [showComments, setShowComments] = useState(false);
+  const [commentsPost, setCommentsPost] = useState<{ id: string; title: string } | null>(null);
+  const [comments, setComments] = useState<CommentRow[]>([]);
+  const [commentInput, setCommentInput] = useState("");
+  const [replyTo, setReplyTo] = useState<CommentRow | null>(null);
   const [broadcastText, setBroadcastText] = useState("");
   const [forceChans, setForceChans] = useState("");
   const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number } | null>(null);
@@ -140,7 +166,7 @@ export default function MiniAppPage() {
     try {
       const r = await fetch(`/api/media-notifications?user_id=${encodeURIComponent(userId)}`, { cache: "no-store" });
       const j = await r.json();
-      if (Array.isArray(j.notifications)) setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read })));
+      if (Array.isArray(j.notifications)) setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read, postId: n.postId })));
     } catch {}
   }, [userId]);
   useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 15000); return () => clearInterval(t); }, [loadNotifs]);
@@ -163,7 +189,7 @@ export default function MiniAppPage() {
 
   async function openThread(peerId: string, peerName: string) {
     setChatPeer({ id: peerId, name: peerName });
-    setShowInbox(true); setShowNotifs(false);
+    setShowInbox(true); setShowNotifs(false); setShowComments(false);
     await loadThreadMessages(peerId);
   }
   async function sendDm() {
@@ -179,6 +205,31 @@ export default function MiniAppPage() {
     const t = setInterval(() => { void loadThreadMessages(chatPeer.id); }, 4000);
     return () => clearInterval(t);
   }, [chatPeer, showInbox, loadThreadMessages]);
+
+  const loadComments = useCallback(async (postId: string) => {
+    try {
+      const r = await fetch(`/api/media-comments?post_id=${encodeURIComponent(postId)}`, { cache: "no-store" });
+      const j = await r.json();
+      if (Array.isArray(j.comments)) setComments(j.comments);
+    } catch {}
+  }, []);
+  async function openComments(postId: string, title: string) {
+    setCommentsPost({ id: postId, title }); setReplyTo(null);
+    setShowComments(true); setShowInbox(false); setShowNotifs(false);
+    await loadComments(postId);
+  }
+  async function sendComment() {
+    if (!commentsPost || !commentInput.trim() || !userId) return;
+    const bodyText = commentInput.trim(); const parentId = replyTo?.id || null;
+    setCommentInput(""); setReplyTo(null);
+    await fetch("/api/media-comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), post_id: commentsPost.id, parent_id: parentId, from_name: displayName || username || "مستخدم", body: bodyText }) });
+    await loadComments(commentsPost.id);
+  }
+  useEffect(() => {
+    if (!showComments || !commentsPost) return;
+    const t = setInterval(() => { void loadComments(commentsPost.id); }, 5000);
+    return () => clearInterval(t);
+  }, [showComments, commentsPost, loadComments]);
 
   const profileTargetId = viewUserId || (tab === "me" ? userId : null);
   const isOwnProfile = !!profileTargetId && profileTargetId === userId;
@@ -207,7 +258,7 @@ export default function MiniAppPage() {
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
 
-  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || "مستخدم"); setProfileSection("all"); setTab("me"); setShowNotifs(false); setShowInbox(false); };
+  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || "مستخدم"); setProfileSection("all"); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
   const closeOtherProfile = () => { setViewUserId(null); setViewUserName(""); setProfileSection("all"); };
   const toggleLike = (item: FeedItem) => {
     const id = item.id;
@@ -219,7 +270,7 @@ export default function MiniAppPage() {
     // notified anyone; liking a post silently updated the counter with no
     // way for the post's owner to know it happened.
     if (!was && item.sharer_id && item.sharer_id !== userId) {
-      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like" }) }).catch(() => {});
+      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
   };
   const toggleFollow = (sid: string) => {
@@ -243,12 +294,12 @@ export default function MiniAppPage() {
           <div><p className="text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP</p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => load()} className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔄</button>
-            <button type="button" onClick={async () => { setShowNotifs(true); setShowInbox(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
-            <button type="button" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">💬{inboxUnread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
+            <button type="button" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
+            <button type="button" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">✉️{inboxUnread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-sky-600 ring-2 ring-sky-200">{photoUrl && isOwnProfile ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(headerName || "U").slice(0, 1)}</span>}</div>
           </div>
         </div>
-        <nav className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setTab(t.id); }} className={`flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold ${active ? "bg-sky-500 text-white" : "bg-sky-100 text-slate-700"}`}><span>{t.icon}</span>{t.label}</button>); })}</nav>
+        <nav className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold ${active ? "bg-sky-500 text-white" : "bg-sky-100 text-slate-700"}`}><span>{t.icon}</span>{t.label}</button>); })}</nav>
       </header>
 
       <div className="px-3 pt-2"><input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" /></div>
@@ -259,7 +310,7 @@ export default function MiniAppPage() {
             <p className="text-sm font-black">{chatPeer ? `محادثة · ${chatPeer.name}` : "صندوق الرسائل"}</p>
             <button type="button" onClick={() => { if (chatPeer) setChatPeer(null); else setShowInbox(false); }} className="text-xs font-bold text-slate-500">{chatPeer ? "← رجوع" : "إغلاق"}</button>
           </div>
-          {!chatPeer ? (inboxThreads.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا محادثات — اضغط 💬 من بطاقة أو ملف مستخدم</p> : (
+          {!chatPeer ? (inboxThreads.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا محادثات — اضغط «💬 رسالة» من ملف مستخدم</p> : (
             <ul className="max-h-80 overflow-y-auto">{inboxThreads.map((th) => (<li key={th.peer_id}><button type="button" onClick={() => void openThread(th.peer_id, th.peer_name)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-sky-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-200 text-sm font-black">{(th.peer_name || "U").slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{th.peer_name || th.peer_id}</p><p className="truncate text-[11px] text-slate-500">{th.last_body}</p></div>{th.unread > 0 && <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white">{th.unread}</span>}</button></li>))}</ul>
           )) : (
             <><div className="max-h-64 space-y-2 overflow-y-auto px-3 py-2">{chatMsgs.length === 0 && <p className="py-4 text-center text-xs text-slate-500">ابدأ المحادثة</p>}{chatMsgs.map((m) => (<div key={m.id} className={`rounded-2xl px-3 py-2 text-sm ${m.from_id === userId ? "mr-6 bg-sky-200" : "ml-6 bg-slate-100"}`}><p className="text-[10px] font-bold text-sky-700">{m.from_name}</p><p>{m.body}</p></div>))}</div>
@@ -271,12 +322,29 @@ export default function MiniAppPage() {
       {showNotifs && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-sky-200 bg-white">
           <div className="flex items-center justify-between border-b border-sky-100 px-4 py-3"><p className="text-sm font-black">الإشعارات</p><button type="button" onClick={() => setShowNotifs(false)} className="text-xs font-bold text-slate-500">إغلاق</button></div>
-          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.map((n) => (<li key={n.id}><button type="button" onClick={() => openProfile(n.fromId, n.fromName)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-sky-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-200 text-sm font-black">{(n.fromName || "U").slice(0, 1)}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-600">{n.fromName}</span> {n.type === "like" ? "أعجب بمنشورك ❤️" : "بدأ بمتابعتك"}</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
+          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.map((n) => (<li key={n.id}><button type="button" onClick={() => { if ((n.type === "comment" || n.type === "reply") && n.postId) { const it = items.find((x) => x.id === n.postId); void openComments(n.postId, it?.title || "منشور"); } else { openProfile(n.fromId, n.fromName); } }} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-sky-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-200 text-sm font-black">{(n.fromName || "U").slice(0, 1)}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-600">{n.fromName}</span> {n.type === "like" ? "أعجب بمنشورك ❤️" : n.type === "comment" ? "علّق على منشورك 💬" : n.type === "reply" ? "ردّ على تعليقك 💬" : "بدأ بمتابعتك"}</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
+        </div>
+      )}
+
+      {showComments && commentsPost && (
+        <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-sky-100 px-4 py-3">
+            <p className="truncate text-sm font-black">تعليقات · {commentsPost.title}</p>
+            <button type="button" onClick={() => setShowComments(false)} className="shrink-0 text-xs font-bold text-slate-500">إغلاق</button>
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto px-3 py-2">
+            {comments.filter((c) => !c.parent_id).length === 0 && <p className="py-4 text-center text-xs text-slate-500">لا تعليقات بعد — كن أول من يعلّق</p>}
+            {comments.filter((c) => !c.parent_id).map((c) => (<CommentThread key={c.id} comment={c} all={comments} depth={0} onReply={setReplyTo} />))}
+          </div>
+          <div className="border-t border-sky-100 p-2">
+            {replyTo && <div className="mb-1.5 flex items-center justify-between rounded-lg bg-sky-50 px-2 py-1"><p className="text-[11px] text-slate-600">الرد على <span className="font-bold text-sky-700">{replyTo.from_name}</span></p><button type="button" onClick={() => setReplyTo(null)} className="text-[11px] font-bold text-rose-500">إلغاء</button></div>}
+            <div className="flex gap-2"><input value={commentInput} onChange={(e) => setCommentInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void sendComment()} placeholder={replyTo ? "اكتب ردك..." : "اكتب تعليقاً..."} className="flex-1 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm outline-none" /><button type="button" onClick={() => void sendComment()} className="rounded-xl bg-sky-500 px-4 text-sm font-black text-white">إرسال</button></div>
+          </div>
         </div>
       )}
 
       <div className="relative z-10 px-3 pb-10 pt-3">
-        {showProfile && !showNotifs && !showInbox && (
+        {showProfile && !showNotifs && !showInbox && !showComments && (
           <div className="mb-4 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
             <div className="h-20 bg-gradient-to-l from-sky-400 to-sky-600" />
             <div className="relative px-4 pb-4">
@@ -295,7 +363,7 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab === "admin" && isOwner && !showNotifs && !showInbox && (
+        {tab === "admin" && isOwner && !showNotifs && !showInbox && !showComments && (
           <div className="mb-4 space-y-3">
             <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
               <p className="text-sm font-black text-amber-700">👑 لوحة المالك</p>
@@ -326,7 +394,7 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab !== "admin" && !showNotifs && !showInbox && (loading ? <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-sky-100" />)}</div> : visible.length === 0 ? (
+        {tab !== "admin" && !showNotifs && !showInbox && !showComments && (loading ? <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-sky-100" />)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">📭</div><p className="mt-3 font-bold">{tab === "audio" ? "لا يوجد صوت بعد" : "لا يوجد محتوى"}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-sky-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <div className="space-y-3">{visible.map((item) => {
@@ -360,7 +428,7 @@ export default function MiniAppPage() {
                   <div className="mt-3 grid grid-cols-5 gap-1.5">
                     <a href={cloneHref(item.id)} className="rounded-xl bg-sky-500 py-2.5 text-center text-[11px] font-black text-white">⚡ فوري</a>
                     <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[11px] font-black ${isLiked ? "bg-rose-100 text-rose-600" : "bg-sky-100 text-slate-700"}`}>{isLiked ? "❤️" : "🤍"}</button>
-                    <button type="button" onClick={() => item.sharer_id && void openThread(item.sharer_id, item.sharer_name || "مستخدم")} className="rounded-xl bg-sky-100 py-2.5 text-[11px] font-black text-slate-700">💬</button>
+                    <button type="button" onClick={() => void openComments(item.id, item.title)} className="rounded-xl bg-sky-100 py-2.5 text-[11px] font-black text-slate-700">💬</button>
                     <a href={item.url || "#"} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-500 py-2.5 text-center text-[11px] font-black text-white">⬇️</a>
                     <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="rounded-xl bg-violet-500 py-2.5 text-[11px] font-black text-white">👤</button>
                   </div>
