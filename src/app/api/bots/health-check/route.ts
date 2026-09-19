@@ -47,6 +47,30 @@ function pickText(json: unknown, key: "description" | "short_description" | "nam
   return typeof val === "string" ? val : "";
 }
 
+function isPrivateHost(hostRaw: string): boolean {
+  const host = hostRaw.toLowerCase();
+  if (!host) return false;
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local")
+  ) {
+    return true;
+  }
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  if (a === 10 || a === 127) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? extractToken(body.token) : "";
@@ -160,6 +184,20 @@ export async function POST(req: NextRequest) {
     const groupAdminRights = groupRightsJson?.ok ? pickRights(groupRightsJson.result) : {};
     const channelAdminRights = channelRightsJson?.ok ? pickRights(channelRightsJson.result) : {};
 
+    let webhookHost: string | null = null;
+    let hostIsIp = false;
+    let hostIsPrivate = false;
+    try {
+      if (webhook.result?.url) {
+        const u = new URL(webhook.result.url);
+        webhookHost = u.host;
+        hostIsIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(u.hostname) || u.hostname.includes(":");
+        hostIsPrivate = isPrivateHost(u.hostname);
+      }
+    } catch {
+      webhookHost = null;
+    }
+
     return NextResponse.json({
       ok: true,
       bot: {
@@ -200,22 +238,10 @@ export async function POST(req: NextRequest) {
           : [],
         hasCustomCertificate: Boolean(webhook.result?.has_custom_certificate),
         isHttps: typeof webhook.result?.url === "string" && webhook.result.url.startsWith("https://"),
-        host: (() => {
-          try {
-            return webhook.result?.url ? new URL(webhook.result.url).host : null;
-          } catch {
-            return null;
-          }
-        })(),
+        host: webhookHost,
         tokenEmbeddedInUrl: typeof webhook.result?.url === "string" && webhook.result.url.includes(token),
-        hostIsIp: (() => {
-          try {
-            const host = webhook.result?.url ? new URL(webhook.result.url).hostname : "";
-            return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(":");
-          } catch {
-            return false;
-          }
-        })(),
+        hostIsIp,
+        hostIsPrivate,
       },
     });
   } catch {
