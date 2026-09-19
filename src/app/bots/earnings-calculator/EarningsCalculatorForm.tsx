@@ -78,6 +78,9 @@ export default function EarningsCalculatorForm() {
     const requiredPosts = revenuePerPost > 0 ? target / revenuePerPost : 0;
     const fullFillMonthly = (monthlyViews / 1000) * c;
     const requiredFill = fullFillMonthly > 0 ? Math.min(999, (target / fullFillMonthly) * 100) : 0;
+    const denomViews = p > 0 && c > 0 && fill > 0 ? (p * (fill / 100) * c) / 1000 : 0;
+    const requiredViews = denomViews > 0 ? target / denomViews : 0;
+    const requiredReachPct = s > 0 && requiredViews > 0 ? (requiredViews / s) * 100 : 0;
     return {
       monthlyViews,
       soldViews,
@@ -98,6 +101,8 @@ export default function EarningsCalculatorForm() {
       gapUsd,
       requiredPosts,
       requiredFill,
+      requiredViews,
+      requiredReachPct,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -119,6 +124,8 @@ export default function EarningsCalculatorForm() {
       `CPM مطلوب للهدف: $${result.requiredCpm.toFixed(2)}`,
       `منشورات مطلوبة للهدف: ${result.requiredPosts.toFixed(1)}`,
       `نسبة بيع مطلوبة للهدف: ${result.requiredFill.toFixed(0)}%`,
+      `مشاهدات/منشور مطلوبة للهدف: ${Math.round(result.requiredViews).toLocaleString("ar")}`,
+      `نسبة وصول مطلوبة للهدف: ${result.requiredReachPct.toFixed(1)}%`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -332,7 +339,7 @@ export default function EarningsCalculatorForm() {
             ))}
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            نحسب CPM المطلوب، وعدد المنشورات، ونسبة البيع المطلوبة للوصول لهذا الرقم — كل سيناريو يثبّت باقي المدخلات.
+            نحسب CPM المطلوب، وعدد المنشورات، ونسبة البيع، والمشاهدات المطلوبة للوصول لهذا الرقم — كل سيناريو يثبّت باقي المدخلات.
           </p>
         </div>
       </div>
@@ -359,6 +366,14 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.requiredPosts.toFixed(1)}</p>
         <p className="mt-3 text-sm text-indigo-100">نسبة بيع مطلوبة لنفس الهدف (نفس المشاهدات وCPM)</p>
         <p className="text-2xl font-extrabold">{result.requiredFill.toFixed(0)}%</p>
+        <p className="mt-3 text-sm text-indigo-100">مشاهدات/منشور مطلوبة لنفس الهدف (نفس عدد المنشورات وCPM والبيع)</p>
+        <p className="text-2xl font-extrabold">{Math.round(result.requiredViews).toLocaleString("ar")}</p>
+        <p className="mt-1 text-xs text-indigo-100">
+          نسبة وصول مطلوبة من المشتركين الحاليين: {result.requiredReachPct.toFixed(1)}%
+          {result.requiredReachPct > 100
+            ? " — أعلى من 100% وصول عضوية؛ الهدف يحتاج نمو مشتركين أو رفع CPM/المنشورات."
+            : ""}
+        </p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.requiredFill > 100
             ? "حتى مع بيع 100% المشاهدات الحالية لا تكفي الهدف — زد المنشورات أو المشاهدات أو الـ CPM."
