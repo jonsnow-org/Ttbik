@@ -42,6 +42,7 @@ const TARGET_PRESETS = [
   { label: "100$", value: "100" },
   { label: "250$", value: "250" },
   { label: "500$", value: "500" },
+  { label: "1000$", value: "1000" },
 ];
 
 export default function EarningsCalculatorForm() {
@@ -81,6 +82,7 @@ export default function EarningsCalculatorForm() {
     const denomViews = p > 0 && c > 0 && fill > 0 ? (p * (fill / 100) * c) / 1000 : 0;
     const requiredViews = denomViews > 0 ? target / denomViews : 0;
     const requiredReachPct = s > 0 && requiredViews > 0 ? (requiredViews / s) * 100 : 0;
+    const requiredSubscribers = v > 0 && s > 0 && requiredViews > 0 ? (requiredViews * s) / v : 0;
     return {
       monthlyViews,
       soldViews,
@@ -103,6 +105,7 @@ export default function EarningsCalculatorForm() {
       requiredFill,
       requiredViews,
       requiredReachPct,
+      requiredSubscribers,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -126,6 +129,7 @@ export default function EarningsCalculatorForm() {
       `نسبة بيع مطلوبة للهدف: ${result.requiredFill.toFixed(0)}%`,
       `مشاهدات/منشور مطلوبة للهدف: ${Math.round(result.requiredViews).toLocaleString("ar")}`,
       `نسبة وصول مطلوبة للهدف: ${result.requiredReachPct.toFixed(1)}%`,
+      `مشتركون مطلوبون للهدف بنفس نسبة الوصول: ${Math.round(result.requiredSubscribers).toLocaleString("ar")}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -374,6 +378,8 @@ export default function EarningsCalculatorForm() {
             ? " — أعلى من 100% وصول عضوية؛ الهدف يحتاج نمو مشتركين أو رفع CPM/المنشورات."
             : ""}
         </p>
+        <p className="mt-3 text-sm text-indigo-100">مشتركون مطلوبون لنفس الهدف (بنفس نسبة الوصول الحالية)</p>
+        <p className="text-2xl font-extrabold">{Math.round(result.requiredSubscribers).toLocaleString("ar")}</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.requiredFill > 100
             ? "حتى مع بيع 100% المشاهدات الحالية لا تكفي الهدف — زد المنشورات أو المشاهدات أو الـ CPM."
