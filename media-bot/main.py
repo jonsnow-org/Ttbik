@@ -572,9 +572,23 @@ def main() -> None:
     app.post_init = _post_init
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("version", version_cmd))
+    # BUG (fixed): both handlers below were registered with no explicit
+    # group, which means the SAME default group (0). python-telegram-bot
+    # only runs the FIRST handler in a group whose filter matches an
+    # update -- it does not fall through to the next one in that group
+    # regardless of what the first one does. owner_text_handler's filter
+    # (filters.TEXT & ~filters.COMMAND) matches EVERY non-command text
+    # message from ANYONE, not just the owner (the actual owner check
+    # happens inside the function body, after the match already "won").
+    # Since it was added first, it silently absorbed every text message
+    # in group 0 and user_text_handler never ran at all for a real
+    # non-owner user -- explains exactly what was reported: /start (a
+    # separate CommandHandler) worked, but every single button press or
+    # link from a regular user got zero reply, deterministically, not
+    # intermittently. Explicit distinct groups let both actually run.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
     app.add_handler(CallbackQueryHandler(callbacks))
     logger.info("Bot starting (polling)...")
     app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
