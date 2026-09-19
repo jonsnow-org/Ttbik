@@ -3,6 +3,12 @@
 import { useMemo, useState } from "react";
 import SectionBackdrop from "@/components/SectionBackdrop";
 
+const CPM_PRESETS = [
+  { label: "1$", value: "1" },
+  { label: "2.5$", value: "2.5" },
+  { label: "4$", value: "4" },
+];
+
 export default function EarningsCalculatorForm() {
   const [subscribers, setSubscribers] = useState("5000");
   const [avgViews, setAvgViews] = useState("2000");
@@ -18,8 +24,10 @@ export default function EarningsCalculatorForm() {
     const monthlyViews = v * p;
     const monthlyUsd = (monthlyViews / 1000) * c;
     const yearlyUsd = monthlyUsd * 12;
+    const dailyUsd = monthlyUsd / 30;
     const reachPct = s > 0 ? Math.min(100, (v / s) * 100) : 0;
-    return { monthlyViews, monthlyUsd, yearlyUsd, reachPct, subscribers: s };
+    const viewsExceedSubs = s > 0 && v > s;
+    return { monthlyViews, monthlyUsd, yearlyUsd, dailyUsd, reachPct, subscribers: s, viewsExceedSubs };
   }, [subscribers, avgViews, postsPerMonth, cpm]);
 
   async function copySummary() {
@@ -31,6 +39,7 @@ export default function EarningsCalculatorForm() {
       `المنشورات/شهر: ${postsPerMonth}`,
       `CPM: $${Number(cpm) || 0}`,
       `مشاهدات إعلانية شهرية: ${result.monthlyViews.toLocaleString("ar")}`,
+      `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
       "الأرقام تقريبية للتخطيط وليست وعداً بربح.",
@@ -77,6 +86,11 @@ export default function EarningsCalculatorForm() {
             onChange={(e) => setAvgViews(e.target.value)}
             className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          {result.viewsExceedSubs ? (
+            <p className="mt-1 text-xs text-amber-700">
+              المشاهدات أعلى من عدد المشتركين — ممكن للمشاركات/الإعادات، ونسبة الوصول مسقوفة عند 100%.
+            </p>
+          ) : null}
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">عدد المنشورات الإعلانية شهرياً</label>
@@ -100,6 +114,22 @@ export default function EarningsCalculatorForm() {
             onChange={(e) => setCpm(e.target.value)}
             className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {CPM_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setCpm(preset.value)}
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  cpm === preset.value
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <p className="mt-1 text-xs text-slate-500">
             القنوات العربية العامة غالباً بين 1-4$ لكل 1000 مشاهدة — عدّل الرقم حسب سعر السوق الفعلي في مجالك.
           </p>
@@ -111,6 +141,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.reachPct.toFixed(1)}%</p>
         <p className="mt-3 text-sm text-indigo-100">إجمالي المشاهدات الإعلانية شهرياً</p>
         <p className="text-2xl font-extrabold">{result.monthlyViews.toLocaleString("ar")}</p>
+        <p className="mt-3 text-sm text-indigo-100">الأرباح اليومية التقريبية</p>
+        <p className="text-2xl font-extrabold">${result.dailyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح الشهرية التقريبية</p>
         <p className="text-3xl font-extrabold">${result.monthlyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">التقدير السنوي التقريبي</p>
