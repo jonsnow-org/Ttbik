@@ -14,6 +14,7 @@ from telegram import Update
 from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
@@ -55,6 +56,7 @@ _pending_url: dict[int, str] = {}
 _pending_meta: dict[int, dict] = {}
 _waiting_channel: set[int] = set()
 _waiting_squad_join: set[int] = set()
+_pending_message_target: dict[int, str] = {}
 
 if cfg.force_sub_channel and not store.force_sub_channels:
     store.force_sub_channels = [cfg.force_sub_channel]
@@ -146,6 +148,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("❌ تعذر الإرسال.")
         return
 
+    if args and args[0].startswith("msg_"):
+        # Real fix for the mini-app's "💬 رسالة" button: it used to link to
+        # tg://user?id=<id>, which modern Telegram clients block for opening
+        # an arbitrary user's DM (privacy restriction) -- it just silently
+        # did nothing for most people. The bot relays the message instead,
+        # the same pattern Telegram itself recommends for contact-without-
+        # exposing-a-username: the sender writes to the bot, the bot forwards
+        # it, working as long as the recipient has started this bot at least
+        # once (Telegram requires an existing chat for the bot to message
+        # them at all -- there's no way around that from either side).
+        target_id = args[0].replace("msg_", "", 1)
+        if target_id.isdigit() and int(target_id) != user.id:
+            _pending_message_target[user.id] = target_id
+            await update.message.reply_text("✍️ اكتب رسالتك الآن وسأرسلها مباشرة لصاحب المحتوى.")
+        else:
+            await update.message.reply_text("رابط غير صالح.")
+        return
+
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
         await update.message.reply_text(
@@ -165,6 +185,34 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{perk}",
         reply_markup=user_main_keyboard(True),
     )
+
+
+async def pending_message_relay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs in an earlier handler group than owner/user text handlers so it
+    can intercept the reply after /start msg_<id> and stop it from ALSO
+    being parsed as a menu button or download link by those handlers."""
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    target = _pending_message_target.get(user.id)
+    if not target:
+        return
+    _pending_message_target.pop(user.id, None)
+    text = (update.message.text or "").strip()
+    if not text:
+        await update.message.reply_text("الرسالة فارغة، لم يتم الإرسال.")
+        raise ApplicationHandlerStop
+    sender = user.first_name or "مستخدم"
+    try:
+        await context.bot.send_message(
+            chat_id=int(target),
+            text=f"📩 رسالة جديدة من {sender} (عبر تطبيق الوسائط):\n\n{text}",
+        )
+        await update.message.reply_text("✅ تم إرسال رسالتك.")
+    except Exception as e:
+        logger.warning("message relay failed: %s", e)
+        await update.message.reply_text("❌ تعذر الإرسال — على الأغلب الطرف الآخر لم يبدأ البوت بعد.")
+    raise ApplicationHandlerStop
 
 
 async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -675,6 +723,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("testdl", testdl))
     app.add_handler(CallbackQueryHandler(callbacks))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
     app.add_error_handler(error_handler)

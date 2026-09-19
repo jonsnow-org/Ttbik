@@ -10,7 +10,7 @@ type Notif = { id: string; type: "follow"; fromId: string; fromName: string; at:
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
-const LS = { follow: "mb_following", notifs: "mb_notifs", views: "mb_views", profile: "mb_profile", share: "mb_share_public" };
+const LS = { follow: "mb_following", views: "mb_views", profile: "mb_profile", share: "mb_share_public" };
 const REACTIONS = ["😂", "🔥", "😮", "❤️", "👏", "🎉"];
 
 function typeIcon(t: string) { if (t === "audio" || t === "voice") return "🎵"; if (t === "photo") return "🖼️"; return "🎬"; }
@@ -48,6 +48,8 @@ export default function MiniAppPage() {
   const [creatingParty, setCreatingParty] = useState(false);
   const [search, setSearch] = useState("");
   const [qualityItem, setQualityItem] = useState<FeedItem | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playError, setPlayError] = useState<string | null>(null);
   const [broadcastText, setBroadcastText] = useState("");
   const [forceChans, setForceChans] = useState("");
   const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number } | null>(null);
@@ -75,7 +77,6 @@ export default function MiniAppPage() {
       } catch {}
     }
     setFollowing(loadJSON(LS.follow, {}));
-    setNotifs(loadJSON(LS.notifs, []));
     setViewsMap(loadJSON(LS.views, {}));
     setSharePublic(loadJSON(LS.share, true));
     const prof = loadJSON<{ name?: string; status?: string }>(LS.profile, {});
@@ -98,7 +99,7 @@ export default function MiniAppPage() {
       const sort = tab === "trending" ? "trending" : "latest";
       const qs = new URLSearchParams({ sort, type });
       if (search.trim()) qs.set("q", search.trim());
-      if (tab === "admin") qs.set("admin", "1");
+      if (tab === "admin") { qs.set("admin", "1"); qs.set("init_data", tgInitData()); }
       const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
       const j = await r.json();
       setItems(Array.isArray(j.items) ? j.items : []);
@@ -106,6 +107,22 @@ export default function MiniAppPage() {
   }, [tab, search]);
 
   useEffect(() => { if (!party) load(); if (tab === "admin" && isOwner) void loadAdmin(); }, [load, party, tab, isOwner]);
+
+  const loadNotifs = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const r = await fetch(`/api/media-notifications?user_id=${encodeURIComponent(userId)}`, { cache: "no-store" });
+      const j = await r.json();
+      if (Array.isArray(j.notifications)) {
+        setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read })));
+      }
+    } catch {}
+  }, [userId]);
+  // Real, server-side notifications (see /api/media-notifications) --
+  // these used to live only in the current browser's localStorage, which
+  // meant the person who was actually followed never received them on any
+  // device. Poll occasionally since there's no push channel to the mini-app.
+  useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 20000); return () => clearInterval(t); }, [loadNotifs]);
 
   useEffect(() => {
     if (!party) { if (pollRef.current) clearInterval(pollRef.current); return; }
@@ -154,7 +171,11 @@ export default function MiniAppPage() {
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
 
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
-  const messageHref = (sid?: string) => (sid && /^\d+$/.test(sid) ? `tg://user?id=${sid}` : BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}` : "#");
+  // tg://user?id= used to be here -- modern Telegram clients block opening
+  // an arbitrary user's DM by numeric id (privacy restriction), so this
+  // silently did nothing for most people. The bot now relays the message
+  // instead (see main.py's msg_ deep link + pending_message_relay_handler).
+  const messageHref = (sid?: string) => (sid && BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=msg_${sid}` : "#");
 
   async function loadAdmin() {
     try { const r = await fetch("/api/media-admin", { cache: "no-store" }); const j = await r.json(); if (j.stats) setAdminStats(j.stats); if (Array.isArray(j.settings?.force_sub_channels)) setForceChans(j.settings.force_sub_channels.join(", ")); } catch {}
@@ -183,9 +204,22 @@ export default function MiniAppPage() {
   const toggleLike = (id: string) => { setLiked((p) => ({ ...p, [id]: !p[id] })); fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "like" }) }).catch(() => {}); };
   const toggleFollow = (sid: string) => {
     if (!sid || sid === userId) return;
-    setFollowing((prev) => { const next = { ...prev, [sid]: !prev[sid] }; saveJSON(LS.follow, next);
-      if (next[sid]) { const n: Notif = { id: `${Date.now()}_${sid}`, type: "follow", fromId: userId || "0", fromName: displayName || username || "مستخدم", at: Math.floor(Date.now() / 1000), read: false }; setNotifs((old) => { const list = [n, ...old].slice(0, 50); saveJSON(LS.notifs, list); return list; }); }
-      return next; });
+    setFollowing((prev) => {
+      const next = { ...prev, [sid]: !prev[sid] };
+      saveJSON(LS.follow, next);
+      // Real fix: this used to write the "followed you" notification into
+      // the CURRENT viewer's own localStorage -- it never reached sid (the
+      // person actually followed) on any device. Now it's a real POST
+      // addressed to them, delivered via /api/media-notifications.
+      if (next[sid]) {
+        void fetch("/api/media-notifications", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to_id: sid, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "follow" }),
+        }).catch(() => {});
+      }
+      return next;
+    });
   };
 
   const createParty = async (item: FeedItem) => {
@@ -263,7 +297,7 @@ export default function MiniAppPage() {
           <div><p className="text-[10px] font-bold tracking-wider text-sky-400/80">TELEGRAM MINI APP</p><h1 className="text-lg font-black text-white">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => load()} className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg">🔄</button>
-            <button type="button" onClick={() => { setShowNotifs(true); setNotifs((o) => { const n = o.map((x) => ({ ...x, read: true })); saveJSON(LS.notifs, n); return n; }); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black">{unreadCount}</span>}</button>
+            <button type="button" onClick={() => { setShowNotifs(true); setNotifs((o) => o.map((x) => ({ ...x, read: true }))); if (userId) void fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black">{unreadCount}</span>}</button>
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 ring-2 ring-white/20">{photoUrl && isOwnProfile ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black">{(headerName || "U").slice(0, 1)}</span>}</div>
           </div>
         </div>
@@ -292,7 +326,7 @@ export default function MiniAppPage() {
                 {adminStats && <p className="text-[10px] text-white/40">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
               </div>
             </div>
-            <div className="space-y-2"><p className="text-xs font-bold text-white/60">مراجعة المحتوى — إخفاء</p>{items.slice(0, 12).map((it) => (<div key={it.id} className="flex items-center gap-2 rounded-2xl border border-white/5 bg-white/5 p-2"><div className="h-12 w-16 overflow-hidden rounded-xl bg-black/40">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] text-white/40">{it.sharer_name}</p></div><button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-500/20 px-2 py-1 text-[10px] font-bold text-rose-300">إخفاء</button></div>))}</div>
+            <div className="space-y-2"><p className="text-xs font-bold text-white/60">مراجعة المحتوى (تشمل الغرف الخاصة) — إخفاء</p>{items.slice(0, 30).map((it) => (<div key={it.id} className="flex items-center gap-2 rounded-2xl border border-white/5 bg-white/5 p-2"><div className="h-12 w-16 overflow-hidden rounded-xl bg-black/40">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] text-white/40">{it.sharer_name}{(it as any).squad_code ? ` · 🔒 غرفة ${(it as any).squad_code}` : ""}</p></div><button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-500/20 px-2 py-1 text-[10px] font-bold text-rose-300">إخفاء</button></div>))}</div>
           </div>
         )}
 
@@ -321,7 +355,47 @@ export default function MiniAppPage() {
           <div className="space-y-3">{visible.map((item) => {
             const isLiked = !!liked[item.id]; const likeCount = (item.likes || 0) + (isLiked ? 1 : 0); const plays = (item.views || 0) + (viewsMap[item.id] || 0); const badge = platformBadge(item.url);
             return (<article key={item.id} className="overflow-hidden rounded-3xl border border-white/10 bg-white/5 shadow-lg backdrop-blur-md transition active:scale-[0.99]" onClick={() => { setViewsMap((prev) => { const next = { ...prev, [item.id]: (prev[item.id] || 0) + 1 }; saveJSON(LS.views, next); return next; }); }}>
-              <div className="relative aspect-[16/9] bg-black/40">{item.thumbnail ? <img src={item.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-5xl">{typeIcon(item.media_type)}</div>}<span className={`absolute left-2 top-2 rounded-full ${badge.color} px-2 py-0.5 text-[10px] font-black text-white`}>{badge.label}</span>{tab === "trending" && !viewUserId && <span className="absolute bottom-2 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-black">🔥 رائج</span>}</div>
+              <div className="relative aspect-[16/9] bg-black/40">
+                {playingId === item.id ? (
+                  item.media_type === "audio" || item.media_type === "voice" ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-800 to-slate-900">
+                      <span className="text-5xl">🎵</span>
+                      <audio
+                        src={`/api/media-stream?id=${item.id}`}
+                        controls
+                        autoPlay
+                        className="w-[90%]"
+                        onClick={(e) => e.stopPropagation()}
+                        onError={() => { setPlayingId(null); setPlayError(item.id); }}
+                      />
+                    </div>
+                  ) : (
+                    <video
+                      src={`/api/media-stream?id=${item.id}`}
+                      poster={item.thumbnail || undefined}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="h-full w-full object-contain bg-black"
+                      onClick={(e) => e.stopPropagation()}
+                      onError={() => { setPlayingId(null); setPlayError(item.id); }}
+                    />
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPlayError(null); setPlayingId(item.id); }}
+                    className="group relative block h-full w-full"
+                  >
+                    {item.thumbnail ? <img src={item.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900 text-5xl">{typeIcon(item.media_type)}</div>}
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/20 transition group-active:bg-black/40">
+                      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/90 text-2xl text-slate-900 shadow-lg">▶</span>
+                    </span>
+                    {playError === item.id && <span className="absolute inset-x-2 bottom-2 rounded-lg bg-rose-500/90 px-2 py-1 text-center text-[10px] font-bold text-white">تعذر التشغيل المباشر — استخدم «⚡ فوري»</span>}
+                  </button>
+                )}
+                <span className={`absolute left-2 top-2 rounded-full ${badge.color} px-2 py-0.5 text-[10px] font-black text-white`}>{badge.label}</span>{tab === "trending" && !viewUserId && <span className="absolute bottom-2 right-2 rounded-full bg-orange-500 px-2 py-0.5 text-[10px] font-black">🔥 رائج</span>}
+              </div>
               <div className="p-3.5"><h3 className="line-clamp-2 text-[15px] font-extrabold text-white">{item.title}</h3>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-white/50"><button type="button" onClick={(e) => { e.stopPropagation(); openProfile(item.sharer_id, item.sharer_name); }} className="rounded-full bg-white/10 px-2 py-0.5 font-semibold text-sky-300">👤 {item.sharer_name || "مستخدم"}</button><span>{timeAgo(item.created_at)}</span><span>▶ {plays}</span><span>⬇ {item.clones || 0}</span></div>
                 <div className="mt-3 grid grid-cols-5 gap-1.5">
@@ -339,7 +413,17 @@ export default function MiniAppPage() {
         ))}
       </div>
 
-      {qualityItem && (<div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setQualityItem(null)}><div className="w-full rounded-t-3xl border border-white/10 bg-[#121a2b] p-4 pb-8" onClick={(e) => e.stopPropagation()}><p className="text-center text-sm font-black">⬇️ خيارات التحميل</p><p className="mt-1 line-clamp-2 text-center text-xs text-white/50">{qualityItem.title}</p><div className="mt-4 grid grid-cols-2 gap-2">{[["720", "فيديو 720p HD"], ["480", "فيديو 480p"], ["360", "فيديو 360p"], ["audio", "صوت MP3"]].map(([q, label]) => (<a key={q} href={BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?text=${encodeURIComponent(qualityItem.url || qualityItem.title)}` : "#"} className="rounded-2xl bg-sky-500/90 py-3 text-center text-xs font-black active:scale-95">{label}</a>))}</div><a href={cloneHref(qualityItem.id)} className="mt-2 block rounded-2xl bg-violet-500 py-3 text-center text-xs font-black">⚡ استنساخ فوري</a><button type="button" onClick={() => setQualityItem(null)} className="mt-2 w-full rounded-2xl bg-white/10 py-3 text-xs font-bold">إغلاق</button></div></div>)}
+      {/* This used to offer 4 quality buttons (720p/480p/360p/MP3) that all
+          silently did the exact same thing regardless of which one was
+          tapped -- ignoring the chosen quality entirely and just reopening
+          the bot with the raw link. There's no real per-quality re-download
+          from here without going through the bot's own download flow (which
+          has the real quality keyboard), so this is now one honest action
+          instead of four fake ones. */}
+      {qualityItem && (<div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setQualityItem(null)}><div className="w-full rounded-t-3xl border border-white/10 bg-[#121a2b] p-4 pb-8" onClick={(e) => e.stopPropagation()}><p className="text-center text-sm font-black">⬇️ خيارات التحميل</p><p className="mt-1 line-clamp-2 text-center text-xs text-white/50">{qualityItem.title}</p>
+        <a href={cloneHref(qualityItem.id)} className="mt-4 block rounded-2xl bg-violet-500 py-3 text-center text-xs font-black">⚡ استنساخ فوري (نفس الجودة المحفوظة)</a>
+        <a href={BOT_USERNAME && qualityItem.url ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?text=${encodeURIComponent(qualityItem.url)}` : "#"} className="mt-2 block rounded-2xl bg-sky-500/90 py-3 text-center text-xs font-black">📥 تحميل بجودة أخرى (افتح في البوت)</a>
+        <button type="button" onClick={() => setQualityItem(null)} className="mt-2 w-full rounded-2xl bg-white/10 py-3 text-xs font-bold">إغلاق</button></div></div>)}
     </div>
   );
 }

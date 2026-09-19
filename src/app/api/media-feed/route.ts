@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
 
 export const dynamic = "force-dynamic";
+
+const OWNER = (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID || "420066855").trim();
 
 type FeedItem = {
   id: string;
@@ -172,7 +175,13 @@ export async function GET(req: NextRequest) {
   const tag = (req.nextUrl.searchParams.get("tag") || "").trim();
   const squad = (req.nextUrl.searchParams.get("squad") || "").trim();
   const q = (req.nextUrl.searchParams.get("q") || "").trim().toLowerCase();
-  const includeHidden = req.nextUrl.searchParams.get("admin") === "1";
+  // admin=1 alone used to be enough to see hidden items -- anyone could just
+  // append it to the URL. Now it also requires a real Telegram-signed
+  // init_data (see verifyTelegramOwner), same as the other admin actions,
+  // since it's about to ALSO reveal private squad-only content below.
+  const botToken = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const wantsAdmin = req.nextUrl.searchParams.get("admin") === "1";
+  const includeHidden = wantsAdmin && verifyTelegramOwner(req.nextUrl.searchParams.get("init_data") || "", botToken, OWNER);
 
   const fromDb = await loadFromSupabase();
   const byId = new Map<string, FeedItem>();
@@ -184,7 +193,11 @@ export async function GET(req: NextRequest) {
 
   if (!includeHidden) items = items.filter((i) => !i.hidden);
   if (squad) items = items.filter((i) => (i.squad_code || "") === squad);
-  else items = items.filter((i) => !i.squad_code);
+  // Private squads previously hid their content from the owner too --
+  // there was no way to reach or moderate what got posted inside one. The
+  // owner's verified admin view now sees everything, squad or not; the
+  // normal public feed still excludes squad-only posts by default.
+  else if (!includeHidden) items = items.filter((i) => !i.squad_code);
 
   if (type !== "all") {
     items = items.filter(

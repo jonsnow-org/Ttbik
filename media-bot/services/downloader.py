@@ -106,13 +106,32 @@ def _write_cookies_file() -> str | None:
         return None
     if os.path.isfile(raw):
         return raw
-    if "# Netscape" in raw or "youtube.com" in raw or "\t" in raw:
+
+    # Most hosting dashboards' env-var text boxes collapse real newlines
+    # typed/pasted into a multi-line cookie file into either a literal
+    # "\n"/"\t" two-character escape sequence or a single flattened line.
+    # A Netscape cookie file needs one real tab-separated line per cookie --
+    # silently writing the raw (flattened) value produces a file yt-dlp
+    # parses as zero real cookies, so it downloads unauthenticated with no
+    # error at all, which looks identical to "cookies aren't configured"
+    # even though an env var IS set. Un-escape those before writing.
+    normalized = raw.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\t", "\t")
+
+    if "# Netscape" in normalized or "youtube.com" in normalized or "\t" in normalized:
         path = "/tmp/ytdlp_cookies.txt"
         with open(path, "w", encoding="utf-8") as f:
-            if not raw.startswith("#"):
+            if not normalized.startswith("#"):
                 f.write("# Netscape HTTP Cookie File\n")
-            f.write(raw if raw.endswith("\n") else raw + "\n")
+            f.write(normalized if normalized.endswith("\n") else normalized + "\n")
+        cookie_lines = sum(1 for ln in normalized.splitlines() if ln.strip() and not ln.startswith("#"))
+        logger.info("YTDLP_COOKIES: wrote %d cookie line(s) to %s", cookie_lines, path)
+        if cookie_lines == 0:
+            logger.warning(
+                "YTDLP_COOKIES is set but 0 real cookie lines were parsed from it -- "
+                "check it's a real Netscape-format export, not truncated/mis-pasted."
+            )
         return path
+    logger.warning("YTDLP_COOKIES is set but doesn't look like a Netscape cookie file -- ignoring it.")
     return None
 
 
@@ -321,13 +340,26 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
     try:
 
         def _run_g() -> dict | None:
-            opts = {
+            opts: dict[str, Any] = {
                 "quiet": True,
                 "no_warnings": True,
                 "skip_download": True,
                 "noplaylist": True,
                 "socket_timeout": 25,
             }
+            # BUG (fixed): this generic path -- the one actually used for
+            # Facebook/Instagram/Twitter/etc, anything that isn't YouTube or
+            # TikTok -- never attached YTDLP_COOKIES or PROXY_URL, unlike the
+            # YouTube branch above and unlike _opts() in download_media()
+            # below. A login-walled Facebook video would fail right here, at
+            # the info/preview step, before the user ever sees a quality
+            # picker -- regardless of how correctly cookies were configured.
+            ck = _write_cookies_file()
+            if ck:
+                opts["cookiefile"] = ck
+            px = _proxy()
+            if px:
+                opts["proxy"] = px
             with yt_dlp.YoutubeDL(opts) as ydl:
                 return ydl.extract_info(url, download=False)
 
