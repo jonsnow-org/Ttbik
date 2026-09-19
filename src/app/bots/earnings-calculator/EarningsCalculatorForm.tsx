@@ -9,11 +9,19 @@ const CPM_PRESETS = [
   { label: "4$", value: "4" },
 ];
 
+const FILL_PRESETS = [
+  { label: "25%", value: "25" },
+  { label: "40%", value: "40" },
+  { label: "70%", value: "70" },
+  { label: "100%", value: "100" },
+];
+
 export default function EarningsCalculatorForm() {
   const [subscribers, setSubscribers] = useState("5000");
   const [avgViews, setAvgViews] = useState("2000");
   const [postsPerMonth, setPostsPerMonth] = useState("20");
   const [cpm, setCpm] = useState("2.5");
+  const [fillRate, setFillRate] = useState("40");
   const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
@@ -21,14 +29,28 @@ export default function EarningsCalculatorForm() {
     const v = Number(avgViews) || 0;
     const p = Number(postsPerMonth) || 0;
     const c = Number(cpm) || 0;
+    const fill = Math.min(100, Math.max(0, Number(fillRate) || 0));
     const monthlyViews = v * p;
-    const monthlyUsd = (monthlyViews / 1000) * c;
+    const soldViews = monthlyViews * (fill / 100);
+    const monthlyUsd = (soldViews / 1000) * c;
     const yearlyUsd = monthlyUsd * 12;
     const dailyUsd = monthlyUsd / 30;
+    const weeklyUsd = monthlyUsd / 4.345;
     const reachPct = s > 0 ? Math.min(100, (v / s) * 100) : 0;
     const viewsExceedSubs = s > 0 && v > s;
-    return { monthlyViews, monthlyUsd, yearlyUsd, dailyUsd, reachPct, subscribers: s, viewsExceedSubs };
-  }, [subscribers, avgViews, postsPerMonth, cpm]);
+    return {
+      monthlyViews,
+      soldViews,
+      monthlyUsd,
+      yearlyUsd,
+      dailyUsd,
+      weeklyUsd,
+      reachPct,
+      subscribers: s,
+      viewsExceedSubs,
+      fill,
+    };
+  }, [subscribers, avgViews, postsPerMonth, cpm, fillRate]);
 
   async function copySummary() {
     const text = [
@@ -38,8 +60,11 @@ export default function EarningsCalculatorForm() {
       `نسبة الوصول التقريبية: ${result.reachPct.toFixed(1)}%`,
       `المنشورات/شهر: ${postsPerMonth}`,
       `CPM: $${Number(cpm) || 0}`,
-      `مشاهدات إعلانية شهرية: ${result.monthlyViews.toLocaleString("ar")}`,
+      `نسبة بيع المساحات: ${result.fill}%`,
+      `مشاهدات كلية شهرياً: ${result.monthlyViews.toLocaleString("ar")}`,
+      `مشاهدات مبيعة تقريبياً: ${Math.round(result.soldViews).toLocaleString("ar")}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
+      `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
       "الأرقام تقريبية للتخطيط وليست وعداً بربح.",
@@ -61,7 +86,7 @@ export default function EarningsCalculatorForm() {
       </span>
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">حاسبة أرباح قناة أو بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
-        قدّر أرباحك الشهرية والتقريبية السنوية من الإعلانات بناءً على مشاهداتك الحقيقية — أرقام تقريبية للتخطيط، وليست وعداً
+        قدّر أرباحك الشهرية والتقريبية السنوية من الإعلانات بناءً على مشاهداتك ونسبة المساحات المبيعة — أرقام تقريبية للتخطيط، وليست وعداً
         بربح مضمون (يختلف السعر الفعلي حسب المعلن والمنافذ الإعلانية).
       </p>
 
@@ -134,15 +159,55 @@ export default function EarningsCalculatorForm() {
             القنوات العربية العامة غالباً بين 1-4$ لكل 1000 مشاهدة — عدّل الرقم حسب سعر السوق الفعلي في مجالك.
           </p>
         </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">
+            نسبة بيع المساحات الإعلانية (fill rate)
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={fillRate}
+            onChange={(e) => setFillRate(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {FILL_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setFillRate(preset.value)}
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  fillRate === preset.value
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            معظم القنوات لا تبيع كل منشور. 40% افتراض واقعي لقناة متوسطة — 100% يعني كل المشاهدات مبيعة.
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 p-6 text-white shadow-md">
         <p className="text-sm text-indigo-100">نسبة الوصول التقريبية من المشتركين</p>
         <p className="text-2xl font-extrabold">{result.reachPct.toFixed(1)}%</p>
-        <p className="mt-3 text-sm text-indigo-100">إجمالي المشاهدات الإعلانية شهرياً</p>
-        <p className="text-2xl font-extrabold">{result.monthlyViews.toLocaleString("ar")}</p>
+        <p className="mt-3 text-sm text-indigo-100">مشاهدات كلية / مبيعة شهرياً</p>
+        <p className="text-2xl font-extrabold">
+          {result.monthlyViews.toLocaleString("ar")}{" "}
+          <span className="text-base font-bold text-indigo-100">
+            / {Math.round(result.soldViews).toLocaleString("ar")}
+          </span>
+        </p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح اليومية التقريبية</p>
         <p className="text-2xl font-extrabold">${result.dailyUsd.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">الأرباح الأسبوعية التقريبية</p>
+        <p className="text-2xl font-extrabold">${result.weeklyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح الشهرية التقريبية</p>
         <p className="text-3xl font-extrabold">${result.monthlyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">التقدير السنوي التقريبي</p>
