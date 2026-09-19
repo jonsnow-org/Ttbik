@@ -31,6 +31,7 @@ const SUB_PRESETS = [
   { label: "50 ألف", value: "50000" },
   { label: "100 ألف", value: "100000" },
   { label: "250 ألف", value: "250000" },
+  { label: "500 ألف", value: "500000" },
 ];
 
 const VIEW_PRESETS = [
@@ -89,6 +90,7 @@ export default function EarningsCalculatorForm() {
     const monthsToTarget = monthlyUsd > 0 ? target / monthlyUsd : 0;
     const weeksToTarget = monthsToTarget * 4.345;
     const daysToTarget = monthsToTarget * 30;
+    const hoursToTarget = daysToTarget * 24;
     return {
       monthlyViews,
       soldViews,
@@ -115,6 +117,7 @@ export default function EarningsCalculatorForm() {
       monthsToTarget,
       weeksToTarget,
       daysToTarget,
+      hoursToTarget,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -142,6 +145,7 @@ export default function EarningsCalculatorForm() {
       `أشهر لتغطية الهدف بنفس الوتيرة: ${result.monthsToTarget.toFixed(1)}`,
       `أسابيع لتغطية الهدف بنفس الوتيرة: ${result.weeksToTarget.toFixed(1)}`,
       `أيام لتغطية الهدف بنفس الوتيرة: ${result.daysToTarget.toFixed(0)}`,
+      `ساعات لتغطية الهدف بنفس الوتيرة: ${result.hoursToTarget.toFixed(0)}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -174,189 +178,79 @@ export default function EarningsCalculatorForm() {
       <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">عدد المشتركين الحاليين</label>
-          <input
-            type="number"
-            min="0"
-            value={subscribers}
-            onChange={(e) => setSubscribers(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input type="number" min="0" value={subscribers} onChange={(e) => setSubscribers(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {SUB_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setSubscribers(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  subscribers === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setSubscribers(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  subscribers === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
           <p className="mt-1 text-xs text-slate-500">يُستخدم لحساب نسبة الوصول (المشاهدات ÷ المشتركين) والربح لكل مشترك.</p>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">متوسط المشاهدات لكل منشور</label>
-          <input
-            type="number"
-            min="0"
-            value={avgViews}
-            onChange={(e) => setAvgViews(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input type="number" min="0" value={avgViews} onChange={(e) => setAvgViews(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {VIEW_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setAvgViews(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  avgViews === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setAvgViews(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  avgViews === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
           {result.viewsExceedSubs ? (
-            <p className="mt-1 text-xs text-amber-700">
-              المشاهدات أعلى من عدد المشتركين — ممكن للمشاركات/الإعادات، ونسبة الوصول مسقوفة عند 100%.
-            </p>
+            <p className="mt-1 text-xs text-amber-700">المشاهدات أعلى من عدد المشتركين — ممكن للمشاركات/الإعادات، ونسبة الوصول مسقوفة عند 100%.</p>
           ) : (
-            <p className="mt-1 text-xs text-slate-500">
-              معظم القنوات العربية تصل 20–40% من المشتركين لكل منشور — عدّل رقمك من إحصائيات القناة.
-            </p>
+            <p className="mt-1 text-xs text-slate-500">معظم القنوات العربية تصل 20–40% من المشتركين لكل منشور — عدّل رقمك من إحصائيات القناة.</p>
           )}
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">عدد المنشورات الإعلانية شهرياً</label>
-          <input
-            type="number"
-            min="0"
-            value={postsPerMonth}
-            onChange={(e) => setPostsPerMonth(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input type="number" min="0" value={postsPerMonth} onChange={(e) => setPostsPerMonth(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {POSTS_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setPostsPerMonth(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  postsPerMonth === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setPostsPerMonth(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  postsPerMonth === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            8–12 مناسب لقناة هادئة، 20 لقناة نشطة، 30 إذا كان النشر يومياً تقريباً.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">8–12 مناسب لقناة هادئة، 20 لقناة نشطة، 30 إذا كان النشر يومياً تقريباً.</p>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            السعر التقريبي لكل 1000 مشاهدة (CPM بالدولار)
-          </label>
-          <input
-            type="number"
-            min="0"
-            step="0.1"
-            value={cpm}
-            onChange={(e) => setCpm(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <label className="mb-1 block text-sm font-medium text-slate-700">السعر التقريبي لكل 1000 مشاهدة (CPM بالدولار)</label>
+          <input type="number" min="0" step="0.1" value={cpm} onChange={(e) => setCpm(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {CPM_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setCpm(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  cpm === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setCpm(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  cpm === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            القنوات العربية العامة غالباً بين 1-4$ لكل 1000 مشاهدة — عدّل الرقم حسب سعر السوق الفعلي في مجالك.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">القنوات العربية العامة غالباً بين 1-4$ لكل 1000 مشاهدة — عدّل الرقم حسب سعر السوق الفعلي في مجالك.</p>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium text-slate-700">
-            نسبة بيع المساحات الإعلانية (fill rate)
-          </label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            step="1"
-            value={fillRate}
-            onChange={(e) => setFillRate(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <label className="mb-1 block text-sm font-medium text-slate-700">نسبة بيع المساحات الإعلانية (fill rate)</label>
+          <input type="number" min="0" max="100" step="1" value={fillRate} onChange={(e) => setFillRate(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {FILL_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setFillRate(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  fillRate === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setFillRate(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  fillRate === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            معظم القنوات لا تبيع كل منشور. 40% افتراض واقعي لقناة متوسطة — 100% يعني كل المشاهدات مبيعة.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">معظم القنوات لا تبيع كل منشور. 40% افتراض واقعي لقناة متوسطة — 100% يعني كل المشاهدات مبيعة.</p>
         </div>
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">هدف الربح الشهري بالدولار</label>
-          <input
-            type="number"
-            min="0"
-            step="1"
-            value={targetMonthly}
-            onChange={(e) => setTargetMonthly(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
+          <input type="number" min="0" step="1" value={targetMonthly} onChange={(e) => setTargetMonthly(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
           <div className="mt-2 flex flex-wrap gap-2">
             {TARGET_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-                type="button"
-                onClick={() => setTargetMonthly(preset.value)}
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  targetMonthly === preset.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}
-              >
-                {preset.label}
-              </button>
+              <button key={preset.value} type="button" onClick={() => setTargetMonthly(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  targetMonthly === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}>{preset.label}</button>
             ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
-            نحسب CPM المطلوب، وعدد المنشورات، ونسبة البيع، والمشاهدات المطلوبة للوصول لهذا الرقم — كل سيناريو يثبّت باقي المدخلات.
-          </p>
+          <p className="mt-1 text-xs text-slate-500">نحسب CPM المطلوب، وعدد المنشورات، ونسبة البيع، والمشاهدات المطلوبة للوصول لهذا الرقم — كل سيناريو يثبّت باقي المدخلات.</p>
         </div>
       </div>
 
@@ -366,9 +260,7 @@ export default function EarningsCalculatorForm() {
         <p className="mt-3 text-sm text-indigo-100">مشاهدات كلية / مبيعة شهرياً</p>
         <p className="text-2xl font-extrabold">
           {result.monthlyViews.toLocaleString("ar")}{" "}
-          <span className="text-base font-bold text-indigo-100">
-            / {Math.round(result.soldViews).toLocaleString("ar")}
-          </span>
+          <span className="text-base font-bold text-indigo-100">/ {Math.round(result.soldViews).toLocaleString("ar")}</span>
         </p>
         <p className="mt-3 text-sm text-indigo-100">تقدير لكل منشور إعلاني (بعد fill rate)</p>
         <p className="text-2xl font-extrabold">${result.perAdUsd.toFixed(2)}</p>
@@ -386,9 +278,7 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{Math.round(result.requiredViews).toLocaleString("ar")}</p>
         <p className="mt-1 text-xs text-indigo-100">
           نسبة وصول مطلوبة من المشتركين الحاليين: {result.requiredReachPct.toFixed(1)}%
-          {result.requiredReachPct > 100
-            ? " — أعلى من 100% وصول عضوية؛ الهدف يحتاج نمو مشتركين أو رفع CPM/المنشورات."
-            : ""}
+          {result.requiredReachPct > 100 ? " — أعلى من 100% وصول عضوية؛ الهدف يحتاج نمو مشتركين أو رفع CPM/المنشورات." : ""}
         </p>
         <p className="mt-3 text-sm text-indigo-100">مشتركون مطلوبون لنفس الهدف (بنفس نسبة الوصول الحالية)</p>
         <p className="text-2xl font-extrabold">{Math.round(result.requiredSubscribers).toLocaleString("ar")}</p>
@@ -398,6 +288,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.weeksToTarget.toFixed(1)}</p>
         <p className="mt-3 text-sm text-indigo-100">أيام لتغطية الهدف بنفس الوتيرة الحالية</p>
         <p className="text-2xl font-extrabold">{result.daysToTarget.toFixed(0)}</p>
+        <p className="mt-3 text-sm text-indigo-100">ساعات لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.hoursToTarget.toFixed(0)}</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.monthlyUsd <= 0
             ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
@@ -424,21 +316,14 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">${result.quarterlyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">التقدير السنوي التقريبي</p>
         <p className="text-2xl font-extrabold">${result.yearlyUsd.toFixed(2)}</p>
-        <button
-          type="button"
-          onClick={copySummary}
-          className="mt-4 w-full rounded-xl bg-white/15 py-2 text-sm font-bold text-white hover:bg-white/25"
-        >
+        <button type="button" onClick={copySummary} className="mt-4 w-full rounded-xl bg-white/15 py-2 text-sm font-bold text-white hover:bg-white/25">
           {copied ? "تم النسخ ✓" : "نسخ ملخص التقدير"}
         </button>
       </div>
 
       <p className="mt-4 text-xs text-slate-400">
         💡 تريد ربحاً حقيقياً فورياً بدل الانتظار لبيع إعلانات بنفسك؟ شغّل بوت الإعلانات والمهام مجاناً على قناتك من{" "}
-        <a href="/watch-and-earn" className="font-bold text-indigo-700 underline">
-          هنا
-        </a>
-        .
+        <a href="/watch-and-earn" className="font-bold text-indigo-700 underline">هنا</a>.
       </p>
     </main>
   );
