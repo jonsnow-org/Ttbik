@@ -21,7 +21,10 @@ INFO_TEXT = (
     "🎁 مكافأة المشاركة\n"
     "فعّل عرض تنزيلاتك في التطبيق ← حد يومي أعلى + شارة مساهم.\n\n"
     "👥 الغرف الخاصة\n"
-    "أنشئ غرفة برمز دعوة لمشاركة التنزيلات مع أصدقائك فقط.\n\n"
+    "• أنشئ غرفة لتحصل على رمز دعوة (مثال: 8A038B).\n"
+    "• شارك الرمز مع أصدقائك → ينضمون بزر «الانضمام برمز».\n"
+    "• تنزيلات أعضاء الغرفة لا تظهر في الموجز العام.\n"
+    "• غرفة واحدة لكل مستخدم — لإنشاء جديدة غادر الحالية أولاً.\n\n"
     "📱 Mini-App: الزر المربع بجانب حقل الرسالة."
 )
 
@@ -71,13 +74,19 @@ def user_settings_keyboard(share_to_feed: bool) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
-def squad_keyboard(has_squad: bool) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton("➕ إنشاء غرفة", callback_data="squad_create")],
-        [InlineKeyboardButton("🔑 الانضمام برمز", callback_data="squad_join")],
-    ]
-    if has_squad:
+def squad_keyboard(has_squad: bool, code: str | None = None, members: int = 0) -> InlineKeyboardMarkup:
+    """When already in a room: no create button — show status + leave/join only."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_squad and code:
+        rows.append(
+            [InlineKeyboardButton(f"✅ غرفتك: {code} · {members} أعضاء", callback_data="squad_info")]
+        )
+        rows.append([InlineKeyboardButton("📋 نسخ الرمز / شرح", callback_data="squad_info")])
         rows.append([InlineKeyboardButton("🚪 مغادرة الغرفة", callback_data="squad_leave")])
+        rows.append([InlineKeyboardButton("🔑 الانضمام لغرفة أخرى", callback_data="squad_join")])
+    else:
+        rows.append([InlineKeyboardButton("➕ إنشاء غرفة", callback_data="squad_create")])
+        rows.append([InlineKeyboardButton("🔑 الانضمام برمز", callback_data="squad_join")])
     rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 
