@@ -23,6 +23,13 @@ const POSTS_PRESETS = [
   { label: "30/شهر", value: "30" },
 ];
 
+const SUB_PRESETS = [
+  { label: "1 ألف", value: "1000" },
+  { label: "5 آلاف", value: "5000" },
+  { label: "10 آلاف", value: "10000" },
+  { label: "25 ألف", value: "25000" },
+];
+
 export default function EarningsCalculatorForm() {
   const [subscribers, setSubscribers] = useState("5000");
   const [avgViews, setAvgViews] = useState("2000");
@@ -41,6 +48,7 @@ export default function EarningsCalculatorForm() {
     const soldViews = monthlyViews * (fill / 100);
     const monthlyUsd = (soldViews / 1000) * c;
     const yearlyUsd = monthlyUsd * 12;
+    const quarterlyUsd = monthlyUsd * 3;
     const dailyUsd = monthlyUsd / 30;
     const weeklyUsd = monthlyUsd / 4.345;
     const perAdUsd = p > 0 ? monthlyUsd / p : 0;
@@ -51,6 +59,7 @@ export default function EarningsCalculatorForm() {
       soldViews,
       monthlyUsd,
       yearlyUsd,
+      quarterlyUsd,
       dailyUsd,
       weeklyUsd,
       perAdUsd,
@@ -76,6 +85,7 @@ export default function EarningsCalculatorForm() {
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
+      `تقدير ربع سنوي: $${result.quarterlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
       "الأرقام تقريبية للتخطيط وليست وعداً بربح.",
     ].join("\n");
@@ -110,6 +120,22 @@ export default function EarningsCalculatorForm() {
             onChange={(e) => setSubscribers(e.target.value)}
             className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SUB_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setSubscribers(preset.value)}
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  subscribers === preset.value
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <p className="mt-1 text-xs text-slate-500">يُستخدم لحساب نسبة الوصول (المشاهدات ÷ المشتركين).</p>
         </div>
         <div>
@@ -241,6 +267,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">${result.weeklyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح الشهرية التقريبية</p>
         <p className="text-3xl font-extrabold">${result.monthlyUsd.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">التقدير الربعي التقريبي</p>
+        <p className="text-2xl font-extrabold">${result.quarterlyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">التقدير السنوي التقريبي</p>
         <p className="text-2xl font-extrabold">${result.yearlyUsd.toFixed(2)}</p>
         <button
