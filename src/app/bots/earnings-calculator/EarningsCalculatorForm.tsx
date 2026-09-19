@@ -28,6 +28,7 @@ const SUB_PRESETS = [
   { label: "5 آلاف", value: "5000" },
   { label: "10 آلاف", value: "10000" },
   { label: "25 ألف", value: "25000" },
+  { label: "50 ألف", value: "50000" },
 ];
 
 const VIEW_PRESETS = [
@@ -83,6 +84,7 @@ export default function EarningsCalculatorForm() {
     const requiredViews = denomViews > 0 ? target / denomViews : 0;
     const requiredReachPct = s > 0 && requiredViews > 0 ? (requiredViews / s) * 100 : 0;
     const requiredSubscribers = v > 0 && s > 0 && requiredViews > 0 ? (requiredViews * s) / v : 0;
+    const monthsToTarget = monthlyUsd > 0 ? target / monthlyUsd : 0;
     return {
       monthlyViews,
       soldViews,
@@ -106,6 +108,7 @@ export default function EarningsCalculatorForm() {
       requiredViews,
       requiredReachPct,
       requiredSubscribers,
+      monthsToTarget,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -130,6 +133,7 @@ export default function EarningsCalculatorForm() {
       `مشاهدات/منشور مطلوبة للهدف: ${Math.round(result.requiredViews).toLocaleString("ar")}`,
       `نسبة وصول مطلوبة للهدف: ${result.requiredReachPct.toFixed(1)}%`,
       `مشتركون مطلوبون للهدف بنفس نسبة الوصول: ${Math.round(result.requiredSubscribers).toLocaleString("ar")}`,
+      `أشهر لتغطية الهدف بنفس الوتيرة: ${result.monthsToTarget.toFixed(1)}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -380,6 +384,17 @@ export default function EarningsCalculatorForm() {
         </p>
         <p className="mt-3 text-sm text-indigo-100">مشتركون مطلوبون لنفس الهدف (بنفس نسبة الوصول الحالية)</p>
         <p className="text-2xl font-extrabold">{Math.round(result.requiredSubscribers).toLocaleString("ar")}</p>
+        <p className="mt-3 text-sm text-indigo-100">أشهر لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.monthsToTarget.toFixed(1)}</p>
+        <p className="mt-1 text-xs text-indigo-100">
+          {result.monthlyUsd <= 0
+            ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
+            : result.monthsToTarget <= 1
+              ? "الوتيرة الحالية تغطي الهدف خلال شهر أو أقل."
+              : result.monthsToTarget > 24
+                ? "أكثر من سنتين بنفس الوتيرة — الهدف يحتاج رفع CPM أو الوصول أو عدد المنشورات."
+                : `بنفس الأرقام الحالية تحتاج نحو ${result.monthsToTarget.toFixed(1)} شهر لتراكم مبلغ الهدف.`}
+        </p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.requiredFill > 100
             ? "حتى مع بيع 100% المشاهدات الحالية لا تكفي الهدف — زد المنشورات أو المشاهدات أو الـ CPM."

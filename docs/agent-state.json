@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5742051113,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T13:20:00Z",
+  "updated_at": "2026-09-19T17:20:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -12,6 +12,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
   ],
   "resolved": [
+    "G87 EarningsCalculatorForm 50k subscriber preset + months-to-target at current monthly run-rate (UI + copy). Combined push with state.",
     "G86 EarningsCalculatorForm 1000$ target preset + required subscribers at current reach. Combined push with state.",
     "G85 EarningsCalculatorForm required views/post + required reach % to hit monthly target. SHA 404040c.",
     "G84 EarningsCalculatorForm required posts/month + required fill rate to hit monthly target. SHA d144adc.",
@@ -22,13 +23,6 @@
     "G79 EarningsCalculatorForm fill-rate (sold slots 25/40/70/100) + weekly estimate + sold vs total views. SHA 342b86e.",
     "G78 EarningsCalculatorForm CPM presets (1/2.5/4) + daily estimate + views>subs note. SHA 31ff26d.",
     "G77 HealthCheckForm surfaces hostIsPrivate in notes/UI/copy; SHA 89790c3.",
-    "G76 HealthCheck warns on private/loopback webhook hosts (hostIsPrivate). API SHA ba322a4.",
-    "G75 HealthCheckForm clears token after successful check; surfaces lastErrorDate + maxConnections in UI/copy; pending>100 treated as stalled. SHA 2b246ed.",
-    "G74 HealthCheckForm shows lastSyncErrorDate (24h warn), custom TLS cert flag, profile photo count in UI + copy report. SHA f5b2421.",
-    "G73 HealthCheckForm surfaces webhook allowed_updates + IP + warns if message/callback_query filtered out. SHA 6af6c38.",
-    "G72 HealthCheckForm surfaces unused API fields (AR descriptions, menu button, scoped commands, business/webapp flags). SHA c49411b2.",
-    "G71 HealthCheckForm.tsx restored as complete working client (SHA fbac49dc).",
-    "G69-G53 health-check series retained.",
-    "prior items retained."
+    "prior health-check and earnings items retained."
   ]
 }
