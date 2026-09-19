@@ -561,37 +561,93 @@ async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text(f"yt-dlp: {_yt_dlp_version()}")
 
 
+async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Registered so a Conflict/NetworkError/TimedOut (already imported
+    above but never actually wired to anything) is at least logged
+    clearly instead of vanishing into python-telegram-bot's default
+    handling. Does not by itself stop main()'s outer retry loop below
+    from restarting polling -- that loop is what actually recovers."""
+    err = context.error
+    if isinstance(err, Conflict):
+        logger.error("Telegram Conflict (another poller likely running briefly during a deploy): %s", err)
+    elif isinstance(err, (NetworkError, TimedOut)):
+        logger.warning("Network error talking to Telegram: %s", err)
+    else:
+        logger.exception("Unhandled error while processing an update", exc_info=err)
+
+
 def main() -> None:
     _start_health_server()
-    app = Application.builder().token(cfg.bot_token).build()
 
     async def _post_init(application: Application) -> None:
+        # Retries guard against a stuck/conflicting webhook or a
+        # transient network hiccup right at startup silently leaving
+        # polling unable to start cleanly.
+        for attempt in range(3):
+            try:
+                await application.bot.delete_webhook(drop_pending_updates=True)
+                break
+            except Exception as e:
+                logger.warning("delete_webhook attempt %s/3 failed: %s", attempt + 1, e)
+                await asyncio.sleep(2)
         await load_from_archive(application.bot, cfg.archive_channel_id)
         await _force_menu_button(application.bot)
 
-    app.post_init = _post_init
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("version", version_cmd))
-    # BUG (fixed): both handlers below were registered with no explicit
-    # group, which means the SAME default group (0). python-telegram-bot
-    # only runs the FIRST handler in a group whose filter matches an
-    # update -- it does not fall through to the next one in that group
-    # regardless of what the first one does. owner_text_handler's filter
-    # (filters.TEXT & ~filters.COMMAND) matches EVERY non-command text
-    # message from ANYONE, not just the owner (the actual owner check
-    # happens inside the function body, after the match already "won").
-    # Since it was added first, it silently absorbed every text message
-    # in group 0 and user_text_handler never ran at all for a real
-    # non-owner user -- explains exactly what was reported: /start (a
-    # separate CommandHandler) worked, but every single button press or
-    # link from a regular user got zero reply, deterministically, not
-    # intermittently. Explicit distinct groups let both actually run.
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
-    app.add_handler(CallbackQueryHandler(callbacks))
-    logger.info("Bot starting (polling)...")
-    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
+    # Real bug (fixed): run_polling() can stop and return (e.g. on a
+    # Conflict during a deploy's brief old/new-instance overlap) without
+    # raising. main() would then simply finish, and since the health
+    # server thread is a daemon thread, the whole process exited quietly
+    # right after -- the health check kept passing (it runs in that
+    # separate thread) so nothing looked wrong from the outside, while
+    # the bot had stopped listening to Telegram entirely. This is
+    # exactly the reported symptom: works, goes silent, only a manual
+    # redeploy (a fresh process) brings it back. Wrapping run_polling in
+    # its own restart loop means the SAME process notices and resumes
+    # polling within seconds, with no human needed.
+    while True:
+        try:
+            app = (
+                Application.builder()
+                .token(cfg.bot_token)
+                .connect_timeout(30.0)
+                .read_timeout(30.0)
+                .write_timeout(30.0)
+                .pool_timeout(30.0)
+                .build()
+            )
+            app.post_init = _post_init
+            app.add_error_handler(_error_handler)
+            app.add_handler(CommandHandler("start", start))
+            app.add_handler(CommandHandler("version", version_cmd))
+            # BUG (fixed separately): both handlers below used to be
+            # registered with no explicit group, which means the SAME
+            # default group (0). python-telegram-bot only runs the
+            # FIRST handler in a group whose filter matches an update --
+            # it does not fall through to the next one in that group
+            # regardless of what the first one does. owner_text_handler's
+            # filter (filters.TEXT & ~filters.COMMAND) matches EVERY
+            # non-command text message from ANYONE, not just the owner
+            # (the actual owner check happens inside the function body,
+            # after the match already "won"). Since it was added first,
+            # it silently absorbed every text message in group 0 and
+            # user_text_handler never ran at all for a real non-owner
+            # user. Explicit distinct groups let both actually run.
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
+            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
+            app.add_handler(CallbackQueryHandler(callbacks))
+            logger.info("Bot starting (polling)...")
+            app.run_polling(
+                drop_pending_updates=True,
+                allowed_updates=Update.ALL_TYPES,
+                bootstrap_retries=5,
+                poll_interval=1.0,
+                timeout=25,
+            )
+            logger.warning("run_polling() returned (polling stopped) — restarting in 5s to self-heal.")
+        except Exception:
+            logger.exception("run_polling() crashed — restarting in 5s to self-heal.")
+        time.sleep(5)
 
 
 if __name__ == "__main__":
