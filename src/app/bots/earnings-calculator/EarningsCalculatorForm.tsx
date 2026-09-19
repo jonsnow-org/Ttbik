@@ -30,6 +30,7 @@ const SUB_PRESETS = [
   { label: "25 ألف", value: "25000" },
   { label: "50 ألف", value: "50000" },
   { label: "100 ألف", value: "100000" },
+  { label: "250 ألف", value: "250000" },
 ];
 
 const VIEW_PRESETS = [
@@ -87,6 +88,7 @@ export default function EarningsCalculatorForm() {
     const requiredSubscribers = v > 0 && s > 0 && requiredViews > 0 ? (requiredViews * s) / v : 0;
     const monthsToTarget = monthlyUsd > 0 ? target / monthlyUsd : 0;
     const weeksToTarget = monthsToTarget * 4.345;
+    const daysToTarget = monthsToTarget * 30;
     return {
       monthlyViews,
       soldViews,
@@ -112,6 +114,7 @@ export default function EarningsCalculatorForm() {
       requiredSubscribers,
       monthsToTarget,
       weeksToTarget,
+      daysToTarget,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -138,6 +141,7 @@ export default function EarningsCalculatorForm() {
       `مشتركون مطلوبون للهدف بنفس نسبة الوصول: ${Math.round(result.requiredSubscribers).toLocaleString("ar")}`,
       `أشهر لتغطية الهدف بنفس الوتيرة: ${result.monthsToTarget.toFixed(1)}`,
       `أسابيع لتغطية الهدف بنفس الوتيرة: ${result.weeksToTarget.toFixed(1)}`,
+      `أيام لتغطية الهدف بنفس الوتيرة: ${result.daysToTarget.toFixed(0)}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -392,6 +396,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.monthsToTarget.toFixed(1)}</p>
         <p className="mt-3 text-sm text-indigo-100">أسابيع لتغطية الهدف بنفس الوتيرة الحالية</p>
         <p className="text-2xl font-extrabold">{result.weeksToTarget.toFixed(1)}</p>
+        <p className="mt-3 text-sm text-indigo-100">أيام لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.daysToTarget.toFixed(0)}</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.monthlyUsd <= 0
             ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
