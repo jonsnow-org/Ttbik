@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5739610454,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T05:20:00Z",
+  "updated_at": "2026-09-19T06:15:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -11,6 +11,7 @@
     "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
+    "G80 EarningsCalculatorForm posts/month presets (8/12/20/30) + per-sold-ad estimate in UI/copy. SHA 6385e25.",
     "G79 EarningsCalculatorForm fill-rate (sold slots 25/40/70/100) + weekly estimate + sold vs total views. SHA 342b86e.",
     "G78 EarningsCalculatorForm CPM presets (1/2.5/4) + daily estimate + views>subs note. SHA 31ff26d.",
     "G77 HealthCheckForm surfaces hostIsPrivate in notes/UI/copy; SHA 89790c3.",
