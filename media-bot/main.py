@@ -115,6 +115,40 @@ async def _cold_start_notice(update: Update) -> None:
     store.last_wakeup = now
 
 
+async def _self_ping_loop() -> None:
+    """The real reason the bot needed a manual redeploy to 'come back':
+    Render's free web-service plan suspends the whole process after
+    ~15 minutes with no EXTERNAL inbound HTTP request to its public
+    URL. Our own outbound long-polling connection to Telegram doesn't
+    count as that traffic (it's outbound, and Telegram doesn't "wake"
+    a host on our behalf) -- so once no one happened to hit the health
+    endpoint from outside for 15 minutes, the container was fully
+    suspended, not just slow, and stayed that way indefinitely; the
+    "cold start" message above only ever printed on the FIRST message
+    after a manual redeploy woke it back up, which is exactly the
+    workflow being reported as broken. Pinging our own public URL
+    periodically is real, external-looking inbound traffic from
+    Render's perspective, so the service never goes to sleep in the
+    first place. Render sets RENDER_EXTERNAL_URL automatically; this
+    is a no-op (and harmless) on any host that doesn't."""
+    url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip()
+    if not url:
+        logger.info("RENDER_EXTERNAL_URL not set — self-ping keep-alive disabled (not needed off Render).")
+        return
+    try:
+        import httpx
+    except Exception:
+        return
+    logger.info("Self-ping keep-alive enabled for %s", url)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        while True:
+            await asyncio.sleep(10 * 60)
+            try:
+                await client.get(url)
+            except Exception as e:
+                logger.warning("self-ping failed: %s", e)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user or not update.message:
@@ -592,6 +626,7 @@ def main() -> None:
                 await asyncio.sleep(2)
         await load_from_archive(application.bot, cfg.archive_channel_id)
         await _force_menu_button(application.bot)
+        asyncio.create_task(_self_ping_loop())
 
     # Real bug (fixed): run_polling() can stop and return (e.g. on a
     # Conflict during a deploy's brief old/new-instance overlap) without
