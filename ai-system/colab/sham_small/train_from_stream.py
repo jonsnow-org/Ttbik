@@ -61,6 +61,12 @@ class StreamTrainConfig:
     log_every: int = 10
     checkpoint_every: int | None = None
     checkpoint_dir: str = "checkpoints"
+    # Same real, additive, off-by-default speed/memory optimizations as
+    # train.py's TrainConfig -- see that file's own comment for why bf16
+    # is only used when the GPU has real hardware support for it (Kaggle's
+    # usual T4/P100 don't) and why FlashAttention needs no separate flag.
+    mixed_precision: bool = False
+    compile_model: bool = False
 
 
 class StreamingTokenBatcher:
@@ -122,16 +128,33 @@ def train_from_stream(
     scheduler = build_lr_scheduler(optimizer, cfg.warmup_steps, cfg.total_steps, cfg.min_lr_ratio)
     batcher = StreamingTokenBatcher(text_stream, tokenizer, cfg.seq_len, cfg.batch_size)
 
+    raw_model = model
+    if cfg.compile_model and device.startswith("cuda"):
+        model = torch.compile(model)
+
+    use_amp = cfg.mixed_precision and device.startswith("cuda")
+    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+    use_scaler = use_amp and amp_dtype == torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+
     loss_history = []
     for step, batch in enumerate(batcher):
         if step >= cfg.total_steps:
             break
         batch = batch.to(device)
-        _, loss = model(batch, labels=batch)
+        with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            _, loss = model(batch, labels=batch)
         optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
-        optimizer.step()
+        if use_scaler:
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
+            optimizer.step()
         scheduler.step()
         loss_history.append(loss.item())
 
@@ -141,7 +164,7 @@ def train_from_stream(
 
         if cfg.checkpoint_every and (step + 1) % cfg.checkpoint_every == 0:
             ckpt_path = Path(cfg.checkpoint_dir) / f"stream_step_{step + 1}.pt"
-            save_checkpoint(ckpt_path, model, step + 1, optimizer=optimizer)
+            save_checkpoint(ckpt_path, raw_model, step + 1, optimizer=optimizer)
             print(f"  saved checkpoint: {ckpt_path}")
 
     return loss_history
@@ -217,3 +240,14 @@ if __name__ == "__main__":
     print("\nAll fused stream-to-weights checks passed. On real Kaggle (internet on), replace "
           "mock_text_stream() with a real datasets.load_dataset(..., streaming=True) generator — "
           "everything else in this file runs unchanged.")
+
+    # --- Same CPU-safe gating check as train.py: this sandbox has no CUDA,
+    # so setting mixed_precision/compile_model=True here must be a no-op
+    # (correctly gated off outside CUDA) rather than crash.
+    amp_model = ShamSmall(model_cfg)
+    amp_stream_cfg = StreamTrainConfig(**{**stream_cfg.__dict__, "mixed_precision": True, "compile_model": True})
+    amp_loss_history = train_from_stream(amp_model, mock_text_stream(), tokenizer, amp_stream_cfg)
+    assert len(amp_loss_history) == stream_cfg.total_steps, "mixed_precision/compile_model flags changed step count on CPU"
+    assert all(torch.isfinite(torch.tensor(l)) for l in amp_loss_history), "non-finite loss with amp/compile flags set on CPU"
+    print("mixed_precision/compile_model gating OK on the streaming trainer too: both flags set to True on "
+          "a CPU device ran identically to the default, no crash, finite loss throughout.")

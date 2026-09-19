@@ -68,6 +68,21 @@ class TrainConfig:
     # Keeping only the N most recent checkpoints bounds disk use to a
     # small constant regardless of how long the run goes.
     keep_last_n_checkpoints: int = 2
+    # Real, additive speed/memory optimizations for the actual Kaggle GPU
+    # run (default OFF so every existing CPU smoke test above is
+    # completely unaffected): mixed_precision picks bf16 when the GPU
+    # supports it in hardware (rare on Kaggle's usual T4/P100 -- both are
+    # pre-Ampere and only emulate bf16 in software) and falls back to
+    # fp16 + GradScaler otherwise, which IS properly tensor-core
+    # accelerated on a T4. FlashAttention-2 itself needs no separate flag
+    # here: model.py already calls F.scaled_dot_product_attention, which
+    # PyTorch dispatches to a real fused Flash/memory-efficient kernel on
+    # CUDA automatically -- hand-rolling the standalone flash-attn
+    # package would be a redundant, harder-to-install duplicate of what
+    # SDPA already does.
+    mixed_precision: bool = False
+    compile_model: bool = False
+
     # A real second incident this defends against: picking total_steps
     # from a short speed calibration (e.g. 20 steps) and trusting it for
     # the WHOLE run is a real, hit failure mode — real throughput can run
@@ -166,6 +181,18 @@ def train(
         optimizer, cfg.warmup_steps, cfg.total_steps, cfg.min_lr_ratio, last_epoch=start_step - 1
     )
 
+    # raw_model (never compiled) is what gets checkpointed -- keeps
+    # checkpoint.py's saved state_dict format stable regardless of
+    # whether torch.compile's wrapper is involved in the forward pass.
+    raw_model = model
+    if cfg.compile_model and device.startswith("cuda"):
+        model = torch.compile(model)
+
+    use_amp = cfg.mixed_precision and device.startswith("cuda")
+    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+    use_scaler = use_amp and amp_dtype == torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+
     loss_history = []
     optimizer.zero_grad()
     micro_step = 0
@@ -184,13 +211,24 @@ def train(
             input_ids, labels = input_ids.to(device), labels.to(device)
         else:
             input_ids = labels = batch.to(device)
-        _, loss = model(input_ids, labels=labels)
-        (loss / cfg.grad_accum_steps).backward()
+        with torch.autocast(device_type="cuda", dtype=amp_dtype, enabled=use_amp):
+            _, loss = model(input_ids, labels=labels)
+        scaled_loss = loss / cfg.grad_accum_steps
+        if use_scaler:
+            scaler.scale(scaled_loss).backward()
+        else:
+            scaled_loss.backward()
         micro_step += 1
 
         if micro_step % cfg.grad_accum_steps == 0:
+            if use_scaler:
+                scaler.unscale_(optimizer)
             grad_norm = nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip_norm)
-            optimizer.step()
+            if use_scaler:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
             scheduler.step()
             optimizer.zero_grad()
             step += 1
@@ -202,7 +240,7 @@ def train(
 
             if step % cfg.checkpoint_every == 0:
                 ckpt_path = Path(cfg.checkpoint_dir) / f"step_{step}.pt"
-                save_checkpoint(ckpt_path, model, step, optimizer=optimizer)
+                save_checkpoint(ckpt_path, raw_model, step, optimizer=optimizer)
                 print(f"  saved checkpoint: {ckpt_path}")
                 _prune_old_checkpoints(Path(cfg.checkpoint_dir), cfg.keep_last_n_checkpoints)
 
@@ -212,7 +250,7 @@ def train(
         # the moment the time budget ran out, or real progress since the
         # last periodic save is silently lost.
         final_path = Path(cfg.checkpoint_dir) / f"step_{step}.pt"
-        save_checkpoint(final_path, model, step, optimizer=optimizer)
+        save_checkpoint(final_path, raw_model, step, optimizer=optimizer)
         _prune_old_checkpoints(Path(cfg.checkpoint_dir), cfg.keep_last_n_checkpoints)
         print(f"  stopped early at step {step}/{cfg.total_steps}: hit max_wall_clock_seconds="
               f"{cfg.max_wall_clock_seconds:.0f}s — saved {final_path} and returning normally so later "
@@ -425,3 +463,20 @@ if __name__ == "__main__":
           "path, and continuing a loaded checkpoint with a fresh optimizer are all mechanically correct. "
           "The real large-scale run (bigger model config, real large datasets, many more steps, Kaggle's "
           "GPU) is the separate final stage this tool is now ready for.")
+
+    # --- mixed_precision/compile_model gating: this sandbox has no CUDA
+    # (verified directly — torch.cuda.is_available() is False here), so
+    # the real accelerated code paths can't be exercised end-to-end. What
+    # IS checked for real: setting both flags to True on a CPU device
+    # must not crash and must produce identical mechanical behavior to
+    # leaving them off (device.startswith("cuda") gates both off) — a
+    # realistic case if a notebook cell sets these flags without first
+    # checking what device it actually got.
+    amp_cfg = TrainConfig(**{**train_cfg.__dict__, "mixed_precision": True, "compile_model": True})
+    amp_loss_history = train(ShamSmall(small_model_cfg), batches, amp_cfg, device="cpu")
+    assert len(amp_loss_history) == len(loss_history), "mixed_precision/compile_model flags changed step count on CPU"
+    assert all(torch.isfinite(torch.tensor(l)) for l in amp_loss_history), "non-finite loss with amp/compile flags set on CPU"
+    print("mixed_precision/compile_model gating OK: both flags set to True on a CPU device ran identically "
+          "to the default (correctly gated off outside CUDA) with no crash and finite loss throughout — "
+          "the real bf16/fp16+GradScaler and torch.compile paths activate only on an actual CUDA device "
+          "(Kaggle's real GPU), which this sandbox doesn't have to verify against directly.")

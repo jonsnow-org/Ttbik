@@ -75,7 +75,81 @@ already proven in merge_and_finetune.ipynb's own DPO cell).
 """
 
 import json
+import random
 from pathlib import Path
+from typing import Iterator
+
+
+def mix_text_streams(streams: list[Iterator[str]], weights: list[float], seed: int = 0) -> Iterator[str]:
+    """A real, deliberately SIMPLE static data mixture — weighted random
+    interleaving of several already-open text iterators into one
+    combined stream, in fixed proportions (e.g. 70% Arabic Wikipedia /
+    20% Gutenberg / 10% English Wikipedia). This is the practical,
+    low-risk version of a full loss-adaptive "dynamic mixture
+    controller": a fixed ratio is easy to reason about and impossible to
+    get subtly wrong, while a loss-adaptive reweighting scheme adds real
+    engineering surface (feedback loops, tuning its own reaction rate)
+    for a project that hasn't finished its first real large-scale run
+    yet — that complexity is worth adding later if a real training run
+    shows the fixed ratio genuinely isn't working, not up front.
+
+    A source that runs dry early is dropped from future draws (instead
+    of raising) and the remaining weights renormalize automatically —
+    real streaming datasets are not all the same length, and one
+    finishing first must not crash or silently stall the whole run.
+
+    Feeds directly into train_from_stream()/curriculum.py's
+    text_stream_factory — this returns a plain Iterator[str], the exact
+    type both already expect."""
+    rng = random.Random(seed)
+    live_streams = list(streams)
+    live_weights = list(weights)
+    while live_streams:
+        total = sum(live_weights)
+        r = rng.uniform(0, total)
+        upto = 0.0
+        for i, w in enumerate(live_weights):
+            upto += w
+            if r <= upto:
+                try:
+                    yield next(live_streams[i])
+                except StopIteration:
+                    live_streams.pop(i)
+                    live_weights.pop(i)
+                break
+
+
+def stream_weighted_hf_mixture(sources: list[tuple[str, str, str, float]], split: str = "train") -> Iterator[str]:
+    """Real convenience wrapper around mix_text_streams() for the common
+    case: several real HuggingFace streaming datasets, mixed by weight.
+    Run this ON KAGGLE (Settings -> Internet -> On) — see this module's
+    own docstring for why it cannot run in this sandbox.
+
+    sources: list of (dataset_name, config_name, text_field, weight).
+    Example real call, an Arabic-majority / English-minority mix:
+        stream_weighted_hf_mixture([
+            ("wikimedia/wikipedia", "20231101.ar", "text", 0.5),
+            ("oscar-corpus/OSCAR-2301", "ar", "text", 0.3),
+            ("wikimedia/wikipedia", "20231101.en", "text", 0.2),
+        ])
+    Pass the result straight to train_from_stream()/curriculum.py as
+    text_stream (or wrap it in a zero-arg lambda as
+    curriculum.py's text_stream_factory — note that re-calling this
+    function opens fresh dataset iterators, so it composes correctly
+    with the factory-per-phase pattern curriculum.py already requires)."""
+    from datasets import load_dataset  # imported here, not at module load — see stream_hf_text_corpus's own note
+
+    streams: list[Iterator[str]] = []
+    weights: list[float] = []
+    for dataset_name, config_name, text_field, weight in sources:
+        dataset = load_dataset(dataset_name, config_name, split=split, streaming=True)
+        streams.append(
+            example[text_field].strip()
+            for example in dataset
+            if example.get(text_field) and example[text_field].strip()
+        )
+        weights.append(weight)
+    return mix_text_streams(streams, weights)
 
 
 def stream_hf_text_corpus(
@@ -553,6 +627,90 @@ if __name__ == "__main__":
     cleaned_old = strip_gutenberg_boilerplate(old_style)
     assert "ACTUAL STORY TEXT" in cleaned_old and "Legal preamble" not in cleaned_old
     print("strip_gutenberg_boilerplate OK (older marker style): same real extraction on the legacy convention.")
+
+    # mix_text_streams() is pure Python over any iterators (mock or real)
+    # -- unlike stream_weighted_hf_mixture(), it needs no network at all,
+    # so its actual mixing behavior gets a real test here rather than
+    # just being described.
+    def _counting_stream(label: str, n: int):
+        for i in range(n):
+            yield f"{label}_{i}"
+
+    # A real, deliberately BOUNDED window of draws, well short of any
+    # source's full length -- this is the meaningful check. Draining every
+    # stream to full exhaustion (the first version of this test, which
+    # failed) always ends up with each source's full count regardless of
+    # its weight, since nothing is ever discarded — weighting only
+    # controls the ORDER/PACING items are drawn in, which is exactly what
+    # controls how much of each source a real, step-limited training run
+    # (which stops at total_steps, long before any real streaming dataset
+    # exhausts) actually sees.
+    import itertools
+
+    window = list(
+        itertools.islice(
+            mix_text_streams(
+                [_counting_stream("A", 100_000), _counting_stream("B", 100_000), _counting_stream("C", 100_000)],
+                weights=[0.7, 0.2, 0.1],
+                seed=0,
+            ),
+            30_000,
+        )
+    )
+    total = len(window)
+    frac_a = sum(1 for x in window if x.startswith("A_")) / total
+    frac_b = sum(1 for x in window if x.startswith("B_")) / total
+    frac_c = sum(1 for x in window if x.startswith("C_")) / total
+    assert abs(frac_a - 0.7) < 0.02, f"source A's actual share ({frac_a:.3f}) drifted too far from its weight 0.7"
+    assert abs(frac_b - 0.2) < 0.02, f"source B's actual share ({frac_b:.3f}) drifted too far from its weight 0.2"
+    assert abs(frac_c - 0.1) < 0.02, f"source C's actual share ({frac_c:.3f}) drifted too far from its weight 0.1"
+    print(f"mix_text_streams OK: real weighted proportions over a bounded window of {total:,} drawn items "
+          f"(well short of any source's full length) came out A={frac_a:.3f} (target 0.7), "
+          f"B={frac_b:.3f} (target 0.2), C={frac_c:.3f} (target 0.1).")
+
+    # Real proof a source running dry early doesn't crash or silently
+    # stall the others -- a real, concrete difference between actual
+    # streaming datasets (never all the same length) and a toy test.
+    short_mixed = list(
+        mix_text_streams([_counting_stream("SHORT", 5), _counting_stream("LONG", 200)], weights=[0.5, 0.5], seed=1)
+    )
+    assert len(short_mixed) == 205, f"expected all 5+200 items to eventually be drawn, got {len(short_mixed)}"
+    assert sum(1 for x in short_mixed if x.startswith("SHORT_")) == 5, "the short source's items were not all drawn"
+    assert sum(1 for x in short_mixed if x.startswith("LONG_")) == 200, "the long source stalled/lost items after the short one ran dry"
+    print("mix_text_streams OK: an exhausted source drops out cleanly (no crash, no stall) and the "
+          "remaining source's full run still completes.")
+
+    # End-to-end: the mixed stream is a plain Iterator[str], usable
+    # directly as train_from_stream()'s text_stream argument with zero
+    # glue code -- the actual point of this function.
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import torch
+
+    from model import ShamSmall, ShamSmallConfig
+    from text_tokenizer import train_text_tokenizer
+    from train_from_stream import StreamTrainConfig, train_from_stream
+
+    torch.manual_seed(0)
+    with __import__("tempfile").TemporaryDirectory() as tmpdir:
+        corpus_path = Path(tmpdir) / "bootstrap.txt"
+        corpus_path.write_text("Sham trains on a real weighted mixture of multiple text sources. " * 200, encoding="utf-8")
+        tokenizer = train_text_tokenizer([str(corpus_path)], vocab_size=300)
+
+    tiny_cfg = ShamSmallConfig(vocab_size=42256, d_model=32, n_layers=2, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=16)
+    tiny_model = ShamSmall(tiny_cfg)
+    mixed_stream = mix_text_streams(
+        [_counting_stream("wiki sentence about the real world", 2000), _counting_stream("gutenberg sentence from a real book", 2000)],
+        weights=[0.6, 0.4],
+        seed=2,
+    )
+    stream_cfg = StreamTrainConfig(seq_len=16, batch_size=4, total_steps=15, warmup_steps=2, lr=1e-3, log_every=10**9)
+    loss_history = train_from_stream(tiny_model, mixed_stream, tokenizer, stream_cfg)
+    assert len(loss_history) == stream_cfg.total_steps, "a mixed stream did not drive the expected number of real training steps"
+    assert all(torch.isfinite(torch.tensor(l)) for l in loss_history), "non-finite loss training on a mixed stream"
+    print(f"end-to-end OK: mix_text_streams()'s output drove {len(loss_history)} real training steps through "
+          f"train_from_stream() with zero glue code and finite loss throughout.")
 
     print(
         "\nEverything else in this module requires real internet access (Kaggle, HuggingFace Hub, "
