@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
 type FeedItem = { id: string; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number };
-type Notif = { id: string; type: "follow"; fromId: string; fromName: string; at: number; read: boolean };
+type Notif = { id: string; type: "follow" | "like"; fromId: string; fromName: string; at: number; read: boolean };
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
@@ -145,9 +145,13 @@ export default function MiniAppPage() {
   }, [userId]);
   useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 15000); return () => clearInterval(t); }, [loadNotifs]);
 
-  async function openThread(peerId: string, peerName: string) {
-    setChatPeer({ id: peerId, name: peerName });
-    setShowInbox(true); setShowNotifs(false);
+  // Fetches the open thread's messages and marks it read. Used both for
+  // the initial open AND on a recurring interval below -- previously this
+  // only ran once when a thread was opened, so a reply sent while the
+  // conversation was already on screen never appeared; the user had to
+  // back out to the inbox list and reopen the thread to see it, which is
+  // not how a normal chat behaves.
+  const loadThreadMessages = useCallback(async (peerId: string) => {
     try {
       const r = await fetch(`/api/media-messages?init_data=${encodeURIComponent(tgInitData())}&with=${encodeURIComponent(peerId)}`, { cache: "no-store" });
       const j = await r.json();
@@ -155,13 +159,26 @@ export default function MiniAppPage() {
       await fetch("/api/media-messages", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), peer_id: peerId }) });
       void loadInbox();
     } catch {}
+  }, [loadInbox]);
+
+  async function openThread(peerId: string, peerName: string) {
+    setChatPeer({ id: peerId, name: peerName });
+    setShowInbox(true); setShowNotifs(false);
+    await loadThreadMessages(peerId);
   }
   async function sendDm() {
     if (!chatPeer || !dmInput.trim() || !userId) return;
     const body = dmInput.trim(); setDmInput("");
     await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) });
-    await openThread(chatPeer.id, chatPeer.name);
+    await loadThreadMessages(chatPeer.id);
   }
+  // Keep an open conversation live like a normal chat, instead of only
+  // ever fetching once on open.
+  useEffect(() => {
+    if (!chatPeer || !showInbox) return;
+    const t = setInterval(() => { void loadThreadMessages(chatPeer.id); }, 4000);
+    return () => clearInterval(t);
+  }, [chatPeer, showInbox, loadThreadMessages]);
 
   const profileTargetId = viewUserId || (tab === "me" ? userId : null);
   const isOwnProfile = !!profileTargetId && profileTargetId === userId;
@@ -192,11 +209,18 @@ export default function MiniAppPage() {
 
   const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || "مستخدم"); setProfileSection("all"); setTab("me"); setShowNotifs(false); setShowInbox(false); };
   const closeOtherProfile = () => { setViewUserId(null); setViewUserName(""); setProfileSection("all"); };
-  const toggleLike = (id: string) => {
+  const toggleLike = (item: FeedItem) => {
+    const id = item.id;
     const was = !!liked[id];
     setLiked((p) => { const next = { ...p, [id]: !was }; saveJSON(LS.liked, next); return next; });
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
     fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "like" }) }).catch(() => {});
+    // Real bell notification for a like -- previously only "follow" ever
+    // notified anyone; liking a post silently updated the counter with no
+    // way for the post's owner to know it happened.
+    if (!was && item.sharer_id && item.sharer_id !== userId) {
+      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like" }) }).catch(() => {});
+    }
   };
   const toggleFollow = (sid: string) => {
     if (!sid || sid === userId) return;
@@ -219,7 +243,7 @@ export default function MiniAppPage() {
           <div><p className="text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP</p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => load()} className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔄</button>
-            <button type="button" onClick={() => { setShowNotifs(true); setShowInbox(false); void loadNotifs(); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
+            <button type="button" onClick={async () => { setShowNotifs(true); setShowInbox(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">💬{inboxUnread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
             <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-sky-600 ring-2 ring-sky-200">{photoUrl && isOwnProfile ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(headerName || "U").slice(0, 1)}</span>}</div>
           </div>
@@ -247,7 +271,7 @@ export default function MiniAppPage() {
       {showNotifs && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-sky-200 bg-white">
           <div className="flex items-center justify-between border-b border-sky-100 px-4 py-3"><p className="text-sm font-black">الإشعارات</p><button type="button" onClick={() => setShowNotifs(false)} className="text-xs font-bold text-slate-500">إغلاق</button></div>
-          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.map((n) => (<li key={n.id}><button type="button" onClick={() => openProfile(n.fromId, n.fromName)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-sky-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-200 text-sm font-black">{(n.fromName || "U").slice(0, 1)}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-600">{n.fromName}</span> بدأ بمتابعتك</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
+          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.map((n) => (<li key={n.id}><button type="button" onClick={() => openProfile(n.fromId, n.fromName)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-sky-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-200 text-sm font-black">{(n.fromName || "U").slice(0, 1)}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-600">{n.fromName}</span> {n.type === "like" ? "أعجب بمنشورك ❤️" : "بدأ بمتابعتك"}</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
         </div>
       )}
 
@@ -335,7 +359,7 @@ export default function MiniAppPage() {
                   </div>
                   <div className="mt-3 grid grid-cols-5 gap-1.5">
                     <a href={cloneHref(item.id)} className="rounded-xl bg-sky-500 py-2.5 text-center text-[11px] font-black text-white">⚡ فوري</a>
-                    <button type="button" onClick={() => toggleLike(item.id)} className={`rounded-xl py-2.5 text-[11px] font-black ${isLiked ? "bg-rose-100 text-rose-600" : "bg-sky-100 text-slate-700"}`}>{isLiked ? "❤️" : "🤍"}</button>
+                    <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[11px] font-black ${isLiked ? "bg-rose-100 text-rose-600" : "bg-sky-100 text-slate-700"}`}>{isLiked ? "❤️" : "🤍"}</button>
                     <button type="button" onClick={() => item.sharer_id && void openThread(item.sharer_id, item.sharer_name || "مستخدم")} className="rounded-xl bg-sky-100 py-2.5 text-[11px] font-black text-slate-700">💬</button>
                     <a href={item.url || "#"} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-500 py-2.5 text-center text-[11px] font-black text-white">⬇️</a>
                     <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="rounded-xl bg-violet-500 py-2.5 text-[11px] font-black text-white">👤</button>
