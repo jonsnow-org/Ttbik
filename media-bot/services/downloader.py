@@ -298,7 +298,12 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
         return None, f"yt-dlp missing: {e}"
 
     if is_youtube(url):
-        for clients in _YT_CLIENT_GROUPS:
+        # Trailing `None` = one last attempt letting yt-dlp pick its own
+        # current default client instead of forcing one of the groups above
+        # (see the matching comment in download_media -- those groups can
+        # go stale between yt-dlp releases as YouTube changes which clients
+        # it accepts without a po_token).
+        for clients in [*_YT_CLIENT_GROUPS, None]:
             try:
 
                 def _run() -> dict | None:
@@ -309,8 +314,9 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                         "noplaylist": True,
                         "socket_timeout": 25,
                         "force_ipv4": True,
-                        "extractor_args": {"youtube": {"player_client": clients}},
                     }
+                    if clients:
+                        opts["extractor_args"] = {"youtube": {"player_client": clients}}
                     ck = _write_cookies_file()
                     if ck:
                         opts["cookiefile"] = ck
@@ -448,6 +454,16 @@ async def download_media(
                 o = _opts(tmp)
                 o["extractor_args"] = {"youtube": {"player_client": clients}}
                 attempts.append(o)
+            # Last resort: let yt-dlp pick its own default client instead of
+            # forcing one of the hardcoded groups above. Those groups can go
+            # stale between yt-dlp releases as YouTube keeps changing which
+            # clients it allows without a po_token -- when EVERY forced
+            # client fails with the same "format not available"/"page needs
+            # to be reloaded" error (both real yt-dlp signatures for "this
+            # client isn't accepted anymore"), yt-dlp's own current default
+            # is often better-maintained than any hardcoded list here.
+            o = _opts(tmp)
+            attempts.append(o)
         elif is_tiktok(url):
             for host in _TIKTOK_API_HOSTS:
                 o = _opts(tmp)

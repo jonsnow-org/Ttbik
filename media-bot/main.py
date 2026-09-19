@@ -34,7 +34,7 @@ from keyboards import (
     INFO_TEXT,
 )
 from services.force_sub import require_subscription
-from services.downloader import extract_info, download_media, normalize_url
+from services.downloader import extract_info, download_media, normalize_url, EXTRACT_TIMEOUT
 from services.archive import (
     get_cached_file_id,
     archive_and_get_file_id,
@@ -332,9 +332,18 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     status_msg = await update.message.reply_text("⏳ جاري جلب معلومات الرابط...")
     err = ""
     try:
-        info, err = await extract_info(url)
+        # Belt-and-suspenders outer bound: extract_info() already bounds its
+        # own YouTube/generic attempts internally, but a real reported
+        # symptom was the status message getting stuck on "⏳..." forever
+        # with no reply at all -- which only happens if something inside
+        # yt-dlp itself blocks past its own configured socket_timeout (a
+        # real, known yt-dlp/network edge case). This guarantees the user
+        # gets SOME reply either way instead of a silently hung message.
+        info, err = await asyncio.wait_for(extract_info(url), timeout=EXTRACT_TIMEOUT + 15)
+    except asyncio.TimeoutError:
+        info, err = None, "timeout: extract_info exceeded its outer bound"
     except Exception as e:
-        info, err = None, str(e)
+        info, err = None, f"{type(e).__name__}: {e}"
 
     if not info:
         detail = f"\n\n🔧 {err[:200]}" if err and is_owner else ""
