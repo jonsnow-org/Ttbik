@@ -91,6 +91,12 @@ function collectNotes(result: Result): string[] {
   if (w?.url && hoursSince(w.lastErrorDate) != null && hoursSince(w.lastErrorDate)! <= 24) {
     notes.push(`خطأ ويبهوك خلال آخر 24 ساعة (${fmtDate(w.lastErrorDate)}).`);
   }
+  if (w?.url && hoursSince(w.lastSyncErrorDate) != null && hoursSince(w.lastSyncErrorDate)! <= 24) {
+    notes.push(`خطأ مزامنة ويبهوك خلال آخر 24 ساعة (${fmtDate(w.lastSyncErrorDate)}).`);
+  }
+  if (w?.url && w.hasCustomCertificate) {
+    notes.push("الويبهوك يستخدم شهادة TLS مخصصة — تأكد أن تليجرام يثق بها.");
+  }
   if (w?.url && (w.host === "api.telegram.org" || (w.host || "").endsWith(".telegram.org"))) {
     notes.push("مضيف الويبهوك يشير إلى خوادم تليجرام — عيّن رابط خادمك.");
   }
@@ -163,12 +169,15 @@ export default function HealthCheckForm() {
     const b = result?.bot;
     if (!b) return;
     const notes = collectNotes(result!);
+    const w = result?.webhook;
     const lines = [
       "تقرير فحص بوت — سوق تولز",
       `@${b.username} — ${b.firstName}`,
       ...notes.map((n) => `- ${n}`),
-      `ويبهوك: ${result?.webhook?.url || "غير مفعّل"}`,
-    ];
+      `ويبهوك: ${w?.url || "غير مفعّل"}`,
+      w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${fmtDate(w.lastSyncErrorDate)}` : "",
+      `صور الملف: ${b.profilePhotoCount ?? 0}`,
+    ].filter(Boolean);
     try {
       await navigator.clipboard.writeText(lines.join("\n"));
       setCopied(true);
@@ -181,7 +190,9 @@ export default function HealthCheckForm() {
   const b = result?.bot;
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
-  const tone = notes.some((n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب") || n.includes("allowed_updates"))
+  const tone = notes.some(
+    (n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب") || n.includes("allowed_updates"),
+  )
     ? "bad"
     : notes.length
       ? "warn"
@@ -256,6 +267,7 @@ export default function HealthCheckForm() {
               <li>اسم BotFather: {b.botFatherNameAr || b.botFatherName}</li>
             )}
             {b.id != null && <li>المعرّف: {b.id}</li>}
+            <li>صور الملف الشخصي: {b.profilePhotoCount ?? 0}</li>
             <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0} — خاص: {b.commandsPrivate?.length ?? 0} — مجموعات: {b.commandsGroups?.length ?? 0}</li>
             <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
             {b.descriptionAr?.trim() && <li>الوصف العربي: {b.descriptionAr}</li>}
@@ -281,11 +293,17 @@ export default function HealthCheckForm() {
             {w?.host && <li>المضيف: {w.host}</li>}
             {w?.ipAddress ? <li className="font-mono text-xs">IP الويبهوك: {w.ipAddress}</li> : null}
             {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
+            {w?.url && (
+              <li>شهادة TLS مخصصة: {yn(!!w.hasCustomCertificate)}</li>
+            )}
             <li>
               أنواع التحديثات: {allowedList.length === 0 ? "الكل (افتراضي)" : allowedList.join(", ")}
             </li>
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
             {w?.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
+            {w?.lastSyncErrorDate && (
+              <li className="text-rose-700">آخر خطأ مزامنة: {fmtDate(w.lastSyncErrorDate)}</li>
+            )}
           </ul>
           <div className="flex flex-wrap gap-2">
             {b.username ? (
