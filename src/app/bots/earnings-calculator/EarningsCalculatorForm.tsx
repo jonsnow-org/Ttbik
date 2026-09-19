@@ -74,6 +74,10 @@ export default function EarningsCalculatorForm() {
     const viewsExceedSubs = s > 0 && v > s;
     const requiredCpm = soldViews > 0 ? (target / soldViews) * 1000 : 0;
     const gapUsd = target - monthlyUsd;
+    const revenuePerPost = v > 0 && c > 0 ? (v * (fill / 100) / 1000) * c : 0;
+    const requiredPosts = revenuePerPost > 0 ? target / revenuePerPost : 0;
+    const fullFillMonthly = (monthlyViews / 1000) * c;
+    const requiredFill = fullFillMonthly > 0 ? Math.min(999, (target / fullFillMonthly) * 100) : 0;
     return {
       monthlyViews,
       soldViews,
@@ -92,6 +96,8 @@ export default function EarningsCalculatorForm() {
       target,
       requiredCpm,
       gapUsd,
+      requiredPosts,
+      requiredFill,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -105,12 +111,14 @@ export default function EarningsCalculatorForm() {
       `CPM: $${Number(cpm) || 0}`,
       `نسبة بيع المساحات: ${result.fill}%`,
       `مشاهدات كلية شهرياً: ${result.monthlyViews.toLocaleString("ar")}`,
-      `مشاهدات مبيعة تقريبياً: ${Math.round(result.soldViews).toLocaleString("ar")}`,
+      `مشاهدات مبيعة تقريباً: ${Math.round(result.soldViews).toLocaleString("ar")}`,
       `تقدير لكل منشور إعلاني: $${result.perAdUsd.toFixed(2)}`,
       `تقدير لكل مشترك/شهر: $${result.perSubUsd.toFixed(4)}`,
       `تقدير لكل مشترك/سنة: $${result.perSubYearlyUsd.toFixed(4)}`,
       `هدف شهري: $${result.target.toFixed(2)}`,
       `CPM مطلوب للهدف: $${result.requiredCpm.toFixed(2)}`,
+      `منشورات مطلوبة للهدف: ${result.requiredPosts.toFixed(1)}`,
+      `نسبة بيع مطلوبة للهدف: ${result.requiredFill.toFixed(0)}%`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -324,7 +332,7 @@ export default function EarningsCalculatorForm() {
             ))}
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            نحسب CPM المطلوب للوصول لهذا الرقم بنفس المشاهدات المبيعة الحالية — بدون تغيير عدد المنشورات أو نسبة البيع.
+            نحسب CPM المطلوب، وعدد المنشورات، ونسبة البيع المطلوبة للوصول لهذا الرقم — كل سيناريو يثبّت باقي المدخلات.
           </p>
         </div>
       </div>
@@ -347,10 +355,16 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">${result.perSubYearlyUsd.toFixed(4)}</p>
         <p className="mt-3 text-sm text-indigo-100">CPM مطلوب لهدف ${result.target.toFixed(0)}/شهر</p>
         <p className="text-2xl font-extrabold">${result.requiredCpm.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">منشورات/شهر مطلوبة لنفس الهدف (نفس CPM والمشاهدات والبيع)</p>
+        <p className="text-2xl font-extrabold">{result.requiredPosts.toFixed(1)}</p>
+        <p className="mt-3 text-sm text-indigo-100">نسبة بيع مطلوبة لنفس الهدف (نفس المشاهدات وCPM)</p>
+        <p className="text-2xl font-extrabold">{result.requiredFill.toFixed(0)}%</p>
         <p className="mt-1 text-xs text-indigo-100">
-          {result.gapUsd <= 0
-            ? "التقدير الحالي يغطي الهدف أو يتجاوزه."
-            : `ينقص تقريباً $${result.gapUsd.toFixed(2)} عن الهدف بهذا الـ CPM.`}
+          {result.requiredFill > 100
+            ? "حتى مع بيع 100% المشاهدات الحالية لا تكفي الهدف — زد المنشورات أو المشاهدات أو الـ CPM."
+            : result.gapUsd <= 0
+              ? "التقدير الحالي يغطي الهدف أو يتجاوزه."
+              : `ينقص تقريباً $${result.gapUsd.toFixed(2)} عن الهدف بهذا الـ CPM.`}
         </p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح اليومية التقريبية</p>
         <p className="text-2xl font-extrabold">${result.dailyUsd.toFixed(2)}</p>
