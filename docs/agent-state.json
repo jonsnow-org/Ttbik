@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5737731821,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T00:15:00Z",
+  "updated_at": "2026-09-19T01:17:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -11,6 +11,7 @@
     "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
+    "G75 HealthCheckForm clears token after successful check; surfaces lastErrorDate + maxConnections in UI/copy; pending>100 treated as stalled. SHA 2b246ed.",
     "G74 HealthCheckForm shows lastSyncErrorDate (24h warn), custom TLS cert flag, profile photo count in UI + copy report. SHA f5b2421.",
     "G73 HealthCheckForm surfaces webhook allowed_updates + IP + warns if message/callback_query filtered out. SHA 6af6c38.",
     "G72 HealthCheckForm surfaces unused API fields (AR descriptions, menu button, scoped commands, business/webapp flags). SHA c49411b2.",
