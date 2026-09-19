@@ -37,12 +37,20 @@ const VIEW_PRESETS = [
   { label: "5 آلاف", value: "5000" },
 ];
 
+const TARGET_PRESETS = [
+  { label: "50$", value: "50" },
+  { label: "100$", value: "100" },
+  { label: "250$", value: "250" },
+  { label: "500$", value: "500" },
+];
+
 export default function EarningsCalculatorForm() {
   const [subscribers, setSubscribers] = useState("5000");
   const [avgViews, setAvgViews] = useState("2000");
   const [postsPerMonth, setPostsPerMonth] = useState("20");
   const [cpm, setCpm] = useState("2.5");
   const [fillRate, setFillRate] = useState("40");
+  const [targetMonthly, setTargetMonthly] = useState("100");
   const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
@@ -51,6 +59,7 @@ export default function EarningsCalculatorForm() {
     const p = Number(postsPerMonth) || 0;
     const c = Number(cpm) || 0;
     const fill = Math.min(100, Math.max(0, Number(fillRate) || 0));
+    const target = Math.max(0, Number(targetMonthly) || 0);
     const monthlyViews = v * p;
     const soldViews = monthlyViews * (fill / 100);
     const monthlyUsd = (soldViews / 1000) * c;
@@ -60,8 +69,11 @@ export default function EarningsCalculatorForm() {
     const weeklyUsd = monthlyUsd / 4.345;
     const perAdUsd = p > 0 ? monthlyUsd / p : 0;
     const perSubUsd = s > 0 ? monthlyUsd / s : 0;
+    const perSubYearlyUsd = perSubUsd * 12;
     const reachPct = s > 0 ? Math.min(100, (v / s) * 100) : 0;
     const viewsExceedSubs = s > 0 && v > s;
+    const requiredCpm = soldViews > 0 ? (target / soldViews) * 1000 : 0;
+    const gapUsd = target - monthlyUsd;
     return {
       monthlyViews,
       soldViews,
@@ -72,12 +84,16 @@ export default function EarningsCalculatorForm() {
       weeklyUsd,
       perAdUsd,
       perSubUsd,
+      perSubYearlyUsd,
       reachPct,
       subscribers: s,
       viewsExceedSubs,
       fill,
+      target,
+      requiredCpm,
+      gapUsd,
     };
-  }, [subscribers, avgViews, postsPerMonth, cpm, fillRate]);
+  }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
   async function copySummary() {
     const text = [
@@ -92,6 +108,10 @@ export default function EarningsCalculatorForm() {
       `مشاهدات مبيعة تقريبياً: ${Math.round(result.soldViews).toLocaleString("ar")}`,
       `تقدير لكل منشور إعلاني: $${result.perAdUsd.toFixed(2)}`,
       `تقدير لكل مشترك/شهر: $${result.perSubUsd.toFixed(4)}`,
+      `تقدير لكل مشترك/سنة: $${result.perSubYearlyUsd.toFixed(4)}`,
+      `هدف شهري: $${result.target.toFixed(2)}`,
+      `CPM مطلوب للهدف: $${result.requiredCpm.toFixed(2)}`,
+      `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
@@ -277,6 +297,36 @@ export default function EarningsCalculatorForm() {
             معظم القنوات لا تبيع كل منشور. 40% افتراض واقعي لقناة متوسطة — 100% يعني كل المشاهدات مبيعة.
           </p>
         </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">هدف الربح الشهري بالدولار</label>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={targetMonthly}
+            onChange={(e) => setTargetMonthly(e.target.value)}
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {TARGET_PRESETS.map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setTargetMonthly(preset.value)}
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  targetMonthly === preset.value
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            نحسب CPM المطلوب للوصول لهذا الرقم بنفس المشاهدات المبيعة الحالية — بدون تغيير عدد المنشورات أو نسبة البيع.
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 p-6 text-white shadow-md">
@@ -293,6 +343,15 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">${result.perAdUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">تقدير شهري لكل مشترك (ARPU)</p>
         <p className="text-2xl font-extrabold">${result.perSubUsd.toFixed(4)}</p>
+        <p className="mt-3 text-sm text-indigo-100">تقدير سنوي لكل مشترك</p>
+        <p className="text-2xl font-extrabold">${result.perSubYearlyUsd.toFixed(4)}</p>
+        <p className="mt-3 text-sm text-indigo-100">CPM مطلوب لهدف ${result.target.toFixed(0)}/شهر</p>
+        <p className="text-2xl font-extrabold">${result.requiredCpm.toFixed(2)}</p>
+        <p className="mt-1 text-xs text-indigo-100">
+          {result.gapUsd <= 0
+            ? "التقدير الحالي يغطي الهدف أو يتجاوزه."
+            : `ينقص تقريباً $${result.gapUsd.toFixed(2)} عن الهدف بهذا الـ CPM.`}
+        </p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح اليومية التقريبية</p>
         <p className="text-2xl font-extrabold">${result.dailyUsd.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">الأرباح الأسبوعية التقريبية</p>
