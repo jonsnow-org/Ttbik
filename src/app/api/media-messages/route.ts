@@ -1,6 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
 
 export const dynamic = "force-dynamic";
+
+// Real bug (fixed): user_id/from_id here used to be plain, unverified
+// values the client could set to anything -- and since a Telegram user id
+// is already public (it's the same value shown as every post's
+// sharer_id in the feed), anyone could read or send as any user's DM
+// inbox just by knowing/guessing that public id. The verified Telegram
+// identity from init_data (see verifyTelegramOwner.ts) is the only value
+// here a caller can't forge; every handler below now trusts THAT for who
+// the caller actually is, not whatever the request claims.
+function authedUserId(initData: string): string | null {
+  const botToken = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const user = verifyTelegramInitData(initData, botToken);
+  return user?.id || null;
+}
 
 type Msg = {
   id: string;
@@ -23,28 +38,37 @@ async function sb() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-/** GET ?user_id= — inbox threads + optional ?with= for thread */
+/** GET ?init_data= — inbox threads (for the verified caller) + optional ?with= for one thread */
 export async function GET(req: NextRequest) {
-  const uid = (req.nextUrl.searchParams.get("user_id") || "").trim();
+  const uid = authedUserId(req.nextUrl.searchParams.get("init_data") || "");
+  if (!uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const withId = (req.nextUrl.searchParams.get("with") || "").trim();
-  if (!uid) return NextResponse.json({ error: "user_id required" }, { status: 400 });
 
   const db = await sb();
   let messages: Msg[] = [];
 
   if (db) {
     try {
-      // table optional — create via SQL if missing; fail soft to memory
-      let q = db.from("direct_messages").select("*").order("created_at", { ascending: false }).limit(200);
-      if (withId) {
-        q = q.or(
-          `and(from_id.eq.${uid},to_id.eq.${withId}),and(from_id.eq.${withId},to_id.eq.${uid})`
-        );
-      } else {
-        q = q.or(`from_id.eq.${uid},to_id.eq.${uid}`);
-      }
-      const { data, error } = await q;
-      if (!error && data) {
+      // table optional — create via SQL if missing; fail soft to memory.
+      // Two plain .eq()-filtered queries instead of hand-building a
+      // PostgREST .or() filter string out of these ids -- that string
+      // used to interpolate them directly, which is exactly the kind of
+      // thing that's easy to get subtly wrong (a value containing a
+      // comma or parenthesis could reshape the intended filter).
+      const { data: sent, error: e1 } = await db
+        .from("direct_messages")
+        .select("*")
+        .eq("from_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      const { data: received, error: e2 } = await db
+        .from("direct_messages")
+        .select("*")
+        .eq("to_id", uid)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      const data = !e1 && !e2 ? [...(sent || []), ...(received || [])] : null;
+      if (data) {
         messages = data.map((r: any) => ({
           id: String(r.id),
           from_id: String(r.from_id),
@@ -60,6 +84,14 @@ export async function GET(req: NextRequest) {
     } catch {
       /* table may not exist */
     }
+  }
+
+  // threadsMap below needs every conversation to build the inbox list;
+  // the withId case narrows to just that one thread here, after fetching.
+  if (withId) {
+    messages = messages.filter(
+      (m) => (m.from_id === uid && m.to_id === withId) || (m.from_id === withId && m.to_id === uid)
+    );
   }
 
   // merge memory
@@ -114,15 +146,16 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/** POST — send message */
+/** POST — send message, as the verified caller (init_data) */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const from_id = String(body.from_id || "").trim();
+  const from_id = authedUserId(String(body.init_data || ""));
+  if (!from_id) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const from_name = String(body.from_name || "مستخدم").slice(0, 40);
   const to_id = String(body.to_id || "").trim();
   const text = String(body.body || "").trim().slice(0, 1000);
-  if (!from_id || !to_id || !text) {
-    return NextResponse.json({ error: "from_id, to_id, body required" }, { status: 400 });
+  if (!to_id || !text) {
+    return NextResponse.json({ error: "to_id, body required" }, { status: 400 });
   }
   if (from_id === to_id) {
     return NextResponse.json({ error: "cannot message self" }, { status: 400 });
@@ -159,12 +192,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, message: msg });
 }
 
-/** PATCH — mark thread read */
+/** PATCH — mark thread read, as the verified caller (init_data) */
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const uid = String(body.user_id || "").trim();
+  const uid = authedUserId(String(body.init_data || ""));
+  if (!uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const peer = String(body.peer_id || "").trim();
-  if (!uid || !peer) return NextResponse.json({ error: "user_id, peer_id required" }, { status: 400 });
+  if (!peer) return NextResponse.json({ error: "peer_id required" }, { status: 400 });
 
   for (const m of g.__dm || []) {
     if (m.to_id === uid && m.from_id === peer) m.read = true;

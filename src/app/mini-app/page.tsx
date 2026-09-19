@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-type Tab = "trending" | "video" | "audio" | "me";
+type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
 type FeedItem = { id: string; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number };
 type Notif = { id: string; type: "follow"; fromId: string; fromName: string; at: number; read: boolean };
@@ -45,6 +45,19 @@ export default function MiniAppPage() {
   const [chatMsgs, setChatMsgs] = useState<{ id: string; from_id: string; from_name: string; body: string; created_at: number }[]>([]);
   const [dmInput, setDmInput] = useState("");
   const [inboxUnread, setInboxUnread] = useState(0);
+  const [broadcastText, setBroadcastText] = useState("");
+  const [forceChans, setForceChans] = useState("");
+  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number } | null>(null);
+  const [adminBusy, setAdminBusy] = useState(false);
+  const isOwner = !!userId && OWNER_IDS.includes(userId);
+
+  // Real auth for admin calls is the Telegram-signed initData string,
+  // verified server-side against BOT_TOKEN — not a client-supplied value,
+  // since anything in this client bundle is public. See
+  // src/lib/verifyTelegramOwner.ts.
+  function tgInitData(): string {
+    return (window as any).Telegram?.WebApp?.initData || "";
+  }
 
   useEffect(() => {
     const tg = (window as any).Telegram?.WebApp;
@@ -75,17 +88,46 @@ export default function MiniAppPage() {
       const sort = tab === "trending" ? "trending" : "latest";
       const qs = new URLSearchParams({ sort, type });
       if (search.trim()) qs.set("q", search.trim());
+      if (tab === "admin") { qs.set("admin", "1"); qs.set("init_data", tgInitData()); }
       const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
       const j = await r.json();
       setItems(Array.isArray(j.items) ? j.items : []);
     } catch { setItems([]); } finally { setLoading(false); }
   }, [tab, search]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); if (tab === "admin" && isOwner) void loadAdmin(); }, [load, tab, isOwner]);
+
+  async function loadAdmin() {
+    try {
+      const r = await fetch("/api/media-admin", { cache: "no-store" });
+      const j = await r.json();
+      if (j.stats) setAdminStats(j.stats);
+      if (Array.isArray(j.settings?.force_sub_channels)) setForceChans(j.settings.force_sub_channels.join(", "));
+    } catch {}
+  }
+  async function hideItem(id: string) {
+    await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
+    setItems((prev) => prev.filter((x) => x.id !== id));
+  }
+  async function runBroadcast() {
+    if (!broadcastText.trim()) return; setAdminBusy(true);
+    try {
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "broadcast", text: broadcastText, init_data: tgInitData() }) });
+      const j = await r.json();
+      (window as any).Telegram?.WebApp?.showAlert?.(j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل");
+    } finally { setAdminBusy(false); }
+  }
+  async function saveForceSub() {
+    const channels = forceChans.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2); setAdminBusy(true);
+    try {
+      await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) });
+      (window as any).Telegram?.WebApp?.showAlert?.("تم حفظ قنوات الاشتراك");
+    } finally { setAdminBusy(false); }
+  }
 
   const loadInbox = useCallback(async () => {
     if (!userId) return;
     try {
-      const r = await fetch(`/api/media-messages?user_id=${encodeURIComponent(userId)}`, { cache: "no-store" });
+      const r = await fetch(`/api/media-messages?init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" });
       const j = await r.json();
       if (Array.isArray(j.threads)) setInboxThreads(j.threads);
       setInboxUnread(Number(j.unread || 0));
@@ -107,17 +149,17 @@ export default function MiniAppPage() {
     setChatPeer({ id: peerId, name: peerName });
     setShowInbox(true); setShowNotifs(false);
     try {
-      const r = await fetch(`/api/media-messages?user_id=${encodeURIComponent(userId)}&with=${encodeURIComponent(peerId)}`, { cache: "no-store" });
+      const r = await fetch(`/api/media-messages?init_data=${encodeURIComponent(tgInitData())}&with=${encodeURIComponent(peerId)}`, { cache: "no-store" });
       const j = await r.json();
       if (Array.isArray(j.messages)) setChatMsgs(j.messages);
-      await fetch("/api/media-messages", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId, peer_id: peerId }) });
+      await fetch("/api/media-messages", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), peer_id: peerId }) });
       void loadInbox();
     } catch {}
   }
   async function sendDm() {
     if (!chatPeer || !dmInput.trim() || !userId) return;
     const body = dmInput.trim(); setDmInput("");
-    await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from_id: userId, from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) });
+    await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) });
     await openThread(chatPeer.id, chatPeer.name);
   }
 
@@ -166,7 +208,7 @@ export default function MiniAppPage() {
   };
   const saveProfile = () => { if (editName.trim()) setDisplayName(editName.trim()); if (editStatus.trim()) setStatusLine(editStatus.trim()); saveJSON(LS.profile, { name: editName.trim() || displayName, status: editStatus.trim() || statusLine }); setEditing(false); };
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [ { id: "trending", label: "رائج", icon: "🔥" }, { id: "video", label: "فيديو", icon: "🎬" }, { id: "audio", label: "صوت", icon: "🎧" }, { id: "me", label: "ملفي", icon: "👤" } ];
+  const tabs: { id: Tab; label: string; icon: string }[] = [ { id: "trending", label: "رائج", icon: "🔥" }, { id: "video", label: "فيديو", icon: "🎬" }, { id: "audio", label: "صوت", icon: "🎧" }, { id: "me", label: "ملفي", icon: "👤" }, ...(isOwner ? [{ id: "admin" as Tab, label: "أدمن", icon: "👑" }] : []) ];
   const showProfile = tab === "me" || !!viewUserId;
   const headerName = viewUserId && !isOwnProfile ? viewUserName : displayName;
 
@@ -229,7 +271,38 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {!showNotifs && !showInbox && (loading ? <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-sky-100" />)}</div> : visible.length === 0 ? (
+        {tab === "admin" && isOwner && !showNotifs && !showInbox && (
+          <div className="mb-4 space-y-3">
+            <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
+              <p className="text-sm font-black text-amber-700">👑 لوحة المالك</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl bg-white p-3 text-center"><p className="text-2xl font-black text-sky-600">{adminStats?.posts ?? items.length}</p><p className="text-[10px] text-slate-500">منشورات</p></div>
+                <div className="rounded-2xl bg-white p-3 text-center"><p className="text-2xl font-black text-emerald-600">{adminStats?.clones ?? items.reduce((a, b) => a + (b.clones || 0), 0)}</p><p className="text-[10px] text-slate-500">استنساخ</p></div>
+              </div>
+              <div className="mt-3 space-y-2">
+                <p className="text-xs font-bold text-amber-700/80">📢 إذاعة (معاينة للمالك)</p>
+                <textarea value={broadcastText} onChange={(e) => setBroadcastText(e.target.value)} rows={3} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs outline-none" placeholder="نص الإذاعة..." />
+                <button type="button" disabled={adminBusy} onClick={() => void runBroadcast()} className="w-full rounded-xl bg-amber-500 py-2 text-xs font-black text-white disabled:opacity-50">إرسال معاينة</button>
+                <p className="text-xs font-bold text-amber-700/80">📣 قنوات الاشتراك الإجباري (حتى 2، فاصلة)</p>
+                <input value={forceChans} onChange={(e) => setForceChans(e.target.value)} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs outline-none" placeholder="@channel1, @channel2" />
+                <button type="button" disabled={adminBusy} onClick={() => void saveForceSub()} className="w-full rounded-xl bg-sky-100 py-2 text-xs font-bold disabled:opacity-50">حفظ القنوات</button>
+                {adminStats && <p className="text-[10px] text-slate-500">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-600">مراجعة المحتوى (تشمل الغرف الخاصة) — إخفاء</p>
+              {items.slice(0, 30).map((it) => (
+                <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-sky-100 bg-white p-2">
+                  <div className="h-12 w-16 overflow-hidden rounded-xl bg-sky-50">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
+                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] text-slate-500">{it.sharer_name}{(it as any).squad_code ? ` · 🔒 غرفة ${(it as any).squad_code}` : ""}</p></div>
+                  <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab !== "admin" && !showNotifs && !showInbox && (loading ? <div className="space-y-3">{[1,2,3].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-sky-100" />)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">📭</div><p className="mt-3 font-bold">{tab === "audio" ? "لا يوجد صوت بعد" : "لا يوجد محتوى"}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-sky-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <div className="space-y-3">{visible.map((item) => {
