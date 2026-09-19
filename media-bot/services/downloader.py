@@ -297,6 +297,19 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                 fmt = {"360": "best[height<=360]/best", "480": "best[height<=480]/best", "720": "best[height<=720]/best"}.get(quality, "best[height<=720]/best")
                 o["format"] = fmt
                 o["merge_output_format"] = "mp4"
+                # merge_output_format only applies when yt-dlp actually merges
+                # separate video+audio streams. Sources like Twitter/X are
+                # commonly served as HLS and yt-dlp downloads/concats those
+                # segments without going through that merge step, so the
+                # result can be a container with its moov atom at the end
+                # (or otherwise not "faststart") -- browsers then refuse to
+                # start playback until the whole file is fetched, unlike a
+                # direct progressive mp4 (e.g. TikTok, Facebook), which
+                # already streams fine. Force a fast remux (no re-encode) to
+                # mp4 so this is fixed unconditionally, whatever the source.
+                o.setdefault("postprocessors", []).append(
+                    {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}
+                )
             return o
         attempts: list[dict[str, Any]] = []
         if is_youtube(url):

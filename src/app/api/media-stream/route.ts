@@ -53,7 +53,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const mediaResp = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+    // Forward the client's Range header upstream. Without this, every
+    // request -- including a video/audio element's byte-range probe,
+    // which mobile WebViews (the Telegram in-app browser included) issue
+    // before they'll agree to play anything -- got back a 200 with the
+    // full body while the response still (wrongly) claimed
+    // accept-ranges: bytes. A client expecting 206 + Content-Range for
+    // its range request and getting a plain 200 instead is exactly the
+    // kind of mismatch that makes some mobile players refuse to play.
+    const range = req.headers.get("range");
+    const upstreamHeaders: Record<string, string> = {};
+    if (range) upstreamHeaders["range"] = range;
+    const mediaResp = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`, {
+      headers: upstreamHeaders,
+    });
     if (!mediaResp.ok || !mediaResp.body) {
       return NextResponse.json({ error: "media download failed" }, { status: 502 });
     }
@@ -66,7 +79,9 @@ export async function GET(req: NextRequest) {
     };
     const len = mediaResp.headers.get("content-length");
     if (len) headers["content-length"] = len;
-    return new NextResponse(mediaResp.body, { headers });
+    const contentRange = mediaResp.headers.get("content-range");
+    if (contentRange) headers["content-range"] = contentRange;
+    return new NextResponse(mediaResp.body, { status: mediaResp.status, headers });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
