@@ -3,15 +3,16 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5742051113,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T17:20:00Z",
+  "updated_at": "2026-09-19T22:20:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
     "Owner must run remaining migrations if any still pending",
-    "G20-G25 waiting-ack — not re-commented",
     "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
   ],
   "resolved": [
+    "G89 EarningsCalculatorForm 250k subscriber preset + days-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G88 EarningsCalculatorForm 100k subscriber preset + weeks-to-target at current monthly run-rate (UI + copy). Combined push with state.",
     "G87 EarningsCalculatorForm 50k subscriber preset + months-to-target at current monthly run-rate (UI + copy). Combined push with state.",
     "G86 EarningsCalculatorForm 1000$ target preset + required subscribers at current reach. Combined push with state.",
     "G85 EarningsCalculatorForm required views/post + required reach % to hit monthly target. SHA 404040c.",
