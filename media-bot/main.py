@@ -64,6 +64,18 @@ store.mini_app_enabled = True
 store.set_share(cfg.owner_id, True)
 
 
+def _yt_dlp_version() -> str:
+    """Render's free plan has no Shell access to run `pip show yt-dlp`
+    directly, so this is the only way to check what's actually installed
+    -- see /version and the "⚙️ إعدادات البوت" owner menu."""
+    try:
+        import yt_dlp
+
+        return yt_dlp.version.__version__
+    except Exception as e:
+        return f"غير معروف ({e})"
+
+
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -252,7 +264,8 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
             f"• الاشتراك: {chans}\n"
             "• Mini-App: مفعّل\n"
-            "• نشر المالك في الرائج: دائماً"
+            "• نشر المالك في الرائج: دائماً\n"
+            f"• yt-dlp: {_yt_dlp_version()}"
         )
     elif text == "👥 إدارة المستخدمين":
         await update.message.reply_text(f"عدد المستخدمين: {len(store.known_users)}")
@@ -694,6 +707,15 @@ async def testdl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             pass
 
 
+async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only /version -- Render's free plan has no Shell to run
+    `pip show yt-dlp` directly, so this is the practical substitute."""
+    user = update.effective_user
+    if not user or user.id != cfg.owner_id or not update.message:
+        return
+    await update.message.reply_text(f"yt-dlp: {_yt_dlp_version()}")
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     err = context.error
     if isinstance(err, Conflict):
@@ -736,6 +758,7 @@ def main() -> None:
     )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("testdl", testdl))
+    app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
