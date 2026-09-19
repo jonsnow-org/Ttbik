@@ -45,11 +45,9 @@ from services.store import store, persist, load_from_archive
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 def _squad_kb(user_id: int):
     code = store.get_user_squad(user_id)
@@ -113,9 +111,7 @@ async def _cold_start_notice(update: Update) -> None:
     now = time.time()
     if now - store.last_wakeup > 12 * 60:
         if update.message:
-            await update.message.reply_text(
-                "⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀"
-            )
+            await update.message.reply_text("⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀")
     store.last_wakeup = now
 
 
@@ -126,7 +122,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     store.touch_user(user.id)
     await _cold_start_notice(update)
     await _force_menu_button(context.bot)
-
     args = context.args or []
     if args and args[0].startswith("clone_"):
         item_id = args[0].replace("clone_", "", 1)
@@ -154,7 +149,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             await update.message.reply_text("❌ تعذر الإرسال.")
         return
-
     if args and args[0].startswith("msg_"):
         target_id = args[0].replace("msg_", "", 1)
         if target_id.isdigit() and int(target_id) != user.id:
@@ -163,18 +157,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         else:
             await update.message.reply_text("رابط غير صالح.")
         return
-
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
         await update.message.reply_text("👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.", reply_markup=owner_main_keyboard())
         return
-
     ok = await require_subscription(context.bot, user.id, store.force_sub_channels, update.effective_chat.id)
     if not ok:
         return
-
-    perk = store.perk_label(user.id)
-    await update.message.reply_text(f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{perk}", reply_markup=user_main_keyboard(True))
+    await update.message.reply_text(
+        f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{store.perk_label(user.id)}",
+        reply_markup=user_main_keyboard(True),
+    )
 
 
 async def pending_message_relay_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -213,16 +206,35 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg, reply_markup=owner_force_sub_keyboard(store.force_sub_channels))
         return
     if text == "📊 إحصائيات":
-        n = len(store.known_users)
-        await update.message.reply_text(f"📊 إحصائيات البوت\n\n• المستخدمون: {n}\n• التحميلات: {store.downloads}\n• قنوات الاشتراك: {len(store.force_sub_channels)}\n• الغرف الخاصة: {len(store.squads)}")
+        s = store.bot_stats()
+        await update.message.reply_text(
+            "📊 لوحة إحصائيات البوت\n"
+            "(منضمّو البوت فقط — غير مستخدمي التطبيق)\n\n"
+            f"👥 إجمالي المستخدمين: {s['users']}\n"
+            f"🆕 منضمّون آخر 24س: {s['new_24h']}\n"
+            f"🟢 نشطون آخر 24س: {s['active_24h']}\n"
+            f"⚡ متصلون (15 د): {s['online_15m']}\n"
+            f"⬇️ إجمالي التحميلات: {s['downloads']}\n"
+            f"📥 حمّلوا اليوم: {s['active_downloaders_today']}\n"
+            f"🏠 الغرف الخاصة: {s['squads']}\n"
+            f"🌐 نشر عام مفعّل: {s['share_public']}\n"
+            f"🔐 نشر غرفة مفعّل: {s['share_room']}\n"
+            f"📢 قنوات الاشتراك: {s['force_sub']}"
+        )
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
         await update.message.reply_text(f"قنوات الاشتراك الإجباري:\n{current}\n\nحتى قناتين.", reply_markup=owner_force_sub_keyboard(store.force_sub_channels))
     elif text == "⚙️ إعدادات البوت":
         chans = ", ".join(store.force_sub_channels) or "لا"
-        await update.message.reply_text(f"• الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n• الاشتراك: {chans}\n• Mini-App: مفعّل\n• نشر المالك في الرائج: دائماً\n• yt-dlp: {_yt_dlp_version()}")
+        await update.message.reply_text(
+            f"• الأرشيف: {cfg.archive_channel_id or 'غير محددة'}\n"
+            f"• الاشتراك: {chans}\n• Mini-App: مفعّل\n• yt-dlp: {_yt_dlp_version()}"
+        )
     elif text == "👥 إدارة المستخدمين":
-        await update.message.reply_text(f"عدد المستخدمين: {len(store.known_users)}")
+        s = store.bot_stats()
+        await update.message.reply_text(
+            f"👥 إدارة مستخدمي البوت\n\nالإجمالي: {s['users']}\nجدد 24س: {s['new_24h']}\nمتصلون: {s['online_15m']}"
+        )
     elif text == "💎 الميزات المدفوعة":
         await update.message.reply_text("بنية جاهزة:\n• حدود يومية أعلى\n• أولوية سرعة\n• غرف خاصة\nالتفعيل لاحقاً.")
     elif text == "ℹ️ معلومات":
@@ -253,30 +265,35 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "📥 تحميل وسائط":
         await update.message.reply_text("أرسل الرابط مباشرة وسأعرض الخيارات.")
     elif text == "⚙️ إعداداتي":
-        share = store.get_share(user.id)
-        await update.message.reply_text(f"إعداداتك:\n{store.perk_label(user.id)}\nاليوم: {store.daily_count(user.id)}/{store.daily_limit(user.id)}", reply_markup=user_settings_keyboard(share))
+        code = store.get_user_squad(user.id)
+        await update.message.reply_text(
+            f"إعداداتك:\n{store.perk_label(user.id)}\n"
+            f"اليوم: {store.daily_count(user.id)}/{store.daily_limit(user.id)}\n\n"
+            f"الموجز العام: {'تشغيل' if store.get_share_public(user.id) else 'إيقاف'}\n"
+            f"نشر الغرفة: {'تشغيل' if store.get_share_room(user.id) else 'إيقاف'}"
+            + (f" ({code})" if code else " (لست في غرفة)"),
+            reply_markup=user_settings_keyboard(
+                store.get_share_public(user.id),
+                store.get_share_room(user.id),
+                has_squad=bool(code),
+            ),
+        )
     elif text == "👥 غرفتي":
         code = store.get_user_squad(user.id)
         if code:
             sq = store.squads.get(code) or {}
             members = len(sq.get("members") or [])
             body = (
-                f"👥 الغرف الخاصة\n\n"
-                f"✅ أنت داخل الغرفة: `{code}`\n"
-                f"👥 الأعضاء: {members}\n\n"
-                f"كيف تعمل؟\n"
-                f"• شارك الرمز `{code}` مع أصدقائك\n"
-                f"• ينضمون عبر «الانضمام برمز»\n"
-                f"• تنزيلاتكم لا تظهر في الموجز العام\n"
-                f"• لإنشاء غرفة جديدة: غادر الحالية أولاً"
+                f"👥 الغرف الخاصة\n\n✅ أنت داخل الغرفة: `{code}`\n👥 الأعضاء: {members}\n\n"
+                f"كيف تعمل؟\n• شارك الرمز `{code}`\n• ينضمون عبر «الانضمام برمز»\n"
+                f"• مع «تفعيل نشر الغرفة» تنزيلاتكم لأعضاء الغرفة فقط\n• لإنشاء غرفة جديدة: غادر الحالية أولاً"
             )
         else:
             body = (
-                "👥 الغرف الخاصة\n\n"
-                "لست في غرفة حالياً.\n\n"
-                "• «إنشاء غرفة» → تحصل على رمز دعوة\n"
-                "• «الانضمام برمز» → أدخل رمز صديقك\n"
-                "• تنزيلات الغرفة لا تظهر للعامة"
+                "👥 الغرف الخاصة\n\nلست في غرفة.\n\n"
+                "• إنشاء غرفة → رمز دعوة + تفعيل نشر الغرفة تلقائياً\n"
+                "• الانضمام برمز → تدخل غرفة صديقك\n"
+                "• تنزيلات الغرفة لا تظهر في الموجز العام"
             )
         await update.message.reply_text(body, parse_mode="Markdown", reply_markup=_squad_kb(user.id))
     elif text in ("ℹ️ معلومات", "❓ مساعدة"):
@@ -304,12 +321,12 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     try:
         info, err = await asyncio.wait_for(extract_info(url), timeout=EXTRACT_TIMEOUT + 15)
     except asyncio.TimeoutError:
-        info, err = None, "timeout: extract_info exceeded its outer bound"
+        info, err = None, "timeout"
     except Exception as e:
         info, err = None, f"{type(e).__name__}: {e}"
     if not info:
         detail = f"\n\n🔧 {err[:200]}" if err and is_owner else ""
-        await status_msg.edit_text("❌ تعذر قراءة الرابط.\nجرّب رابطاً مباشراً من يوتيوب / تيك توك / إنستغرام." + detail)
+        await status_msg.edit_text("❌ تعذر قراءة الرابط.\nجرّب رابطاً مباشراً." + detail)
         return
     _pending_url[user.id] = url
     is_yt = "youtube" in (info.extractor or "").lower() or "youtu" in url.lower()
@@ -332,29 +349,56 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text("تم.")
         return
     if data == "perk_info":
-        await query.edit_message_text("🎁 نظام التحفيز:\n• بدون مشاركة: حد يومي أساسي\n• مع المشاركة: حد أعلى + شارة مساهم\n• الاستنساخ من الرائج فوري", reply_markup=user_settings_keyboard(store.get_share(user_id)))
+        code = store.get_user_squad(user_id)
+        await query.edit_message_text(
+            "🎁 نظام التحفيز:\n• بدون مشاركة: حد أساسي\n• موجز عام: للجميع + حد أعلى\n• غرفة خاصة: لأعضاء غرفتك + حد أعلى\n• يمكن تفعيل الاثنين معاً",
+            reply_markup=user_settings_keyboard(store.get_share_public(user_id), store.get_share_room(user_id), has_squad=bool(code)),
+        )
         return
     if data == "check_sub":
         ok = await require_subscription(context.bot, user_id, store.force_sub_channels, query.message.chat_id)
         if ok:
             await query.edit_message_text("✅ تم التحقق. أرسل الرابط الآن.")
         return
-    if data == "toggle_share_feed":
-        new_val = not store.get_share(user_id)
+    if data in ("toggle_share_feed", "share_public_toggle"):
+        new_val = not store.get_share_public(user_id)
         store.set_share(user_id, new_val)
         await _save(context.bot)
-        note = f"✅ المشاركة مفعّلة\n{store.perk_label(user_id)}" if new_val else "تم إيقاف المشاركة — الحد اليومي عاد للأساسي."
-        await query.edit_message_text(note, reply_markup=user_settings_keyboard(new_val))
+        code = store.get_user_squad(user_id)
+        note = f"✅ الموجز العام: تشغيل\n{store.perk_label(user_id)}" if new_val else f"تم إيقاف الموجز العام.\n{store.perk_label(user_id)}"
+        await query.edit_message_text(note, reply_markup=user_settings_keyboard(store.get_share_public(user_id), store.get_share_room(user_id), has_squad=bool(code)))
+        return
+    if data == "share_room_toggle":
+        code = store.get_user_squad(user_id)
+        if not code:
+            await query.edit_message_text("لست في غرفة. أنشئ غرفة أولاً.", reply_markup=user_settings_keyboard(store.get_share_public(user_id), False, has_squad=False))
+            return
+        new_val = not store.get_share_room(user_id)
+        store.set_share_room(user_id, new_val)
+        await _save(context.bot)
+        note = (
+            f"🏠 نشر الغرفة ({code}): تشغيل\nالتنزيلات لأعضاء الغرفة فقط.\n{store.perk_label(user_id)}"
+            if new_val
+            else f"تم إيقاف نشر الغرفة.\n{store.perk_label(user_id)}"
+        )
+        await query.edit_message_text(note, reply_markup=user_settings_keyboard(store.get_share_public(user_id), store.get_share_room(user_id), has_squad=True))
+        return
+    if data == "share_off":
+        store.set_share(user_id, False)
+        store.set_share_room(user_id, False)
+        await _save(context.bot)
+        code = store.get_user_squad(user_id)
+        await query.edit_message_text("⏹ تم إيقاف كل النشر.", reply_markup=user_settings_keyboard(False, False, has_squad=bool(code)))
         return
 
     if data == "squad_create":
         if store.get_user_squad(user_id):
-            await query.edit_message_text("أنت بالفعل في غرفة.\nغادرها أولاً ثم أنشئ غرفة جديدة.", reply_markup=_squad_kb(user_id))
+            await query.edit_message_text("أنت بالفعل في غرفة.\nغادرها أولاً.", reply_markup=_squad_kb(user_id))
             return
         code = store.create_squad(user_id)
         await _save(context.bot)
         await query.edit_message_text(
-            f"✅ تم إنشاء غرفتك\n\nرمز الدعوة: `{code}`\n\nشارك هذا الرمز مع أصدقائك ليكتبوه بعد «الانضمام برمز».\nتنزيلات الغرفة لا تظهر في الموجز العام.",
+            f"✅ تم إنشاء غرفتك\n\nرمز: `{code}`\n\nتم تفعيل «نشر الغرفة» تلقائياً.\nيمكنك من الإعدادات تفعيل الموجز العام أيضاً أو إيقاف نشر الغرفة.",
             parse_mode="Markdown",
             reply_markup=_squad_kb(user_id),
         )
@@ -366,8 +410,9 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
         sq = store.squads.get(code) or {}
         members = len(sq.get("members") or [])
+        room_on = store.get_share_room(user_id)
         await query.edit_message_text(
-            f"📋 غرفتك `{code}`\n👥 {members} أعضاء\n\nأرسل الرمز `{code}` لأي صديق لينضم.\nالتنزيلات داخل الغرفة خاصة بكم فقط.",
+            f"📋 غرفتك `{code}`\n👥 {members} أعضاء\n🏠 نشر الغرفة: {'تشغيل' if room_on else 'إيقاف'}\n\nالتنزيلات مع نشر الغرفة تظهر للأعضاء فقط وليس في الموجز العام.",
             parse_mode="Markdown",
             reply_markup=_squad_kb(user_id),
         )
@@ -379,7 +424,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if data == "squad_leave":
         msg = store.leave_squad(user_id)
         await _save(context.bot)
-        await query.edit_message_text(f"{msg}\n\nيمكنك الآن إنشاء غرفة جديدة أو الانضمام لرمز آخر.", reply_markup=_squad_kb(user_id))
+        await query.edit_message_text(f"{msg}\n\nيمكنك إنشاء غرفة جديدة.", reply_markup=_squad_kb(user_id))
         return
 
     if is_owner:
@@ -388,12 +433,11 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 await query.edit_message_text("الحد الأقصى قناتان.")
                 return
             _waiting_channel.add(user_id)
-            await query.edit_message_text("أرسل يوزر القناة أو آيديها. البوت يجب أن يكون مشرفاً.")
+            await query.edit_message_text("أرسل يوزر القناة أو آيديها.")
             return
         if data == "owner_clear_force_sub":
-            msg = store.clear_force_channels()
+            await query.edit_message_text(store.clear_force_channels())
             await _save(context.bot)
-            await query.edit_message_text(msg)
             return
         if data.startswith("owner_del_force_"):
             try:
@@ -414,7 +458,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text("🧠 جاري التلخيص...")
         points, lang = await youtube_subtitle_summary(normalize_url(url))
         if not points:
-            await query.edit_message_text("تعذر جلب ترجمة.\nيمكنك التحميل مباشرة.", reply_markup=quality_keyboard(show_summary=False))
+            await query.edit_message_text("تعذر جلب ترجمة.", reply_markup=quality_keyboard(show_summary=False))
             return
         body = "\n".join(f"• {p}" for p in points)
         await query.edit_message_text(f"🧠 ملخص ({lang or 'auto'}):\n\n{body}\n\nهل تريد التحميل؟", reply_markup=quality_keyboard(show_summary=False))
@@ -431,7 +475,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if data not in mapping:
         return
     if not url:
-        await query.edit_message_text("انتهت صلاحية الطلب. أرسل الرابط من جديد.")
+        await query.edit_message_text("انتهت صلاحية الطلب.")
         return
 
     allowed, limit_msg = store.can_download(user_id, is_owner)
@@ -487,17 +531,27 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user) -> None:
     if not file_id:
         return
-    if not store.get_share(user_id) and user_id != cfg.owner_id:
-        return
+    is_owner = user_id == cfg.owner_id
+    pub = store.get_share_public(user_id) or is_owner
+    room = store.get_share_room(user_id)
     squad = store.get_user_squad(user_id)
+    if not pub and not (room and squad):
+        return
     name = getattr(from_user, "first_name", None) or "مستخدم"
     tags = guess_tags(title, "")
     try:
-        await publish_feed_item(
-            file_id=file_id, media_type=media_type, title=title, url=url or "",
-            thumbnail=thumbnail or "", sharer_name=name, sharer_id=str(user_id),
-            tags=tags, squad_code=squad or "",
-        )
+        if pub:
+            await publish_feed_item(
+                file_id=file_id, media_type=media_type, title=title, url=url or "",
+                thumbnail=thumbnail or "", sharer_name=name, sharer_id=str(user_id),
+                tags=tags, squad_code="",
+            )
+        if room and squad:
+            await publish_feed_item(
+                file_id=file_id, media_type=media_type, title=title, url=url or "",
+                thumbnail=thumbnail or "", sharer_name=name, sharer_id=str(user_id),
+                tags=tags, squad_code=squad,
+            )
     except Exception as e:
         logger.warning("publish_feed_item failed: %s", e)
 
@@ -522,7 +576,6 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler))
     app.add_handler(CallbackQueryHandler(callbacks))
-
     logger.info("Bot starting (polling)...")
     app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
