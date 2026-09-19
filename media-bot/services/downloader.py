@@ -555,4 +555,11 @@ async def download_media(
                 "احذف PROXY_URL إن كان مثالاً وهمياً.\n"
                 "للحل: بروكسي سكني حقيقي في PROXY_URL."
             )
+    elif any("jwt.missing" in e.lower() or "jwt_missing" in e.lower() for e in errors):
+        joined = (
+            "فشل الاحتياطي (Cobalt): كل الخوادم العامة تطلب الآن مفتاح API "
+            "(error.api.auth.jwt.missing) ولا يوجد مفتاح مُعرَّف.\n"
+            "أضف مفتاحاً حقيقياً في متغير COBALT_API_KEY إن حصلت على واحد، "
+            "أو تجاهل هذا المسار الاحتياطي."
+        )
     return None, joined

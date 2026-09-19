@@ -40,8 +40,8 @@ async def cobalt_resolve(
     *,
     quality: str = "720",
     audio_only: bool = False,
-) -> dict[str, Any] | None:
-    """Ask Cobalt for a direct media URL. Returns {url, filename, is_audio} or None."""
+) -> tuple[dict[str, Any] | None, str]:
+    """Ask Cobalt for a direct media URL. Returns ({url, filename, is_audio}, "") or (None, last_error)."""
     q_map = {"360": "360", "480": "480", "720": "720", "best": "1080"}
     body: dict[str, Any] = {
         "url": url,
@@ -55,12 +55,26 @@ async def cobalt_resolve(
         "Content-Type": "application/json",
         "User-Agent": "Mozilla/5.0 (compatible; MediaBot/1.0)",
     }
+    # BUG (fixed): every one of the 5 hardcoded community instances now
+    # rejects every request with {"code":"error.api.auth.jwt.missing"} --
+    # confirmed from real Render logs, 2026-09-19. Cobalt's public API now
+    # requires an Authorization: Api-Key header (its own documented auth
+    # scheme); this fallback was 100% non-functional with no header at all.
+    # Optional: still works with none configured, it just keeps failing the
+    # same way until a real key is set -- getting one means registering
+    # with one of these community instances (or self-hosting Cobalt), which
+    # is outside anything this code can do on its own.
+    api_key = (os.getenv("COBALT_API_KEY") or "").strip()
+    if api_key:
+        headers["Authorization"] = f"Api-Key {api_key}"
 
+    last_error = ""
     async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
         for base in _instances():
             try:
                 r = await client.post(f"{base}/", json=body, headers=headers)
                 if r.status_code >= 400:
+                    last_error = f"HTTP {r.status_code} {r.text[:150]}"
                     logger.warning("cobalt %s status=%s body=%s", base, r.status_code, r.text[:200])
                     continue
                 data = r.json()
@@ -75,17 +89,20 @@ async def cobalt_resolve(
                                 media_url = item["url"]
                                 break
                     if not media_url:
+                        last_error = "no media url in response"
                         continue
                     return {
                         "url": media_url,
                         "filename": data.get("filename") or "media.mp4",
                         "is_audio": audio_only or data.get("isAudio", False),
                         "source": base,
-                    }
+                    }, ""
+                last_error = f"unexpected response {str(data)[:150]}"
                 logger.warning("cobalt %s unexpected: %s", base, str(data)[:200])
             except Exception as e:
+                last_error = str(e)
                 logger.warning("cobalt %s failed: %s", base, e)
-    return None
+    return None, (last_error or "all instances failed")
 
 
 async def cobalt_download_to_file(
@@ -95,9 +112,9 @@ async def cobalt_download_to_file(
     audio_only: bool = False,
 ) -> tuple[Path | None, str, str]:
     """Download via Cobalt → temp file. Returns (path, title, error)."""
-    meta = await cobalt_resolve(url, quality=quality, audio_only=audio_only)
+    meta, resolve_err = await cobalt_resolve(url, quality=quality, audio_only=audio_only)
     if not meta:
-        return None, "", "cobalt: all instances failed"
+        return None, "", f"cobalt: {resolve_err}"
 
     media_url = meta["url"]
     filename = meta.get("filename") or ("audio.mp3" if audio_only else "video.mp4")
