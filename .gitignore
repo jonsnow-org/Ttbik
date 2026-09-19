@@ -15,7 +15,7 @@ ai-system/**/__pycache__
 ai-system/chroma_data
 ai-system/**/*.pyc
 
-# NovaSmall's real per-organization API key database (api_keys.py) —
+# Sham Small's real per-organization API key database (api_keys.py) —
 # a real SQLite file holding hashed keys must never be committed, same
 # as any other credentials store.
-ai-system/colab/nova_small/*.db
+ai-system/colab/sham_small/*.db
