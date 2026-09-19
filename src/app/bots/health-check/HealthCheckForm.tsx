@@ -84,7 +84,8 @@ function collectNotes(result: Result): string[] {
   const b = result.bot;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates.");
   const pending = w?.pendingUpdateCount ?? 0;
-  if (pending > 10) notes.push(`تراكم تحديثات معلّق (${pending}).`);
+  if (pending > 100) notes.push(`تراكم تحديثات كبير (${pending}) — الويبهوك قد يكون متوقفاً.`);
+  else if (pending > 10) notes.push(`تراكم تحديثات معلّق (${pending}).`);
   else if (pending > 0) notes.push(`تحديثات معلّقة (${pending}).`);
   if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
   if (w?.url && w.isHttps === false) notes.push("رابط الويبهوك ليس HTTPS.");
@@ -157,7 +158,12 @@ export default function HealthCheckForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: extracted }),
       });
-      setResult(await res.json());
+      const data: Result = await res.json();
+      setResult(data);
+      if (data.bot && !data.error) {
+        setToken("");
+        setShowToken(false);
+      }
     } catch {
       setResult({ error: "تعذّر الفحص، حاول مجدداً." });
     } finally {
@@ -175,7 +181,9 @@ export default function HealthCheckForm() {
       `@${b.username} — ${b.firstName}`,
       ...notes.map((n) => `- ${n}`),
       `ويبهوك: ${w?.url || "غير مفعّل"}`,
+      w?.lastErrorDate ? `آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
       w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${fmtDate(w.lastSyncErrorDate)}` : "",
+      w?.maxConnections != null ? `أقصى اتصالات: ${w.maxConnections}` : "",
       `صور الملف: ${b.profilePhotoCount ?? 0}`,
     ].filter(Boolean);
     try {
@@ -191,7 +199,7 @@ export default function HealthCheckForm() {
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
   const tone = notes.some(
-    (n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب") || n.includes("allowed_updates"),
+    (n) => n.includes("خطأ") || n.includes("HTTPS") || n.includes("تسريب") || n.includes("allowed_updates") || n.includes("متوقف"),
   )
     ? "bad"
     : notes.length
@@ -209,7 +217,7 @@ export default function HealthCheckForm() {
       </span>
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تحقق من حالة بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
-        الصق توكن البوت فقط. لا نحفظ التوكن — الفحص لحظي عبر خوادم تليجرام.
+        الصق توكن البوت فقط. لا نحفظ التوكن — الفحص لحظي عبر خوادم تليجرام. بعد فحص ناجح يُمسح حقل التوكن من الشاشة.
       </p>
       <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="relative">
@@ -296,11 +304,15 @@ export default function HealthCheckForm() {
             {w?.url && (
               <li>شهادة TLS مخصصة: {yn(!!w.hasCustomCertificate)}</li>
             )}
+            {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
             <li>
               أنواع التحديثات: {allowedList.length === 0 ? "الكل (افتراضي)" : allowedList.join(", ")}
             </li>
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
             {w?.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
+            {w?.lastErrorDate && (
+              <li className="text-rose-700">تاريخ آخر خطأ ويبهوك: {fmtDate(w.lastErrorDate)}</li>
+            )}
             {w?.lastSyncErrorDate && (
               <li className="text-rose-700">آخر خطأ مزامنة: {fmtDate(w.lastSyncErrorDate)}</li>
             )}
