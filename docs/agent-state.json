@@ -1,16 +1,18 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5741920032,
+  "last_seen_comment_id": 5742051113,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T12:37:20Z",
+  "updated_at": "2026-09-19T13:20:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
     "Owner must run remaining migrations if any still pending",
-    "G20-G25 waiting-ack — not re-commented"
+    "G20-G25 waiting-ack — not re-commented",
+    "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
   ],
   "resolved": [
+    "G86 EarningsCalculatorForm 1000$ target preset + required subscribers at current reach. Combined push with state.",
     "G85 EarningsCalculatorForm required views/post + required reach % to hit monthly target. SHA 404040c.",
     "G84 EarningsCalculatorForm required posts/month + required fill rate to hit monthly target. SHA d144adc.",
     "G83 EarningsCalculatorForm target monthly ($50/100/250/500) + required CPM + yearly ARPU + gap vs target. SHA 3727e30.",
