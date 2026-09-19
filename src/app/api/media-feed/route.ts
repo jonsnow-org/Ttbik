@@ -217,9 +217,22 @@ export async function GET(req: NextRequest) {
   }
 
   if (sort === "trending") {
-    items = [...items].sort(
-      (a, b) => (b.clones || 0) - (a.clones || 0) || (b.created_at || 0) - (a.created_at || 0)
-    );
+    // Real bug (fixed): this ranked purely by raw, all-time clone count.
+    // One old item that happened to accumulate a lot of clones (or was
+    // cloned repeatedly during testing) could never be displaced by
+    // anything newer, however well that new content was actually doing --
+    // exactly the "one card stuck at the top of Trending forever"
+    // symptom. A real trending score blends engagement (clones weighted
+    // highest since they're the strongest signal, then likes, then
+    // views) with a mild recency decay (same shape as Hacker News'
+    // ranking), so genuinely popular NEW content can actually surface.
+    const now = Math.floor(Date.now() / 1000);
+    const score = (i: FeedItem) => {
+      const ageHours = Math.max(0, (now - (i.created_at || now)) / 3600);
+      const engagement = (i.clones || 0) * 3 + (i.likes || 0) * 2 + (i.views || 0) * 1;
+      return engagement / Math.pow(ageHours + 2, 1.5);
+    };
+    items = [...items].sort((a, b) => score(b) - score(a));
   } else {
     items = [...items].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
@@ -277,7 +290,19 @@ export async function POST(req: NextRequest) {
 // nothing but a hardcoded default secret, which was both a real
 // authorization hole and, once a real secret got configured, would have
 // silently broken these legitimate public counters too (same shared check).
-const PATCH_COLUMNS: Record<string, string> = { clone: "clones", view: "views", like: "likes" };
+// Real bug (fixed): "unlike" used to not exist as its own action -- the
+// mini-app's toggleLike() sent action:"like" on EVERY tap, whether liking
+// OR un-liking, so every toggle cycle only ever incremented the stored
+// count and never brought it back down. A post someone liked and unliked
+// a few times while testing ended up with a likes count with no relation
+// to reality, and (worse) fed the same inflated-forever pattern into
+// "clones" for trending. Each action now maps to a real +1 or -1.
+const PATCH_DELTAS: Record<string, { col: string; delta: number }> = {
+  clone: { col: "clones", delta: 1 },
+  view: { col: "views", delta: 1 },
+  like: { col: "likes", delta: 1 },
+  unlike: { col: "likes", delta: -1 },
+};
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -285,11 +310,12 @@ export async function PATCH(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const action = String(body.action || "clone");
-  const col = PATCH_COLUMNS[action];
-  if (!col) return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  const spec = PATCH_DELTAS[action];
+  if (!spec) return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  const { col, delta } = spec;
 
   const mem = (g.__mediaFeed || []).find((x) => x.id === id);
-  if (mem) (mem as any)[col] = ((mem as any)[col] || 0) + 1;
+  if (mem) (mem as any)[col] = Math.max(0, ((mem as any)[col] || 0) + delta);
 
   try {
     const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
@@ -298,7 +324,7 @@ export async function PATCH(req: NextRequest) {
       const { createClient } = await import("@supabase/supabase-js");
       const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
       const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
-      const next = Number((data as any)?.[col] || 0) + 1;
+      const next = Math.max(0, Number((data as any)?.[col] || 0) + delta);
       await db.from("media_feed").update({ [col]: next }).eq("id", id);
     }
   } catch {

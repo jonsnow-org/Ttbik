@@ -35,18 +35,20 @@ export async function GET(req: NextRequest) {
     daily_limit_share: 20,
     features: { party: true, clone: true, feed: true },
   };
-  let stats = { posts: 0, hidden: 0, clones: 0, publishers: 0 };
+  let stats = { posts: 0, hidden: 0, clones: 0, publishers: 0, views: 0, likes: 0 };
 
   if (db) {
     const { data: rows } = await db.from("bot_settings").select("key,value");
     for (const r of rows || []) {
       settings[r.key] = r.value;
     }
-    const { data: feed } = await db.from("media_feed").select("id,clones,sharer_id,hidden");
+    const { data: feed } = await db.from("media_feed").select("id,clones,views,likes,sharer_id,hidden");
     if (feed) {
       stats.posts = feed.filter((x: any) => !x.hidden).length;
       stats.hidden = feed.filter((x: any) => x.hidden).length;
       stats.clones = feed.reduce((a: number, b: any) => a + Number(b.clones || 0), 0);
+      stats.views = feed.reduce((a: number, b: any) => a + Number(b.views || 0), 0);
+      stats.likes = feed.reduce((a: number, b: any) => a + Number(b.likes || 0), 0);
       stats.publishers = new Set(feed.map((x: any) => x.sharer_id)).size;
     }
   }

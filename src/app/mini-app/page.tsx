@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
@@ -72,7 +72,7 @@ export default function MiniAppPage() {
   const [replyTo, setReplyTo] = useState<CommentRow | null>(null);
   const [broadcastText, setBroadcastText] = useState("");
   const [forceChans, setForceChans] = useState("");
-  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number } | null>(null);
+  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number; views: number; likes: number } | null>(null);
   const [adminBusy, setAdminBusy] = useState(false);
   const isOwner = !!userId && OWNER_IDS.includes(userId);
 
@@ -169,6 +169,54 @@ export default function MiniAppPage() {
   }, [userId]);
   useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 15000); return () => clearInterval(t); }, [loadNotifs]);
 
+  // Real pull-to-refresh -- there was only a manual 🔄 button before;
+  // pulling down (the gesture every Telegram/mobile user actually tries
+  // first) did nothing at all. This tracks a real touch gesture and, past
+  // a threshold, refreshes everything (feed + notifications + inbox), not
+  // just the feed, since "pull to refresh" implies a real full refresh.
+  const [pullY, setPullY] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const pullStartRef = useRef<number | null>(null);
+  const refreshingRef = useRef(false);
+  const refreshAllRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    refreshAllRef.current = async () => {
+      await Promise.all([load(), loadNotifs(), loadInbox()]);
+    };
+  }, [load, loadNotifs, loadInbox]);
+  useEffect(() => {
+    const THRESHOLD = 64;
+    function onStart(e: TouchEvent) {
+      pullStartRef.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+    }
+    function onMove(e: TouchEvent) {
+      if (pullStartRef.current == null) return;
+      if (window.scrollY > 0) { pullStartRef.current = null; setPullY(0); return; }
+      const dy = e.touches[0].clientY - pullStartRef.current;
+      if (dy > 0) setPullY(Math.min(dy * 0.5, 90));
+    }
+    function onEnd() {
+      if (pullStartRef.current == null) return;
+      pullStartRef.current = null;
+      setPullY((py) => {
+        if (py > THRESHOLD * 0.5 && !refreshingRef.current) {
+          refreshingRef.current = true;
+          setRefreshing(true);
+          refreshAllRef.current().finally(() => { refreshingRef.current = false; setRefreshing(false); });
+        }
+        return 0;
+      });
+    }
+    window.addEventListener("touchstart", onStart, { passive: true });
+    window.addEventListener("touchmove", onMove, { passive: true });
+    window.addEventListener("touchend", onEnd);
+    return () => {
+      window.removeEventListener("touchstart", onStart);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+  }, []);
+
   // Fetches the open thread's messages and marks it read. Used both for
   // the initial open AND on a recurring interval below -- previously this
   // only ran once when a thread was opened, so a reply sent while the
@@ -249,9 +297,15 @@ export default function MiniAppPage() {
     return list;
   }, [items, tab, viewUserId, profileItems, search]);
   const profileStats = useMemo(() => {
-    if (!profileTargetId) return { posts: 0, clones: 0, likes: 0, followers: 0 };
+    if (!profileTargetId) return { posts: 0, clones: 0, likes: 0, views: 0, followers: 0 };
     const mine = items.filter((i) => i.sharer_id === profileTargetId);
-    return { posts: mine.length, clones: mine.reduce((a, b) => a + (b.clones || 0), 0), likes: mine.reduce((a, b) => a + (b.likes || 0), 0), followers: isOwnProfile ? notifs.filter((n) => n.type === "follow").length : 0 };
+    return {
+      posts: mine.length,
+      clones: mine.reduce((a, b) => a + (b.clones || 0), 0),
+      likes: mine.reduce((a, b) => a + (b.likes || 0), 0),
+      views: mine.reduce((a, b) => a + (b.views || 0), 0),
+      followers: isOwnProfile ? notifs.filter((n) => n.type === "follow").length : 0,
+    };
   }, [items, profileTargetId, isOwnProfile, notifs]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
@@ -263,13 +317,31 @@ export default function MiniAppPage() {
     const was = !!liked[id];
     setLiked((p) => { const next = { ...p, [id]: !was }; saveJSON(LS.liked, next); return next; });
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "like" }) }).catch(() => {});
+    // Real bug (fixed): this always sent action:"like" whether liking OR
+    // un-liking, so the stored count only ever went up regardless of the
+    // actual toggle state -- now each direction maps to its own real
+    // +1/-1 on the server (see media-feed/route.ts's PATCH_DELTAS).
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like" }) }).catch(() => {});
     // Real bell notification for a like -- previously only "follow" ever
     // notified anyone; liking a post silently updated the counter with no
     // way for the post's owner to know it happened.
     if (!was && item.sharer_id && item.sharer_id !== userId) {
       void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
+  };
+  // Real view counting -- there was no code anywhere that ever incremented
+  // "views"; the column existed and was displayed but was permanently
+  // stuck wherever it started. Counts once per item per page load (not on
+  // every re-render) the moment someone actually presses play, which is a
+  // real signal of interest, unlike just having scrolled past the card.
+  const viewedRef = useRef<Set<string>>(new Set());
+  const playItem = (item: FeedItem) => {
+    setPlayError(null);
+    setPlayingId(item.id);
+    if (viewedRef.current.has(item.id)) return;
+    viewedRef.current.add(item.id);
+    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, views: (it.views || 0) + 1 } : it)));
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view" }) }).catch(() => {});
   };
   const toggleFollow = (sid: string) => {
     if (!sid || sid === userId) return;
@@ -299,6 +371,13 @@ export default function MiniAppPage() {
         </div>
         <nav className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold ${active ? "bg-sky-500 text-white" : "bg-sky-100 text-slate-700"}`}><span>{t.icon}</span>{t.label}</button>); })}</nav>
       </header>
+
+      <div
+        className="flex items-center justify-center overflow-hidden text-xl text-sky-500"
+        style={{ height: refreshing ? 36 : pullY, transition: refreshing ? "height 0.15s ease-out" : pullY === 0 ? "height 0.2s ease-out" : undefined }}
+      >
+        {(refreshing || pullY > 0) && <span className={refreshing ? "animate-spin" : ""}>🔄</span>}
+      </div>
 
       <div className="px-3 pt-2"><input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" /></div>
 
@@ -355,8 +434,25 @@ export default function MiniAppPage() {
                 {isOwnProfile && (editing ? <button type="button" onClick={saveProfile} className="rounded-xl bg-sky-500 px-4 py-2 text-xs font-bold text-white">حفظ</button> : <button type="button" onClick={() => { setEditName(displayName); setEditStatus(statusLine); setEditing(true); }} className="rounded-xl bg-sky-100 px-3 py-2 text-xs font-bold">✏️ تعديل</button>)}
                 {profileTargetId && !isOwnProfile && (<><button type="button" onClick={() => toggleFollow(profileTargetId)} className={`rounded-xl px-3 py-2 text-xs font-bold ${following[profileTargetId] ? "bg-sky-100" : "bg-sky-500 text-white"}`}>{following[profileTargetId] ? "✓ إلغاء المتابعة" : "＋ متابعة"}</button><button type="button" onClick={() => void openThread(profileTargetId, viewUserName || "مستخدم")} className="rounded-xl bg-sky-100 px-3 py-2 text-xs font-bold">💬 رسالة</button></>)}
               </div>
-              <div className="mt-4 grid grid-cols-4 gap-2">{[[profileStats.posts, "منشورات"], [profileStats.clones, "تحميل"], [profileStats.likes, "إعجاب"], [profileStats.followers, "متابع"]].map(([v, l]) => (<div key={String(l)} className="rounded-2xl bg-sky-50 py-2.5 text-center"><p className="text-lg font-black text-sky-600">{v as number}</p><p className="text-[10px] font-bold text-slate-500">{l as string}</p></div>))}</div>
+              <div className="mt-4 grid grid-cols-5 gap-1.5">{[[profileStats.posts, "منشورات"], [profileStats.views, "مشاهدة"], [profileStats.clones, "تحميل"], [profileStats.likes, "إعجاب"], [profileStats.followers, "متابع"]].map(([v, l]) => (<div key={String(l)} className="rounded-2xl bg-sky-50 py-2.5 text-center"><p className="text-base font-black text-sky-600">{v as number}</p><p className="text-[9px] font-bold text-slate-500">{l as string}</p></div>))}</div>
               <div className="mt-3 flex gap-1.5">{(["all", "video", "audio", "photo"] as const).map((id) => (<button key={id} type="button" onClick={() => setProfileSection(id)} className={`flex-1 rounded-xl py-1.5 text-[11px] font-bold ${profileSection === id ? "bg-sky-500 text-white" : "bg-sky-50 text-slate-600"}`}>{{ all: "الكل", video: "فيديو", audio: "صوت", photo: "صورة" }[id]}</button>))}</div>
+            </div>
+          </div>
+        )}
+
+        {/* A lightweight parallel to the owner's "👑 لوحة المالك" panel,
+            scoped to a regular user's own account -- previously only the
+            owner had any "usage & control" glance; a normal user's own
+            profile had stats about their POSTS but nothing about their own
+            account activity (messages, notifications, who they follow). */}
+        {isOwnProfile && !isOwner && !showNotifs && !showInbox && !showComments && (
+          <div className="mb-4 rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4">
+            <p className="text-sm font-black text-sky-700">📋 استخدامي</p>
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-sky-600">{Object.values(liked).filter(Boolean).length}</p><p className="text-[9px] font-bold text-slate-500">إعجاباتي</p></div>
+              <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-sky-600">{Object.values(following).filter(Boolean).length}</p><p className="text-[9px] font-bold text-slate-500">أتابع</p></div>
+              <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-emerald-600">{inboxUnread}</p><p className="text-[9px] font-bold text-slate-500">رسائل جديدة</p></div>
+              <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-rose-600">{unreadCount}</p><p className="text-[9px] font-bold text-slate-500">إشعارات جديدة</p></div>
             </div>
           </div>
         )}
@@ -365,9 +461,11 @@ export default function MiniAppPage() {
           <div className="mb-4 space-y-3">
             <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
               <p className="text-sm font-black text-amber-700">👑 لوحة المالك</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <div className="rounded-2xl bg-white p-3 text-center"><p className="text-2xl font-black text-sky-600">{adminStats?.posts ?? items.length}</p><p className="text-[10px] text-slate-500">منشورات</p></div>
-                <div className="rounded-2xl bg-white p-3 text-center"><p className="text-2xl font-black text-emerald-600">{adminStats?.clones ?? items.reduce((a, b) => a + (b.clones || 0), 0)}</p><p className="text-[10px] text-slate-500">استنساخ</p></div>
+              <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-sky-600">{adminStats?.posts ?? items.length}</p><p className="text-[9px] text-slate-500">منشورات</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-emerald-600">{adminStats?.clones ?? items.reduce((a, b) => a + (b.clones || 0), 0)}</p><p className="text-[9px] text-slate-500">استنساخ</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-indigo-600">{adminStats?.views ?? items.reduce((a, b) => a + (b.views || 0), 0)}</p><p className="text-[9px] text-slate-500">مشاهدات</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-rose-600">{adminStats?.likes ?? items.reduce((a, b) => a + (b.likes || 0), 0)}</p><p className="text-[9px] text-slate-500">إعجابات</p></div>
               </div>
               <div className="mt-3 space-y-2">
                 <p className="text-xs font-bold text-amber-700/80">📢 إذاعة (معاينة للمالك)</p>
@@ -400,13 +498,13 @@ export default function MiniAppPage() {
             const isLiked = !!liked[item.id];
             const badge = platformBadge(item.url);
             return (
-              <article key={item.id} className="overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-sm">
-                <div className={`relative bg-sky-50 ${isAudio ? "aspect-[16/7]" : "aspect-[16/9]"}`}>
+              <article key={item.id} className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${isAudio ? "border-indigo-200" : "border-sky-200"}`}>
+                <div className={`relative ${isAudio ? "bg-indigo-50" : "bg-sky-50"} ${isAudio ? "aspect-[16/7]" : "aspect-[16/9]"}`}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-sky-100 to-sky-200"><span className="text-5xl">🎵</span><audio src={`/api/media-stream?id=${item.id}`} controls autoPlay className="w-[90%]" onError={() => { setPlayingId(null); setPlayError(item.id); }} /></div>)
                     : (<video src={`/api/media-stream?id=${item.id}`} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full object-contain bg-black" onError={() => { setPlayingId(null); setPlayError(item.id); }} />)
                   ) : (
-                    <button type="button" onClick={() => { setPlayError(null); setPlayingId(item.id); }} className="group relative block h-full w-full">
+                    <button type="button" onClick={() => playItem(item)} className="group relative block h-full w-full">
                       {isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-sky-100 to-sky-200"><span className="text-5xl">{item.media_type === "voice" ? "🎙" : "🎵"}</span><p className="text-xs font-bold text-slate-600">{item.media_type === "voice" ? "رسالة صوتية" : "مقطع صوتي"}</p></div>)
                       : item.thumbnail ? (<img src={item.thumbnail} alt="" className="h-full w-full object-cover" />)
                       : (<div className="flex h-full items-center justify-center bg-gradient-to-br from-sky-100 to-sky-200 text-5xl">{typeIcon(item.media_type)}</div>)}
@@ -420,6 +518,7 @@ export default function MiniAppPage() {
                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
                     <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">👤 {item.sharer_name || "مستخدم"}</button>
                     <span>{timeAgo(item.created_at)}</span>
+                    <span>👁 {item.views || 0}</span>
                     <span>⬇ {item.clones || 0}</span>
                     <span>❤ {item.likes || 0}</span>
                   </div>
@@ -427,8 +526,24 @@ export default function MiniAppPage() {
                     <a href={cloneHref(item.id)} className="rounded-xl bg-sky-500 py-2.5 text-center text-[11px] font-black text-white">⚡ فوري</a>
                     <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[11px] font-black ${isLiked ? "bg-rose-100 text-rose-600" : "bg-sky-100 text-slate-700"}`}>{isLiked ? "❤️" : "🤍"}</button>
                     <button type="button" onClick={() => void openComments(item.id, item.title)} className="rounded-xl bg-sky-100 py-2.5 text-[11px] font-black text-slate-700">💬</button>
-                    <a href={item.url || "#"} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-500 py-2.5 text-center text-[11px] font-black text-white">⬇️</a>
-                    <button type="button" onClick={() => openProfile(item.sharer_id, item.sharer_name)} className="rounded-xl bg-violet-500 py-2.5 text-[11px] font-black text-white">👤</button>
+                    {/* Was ⬇️, same "download" look as the ⚡ فوري clone button
+                        right next to it despite being a different action
+                        (opening the ORIGINAL source link) -- 🌐 reads as
+                        "open elsewhere" instead of a second download. */}
+                    <a href={item.url || "#"} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-500 py-2.5 text-center text-[11px] font-black text-white">🌐</a>
+                    {/* Was a second 👤 button opening the same profile the
+                        name chip above already opens -- replaced with a
+                        real, distinct action (share the clone link). */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const link = cloneHref(item.id);
+                        const nav = navigator as any;
+                        if (nav.share) { nav.share({ title: item.title, url: link }).catch(() => {}); }
+                        else { nav.clipboard?.writeText?.(link); (window as any).Telegram?.WebApp?.showAlert?.("تم نسخ رابط المشاركة"); }
+                      }}
+                      className="rounded-xl bg-violet-500 py-2.5 text-[11px] font-black text-white"
+                    >🔗</button>
                   </div>
                 </div>
               </article>
