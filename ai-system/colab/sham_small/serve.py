@@ -144,12 +144,22 @@ def _load_image_tensor(raw_bytes: bytes, image_size: int) -> torch.Tensor:
     return (tensor.permute(2, 0, 1) / 127.5 - 1.0).unsqueeze(0)
 
 
-def load_model(checkpoint_path: str | None = None) -> None:
+def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = None) -> None:
     """Loads a real trained checkpoint if one is given and exists;
     otherwise builds a fresh, randomly-initialized model at a small,
     fast-on-CPU config purely so this service's PLUMBING (every
     endpoint, every tensor shape, every file format) can be tested for
-    real right now, without waiting for the actual training stage."""
+    real right now, without waiting for the actual training stage.
+
+    Real bug (fixed): this used to build a fresh bootstrap tokenizer
+    unconditionally, even when a real trained checkpoint was given --
+    so serving a real checkpoint still silently generated with a
+    tokenizer that had nothing to do with the ids that checkpoint was
+    actually trained on (a different vocab/merge mapping entirely,
+    same class of corruption this project's own Kaggle notebook
+    explicitly guards against when resuming training). A real
+    checkpoint needs its own matching saved tokenizer passed here too,
+    not just its weights."""
     if checkpoint_path and Path(checkpoint_path).exists():
         model, step, _ = load_checkpoint(checkpoint_path)
         print(f"loaded a REAL trained checkpoint from {checkpoint_path} (step {step})")
@@ -178,17 +188,22 @@ def load_model(checkpoint_path: str | None = None) -> None:
     image_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=IMAGE_VOCAB_SIZE)
     audio_cfg = AudioTokenizerConfig(n_mels=16, segment_frames=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=AUDIO_VOCAB_SIZE)
 
-    bootstrap_corpus = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
-    bootstrap_corpus.write(
-        "Sham Small is a real from scratch multimodal model. مرحباً هذا اختبار حقيقي للنموذج. " * 100
-    )
-    bootstrap_corpus.close()
+    if tokenizer_path and Path(tokenizer_path).exists():
+        text_tokenizer = ShamTextTokenizer.load(tokenizer_path)
+        print(f"loaded the REAL saved tokenizer from {tokenizer_path} (vocab={text_tokenizer.vocab_size})")
+    else:
+        bootstrap_corpus = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
+        bootstrap_corpus.write(
+            "Sham Small is a real from scratch multimodal model. مرحباً هذا اختبار حقيقي للنموذج. " * 100
+        )
+        bootstrap_corpus.close()
+        text_tokenizer = train_text_tokenizer([bootstrap_corpus.name], vocab_size=800)
+        Path(bootstrap_corpus.name).unlink()
 
     _state["model"] = model
-    _state["text_tokenizer"] = train_text_tokenizer([bootstrap_corpus.name], vocab_size=800)
+    _state["text_tokenizer"] = text_tokenizer
     _state["image_tokenizer"] = ImageTokenizer(image_cfg).eval()
     _state["audio_tokenizer"] = AudioTokenizer(audio_cfg).eval()
-    Path(bootstrap_corpus.name).unlink()
 
 
 @app.on_event("startup")
@@ -199,7 +214,10 @@ def _startup() -> None:
     # code — load_model() already knows how to load a real checkpoint
     # (see its own docstring); this is just wiring that up to the
     # outside world.
-    load_model(checkpoint_path=os.environ.get("SHAM_SMALL_CHECKPOINT_PATH"))
+    load_model(
+        checkpoint_path=os.environ.get("SHAM_SMALL_CHECKPOINT_PATH"),
+        tokenizer_path=os.environ.get("SHAM_SMALL_TOKENIZER_PATH"),
+    )
 
 
 class TextRequest(BaseModel):
