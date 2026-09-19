@@ -361,7 +361,12 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
         "extractor": info.extractor,
         "is_youtube": is_yt,
     }
-    duration = f"{info.duration // 60}:{info.duration % 60:02d}" if info.duration else "؟"
+    # Defensive int() cast here too (not just at the source in downloader.py):
+    # this exact line is what crashed on a float duration from Facebook's
+    # extractor, and the crash happened before status_msg.edit_text() below
+    # ever ran -- which is what left the "⏳ ..." message stuck forever with
+    # no reply. Never let a formatting bug here silently strand a message again.
+    duration = f"{int(info.duration) // 60}:{int(info.duration) % 60:02d}" if info.duration else "؟"
     tags = guess_tags(info.title, info.extractor)
     await status_msg.edit_text(
         f"✅ {info.title[:80]}\n"

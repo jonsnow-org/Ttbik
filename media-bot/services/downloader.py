@@ -331,7 +331,7 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
                     return (
                         MediaInfo(
                             title=info.get("title") or "YouTube",
-                            duration=info.get("duration"),
+                            duration=int(info["duration"]) if info.get("duration") is not None else None,
                             thumbnail=info.get("thumbnail"),
                             webpage_url=info.get("webpage_url") or url,
                             extractor="youtube",
@@ -374,7 +374,15 @@ async def extract_info(url: str) -> tuple[MediaInfo | None, str]:
             return (
                 MediaInfo(
                     title=info.get("title") or "media",
-                    duration=info.get("duration"),
+                    # BUG (fixed): yt-dlp's generic/Facebook extractor
+                    # returns duration as a float (e.g. 19.53), not an int
+                    # like MediaInfo declares. main.py formats this with
+                    # ":02d", which raises ValueError on a float and crashes
+                    # the whole update handler BEFORE it ever gets to edit
+                    # the "⏳ ..." status message -- this is the confirmed
+                    # root cause of Facebook links getting stuck forever
+                    # with no reply at all (see Render traceback, 2026-09-19).
+                    duration=int(info["duration"]) if info.get("duration") is not None else None,
                     thumbnail=info.get("thumbnail"),
                     webpage_url=info.get("webpage_url") or url,
                     extractor=info.get("extractor") or "generic",
