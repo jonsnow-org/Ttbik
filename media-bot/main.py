@@ -40,7 +40,7 @@ from services.archive import (
     send_from_cache_or_file,
     set_cached_file_id,
 )
-from services.store import store, persist
+from services.store import store, persist, load_from_archive
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
 
@@ -652,6 +652,7 @@ async def _post_init(app: Application) -> None:
             logger.warning("delete_webhook: %s", e)
             await asyncio.sleep(2)
     await asyncio.sleep(2)
+    await load_from_archive(app.bot, cfg.archive_channel_id)
     store.mini_app_enabled = True
     store.set_share(cfg.owner_id, True)
     store.last_wakeup = time.time()

@@ -256,21 +256,27 @@ export async function POST(req: NextRequest) {
   });
 }
 
+// Public engagement counters only (clone/view/like) -- deliberately no
+// secret/owner check here: these are meant to be triggerable by any real
+// visitor from the mini-app. Hiding/unhiding content is an owner-only admin
+// action and lives exclusively in /api/media-admin, which verifies the
+// caller's real Telegram identity; it used to also be reachable here behind
+// nothing but a hardcoded default secret, which was both a real
+// authorization hole and, once a real secret got configured, would have
+// silently broken these legitimate public counters too (same shared check).
+const PATCH_COLUMNS: Record<string, string> = { clone: "clones", view: "views", like: "likes" };
+
 export async function PATCH(req: NextRequest) {
-  if (!secretOk(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const id = String(body.id || "");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
   const action = String(body.action || "clone");
+  const col = PATCH_COLUMNS[action];
+  if (!col) return NextResponse.json({ error: "unknown action" }, { status: 400 });
+
   const mem = (g.__mediaFeed || []).find((x) => x.id === id);
-  if (mem) {
-    if (action === "clone") mem.clones = (mem.clones || 0) + 1;
-    if (action === "view") mem.views = (mem.views || 0) + 1;
-    if (action === "like") mem.likes = (mem.likes || 0) + 1;
-    if (action === "hide") mem.hidden = true;
-    if (action === "unhide") mem.hidden = false;
-  }
+  if (mem) (mem as any)[col] = ((mem as any)[col] || 0) + 1;
 
   try {
     const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
@@ -278,14 +284,9 @@ export async function PATCH(req: NextRequest) {
     if (url && key) {
       const { createClient } = await import("@supabase/supabase-js");
       const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-      if (action === "hide" || action === "unhide") {
-        await db.from("media_feed").update({ hidden: action === "hide" }).eq("id", id);
-      } else {
-        const col = action === "view" ? "views" : action === "like" ? "likes" : "clones";
-        const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
-        const next = Number((data as any)?.[col] || 0) + 1;
-        await db.from("media_feed").update({ [col]: next }).eq("id", id);
-      }
+      const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
+      const next = Number((data as any)?.[col] || 0) + 1;
+      await db.from("media_feed").update({ [col]: next }).eq("id", id);
     }
   } catch {
     /* ignore */

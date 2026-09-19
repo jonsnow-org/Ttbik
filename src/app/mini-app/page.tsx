@@ -159,22 +159,28 @@ export default function MiniAppPage() {
   async function loadAdmin() {
     try { const r = await fetch("/api/media-admin", { cache: "no-store" }); const j = await r.json(); if (j.stats) setAdminStats(j.stats); if (Array.isArray(j.settings?.force_sub_channels)) setForceChans(j.settings.force_sub_channels.join(", ")); } catch {}
   }
+  // Real auth for these calls is the Telegram-signed initData string below,
+  // verified server-side against BOT_TOKEN (see verifyTelegramOwner) -- not
+  // a secret or an owner_id, since anything in this client bundle is public.
+  function tgInitData(): string {
+    return (window as any).Telegram?.WebApp?.initData || "";
+  }
   async function hideItem(id: string) {
-    await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json", "x-feed-secret": "8452320" }, body: JSON.stringify({ action: "hide", id, owner_id: userId }) });
+    await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "hide", id, init_data: tgInitData() }) });
     setItems((prev) => prev.filter((x) => x.id !== id));
   }
   async function runBroadcast() {
     if (!broadcastText.trim()) return; setAdminBusy(true);
-    try { const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json", "x-feed-secret": "8452320" }, body: JSON.stringify({ action: "broadcast", text: broadcastText, owner_id: userId }) }); const j = await r.json(); (window as any).Telegram?.WebApp?.showAlert?.(j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل"); } finally { setAdminBusy(false); }
+    try { const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "broadcast", text: broadcastText, init_data: tgInitData() }) }); const j = await r.json(); (window as any).Telegram?.WebApp?.showAlert?.(j.ok ? "تم إرسال المعاينة للمالك" : j.error || "فشل"); } finally { setAdminBusy(false); }
   }
   async function saveForceSub() {
     const channels = forceChans.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2); setAdminBusy(true);
-    try { await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json", "x-feed-secret": "8452320" }, body: JSON.stringify({ action: "set_force_sub", channels, owner_id: userId }) }); (window as any).Telegram?.WebApp?.showAlert?.("تم حفظ قنوات الاشتراك"); } finally { setAdminBusy(false); }
+    try { await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_force_sub", channels, init_data: tgInitData() }) }); (window as any).Telegram?.WebApp?.showAlert?.("تم حفظ قنوات الاشتراك"); } finally { setAdminBusy(false); }
   }
 
   const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || "مستخدم"); setProfileSection("all"); setTab("me"); setShowNotifs(false); };
   const closeOtherProfile = () => { setViewUserId(null); setViewUserName(""); setProfileSection("all"); };
-  const toggleLike = (id: string) => { setLiked((p) => ({ ...p, [id]: !p[id] })); fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json", "x-feed-secret": "8452320" }, body: JSON.stringify({ id, action: "like" }) }).catch(() => {}); };
+  const toggleLike = (id: string) => { setLiked((p) => ({ ...p, [id]: !p[id] })); fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: "like" }) }).catch(() => {}); };
   const toggleFollow = (sid: string) => {
     if (!sid || sid === userId) return;
     setFollowing((prev) => { const next = { ...prev, [sid]: !prev[sid] }; saveJSON(LS.follow, next);

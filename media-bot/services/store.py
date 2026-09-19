@@ -206,14 +206,52 @@ async def persist(bot: "Bot", archive_channel_id: str | None) -> None:
             caption=SETTINGS_MARKER,
             disable_notification=True,
         )
+        # Pinned specifically so load_from_archive() can find this exact
+        # snapshot again after a restart via getChat().pinned_message --
+        # the only channel-history-independent lookup the Bot API offers.
+        try:
+            if store.settings_message_id:
+                await bot.unpin_chat_message(chat_id=archive_channel_id, message_id=store.settings_message_id)
+        except Exception:
+            pass
+        try:
+            await bot.pin_chat_message(chat_id=archive_channel_id, message_id=msg.message_id, disable_notification=True)
+        except Exception as e:
+            logger.warning("pin settings document failed: %s", e)
         store.settings_message_id = msg.message_id
-        # try delete older settings docs is not reliable via Bot API history
         logger.info("settings persisted as document msg=%s", msg.message_id)
     except Exception as e:
         logger.warning("persist settings document failed: %s", e)
 
 
 async def load_from_archive(bot: "Bot", archive_channel_id: str | None) -> None:
+    """Restore settings after a restart/redeploy.
+
+    The Bot API has no "scan channel history" call, so persist() keeps the
+    latest settings snapshot PINNED in the archive channel specifically so
+    getChat() -- which DOES return pinned_message -- can find it again here.
+    Without this, every restart (frequent on a free hosting tier) silently
+    wiped known_users, file_cache, squads, user_share and force_sub_channels
+    back to empty/defaults, which is exactly what was happening before this
+    function did anything real."""
     if not archive_channel_id:
         return
-    logger.info("store load: in-memory (Bot API cannot scan channel history freely)")
+    try:
+        chat = await bot.get_chat(archive_channel_id)
+        pinned = chat.pinned_message
+        if not pinned or not pinned.document:
+            logger.info("store load: no pinned settings document in archive channel")
+            return
+        if SETTINGS_MARKER not in (pinned.caption or ""):
+            logger.info("store load: pinned message isn't a settings snapshot")
+            return
+        tg_file = await bot.get_file(pinned.document.file_id)
+        raw = await tg_file.download_as_bytearray()
+        store.load_json(bytes(raw).decode("utf-8"))
+        store.settings_message_id = pinned.message_id
+        logger.info(
+            "store load: restored %d known users, %d squads, %d force-sub channel(s)",
+            len(store.known_users), len(store.squads), len(store.force_sub_channels),
+        )
+    except Exception as e:
+        logger.warning("store load from archive failed: %s", e)

@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_SECRET = "8452320";
 const OWNER = (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID || "420066855").trim();
 
-function secretOk(req: NextRequest): boolean {
-  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || DEFAULT_SECRET).trim();
-  const got = (req.headers.get("x-feed-secret") || "").trim();
-  return !!expected && got === expected;
-}
-
-function ownerOk(req: NextRequest, body?: any): boolean {
-  const uid = String(body?.owner_id || req.headers.get("x-owner-id") || "").trim();
-  return !!uid && uid === OWNER;
+// These admin actions are only ever called from the mini-app, a public web
+// page whose whole client bundle -- including any hardcoded secret or a
+// client-supplied "owner_id" field -- is visible to every visitor and
+// callable directly over the internet, with no Telegram involved at all.
+// Real authorization here is a Telegram-signed `init_data` string (see
+// verifyTelegramOwner) that only Telegram can produce for a real logged-in
+// user, not a shared secret or a value the client claims about itself.
+function ownerOk(body?: any): boolean {
+  const botToken = (process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const initData = String(body?.init_data || "");
+  return verifyTelegramOwner(initData, botToken, OWNER);
 }
 
 async function sb() {
@@ -54,11 +56,8 @@ export async function GET(req: NextRequest) {
 
 /** POST — admin actions: hide, unhide, broadcast, set_force_sub, set_limits */
 export async function POST(req: NextRequest) {
-  if (!secretOk(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
   const body = await req.json().catch(() => ({}));
-  if (!ownerOk(req, body)) {
+  if (!ownerOk(body)) {
     return NextResponse.json({ error: "owner only" }, { status: 403 });
   }
 
