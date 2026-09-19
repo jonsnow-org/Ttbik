@@ -81,7 +81,13 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    let r = await db
+    // `r` is deliberately re-assigned below with a narrower column list as
+    // a fallback for databases that haven't run the newer migration yet
+    // (see the resilient-insert commit) -- the two selects have different
+    // shapes on purpose, and every field is read defensively further down
+    // regardless of which one ran, so this is typed loosely rather than
+    // pinned to the first query's shape.
+    let r: any = await db
       .from("media_feed")
       .select(
         "id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,views,likes,created_at,tags,squad_code,duration_sec,quality,hidden"

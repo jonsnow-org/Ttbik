@@ -19,7 +19,7 @@ const KEY_320x50 = "560a1eb1632771185b888243a7d36a07";
  * every single page navigation once someone's closed it once, but does
  * come back on their next visit.
  */
-export default function StickyBottomAd() {
+export default function StickyBottomAd({ isOwner }: { isOwner: boolean }) {
   const [dismissed, setDismissed] = useState(true); // default hidden until we know sessionStorage says otherwise — avoids a flash on load
 
   useEffect(() => {
@@ -39,7 +39,9 @@ export default function StickyBottomAd() {
     }
   }
 
-  if (dismissed) return null;
+  // Owner navigates ad-free everywhere on the site; real visitors still see
+  // this normally (isOwner only ever reflects the owner's own cookie).
+  if (isOwner || dismissed) return null;
 
   return (
     <div

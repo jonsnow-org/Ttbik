@@ -14,11 +14,18 @@ const HAS_CODE: Record<string, boolean> = {
 };
 
 export default function AdSlot({ position, label }: { position: keyof typeof HAS_CODE; label: string }) {
+  const isOwner = isOwnerServer();
+
   if (HAS_CODE[position]) {
+    // Owner navigates the site ad-free (real complaint: live ads were
+    // showing to the owner too, getting in the way of managing the site).
+    // Real visitors are completely unaffected -- this only checks the
+    // owner's own cookie, never a visitor's.
+    if (isOwner) return null;
     return <AdsterraSlot position={position as "header-banner" | "in-content" | "footer-banner"} />;
   }
 
-  if (!isOwnerServer()) return null;
+  if (!isOwner) return null;
 
   return (
     <div className="rounded border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-center text-xs text-amber-700">

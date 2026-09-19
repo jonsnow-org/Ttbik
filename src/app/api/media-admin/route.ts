@@ -13,7 +13,7 @@ function secretOk(req: NextRequest): boolean {
 
 function ownerOk(req: NextRequest, body?: any): boolean {
   const uid = String(body?.owner_id || req.headers.get("x-owner-id") || "").trim();
-  return uid && uid === OWNER;
+  return !!uid && uid === OWNER;
 }
 
 async function sb() {

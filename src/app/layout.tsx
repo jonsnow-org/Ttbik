@@ -154,7 +154,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </div>
           </div>
         </footer>
-        <StickyBottomAd />
+        <StickyBottomAd isOwner={isOwner} />
       </body>
     </html>
   );
