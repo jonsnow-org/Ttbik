@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5738917912,
+  "last_seen_comment_id": 5739218982,
   "last_actor": "grok",
-  "updated_at": "2026-09-19T04:05:00Z",
+  "updated_at": "2026-09-19T04:06:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
@@ -11,7 +11,7 @@
     "G20-G25 waiting-ack — not re-commented"
   ],
   "resolved": [
-    "G78 EarningsCalculatorForm CPM presets (1/2.5/4) + daily estimate + views>subs note.",
+    "G78 EarningsCalculatorForm CPM presets (1/2.5/4) + daily estimate + views>subs note. SHA 31ff26d.",
     "G77 HealthCheckForm surfaces hostIsPrivate in notes/UI/copy; SHA 89790c3.",
     "G76 HealthCheck warns on private/loopback webhook hosts (hostIsPrivate). API SHA ba322a4.",
     "G75 HealthCheckForm clears token after successful check; surfaces lastErrorDate + maxConnections in UI/copy; pending>100 treated as stalled. SHA 2b246ed.",
