@@ -57,11 +57,23 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from bs4 import BeautifulSoup
 
 from dataset import ContentSafetyFilter
+from minhash_dedup import LSHIndex, MinHasher
+
+if TYPE_CHECKING:
+    # Kept lazy/optional on purpose: this crawler is meant to be able to
+    # run on a cheap CPU-only schedule with no model loaded at all (see
+    # this file's own module docstring) -- importing perplexity_filter
+    # unconditionally would force a torch import (and a loaded model +
+    # tokenizer) onto every crawl run, even one with no GPU/checkpoint
+    # anywhere nearby. A caller running crawl_and_learn() from inside
+    # the same Kaggle session as training passes a real PerplexityFilter
+    # instance in; everyone else just leaves it None.
+    from perplexity_filter import PerplexityFilter
 
 SearchFn = Callable[[str, str], list[str]]  # (query, language) -> list of real URLs
 FetchFn = Callable[[str], str]  # url -> real raw HTML
@@ -108,14 +120,20 @@ class CrawlStats:
     near_duplicate: int = 0
     unsafe: int = 0
     fetch_failed: int = 0
+    not_learnable: int = 0
     added_topics: list[str] = field(default_factory=list)
 
 
 class KnowledgeCorpus:
     """A real, persistent, deduplicated text corpus on disk — one file
-    per accepted document, plus an in-memory shingle index for fast
-    near-duplicate checks against everything already stored (including
-    documents added in a previous day's run, loaded back from disk)."""
+    per accepted document, plus a MinHash/LSH index (minhash_dedup.py)
+    for near-duplicate candidate retrieval against everything already
+    stored (including documents added in a previous day's run, loaded
+    back from disk), so this scales to a corpus far larger than the
+    hundreds of documents a plain O(n) scan stays cheap for — see
+    minhash_dedup.py's own docstring for why. The exact accept/reject
+    decision is UNCHANGED: only candidates LSH surfaces ever get the
+    real, exact Jaccard check below."""
 
     def __init__(self, corpus_dir: str, near_duplicate_threshold: float = 0.35):
         # 0.35 is a REAL, MEASURED calibration (see this file's own
@@ -132,15 +150,19 @@ class KnowledgeCorpus:
         self.near_duplicate_threshold = near_duplicate_threshold
         self._exact_hashes: set[str] = set()
         self._shingle_index: list[set[str]] = []
+        self._minhasher = MinHasher()
+        self._lsh = LSHIndex()
         self._next_index = 0
         self._load_existing()
 
     def _load_existing(self) -> None:
         existing_files = sorted(self.corpus_dir.glob("doc_*.txt"))
-        for path in existing_files:
+        for doc_id, path in enumerate(existing_files):
             text = path.read_text(encoding="utf-8")
             self._exact_hashes.add(self._hash(text))
-            self._shingle_index.append(_shingles(text))
+            shingles = _shingles(text)
+            self._shingle_index.append(shingles)
+            self._lsh.insert(doc_id, self._minhasher.signature(shingles))
         self._next_index = len(existing_files)
 
     @staticmethod
@@ -155,8 +177,9 @@ class KnowledgeCorpus:
         if content_hash in self._exact_hashes:
             return "duplicate"
         new_shingles = _shingles(text)
-        for existing_shingles in self._shingle_index:
-            if _jaccard_similarity(new_shingles, existing_shingles) >= self.near_duplicate_threshold:
+        sig = self._minhasher.signature(new_shingles)
+        for doc_id in self._lsh.candidates(sig):
+            if _jaccard_similarity(new_shingles, self._shingle_index[doc_id]) >= self.near_duplicate_threshold:
                 return "near_duplicate"
         return "unique"
 
@@ -164,7 +187,9 @@ class KnowledgeCorpus:
         file_path = self.corpus_dir / f"doc_{self._next_index:06d}.txt"
         file_path.write_text(text, encoding="utf-8")
         self._exact_hashes.add(self._hash(text))
-        self._shingle_index.append(_shingles(text))
+        shingles = _shingles(text)
+        self._shingle_index.append(shingles)
+        self._lsh.insert(self._next_index, self._minhasher.signature(shingles))
         self._next_index += 1
         return str(file_path)
 
@@ -178,6 +203,7 @@ def crawl_and_learn(
     fetch_fn: FetchFn,
     corpus: KnowledgeCorpus,
     safety_filter: ContentSafetyFilter | None = None,
+    perplexity_filter: "PerplexityFilter | None" = None,
     max_pages_per_topic: int = 3,
     min_text_length: int = 200,
 ) -> CrawlStats:
@@ -234,6 +260,18 @@ def crawl_and_learn(
                 if dup_status == "near_duplicate":
                     stats.near_duplicate += 1
                     continue
+
+                # Perplexity check runs LAST, after every cheaper filter
+                # (safety regex, length, hash/shingle dedup) has already
+                # had a chance to reject the document for free — it's
+                # the one gate here that costs a real model forward
+                # pass, so nothing that would already be rejected for a
+                # cheaper reason should ever reach it.
+                if perplexity_filter is not None:
+                    decision = perplexity_filter.evaluate(text)
+                    if not decision.keep:
+                        stats.not_learnable += 1
+                        continue
 
                 corpus.add(text)
                 stats.added += 1
@@ -354,6 +392,85 @@ if __name__ == "__main__":
         print(f"training hand-off OK: the {len(file_paths)} real documents this crawler collected loaded "
               f"straight into TextSequenceDataset ({len(text_dataset)} real training chunks) with no "
               f"further conversion needed.")
+
+    # --- Real integration test for the optional perplexity_filter gate:
+    # a tiny model trained hard on ONE sentence should reject a fresh
+    # page consisting of that same memorized sentence as "not learnable"
+    # -- proving the wiring above actually calls into a real model
+    # forward pass and acts on its verdict, not just that the default
+    # (no filter) path still works.
+    import torch
+    import torch.optim as optim
+
+    from model import ShamSmall, ShamSmallConfig
+    from perplexity_filter import PerplexityFilter
+    from text_tokenizer import train_text_tokenizer as _train_tok
+
+    torch.manual_seed(0)
+    memorized_sentence = "the quick pattern repeats over and over in this exact same sentence."
+    normal_pool = [
+        "Arabic and English text both flow through the exact same tokenizer and model here.",
+        "Streaming training never writes the raw corpus to disk before learning from it.",
+        "Rotary position embeddings let this model's context window grow with no retraining.",
+        "Grouped query attention shares key and value projections across several query heads.",
+        "The crawler extracts real page content and discards navigation and footer noise.",
+    ]
+    ppl_corpus_text = ((memorized_sentence + " ") * 40) + " ".join(normal_pool * 8)
+    with tempfile.TemporaryDirectory() as ppl_tmpdir:
+        ppl_corpus_path = Path(ppl_tmpdir) / "ppl_corpus.txt"
+        ppl_corpus_path.write_text(ppl_corpus_text, encoding="utf-8")
+        ppl_tokenizer = _train_tok([str(ppl_corpus_path)], vocab_size=400)
+
+    ppl_cfg = ShamSmallConfig(vocab_size=42256, d_model=64, n_layers=2, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=64)
+    ppl_model = ShamSmall(ppl_cfg)
+    ppl_model.train()
+    ppl_optimizer = optim.AdamW(ppl_model.parameters(), lr=3e-3)
+    ppl_train_ids = ppl_tokenizer.encode(ppl_corpus_text)
+    for step in range(300):
+        start = (step * 32) % max(1, len(ppl_train_ids) - 32 - 1)
+        chunk = torch.tensor(ppl_train_ids[start : start + 32], dtype=torch.long).unsqueeze(0)
+        ppl_optimizer.zero_grad()
+        _, loss = ppl_model(chunk, labels=chunk)
+        loss.backward()
+        ppl_optimizer.step()
+
+    ppl_filter = PerplexityFilter(ppl_model, ppl_tokenizer, window_size=100, min_window=20)
+    # Warm up the calibration window with realistic, DIVERSE normal
+    # content first (matching perplexity_filter.py's own __main__
+    # lesson: a window dominated by one extreme category defeats a
+    # percentile band by construction) before the memorized probe ever
+    # gets evaluated.
+    for s in normal_pool * 6:
+        ppl_filter.evaluate(s)
+
+    with tempfile.TemporaryDirectory() as ppl_crawl_tmpdir:
+        ppl_corpus_obj = KnowledgeCorpus(ppl_crawl_tmpdir)
+        memorized_page = (
+            "<html><body><article><p>" + (memorized_sentence + " ") * 30 + "</p></article></body></html>"
+        )
+
+        def ppl_mock_search(topic: str, language: str) -> list[str]:
+            return ["https://example.com/memorized-page"]
+
+        def ppl_mock_fetch(url: str) -> str:
+            return memorized_page
+
+        ppl_stats = crawl_and_learn(
+            {"en": ["memorized topic"]},
+            ppl_mock_search,
+            ppl_mock_fetch,
+            ppl_corpus_obj,
+            perplexity_filter=ppl_filter,
+            max_pages_per_topic=1,
+        )
+        print(f"\nperplexity-filter integration: added={ppl_stats.added}, not_learnable={ppl_stats.not_learnable}")
+        assert ppl_stats.not_learnable == 1, (
+            f"expected the heavily memorized page to be rejected by the perplexity filter, got "
+            f"not_learnable={ppl_stats.not_learnable}, added={ppl_stats.added}"
+        )
+        assert ppl_stats.added == 0, f"the memorized page should NOT have been added to the corpus, got added={ppl_stats.added}"
+        print("confirmed: crawl_and_learn's optional perplexity_filter gate correctly rejected a page the "
+              "model had already memorized, using a real forward pass on a real trained model.")
 
     print("\nAll autonomous crawler checks passed — a real, legal, multi-language, deduplicated daily "
           "knowledge-collection loop, feeding directly into the same training pipeline already built.")
