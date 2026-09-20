@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// O4 co-build pass 4 (Grok): stacked layout + 500×500 avatar PNG.
+// O4 co-build pass 5 (Grok): seal layout + transparent PNG background.
 const FONTS = [
   { id: "cairo", family: "Cairo", weight: "900", label: "Cairo — عصري هندسي" },
   { id: "tajawal", family: "Tajawal", weight: "800", label: "Tajawal — نظيف حديث" },
@@ -25,6 +25,7 @@ const LAYOUTS = [
   { id: "badge", label: "شارة" },
   { id: "monogram", label: "حرف واحد" },
   { id: "stacked", label: "نص مكدّس" },
+  { id: "seal", label: "ختم دائري" },
 ] as const;
 
 const CANVAS_W = 1000;
@@ -44,7 +45,21 @@ function firstGlyph(name: string) {
 }
 
 function escapeXml(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+}
+
+function paintBackground(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  color: string,
+  transparent: boolean,
+) {
+  ctx.clearRect(0, 0, w, h);
+  if (!transparent) {
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+  }
 }
 
 export default function LogoGenerator() {
@@ -53,6 +68,7 @@ export default function LogoGenerator() {
   const [fontId, setFontId] = useState<(typeof FONTS)[number]["id"]>("cairo");
   const [pairingId, setPairingId] = useState<(typeof PAIRINGS)[number]["id"]>("emerald");
   const [layoutId, setLayoutId] = useState<(typeof LAYOUTS)[number]["id"]>("wordmark");
+  const [transparentBg, setTransparentBg] = useState(false);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [fontsReady, setFontsReady] = useState(false);
@@ -77,14 +93,36 @@ export default function LogoGenerator() {
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx || !fontsReady) return;
 
-    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
-    ctx.fillStyle = pairing.bg;
-    ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    paintBackground(ctx, CANVAS_W, CANVAS_H, pairing.bg, transparentBg);
 
     const label = name.trim() || "اسم مشروعك";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.direction = "rtl";
+
+    if (layoutId === "seal") {
+      const cx = CANVAS_W / 2;
+      const cy = CANVAS_H / 2;
+      ctx.strokeStyle = pairing.accent;
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 168, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 152, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = pairing.text;
+      ctx.font = `${font.weight} 52px "${font.family}"`;
+      ctx.fillText(label.slice(0, 18), cx, tagline.trim() ? cy - 16 : cy);
+      if (tagline.trim()) {
+        ctx.font = `400 22px "${font.family}"`;
+        ctx.fillStyle = pairing.accent;
+        ctx.fillText(tagline.trim().slice(0, 28), cx, cy + 36);
+      }
+      setDataUrl(canvas.toDataURL("image/png"));
+      return;
+    }
 
     if (layoutId === "monogram") {
       const cx = CANVAS_W / 2;
@@ -93,7 +131,7 @@ export default function LogoGenerator() {
       ctx.beginPath();
       ctx.arc(cx, cy, 140, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = pairing.bg;
+      ctx.fillStyle = transparentBg ? "#ffffff" : pairing.bg;
       ctx.beginPath();
       ctx.arc(cx, cy, 126, 0, Math.PI * 2);
       ctx.fill();
@@ -141,7 +179,7 @@ export default function LogoGenerator() {
         ctx.rect(pad, pad, CANVAS_W - pad * 2, CANVAS_H - pad * 2);
       }
       ctx.fill();
-      ctx.fillStyle = pairing.bg;
+      ctx.fillStyle = transparentBg ? "#ffffff" : pairing.bg;
       ctx.beginPath();
       if (typeof ctx.roundRect === "function") {
         ctx.roundRect(pad + 10, pad + 10, CANVAS_W - pad * 2 - 20, CANVAS_H - pad * 2 - 20, rx - 8);
@@ -172,7 +210,7 @@ export default function LogoGenerator() {
     }
 
     setDataUrl(canvas.toDataURL("image/png"));
-  }, [name, tagline, font, pairing, fontsReady, layoutId]);
+  }, [name, tagline, font, pairing, fontsReady, layoutId, transparentBg]);
 
   useEffect(() => {
     draw();
@@ -194,8 +232,7 @@ export default function LogoGenerator() {
     const ctx = off.getContext("2d");
     if (!ctx) return;
     const label = name.trim() || "اسم مشروعك";
-    ctx.fillStyle = pairing.bg;
-    ctx.fillRect(0, 0, AVATAR, AVATAR);
+    paintBackground(ctx, AVATAR, AVATAR, pairing.bg, transparentBg);
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.direction = "rtl";
@@ -205,7 +242,7 @@ export default function LogoGenerator() {
     ctx.beginPath();
     ctx.arc(cx, cy, 190, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = pairing.bg;
+    ctx.fillStyle = transparentBg ? "#ffffff" : pairing.bg;
     ctx.beginPath();
     ctx.arc(cx, cy, 172, 0, Math.PI * 2);
     ctx.fill();
@@ -225,23 +262,25 @@ export default function LogoGenerator() {
     const escaped = escapeXml(label);
     const escapedSub = escapeXml(sub);
     const glyph = escapeXml(firstGlyph(label));
+    const bgRect = transparentBg
+      ? ""
+      : `<rect width="1000" height="500" fill="${pairing.bg}"/>`;
     let body = "";
-    if (layoutId === "monogram") {
+    if (layoutId === "seal") {
+      body = `<circle cx="500" cy="250" r="168" fill="none" stroke="${pairing.accent}" stroke-width="10"/><circle cx="500" cy="250" r="152" fill="none" stroke="${pairing.accent}" stroke-width="3"/><text x="500" y="${sub ? 234 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="52">${escaped.slice(0, 18)}</text>${sub ? `<text x="500" y="286" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="22">${escapeXml(sub.slice(0, 28))}</text>` : ""}`;
+    } else if (layoutId === "monogram") {
       const cy = sub ? 226 : 250;
-      body = `<circle cx="500" cy="${cy}" r="140" fill="${pairing.accent}"/><circle cx="500" cy="${cy}" r="126" fill="${pairing.bg}"/><text x="500" y="${cy + 8}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="120">${glyph}</text>${sub ? `<text x="500" y="${cy + 176}" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="26">${escapedSub}</text>` : ""}`;
+      const inner = transparentBg ? "#ffffff" : pairing.bg;
+      body = `<circle cx="500" cy="${cy}" r="140" fill="${pairing.accent}"/><circle cx="500" cy="${cy}" r="126" fill="${inner}"/><text x="500" y="${cy + 8}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="120">${glyph}</text>${sub ? `<text x="500" y="${cy + 176}" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="26">${escapedSub}</text>` : ""}`;
     } else if (layoutId === "stacked") {
       body = `<rect x="0" y="0" width="16" height="500" fill="${pairing.accent}"/><rect x="984" y="0" width="16" height="500" fill="${pairing.accent}"/><text x="500" y="${sub ? 214 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="298" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="30">${escapedSub}</text>` : ""}`;
     } else if (layoutId === "badge") {
-      body = `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${pairing.bg}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
+      const inner = transparentBg ? "#ffffff" : pairing.bg;
+      body = `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${inner}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
     } else {
       body = `<rect x="440" y="320" width="120" height="6" fill="${pairing.accent}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
     }
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" direction="rtl">
-  <style>@import url('${GOOGLE_FONTS_HREF}');</style>
-  <rect width="1000" height="500" fill="${pairing.bg}"/>
-  ${body}
-</svg>`;
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" direction="rtl">\n  <style>@import url('${GOOGLE_FONTS_HREF}');</style>\n  ${bgRect}\n  ${body}\n</svg>`;
     const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -324,12 +363,32 @@ export default function LogoGenerator() {
         ))}
       </div>
 
+      <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
+        <input
+          type="checkbox"
+          checked={transparentBg}
+          onChange={(e) => setTransparentBg(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300"
+        />
+        خلفية شفافة للتنزيل (مناسب للطباعة واللصق فوق صورة)
+      </label>
+
       <div className="mt-6 flex flex-col items-center gap-3">
         <canvas
           ref={canvasRef}
           width={CANVAS_W}
           height={CANVAS_H}
           className="w-full max-w-lg rounded-xl border border-slate-200 shadow-sm"
+          style={
+            transparentBg
+              ? {
+                  backgroundImage:
+                    "linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%)",
+                  backgroundSize: "20px 20px",
+                  backgroundPosition: "0 0,0 10px,10px -10px,-10px 0",
+                }
+              : undefined
+          }
         />
         <div className="flex flex-wrap justify-center gap-2">
           <button
@@ -359,7 +418,7 @@ export default function LogoGenerator() {
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-400">
-        يعمل بالكامل داخل متصفحك — بلا رفع بيانات لأي خادم. PNG للاستخدام السريع، SVG للتكبير بلا فقدان وضوح، الأفاتار مربع 500×500 للحسابات.
+        يعمل بالكامل داخل متصفحك — بلا رفع بيانات لأي خادم. PNG للاستخدام السريع، SVG للتكبير بلا فقدان وضوح، الأفاتار مربع 500×500 للحسابات. الخلفية الشفافة تُصدَّر في PNG وSVG.
       </p>
     </div>
   );
