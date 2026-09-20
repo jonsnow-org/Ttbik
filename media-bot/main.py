@@ -41,9 +41,10 @@ from services.archive import (
     send_from_cache_or_file,
     set_cached_file_id,
 )
-from services.store import store, persist, load_from_archive
+from services.store import store, persist, load_from_archive, PREMIUM_DAILY_LIMIT
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
+from services.premium import verify_premium_code
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -270,7 +271,8 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"👥 إدارة مستخدمي البوت\n\nالإجمالي: {s['users']}\nجدد 24س: {s['new_24h']}\nمتصلون: {s['online_15m']}"
         )
     elif text == "💎 الميزات المدفوعة":
-        await update.message.reply_text("بنية جاهزة:\n• حدود يومية أعلى\n• أولوية سرعة\n• غرف خاصة\nالتفعيل لاحقاً.")
+        s = store.bot_stats()
+        await update.message.reply_text(f"💎 عدد المشتركين في الترقية المدفوعة: {s['premium']}")
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
     elif text.startswith("http"):
@@ -330,12 +332,47 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 "• تنزيلات الغرفة لا تظهر في الموجز العام"
             )
         await update.message.reply_text(body, parse_mode="Markdown", reply_markup=_squad_kb(user.id))
+    elif text == "💎 الترقية المدفوعة":
+        await update.message.reply_text(_premium_info_text(user.id))
     elif text in ("ℹ️ معلومات", "❓ مساعدة"):
         await update.message.reply_text(INFO_TEXT)
     elif text.startswith("http"):
         await _handle_url(update, context, text)
     else:
         await update.message.reply_text("أرسل رابطاً أو استخدم الأزرار.", reply_markup=user_main_keyboard())
+
+
+def _premium_info_text(user_id: int) -> str:
+    site = (os.environ.get("NEXT_PUBLIC_SITE_URL") or os.environ.get("SITE_URL") or "https://ttbik.vercel.app").rstrip("/")
+    if store.is_premium(user_id):
+        return f"💎 الترقية المدفوعة مُفعّلة على حسابك.\nحدك اليومي الحالي: {PREMIUM_DAILY_LIMIT} تحميل."
+    return (
+        "💎 الترقية المدفوعة\n\n"
+        f"• حد يومي أعلى ({PREMIUM_DAILY_LIMIT} تحميل بدل {store.daily_limit(user_id)})\n"
+        "• أولوية أعلى في المعالجة\n\n"
+        f"1) اطلب الخدمة من: {site}/service/media-bot-premium\n"
+        "2) بعد موافقة الإدارة على طلبك، أرسل هنا: /premium ثم رمز طلبك\n"
+        "مثال: /premium ABC123"
+    )
+
+
+async def premium_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    store.touch_user(user.id)
+    if store.is_premium(user.id):
+        await update.message.reply_text(f"💎 الترقية مُفعّلة بالفعل على حسابك.\nحدك اليومي: {PREMIUM_DAILY_LIMIT} تحميل.")
+        return
+    args = context.args or []
+    if not args:
+        await update.message.reply_text("استخدم: /premium ثم رمز طلبك، مثال:\n/premium ABC123")
+        return
+    ok, msg = await verify_premium_code(args[0], user.id)
+    if ok:
+        store.set_premium(user.id, args[0])
+        await _save(context.bot)
+    await update.message.reply_text(msg)
 
 
 async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str) -> None:
@@ -654,6 +691,7 @@ def main() -> None:
             app.add_error_handler(_error_handler)
             app.add_handler(CommandHandler("start", start))
             app.add_handler(CommandHandler("version", version_cmd))
+            app.add_handler(CommandHandler("premium", premium_cmd))
             # BUG (fixed separately): both handlers below used to be
             # registered with no explicit group, which means the SAME
             # default group (0). python-telegram-bot only runs the

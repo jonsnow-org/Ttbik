@@ -55,7 +55,7 @@ def user_main_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("📥 تحميل وسائط")],
         [KeyboardButton("👥 غرفتي"), KeyboardButton("⚙️ إعداداتي")],
-        [KeyboardButton("ℹ️ معلومات")],
+        [KeyboardButton("💎 الترقية المدفوعة"), KeyboardButton("ℹ️ معلومات")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 

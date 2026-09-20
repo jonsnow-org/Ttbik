@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 SETTINGS_MARKER = "#MB_SETTINGS"
 FREE_DAILY_LIMIT = 8
 SHARE_DAILY_LIMIT = 20
+PREMIUM_DAILY_LIMIT = 50
 
 
 @dataclass
@@ -36,6 +37,8 @@ class Store:
     file_cache: dict[str, str] = field(default_factory=dict)
     squads: dict[str, dict] = field(default_factory=dict)
     user_squad: dict[str, str] = field(default_factory=dict)
+    # user_id -> order_code redeemed to activate the paid upgrade
+    premium_users: dict[str, str] = field(default_factory=dict)
     settings_message_id: int | None = None
     last_wakeup: float = 0.0
     last_persist_ts: float = 0.0
@@ -76,21 +79,30 @@ class Store:
             return 0
         return int(row.get("count") or 0)
 
+    def is_premium(self, user_id: int) -> bool:
+        return str(user_id) in self.premium_users
+
+    def set_premium(self, user_id: int, order_code: str) -> None:
+        self.premium_users[str(user_id)] = (order_code or "").strip().upper()
+
     def daily_limit(self, user_id: int, is_owner: bool = False) -> int:
         if is_owner:
             return 10_000
+        if self.is_premium(user_id):
+            return PREMIUM_DAILY_LIMIT
         return SHARE_DAILY_LIMIT if self.get_share(user_id) else FREE_DAILY_LIMIT
 
     def can_download(self, user_id: int, is_owner: bool = False) -> tuple[bool, str]:
         limit = self.daily_limit(user_id, is_owner)
         used = self.daily_count(user_id)
         if used >= limit:
-            if self.get_share(user_id):
+            if self.is_premium(user_id) or self.get_share(user_id):
                 return False, f"وصلت للحد اليومي ({limit}). حاول غداً."
             return (
                 False,
                 f"وصلت للحد المجاني ({FREE_DAILY_LIMIT}/يوم).\n"
-                f"فعّل المشاركة (عام أو غرفة) لرفع الحد إلى {SHARE_DAILY_LIMIT}.",
+                f"فعّل المشاركة (عام أو غرفة) لرفع الحد إلى {SHARE_DAILY_LIMIT}، "
+                f"أو فعّل الترقية المدفوعة لرفعه إلى {PREMIUM_DAILY_LIMIT}.",
             )
         return True, f"{used + 1}/{limit}"
 
@@ -105,8 +117,13 @@ class Store:
         self.downloads += 1
 
     def perk_label(self, user_id: int) -> str:
+        premium = self.is_premium(user_id)
         pub = self.get_share_public(user_id)
         room = self.get_share_room(user_id)
+        if premium and pub and room:
+            return "💎 مشترك مدفوع · موجز عام + غرفة خاصة"
+        if premium:
+            return "💎 مشترك مدفوع"
         if pub and room:
             return "🏅 مساهم · موجز عام + غرفة خاصة"
         if pub:
@@ -181,6 +198,7 @@ class Store:
             "share_public": pub,
             "share_room": room,
             "force_sub": len(self.force_sub_channels),
+            "premium": len(self.premium_users),
         }
 
     def add_force_channel(self, channel: str) -> str:
@@ -225,6 +243,7 @@ class Store:
                 "file_cache": dict(list(self.file_cache.items())[-500:]),
                 "squads": self.squads,
                 "user_squad": self.user_squad,
+                "premium_users": self.premium_users,
             },
             ensure_ascii=False,
         )
@@ -243,6 +262,7 @@ class Store:
         self.file_cache = dict(data.get("file_cache") or {})
         self.squads = dict(data.get("squads") or {})
         self.user_squad = dict(data.get("user_squad") or {})
+        self.premium_users = dict(data.get("premium_users") or {})
 
 
 store = Store()
