@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MonetagSdkLoader, MonetagBannerSlot } from "@/components/MonetagAd";
 
 type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
@@ -393,6 +394,7 @@ export default function MiniAppPage() {
 
   return (
     <div className="min-h-screen bg-[#eaf6ff] text-slate-800">
+      <MonetagSdkLoader />
       <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/95 px-4 pb-3 pt-4 backdrop-blur-xl">
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
@@ -414,6 +416,8 @@ export default function MiniAppPage() {
       </div>
 
       <div className="px-3 pt-2"><input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm outline-none placeholder:text-slate-400" /></div>
+
+      <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-xl">
