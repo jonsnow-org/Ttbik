@@ -41,6 +41,7 @@ const SUB_PRESETS = [
   { label: "100 مليون", value: "100000000" },
   { label: "200 مليون", value: "200000000" },
   { label: "500 مليون", value: "500000000" },
+  { label: "مليار", value: "1000000000" },
 ];
 
 const VIEW_PRESETS = [
@@ -119,6 +120,7 @@ export default function EarningsCalculatorForm() {
     const myriadsToTarget = millenniaToTarget / 10;
     const lakhsToTarget = myriadsToTarget / 10;
     const croresToTarget = lakhsToTarget / 10;
+    const eonsToTarget = croresToTarget / 10;
     const targetProgressPct = target > 0 ? Math.min(9999, (monthlyUsd / target) * 100) : 0;
     return {
       monthlyViews,
@@ -157,6 +159,7 @@ export default function EarningsCalculatorForm() {
       myriadsToTarget,
       lakhsToTarget,
       croresToTarget,
+      eonsToTarget,
       targetProgressPct,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
@@ -195,6 +198,7 @@ export default function EarningsCalculatorForm() {
       `عشرات آلاف السنين لتغطية الهدف بنفس الوتيرة: ${result.myriadsToTarget.toFixed(2)}`,
       `مئات آلاف السنين لتغطية الهدف بنفس الوتيرة: ${result.lakhsToTarget.toFixed(2)}`,
       `ملايين السنين لتغطية الهدف بنفس الوتيرة: ${result.croresToTarget.toFixed(2)}`,
+      `عشرات ملايين السنين لتغطية الهدف بنفس الوتيرة: ${result.eonsToTarget.toFixed(2)}`,
       `نسبة تغطية الهدف بالوتيرة الحالية: ${result.targetProgressPct.toFixed(1)}%`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
