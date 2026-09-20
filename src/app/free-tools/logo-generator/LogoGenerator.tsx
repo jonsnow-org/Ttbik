@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// O4 co-build pass 3 (Grok): monogram layout + SVG fallback typo fix.
+// O4 co-build pass 4 (Grok): stacked layout + 500×500 avatar PNG.
 const FONTS = [
   { id: "cairo", family: "Cairo", weight: "900", label: "Cairo — عصري هندسي" },
   { id: "tajawal", family: "Tajawal", weight: "800", label: "Tajawal — نظيف حديث" },
@@ -24,10 +24,12 @@ const LAYOUTS = [
   { id: "wordmark", label: "نص عريض" },
   { id: "badge", label: "شارة" },
   { id: "monogram", label: "حرف واحد" },
+  { id: "stacked", label: "نص مكدّس" },
 ] as const;
 
 const CANVAS_W = 1000;
 const CANVAS_H = 500;
+const AVATAR = 500;
 const GOOGLE_FONTS_HREF =
   "https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=Cairo:wght@900&family=Tajawal:wght@800&family=Aref+Ruqaa:wght@700&family=Lalezar&display=swap";
 
@@ -107,6 +109,27 @@ export default function LogoGenerator() {
       return;
     }
 
+    if (layoutId === "stacked") {
+      ctx.fillStyle = pairing.accent;
+      ctx.fillRect(0, 0, 16, CANVAS_H);
+      ctx.fillRect(CANVAS_W - 16, 0, 16, CANVAS_H);
+      let fontSize = 88;
+      do {
+        ctx.font = `${font.weight} ${fontSize}px "${font.family}"`;
+        if (ctx.measureText(label).width <= CANVAS_W - 160 || fontSize <= 28) break;
+        fontSize -= 4;
+      } while (true);
+      ctx.fillStyle = pairing.text;
+      ctx.fillText(label, CANVAS_W / 2, tagline.trim() ? CANVAS_H / 2 - 36 : CANVAS_H / 2);
+      if (tagline.trim()) {
+        ctx.font = `400 30px "${font.family}"`;
+        ctx.fillStyle = pairing.accent;
+        ctx.fillText(tagline.trim().slice(0, 60), CANVAS_W / 2, CANVAS_H / 2 + 48);
+      }
+      setDataUrl(canvas.toDataURL("image/png"));
+      return;
+    }
+
     if (layoutId === "badge") {
       const pad = 48;
       const rx = 48;
@@ -163,6 +186,39 @@ export default function LogoGenerator() {
     a.click();
   }
 
+  function downloadAvatarPng() {
+    if (!fontsReady) return;
+    const off = document.createElement("canvas");
+    off.width = AVATAR;
+    off.height = AVATAR;
+    const ctx = off.getContext("2d");
+    if (!ctx) return;
+    const label = name.trim() || "اسم مشروعك";
+    ctx.fillStyle = pairing.bg;
+    ctx.fillRect(0, 0, AVATAR, AVATAR);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.direction = "rtl";
+    const cx = AVATAR / 2;
+    const cy = AVATAR / 2;
+    ctx.fillStyle = pairing.accent;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 190, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = pairing.bg;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 172, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = pairing.text;
+    ctx.font = `${font.weight} 168px "${font.family}"`;
+    ctx.fillText(firstGlyph(label), cx, cy + 8);
+    const url = off.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `avatar-${slugName(name)}.png`;
+    a.click();
+  }
+
   function downloadSvg() {
     const label = (name.trim() || "اسم مشروعك").slice(0, 80);
     const sub = tagline.trim().slice(0, 60);
@@ -173,6 +229,8 @@ export default function LogoGenerator() {
     if (layoutId === "monogram") {
       const cy = sub ? 226 : 250;
       body = `<circle cx="500" cy="${cy}" r="140" fill="${pairing.accent}"/><circle cx="500" cy="${cy}" r="126" fill="${pairing.bg}"/><text x="500" y="${cy + 8}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="120">${glyph}</text>${sub ? `<text x="500" y="${cy + 176}" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="26">${escapedSub}</text>` : ""}`;
+    } else if (layoutId === "stacked") {
+      body = `<rect x="0" y="0" width="16" height="500" fill="${pairing.accent}"/><rect x="984" y="0" width="16" height="500" fill="${pairing.accent}"/><text x="500" y="${sub ? 214 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="298" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="30">${escapedSub}</text>` : ""}`;
     } else if (layoutId === "badge") {
       body = `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${pairing.bg}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
     } else {
@@ -284,6 +342,14 @@ export default function LogoGenerator() {
           </button>
           <button
             type="button"
+            onClick={downloadAvatarPng}
+            disabled={!fontsReady}
+            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            أفاتار 500×500
+          </button>
+          <button
+            type="button"
             onClick={downloadSvg}
             className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
           >
@@ -293,7 +359,7 @@ export default function LogoGenerator() {
       </div>
 
       <p className="mt-4 text-center text-xs text-slate-400">
-        يعمل بالكامل داخل متصفحك — بلا رفع بيانات لأي خادم. PNG للاستخدام السريع، SVG للتكبير بلا فقدان وضوح.
+        يعمل بالكامل داخل متصفحك — بلا رفع بيانات لأي خادم. PNG للاستخدام السريع، SVG للتكبير بلا فقدان وضوح، الأفاتار مربع 500×500 للحسابات.
       </p>
     </div>
   );
