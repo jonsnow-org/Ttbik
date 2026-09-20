@@ -37,6 +37,7 @@ const SUB_PRESETS = [
   { label: "5 ملايين", value: "5000000" },
   { label: "10 ملايين", value: "10000000" },
   { label: "20 مليون", value: "20000000" },
+  { label: "50 مليون", value: "50000000" },
 ];
 
 const VIEW_PRESETS = [
@@ -101,6 +102,8 @@ export default function EarningsCalculatorForm() {
     const yearsToTarget = monthsToTarget / 12;
     const decadesToTarget = yearsToTarget / 10;
     const centuriesToTarget = decadesToTarget / 10;
+    const millenniaToTarget = centuriesToTarget / 10;
+    const targetProgressPct = target > 0 ? Math.min(9999, (monthlyUsd / target) * 100) : 0;
     return {
       monthlyViews,
       soldViews,
@@ -133,6 +136,8 @@ export default function EarningsCalculatorForm() {
       yearsToTarget,
       decadesToTarget,
       centuriesToTarget,
+      millenniaToTarget,
+      targetProgressPct,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -166,6 +171,8 @@ export default function EarningsCalculatorForm() {
       `سنوات لتغطية الهدف بنفس الوتيرة: ${result.yearsToTarget.toFixed(2)}`,
       `عقود لتغطية الهدف بنفس الوتيرة: ${result.decadesToTarget.toFixed(2)}`,
       `قرون لتغطية الهدف بنفس الوتيرة: ${result.centuriesToTarget.toFixed(2)}`,
+      `آلاف السنين لتغطية الهدف بنفس الوتيرة: ${result.millenniaToTarget.toFixed(2)}`,
+      `نسبة تغطية الهدف بالوتيرة الحالية: ${result.targetProgressPct.toFixed(1)}%`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -320,6 +327,10 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.decadesToTarget.toFixed(2)}</p>
         <p className="mt-3 text-sm text-indigo-100">قرون لتغطية الهدف بنفس الوتيرة الحالية</p>
         <p className="text-2xl font-extrabold">{result.centuriesToTarget.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">آلاف السنين لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.millenniaToTarget.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">نسبة تغطية الهدف بالوتيرة الشهرية الحالية</p>
+        <p className="text-2xl font-extrabold">{result.targetProgressPct.toFixed(1)}%</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.monthlyUsd <= 0
             ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
