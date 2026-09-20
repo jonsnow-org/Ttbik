@@ -115,7 +115,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
             </nav>
             <div className="flex-1 lg:hidden" />
-            <MobileNav isOwner={isOwner} />
+            <MobileNav />
             {isOwner && (
               <a
                 href="/admin"

@@ -5,20 +5,27 @@ import { createPortal } from "react-dom";
 import Logo from "@/components/Logo";
 
 /**
- * Mobile-only hamburger + slide-in drawer.
- * Claude bot creator is NOT in the public menu — only inside /admin for the owner.
+ * Mobile-only hamburger + slide-in drawer. Owner-only admin shortcuts
+ * (أدوات الأدمن / منشئ بوتات كلود / لوحة التحكم) deliberately do NOT live
+ * here even for the owner (owner directive, 2026-09-20): they already
+ * exist as a proper card/link row inside /admin's own dashboard
+ * (AdminDashboard.tsx) — duplicating them into the same drawer every
+ * visitor opens is unnecessary clutter and one more place a gating bug
+ * could leak them, for zero benefit since the owner already has /admin
+ * bookmarked. This menu is public-navigation only, full stop.
  */
-export default function MobileNav({ isOwner }: { isOwner: boolean }) {
+export default function MobileNav() {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
-  useEffect(() => {
-    document.body.style.overflow = open ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
+  // No background-scroll-lock (no `body.style.overflow = "hidden"`):
+  // real, reported bug (2026-09-20) in Telegram's in-app browser -- some
+  // mobile WebViews route ALL touch-scroll gestures through whatever
+  // `overflow` the page's own <body> has, so locking it also silently
+  // breaks scrolling *inside* this drawer, not just the page behind it.
+  // Losing the "background can't scroll while the drawer is open" nicety
+  // is a much smaller cost than a menu the owner can't scroll at all.
 
   const groups: { label: string; badge?: string; links: { href: string; label: string }[] }[] = [
     {
@@ -55,7 +62,10 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
   const drawer = open && (
     <div className="fixed inset-0 z-[100] lg:hidden">
       <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-      <div className="absolute inset-y-0 right-0 flex w-72 max-w-[80vw] flex-col overflow-y-auto bg-white p-4 shadow-xl">
+      <div
+        className="absolute inset-y-0 right-0 flex h-full w-72 max-w-[80vw] flex-col overflow-y-auto overscroll-contain bg-white p-4 shadow-xl"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         <div className="mb-4 flex items-center justify-between">
           <span className="flex items-center gap-2 text-base font-extrabold text-brand-800">
             <Logo className="h-6 w-6" /> سوق تولز
@@ -93,31 +103,6 @@ export default function MobileNav({ isOwner }: { isOwner: boolean }) {
               </div>
             </div>
           ))}
-          {isOwner && (
-            <>
-              <a
-                href="/admin-tools"
-                onClick={() => setOpen(false)}
-                className="block rounded-xl bg-violet-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-violet-700"
-              >
-                🛠️ أدوات الأدمن (جروك)
-              </a>
-              <a
-                href="/bots"
-                onClick={() => setOpen(false)}
-                className="block rounded-xl bg-indigo-600 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-indigo-700"
-              >
-                🤖 منشئ بوتات كلود
-              </a>
-              <a
-                href="/admin"
-                onClick={() => setOpen(false)}
-                className="block rounded-xl bg-brand-700 px-3 py-2.5 text-center text-sm font-bold text-white transition hover:bg-brand-800"
-              >
-                لوحة التحكم
-              </a>
-            </>
-          )}
         </nav>
       </div>
     </div>

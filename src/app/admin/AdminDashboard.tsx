@@ -8,6 +8,24 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+
+  async function runCatalogCleanup() {
+    setCleanupBusy(true);
+    setCleanupResult(null);
+    try {
+      const res = await fetch("/api/admin/catalog-cleanup", { method: "POST" });
+      const data = await res.json();
+      setCleanupResult(
+        res.ok ? `تم: ${JSON.stringify(data.results)}` : `فشل: ${data.error || res.status}`
+      );
+    } catch (e: any) {
+      setCleanupResult(`فشل: ${e.message || "خطأ غير متوقع"}`);
+    } finally {
+      setCleanupBusy(false);
+    }
+  }
 
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/orders");
@@ -67,6 +85,21 @@ export default function AdminDashboard() {
       <p className="mb-4 text-xs text-slate-500">
         إدارة البوتات (بث، إعلانات إجبارية، إحصائيات، سحوبات) انتقلت بالكامل إلى أمر <code className="font-mono">/admin</code> داخل بوت تليجرام نفسه.
       </p>
+
+      <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
+        <p className="mb-2 text-sm font-bold text-red-800">🧹 إزالة "أعلن في قناتنا" من الكتالوج (لمرة واحدة)</p>
+        <p className="mb-3 text-xs text-red-700">
+          يحذف الخدمة المزيفة نهائياً من قاعدة البيانات الحية مباشرة — بديل عن لصق SQL يدوياً.
+        </p>
+        <button
+          disabled={cleanupBusy}
+          onClick={runCatalogCleanup}
+          className="rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {cleanupBusy ? "جارٍ التنفيذ..." : "نفّذ الآن"}
+        </button>
+        {cleanupResult && <p className="mt-2 font-mono text-xs text-red-900">{cleanupResult}</p>}
+      </div>
 
       <div className="space-y-4">
         {pending.map((o) => (

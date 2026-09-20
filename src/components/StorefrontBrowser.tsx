@@ -23,85 +23,71 @@ export default function StorefrontBrowser({
   services: Service[];
 }) {
   const [activeId, setActiveId] = useState(categories[0]?.id);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const active = categories.find((c) => c.id === activeId) ?? categories[0];
 
   if (!active) return null;
 
+  // Flat grid, no subcategory headers -- grouping services into labeled
+  // "sections" (e.g. "الإعلانات والتسويق" for a single ad-slot bot, "الرد
+  // والدعم" for two small free bots) read as full categories to a visitor
+  // even though each held only 1-2 items (owner feedback, 2026-09-20).
+  // `subcategory` stays a real DB column (still usable for search/filtering
+  // elsewhere) -- it's just not rendered as a visual section boundary here.
+  // Order preserved from the query's own `sort_order`.
   const activeServices = services.filter((s) => s.category_id === active.id);
   const theme = getCategoryTheme(active.slug);
 
-  // Group by subcategory so a section can grow without becoming one long
-  // undifferentiated grid. Services without a subcategory fall into a
-  // single unlabeled group (rendered first, no heading).
-  const groups = new Map<string, Service[]>();
-  for (const s of activeServices) {
-    const key = s.subcategory ?? "";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(s);
-  }
-  const orderedGroups = [...groups.entries()].sort(([a], [b]) => (a === "" ? -1 : a.localeCompare(b, "ar")));
-
   function selectCategory(id: string) {
     setActiveId(id);
-    setDrawerOpen(false);
   }
-
-  const categoryList = (
-    <nav className="space-y-1">
-      {categories.map((cat) => {
-        const catTheme = getCategoryTheme(cat.slug);
-        return (
-          <button
-            key={cat.id}
-            onClick={() => selectCategory(cat.id)}
-            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
-              cat.id === active.id ? catTheme.activeTab : "text-slate-600 hover:bg-slate-50"
-            }`}
-          >
-            <CategoryIcon slug={cat.slug} className="h-5 w-5 shrink-0" />
-            <span className="flex-1 text-right">{cat.name_ar}</span>
-          </button>
-        );
-      })}
-    </nav>
-  );
 
   return (
     <section id="categories" className="relative mx-auto max-w-6xl px-4 pb-20">
       <SectionBackdrop tone={active.slug} />
-      {/* Mobile: button that opens the sidebar as a slide-in drawer */}
-      <button
-        onClick={() => setDrawerOpen(true)}
-        className="mb-6 flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 lg:hidden"
-      >
-        <span aria-hidden>☰</span> الأقسام —{" "}
-        <span className={theme.badgeText}>{active.name_ar}</span>
-      </button>
 
-      {drawerOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setDrawerOpen(false)} />
-          <div className="absolute inset-y-0 right-0 w-72 max-w-[80vw] overflow-y-auto bg-white p-4 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="font-bold text-slate-900">الأقسام</h2>
-              <button
-                onClick={() => setDrawerOpen(false)}
-                className="rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100"
-                aria-label="إغلاق"
-              >
-                ✕
-              </button>
-            </div>
-            {categoryList}
-          </div>
-        </div>
-      )}
+      {/* One category switcher, not two: a horizontal pill row on mobile
+          (always visible, no second hamburger/drawer competing with the
+          site's own main ☰ menu) and a persistent sidebar on desktop. */}
+      <nav className="mb-6 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
+        {categories.map((cat) => {
+          const catTheme = getCategoryTheme(cat.slug);
+          return (
+            <button
+              key={cat.id}
+              onClick={() => selectCategory(cat.id)}
+              className={`flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold transition ${
+                cat.id === active.id
+                  ? `${catTheme.activeTab} border-transparent`
+                  : "border-slate-200 bg-white text-slate-600"
+              }`}
+            >
+              <CategoryIcon slug={cat.slug} className="h-4 w-4 shrink-0" />
+              {cat.name_ar}
+            </button>
+          );
+        })}
+      </nav>
 
       <div className="lg:flex lg:items-start lg:gap-8">
         {/* Desktop: persistent sidebar */}
         <aside className="hidden shrink-0 lg:block lg:w-60">
-          <div className="sticky top-24">{categoryList}</div>
+          <nav className="sticky top-24 space-y-1">
+            {categories.map((cat) => {
+              const catTheme = getCategoryTheme(cat.slug);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => selectCategory(cat.id)}
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                    cat.id === active.id ? catTheme.activeTab : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <CategoryIcon slug={cat.slug} className="h-5 w-5 shrink-0" />
+                  <span className="flex-1 text-right">{cat.name_ar}</span>
+                </button>
+              );
+            })}
+          </nav>
         </aside>
 
         {/* Active category content */}
@@ -116,38 +102,31 @@ export default function StorefrontBrowser({
             <p className="text-sm text-slate-400">لا توجد خدمات في هذا القسم حالياً.</p>
           )}
 
-          <div className="space-y-8">
-            {orderedGroups.map(([subcat, items]) => (
-              <div key={subcat || "_default"}>
-                {subcat && <h3 className="mb-3 text-sm font-bold text-slate-500">{subcat}</h3>}
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {items.map((s) => (
-                    <Link
-                      key={s.id}
-                      href={`/service/${s.slug}`}
-                      className={`group relative flex flex-col justify-between overflow-hidden rounded-2xl bg-gradient-to-br ${theme.gradient} p-5 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl`}
-                    >
-                      <div className="pointer-events-none absolute -left-6 -top-8 h-24 w-24 rounded-full bg-white/10" />
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <CategoryIcon slug={active.slug} className="h-7 w-7 text-white/90" />
-                          <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-bold text-white backdrop-blur">
-                            {getDeliveryKind(s).label}
-                          </span>
-                        </div>
-                        <h3 className="mt-3 font-extrabold text-white">{s.name_ar}</h3>
-                        <p className="mt-2 text-sm text-white/80">{s.short_desc_ar}</p>
-                      </div>
-                      <div className="relative mt-4 flex items-center justify-between">
-                        <span className="text-lg font-extrabold text-white">{formatUsd(s.price_usd)}</span>
-                        <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-white backdrop-blur transition group-hover:bg-white group-hover:text-slate-900">
-                          {s.price_usd === 0 ? "احصل عليه الآن" : "جرّب النسخة المحدودة"}
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {activeServices.map((s) => (
+              <Link
+                key={s.id}
+                href={`/service/${s.slug}`}
+                className={`group relative flex flex-col justify-between overflow-hidden rounded-2xl bg-gradient-to-br ${theme.gradient} p-5 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl`}
+              >
+                <div className="pointer-events-none absolute -left-6 -top-8 h-24 w-24 rounded-full bg-white/10" />
+                <div>
+                  <div className="flex items-center justify-between">
+                    <CategoryIcon slug={active.slug} className="h-7 w-7 text-white/90" />
+                    <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-bold text-white backdrop-blur">
+                      {getDeliveryKind(s).label}
+                    </span>
+                  </div>
+                  <h3 className="mt-3 font-extrabold text-white">{s.name_ar}</h3>
+                  <p className="mt-2 text-sm text-white/80">{s.short_desc_ar}</p>
                 </div>
-              </div>
+                <div className="relative mt-4 flex items-center justify-between">
+                  <span className="text-lg font-extrabold text-white">{formatUsd(s.price_usd)}</span>
+                  <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-bold text-white backdrop-blur transition group-hover:bg-white group-hover:text-slate-900">
+                    {s.price_usd === 0 ? "احصل عليه الآن" : "جرّب النسخة المحدودة"}
+                  </span>
+                </div>
+              </Link>
             ))}
           </div>
         </div>
