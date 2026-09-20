@@ -7,3 +7,4 @@ pillow==11.0.0
 soundfile==0.14.0
 imageio-ffmpeg==0.5.1
 numpy==2.4.6
+ddgs==9.16.0
