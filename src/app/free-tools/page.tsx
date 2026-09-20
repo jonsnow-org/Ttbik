@@ -3,7 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import AdsterraNative from "@/components/AdsterraNative";
 import SectionBackdrop from "@/components/SectionBackdrop";
-import { FREE_TOOLS } from "@/lib/freeTools";
+import { FREE_TOOLS, getFreeToolTheme } from "@/lib/freeTools";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 export const metadata: Metadata = {
@@ -53,26 +53,29 @@ export default function FreeToolsPage() {
 
       {/* Tools grid — stronger cards */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {TOOLS.map((tool) => (
-          <Link
-            key={tool.href}
-            href={tool.href}
-            className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:border-brand-300 hover:shadow-lg"
-          >
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-brand-500 to-emerald-400 opacity-0 transition group-hover:opacity-100" />
-            <span className="inline-flex w-fit items-center rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
-              مجاني
-            </span>
-            <h2 className="mt-3 text-base font-extrabold leading-snug text-slate-900 group-hover:text-brand-700">
-              {tool.title}
-            </h2>
-            <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-500">{tool.desc}</p>
-            <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-brand-600 opacity-80 transition group-hover:opacity-100">
-              افتح الأداة
-              <span className="transition group-hover:-translate-x-0.5">←</span>
-            </span>
-          </Link>
-        ))}
+        {TOOLS.map((tool, index) => {
+          const theme = getFreeToolTheme(index);
+          return (
+            <Link
+              key={tool.href}
+              href={tool.href}
+              className={`group relative flex flex-col overflow-hidden rounded-2xl border ${theme.border} ${theme.bg} p-6 shadow-sm transition-all duration-200 hover:-translate-y-1 hover:shadow-lg`}
+            >
+              <div className={`absolute inset-x-0 top-0 h-1.5 bg-gradient-to-l ${theme.accent}`} />
+              <span className={`inline-flex w-fit items-center rounded-full ${theme.badgeBg} px-2.5 py-1 text-[11px] font-bold ${theme.badgeText}`}>
+                مجاني
+              </span>
+              <h2 className={`mt-3 text-base font-extrabold leading-snug text-slate-900 ${theme.hoverText}`}>
+                {tool.title}
+              </h2>
+              <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{tool.desc}</p>
+              <span className={`mt-4 inline-flex items-center gap-1 text-sm font-bold ${theme.badgeText} opacity-80 transition group-hover:opacity-100`}>
+                افتح الأداة
+                <span className="transition group-hover:-translate-x-0.5">←</span>
+              </span>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="mt-10">

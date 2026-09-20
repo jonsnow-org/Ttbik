@@ -13,7 +13,13 @@ function pickMimeType(): string {
   return "video/webm";
 }
 
-export default function AudioVisualizerStudio() {
+export default function AudioVisualizerStudio({
+  canGenerate,
+  onGenerated,
+}: {
+  canGenerate: boolean;
+  onGenerated: () => void;
+}) {
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
@@ -130,7 +136,7 @@ export default function AudioVisualizerStudio() {
   async function generate() {
     const canvas = canvasRef.current;
     const audioEl = audioRef.current;
-    if (!audioFile || !canvas || !audioEl) return;
+    if (!audioFile || !canvas || !audioEl || !canGenerate) return;
 
     if (typeof MediaRecorder === "undefined") {
       setError("متصفحك لا يدعم تسجيل الفيديو. جرّب متصفح Chrome أو Firefox الحديث.");
@@ -180,6 +186,10 @@ export default function AudioVisualizerStudio() {
       setIsRecording(false);
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
       audioContext.close().catch(() => {});
+      // Count the free try only once a video was actually produced -- a
+      // browser that can't record at all (see the MediaRecorder check
+      // above) must never burn someone's free attempt for nothing.
+      onGenerated();
     };
 
     audioEl.ontimeupdate = () => {
@@ -221,10 +231,14 @@ export default function AudioVisualizerStudio() {
 
           <button
             onClick={generate}
-            disabled={!audioFile || isRecording}
+            disabled={!audioFile || isRecording || !canGenerate}
             className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:bg-slate-300"
           >
-            {isRecording ? `جاري توليد الفيديو... ${progress}%` : "توليد فيديو الريلز الآن"}
+            {isRecording
+              ? `جاري توليد الفيديو... ${progress}%`
+              : canGenerate
+                ? "توليد فيديو الريلز الآن"
+                : "انتهت محاولاتك المجانية — اطلب الوصول الكامل بالأسفل"}
           </button>
 
           {error && <p className="text-sm text-red-600">{error}</p>}

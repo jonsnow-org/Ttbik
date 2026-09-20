@@ -210,10 +210,15 @@ from (values
     15, 'bot_simulator', 'link', 'https://github.com/jonsnowx1r-lab/Ttbik/tree/main/templates/order-manager-bot', null, 3),
   ('telegram-bots', 'ad-slot-bot', 'بوت بيع المساحات الإعلانية', 'الإعلانات والتسويق', 'بوت جاهز يبيع مساحات إعلانية في قناتك بنظام رصيد مسبق الدفع، آمن وبدون سحب أموال حقيقي.',
     'كود جاهز (Node.js): العميل يشتري رصيداً إعلانياً، يرسل نص إعلانه، أنت توافق بضغطة زر، والبوت ينشره وينشر النتائج بنفسه. نظام رصيد وليس محفظة إيداع/سحب حقيقية — تجنّباً للمخاطر القانونية والتشابه مع عمليات النصب المنتشرة في بوتات الإعلانات.',
-    18, 'ad_slot_preview', 'link', 'https://github.com/jonsnowx1r-lab/Ttbik/tree/main/templates/ad-slot-bot', null, 4),
-  ('telegram-bots', 'channel-ad-slot', 'أعلن في قناتنا', 'الإعلانات والتسويق', 'اعرض إعلان مشروعك على مشتركي قناة سوق تولز على تليجرام.',
-    'نشر إعلانك في قناة @ttbik5 خلال 24 ساعة من الموافقة. أرسل نص إعلانك ورابطك عبر وسيلة التواصل التي تزوّدنا بها عند الطلب.',
-    8, 'ad_slot_preview', 'text', 'شكراً لطلبك! أرسل نص إعلانك ورابطك عبر وسيلة التواصل التي زوّدتنا بها، وسنقوم بنشره في القناة خلال 24 ساعة.', null, 5)
+    18, 'ad_slot_preview', 'link', 'https://github.com/jonsnowx1r-lab/Ttbik/tree/main/templates/ad-slot-bot', null, 4)
+  -- 'channel-ad-slot' ("أعلن في قناتنا" -- advertise to our own channel's
+  -- subscribers) removed for good (owner directive, 2026-09-20): the
+  -- channel has no real audience to sell exposure to (a handful of
+  -- subscribers), so the promise itself was false. It had been
+  -- deactivated once, then mistakenly reactivated in
+  -- migration_catalog_cleanup_2026_09_03.sql on the reasoning that it was
+  -- "a real deliverable" -- true that the ad WOULD get posted, but
+  -- irrelevant if posting it reaches no one. Do not re-add.
 ) as s(cat_slug, slug, name_ar, subcategory, short_desc_ar, long_desc_ar, price_usd, demo_type, delivery_type, delivery_content, tool_route, sort_order)
 join categories c on c.slug = s.cat_slug
 on conflict (slug) do nothing;

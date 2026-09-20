@@ -1,3 +1,23 @@
+// Per-card color cycle so the free-tools grid reads as colorful instead of
+// a wall of identical white cards (owner feedback, 2026-09-20). Full literal
+// class strings are required here (not composed at runtime) so Tailwind's
+// build-time scanner actually generates them — same convention as
+// categoryTheme.ts's groupHoverText comment.
+export const FREE_TOOL_THEMES = [
+  { bg: "bg-emerald-50", border: "border-emerald-200", badgeBg: "bg-emerald-100", badgeText: "text-emerald-700", accent: "from-emerald-400 to-emerald-600", hoverText: "group-hover:text-emerald-700" },
+  { bg: "bg-sky-50", border: "border-sky-200", badgeBg: "bg-sky-100", badgeText: "text-sky-700", accent: "from-sky-400 to-sky-600", hoverText: "group-hover:text-sky-700" },
+  { bg: "bg-amber-50", border: "border-amber-200", badgeBg: "bg-amber-100", badgeText: "text-amber-700", accent: "from-amber-400 to-amber-600", hoverText: "group-hover:text-amber-700" },
+  { bg: "bg-rose-50", border: "border-rose-200", badgeBg: "bg-rose-100", badgeText: "text-rose-700", accent: "from-rose-400 to-rose-600", hoverText: "group-hover:text-rose-700" },
+  { bg: "bg-violet-50", border: "border-violet-200", badgeBg: "bg-violet-100", badgeText: "text-violet-700", accent: "from-violet-400 to-violet-600", hoverText: "group-hover:text-violet-700" },
+  { bg: "bg-teal-50", border: "border-teal-200", badgeBg: "bg-teal-100", badgeText: "text-teal-700", accent: "from-teal-400 to-teal-600", hoverText: "group-hover:text-teal-700" },
+  { bg: "bg-orange-50", border: "border-orange-200", badgeBg: "bg-orange-100", badgeText: "text-orange-700", accent: "from-orange-400 to-orange-600", hoverText: "group-hover:text-orange-700" },
+  { bg: "bg-fuchsia-50", border: "border-fuchsia-200", badgeBg: "bg-fuchsia-100", badgeText: "text-fuchsia-700", accent: "from-fuchsia-400 to-fuchsia-600", hoverText: "group-hover:text-fuchsia-700" },
+] as const;
+
+export function getFreeToolTheme(index: number) {
+  return FREE_TOOL_THEMES[index % FREE_TOOL_THEMES.length];
+}
+
 // Shared list of the site's free browser tools — single source of truth
 // for both /free-tools (full listing) and the homepage showcase, so a new
 // tool only needs to be added here once instead of drifting between pages.
