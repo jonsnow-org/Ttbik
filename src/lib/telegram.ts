@@ -102,6 +102,18 @@ export async function editOrderAlert(
   }).catch(() => null);
 }
 
+/** Plain informational message to the admin chat — no inline buttons. */
+export async function sendAdminNotice(text: string): Promise<void> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+  if (!token || !chatId) return;
+  await fetch(botUrl("sendMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text }),
+  }).catch(() => null);
+}
+
 /** Answers a Telegram callback_query so the loading spinner on the button stops. */
 export async function answerCallbackQuery(callbackQueryId: string, text?: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;

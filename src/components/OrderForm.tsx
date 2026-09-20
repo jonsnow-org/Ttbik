@@ -182,6 +182,9 @@ export default function OrderForm({
                 <p className="mt-2 text-xs text-amber-600">
                   ⚠️ تأكد من إرسال المبلغ عبر شبكة {usdt?.network || "TRC20"} فقط تجنباً لفقدان التحويل.
                 </p>
+                <p className="mt-2 text-xs text-emerald-600">
+                  ✅ يتم التحقق من عملية الدفع تلقائياً على الشبكة خلال دقائق من رقم العملية — دون انتظار مراجعة يدوية.
+                </p>
               </>
             ) : (
               <>
@@ -288,7 +291,9 @@ export default function OrderForm({
                 ? "جارٍ التحويل..."
                 : method === "crypto_auto"
                   ? "الانتقال لصفحة الدفع ⚡"
-                  : "إرسال الطلب للمراجعة"}
+                  : method === "usdt"
+                    ? "إرسال الطلب — تحقق تلقائي ⚡"
+                    : "إرسال الطلب للمراجعة"}
             </button>
           </div>
         </div>

@@ -30,7 +30,22 @@ export default function StatusPoller({ code, initial }: { code: string; initial:
       }
     }, 5000);
 
-    return () => clearInterval(interval);
+    // No-op unless this is a still-pending USDT order -- keeps retrying the
+    // real on-chain check automatically (a transaction can confirm/index
+    // after the single attempt made at order-creation time) so the customer
+    // never needs an admin to manually approve a manual USDT payment.
+    const verifyInterval = setInterval(() => {
+      fetch("/api/orders/verify-usdt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCode: code }),
+      }).catch(() => null);
+    }, 10000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(verifyInterval);
+    };
   }, [code, order?.status]);
 
   if (notFound) {

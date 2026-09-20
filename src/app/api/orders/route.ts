@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateOrderCode } from "@/lib/utils";
-import { sendOrderAlert } from "@/lib/telegram";
+import { sendOrderAlert, sendAdminNotice } from "@/lib/telegram";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
+import { decideOrder } from "@/lib/orders";
+import { usdtAutoVerifySupported, verifyTrc20UsdtPayment } from "@/lib/usdtVerify";
 
 export async function POST(req: NextRequest) {
   // Public endpoint, no auth — without this, a burst of fake orders each
@@ -67,6 +69,31 @@ export async function POST(req: NextRequest) {
     channel: "site",
     message: `طلب جديد ${order.order_code} بانتظار المراجعة.`,
   });
+
+  // Manual payment confirmation must be automatic, not admin-reviewed
+  // (owner decision 2026-09-20) -- for USDT specifically, the customer's
+  // transferReference IS the on-chain transaction hash, so we can check
+  // TRON's own public ledger for a real, confirmed transfer instead of
+  // waiting on a human. If the transaction hasn't confirmed/indexed yet,
+  // /api/orders/verify-usdt (polled from the order-status page) keeps
+  // retrying automatically -- this single attempt here just catches the
+  // common case where the customer already paid before submitting the form.
+  const usdtAddress = (process.env.USDT_ADDRESS || "").trim();
+  const usdtNetwork = process.env.USDT_NETWORK || "TRC20";
+  if (paymentMethod === "usdt" && usdtAddress && usdtAutoVerifySupported(usdtNetwork)) {
+    const check = await verifyTrc20UsdtPayment(transferReference, usdtAddress, service.price_usd);
+    if (check.ok) {
+      try {
+        await decideOrder(order.id, "approved");
+        await sendAdminNotice(
+          `✅ تحقّق تلقائي من الشبكة: طلب ${order.order_code} (${service.name_ar}) — تم تأكيد دفع USDT على البلوكتشين والموافقة عليه تلقائياً.`
+        );
+        return NextResponse.json({ orderCode: order.order_code });
+      } catch (e) {
+        console.error("auto-approve after usdt verify failed:", e);
+      }
+    }
+  }
 
   const tg = await sendOrderAlert({
     orderId: order.id,
