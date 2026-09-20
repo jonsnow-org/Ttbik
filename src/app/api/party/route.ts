@@ -9,10 +9,29 @@ const g = globalThis as unknown as {
 if (!g.__parties) g.__parties = {};
 if (!g.__partyMsgs) g.__partyMsgs = {};
 
+// Real risk (flagged, not yet hit by a real user -- nothing in the
+// frontend calls this API yet): room state falls back to this in-memory
+// globalThis map whenever Supabase isn't configured. On serverless
+// (Vercel), that map is scoped to ONE function instance -- a "create"
+// handled by instance A is invisible to a "join"/GET routed to instance
+// B, so without Supabase this feature only works by accident (single
+// warm instance, same region) and fails unpredictably otherwise, with
+// no signal anywhere that this is why. Surfacing it explicitly instead
+// of staying silent, for whenever a real frontend gets wired to this.
+let warnedNoSupabase = false;
+const NO_PERSISTENCE_WARNING =
+  "SUPABASE_SERVICE_ROLE_KEY / NEXT_PUBLIC_SUPABASE_URL not configured -- party room state is per-instance in-memory only and will behave unpredictably across multiple serverless instances.";
+
 function sb() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
   const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").trim();
-  if (!url || !key) return null;
+  if (!url || !key) {
+    if (!warnedNoSupabase) {
+      warnedNoSupabase = true;
+      console.warn(`[api/party] ${NO_PERSISTENCE_WARNING}`);
+    }
+    return null;
+  }
   return { url, key };
 }
 
@@ -56,6 +75,7 @@ export async function GET(req: NextRequest) {
     room: mem,
     messages: (g.__partyMsgs![id] || []).slice(-40),
     source: "memory",
+    warning: db ? undefined : NO_PERSISTENCE_WARNING,
   });
 }
 
@@ -109,7 +129,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, room });
+    return NextResponse.json({ ok: true, room, warning: db ? undefined : NO_PERSISTENCE_WARNING });
   }
 
   if (action === "join") {
@@ -136,7 +156,7 @@ export async function POST(req: NextRequest) {
         .update({ members, updated_at: new Date().toISOString() })
         .eq("id", id);
     }
-    return NextResponse.json({ ok: true, room });
+    return NextResponse.json({ ok: true, room, warning: db ? undefined : NO_PERSISTENCE_WARNING });
   }
 
   if (action === "sync") {
@@ -172,7 +192,7 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", id);
     }
-    return NextResponse.json({ ok: true, room });
+    return NextResponse.json({ ok: true, room, warning: db ? undefined : NO_PERSISTENCE_WARNING });
   }
 
   if (action === "chat" || action === "react") {
@@ -199,7 +219,7 @@ export async function POST(req: NextRequest) {
         kind: msg.kind,
       });
     }
-    return NextResponse.json({ ok: true, message: msg });
+    return NextResponse.json({ ok: true, message: msg, warning: db ? undefined : NO_PERSISTENCE_WARNING });
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

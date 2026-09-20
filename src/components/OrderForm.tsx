@@ -14,6 +14,10 @@ interface PaymentInfo {
     name: string;
     address: string;
   };
+  usdt: {
+    address: string;
+    network: string;
+  };
 }
 
 function maskDigits(value: string): string {
@@ -42,6 +46,7 @@ export default function OrderForm({
 
   const [payment, setPayment] = useState<PaymentInfo | null>(null);
   const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch("/api/payment-info")
@@ -55,7 +60,7 @@ export default function OrderForm({
       setError("الرجاء تعبئة كل الحقول");
       return;
     }
-    if (method === "bank" && !reference.trim()) {
+    if ((method === "bank" || method === "usdt") && !reference.trim()) {
       setError("الرجاء تعبئة كل الحقول");
       return;
     }
@@ -94,6 +99,14 @@ export default function OrderForm({
   }
 
   const bank = payment?.bank;
+  const usdt = payment?.usdt;
+  function copyUsdtAddress() {
+    if (!usdt?.address) return;
+    navigator.clipboard?.writeText(usdt.address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -101,7 +114,7 @@ export default function OrderForm({
 
       {step === "payment" && (
         <div className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setMethod("crypto_auto")}
               className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold ${
@@ -118,6 +131,18 @@ export default function OrderForm({
             >
               تحويل بنكي (ACH/USD)
             </button>
+            {/* Was returned by /api/payment-info the whole time (usdt.address/
+                network) and already accepted end-to-end by /api/orders
+                (paymentMethod validated against exactly ["bank", "usdt"]) --
+                there was just no button anywhere that ever set method to it. */}
+            <button
+              onClick={() => setMethod("usdt")}
+              className={`flex-1 rounded-xl border px-3 py-2 text-sm font-semibold ${
+                method === "usdt" ? `${theme.border} ${theme.badgeBg} ${theme.badgeText}` : "border-slate-300"
+              }`}
+            >
+              🅤 USDT (تحويل يدوي)
+            </button>
           </div>
 
           <div className="rounded-xl bg-slate-50 p-4 text-sm">
@@ -127,6 +152,35 @@ export default function OrderForm({
                 <p className="mt-1 text-slate-500">
                   اختر أي عملة رقمية تفضلها (USDT، TON، TRX، LTC، SOL وغيرها) في صفحة الدفع التالية. بمجرد
                   تأكيد الدفع على الشبكة، تُسلَّم لك الخدمة تلقائياً خلال دقائق دون تدخل بشري.
+                </p>
+              </>
+            ) : method === "usdt" ? (
+              <>
+                <p className="mb-2 font-semibold text-slate-700">
+                  حوّل مبلغ {priceUsd}$ (USDT) يدوياً إلى العنوان التالي، ثم أرسل رقم عملية التحويل (Hash):
+                </p>
+                <dl className="space-y-1">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-slate-500">الشبكة</dt>
+                    <dd className={`font-mono ${theme.badgeText}`}>{usdt?.network || "TRC20"}</dd>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <dt className="text-slate-500">العنوان</dt>
+                    <dd className={`break-all rounded-lg border border-slate-200 bg-white p-2 font-mono text-xs ${theme.badgeText}`}>
+                      {usdt?.address || "سيتم تزويده قريباً"}
+                    </dd>
+                  </div>
+                </dl>
+                {usdt?.address && (
+                  <button
+                    onClick={copyUsdtAddress}
+                    className={`mt-3 text-xs font-semibold underline ${theme.badgeText}`}
+                  >
+                    {copied ? "✅ تم النسخ" : "📋 نسخ العنوان"}
+                  </button>
+                )}
+                <p className="mt-2 text-xs text-amber-600">
+                  ⚠️ تأكد من إرسال المبلغ عبر شبكة {usdt?.network || "TRC20"} فقط تجنباً لفقدان التحويل.
                 </p>
               </>
             ) : (
@@ -205,11 +259,15 @@ export default function OrderForm({
             placeholder="طريقة التواصل معك (تليجرام / واتساب / إيميل)"
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
           />
-          {method === "bank" && (
+          {(method === "bank" || method === "usdt") && (
             <input
               value={reference}
               onChange={(e) => setReference(e.target.value)}
-              placeholder="اسم المُحوِّل أو رقم عملية التحويل"
+              placeholder={
+                method === "usdt"
+                  ? "رقم عملية التحويل (Transaction Hash)"
+                  : "اسم المُحوِّل أو رقم عملية التحويل"
+              }
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
             />
           )}
