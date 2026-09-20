@@ -39,6 +39,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     { url: `${base}/free-tools/whatsapp-link`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/free-tools/business-name-generator`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/logo-generator`, changeFrequency: "monthly", priority: 0.9 },
     {
       url: `${base}/free-tools/image-optimizer`,
       changeFrequency: "monthly",
