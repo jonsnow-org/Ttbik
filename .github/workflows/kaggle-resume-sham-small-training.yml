@@ -1,0 +1,99 @@
+name: Kaggle Auto-Resume Sham Small Training
+
+# Why this exists: sham_small_training.ipynb budgets up to
+# MAX_TRAINING_HOURS=8.5 per run by design, then stops -- and Kaggle's
+# own native "Schedule this notebook" feature flatly refuses to schedule
+# any notebook with a GPU attached (the same real platform limit already
+# documented in deploy-kaggle-notebook.yml). Until now, resuming meant a
+# human manually reopening the notebook on Kaggle and clicking
+# "Save & Run All" again every time it stopped -- exactly the continuous
+# manual-work friction the owner asked to eliminate (2026-09-20). This
+# reuses the same "kaggle kernels push" mechanism already trusted
+# elsewhere in this repo (deploy-kaggle-notebook.yml,
+# deploy-kaggle-image-video-notebook.yml, deploy-kaggle-video-queue.yml),
+# via ai-system/scripts/kaggle_auto_resume.py, which adds a real Kaggle
+# API status check first (see that script's own docstring for why this
+# notebook's many-real-GPU-hours-long runs need that check even though
+# the other, lighter workflows don't).
+#
+# Deliberately different from the other deploy-kaggle-*.yml workflows:
+#  1. No "create if missing" fallback -- this workflow's only job is to
+#     resume a SPECIFIC, already-existing kernel (KAGGLE_KERNEL_SLUG
+#     below). Silently creating a fresh, unrelated kernel instead would
+#     start a second, disconnected training run rather than actually
+#     resuming the real one.
+#  2. Does not overwrite the notebook's content on Kaggle from this repo
+#     by default -- only restarts whatever is currently saved there
+#     as-is (see kaggle_auto_resume.py's own docstring). Use the
+#     "sync notebook from repo" input on a manual run when a code sync
+#     is genuinely wanted.
+#
+# KNOWN, OWNER-ACCEPTED PLATFORM CAVEAT (same one already documented in
+# deploy-kaggle-image-video-notebook.yml and deploy-kaggle-video-queue.yml
+# for this exact "kaggle kernels push" mechanism): pushing a kernel via
+# the API can disconnect its attached Secrets (GITHUB_TOKEN,
+# KAGGLE_USERNAME, KAGGLE_KEY -- all three used by
+# sham_small_training.ipynb itself) and reset the selected accelerator,
+# even though the push reports success. Check Kaggle's own
+# "Add-ons -> Secrets" and the accelerator dropdown after the first few
+# automated resumes to confirm they held -- a real Kaggle platform
+# limitation, not something this workflow can detect or fix.
+#
+# SETUP REQUIRED (one-time, by the repo owner):
+#  1. KAGGLE_API_TOKEN repo secret -- already used by the other
+#     deploy-kaggle-*.yml workflows in this repo; reused here unchanged.
+#  2. KAGGLE_KERNEL_SLUG repo VARIABLE (Settings -> Secrets and
+#     variables -> Actions -> Variables tab) set to the EXACT slug shown
+#     in the currently-running notebook's own Kaggle URL, e.g.
+#     "jonsnowjonsnow/notebook2d0e40c1f1" -- never guessed here, since a
+#     wrong slug would resume/duplicate the wrong kernel entirely.
+#     Without this set, every run below just logs that and exits
+#     cleanly -- it never guesses.
+
+on:
+  schedule:
+    - cron: "0 */9 * * *"  # every 9 hours -- just past the notebook's own 8.5h budget per run
+  workflow_dispatch:
+    inputs:
+      sync_notebook_from_repo:
+        description: "Also overwrite the Kaggle notebook's content with this repo's current sham_small_training.ipynb before resuming"
+        type: boolean
+        default: false
+      dry_run:
+        description: "Check status and log what would happen, without actually pushing anything"
+        type: boolean
+        default: false
+
+jobs:
+  resume:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ttbik
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install Kaggle CLI
+        run: pip install --upgrade kaggle
+
+      - name: Resume the training kernel if it has stopped
+        if: vars.KAGGLE_KERNEL_SLUG != ''
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          ARGS="--kernel-slug ${{ vars.KAGGLE_KERNEL_SLUG }}"
+          if [ "${{ github.event.inputs.sync_notebook_from_repo }}" = "true" ]; then
+            ARGS="$ARGS --sync-from-repo"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          python3 ai-system/scripts/kaggle_auto_resume.py $ARGS
+
+      - name: Not configured yet
+        if: vars.KAGGLE_KERNEL_SLUG == ''
+        run: |
+          echo "KAGGLE_KERNEL_SLUG repository variable is not set yet -- see this workflow file's own header comment for the one-time setup steps. Skipping (nothing pushed)."
