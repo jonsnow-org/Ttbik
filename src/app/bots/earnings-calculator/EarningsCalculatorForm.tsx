@@ -35,6 +35,7 @@ const SUB_PRESETS = [
   { label: "مليون", value: "1000000" },
   { label: "مليونان", value: "2000000" },
   { label: "5 ملايين", value: "5000000" },
+  { label: "10 ملايين", value: "10000000" },
 ];
 
 const VIEW_PRESETS = [
@@ -97,6 +98,7 @@ export default function EarningsCalculatorForm() {
     const minutesToTarget = hoursToTarget * 60;
     const secondsToTarget = minutesToTarget * 60;
     const yearsToTarget = monthsToTarget / 12;
+    const decadesToTarget = yearsToTarget / 10;
     return {
       monthlyViews,
       soldViews,
@@ -127,6 +129,7 @@ export default function EarningsCalculatorForm() {
       minutesToTarget,
       secondsToTarget,
       yearsToTarget,
+      decadesToTarget,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -158,6 +161,7 @@ export default function EarningsCalculatorForm() {
       `دقائق لتغطية الهدف بنفس الوتيرة: ${result.minutesToTarget.toFixed(0)}`,
       `ثوانٍ لتغطية الهدف بنفس الوتيرة: ${result.secondsToTarget.toFixed(0)}`,
       `سنوات لتغطية الهدف بنفس الوتيرة: ${result.yearsToTarget.toFixed(2)}`,
+      `عقود لتغطية الهدف بنفس الوتيرة: ${result.decadesToTarget.toFixed(2)}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -308,6 +312,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.secondsToTarget.toFixed(0)}</p>
         <p className="mt-3 text-sm text-indigo-100">سنوات لتغطية الهدف بنفس الوتيرة الحالية</p>
         <p className="text-2xl font-extrabold">{result.yearsToTarget.toFixed(2)}</p>
+        <p className="mt-3 text-sm text-indigo-100">عقود لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.decadesToTarget.toFixed(2)}</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.monthlyUsd <= 0
             ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
