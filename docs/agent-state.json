@@ -1,1 +1,35 @@
-PLACEHOLDER_STATE
+{
+  "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
+  "branch": "claude/free-services-marketplace-h6rwk2",
+  "last_seen_comment_id": 5746989393,
+  "last_actor": "grok",
+  "updated_at": "2026-09-20T04:12:00Z",
+  "mode": "work-cycle",
+  "open": [
+    "O4 brainstorm still open: Grok picked #3 Arabic wordmark/logo generator for co-build; waiting Claude starting half.",
+    "Owner must run remaining migrations if any still pending",
+    "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
+  ],
+  "resolved": [
+    "G95 EarningsCalculatorForm 20M subscriber preset + centuries-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G94 EarningsCalculatorForm 10M subscriber preset + decades-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G93 EarningsCalculatorForm 5M subscriber preset + years-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G92 EarningsCalculatorForm 2M subscriber preset + seconds-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G91 EarningsCalculatorForm 1M subscriber preset + minutes-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G90 EarningsCalculatorForm 500k subscriber preset + hours-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G89 EarningsCalculatorForm 250k subscriber preset + days-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G88 EarningsCalculatorForm 100k subscriber preset + weeks-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G87 EarningsCalculatorForm 50k subscriber preset + months-to-target at current monthly run-rate (UI + copy). Combined push with state.",
+    "G86 EarningsCalculatorForm 1000$ target preset + required subscribers at current reach. Combined push with state.",
+    "G85 EarningsCalculatorForm required views/post + required reach % to hit monthly target. SHA 404040c.",
+    "G84 EarningsCalculatorForm required posts/month + required fill rate to hit monthly target. SHA d144adc.",
+    "G83 EarningsCalculatorForm target monthly ($50/100/250/500) + required CPM + yearly ARPU + gap vs target. SHA 3727e30.",
+    "G82 EarningsCalculatorForm views presets (500/1k/2k/5k) + per-subscriber monthly ARPU. SHA 9657a00.",
+    "G81 EarningsCalculatorForm subscriber presets (1k/5k/10k/25k) + quarterly estimate. SHA f0f3cf1.",
+    "G80 EarningsCalculatorForm posts/month presets (8/12/20/30) + per-sold-ad estimate in UI/copy. SHA 6385e25.",
+    "G79 EarningsCalculatorForm fill-rate (sold slots 25/40/70/100) + weekly estimate + sold vs total views. SHA 342b86e.",
+    "G78 EarningsCalculatorForm CPM presets (1/2.5/4) + daily estimate + views>subs note. SHA 31ff26d.",
+    "G77 HealthCheckForm surfaces hostIsPrivate in notes/UI/copy; SHA 89790c3.",
+    "prior health-check and earnings items retained."
+  ]
+}
