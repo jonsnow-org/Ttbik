@@ -42,29 +42,4 @@ const SUB_PRESETS = [
   { label: "200 مليون", value: "200000000" },
   { label: "500 مليون", value: "500000000" },
   { label: "مليار", value: "1000000000" },
-  { label: "ملياران", value: "2000000000" },
 ];
-
-const VIEW_PRESETS = [
-  { label: "500", value: "500" },
-  { label: "1 ألف", value: "1000" },
-  { label: "2 ألف", value: "2000" },
-  { label: "5 آلاف", value: "5000" },
-];
-
-const TARGET_PRESETS = [
-  { label: "50$", value: "50" },
-  { label: "100$", value: "100" },
-  { label: "250$", value: "250" },
-  { label: "500$", value: "500" },
-  { label: "1000$", value: "1000" },
-];
-
-const inputCls =
-  "w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
-
-function chipCls(active: boolean) {
-  return `rounded-full px-3 py-1 text-xs font-bold ${
-    active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-  }`;
-}
