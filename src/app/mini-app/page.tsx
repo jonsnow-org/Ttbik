@@ -17,6 +17,21 @@ function timeAgo(ts?: number) { if (!ts) return ""; const s = Math.max(0, Math.f
 function loadJSON<T>(key: string, fb: T): T { try { const r = localStorage.getItem(key); return r ? (JSON.parse(r) as T) : fb; } catch { return fb; } }
 function saveJSON(key: string, val: unknown) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
 
+// A real (not decorative) live-status dot: null while we haven't checked
+// yet, a pulsing green ring once Telegram confirms the bot token is alive,
+// a plain red dot if it isn't -- never just "always green."
+function LiveDot({ online, label }: { online: boolean | null; label?: boolean }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="relative inline-flex h-2.5 w-2.5">
+        {online && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${online == null ? "bg-slate-300" : online ? "bg-emerald-500" : "bg-rose-500"}`} />
+      </span>
+      {label && <span className="text-[10px] font-bold text-slate-500">{online == null ? "..." : online ? "البوت مباشر" : "البوت غير متصل"}</span>}
+    </span>
+  );
+}
+
 // Renders one comment plus every reply under it, at any depth (a reply to
 // a reply nests one level deeper again), since comments are only ever
 // related to each other by parent_id -- there's no fixed "depth" field.
@@ -65,6 +80,7 @@ export default function MiniAppPage() {
   const [chatMsgs, setChatMsgs] = useState<{ id: string; from_id: string; from_name: string; body: string; created_at: number }[]>([]);
   const [dmInput, setDmInput] = useState("");
   const [inboxUnread, setInboxUnread] = useState(0);
+  const [botOnline, setBotOnline] = useState<boolean | null>(null);
   const [showComments, setShowComments] = useState(false);
   const [commentsPost, setCommentsPost] = useState<{ id: string; title: string } | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -168,6 +184,24 @@ export default function MiniAppPage() {
     } catch {}
   }, [userId]);
   useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 15000); return () => clearInterval(t); }, [loadNotifs]);
+
+  // Real live-status pulse -- Telegram's own chat header can't be touched
+  // by us (no Bot API for that), so this is a real, polled check against
+  // our own server (which asks Telegram's getMe with BOT_TOKEN kept
+  // server-side) shown here in the one header we do control.
+  useEffect(() => {
+    let cancelled = false;
+    async function check() {
+      try {
+        const r = await fetch("/api/media-status", { cache: "no-store" });
+        const j = await r.json();
+        if (!cancelled) setBotOnline(!!j.online);
+      } catch { if (!cancelled) setBotOnline(false); }
+    }
+    void check();
+    const t = setInterval(check, 25000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
 
   // Real pull-to-refresh -- there was only a manual 🔄 button before;
   // pulling down (the gesture every Telegram/mobile user actually tries
@@ -361,7 +395,7 @@ export default function MiniAppPage() {
     <div className="min-h-screen bg-[#eaf6ff] text-slate-800">
       <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/95 px-4 pb-3 pt-4 backdrop-blur-xl">
         <div className="flex items-center justify-between">
-          <div><p className="text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP</p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
+          <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => load()} className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔄</button>
             <button type="button" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
@@ -447,7 +481,7 @@ export default function MiniAppPage() {
             account activity (messages, notifications, who they follow). */}
         {isOwnProfile && !isOwner && !showNotifs && !showInbox && !showComments && (
           <div className="mb-4 rounded-3xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4">
-            <p className="text-sm font-black text-sky-700">📋 استخدامي</p>
+            <div className="flex items-center justify-between"><p className="text-sm font-black text-sky-700">📋 استخدامي</p><LiveDot online={botOnline} label /></div>
             <div className="mt-3 grid grid-cols-4 gap-2">
               <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-sky-600">{Object.values(liked).filter(Boolean).length}</p><p className="text-[9px] font-bold text-slate-500">إعجاباتي</p></div>
               <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-lg font-black text-sky-600">{Object.values(following).filter(Boolean).length}</p><p className="text-[9px] font-bold text-slate-500">أتابع</p></div>
@@ -460,7 +494,7 @@ export default function MiniAppPage() {
         {tab === "admin" && isOwner && !showNotifs && !showInbox && !showComments && (
           <div className="mb-4 space-y-3">
             <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
-              <p className="text-sm font-black text-amber-700">👑 لوحة المالك</p>
+              <div className="flex items-center justify-between"><p className="text-sm font-black text-amber-700">👑 لوحة المالك</p><LiveDot online={botOnline} label /></div>
               <div className="mt-3 grid grid-cols-4 gap-2">
                 <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-sky-600">{adminStats?.posts ?? items.length}</p><p className="text-[9px] text-slate-500">منشورات</p></div>
                 <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-emerald-600">{adminStats?.clones ?? items.reduce((a, b) => a + (b.clones || 0), 0)}</p><p className="text-[9px] text-slate-500">استنساخ</p></div>
