@@ -32,6 +32,7 @@ const SUB_PRESETS = [
   { label: "100 ألف", value: "100000" },
   { label: "250 ألف", value: "250000" },
   { label: "500 ألف", value: "500000" },
+  { label: "مليون", value: "1000000" },
 ];
 
 const VIEW_PRESETS = [
@@ -91,6 +92,7 @@ export default function EarningsCalculatorForm() {
     const weeksToTarget = monthsToTarget * 4.345;
     const daysToTarget = monthsToTarget * 30;
     const hoursToTarget = daysToTarget * 24;
+    const minutesToTarget = hoursToTarget * 60;
     return {
       monthlyViews,
       soldViews,
@@ -118,6 +120,7 @@ export default function EarningsCalculatorForm() {
       weeksToTarget,
       daysToTarget,
       hoursToTarget,
+      minutesToTarget,
     };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
 
@@ -146,6 +149,7 @@ export default function EarningsCalculatorForm() {
       `أسابيع لتغطية الهدف بنفس الوتيرة: ${result.weeksToTarget.toFixed(1)}`,
       `أيام لتغطية الهدف بنفس الوتيرة: ${result.daysToTarget.toFixed(0)}`,
       `ساعات لتغطية الهدف بنفس الوتيرة: ${result.hoursToTarget.toFixed(0)}`,
+      `دقائق لتغطية الهدف بنفس الوتيرة: ${result.minutesToTarget.toFixed(0)}`,
       `الفجوة مقابل الهدف: $${result.gapUsd.toFixed(2)}`,
       `تقدير يومي: $${result.dailyUsd.toFixed(2)}`,
       `تقدير أسبوعي: $${result.weeklyUsd.toFixed(2)}`,
@@ -290,6 +294,8 @@ export default function EarningsCalculatorForm() {
         <p className="text-2xl font-extrabold">{result.daysToTarget.toFixed(0)}</p>
         <p className="mt-3 text-sm text-indigo-100">ساعات لتغطية الهدف بنفس الوتيرة الحالية</p>
         <p className="text-2xl font-extrabold">{result.hoursToTarget.toFixed(0)}</p>
+        <p className="mt-3 text-sm text-indigo-100">دقائق لتغطية الهدف بنفس الوتيرة الحالية</p>
+        <p className="text-2xl font-extrabold">{result.minutesToTarget.toFixed(0)}</p>
         <p className="mt-1 text-xs text-indigo-100">
           {result.monthlyUsd <= 0
             ? "لا يوجد تقدير شهري حالياً — ارفع المشاهدات أو البيع أو الـ CPM."
