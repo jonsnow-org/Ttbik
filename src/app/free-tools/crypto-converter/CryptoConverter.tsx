@@ -20,10 +20,12 @@ const COINS = [
 
 type CoinId = (typeof COINS)[number]["id"];
 
+// Cross-conversion fallback for crypto-to-crypto pairs (e.g. TON→BTC) that
+// the explicit pair list below doesn't cover directly. "sar" never reaches
+// these -- every from/to combination involving it is matched explicitly
+// first, so no sar branch is needed here.
 function toUsd(amount: number, from: CoinId, rates: Rates): number {
   if (from === "usd") return amount;
-  if (from === "sar") return amount / rates.usdt.sar; // approx via USDT≈1 USD; better use explicit
-  // Use USDT as 1 USD proxy for SAR conversion base; actual SAR from coingecko per coin
   if (from === "ton") return amount * rates.ton.usd;
   if (from === "btc") return amount * rates.btc.usd;
   if (from === "eth") return amount * rates.eth.usd;
@@ -33,11 +35,6 @@ function toUsd(amount: number, from: CoinId, rates: Rates): number {
 
 function fromUsd(usd: number, to: CoinId, rates: Rates): number {
   if (to === "usd") return usd;
-  if (to === "sar") {
-    // Prefer TON's SAR/USD ratio if available, else USDT
-    const sarPerUsd = rates.ton.sar / rates.ton.usd || rates.usdt.sar / rates.usdt.usd || 3.75;
-    return usd * sarPerUsd;
-  }
   if (to === "ton") return usd / rates.ton.usd;
   if (to === "btc") return usd / rates.btc.usd;
   if (to === "eth") return usd / rates.eth.usd;
