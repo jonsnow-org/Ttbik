@@ -6,13 +6,13 @@
 -- never reach a site that was never connected here, by construction —
 -- there is no code path that reads a token from anywhere else.
 --
--- "credential" deliberately plain TEXT, not a second encryption layer:
--- this matches the real security level every other secret in this
--- project already lives at (GROQ_API_KEY, NOVA_DEV_AGENT_GITHUB_TOKEN,
--- etc. sit as plain env vars on Render, protected by Supabase's own
--- service-role access control, not a second application-level cipher)
--- — stated plainly rather than implying a stronger guarantee than the
--- rest of this project actually has.
+-- "credential" originally deliberately plain TEXT (matching every other
+-- secret in this project's security level at the time). Owner decision
+-- 2026-09-20 changed that specifically for this field: the app layer now
+-- encrypts it (AES-256-GCM, src/lib/credentialCrypto.ts) before writing —
+-- no schema/column change needed, so no new migration file for it. A row
+-- written before that change has no "encv1:" prefix and stays readable as
+-- legacy plain TEXT (decryptCredential() handles both).
 CREATE TABLE IF NOT EXISTS "NovaConnection" (
     "id"           TEXT NOT NULL,
     "novaUserId"   TEXT NOT NULL,

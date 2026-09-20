@@ -995,7 +995,7 @@ model NovaConnection {
   novaUser   NovaUser  @relation(fields: [novaUserId], references: [id], onDelete: Cascade)
   service    String    // "github" | "vercel" — see connections.py's SUPPORTED_SERVICES
   label      String    // e.g. "owner/my-shop"
-  credential String    // the fine-grained PAT / API token itself — see migration_28's own note on why this is plain TEXT, matching this project's existing secret-storage security level
+  credential String    // AES-256-GCM encrypted (owner decision 2026-09-20, src/lib/credentialCrypto.ts) — "encv1:" prefix; a row written before this change has no prefix and is legacy plain TEXT (see migration_28's original note)
   baseBranch String?   // GitHub only
   status     String    @default("ACTIVE") // ACTIVE | REVOKED
   created_at DateTime  @default(now())

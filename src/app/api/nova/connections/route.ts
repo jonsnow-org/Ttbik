@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { encryptCredential } from "@/lib/credentialCrypto";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
         novaUserId: uid,
         service,
         label,
-        credential,
+        credential: encryptCredential(credential),
         baseBranch,
       },
       select: { id: true, service: true, label: true, created_at: true }, // never echo `credential` back either
@@ -108,10 +109,12 @@ export async function DELETE(req: NextRequest) {
   try {
     // Scoped to (id AND novaUserId) together — without the ownership
     // check here too, guessing another user's connection id would be
-    // enough to revoke it.
+    // enough to revoke it. credential is overwritten (not just status)
+    // since a revoked token has no legitimate future use — no reason to
+    // keep even the encrypted value sitting in the row indefinitely.
     const result = await prisma.novaConnection.updateMany({
       where: { id: connectionId, novaUserId: uid },
-      data: { status: "REVOKED", revoked_at: new Date() },
+      data: { status: "REVOKED", revoked_at: new Date(), credential: "revoked" },
     });
     if (result.count === 0) return NextResponse.json({ error: "not found" }, { status: 404 });
     return NextResponse.json({ ok: true });
