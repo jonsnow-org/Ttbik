@@ -242,6 +242,13 @@ class ShamSmallConfig:
     # unaffected. Default False since the current ~500M config/dummy
     # tests don't need it, but every layer already supports it.
     use_gradient_checkpointing: bool = False
+    # Maximal update parameterization (Yang & Hu, 2022) output multiplier
+    # -- see mup_scaling.py's own docstring for the full reasoning. Left
+    # at 1.0 (a pure no-op on logits) unless mup_scaling explicitly sets
+    # it for a real width-transfer run; every existing checkpoint has no
+    # such key saved, so from_dict() below fills in this exact default
+    # for them automatically -- loading an old checkpoint is unaffected.
+    output_mult: float = 1.0
 
     def __post_init__(self):
         if self.d_model % self.n_heads != 0:
@@ -504,7 +511,12 @@ class ShamSmall(nn.Module):
                 new_caches.append(layer_cache)
 
         x = self.final_norm(x)
-        logits = self.lm_head(x)
+        # output_mult defaults to 1.0 (no-op) -- see mup_scaling.py for
+        # why this needs to be a multiplier on the LOGITS themselves
+        # rather than a scaled weight matrix, specifically because
+        # tie_embeddings shares this same matrix with the input
+        # embedding, which must NOT be scaled the same way.
+        logits = self.lm_head(x) * self.cfg.output_mult
 
         loss = None
         if labels is not None:
