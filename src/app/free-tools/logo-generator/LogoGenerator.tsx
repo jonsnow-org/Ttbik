@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// O4 co-build pass 2 (Grok): Claude's starting half + layout variants + SVG export.
+// O4 co-build pass 3 (Grok): monogram layout + SVG fallback typo fix.
 const FONTS = [
   { id: "cairo", family: "Cairo", weight: "900", label: "Cairo — عصري هندسي" },
   { id: "tajawal", family: "Tajawal", weight: "800", label: "Tajawal — نظيف حديث" },
@@ -23,6 +23,7 @@ const PAIRINGS = [
 const LAYOUTS = [
   { id: "wordmark", label: "نص عريض" },
   { id: "badge", label: "شارة" },
+  { id: "monogram", label: "حرف واحد" },
 ] as const;
 
 const CANVAS_W = 1000;
@@ -32,6 +33,16 @@ const GOOGLE_FONTS_HREF =
 
 function slugName(name: string) {
   return (name.trim() || "wordmark").replace(/\s+/g, "-");
+}
+
+function firstGlyph(name: string) {
+  const trimmed = name.trim() || "أ";
+  const chars = Array.from(trimmed);
+  return chars[0] || "أ";
+}
+
+function escapeXml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export default function LogoGenerator() {
@@ -72,6 +83,29 @@ export default function LogoGenerator() {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.direction = "rtl";
+
+    if (layoutId === "monogram") {
+      const cx = CANVAS_W / 2;
+      const cy = CANVAS_H / 2 - (tagline.trim() ? 24 : 0);
+      ctx.fillStyle = pairing.accent;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 140, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pairing.bg;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 126, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = pairing.text;
+      ctx.font = `${font.weight} 120px "${font.family}"`;
+      ctx.fillText(firstGlyph(label), cx, cy + 6);
+      if (tagline.trim()) {
+        ctx.font = `400 26px "${font.family}"`;
+        ctx.fillStyle = pairing.accent;
+        ctx.fillText(tagline.trim().slice(0, 60), cx, cy + 176);
+      }
+      setDataUrl(canvas.toDataURL("image/png"));
+      return;
+    }
 
     if (layoutId === "badge") {
       const pad = 48;
@@ -130,21 +164,25 @@ export default function LogoGenerator() {
   }
 
   function downloadSvg() {
-    const label = (name.trim() || "اسم مزروعك").slice(0, 80);
+    const label = (name.trim() || "اسم مشروعك").slice(0, 80);
     const sub = tagline.trim().slice(0, 60);
-    const escaped = label.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const escapedSub = sub.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const badge =
-      layoutId === "badge"
-        ? `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${pairing.bg}"/>`
-        : `<rect x="440" y="320" width="120" height="6" fill="${pairing.accent}"/>`;
+    const escaped = escapeXml(label);
+    const escapedSub = escapeXml(sub);
+    const glyph = escapeXml(firstGlyph(label));
+    let body = "";
+    if (layoutId === "monogram") {
+      const cy = sub ? 226 : 250;
+      body = `<circle cx="500" cy="${cy}" r="140" fill="${pairing.accent}"/><circle cx="500" cy="${cy}" r="126" fill="${pairing.bg}"/><text x="500" y="${cy + 8}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="120">${glyph}</text>${sub ? `<text x="500" y="${cy + 176}" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="26">${escapedSub}</text>` : ""}`;
+    } else if (layoutId === "badge") {
+      body = `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${pairing.bg}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
+    } else {
+      body = `<rect x="440" y="320" width="120" height="6" fill="${pairing.accent}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
+    }
     const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" direction="rtl">
   <style>@import url('${GOOGLE_FONTS_HREF}');</style>
   <rect width="1000" height="500" fill="${pairing.bg}"/>
-  ${badge}
-  <text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>
-  ${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}
+  ${body}
 </svg>`;
     const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
