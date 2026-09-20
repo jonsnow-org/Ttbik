@@ -1,5 +1,5 @@
 """
-Sham Small — a genuinely from-scratch, fully-owned decoder-only
+Sham — a genuinely from-scratch, fully-owned decoder-only
 transformer, ~500M parameters. Owner spec, 2026-09-14 ("نموذج صغير
 خاص بنا من الصفر، كل شيء ملكي... قابل مع التدريب والتطوير للوصول
 لاكثر من 7B"): unlike the current Nova (a LoRA fine-tune of Qwen2.5-VL,

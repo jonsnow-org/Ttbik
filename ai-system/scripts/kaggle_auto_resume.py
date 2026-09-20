@@ -11,6 +11,27 @@ the notebook on Kaggle and clicking "Save & Run All" again, every single
 time it stopped -- exactly the "استمرار العمل اليدوي" (continuous manual
 work) friction the owner asked to eliminate.
 
+REVISED, 2026-09-20 (owner-reported real failure): the original delivery
+mechanism for this -- a GitHub Actions workflow calling this script on a
+schedule -- was tried for real and failed: the push did not reliably take
+effect ("السكربت لا يضاف") and training failed at startup afterward. The
+known Kaggle-side caveat further down (an API push can disconnect a
+kernel's attached Secrets) is a plausible contributor -- cell 2 of
+sham_small_training.ipynb needs GITHUB_TOKEN to even clone the repo, so a
+disconnected secret there would fail training at exactly its very first
+step -- but this is not confirmed as THE cause, only a known risk that
+was already flagged before this was tried.
+
+That GitHub Actions workflow has been removed. This script's own
+decision logic (check real status, resume only when genuinely stopped,
+never substitute a missing kernel) is unchanged and still fully
+verified below -- what changed is WHERE it runs from: a Kaggle-NATIVE,
+GPU-free orchestrator notebook (kaggle_notebooks/
+kaggle_resume_orchestrator.ipynb) that Kaggle's own scheduler CAN run
+(only GPU-attached notebooks are blocked from scheduling; a CPU-only one
+is not), calling resume_kernel() below directly instead of going through
+GitHub Actions at all.
+
 This reuses the exact `kaggle kernels push` mechanism this project
 already trusts for merge_and_finetune.ipynb / process_video_queue.ipynb /
 generate_image_model.ipynb (see those three deploy-kaggle-*.yml

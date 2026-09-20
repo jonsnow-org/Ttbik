@@ -1,5 +1,5 @@
 """
-Sham Small — training data pipeline. Every model/tokenizer component
+Sham — training data pipeline. Every model/tokenizer component
 built so far has been tested on synthetic tensors; this file is the
 real boundary where actual files (text documents, image files with
 captions) become the exact tensors model.py's forward() expects,
@@ -440,7 +440,7 @@ if __name__ == "__main__":
         # over one line matching — here, one bad line among thousands of
         # good ones must knock out only that line, not the whole file.
         safe_doc = tmp / "safe.txt"
-        safe_doc.write_text("Sham Small is a real, from-scratch multimodal transformer. " * 50, encoding="utf-8")
+        safe_doc.write_text("Sham is a real, from-scratch multimodal transformer. " * 50, encoding="utf-8")
         mixed_doc = tmp / "mixed_shard.txt"
         mixed_lines = ["this is a real, legitimate document about ordinary encyclopedic content."] * 20
         mixed_lines[10] = "this line contains nsfw content and must be the only line excluded"

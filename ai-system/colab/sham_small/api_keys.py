@@ -1,5 +1,5 @@
 """
-Sham Small — real per-organization API keys, replacing the single
+Sham — real per-organization API keys, replacing the single
 shared "magic code" idea with the way every real API provider (Stripe,
 GitHub, etc.) actually does this: one real, high-entropy secret PER
 ORGANIZATION, stored as a HASH (never plaintext), individually

@@ -1,5 +1,5 @@
 """
-Sham Small — structured medical generation categories, the real fix
+Sham — structured medical generation categories, the real fix
 for a problem the owner correctly identified: free text describing a
 real clinical event (e.g. childbirth) can use the same anatomical
 vocabulary a sexualized description would use, and a keyword filter

@@ -1,5 +1,5 @@
 """
-Sham Small — real data acquisition. Owner's own question, directly
+Sham — real data acquisition. Owner's own question, directly
 addressed: "ماهي الطرق للحصول على هذه البيانات وكيفية تحويلها الى
 كاجل" (what are the ways to get this data, and how to get it into
 Kaggle).

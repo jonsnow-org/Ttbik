@@ -1,5 +1,5 @@
 """
-Sham Small — visual and audio "reading," not just text. Owner's own
+Sham — visual and audio "reading," not just text. Owner's own
 follow-up, directly addressed: "وكذلك القراءة المرئية والصوتية
 والتحليل وليس فقط النصية" (also visual and audio reading and analysis,
 not just text). Extends autonomous_knowledge_crawler.py's text-only

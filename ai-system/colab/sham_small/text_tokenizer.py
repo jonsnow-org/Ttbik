@@ -1,5 +1,5 @@
 """
-Sham Small — the real text tokenizer. Everything else built so far
+Sham — the real text tokenizer. Everything else built so far
 (model.py, image_tokenizer.py, audio_tokenizer.py, video_tokenizer.py,
 generate.py) assumed TEXT_VOCAB_SIZE=32000 real text-token ids already
 exist; until this file, that number had nothing behind it — there was
@@ -144,7 +144,7 @@ if __name__ == "__main__":
         print(f"save/load round trip OK: reloaded tokenizer has the same vocab size ({reloaded.vocab_size}).")
 
     test_strings = [
-        "Sham Small is a real, from-scratch transformer.",
+        "Sham is a real, from-scratch transformer.",
         "هذا اختبار حقيقي للنص العربي، للتأكد أن الترميز وفك الترميز يعملان بشكل صحيح تماماً.",
         "Mixed اختبار text 123 with numbers and punctuation!!! 😀",
         "",  # the empty string is a real edge case worth checking explicitly, not assumed to work

@@ -1,5 +1,5 @@
 """
-Sham Small — Telegram thin client. Owner's own choice: "قررت ان اقوم
+Sham — Telegram thin client. Owner's own choice: "قررت ان اقوم
 بالتجربة على بوت تلجرام افضل من اي مكان آخر" (decided to test via a
 Telegram bot, better than anywhere else).
 

@@ -1,5 +1,5 @@
 """
-Sham Small — real VQ-VAE training loop for image_tokenizer.py.
+Sham — real VQ-VAE training loop for image_tokenizer.py.
 
 Every test of ImageTokenizer so far (image_tokenizer.py's own __main__,
 the multimodal integration tests) used RANDOM weights — proof the

@@ -1,5 +1,5 @@
 """
-Sham Small — progressive context-window curriculum.
+Sham — progressive context-window curriculum.
 
 Real technique (used across the modern LLM pretraining literature, not
 an unverified experiment): attention cost grows quadratically with
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     torch.manual_seed(0)
 
     _CORPUS_SENTENCES = [
-        "Sham Small trains its base knowledge at a short context first, then a longer one.",
+        "Sham trains its base knowledge at a short context first, then a longer one.",
         "Progressive context expansion spends early steps where attention is cheapest.",
         "RoPE lets the exact same weights attend over more tokens with no retraining of position embeddings.",
     ]

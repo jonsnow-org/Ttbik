@@ -1,5 +1,5 @@
 """
-Sham Small — video handling. Per owner spec, 2026-09-14 ("نبني نماذج
+Sham — video handling. Per owner spec, 2026-09-14 ("نبني نماذج
 مصغرة وندمجها في عقل نموذجنا"), video is deliberately NOT a fourth
 codebook/vocabulary range: a video is just a sequence of images over
 time, so it reuses image_tokenizer.py's own codebook, frame by frame.

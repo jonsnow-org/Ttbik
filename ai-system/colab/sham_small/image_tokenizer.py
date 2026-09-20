@@ -1,5 +1,5 @@
 """
-Sham Small — image tokenizer (a small VQ-VAE), the "translator" between
+Sham — image tokenizer (a small VQ-VAE), the "translator" between
 raw pixels and the discrete visual tokens ShamSmall's own brain
 (model.py) generates directly, as part of the SAME autoregressive
 sequence it already generates text tokens in.

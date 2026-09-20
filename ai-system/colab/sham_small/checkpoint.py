@@ -1,5 +1,5 @@
 """
-Sham Small — checkpoint save/load. A checkpoint that is just a raw
+Sham — checkpoint save/load. A checkpoint that is just a raw
 state_dict is a real, well-documented trap for exactly the "grow this
 later" future the owner wants: load it back in six months, at a bigger
 config, from a different script, and nothing on disk says what shape

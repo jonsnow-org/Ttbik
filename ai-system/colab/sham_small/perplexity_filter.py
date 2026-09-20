@@ -1,5 +1,5 @@
 """
-Sham Small — perplexity-based active data selection ("data pruning via
+Sham — perplexity-based active data selection ("data pruning via
 model self-assessment", the real technique behind DSIR/data-selection-
 via-importance-resampling-style pipelines, not a vague gesture at "let the
 AI pick its own data").

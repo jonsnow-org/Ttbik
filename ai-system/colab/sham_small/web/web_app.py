@@ -1,5 +1,5 @@
 """
-Sham Small — standalone Streamlit web UI, mirroring the exact same
+Sham — standalone Streamlit web UI, mirroring the exact same
 "thin client, all real work happens in the backend" pattern as the
 live production ai-system/streamlit_app.py: this file contains NO
 model logic at all, only HTTP calls to serve.py's real backend — so a
@@ -26,8 +26,8 @@ import streamlit as st
 
 BACKEND_URL = os.environ.get("SHAM_SMALL_BACKEND_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="Sham Small (تجريبي)", page_icon="🧪")
-st.title("🧪 Sham Small — اختبار مباشر")
+st.set_page_config(page_title="Sham (تجريبي)", page_icon="🧪")
+st.title("🧪 Sham — اختبار مباشر")
 st.caption(
     "نموذج من الصفر، ملكية كاملة — هذه نسخة اختبار قبل التدريب الفعلي الكبير: "
     "تختبر أن كل شيء متصل ويعمل تقنياً، وليس جودة الناتج بعد."

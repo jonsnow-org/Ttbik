@@ -1,5 +1,5 @@
 """
-Sham Small — medical/anatomical education video data pipeline. Real,
+Sham — medical/anatomical education video data pipeline. Real,
 legitimate clinical education content (human anatomy, physiological
 processes including childbirth) is a normal, standard part of medical
 and midwifery training — used every day in medical schools and nursing

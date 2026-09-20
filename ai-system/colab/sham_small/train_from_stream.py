@@ -1,5 +1,5 @@
 """
-Sham Small — fused stream-to-weights training. Owner's own idea, made
+Sham — fused stream-to-weights training. Owner's own idea, made
 real: "نبتكر كود يقوم عند تشغيله بجلب ملايين النصوص... من شبكة
 الانترنت في نفس دفتر التشغيل ثم يقوم بقراءتها وتحويلها لاوزان" (invent
 code that, when run, fetches millions of texts from the internet IN
@@ -185,7 +185,7 @@ if __name__ == "__main__":
     # batch -> real train step, per batch, nothing saved to disk) is
     # exactly what real streaming will plug into unchanged.
     _CORPUS_SENTENCES = [
-        "Sham Small is a real, from-scratch multimodal transformer trained on real streamed data.",
+        "Sham is a real, from-scratch multimodal transformer trained on real streamed data.",
         "Streaming avoids ever downloading a full corpus before training begins on a real GPU.",
         "Each real document arrives, gets tokenized, and is immediately folded into a training batch.",
     ]

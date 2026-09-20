@@ -1,5 +1,5 @@
 """
-Sham Small — real VQ-VAE training loop for audio_tokenizer.py. The
+Sham — real VQ-VAE training loop for audio_tokenizer.py. The
 audio counterpart to train_image_tokenizer.py; see that file's own
 docstring for the full reasoning (why "does loss actually decrease"
 and "did the codebook collapse" are both checked directly here rather

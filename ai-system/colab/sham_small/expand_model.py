@@ -1,5 +1,5 @@
 """
-Sham Small — model growth. Owner spec: "احرص على ان تكون بنية النموذج
+Sham — model growth. Owner spec: "احرص على ان تكون بنية النموذج
 بشكل كامل تقبل التوسع من اجل المستقبل" (make sure the architecture
 fully supports future expansion) and the original design goal
 ("قابل مع التدريب والتطوير للوصول لاكثر من 7B"). ShamSmallConfig

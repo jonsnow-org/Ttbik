@@ -1,5 +1,5 @@
 """
-Sham Small — real HTTP serving backend. Owner spec: "الخطوة الحالية هي
+Sham — real HTTP serving backend. Owner spec: "الخطوة الحالية هي
 الربط والدفع والاختبار... الاختبار يحتاج ان يكون نموذجنا مبني ومجهز
 للاختبار على تطبيق ويب او بوت" (the current step is linking, pushing,
 and testing — testing needs the model built and ready to test via a
@@ -87,7 +87,7 @@ from video_tokenizer import decode_video
 _FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 _SAMPLE_RATE = 16000
 
-app = FastAPI(title="Sham Small — serving backend (pre-training smoke test)")
+app = FastAPI(title="Sham — serving backend (pre-training smoke test)")
 
 # Real, small, CPU-friendly configs for this smoke-test service — real
 # training will produce a real checkpoint.pt this same load_model()
@@ -194,7 +194,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     else:
         bootstrap_corpus = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
         bootstrap_corpus.write(
-            "Sham Small is a real from scratch multimodal model. مرحباً هذا اختبار حقيقي للنموذج. " * 100
+            "Sham is a real from scratch multimodal model. مرحباً هذا اختبار حقيقي للنموذج. " * 100
         )
         bootstrap_corpus.close()
         text_tokenizer = train_text_tokenizer([bootstrap_corpus.name], vocab_size=800)

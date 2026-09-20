@@ -1,5 +1,5 @@
 """
-Sham Small — Maximal Update Parameterization (μP; Yang & Hu, 2022,
+Sham — Maximal Update Parameterization (μP; Yang & Hu, 2022,
 "Tensor Programs V") scaling utilities.
 
 The real problem this solves: the owner's own stated target is scaling

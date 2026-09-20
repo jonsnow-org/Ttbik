@@ -1,5 +1,5 @@
 """
-Sham Small — self-rewarding self-critique data generation
+Sham — self-rewarding self-critique data generation
 (Yuan et al., 2024, "Self-Rewarding Language Models": a model generates
 several of its own candidate continuations for a prompt, judges them, and
 the resulting (prompt, best, worst) preference triples become new

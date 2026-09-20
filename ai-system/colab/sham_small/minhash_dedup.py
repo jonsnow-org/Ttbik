@@ -1,5 +1,5 @@
 """
-Sham Small — MinHash + LSH banding: a scalable upgrade to
+Sham — MinHash + LSH banding: a scalable upgrade to
 autonomous_knowledge_crawler.py's near-duplicate check.
 
 That file's KnowledgeCorpus.check() is already CORRECT (k=8 word-shingle

@@ -1,5 +1,5 @@
 """
-Sham Small — audio tokenizer (a small VQ-VAE), the audio counterpart to
+Sham — audio tokenizer (a small VQ-VAE), the audio counterpart to
 image_tokenizer.py: the mechanical "translator" between a real audio
 mel-spectrogram and the discrete audio tokens ShamSmall's own brain
 (model.py) generates directly, as part of the SAME autoregressive

@@ -1,5 +1,5 @@
 """
-Sham Small — live tool use (web search and future tools) as a LEARNED
+Sham — live tool use (web search and future tools) as a LEARNED
 action inside this model's own generation, not a hardcoded external
 function Python decides to call. Owner's own question, directly
 addressed: "الم تقم ببناء ودمج ادوات بحث داخلية ... كي لانعاني من ذات

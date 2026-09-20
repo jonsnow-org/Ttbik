@@ -1,5 +1,5 @@
 """
-Sham Small — the main training loop. Every other file in this
+Sham — the main training loop. Every other file in this
 directory is a component (the model, the tokenizers, the data
 pipeline) that this file wires together into one real, runnable
 trainer. Per the owner's own instruction — "لنبقي التدريب هو المرحلة

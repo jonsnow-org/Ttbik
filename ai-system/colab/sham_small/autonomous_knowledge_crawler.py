@@ -1,5 +1,5 @@
 """
-Sham Small — autonomous multi-language knowledge crawler: the real,
+Sham — autonomous multi-language knowledge crawler: the real,
 buildable version of the owner's idea ("نموذج يفتح جوجل بنفسه، يكتب
 كلمات بحث، يفتح النتائج، يقرأ، يترك المفيد ويحذف المكرر، كل يوم وبعدة
 لغات"). This is deliberately a bigger, more capable evolution of a

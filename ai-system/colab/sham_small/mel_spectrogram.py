@@ -1,5 +1,5 @@
 """
-Sham Small — real mel-spectrogram extraction, with no torchaudio
+Sham — real mel-spectrogram extraction, with no torchaudio
 dependency (checked directly: unavailable for this project's exact
 torch build, no compatible release to install). Implemented from
 scratch using only torch's own built-in STFT (torch.stft) plus a

@@ -1,5 +1,5 @@
 """
-Sham Small — real autoregressive generation. Everything built so far
+Sham — real autoregressive generation. Everything built so far
 (model.py, image_tokenizer.py, audio_tokenizer.py, video_tokenizer.py)
 proves the model can be TRAINED on multimodal sequences; nothing so far
 lets it actually be USED to produce new text/images/audio/video one
