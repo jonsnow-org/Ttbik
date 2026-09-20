@@ -58,6 +58,15 @@ const TARGET_PRESETS = [
   { label: "1000$", value: "1000" },
 ];
 
+const inputCls =
+  "w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+
+function chipCls(active: boolean) {
+  return `rounded-full px-3 py-1 text-xs font-bold ${
+    active ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+  }`;
+}
+
 export default function EarningsCalculatorForm() {
   const [subscribers, setSubscribers] = useState("5000");
   const [avgViews, setAvgViews] = useState("2000");
@@ -78,6 +87,7 @@ export default function EarningsCalculatorForm() {
     const soldViews = monthlyViews * (fill / 100);
     const monthlyUsd = (soldViews / 1000) * c;
     const yearlyUsd = monthlyUsd * 12;
+    const fiveYearUsd = yearlyUsd * 5;
     const quarterlyUsd = monthlyUsd * 3;
     const dailyUsd = monthlyUsd / 30;
     const weeklyUsd = monthlyUsd / 4.345;
@@ -88,7 +98,7 @@ export default function EarningsCalculatorForm() {
     const viewsExceedSubs = s > 0 && v > s;
     const requiredCpm = soldViews > 0 ? (target / soldViews) * 1000 : 0;
     const gapUsd = target - monthlyUsd;
-    const revenuePerPost = v > 0 && c > 0 ? (v * (fill / 100) / 1000) * c : 0;
+    const revenuePerPost = v > 0 && c > 0 ? ((v * (fill / 100)) / 1000) * c : 0;
     const requiredPosts = revenuePerPost > 0 ? target / revenuePerPost : 0;
     const fullFillMonthly = (monthlyViews / 1000) * c;
     const requiredFill = fullFillMonthly > 0 ? Math.min(999, (target / fullFillMonthly) * 100) : 0;
@@ -115,6 +125,7 @@ export default function EarningsCalculatorForm() {
       soldViews,
       monthlyUsd,
       yearlyUsd,
+      fiveYearUsd,
       quarterlyUsd,
       dailyUsd,
       weeklyUsd,
@@ -191,6 +202,7 @@ export default function EarningsCalculatorForm() {
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
       `تقدير ربع سنوي: $${result.quarterlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
+      `تقدير خمس سنوات بنفس الوتيرة: $${result.fiveYearUsd.toFixed(2)}`,
       "الأرقام تقريبية للتخطيط وليست وعداً بربح.",
     ].join("\n");
     try {
@@ -216,15 +228,94 @@ export default function EarningsCalculatorForm() {
       <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-700">عدد المشتركين الحاليين</label>
-          <input type="number" min="0" value={subscribers} onChange={(e) => setSubscribers(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+          <input type="number" min="0" value={subscribers} onChange={(e) => setSubscribers(e.target.value)} className={inputCls} />
           <div className="mt-2 flex flex-wrap gap-2">
             {SUB_PRESETS.map((preset) => (
-              <button key={preset.value} type="button" onClick={() => setSubscribers(preset.value)} className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  subscribers === preset.value ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                }`}>{preset.label}</button>
+              <button key={preset.value} type="button" onClick={() => setSubscribers(preset.value)} className={chipCls(subscribers === preset.value)}>
+                {preset.label}
+              </button>
             ))}
           </div>
           <p className="mt-1 text-xs text-slate-500">يُستخدم لحساب نسبة الوصول (المشاهدات ÷ المشتركين) والربح لكل مشترك.</p>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">متوسط المشاهدات لكل منشور</label>
+          <input type="number" min="0" value={avgViews} onChange={(e) => setAvgViews(e.target.value)} className={inputCls} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {VIEW_PRESETS.map((preset) => (
+              <button key={preset.value} type="button" onClick={() => setAvgViews(preset.value)} className={chipCls(avgViews === preset.value)}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">عدد المنشورات في الشهر</label>
+          <input type="number" min="0" value={postsPerMonth} onChange={(e) => setPostsPerMonth(e.target.value)} className={inputCls} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {POSTS_PRESETS.map((preset) => (
+              <button key={preset.value} type="button" onClick={() => setPostsPerMonth(preset.value)} className={chipCls(postsPerMonth === preset.value)}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">CPM التقريبي ($ لكل ألف مشاهدة مبيعة)</label>
+          <input type="number" min="0" step="0.1" value={cpm} onChange={(e) => setCpm(e.target.value)} className={inputCls} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {CPM_PRESETS.map((preset) => (
+              <button key={preset.value} type="button" onClick={() => setCpm(preset.value)} className={chipCls(cpm === preset.value)}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">نسبة بيع المساحات الإعلانية</label>
+          <input type="number" min="0" max="100" value={fillRate} onChange={(e) => setFillRate(e.target.value)} className={inputCls} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {FILL_PRESETS.map((preset) => (
+              <button key={preset.value} type="button" onClick={() => setFillRate(preset.value)} className={chipCls(fillRate === preset.value)}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700">الهدف الشهري ($)</label>
+          <input type="number" min="0" value={targetMonthly} onChange={(e) => setTargetMonthly(e.target.value)} className={inputCls} />
+          <div className="mt-2 flex flex-wrap gap-2">
+            {TARGET_PRESETS.map((preset) => (
+              <button key={preset.value} type="button" onClick={() => setTargetMonthly(preset.value)} className={chipCls(targetMonthly === preset.value)}>
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-800">
+          <p className="mb-2 font-bold text-slate-900">النتيجة التقريبية</p>
+          <ul className="space-y-1">
+            <li>تقدير يومي: ${result.dailyUsd.toFixed(2)}</li>
+            <li>تقدير أسبوعي: ${result.weeklyUsd.toFixed(2)}</li>
+            <li>تقدير شهري: ${result.monthlyUsd.toFixed(2)}</li>
+            <li>تقدير ربع سنوي: ${result.quarterlyUsd.toFixed(2)}</li>
+            <li>تقدير سنوي: ${result.yearlyUsd.toFixed(2)}</li>
+            <li>تقدير خمس سنوات بنفس الوتيرة: ${result.fiveYearUsd.toFixed(2)}</li>
+            <li>نسبة الوصول: {result.reachPct.toFixed(1)}%</li>
+            <li>تغطية الهدف الحالية: {result.targetProgressPct.toFixed(1)}%</li>
+            <li>الفجوة مقابل الهدف: ${result.gapUsd.toFixed(2)}</li>
+            {result.viewsExceedSubs ? <li className="text-amber-700">ملاحظة: المشاهدات أعلى من عدد المشتركين — راجع الأرقام.</li> : null}
+          </ul>
+          <button type="button" onClick={copySummary} className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700">
+            {copied ? "تم النسخ" : "نسخ الملخص"}
+          </button>
         </div>
       </div>
     </main>
