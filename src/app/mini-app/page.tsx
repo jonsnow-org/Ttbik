@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MonetagSdkLoader, MonetagBannerSlot } from "@/components/MonetagAd";
+import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 
 type Tab = "trending" | "video" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
@@ -82,6 +82,25 @@ export default function MiniAppPage() {
   const [dmInput, setDmInput] = useState("");
   const [inboxUnread, setInboxUnread] = useState(0);
   const [botOnline, setBotOnline] = useState<boolean | null>(null);
+  const [adBusy, setAdBusy] = useState(false);
+
+  // Real Monetag rewarded ad, shown only when the user taps this button --
+  // no fake "reward" is claimed (e.g. a made-up credit or unlock) since
+  // this app has no real credit/limit system to attach one to honestly.
+  // It's framed plainly as supporting the app, matching what actually
+  // happens: watching it is what generates real ad revenue.
+  async function watchSupportAd() {
+    if (adBusy) return;
+    setAdBusy(true);
+    try {
+      const played = await showRewardedAd();
+      (window as any).Telegram?.WebApp?.showAlert?.(
+        played ? "شكراً لدعمك! 🎉" : "الإعلان غير متاح حالياً، حاول لاحقاً."
+      );
+    } finally {
+      setAdBusy(false);
+    }
+  }
   const [showComments, setShowComments] = useState(false);
   const [commentsPost, setCommentsPost] = useState<{ id: string; title: string } | null>(null);
   const [comments, setComments] = useState<CommentRow[]>([]);
@@ -399,6 +418,15 @@ export default function MiniAppPage() {
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={adBusy}
+              onClick={() => void watchSupportAd()}
+              title="ادعم التطبيق بمشاهدة إعلان"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-lg disabled:opacity-50"
+            >
+              🎬
+            </button>
             <button type="button" onClick={() => load()} className="flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔄</button>
             <button type="button" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">🔔{unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-full bg-sky-100 text-lg">✉️{inboxUnread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
