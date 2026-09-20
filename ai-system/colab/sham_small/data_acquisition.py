@@ -216,6 +216,7 @@ def stream_common_voice_arabic(
     output_dir: str,
     max_samples: int = 5_000,
     split: str = "train",
+    skip: int = 0,
 ) -> str:
     """Run this ON KAGGLE with internet on. Mozilla Common Voice's
     Arabic subset is real, transcribed speech audio, CC0-licensed —
@@ -230,7 +231,14 @@ def stream_common_voice_arabic(
     lines — the audio counterpart to dataset.py's
     ImageCaptionDataset manifest format, so a matching
     AudioCaptionDataset can reuse the exact same JSONL-manifest shape
-    once real audio training data collection actually begins."""
+    once real audio training data collection actually begins.
+
+    skip: number of examples to skip from the start of the stream before
+    collecting max_samples — lets a repeated, scheduled run (e.g. the
+    audio tokenizer track) advance through NEW real examples each time
+    instead of re-collecting the same first max_samples forever. Callers
+    track their own running total (e.g. in a small progress.json) and
+    pass it back in as skip on the next run."""
     from datasets import Audio, load_dataset
     import soundfile as sf
 
@@ -240,6 +248,8 @@ def stream_common_voice_arabic(
     dataset = load_dataset(
         "mozilla-foundation/common_voice_17_0", "ar", split=split, streaming=True
     ).cast_column("audio", Audio(sampling_rate=16_000))
+    if skip:
+        dataset = dataset.skip(skip)
 
     manifest_path = output_path / "manifest.jsonl"
     count = 0
@@ -268,6 +278,7 @@ def stream_image_caption_corpus(
     caption_field: str = "caption",
     image_size: int = 64,
     max_samples: int = 5_000,
+    skip: int = 0,
 ) -> str:
     """Run this ON KAGGLE with internet on. Streams a real, publicly
     available image-caption dataset and writes real resized JPEG files
@@ -304,13 +315,19 @@ def stream_image_caption_corpus(
     an immediate, actionable error naming them if image_field/
     caption_field aren't present — run it once with a small
     max_samples, read that error if it fires, and pass the real field
-    names it reports."""
+    names it reports.
+
+    skip: number of examples to skip from the start of the stream before
+    collecting max_samples — same purpose as stream_common_voice_arabic's
+    skip, so a repeated scheduled run sees new real images each time."""
     from datasets import load_dataset
 
     output_path = Path(output_dir)
     (output_path / "images").mkdir(parents=True, exist_ok=True)
 
     dataset = load_dataset(dataset_name, split=split, streaming=True)
+    if skip:
+        dataset = dataset.skip(skip)
     manifest_path = output_path / "manifest.jsonl"
     count = 0
     checked_fields = False
