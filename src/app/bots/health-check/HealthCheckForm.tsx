@@ -116,7 +116,7 @@ function collectNotes(result: Result): string[] {
   if (!b?.username?.trim()) {
     notes.push("البوت بلا @username.");
   } else if (!b.username.trim().toLowerCase().endsWith("bot")) {
-    notes.push(`المعرف @${b.username.trim()} لا ينتهي بـ bot.`);
+    notes.push(`المعرّف @${b.username.trim()} لا ينتهي بـ bot.`);
   }
   if (!b?.firstName?.trim()) notes.push("الاسم الظاهر (first_name) فارغ.");
   if (w?.url && w.hostIsPrivate) {
@@ -214,258 +214,24 @@ function collectNotes(result: Result): string[] {
       notes.push(`أوامر عامة غير موجودة في نطاق مدار المحادثة: ${missingInAdmins.slice(0, 6).map((s) => `/${s}`).join(" ")}`);
     }
   }
+  const allCmds = [
+    ...(b?.commands ?? []),
+    ...(b?.commandsAr ?? []),
+    ...(b?.commandsPrivate ?? []),
+    ...(b?.commandsGroups ?? []),
+    ...(b?.commandsAdmins ?? []),
+  ];
+  const emptyDesc = allCmds.filter((c) => !c.description?.trim()).map((c) => `/${c.command}`);
+  if (emptyDesc.length > 0) {
+    notes.push(`أوامر بلا وصف: ${[...new Set(emptyDesc)].slice(0, 6).join(" ")}`);
+  }
+  const longDesc = allCmds.filter((c) => (c.description?.trim().length ?? 0) > 256).map((c) => `/${c.command}`);
+  if (longDesc.length > 0) {
+    notes.push(`وصف أمر أطول من حد تليجرام 256: ${[...new Set(longDesc)].slice(0, 6).join(" ")}`);
+  }
+  const badSlug = allCmds.filter((c) => !/^[a-z0-9_]{1,32}$/.test(c.command)).map((c) => `/${c.command}`);
+  if (badSlug.length > 0) {
+    notes.push(`صيغة أمر غير صالحة (أحرف/طول): ${[...new Set(badSlug)].slice(0, 6).join(" ")}`);
+  }
   return notes;
-}
-
-export default function HealthCheckForm() {
-  const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<Result | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  async function check(e: React.FormEvent) {
-    e.preventDefault();
-    const extracted = token.trim().match(/\b(\d{6,12}:[A-Za-z0-9_-]{30,})\b/)?.[1] || token.trim();
-    if (!TOKEN_RE.test(extracted)) {
-      setLocalError("صيغة التوكن غير صحيحة.");
-      setResult(null);
-      return;
-    }
-    setLocalError(null);
-    setLoading(true);
-    setResult(null);
-    try {
-      const res = await fetch("/api/bots/health-check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: extracted }),
-      });
-      const data: Result = await res.json();
-      setResult(data);
-      if (data.bot && !data.error) {
-        setToken("");
-        setShowToken(false);
-      }
-    } catch {
-      setResult({ error: "تعذّر الفحص، حاول مجدداً." });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function copyReport() {
-    const b = result?.bot;
-    if (!b) return;
-    const notes = collectNotes(result!);
-    const w = result?.webhook;
-    const slugs = commandSlugs(b.commands);
-    const slugsAr = commandSlugs(b.commandsAr);
-    const slugsPrivate = commandSlugs(b.commandsPrivate);
-    const slugsGroups = commandSlugs(b.commandsGroups);
-    const slugsAdmins = commandSlugs(b.commandsAdmins);
-    const lines = [
-      "تقرير فحص بوت — سوق تولز",
-      `@${b.username} — ${b.firstName}`,
-      ...notes.map((n) => `- ${n}`),
-      slugs ? `أوامر عامة: ${slugs}` : "",
-      slugsAr ? `أوامر عربية: ${slugsAr}` : "",
-      slugsPrivate ? `أوامر الخاص: ${slugsPrivate}` : "",
-      slugsGroups ? `أوامر المجموعات: ${slugsGroups}` : "",
-      slugsAdmins ? `أوامر المدراء: ${slugsAdmins}` : "",
-      b.addedToAttachmentMenu ? "قائمة المرفقات: مظهور" : "",
-      b.menuButton?.webAppUrl && !/^https:\/\//i.test(b.menuButton.webAppUrl.trim()) ? "زر Web App: الرابط ليس HTTPS" : "",
-      b.hasMainWebApp && b.menuButton?.type !== "web_app" ? "Web App رئيسي بلا زر قائمة web_app" : "",
-      b.description?.trim() && !b.shortDescription?.trim() ? "وصف كامل بلا وصف قصير" : "",
-      `ويبهوك: ${w?.url || "غير مفعّل"}`,
-      w?.hostIsPrivate ? "مضيف الويبهوك: خاص/محلي (غير قابل للوصول من تليجرام)" : "",
-      w?.url && w.port != null ? `منفذ الويبهوك: ${w.port}${w.portAllowed === false ? " — غير مسموح" : ""}` : "",
-      w?.lastErrorDate ? `آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
-      w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${fmtDate(w.lastSyncErrorDate)}` : "",
-      w?.maxConnections != null ? `أقصى اتصالات: ${w.maxConnections}` : "",
-      `صور الملف: ${b.profilePhotoCount ?? 0}`,
-    ].filter(Boolean);
-    try {
-      await navigator.clipboard.writeText(lines.join("\n"));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  const b = result?.bot;
-  const w = result?.webhook;
-  const notes = result?.bot ? collectNotes(result) : [];
-  const tone = notes.some(
-    (n) =>
-      n.includes("خطأ") ||
-      n.includes("HTTPS") ||
-      n.includes("تسريب") ||
-      n.includes("allowed_updates") ||
-      n.includes("متوقف") ||
-      n.includes("خاص/محلي") ||
-      n.includes("ممنوع من الانضمام") ||
-      n.includes("منفذ الويبهوك"),
-  )
-    ? "bad"
-    : notes.length
-      ? "warn"
-      : "ok";
-  const groupRights = enabledRights(b?.groupAdminRights);
-  const channelRights = enabledRights(b?.channelAdminRights);
-  const allowedList = w?.allowedUpdates ?? [];
-  const slugs = commandSlugs(b?.commands);
-  const slugsAr = commandSlugs(b?.commandsAr);
-  const slugsPrivate = commandSlugs(b?.commandsPrivate);
-  const slugsGroups = commandSlugs(b?.commandsGroups);
-  const slugsAdmins = commandSlugs(b?.commandsAdmins);
-
-  return (
-    <main className="relative mx-auto max-w-lg px-4 py-10">
-      <SectionBackdrop tone="bots" />
-      <span className="mx-auto mb-3 block w-fit rounded-full bg-indigo-50 px-4 py-1.5 text-xs font-bold text-indigo-700">
-        🔍 فاحص صحة البوتات
-      </span>
-      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تحقق من حالة بوت تليجرام</h1>
-      <p className="mb-6 text-sm text-slate-600">
-        الصق توكن البوت فقط. لا نحفظ التوكن — الفحص لحظي عبر خوادم تليجرام. بعد فحص ناجح يُمسح حقل التوكن من الشاشة.
-      </p>
-      <form onSubmit={check} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="relative">
-          <input
-            type={showToken ? "text" : "password"}
-            required
-            autoComplete="off"
-            spellCheck={false}
-            value={token}
-            onChange={(e) => {
-              setToken(e.target.value);
-              setLocalError(null);
-            }}
-            placeholder="الصق توكن البوت هنا"
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 pe-20 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-          <button type="button" onClick={() => setShowToken((v) => !v)} className="absolute inset-y-0 end-2 text-xs font-bold text-indigo-700">
-            {showToken ? "إخفاء" : "إظهار"}
-          </button>
-        </div>
-        {localError && <p className="text-sm text-rose-700">{localError}</p>}
-        <button type="submit" disabled={loading} className="w-full rounded-xl bg-indigo-700 py-2.5 font-bold text-white hover:bg-indigo-800 disabled:opacity-50">
-          {loading ? "جاري الفحص..." : "افحص الآن"}
-        </button>
-      </form>
-      {result?.error && (
-        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{result.error}</div>
-      )}
-      {b && (
-        <div className="mt-4 space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <div
-            className={
-              tone === "ok"
-                ? "rounded-xl border border-emerald-300 bg-white/80 p-3 text-sm text-emerald-900"
-                : tone === "warn"
-                  ? "rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-                  : "rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900"
-            }
-          >
-            <p className="font-bold">
-              {tone === "ok" ? "✅ جاهز" : tone === "warn" ? "⚠️ يحتاج ضبطاً" : "❌ مشكلة في الويبهوك"}
-            </p>
-            {notes.length > 0 && (
-              <ul className="mt-1 list-disc space-y-0.5 ps-5">
-                {notes.map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <p className="text-sm font-bold text-emerald-800">✅ البوت فعّال: @{b.username}</p>
-          <ul className="space-y-1 text-sm text-slate-700">
-            <li>الاسم: {b.firstName || "—"}</li>
-            {(b.botFatherName || b.botFatherNameAr) && (
-              <li>اسم BotFather: {b.botFatherNameAr || b.botFatherName}</li>
-            )}
-            {b.id != null && <li>المعرّف: {b.id}</li>}
-            <li>صور الملف الشخصي: {b.profilePhotoCount ?? 0}</li>
-            <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0} — خاص: {b.commandsPrivate?.length ?? 0} — مجموعات: {b.commandsGroups?.length ?? 0} — مدراء: {b.commandsAdmins?.length ?? 0}</li>
-            {slugs ? <li className="font-mono text-xs">عامة: {slugs}</li> : null}
-            {slugsAr ? <li className="font-mono text-xs">عربي: {slugsAr}</li> : null}
-            {slugsPrivate ? <li className="font-mono text-xs">خاص: {slugsPrivate}</li> : null}
-            {slugsGroups ? <li className="font-mono text-xs">مجموعات: {slugsGroups}</li> : null}
-            {slugsAdmins ? <li className="font-mono text-xs">مدراء: {slugsAdmins}</li> : null}
-            <li>قائمة المرفقات: {yn(b.addedToAttachmentMenu)}</li>
-            <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
-            {b.descriptionAr?.trim() && <li>الوصف العربي: {b.descriptionAr}</li>}
-            {b.shortDescription?.trim() && <li>وصف قصير: {b.shortDescription}</li>}
-            {b.shortDescriptionAr?.trim() && <li>وصف قصير عربي: {b.shortDescriptionAr}</li>}
-            <li>ينضم للمجموعات: {yn(b.canJoinGroups)}</li>
-            <li>يقرأ كل رسائل المجموعة: {yn(b.canReadAllGroupMessages)}</li>
-            <li>إنلاين: {yn(b.supportsInlineQueries)}</li>
-            <li>بوابة الأعمال: {yn(b.canConnectToBusiness)}</li>
-            <li>Web App رئيسي: {yn(b.hasMainWebApp)}</li>
-            {b.menuButton?.type && (
-              <li>
-                زر القائمة: {b.menuButton.type}
-                {b.menuButton.text ? ` — ${b.menuButton.text}` : ""}
-              </li>
-            )}
-            {b.menuButton?.webAppUrl ? (
-              <li className="break-all font-mono text-xs">Web App: {b.menuButton.webAppUrl}</li>
-            ) : null}
-            {groupRights.length > 0 && <li>صلاحيات مجموعة افتراضية: {groupRights.length}</li>}
-            {channelRights.length > 0 && <li>صلاحيات قناة افتراضية: {channelRights.length}</li>}
-            <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
-            {w?.host && <li>المضيف: {w.host}</li>}
-            {w?.hostIsPrivate ? (
-              <li className="text-rose-700">مضيف خاص/محلي — تليجرام لا يصل إليه</li>
-            ) : null}
-            {w?.url && w.port != null ? (
-              <li className={w.portAllowed === false ? "text-rose-700" : undefined}>
-                منفذ الويبهوك: {w.port}
-                {w.portAllowed === false ? " — غير مسموح (443 / 80 / 88 / 8443 فقط)" : ""}
-              </li>
-            ) : null}
-            {w?.ipAddress ? <li className="font-mono text-xs">IP الويبهوك: {w.ipAddress}</li> : null}
-            {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
-            {w?.url && (
-              <li>شهادة TLS مخصصة: {yn(!!w.hasCustomCertificate)}</li>
-            )}
-            {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
-            <li>
-              أنواع التحديثات: {allowedList.length === 0 ? "الكل (افتراضي)" : allowedList.join(", ")}
-            </li>
-            <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
-            {w?.lastErrorMessage && <li className="text-rose-700">آخر خطأ: {w.lastErrorMessage}</li>}
-            {w?.lastErrorDate && (
-              <li className="text-rose-700">تاريخ آخر خطأ ويبهوك: {fmtDate(w.lastErrorDate)}</li>
-            )}
-            {w?.lastSyncErrorDate && (
-              <li className="text-rose-700">آخر خطأ مزامنة: {fmtDate(w.lastSyncErrorDate)}</li>
-            )}
-          </ul>
-          <div className="flex flex-wrap gap-2">
-            {b.username ? (
-              <a
-                href={`https://t.me/${b.username}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-800"
-              >
-                افتح @{b.username}
-              </a>
-            ) : null}
-            <button
-              type="button"
-              onClick={copyReport}
-              className="rounded-xl border border-indigo-200 bg-white px-4 py-2 text-sm font-bold text-indigo-800"
-            >
-              {copied ? "تم نسخ التقرير" : "نسخ ملخص الفحص"}
-            </button>
-          </div>
-        </div>
-      )}
-    </main>
-  );
 }
