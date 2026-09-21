@@ -83,6 +83,10 @@ function commandSlugs(cmds?: BotCommand[], limit = 8) {
   return (cmds ?? []).slice(0, limit).map((c) => `/${c.command}`).join(" ");
 }
 
+function slugSet(cmds?: BotCommand[]) {
+  return new Set((cmds ?? []).map((c) => c.command.toLowerCase()));
+}
+
 function collectNotes(result: Result): string[] {
   const notes: string[] = [];
   const w = result.webhook;
@@ -131,6 +135,24 @@ function collectNotes(result: Result): string[] {
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   if ((b?.commands?.length ?? 0) > 0 && (b?.commandsAr?.length ?? 0) === 0) {
     notes.push("توجد أوامر عامة بلا نسخة عربية (language_code=ar).");
+  }
+  if ((b?.commandsGroups?.length ?? 0) > 0 && b?.canJoinGroups === false) {
+    notes.push("توجد أوامر نطاق المجموعات بينما البوت ممنوع من الانضمام للمجموعات.");
+  }
+  const defSlugs = slugSet(b?.commands);
+  const privSlugs = slugSet(b?.commandsPrivate);
+  const groupSlugs = slugSet(b?.commandsGroups);
+  if (defSlugs.size > 0 && privSlugs.size > 0) {
+    const missingInPrivate = [...defSlugs].filter((s) => !privSlugs.has(s));
+    if (missingInPrivate.length > 0) {
+      notes.push(`أوامر عامة غير موجودة في نطاق الخاص: ${missingInPrivate.slice(0, 6).map((s) => `/${s}`).join(" ")}`);
+    }
+  }
+  if (defSlugs.size > 0 && groupSlugs.size > 0) {
+    const missingInGroups = [...defSlugs].filter((s) => !groupSlugs.has(s));
+    if (missingInGroups.length > 0) {
+      notes.push(`أوامر عامة غير موجودة في نطاق المجموعات: ${missingInGroups.slice(0, 6).map((s) => `/${s}`).join(" ")}`);
+    }
   }
   if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف في BotFather.");
   if (!b?.descriptionAr?.trim() && !b?.shortDescriptionAr?.trim()) {
@@ -189,11 +211,17 @@ export default function HealthCheckForm() {
     const notes = collectNotes(result!);
     const w = result?.webhook;
     const slugs = commandSlugs(b.commands);
+    const slugsAr = commandSlugs(b.commandsAr);
+    const slugsPrivate = commandSlugs(b.commandsPrivate);
+    const slugsGroups = commandSlugs(b.commandsGroups);
     const lines = [
       "تقرير فحص بوت — سوق تولز",
       `@${b.username} — ${b.firstName}`,
       ...notes.map((n) => `- ${n}`),
-      slugs ? `أوامر: ${slugs}` : "",
+      slugs ? `أوامر عامة: ${slugs}` : "",
+      slugsAr ? `أوامر عربية: ${slugsAr}` : "",
+      slugsPrivate ? `أوامر الخاص: ${slugsPrivate}` : "",
+      slugsGroups ? `أوامر المجموعات: ${slugsGroups}` : "",
       b.addedToAttachmentMenu ? "قائمة المرفقات: مظهور" : "",
       `ويبهوك: ${w?.url || "غير مفعّل"}`,
       w?.hostIsPrivate ? "مضيف الويبهوك: خاص/محلي (غير قابل للوصول من تليجرام)" : "",
@@ -221,7 +249,8 @@ export default function HealthCheckForm() {
       n.includes("تسريب") ||
       n.includes("allowed_updates") ||
       n.includes("متوقف") ||
-      n.includes("خاص/محلي"),
+      n.includes("خاص/محلي") ||
+      n.includes("ممنوع من الانضمام"),
   )
     ? "bad"
     : notes.length
@@ -231,6 +260,9 @@ export default function HealthCheckForm() {
   const channelRights = enabledRights(b?.channelAdminRights);
   const allowedList = w?.allowedUpdates ?? [];
   const slugs = commandSlugs(b?.commands);
+  const slugsAr = commandSlugs(b?.commandsAr);
+  const slugsPrivate = commandSlugs(b?.commandsPrivate);
+  const slugsGroups = commandSlugs(b?.commandsGroups);
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -300,7 +332,10 @@ export default function HealthCheckForm() {
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>صور الملف الشخصي: {b.profilePhotoCount ?? 0}</li>
             <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0} — خاص: {b.commandsPrivate?.length ?? 0} — مجموعات: {b.commandsGroups?.length ?? 0}</li>
-            {slugs ? <li className="font-mono text-xs">أوامر BotFather: {slugs}</li> : null}
+            {slugs ? <li className="font-mono text-xs">عامة: {slugs}</li> : null}
+            {slugsAr ? <li className="font-mono text-xs">عربي: {slugsAr}</li> : null}
+            {slugsPrivate ? <li className="font-mono text-xs">خاص: {slugsPrivate}</li> : null}
+            {slugsGroups ? <li className="font-mono text-xs">مجموعات: {slugsGroups}</li> : null}
             <li>قائمة المرفقات: {yn(b.addedToAttachmentMenu)}</li>
             <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
             {b.descriptionAr?.trim() && <li>الوصف العربي: {b.descriptionAr}</li>}
