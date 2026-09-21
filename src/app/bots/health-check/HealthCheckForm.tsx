@@ -12,6 +12,8 @@ type Result = {
     id?: number;
     username: string;
     firstName: string;
+    botFatherName?: string;
+    botFatherNameAr?: string;
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
@@ -58,6 +60,12 @@ function rightsTrue(rights?: Record<string, boolean>): string[] {
   return Object.entries(rights)
     .filter(([, v]) => v)
     .map(([k]) => k);
+}
+
+function namesDiffer(a?: string, b?: string): boolean {
+  const x = (a ?? "").trim().toLowerCase();
+  const y = (b ?? "").trim().toLowerCase();
+  return Boolean(x && y && x !== y);
 }
 
 function collectNotes(result: Result): string[] {
@@ -137,6 +145,12 @@ function collectNotes(result: Result): string[] {
   if ((b?.commandsAdmins?.length ?? 0) > 0 && rightsTrue(b?.groupAdminRights).length === 0) {
     notes.push("أوامر للمشرفين معرّفة بينما صلاحيات الأدمن الافتراضية للمجموعات فارغة.");
   }
+  if (namesDiffer(b?.firstName, b?.botFatherName)) {
+    notes.push(`اسم getMe (${b?.firstName}) يختلف عن اسم BotFather (${b?.botFatherName}).`);
+  }
+  if (b?.botFatherNameAr && namesDiffer(b?.botFatherName, b?.botFatherNameAr)) {
+    notes.push(`اسم BotFather العربي (${b.botFatherNameAr}) يختلف عن الاسم الافتراضي.`);
+  }
   return notes;
 }
 
@@ -147,9 +161,13 @@ function buildReport(result: Result, notes: string[]): string {
   const menu = b?.menuButton;
   const gRights = rightsTrue(b?.groupAdminRights);
   const cRights = rightsTrue(b?.channelAdminRights);
+  const shortD = (b?.shortDescription ?? "").trim();
   const lines = [
     `تقرير فحص @${b?.username ?? "—"} — ${b?.firstName ?? ""}`,
     b?.id != null ? `المعرّف: ${b.id}` : "",
+    b?.botFatherName ? `اسم BotFather: ${b.botFatherName}` : "",
+    b?.botFatherNameAr ? `اسم BotFather عربي: ${b.botFatherNameAr}` : "",
+    shortD ? `وصف قصير: ${shortD.slice(0, 120)}` : "",
     `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
     w?.host ? `المضيف: ${w.host}` : "",
@@ -170,7 +188,8 @@ function buildReport(result: Result, notes: string[]): string {
     menu?.webAppUrl ? `ويب آب القائمة: ${menu.webAppUrl}` : "",
     gRights.length ? `صلاحيات مجموعة: ${gRights.join(", ")}` : "صلاحيات مجموعة: لا شيء مفعّل",
     cRights.length ? `صلاحيات قناة: ${cRights.join(", ")}` : "صلاحيات قناة: لا شيء مفعّل",
-    `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
+    `أوامر عامة: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
+    `أوامر خاصة/مجموعات/مشرفين: ${b?.commandsPrivate?.length ?? 0} / ${b?.commandsGroups?.length ?? 0} / ${b?.commandsAdmins?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
   ].filter(Boolean);
@@ -223,6 +242,7 @@ export default function HealthCheckForm() {
   const menu = b?.menuButton;
   const gRights = rightsTrue(b?.groupAdminRights);
   const cRights = rightsTrue(b?.channelAdminRights);
+  const shortD = (b?.shortDescription ?? "").trim();
 
   async function copyReport() {
     if (!result?.bot) return;
@@ -277,6 +297,9 @@ export default function HealthCheckForm() {
           <p className="text-sm font-bold text-emerald-800">✅ @{b.username} — {b.firstName}</p>
           <ul className="space-y-1 text-sm text-slate-700">
             {b.id != null && <li>المعرّف: {b.id}</li>}
+            {b.botFatherName ? <li>اسم BotFather: {b.botFatherName}</li> : null}
+            {b.botFatherNameAr ? <li>اسم BotFather عربي: {b.botFatherNameAr}</li> : null}
+            {shortD ? <li>وصف قصير: {shortD.slice(0, 120)}</li> : null}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
             {w?.host ? <li>المضيف: {w.host}</li> : null}
             {w?.ipAddress ? <li>IP الويبهوك: {w.ipAddress}</li> : null}
@@ -298,7 +321,8 @@ export default function HealthCheckForm() {
             {menu?.webAppUrl ? <li>ويب آب القائمة: {menu.webAppUrl}</li> : null}
             <li>صلاحيات مجموعة: {gRights.length ? gRights.join(", ") : "لا شيء مفعّل"}</li>
             <li>صلاحيات قناة: {cRights.length ? cRights.join(", ") : "لا شيء مفعّل"}</li>
-            <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
+            <li>أوامر عامة: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
+            <li>أوامر خاصة/مجموعات/مشرفين: {b.commandsPrivate?.length ?? 0} / {b.commandsGroups?.length ?? 0} / {b.commandsAdmins?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
             {b.username ? (
