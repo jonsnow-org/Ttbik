@@ -43,6 +43,8 @@ type Result = {
     tokenEmbeddedInUrl?: boolean;
     hasCustomCertificate?: boolean;
     host?: string | null;
+    ipAddress?: string | null;
+    allowedUpdates?: string[];
   };
   error?: string;
 };
@@ -68,6 +70,11 @@ function collectNotes(result: Result): string[] {
   }
   if ((w?.maxConnections ?? 0) > 100) {
     notes.push(`maxConnections=${w?.maxConnections} أعلى من حد تليجرام الشائع (100).`);
+  }
+  const au = w?.allowedUpdates ?? [];
+  if (w?.url && au.length > 0) {
+    if (!au.includes("message")) notes.push("allowed_updates لا يتضمن message — الرسائل العادية قد لا تصل.");
+    if (!au.includes("callback_query")) notes.push("allowed_updates لا يتضمن callback_query — أزرار الإنلاين قد لا تعمل.");
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   const allCmds = [
@@ -113,12 +120,15 @@ function collectNotes(result: Result): string[] {
 function buildReport(result: Result, notes: string[]): string {
   const b = result.bot;
   const w = result.webhook;
+  const au = w?.allowedUpdates ?? [];
   const lines = [
     `تقرير فحص @${b?.username ?? "—"} — ${b?.firstName ?? ""}`,
     b?.id != null ? `المعرّف: ${b.id}` : "",
     `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
     w?.host ? `المضيف: ${w.host}` : "",
+    w?.ipAddress ? `IP الويبهوك: ${w.ipAddress}` : "",
+    au.length ? `allowed_updates: ${au.join(", ")}` : "allowed_updates: الكل (افتراضي)",
     w?.lastErrorDate ? `آخر خطأ: ${w.lastErrorDate}` : "",
     w?.lastErrorMessage ? `نص الخطأ: ${w.lastErrorMessage}` : "",
     w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${w.lastSyncErrorDate}` : "",
@@ -179,6 +189,7 @@ export default function HealthCheckForm() {
   const b = result?.bot;
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
+  const au = w?.allowedUpdates ?? [];
 
   async function copyReport() {
     if (!result?.bot) return;
@@ -235,8 +246,10 @@ export default function HealthCheckForm() {
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
             {w?.host ? <li>المضيف: {w.host}</li> : null}
+            {w?.ipAddress ? <li>IP الويبهوك: {w.ipAddress}</li> : null}
             {w?.url && w.port != null && <li>منفذ: {w.port}{w.portAllowed === false ? " — غير مسموح" : ""}</li>}
             {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
+            <li>allowed_updates: {au.length ? au.join(", ") : "الكل (افتراضي تليجرام)"}</li>
             {w?.lastErrorDate ? <li>آخر خطأ ويبهوك: {w.lastErrorDate}</li> : null}
             {w?.lastErrorMessage ? <li>نص آخر خطأ: {w.lastErrorMessage}</li> : null}
             {w?.lastSyncErrorDate ? <li>آخر خطأ مزامنة: {w.lastSyncErrorDate}</li> : null}
