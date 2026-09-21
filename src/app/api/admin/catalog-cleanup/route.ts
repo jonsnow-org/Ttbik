@@ -26,11 +26,20 @@ export async function POST(req: NextRequest) {
   // remove them for real this time, not a resurfacing of that old bug.
   const slugsToRemove = ["channel-ad-slot", "auto-reply-bot", "faq-bot"];
   for (const slug of slugsToRemove) {
-    await db.from("services").update({ is_active: false }).eq("slug", slug);
+    // Both calls' errors are checked and reported -- the update's error was
+    // previously discarded entirely, so a permission failure on it (as
+    // opposed to the delete) was silently reported as "deactivated" when it
+    // never actually happened (owner-caught, 2026-09-21: the service was
+    // still fully live after this route reported success).
+    const { error: updateError } = await db.from("services").update({ is_active: false }).eq("slug", slug);
     const { error: deleteError } = await db.from("services").delete().eq("slug", slug);
-    results[slug] = deleteError
-      ? `deactivated but not deleted (${deleteError.message}) -- likely referenced by a real historical order, left inactive`
-      : "removed";
+    if (!deleteError) {
+      results[slug] = "removed";
+    } else if (!updateError) {
+      results[slug] = `deactivated but not deleted (${deleteError.message}) -- likely referenced by a real historical order, left inactive`;
+    } else {
+      results[slug] = `FAILED -- still fully live (update error: ${updateError.message}; delete error: ${deleteError.message})`;
+    }
   }
 
   return NextResponse.json({ ok: true, results });
