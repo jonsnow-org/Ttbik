@@ -13,6 +13,7 @@ type Result = {
     firstName: string;
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
+    supportsInlineQueries?: boolean;
     commands?: BotCommand[];
     commandsAr?: BotCommand[];
     commandsPrivate?: BotCommand[];
@@ -89,6 +90,7 @@ function collectNotes(result: Result): string[] {
   if ((b?.commandsGroups?.length ?? 0) > 0 && b?.canJoinGroups === false) {
     notes.push("أوامر مجموعات معرّفة بينما البوت لا يستطيع الانضمام للمجموعات.");
   }
+  if (b?.supportsInlineQueries === false) notes.push("الاستعلامات المضمّنة غير مفعّلة في BotFather.");
   return notes;
 }
 
@@ -102,9 +104,12 @@ function buildReport(result: Result, notes: string[]): string {
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
     w?.host ? `المضيف: ${w.host}` : "",
     w?.lastErrorDate ? `آخر خطأ: ${w.lastErrorDate}` : "",
+    w?.lastErrorMessage ? `نص الخطأ: ${w.lastErrorMessage}` : "",
+    w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${w.lastSyncErrorDate}` : "",
     `تحديثات معلّقة: ${w?.pendingUpdateCount ?? 0}`,
     `المجموعات: ${b?.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}`,
     `قراءة كل رسائل المجموعة: ${b?.canReadAllGroupMessages ? "نعم" : "لا"}`,
+    `إنلاين: ${b?.supportsInlineQueries ? "مدعوم" : "غير مدعوم"}`,
     `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
@@ -213,9 +218,12 @@ export default function HealthCheckForm() {
             {w?.url && w.port != null && <li>منفذ: {w.port}{w.portAllowed === false ? " — غير مسموح" : ""}</li>}
             {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
             {w?.lastErrorDate ? <li>آخر خطأ ويبهوك: {w.lastErrorDate}</li> : null}
+            {w?.lastErrorMessage ? <li>نص آخر خطأ: {w.lastErrorMessage}</li> : null}
+            {w?.lastSyncErrorDate ? <li>آخر خطأ مزامنة: {w.lastSyncErrorDate}</li> : null}
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
             <li>المجموعات: {b.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}</li>
             <li>قراءة كل رسائل المجموعة: {b.canReadAllGroupMessages ? "نعم" : "لا"}</li>
+            <li>استعلامات إنلاين: {b.supportsInlineQueries ? "مدعومة" : "غير مدعومة"}</li>
             <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
