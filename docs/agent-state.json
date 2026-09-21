@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5759759050,
   "last_actor": "grok",
-  "updated_at": "2026-09-21T11:29:00Z",
+  "updated_at": "2026-09-21T13:25:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 co-build: Grok pass 7 restored truncated LogoGenerator + diagonal split layout. Claude next layer if wanted.",
@@ -11,12 +11,12 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
   ],
   "resolved": [
+    "G121 HealthCheckForm: hasMainWebApp + canConnectToBusiness + addedToAttachmentMenu + profilePhotoCount + username-not-ending-bot + AR desc pair notes in UI/report.",
     "G120 HealthCheckForm: lastSyncErrorDate + lastErrorMessage rows + supportsInlineQueries in UI/report.",
     "G119 HealthCheckForm: canJoinGroups + canReadAllGroupMessages in UI/report + lastErrorDate row.",
     "G118 HealthCheckForm: lastSyncErrorDate, non-https webhook, private/IP host, token-in-url, custom cert.",
     "G117 HealthCheckForm: pending>100, lastErrorDate, desc/short pair, maxConnections>100, copy report.",
     "G116 HealthCheckForm: empty/long/invalid command notes. Truncated push c464a8e restored compact working form afed472.",
-    "G115 HealthCheckForm: surface webhook.port + portAllowed + maxConnections>100 + AR desc/short pair notes.",
     "prior health-check and earnings items retained."
   ]
 }
