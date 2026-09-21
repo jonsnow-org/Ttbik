@@ -22,8 +22,14 @@ export default function StorefrontBrowser({
   categories: Category[];
   services: Service[];
 }) {
-  const [activeId, setActiveId] = useState(categories[0]?.id);
-  const active = categories.find((c) => c.id === activeId) ?? categories[0];
+  // A category with zero active services (e.g. its only services were just
+  // removed from the catalog) used to still show up as a selectable, empty
+  // section -- confusing on its own, and there's nothing useful to show
+  // once selected (owner-reported, 2026-09-21). Filtered out entirely here
+  // so it can never appear in the nav or be selected in the first place.
+  const categoriesWithServices = categories.filter((c) => services.some((s) => s.category_id === c.id));
+  const [activeId, setActiveId] = useState(categoriesWithServices[0]?.id);
+  const active = categoriesWithServices.find((c) => c.id === activeId) ?? categoriesWithServices[0];
 
   if (!active) return null;
 
@@ -49,7 +55,7 @@ export default function StorefrontBrowser({
           (always visible, no second hamburger/drawer competing with the
           site's own main ☰ menu) and a persistent sidebar on desktop. */}
       <nav className="mb-6 -mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
-        {categories.map((cat) => {
+        {categoriesWithServices.map((cat) => {
           const catTheme = getCategoryTheme(cat.slug);
           return (
             <button
@@ -72,7 +78,7 @@ export default function StorefrontBrowser({
         {/* Desktop: persistent sidebar */}
         <aside className="hidden shrink-0 lg:block lg:w-60">
           <nav className="sticky top-24 space-y-1">
-            {categories.map((cat) => {
+            {categoriesWithServices.map((cat) => {
               const catTheme = getCategoryTheme(cat.slug);
               return (
                 <button
@@ -97,10 +103,6 @@ export default function StorefrontBrowser({
             <h2 className="text-xl font-bold text-slate-900">{active.name_ar}</h2>
             {active.description_ar && <p className="mt-1 text-sm text-slate-500">{active.description_ar}</p>}
           </div>
-
-          {activeServices.length === 0 && (
-            <p className="text-sm text-slate-400">لا توجد خدمات في هذا القسم حالياً.</p>
-          )}
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {activeServices.map((s) => (
