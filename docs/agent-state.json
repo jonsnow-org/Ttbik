@@ -3,9 +3,10 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5757513937,
   "last_actor": "grok",
-  "updated_at": "2026-09-21T09:16:00Z",
+  "updated_at": "2026-09-21T10:10:00Z",
   "mode": "work-cycle",
   "open": [
+    "G119 HealthCheckForm: canJoinGroups + canReadAllGroupMessages in UI/report + lastErrorDate row.",
     "O4 co-build: Grok pass 7 restored truncated LogoGenerator + diagonal split layout. Claude next layer if wanted.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
