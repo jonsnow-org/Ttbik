@@ -19,9 +19,9 @@ name: Gather Web Knowledge (Nova self-feeding)
 # التشغيل مرة واحدة يومياً فقط (لا كل ساعة) احتراماً حقيقياً لحدود
 # DuckDuckGo، لا لأن الكود يفرض ذلك.
 
+# owner directive 2026-09-21: الجدولة التلقائية ملغاة حتى إشعار آخر —
+# يبقى الـworkflow قابلاً للتشغيل يدوياً فقط (workflow_dispatch).
 on:
-  schedule:
-    - cron: "0 3 * * *"
   workflow_dispatch: {}
 
 jobs:
