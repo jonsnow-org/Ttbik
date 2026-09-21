@@ -39,8 +39,15 @@ function collectNotes(result: Result): string[] {
   const b = result.bot;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates.");
   if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
+  if (w?.lastErrorDate) notes.push(`وقت آخر خطأ ويبهوك: ${w.lastErrorDate}`);
+  if ((w?.pendingUpdateCount ?? 0) > 100) {
+    notes.push(`تحديثات معلّقة مرتفعة (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
+  }
   if (w?.url && w.portAllowed === false) {
     notes.push(`منفذ الويبهوك غير مسموح (${w.port}). المسموح: 443 / 80 / 88 / 8443.`);
+  }
+  if ((w?.maxConnections ?? 0) > 100) {
+    notes.push(`maxConnections=${w?.maxConnections} أعلى من حد تليجرام الشائع (100).`);
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
   const allCmds = [
@@ -56,7 +63,32 @@ function collectNotes(result: Result): string[] {
   if (longDesc.length) notes.push(`وصف أمر أطول من 256: ${longDesc.slice(0, 6).join(" ")}`);
   const badSlug = [...new Set(allCmds.filter((c) => !/^[a-z0-9_]{1,32}$/.test(c.command)).map((c) => `/${c.command}`))];
   if (badSlug.length) notes.push(`صيغة أمر غير صالحة: ${badSlug.slice(0, 6).join(" ")}`);
+  const full = b?.description?.trim() ?? "";
+  const shortD = b?.shortDescription?.trim() ?? "";
+  if (full && !shortD) notes.push("وصف كامل موجود بلا وصف قصير في BotFather.");
+  if (!full && shortD) notes.push("وصف قصير موجود بلا وصف كامل في BotFather.");
+  if ((full.length ?? 0) > 512) notes.push("الوصف الكامل أطول من 512 حرفاً.");
+  if ((shortD.length ?? 0) > 120) notes.push("الوصف القصير أطول من 120 حرفاً.");
+  if ((b?.commandsGroups?.length ?? 0) > 0 && b?.canJoinGroups === false) {
+    notes.push("أوامر مجموعات معرّفة بينما البوت لا يستطيع الانضمام للمجموعات.");
+  }
   return notes;
+}
+
+function buildReport(result: Result, notes: string[]): string {
+  const b = result.bot;
+  const w = result.webhook;
+  const lines = [
+    `تقرير فحص @${b?.username ?? "—"} — ${b?.firstName ?? ""}`,
+    b?.id != null ? `المعرّف: ${b.id}` : "",
+    `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
+    w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
+    `تحديثات معلّقة: ${w?.pendingUpdateCount ?? 0}`,
+    `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
+    notes.length ? "ملاحظات:" : "لا ملاحظات.",
+    ...notes.map((n) => `- ${n}`),
+  ].filter(Boolean);
+  return lines.join("\n");
 }
 
 export default function HealthCheckForm() {
@@ -65,6 +97,7 @@ export default function HealthCheckForm() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   async function check(e: React.FormEvent) {
     e.preventDefault();
@@ -75,6 +108,7 @@ export default function HealthCheckForm() {
       return;
     }
     setLocalError(null);
+    setCopied(false);
     setLoading(true);
     setResult(null);
     try {
@@ -99,6 +133,17 @@ export default function HealthCheckForm() {
   const b = result?.bot;
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
+
+  async function copyReport() {
+    if (!result?.bot) return;
+    try {
+      await navigator.clipboard.writeText(buildReport(result, notes));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -148,11 +193,16 @@ export default function HealthCheckForm() {
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
             <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
           </ul>
-          {b.username ? (
-            <a href={`https://t.me/${b.username}`} target="_blank" rel="noopener noreferrer" className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white">
-              افتح @{b.username}
-            </a>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {b.username ? (
+              <a href={`https://t.me/${b.username}`} target="_blank" rel="noopener noreferrer" className="inline-block rounded-xl bg-indigo-700 px-4 py-2 text-sm font-bold text-white">
+                افتح @{b.username}
+              </a>
+            ) : null}
+            <button type="button" onClick={copyReport} className="rounded-xl border border-indigo-300 bg-white px-4 py-2 text-sm font-bold text-indigo-800">
+              {copied ? "نُسخ التقرير" : "نسخ التقرير"}
+            </button>
+          </div>
         </div>
       )}
     </main>
