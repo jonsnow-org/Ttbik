@@ -67,6 +67,38 @@ class CycleResult:
     checkpoint_path: str | None = None
 
 
+def format_cycle_report(
+    cycle_results: list[CycleResult],
+    track_name: str,
+    final_step: int,
+    dataset_slug: str | None = None,
+) -> str:
+    """Human-readable Telegram report summarizing a real Kaggle session
+    -- the same "what actually happened, in plain terms" idea as Nova's
+    weekly owner report (see telegram_report.py's module docstring for
+    why this exists). Pure formatting, no network -- a caller sends the
+    result through telegram_report.send_telegram_message()."""
+    total_added = sum(r.crawl_stats.added for r in cycle_results)
+    total_rejected_duplicate = sum(r.crawl_stats.duplicate + r.crawl_stats.near_duplicate for r in cycle_results)
+    total_unsafe = sum(r.crawl_stats.unsafe for r in cycle_results)
+    total_credential_risk = sum(r.crawl_stats.credential_risk for r in cycle_results)
+    total_training_steps = sum(len(r.train_losses) for r in cycle_results)
+    last_loss = next((r.train_losses[-1] for r in reversed(cycle_results) if r.train_losses), None)
+
+    lines = [
+        f"🧠 تقرير جلسة شام — {track_name}",
+        f"عدد الدورات: {len(cycle_results)}",
+        f"مستندات جديدة مقبولة: {total_added}",
+        f"مرفوض (مكرر/شبه مكرر: {total_rejected_duplicate}، غير آمن: {total_unsafe}، بيانات اعتماد: {total_credential_risk})",
+        f"خطوات تدريب حقيقية هذه الجلسة: {total_training_steps} (الخطوة النهائية: {final_step:,})",
+    ]
+    if last_loss is not None:
+        lines.append(f"آخر خسارة مسجّلة: {last_loss:.4f}")
+    if dataset_slug:
+        lines.append(f"نُشر إلى: {dataset_slug}")
+    return "\n".join(lines)
+
+
 def run_autonomous_cycle(
     model: ShamSmall,
     tokenizer: ShamTextTokenizer,
@@ -284,6 +316,17 @@ if __name__ == "__main__":
         )
         assert len(forever_results) == 3, f"expected exactly 3 real cycles, got {len(forever_results)}"
         print(f"\nrun_forever(max_cycles=3) correctly ran exactly {len(forever_results)} real crawl+train+checkpoint cycles.")
+
+        # --- format_cycle_report() over these same real results: proves
+        # the report reflects the actual numbers just produced above, not
+        # placeholder text.
+        report = format_cycle_report(forever_results, "test-track", final_step=999, dataset_slug="me/test-checkpoint")
+        assert "test-track" in report
+        assert "999" in report
+        assert "me/test-checkpoint" in report
+        assert str(sum(len(r.train_losses) for r in forever_results)) in report
+        print("\nformat_cycle_report() verified: real per-cycle stats (steps, dataset slug, track name) "
+              "all appear in the generated report text.")
 
     print("\nAll autonomous_pipeline checks passed: real (fake-injected, real-shaped) web content genuinely "
           "flows through crawl_and_learn's real safety/dedup filtering into train_from_stream's real "
