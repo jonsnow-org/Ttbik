@@ -82,6 +82,10 @@ function collectNotes(result: Result): string[] {
   if (!full && shortD) notes.push("وصف قصير موجود بلا وصف كامل في BotFather.");
   if ((full.length ?? 0) > 512) notes.push("الوصف الكامل أطول من 512 حرفاً.");
   if ((shortD.length ?? 0) > 120) notes.push("الوصف القصير أطول من 120 حرفاً.");
+  if (b?.canJoinGroups === false) notes.push("البوت لا يستطيع الانضمام للمجموعات (can_join_groups=false).");
+  if (b?.canJoinGroups && b?.canReadAllGroupMessages === false) {
+    notes.push("ينضم للمجموعات لكن لا يقرأ كل الرسائل — وضع الخصوصية مفعّل.");
+  }
   if ((b?.commandsGroups?.length ?? 0) > 0 && b?.canJoinGroups === false) {
     notes.push("أوامر مجموعات معرّفة بينما البوت لا يستطيع الانضمام للمجموعات.");
   }
@@ -97,7 +101,10 @@ function buildReport(result: Result, notes: string[]): string {
     `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
     w?.host ? `المضيف: ${w.host}` : "",
+    w?.lastErrorDate ? `آخر خطأ: ${w.lastErrorDate}` : "",
     `تحديثات معلّقة: ${w?.pendingUpdateCount ?? 0}`,
+    `المجموعات: ${b?.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}`,
+    `قراءة كل رسائل المجموعة: ${b?.canReadAllGroupMessages ? "نعم" : "لا"}`,
     `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
@@ -205,7 +212,10 @@ export default function HealthCheckForm() {
             {w?.host ? <li>المضيف: {w.host}</li> : null}
             {w?.url && w.port != null && <li>منفذ: {w.port}{w.portAllowed === false ? " — غير مسموح" : ""}</li>}
             {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
+            {w?.lastErrorDate ? <li>آخر خطأ ويبهوك: {w.lastErrorDate}</li> : null}
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
+            <li>المجموعات: {b.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}</li>
+            <li>قراءة كل رسائل المجموعة: {b.canReadAllGroupMessages ? "نعم" : "لا"}</li>
             <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
