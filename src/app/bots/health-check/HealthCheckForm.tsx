@@ -14,6 +14,10 @@ type Result = {
     canJoinGroups: boolean;
     canReadAllGroupMessages: boolean;
     supportsInlineQueries?: boolean;
+    hasMainWebApp?: boolean;
+    canConnectToBusiness?: boolean;
+    addedToAttachmentMenu?: boolean;
+    profilePhotoCount?: number;
     commands?: BotCommand[];
     commandsAr?: BotCommand[];
     commandsPrivate?: BotCommand[];
@@ -21,6 +25,8 @@ type Result = {
     commandsAdmins?: BotCommand[];
     description?: string;
     shortDescription?: string;
+    descriptionAr?: string;
+    shortDescriptionAr?: string;
   };
   webhook?: {
     url: string | null;
@@ -83,6 +89,10 @@ function collectNotes(result: Result): string[] {
   if (!full && shortD) notes.push("وصف قصير موجود بلا وصف كامل في BotFather.");
   if ((full.length ?? 0) > 512) notes.push("الوصف الكامل أطول من 512 حرفاً.");
   if ((shortD.length ?? 0) > 120) notes.push("الوصف القصير أطول من 120 حرفاً.");
+  const fullAr = b?.descriptionAr?.trim() ?? "";
+  const shortAr = b?.shortDescriptionAr?.trim() ?? "";
+  if (fullAr && !shortAr) notes.push("وصف عربي كامل موجود بلا وصف عربي قصير.");
+  if (!fullAr && shortAr) notes.push("وصف عربي قصير موجود بلا وصف عربي كامل.");
   if (b?.canJoinGroups === false) notes.push("البوت لا يستطيع الانضمام للمجموعات (can_join_groups=false).");
   if (b?.canJoinGroups && b?.canReadAllGroupMessages === false) {
     notes.push("ينضم للمجموعات لكن لا يقرأ كل الرسائل — وضع الخصوصية مفعّل.");
@@ -91,6 +101,12 @@ function collectNotes(result: Result): string[] {
     notes.push("أوامر مجموعات معرّفة بينما البوت لا يستطيع الانضمام للمجموعات.");
   }
   if (b?.supportsInlineQueries === false) notes.push("الاستعلامات المضمّنة غير مفعّلة في BotFather.");
+  const uname = (b?.username ?? "").toLowerCase();
+  if (uname && !uname.endsWith("bot")) notes.push(`المعرّف @${b?.username} لا ينتهي بـ bot — شرط تليجرام للبوتات العامة.`);
+  if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة بروفايل للبوت في BotFather.");
+  if (b?.hasMainWebApp) notes.push("ويب آب رئيسي مفعّل (has_main_web_app).");
+  if (b?.canConnectToBusiness) notes.push("البوت يمكنه الاتصال بحسابات Telegram Business.");
+  if (b?.addedToAttachmentMenu) notes.push("البوت مضاف لقائمة المرفقات.");
   return notes;
 }
 
@@ -110,6 +126,10 @@ function buildReport(result: Result, notes: string[]): string {
     `المجموعات: ${b?.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}`,
     `قراءة كل رسائل المجموعة: ${b?.canReadAllGroupMessages ? "نعم" : "لا"}`,
     `إنلاين: ${b?.supportsInlineQueries ? "مدعوم" : "غير مدعوم"}`,
+    `ويب آب رئيسي: ${b?.hasMainWebApp ? "نعم" : "لا"}`,
+    `Telegram Business: ${b?.canConnectToBusiness ? "مدعوم" : "غير مدعوم"}`,
+    `قائمة المرفقات: ${b?.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}`,
+    `صور البروفايل: ${b?.profilePhotoCount ?? 0}`,
     `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
@@ -224,6 +244,10 @@ export default function HealthCheckForm() {
             <li>المجموعات: {b.canJoinGroups ? "يمكنه الانضمام" : "لا ينضم"}</li>
             <li>قراءة كل رسائل المجموعة: {b.canReadAllGroupMessages ? "نعم" : "لا"}</li>
             <li>استعلامات إنلاين: {b.supportsInlineQueries ? "مدعومة" : "غير مدعومة"}</li>
+            <li>ويب آب رئيسي: {b.hasMainWebApp ? "نعم" : "لا"}</li>
+            <li>Telegram Business: {b.canConnectToBusiness ? "مدعوم" : "غير مدعوم"}</li>
+            <li>قائمة المرفقات: {b.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}</li>
+            <li>صور البروفايل: {b.profilePhotoCount ?? 0}</li>
             <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
