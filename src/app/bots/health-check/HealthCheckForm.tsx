@@ -79,6 +79,10 @@ function enabledRights(rights?: Record<string, boolean>) {
     .map(([k]) => k);
 }
 
+function commandSlugs(cmds?: BotCommand[], limit = 8) {
+  return (cmds ?? []).slice(0, limit).map((c) => `/${c.command}`).join(" ");
+}
+
 function collectNotes(result: Result): string[] {
   const notes: string[] = [];
   const w = result.webhook;
@@ -125,12 +129,16 @@ function collectNotes(result: Result): string[] {
     notes.push("وضع الخصوصية مفعّل: البوت لا يقرأ كل رسائل المجموعة.");
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  if ((b?.commands?.length ?? 0) > 0 && (b?.commandsAr?.length ?? 0) === 0) {
+    notes.push("توجد أوامر عامة بلا نسخة عربية (language_code=ar).");
+  }
   if (!b?.description?.trim() && !b?.shortDescription?.trim()) notes.push("لا يوجد وصف في BotFather.");
   if (!b?.descriptionAr?.trim() && !b?.shortDescriptionAr?.trim()) {
     notes.push("لا يوجد وصف عربي (language_code=ar) في BotFather.");
   }
   if (w?.tokenEmbeddedInUrl) notes.push("رابط الويبهوك يحتوي التوكن — خطر تسريب.");
   if ((b?.profilePhotoCount ?? 0) === 0) notes.push("لا توجد صورة ملف شخصي.");
+  if (b?.addedToAttachmentMenu) notes.push("البوت مظهور في قائمة المرفقات.");
   if (b?.menuButton?.type === "web_app" && !b.menuButton.webAppUrl) {
     notes.push("زر القائمة مضبوط كـ Web App بلا رابط.");
   }
@@ -180,10 +188,13 @@ export default function HealthCheckForm() {
     if (!b) return;
     const notes = collectNotes(result!);
     const w = result?.webhook;
+    const slugs = commandSlugs(b.commands);
     const lines = [
       "تقرير فحص بوت — سوق تولز",
       `@${b.username} — ${b.firstName}`,
       ...notes.map((n) => `- ${n}`),
+      slugs ? `أوامر: ${slugs}` : "",
+      b.addedToAttachmentMenu ? "قائمة المرفقات: مظهور" : "",
       `ويبهوك: ${w?.url || "غير مفعّل"}`,
       w?.hostIsPrivate ? "مضيف الويبهوك: خاص/محلي (غير قابل للوصول من تليجرام)" : "",
       w?.lastErrorDate ? `آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
@@ -219,6 +230,7 @@ export default function HealthCheckForm() {
   const groupRights = enabledRights(b?.groupAdminRights);
   const channelRights = enabledRights(b?.channelAdminRights);
   const allowedList = w?.allowedUpdates ?? [];
+  const slugs = commandSlugs(b?.commands);
 
   return (
     <main className="relative mx-auto max-w-lg px-4 py-10">
@@ -288,6 +300,8 @@ export default function HealthCheckForm() {
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>صور الملف الشخصي: {b.profilePhotoCount ?? 0}</li>
             <li>الأوامر: {b.commands?.length ?? 0} — عربي: {b.commandsAr?.length ?? 0} — خاص: {b.commandsPrivate?.length ?? 0} — مجموعات: {b.commandsGroups?.length ?? 0}</li>
+            {slugs ? <li className="font-mono text-xs">أوامر BotFather: {slugs}</li> : null}
+            <li>قائمة المرفقات: {yn(b.addedToAttachmentMenu)}</li>
             <li>الوصف: {b.description?.trim() || "غير مضبوط"}</li>
             {b.descriptionAr?.trim() && <li>الوصف العربي: {b.descriptionAr}</li>}
             {b.shortDescription?.trim() && <li>وصف قصير: {b.shortDescription}</li>}
