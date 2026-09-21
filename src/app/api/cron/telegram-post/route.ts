@@ -4,17 +4,27 @@ import { supabasePublic } from "@/lib/supabase";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 // Triggered daily by Vercel Cron (see vercel.json). Publishes one varied
-// promotional post to the public Telegram channel, rotating across three
-// pools: free tools, live paid catalog services, and (only if configured)
-// an AD_BOT manual-purchase awareness post.
+// promotional post to the public Telegram channel, rotating across four
+// pools: free tools, live paid catalog services, store products, and
+// (only if configured) an AD_BOT manual-purchase awareness post.
 //
-// Paid services are fetched fresh from Supabase on every run instead of
-// hardcoded — the old hardcoded list here had already drifted to include
-// a retired service (whatsapp-catalog) and a dead one (review-analyzer)
-// before the 2026-09-02 site audit caught it. Fetching live is what "دون
-// اخطاء" (owner directive, 2026-09-03) actually requires: a service that
-// gets deactivated tomorrow simply stops being eligible tomorrow, with no
-// separate list to remember to update.
+// Paid services and store products are fetched fresh from Supabase on
+// every run instead of hardcoded — the old hardcoded list here had already
+// drifted to include a retired service (whatsapp-catalog) and a dead one
+// (review-analyzer) before the 2026-09-02 site audit caught it. Fetching
+// live is what "دون اخطاء" (owner directive, 2026-09-03) actually
+// requires: a service (or product) that gets deactivated tomorrow simply
+// stops being eligible tomorrow, with no separate list to remember to
+// update.
+//
+// NEVER add Nova AI or "Sham" (our own in-house model) topics to this
+// route, ever — explicit owner directive, 2026-09-21. Nova AI lives on a
+// separate (Chinese-hosted) product and Sham is our own internal model,
+// neither is meant to be promoted in this public sales channel. Since
+// neither has ever had a public-facing catalog/store entry, this is
+// naturally already true; this comment exists so it stays true the next
+// time someone (Claude, Grok, or a future editor) is tempted to add a
+// "highlight the AI model" post here.
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
 const GENERIC_SYSTEM_PROMPT = `أنت مسؤول تسويق لموقع "سوق تولز" (متجر أدوات وخدمات رقمية مصغّرة). اكتب منشوراً ترويجياً قصيراً وجذاباً بالعربية لقناة تليجرام (4-6 أسطر كحد أقصى، مع 2-3 إيموجي مناسبة، بدون هاشتاقات). كل مرة استخدم أسلوباً وزاوية مختلفة (نصيحة عملية، سؤال يثير الفضول، قصة نجاح مختصرة، عرض ميزة). اذكر رابط واحد فقط في نهاية المنشور، بالضبط كما أعطيتك إياه دون أي تعديل عليه. لا تكرر نفس الصياغة في كل مرة.`;
@@ -48,6 +58,20 @@ async function getPaidTopics(): Promise<{ name: string; url: string }[]> {
     const db = supabasePublic();
     const { data } = await db.from("services").select("slug, name_ar").eq("is_active", true).gt("price_usd", 0);
     return (data ?? []).map((s: any) => ({ name: s.name_ar as string, url: `${SITE_URL}/service/${s.slug}` }));
+  } catch {
+    return [];
+  }
+}
+
+// Store products have no individual page of their own (they link out to
+// their affiliate merchant) — the promo always points at /store itself so
+// the click lands on our page (and its ads) first, not straight past it to
+// the merchant. See src/app/store/page.tsx.
+async function getStoreTopics(): Promise<{ name: string; url: string }[]> {
+  try {
+    const db = supabasePublic();
+    const { data } = await db.from("store_products").select("title_ar").eq("is_active", true);
+    return (data ?? []).map((p: any) => ({ name: p.title_ar as string, url: `${SITE_URL}/store` }));
   } catch {
     return [];
   }
@@ -133,16 +157,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Telegram not configured" }, { status: 503 });
   }
 
-  const paidTopics = await getPaidTopics();
+  const [paidTopics, storeTopics] = await Promise.all([getPaidTopics(), getStoreTopics()]);
   const botPromos = getBotPromos();
 
-  // Plain topics (free + live paid) far outnumber the bot-purchase pitch,
-  // so the AD_BOT awareness post stays an occasional post, not a spam
-  // pattern — roughly 1-in-N where N grows with the live catalog size.
+  // Plain topics (free + live paid + store) far outnumber the bot-purchase
+  // pitch, so the AD_BOT awareness post stays an occasional post, not a
+  // spam pattern — roughly 1-in-N where N grows with the live catalog size.
   const pool: { label: string; run: () => Promise<string> }[] = [
     ...FREE_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...LIVE_BOT_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...paidTopics.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
+    ...storeTopics.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...botPromos.map((p) => ({ label: p.label, run: () => buildBotPromoText(p) })),
   ];
 
