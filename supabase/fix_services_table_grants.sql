@@ -1,0 +1,20 @@
+-- Owner-hit real bug (2026-09-21): every attempt to UPDATE/DELETE a row in
+-- "services" via the app's service-role key failed with
+-- "permission denied for table services" -- even after confirming the
+-- correct service_role secret was set in Vercel. This is NOT an RLS policy
+-- problem and NOT a wrong-key problem: it's a missing table-level GRANT.
+--
+-- service_role has BYPASSRLS at the Postgres role level (it skips RLS
+-- POLICIES), but that is a separate mechanism from the base GRANT
+-- privileges on a table. A role still needs an actual GRANT to touch a
+-- table at all, bypassed RLS or not. SELECT clearly works (the storefront
+-- has always been able to list/read services), so SELECT was granted at
+-- some point -- but UPDATE/DELETE apparently never were, since nothing in
+-- the app ever needed to write to this table before the catalog-cleanup
+-- admin route (2026-09-20) was the first thing to try.
+--
+-- MUST be run manually in Supabase's own SQL Editor (dashboard), not via
+-- the app -- a role can't grant itself a privilege it doesn't already
+-- have, so no API key, however privileged, can fix this from inside the
+-- application itself.
+grant select, insert, update, delete on table public.services to anon, authenticated, service_role;
