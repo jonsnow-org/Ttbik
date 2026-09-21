@@ -193,12 +193,17 @@ export async function POST(req: NextRequest) {
     let webhookHost: string | null = null;
     let hostIsIp = false;
     let hostIsPrivate = false;
+    let webhookPort: number | null = null;
+    let portAllowed = true;
+    const ALLOWED_PORTS = new Set([443, 80, 88, 8443]);
     try {
       if (webhook.result?.url) {
         const u = new URL(webhook.result.url);
         webhookHost = u.host;
         hostIsIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(u.hostname) || u.hostname.includes(":");
         hostIsPrivate = isPrivateHost(u.hostname);
+        webhookPort = u.port ? Number(u.port) : (u.protocol === "http:" ? 80 : 443);
+        portAllowed = ALLOWED_PORTS.has(webhookPort);
       }
     } catch {
       webhookHost = null;
@@ -249,6 +254,8 @@ export async function POST(req: NextRequest) {
         tokenEmbeddedInUrl: typeof webhook.result?.url === "string" && webhook.result.url.includes(token),
         hostIsIp,
         hostIsPrivate,
+        port: webhookPort,
+        portAllowed,
       },
     });
   } catch {
