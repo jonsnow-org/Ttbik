@@ -49,6 +49,8 @@ type Result = {
     hostIsIp?: boolean;
     hostIsPrivate?: boolean;
     ipAddress?: string | null;
+    port?: number | null;
+    portAllowed?: boolean;
   };
   error?: string;
 };
@@ -121,6 +123,18 @@ function collectNotes(result: Result): string[] {
     notes.push("مضيف الويبهوك عنوان خاص/محلي — تليجرام لا يصل إليه من الإنترنت.");
   }
   if (w?.url && w.hostIsIp) notes.push("مضيف الويبهوك عنوان IP خام — فضّل نطاقاً.");
+  if (w?.url && w.portAllowed === false) {
+    notes.push(`منفذ الويبهوك غير مسموح من تليجرام (${w.port}). المسموح: 443 / 80 / 88 / 8443.`);
+  }
+  if (w?.url && w.maxConnections != null && w.maxConnections > 100) {
+    notes.push(`أقصى اتصالات أعلى من حد تليجرام 100 (الحالي ${w.maxConnections}).`);
+  }
+  if (b?.descriptionAr?.trim() && !b?.shortDescriptionAr?.trim()) {
+    notes.push("يوجد وصف عربي كامل بلا وصف قصير عربي.");
+  }
+  if (b?.shortDescriptionAr?.trim() && !b?.descriptionAr?.trim()) {
+    notes.push("يوجد وصف قصير عربي بلا وصف عربي كامل.");
+  }
   if (w?.url && w.maxConnections != null && w.maxConnections < 10) {
     notes.push(`أقصى اتصالات منخفض (${w.maxConnections}).`);
   }
@@ -191,13 +205,13 @@ function collectNotes(result: Result): string[] {
     notes.push("بوابة الأعمال مفعّلة بينما allowed_updates لا يشمل تحديثات الأعمال.");
   }
   if ((b?.commandsAdmins?.length ?? 0) > 0 && b?.canJoinGroups === false) {
-    notes.push("توجد أوامر نطاق مدراء المحادثة بينما البوت ممنوع من الانضمام للمجموعات.");
+    notes.push("توجد أوامر نطاق مدار المحادثة بينما البوت ممنوع من الانضمام للمجموعات.");
   }
   const adminSlugs = slugSet(b?.commandsAdmins);
   if (defSlugs.size > 0 && adminSlugs.size > 0) {
     const missingInAdmins = [...defSlugs].filter((s) => !adminSlugs.has(s));
     if (missingInAdmins.length > 0) {
-      notes.push(`أوامر عامة غير موجودة في نطاق مدراء المحادثة: ${missingInAdmins.slice(0, 6).map((s) => `/${s}`).join(" ")}`);
+      notes.push(`أوامر عامة غير موجودة في نطاق مدار المحادثة: ${missingInAdmins.slice(0, 6).map((s) => `/${s}`).join(" ")}`);
     }
   }
   return notes;
@@ -266,6 +280,7 @@ export default function HealthCheckForm() {
       b.description?.trim() && !b.shortDescription?.trim() ? "وصف كامل بلا وصف قصير" : "",
       `ويبهوك: ${w?.url || "غير مفعّل"}`,
       w?.hostIsPrivate ? "مضيف الويبهوك: خاص/محلي (غير قابل للوصول من تليجرام)" : "",
+      w?.url && w.port != null ? `منفذ الويبهوك: ${w.port}${w.portAllowed === false ? " — غير مسموح" : ""}` : "",
       w?.lastErrorDate ? `آخر خطأ ويبهوك: ${fmtDate(w.lastErrorDate)}` : "",
       w?.lastSyncErrorDate ? `آخر خطأ مزامنة: ${fmtDate(w.lastSyncErrorDate)}` : "",
       w?.maxConnections != null ? `أقصى اتصالات: ${w.maxConnections}` : "",
@@ -291,7 +306,8 @@ export default function HealthCheckForm() {
       n.includes("allowed_updates") ||
       n.includes("متوقف") ||
       n.includes("خاص/محلي") ||
-      n.includes("ممنوع من الانضمام"),
+      n.includes("ممنوع من الانضمام") ||
+      n.includes("منفذ الويبهوك"),
   )
     ? "bad"
     : notes.length
@@ -404,6 +420,12 @@ export default function HealthCheckForm() {
             {w?.host && <li>المضيف: {w.host}</li>}
             {w?.hostIsPrivate ? (
               <li className="text-rose-700">مضيف خاص/محلي — تليجرام لا يصل إليه</li>
+            ) : null}
+            {w?.url && w.port != null ? (
+              <li className={w.portAllowed === false ? "text-rose-700" : undefined}>
+                منفذ الويبهوك: {w.port}
+                {w.portAllowed === false ? " — غير مسموح (443 / 80 / 88 / 8443 فقط)" : ""}
+              </li>
             ) : null}
             {w?.ipAddress ? <li className="font-mono text-xs">IP الويبهوك: {w.ipAddress}</li> : null}
             {w?.url && <li className="break-all font-mono text-xs">{w.url}</li>}
