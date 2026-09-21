@@ -5,16 +5,17 @@ import { createPortal } from "react-dom";
 import Logo from "@/components/Logo";
 
 /**
- * Mobile-only hamburger + slide-in drawer. Owner-only admin shortcuts
- * (أدوات الأدمن / منشئ بوتات كلود / لوحة التحكم) deliberately do NOT live
- * here even for the owner (owner directive, 2026-09-20): they already
- * exist as a proper card/link row inside /admin's own dashboard
- * (AdminDashboard.tsx) — duplicating them into the same drawer every
- * visitor opens is unnecessary clutter and one more place a gating bug
- * could leak them, for zero benefit since the owner already has /admin
- * bookmarked. This menu is public-navigation only, full stop.
+ * Mobile-only hamburger + slide-in drawer. The per-tool admin shortcuts
+ * (أدوات الأدمن / منشئ بوتات كلود) deliberately do NOT live here (owner
+ * directive, 2026-09-20): they already exist as cards inside /admin's own
+ * dashboard, so duplicating them here is clutter. That directive did NOT
+ * cover the /admin link itself, though -- removing it too left the owner
+ * with zero way to reach /admin on mobile at all (the desktop header's
+ * link is `hidden lg:inline-block`), a real regression she hit directly
+ * (owner-reported, 2026-09-21). The single canonical /admin entry point
+ * is restored below, owner-only, not a duplicate of anything in /admin.
  */
-export default function MobileNav() {
+export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -57,6 +58,9 @@ export default function MobileNav() {
         { href: "/order/lookup", label: "تتبع طلبي" },
       ],
     },
+    ...(isOwner
+      ? [{ label: "المالك", links: [{ href: "/admin", label: "🔑 لوحة التحكم" }] }]
+      : []),
   ];
 
   const drawer = open && (

@@ -19,7 +19,11 @@ export const revalidate = 30;
 
 async function getService(slug: string) {
   const db = supabasePublic();
-  const { data } = await db.from("services").select("*, categories(slug)").eq("slug", slug).single();
+  // is_active filtered here too, not just in the storefront listing --
+  // a deactivated service (e.g. removed via /api/admin/catalog-cleanup)
+  // was still directly reachable and orderable by its old URL otherwise,
+  // even though it no longer appeared anywhere a visitor could navigate to.
+  const { data } = await db.from("services").select("*, categories(slug)").eq("slug", slug).eq("is_active", true).single();
   return data as (Service & { categories: { slug: string } | null }) | null;
 }
 

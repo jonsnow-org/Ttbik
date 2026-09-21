@@ -70,16 +70,26 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ar" dir="rtl">
       <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }} />
-        <AdServiceWorker />
-        <Script
-          id="monetag-inpage-push"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html:
-              "(function(s){s.dataset.zone='11710148',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))",
-          }}
-        />
-        <MultitagScript />
+        {/* The owner-ad-free rule (AdSlot.tsx, StickyBottomAd.tsx) only ever
+            covered the banner/sticky placements -- these two more intrusive
+            network-wide scripts (in-page push, Multitag's popunder/
+            interstitial bundle) ran unconditionally for every visitor,
+            owner included, which is the real complaint ("الإعلانات لا تزال
+            تظهر في صفحتي"، 2026-09-21). Gate both the same way. */}
+        {!isOwner && (
+          <>
+            <AdServiceWorker />
+            <Script
+              id="monetag-inpage-push"
+              strategy="afterInteractive"
+              dangerouslySetInnerHTML={{
+                __html:
+                  "(function(s){s.dataset.zone='11710148',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))",
+              }}
+            />
+            <MultitagScript />
+          </>
+        )}
         <AnalyticsTracker isOwner={isOwner} />
         {isOwner && (
           <div className="bg-emerald-600 py-1.5 text-center text-xs font-bold text-white">
@@ -115,7 +125,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
             </nav>
             <div className="flex-1 lg:hidden" />
-            <MobileNav />
+            <MobileNav isOwner={isOwner} />
             {isOwner && (
               <a
                 href="/admin"
