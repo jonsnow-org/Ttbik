@@ -14,9 +14,9 @@ name: Propose Self-Improvement (weekly, owner-supervised)
 # الإرسال الفعلي للتقرير على تيليجرام يحدث من داخل main.py نفسها
 # (SUPER_ADMIN_TELEGRAM_ID already configured on Render).
 
+# owner directive 2026-09-21: الجدولة التلقائية ملغاة حتى إشعار آخر —
+# يبقى الـworkflow قابلاً للتشغيل يدوياً فقط (workflow_dispatch).
 on:
-  schedule:
-    - cron: "0 9 * * 1" # كل اثنين
   workflow_dispatch: {}
 
 jobs:
