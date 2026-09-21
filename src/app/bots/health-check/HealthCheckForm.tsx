@@ -6,6 +6,7 @@ import SectionBackdrop from "@/components/SectionBackdrop";
 const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
 
 type BotCommand = { command: string; description: string };
+type MenuButton = { type?: string; text?: string; webAppUrl?: string };
 type Result = {
   bot?: {
     id?: number;
@@ -27,6 +28,9 @@ type Result = {
     shortDescription?: string;
     descriptionAr?: string;
     shortDescriptionAr?: string;
+    menuButton?: MenuButton;
+    groupAdminRights?: Record<string, boolean>;
+    channelAdminRights?: Record<string, boolean>;
   };
   webhook?: {
     url: string | null;
@@ -49,6 +53,13 @@ type Result = {
   error?: string;
 };
 
+function rightsTrue(rights?: Record<string, boolean>): string[] {
+  if (!rights) return [];
+  return Object.entries(rights)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+}
+
 function collectNotes(result: Result): string[] {
   const notes: string[] = [];
   const w = result.webhook;
@@ -64,6 +75,8 @@ function collectNotes(result: Result): string[] {
   if (w?.lastSyncErrorDate) notes.push(`آخر خطأ مزامنة ويبهوك: ${w.lastSyncErrorDate}`);
   if ((w?.pendingUpdateCount ?? 0) > 100) {
     notes.push(`تحديثات معلّقة مرتفعة (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
+  } else if ((w?.pendingUpdateCount ?? 0) > 0) {
+    notes.push(`تحديثات معلّقة: ${w?.pendingUpdateCount} — ليست حرجة بعد.`);
   }
   if (w?.url && w.portAllowed === false) {
     notes.push(`منفذ الويبهوك غير مسموح (${w.port}). المسموح: 443 / 80 / 88 / 8443.`);
@@ -114,6 +127,16 @@ function collectNotes(result: Result): string[] {
   if (b?.hasMainWebApp) notes.push("ويب آب رئيسي مفعّل (has_main_web_app).");
   if (b?.canConnectToBusiness) notes.push("البوت يمكنه الاتصال بحسابات Telegram Business.");
   if (b?.addedToAttachmentMenu) notes.push("البوت مضاف لقائمة المرفقات.");
+  const menu = b?.menuButton;
+  if (menu?.type === "web_app" && !menu.webAppUrl) {
+    notes.push("زر القائمة من نوع web_app بلا رابط.");
+  }
+  if (menu?.type === "web_app" && menu.webAppUrl && !menu.webAppUrl.startsWith("https://")) {
+    notes.push("رابط ويب آب زر القائمة ليس HTTPS.");
+  }
+  if ((b?.commandsAdmins?.length ?? 0) > 0 && rightsTrue(b?.groupAdminRights).length === 0) {
+    notes.push("أوامر للمشرفين معرّفة بينما صلاحيات الأدمن الافتراضية للمجموعات فارغة.");
+  }
   return notes;
 }
 
@@ -121,6 +144,9 @@ function buildReport(result: Result, notes: string[]): string {
   const b = result.bot;
   const w = result.webhook;
   const au = w?.allowedUpdates ?? [];
+  const menu = b?.menuButton;
+  const gRights = rightsTrue(b?.groupAdminRights);
+  const cRights = rightsTrue(b?.channelAdminRights);
   const lines = [
     `تقرير فحص @${b?.username ?? "—"} — ${b?.firstName ?? ""}`,
     b?.id != null ? `المعرّف: ${b.id}` : "",
@@ -140,6 +166,10 @@ function buildReport(result: Result, notes: string[]): string {
     `Telegram Business: ${b?.canConnectToBusiness ? "مدعوم" : "غير مدعوم"}`,
     `قائمة المرفقات: ${b?.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}`,
     `صور البروفايل: ${b?.profilePhotoCount ?? 0}`,
+    `زر القائمة: ${menu?.type ?? "افتراضي"}${menu?.text ? ` — ${menu.text}` : ""}`,
+    menu?.webAppUrl ? `ويب آب القائمة: ${menu.webAppUrl}` : "",
+    gRights.length ? `صلاحيات مجموعة: ${gRights.join(", ")}` : "صلاحيات مجموعة: لا شيء مفعّل",
+    cRights.length ? `صلاحيات قناة: ${cRights.join(", ")}` : "صلاحيات قناة: لا شيء مفعّل",
     `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
@@ -190,6 +220,9 @@ export default function HealthCheckForm() {
   const w = result?.webhook;
   const notes = result?.bot ? collectNotes(result) : [];
   const au = w?.allowedUpdates ?? [];
+  const menu = b?.menuButton;
+  const gRights = rightsTrue(b?.groupAdminRights);
+  const cRights = rightsTrue(b?.channelAdminRights);
 
   async function copyReport() {
     if (!result?.bot) return;
@@ -261,6 +294,10 @@ export default function HealthCheckForm() {
             <li>Telegram Business: {b.canConnectToBusiness ? "مدعوم" : "غير مدعوم"}</li>
             <li>قائمة المرفقات: {b.addedToAttachmentMenu ? "مضاف" : "غير مضاف"}</li>
             <li>صور البروفايل: {b.profilePhotoCount ?? 0}</li>
+            <li>زر القائمة: {menu?.type ?? "افتراضي"}{menu?.text ? ` — ${menu.text}` : ""}</li>
+            {menu?.webAppUrl ? <li>ويب آب القائمة: {menu.webAppUrl}</li> : null}
+            <li>صلاحيات مجموعة: {gRights.length ? gRights.join(", ") : "لا شيء مفعّل"}</li>
+            <li>صلاحيات قناة: {cRights.length ? cRights.join(", ") : "لا شيء مفعّل"}</li>
             <li>أوامر: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
