@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useCallback } from "react";
 import type { Order } from "@/types";
+import StoreProductsAdmin from "@/components/admin/StoreProductsAdmin";
 
 export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -100,6 +101,8 @@ export default function AdminDashboard() {
         </button>
         {cleanupResult && <p className="mt-2 font-mono text-xs text-red-900">{cleanupResult}</p>}
       </div>
+
+      <StoreProductsAdmin />
 
       <div className="space-y-4">
         {pending.map((o) => (

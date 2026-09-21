@@ -276,3 +276,34 @@ from (values
 ) as s(cat_slug, slug, name_ar, short_desc_ar, long_desc_ar, price_usd, demo_type, delivery_type, delivery_content, tool_route, sort_order)
 join categories c on c.slug = s.cat_slug
 on conflict (slug) do nothing;
+
+-- ============================================================================
+-- "متجر" (affiliate products store) -- owner directive 2026-09-21.
+-- Separate from `services` on purpose: these are external affiliate-network
+-- products (image + description + an outbound affiliate link), not our own
+-- deliverable services. Grants written explicitly for service_role from the
+-- start -- see migration_store_products.sql for why (a real bug on
+-- `services` today: service_role does NOT automatically get table grants
+-- in this project, only the RLS-bypass role attribute).
+-- ============================================================================
+
+create table if not exists store_products (
+  id uuid primary key default gen_random_uuid(),
+  title_ar text not null,
+  description_ar text,
+  image_url text,
+  affiliate_url text not null,
+  category text not null default 'عام',
+  price_display text,
+  sort_order int not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table store_products enable row level security;
+
+create policy "public read active store_products" on store_products
+  for select using (is_active = true);
+
+grant select on public.store_products to anon, authenticated;
+grant select, insert, update, delete on public.store_products to service_role;

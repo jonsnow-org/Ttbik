@@ -40,6 +40,19 @@ export interface Service {
   sort_order: number;
 }
 
+export interface StoreProduct {
+  id: string;
+  title_ar: string;
+  description_ar: string | null;
+  image_url: string | null;
+  affiliate_url: string;
+  category: string;
+  price_display: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface Order {
   id: string;
   order_code: string;

@@ -43,6 +43,10 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [{ href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" }],
     },
     {
+      label: "المتجر",
+      links: [{ href: "/store", label: "🛍️ المتجر" }],
+    },
+    {
       label: "قسم البوتات",
       links: [
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },

@@ -114,6 +114,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🤖 منشئ البوتات
               </a>
+              <a href="/store" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+                🛍️ المتجر
+              </a>
               <a href="/watch-and-earn" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 💰 اربح من الإعلانات
               </a>
