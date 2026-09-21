@@ -8,3 +8,4 @@ soundfile==0.14.0
 imageio-ffmpeg==0.5.1
 numpy==2.4.6
 ddgs==9.16.0
+beautifulsoup4==4.14.2
