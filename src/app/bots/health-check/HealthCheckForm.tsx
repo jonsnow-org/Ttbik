@@ -26,9 +26,16 @@ type Result = {
     pendingUpdateCount: number;
     lastErrorMessage: string | null;
     lastErrorDate?: string | null;
+    lastSyncErrorDate?: string | null;
     port?: number | null;
     portAllowed?: boolean;
     maxConnections?: number | null;
+    isHttps?: boolean;
+    hostIsIp?: boolean;
+    hostIsPrivate?: boolean;
+    tokenEmbeddedInUrl?: boolean;
+    hasCustomCertificate?: boolean;
+    host?: string | null;
   };
   error?: string;
 };
@@ -38,8 +45,14 @@ function collectNotes(result: Result): string[] {
   const w = result.webhook;
   const b = result.bot;
   if (!w?.url) notes.push("لا يوجد ويبهوك — البوت لن يستقبل تحديثات إلا عبر getUpdates.");
+  if (w?.url && w.isHttps === false) notes.push("رابط الويبهوك ليس HTTPS — تليجرام يرفض الاستقبال غالباً.");
+  if (w?.hostIsPrivate) notes.push(`مضيف الويبهوك خاص/محلي (${w.host ?? "—"}) ولن يصل من تليجرام.");
+  if (w?.hostIsIp) notes.push(`الويبهوك يشير إلى IP مباشر (${w.host ?? "—"}) — يفضّل نطاقاً.");
+  if (w?.tokenEmbeddedInUrl) notes.push("التوكن مضمّن في رابط الويبهوك — انقله لمسار آمن.");
+  if (w?.hasCustomCertificate) notes.push("شهادة مخصّصة على الويبهوك — تأكد أنها ما زالت صالحة.");
   if (w?.lastErrorMessage) notes.push(`آخر خطأ ويبهوك: ${w.lastErrorMessage}`);
   if (w?.lastErrorDate) notes.push(`وقت آخر خطأ ويبهوك: ${w.lastErrorDate}`);
+  if (w?.lastSyncErrorDate) notes.push(`آخر خطأ مزامنة ويبهوك: ${w.lastSyncErrorDate}`);
   if ((w?.pendingUpdateCount ?? 0) > 100) {
     notes.push(`تحديثات معلّقة مرتفعة (${w?.pendingUpdateCount}) — الويبهوك قد يكون متوقفاً أو بطيئاً.`);
   }
@@ -83,6 +96,7 @@ function buildReport(result: Result, notes: string[]): string {
     b?.id != null ? `المعرّف: ${b.id}` : "",
     `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
+    w?.host ? `المضيف: ${w.host}` : "",
     `تحديثات معلّقة: ${w?.pendingUpdateCount ?? 0}`,
     `أوامر: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
@@ -188,6 +202,7 @@ export default function HealthCheckForm() {
           <ul className="space-y-1 text-sm text-slate-700">
             {b.id != null && <li>المعرّف: {b.id}</li>}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
+            {w?.host ? <li>المضيف: {w.host}</li> : null}
             {w?.url && w.port != null && <li>منفذ: {w.port}{w.portAllowed === false ? " — غير مسموح" : ""}</li>}
             {w?.maxConnections != null && <li>أقصى اتصالات: {w.maxConnections}</li>}
             <li>تحديثات معلّقة: {w?.pendingUpdateCount ?? 0}</li>
