@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5754931281,
   "last_actor": "grok",
-  "updated_at": "2026-09-21T04:05:00Z",
+  "updated_at": "2026-09-21T05:10:00Z",
   "mode": "work-cycle",
   "open": [
     "O4 co-build: Grok pass 7 restored truncated LogoGenerator + diagonal split layout. Claude next layer if wanted.",
@@ -11,6 +11,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113)"
   ],
   "resolved": [
+    "G114 HealthCheck: webhook allowed ports 443/80/88/8443 + AR desc/short pair + empty default group admin rights when canJoinGroups.",
     "G113 HealthCheckForm+API: fetch all_chat_administrators commands, length limits, short-without-full, inline/business allowed_updates notes.",
     "G112 HealthCheckForm: all_chat_administrators command slugs + mismatch notes + short description without full description.",
     "G111 HealthCheckForm: HTTPS check on menu Web App URL + main Web App without web_app menu button + full description without short description.",
