@@ -113,12 +113,46 @@ def _jaccard_similarity(a: set[str], b: set[str]) -> float:
     return intersection / union if union else 0.0
 
 
+# Gap ported from Nova's ai-system/app/guardrails.py (owner request,
+# 2026-09-21, comparing Nova's training-feed mechanisms against Sham's):
+# Nova's knowledge pipeline runs every candidate text through a regex
+# filter that rejects passwords/API keys before they can enter training
+# data. This crawler had NO equivalent -- ContentSafetyFilter (dataset.py)
+# only screens for adult-content KEYWORDS, never credential-SHAPED
+# strings, so a real crawled page (a leaked .env dump, a pastebin, a
+# StackOverflow answer with a hardcoded key) would have flowed straight
+# into the training corpus untouched. Not exhaustive (same honest
+# limitation BANNED_WORDS states about itself), but a real first-pass net
+# for the common, high-damage shapes: cloud/vendor key prefixes, PEM
+# private-key blocks, and generic "<word like key/token/secret/password> =
+# <20+ char opaque value>" assignments in either language's punctuation
+# style.
+_CREDENTIAL_PATTERNS = [
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key id
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),  # GitHub personal/app tokens
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),  # Slack tokens
+    re.compile(r"sk-[A-Za-z0-9]{20,}"),  # common "sk-..." vendor API key shape
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+    re.compile(
+        r"\b(?:api[_-]?key|secret|password|passwd|token)\b\s*[:=]\s*['\"]?[A-Za-z0-9_\-/+=]{16,}['\"]?",
+        re.IGNORECASE,
+    ),
+]
+
+
+def contains_credential_risk(text: str) -> bool:
+    """True if `text` looks like it contains a real secret/credential
+    rather than a description of one -- see _CREDENTIAL_PATTERNS above."""
+    return any(p.search(text) for p in _CREDENTIAL_PATTERNS)
+
+
 @dataclass
 class CrawlStats:
     added: int = 0
     duplicate: int = 0
     near_duplicate: int = 0
     unsafe: int = 0
+    credential_risk: int = 0
     fetch_failed: int = 0
     not_learnable: int = 0
     added_topics: list[str] = field(default_factory=list)
@@ -249,6 +283,13 @@ def crawl_and_learn(
                     stats.unsafe += 1
                     continue
 
+                # Same ordering reasoning as the safety check above: must
+                # run before anything that could hide it behind an
+                # unrelated rejection reason.
+                if contains_credential_risk(text):
+                    stats.credential_risk += 1
+                    continue
+
                 if len(text) < min_text_length:
                     stats.fetch_failed += 1
                     continue
@@ -333,6 +374,12 @@ if __name__ == "__main__":
             "</body></html>"
         ),
         "https://example.com/too-short": "<html><body><p>hi</p></body></html>",
+        "https://example.com/leaked-credentials": (
+            "<html><body><article><p>Here is a real example config file some developer accidentally "
+            "committed to a public repository and search engines indexed: aws_secret_key = "
+            "\"AKIAABCDEFGHIJKLMNOP\" and api_token: 'sk-thisIsNotARealButRealisticLookingApiKey123456'. "
+            "Please never store credential-shaped content like this in a training corpus.</p></article></body></html>"
+        ),
     }
 
     def mock_search(topic: str, language: str) -> list[str]:
@@ -342,6 +389,8 @@ if __name__ == "__main__":
             return ["https://example.com/gold-prices", "https://example.com/too-short"]
         if "unsafe" in topic.lower():
             return ["https://example.com/unsafe-page"]
+        if "leaked credentials" in topic.lower():
+            return ["https://example.com/leaked-credentials"]
         return []
 
     def mock_fetch(url: str) -> str:
@@ -357,19 +406,21 @@ if __name__ == "__main__":
         topics_by_language = {
             "en": ["Python best practices", "gold prices today"],
             "unsafe_test": ["unsafe test topic"],  # exercises the safety-filter rejection path directly
+            "credential_test": ["leaked credentials example"],  # exercises contains_credential_risk directly
         }
         stats = crawl_and_learn(topics_by_language, mock_search, mock_fetch, corpus, max_pages_per_topic=3)
 
         print(f"crawl stats: {stats.added} added, {stats.duplicate} exact duplicates, "
               f"{stats.near_duplicate} near-duplicates, {stats.unsafe} unsafe, "
-              f"{stats.fetch_failed} failed/too-short")
+              f"{stats.credential_risk} credential-risk, {stats.fetch_failed} failed/too-short")
 
         assert stats.added == 2, f"expected exactly 2 genuinely new documents (python-tips + gold-prices), got {stats.added}"
         assert stats.near_duplicate == 1, f"expected the reworded mirror page caught as a near-duplicate, got {stats.near_duplicate}"
         assert stats.unsafe == 1, f"expected the unsafe page rejected, got {stats.unsafe}"
+        assert stats.credential_risk == 1, f"expected the leaked-credentials page rejected, got {stats.credential_risk}"
         assert stats.fetch_failed == 1, f"expected the too-short page rejected, got {stats.fetch_failed}"
-        print("all four rejection paths verified: near-duplicate, unsafe, and too-short content were each "
-              "correctly excluded, while two genuinely distinct real documents were kept.")
+        print("all five rejection paths verified: near-duplicate, unsafe, credential-risk, and too-short "
+              "content were each correctly excluded, while two genuinely distinct real documents were kept.")
 
         # Re-running the SAME crawl again (as a real second day's run
         # would) must treat the already-stored documents as duplicates
