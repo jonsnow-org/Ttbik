@@ -543,12 +543,30 @@ export default function MiniAppPage() {
                 {adminStats && <p className="text-[10px] text-slate-500">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
               </div>
             </div>
+            {/* Owner-only, real section for private-room posts -- these used to
+                only show as a small "🔒 غرفة X" badge buried inside the
+                general review list below, with no way to see them as their
+                own group (owner-reported, 2026-09-21). No views/likes/clones
+                shown here on purpose -- room posts are private, not meant to
+                be ranked like public content. */}
+            {items.some((it) => (it as any).squad_code) && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-amber-700">🔒 منشورات الغرف الخاصة (تظهر لك فقط)</p>
+                {items.filter((it) => (it as any).squad_code).slice(0, 30).map((it) => (
+                  <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2">
+                    <div className="h-12 w-16 overflow-hidden rounded-xl bg-white">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
+                    <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] font-bold text-amber-700">{it.sharer_name} · غرفة {(it as any).squad_code}</p></div>
+                    <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-600">مراجعة المحتوى (تشمل الغرف الخاصة) — إخفاء</p>
-              {items.slice(0, 30).map((it) => (
+              <p className="text-xs font-bold text-slate-600">مراجعة المحتوى العام — إخفاء</p>
+              {items.filter((it) => !(it as any).squad_code).slice(0, 30).map((it) => (
                 <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-sky-100 bg-white p-2">
                   <div className="h-12 w-16 overflow-hidden rounded-xl bg-sky-50">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
-                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] text-slate-500">{it.sharer_name}{(it as any).squad_code ? ` · 🔒 غرفة ${(it as any).squad_code}` : ""}</p></div>
+                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{it.title}</p><p className="text-[10px] text-slate-500">{it.sharer_name}</p></div>
                   <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
                 </div>
               ))}

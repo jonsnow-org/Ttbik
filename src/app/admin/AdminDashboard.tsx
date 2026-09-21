@@ -87,9 +87,9 @@ export default function AdminDashboard() {
       </p>
 
       <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
-        <p className="mb-2 text-sm font-bold text-red-800">🧹 إزالة "أعلن في قناتنا" من الكتالوج (لمرة واحدة)</p>
+        <p className="mb-2 text-sm font-bold text-red-800">🧹 إزالة "أعلن في قناتنا" + "بوت الرد الآلي" + "بوت الأسئلة الشائعة" من الكتالوج (لمرة واحدة)</p>
         <p className="mb-3 text-xs text-red-700">
-          يحذف الخدمة المزيفة نهائياً من قاعدة البيانات الحية مباشرة — بديل عن لصق SQL يدوياً.
+          يحذف الخدمات الثلاث نهائياً من قاعدة البيانات الحية مباشرة — بديل عن لصق SQL يدوياً.
         </p>
         <button
           disabled={cleanupBusy}

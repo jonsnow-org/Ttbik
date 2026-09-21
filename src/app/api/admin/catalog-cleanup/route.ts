@@ -18,14 +18,20 @@ export async function POST(req: NextRequest) {
   const db = supabaseAdmin();
   const results: Record<string, string> = {};
 
-  // "channel-ad-slot" ("أعلن في قناتنا") -- false promise, no real channel
-  // audience to sell exposure to. See migration_remove_channel_ad_slot.sql
-  // for the full owner directive this mirrors.
-  await db.from("services").update({ is_active: false }).eq("slug", "channel-ad-slot");
-  const { error: deleteError } = await db.from("services").delete().eq("slug", "channel-ad-slot");
-  results.channel_ad_slot = deleteError
-    ? `deactivated but not deleted (${deleteError.message}) -- likely referenced by a real historical order, left inactive`
-    : "removed";
+  // Owner directive (2026-09-21, repeated after an earlier partial fix only
+  // removed channel-ad-slot): remove all three of these from the live
+  // catalog, not just channel-ad-slot. "auto-reply-bot"/"faq-bot" were once
+  // accidentally deactivated by an old blanket migration and reactivated by
+  // mistake-fix -- this is different: an explicit, repeated owner request to
+  // remove them for real this time, not a resurfacing of that old bug.
+  const slugsToRemove = ["channel-ad-slot", "auto-reply-bot", "faq-bot"];
+  for (const slug of slugsToRemove) {
+    await db.from("services").update({ is_active: false }).eq("slug", slug);
+    const { error: deleteError } = await db.from("services").delete().eq("slug", slug);
+    results[slug] = deleteError
+      ? `deactivated but not deleted (${deleteError.message}) -- likely referenced by a real historical order, left inactive`
+      : "removed";
+  }
 
   return NextResponse.json({ ok: true, results });
 }
