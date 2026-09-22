@@ -121,6 +121,8 @@ function collectNotes(result: Result): string[] {
   const shortAr = b?.shortDescriptionAr?.trim() ?? "";
   if (fullAr && !shortAr) notes.push("وصف عربي كامل موجود بلا وصف عربي قصير.");
   if (!fullAr && shortAr) notes.push("وصف عربي قصير موجود بلا وصف عربي كامل.");
+  if (full && !fullAr) notes.push("وصف كامل موجود بلا نسخة عربية.");
+  if (shortD && !shortAr) notes.push("وصف قصير موجود بلا نسخة عربية.");
   if (b?.canJoinGroups === false) notes.push("البوت لا يستطيع الانضمام للمجموعات (can_join_groups=false).");
   if (b?.canJoinGroups && b?.canReadAllGroupMessages === false) {
     notes.push("ينضم للمجموعات لكن لا يقرأ كل الرسائل — وضع الخصوصية مفعّل.");
@@ -168,6 +170,8 @@ function buildReport(result: Result, notes: string[]): string {
     b?.botFatherName ? `اسم BotFather: ${b.botFatherName}` : "",
     b?.botFatherNameAr ? `اسم BotFather عربي: ${b.botFatherNameAr}` : "",
     shortD ? `وصف قصير: ${shortD.slice(0, 120)}` : "",
+    (b?.description ?? "").trim() ? `وصف كامل: ${(b?.description ?? "").trim().slice(0, 160)}` : "",
+    (b?.descriptionAr ?? "").trim() ? `وصف عربي كامل: ${(b?.descriptionAr ?? "").trim().slice(0, 160)}` : "",
     `الويبهوك: ${w?.url ? "مفعّل" : "غير مفعّل"}`,
     w?.url && w.port != null ? `المنفذ: ${w.port}` : "",
     w?.host ? `المضيف: ${w.host}` : "",
@@ -243,6 +247,8 @@ export default function HealthCheckForm() {
   const gRights = rightsTrue(b?.groupAdminRights);
   const cRights = rightsTrue(b?.channelAdminRights);
   const shortD = (b?.shortDescription ?? "").trim();
+  const fullD = (b?.description ?? "").trim();
+  const fullAr = (b?.descriptionAr ?? "").trim();
 
   async function copyReport() {
     if (!result?.bot) return;
@@ -300,6 +306,8 @@ export default function HealthCheckForm() {
             {b.botFatherName ? <li>اسم BotFather: {b.botFatherName}</li> : null}
             {b.botFatherNameAr ? <li>اسم BotFather عربي: {b.botFatherNameAr}</li> : null}
             {shortD ? <li>وصف قصير: {shortD.slice(0, 120)}</li> : null}
+            {fullD ? <li>وصف كامل: {fullD.slice(0, 160)}</li> : null}
+            {fullAr ? <li>وصف عربي كامل: {fullAr.slice(0, 160)}</li> : null}
             <li>الويبهوك: {w?.url ? "مفعّل" : "غير مفعّل"}</li>
             {w?.host ? <li>المضيف: {w.host}</li> : null}
             {w?.ipAddress ? <li>IP الويبهوك: {w.ipAddress}</li> : null}
