@@ -7,10 +7,29 @@ import AdSlot from "@/components/AdSlot";
 
 export const revalidate = 30;
 
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+
 export const metadata: Metadata = {
-  title: "المتجر — منتجات مختارة | سوق تولز",
-  description: "تصفح منتجات مختارة بروابط مباشرة للشراء — عروض وأسعار محدّثة.",
+  title: "متجر منتجات رقمية مختارة — روابط شراء مباشرة",
+  description:
+    "تصفح متجر سوق تولز: منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة. أسعار وعروض محدّثة بدون حساب وبدون كود للبيع.",
+  keywords: [
+    "متجر رقمي",
+    "منتجات رقمية",
+    "سوق تولز",
+    "شراء أونلاين",
+    "عروض رقمية",
+    "روابط شراء مباشرة",
+  ],
   alternates: { canonical: "/store" },
+  openGraph: {
+    type: "website",
+    locale: "ar_AR",
+    url: "/store",
+    siteName: "سوق تولز",
+    title: "متجر منتجات رقمية مختارة — سوق تولز",
+    description: "منتجات مختارة بروابط شراء مباشرة من متاجر موثوقة.",
+  },
 };
 
 async function getProducts(): Promise<StoreProduct[]> {
@@ -37,18 +56,38 @@ function groupByCategory(products: StoreProduct[]): { category: string; items: S
   return groups;
 }
 
+function storeJsonLd(products: StoreProduct[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "متجر سوق تولز",
+    url: `${SITE_URL}/store`,
+    numberOfItems: products.length,
+    itemListElement: products.slice(0, 40).map((p, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: p.title_ar,
+      url: p.affiliate_url || `${SITE_URL}/store`,
+    })),
+  };
+}
+
 export default async function StorePage() {
   const products = await getProducts();
   const groups = groupByCategory(products);
 
   return (
     <main className="relative mx-auto max-w-6xl px-4 pb-20 pt-6">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd(products)) }}
+      />
       <SectionBackdrop tone="store" />
 
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛍️ المتجر</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛍️ متجر سوق تولز</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
-          منتجات مختارة بروابط مباشرة للشراء من متاجر موثوقة.
+          منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>
       </div>
 
@@ -62,7 +101,7 @@ export default async function StorePage() {
         </div>
       ) : (
         groups.map((group, idx) => {
-          const theme = getCategoryTheme(null);
+          const theme = getCategoryTheme(group.category);
           return (
             <section key={group.category} className="mt-10">
               <h2 className="mb-4 text-xl font-bold text-slate-900">{group.category}</h2>

@@ -56,3 +56,7 @@ ON CONFLICT ("botId", "tgUserId") DO NOTHING;
 INSERT INTO "BotVisit" ("id", "botId", "tgUserId", "firstSeenAt")
 SELECT gen_random_uuid()::text, "botId", "id", "created_at" FROM "JobsUser"
 ON CONFLICT ("botId", "tgUserId") DO NOTHING;
+
+-- Missing on first ship (caught 2026-09-22, see AGENT_BUS.md's standing
+-- "always GRANT a new table" rule) -- safe to re-run, GRANT is idempotent.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "BotVisit" TO service_role;
