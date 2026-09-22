@@ -19,12 +19,22 @@ type SortKey = "default" | "price-asc" | "price-desc" | "title";
 export default function StoreCatalog({ products }: { products: StoreProduct[] }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("default");
+  const [cat, setCat] = useState<string>("all");
+
+  const categories = useMemo(() => {
+    const seen: string[] = [];
+    for (const p of products) {
+      if (!seen.includes(p.category)) seen.push(p.category);
+    }
+    return seen;
+  }, [products]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = products;
+    if (cat !== "all") list = list.filter((p) => p.category === cat);
     if (needle) {
-      list = products.filter((p) => {
+      list = list.filter((p) => {
         const hay = `${p.title_ar} ${p.description_ar || ""} ${p.category}`.toLowerCase();
         return hay.includes(needle);
       });
@@ -33,7 +43,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     else if (sort === "price-desc") list = [...list].sort((a, b) => priceNum(b) - priceNum(a));
     else if (sort === "title") list = [...list].sort((a, b) => a.title_ar.localeCompare(b.title_ar, "ar"));
     return list;
-  }, [products, q, sort]);
+  }, [products, q, sort, cat]);
 
   const groups = useMemo(() => {
     const out: { category: string; items: StoreProduct[] }[] = [];
@@ -44,6 +54,8 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     }
     return out;
   }, [filtered]);
+
+  const filtering = Boolean(q.trim()) || cat !== "all";
 
   return (
     <>
@@ -73,22 +85,61 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
         </label>
       </div>
 
-      {groups.length > 1 && !q.trim() && (
-        <nav className="mt-4 flex flex-wrap justify-center gap-2" aria-label="أقسام المتجر">
-          {groups.map((g) => (
-            <a
-              key={g.category}
-              href={`#${categoryAnchor(g.category)}`}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:border-slate-400"
-            >
-              {g.category} ({g.items.length})
-            </a>
-          ))}
+      {categories.length > 1 && (
+        <nav className="mt-4 flex flex-wrap justify-center gap-2" aria-label="تصفية أقسام المتجر">
+          <button
+            type="button"
+            onClick={() => setCat("all")}
+            className={`rounded-full border px-3 py-1 text-xs font-bold ${
+              cat === "all"
+                ? "border-slate-800 bg-slate-800 text-white"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+            }`}
+          >
+            الكل ({products.length})
+          </button>
+          {categories.map((c) => {
+            const count = products.filter((p) => p.category === c).length;
+            return (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCat(c)}
+                className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                  cat === c
+                    ? "border-slate-800 bg-slate-800 text-white"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+                }`}
+              >
+                {c} ({count})
+              </button>
+            );
+          })}
         </nav>
       )}
 
+      {filtering && filtered.length > 0 && (
+        <p className="mt-4 text-center text-xs font-semibold text-slate-500">
+          {filtered.length} نتيجة
+          {q.trim() ? ` لـ «${q.trim()}»` : ""}
+          {cat !== "all" ? ` في «${cat}»` : ""}
+        </p>
+      )}
+
       {filtered.length === 0 ? (
-        <p className="mt-8 text-center text-sm text-slate-500">لا نتائج مطابقة لبحثك.</p>
+        <p className="mt-8 text-center text-sm text-slate-500">
+          لا نتائج مطابقة.
+          <button
+            type="button"
+            className="mr-2 font-bold text-slate-800 underline"
+            onClick={() => {
+              setQ("");
+              setCat("all");
+            }}
+          >
+            إعادة الضبط
+          </button>
+        </p>
       ) : (
         groups.map((group) => (
           <section key={group.category} id={categoryAnchor(group.category)} className="mt-10 scroll-mt-24">
