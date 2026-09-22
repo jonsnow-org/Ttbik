@@ -5,6 +5,7 @@ import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+import { recordBotVisit } from "@/lib/botVisit";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -1604,6 +1605,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     if (isAdVerifyPayload(payload)) {
       await consumeAdVerifyPayload(payload);
     }
+    await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     const profile = await prisma.jobsProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {

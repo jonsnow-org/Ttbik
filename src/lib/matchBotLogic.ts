@@ -5,6 +5,7 @@ import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+import { recordBotVisit } from "@/lib/botVisit";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -1527,6 +1528,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // referredBy on creation, never overwrites an existing row.
   const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+ref_(\d+)/) : null;
   const user = await ensureMatchUser(botRow.id, tgUserId, refMatch?.[1]);
+  await recordBotVisit(botRow.id, tgUserId);
   await prisma.matchUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
 
   if (user.isBanned) {

@@ -44,6 +44,35 @@ model Bot {
   ads           Ad[]
 }
 
+// Real per-(bot, real Telegram person) reach record — added 2026-09-22
+// after the owner reported "bots' user counts never grow despite
+// continuous Facebook promotion." Root cause found in code: every
+// per-template user table (User/MatchUser/JobsUser) upserts on the
+// GLOBAL Telegram id alone (`where: { id: tgUserId }`), never touching
+// `botId` again once a row exists. A real person who ever started ANY
+// OTHER bot deployment sharing that same table (a different AD_BOT
+// clone sold to another creator, for instance) silently keeps that
+// FIRST bot's botId forever — so "عدد المستخدمين" for every bot except
+// whichever one they used first understates real reach, exactly
+// matching the reported symptom.
+// Deliberately a SEPARATE, purely additive table rather than changing
+// User/MatchUser/JobsUser's primary key to a composite (botId, id) --
+// those tables carry live financial data (balances, ad budgets,
+// transactions) that already foreign-key on the single `id` column;
+// restructuring that key on a live production table is a real risk this
+// fix does not need to take. This table exists ONLY to answer "how many
+// distinct real people have ever actually started THIS bot," accurately,
+// per bot -- see recordBotVisit() in src/lib/botVisit.ts.
+model BotVisit {
+  id          String   @id @default(uuid())
+  botId       String
+  tgUserId    String
+  firstSeenAt DateTime @default(now())
+
+  @@unique([botId, tgUserId])
+  @@index([botId])
+}
+
 model User {
   id             String        @id // Telegram User ID
   botId          String

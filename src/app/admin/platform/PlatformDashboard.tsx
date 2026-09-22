@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+type WebhookHealth = { ok: boolean; pendingUpdateCount: number; lastErrorMessage: string | null };
+
 type Bot = {
   id: string;
   token: string;
@@ -13,6 +15,8 @@ type Bot = {
   isActive: boolean;
   requiredChannel: string | null;
   created_at: string;
+  userCount: number;
+  webhook: WebhookHealth;
 };
 
 const TEMPLATE_LABELS: Record<string, string> = {
@@ -86,6 +90,8 @@ export default function PlatformDashboard() {
                 <th className="px-4 py-3">القالب</th>
                 <th className="px-4 py-3">التوكن</th>
                 <th className="px-4 py-3">معرّف المالك</th>
+                <th className="px-4 py-3">عدد المستخدمين</th>
+                <th className="px-4 py-3">الويبهوك</th>
                 <th className="px-4 py-3">إجمالي الإيرادات</th>
                 <th className="px-4 py-3">رصيد المالك</th>
                 <th className="px-4 py-3">تاريخ الإنشاء</th>
@@ -109,6 +115,21 @@ export default function PlatformDashboard() {
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{bot.token}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{bot.ownerId}</td>
+                  <td className="px-4 py-3 font-bold text-slate-800">{bot.userCount.toLocaleString("ar")}</td>
+                  <td className="px-4 py-3">
+                    {bot.webhook?.ok ? (
+                      <span className="inline-block rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700">
+                        ✅ يعمل
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-block cursor-help rounded-full bg-rose-50 px-2.5 py-0.5 text-[11px] font-bold text-rose-700"
+                        title={bot.webhook?.lastErrorMessage || "الرابط المسجّل لدى تيليجرام غير مطابق"}
+                      >
+                        ❌ معطّل
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-700">${bot.totalRevenue.toFixed(2)}</td>
                   <td className="px-4 py-3 text-slate-700">${bot.ownerBalance.toFixed(2)}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">

@@ -5,6 +5,7 @@ import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+import { recordBotVisit } from "@/lib/botVisit";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -571,6 +572,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     }
     const referredBy = payload && !isAdVerifyPayload(payload) && payload !== tgUserId ? payload : null;
     const user = await ensureUser(botRow.id, tgUserId, botRow, referredBy);
+    await recordBotVisit(botRow.id, tgUserId);
     await setPending(user.id, null);
     const lang = asLang(user.language);
     const isPrivileged = tgUserId === SUPER_ADMIN_ID || tgUserId === botRow.ownerId;
@@ -940,9 +942,15 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
   if (text === "📊 الإحصائيات والأرباح" && tgUserId === SUPER_ADMIN_ID) {
+    // botVisit.count() (distinct real people who ever started ANY bot),
+    // not user.count() -- see recordBotVisit()/
+    // migration_31_bot_visit_tracking.sql for why user.count() alone
+    // undercounts (a person crossing between two AD_BOT deployments only
+    // ever gets one User row, tagged with whichever bot they started
+    // first).
     const [botsCount, usersCount, revenueAgg, pendingWithdrawalsAgg, adGroups] = await Promise.all([
       prisma.bot.count(),
-      prisma.user.count(),
+      prisma.botVisit.count(),
       prisma.bot.aggregate({ _sum: { totalRevenue: true } }),
       prisma.transaction.aggregate({
         where: { type: { in: ["WITHDRAWAL", "OWNER_WITHDRAWAL"] }, status: { in: ["PENDING", "PENDING_AUDIT"] } },
@@ -1117,8 +1125,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
   if (text === "📊 إحصائيات البوت" && tgUserId === botRow.ownerId) {
+    // botVisit.count(), not user.count() -- see recordBotVisit()/
+    // migration_31_bot_visit_tracking.sql: User.upsert keys on the
+    // GLOBAL Telegram id, so a person who already has a row from
+    // ANOTHER bot deployment never gets counted here otherwise, even
+    // though they genuinely started THIS bot (real owner-reported
+    // symptom, 2026-09-22: "the bots' user counts never grow").
     const [usersCount, tasksCompleted, adsAgg] = await Promise.all([
-      prisma.user.count({ where: { botId: botRow.id } }),
+      prisma.botVisit.count({ where: { botId: botRow.id } }),
       prisma.transaction.count({ where: { botId: botRow.id, type: "TASK_REWARD" } }),
       prisma.ad.aggregate({ where: { botId: botRow.id }, _sum: { totalBudget: true } }),
     ]);
