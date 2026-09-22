@@ -73,6 +73,30 @@ model BotVisit {
   @@index([botId])
 }
 
+// Owner directive 2026-09-22: after a real bot update ships, the bot
+// itself should tell its users what changed -- automatically, not via
+// the owner pressing the manual "إذاعة" broadcast button each time (that
+// button stays for whatever the owner wants to say on her own initiative;
+// this is a separate, code-driven channel). Claude inserts one row here
+// (via this feature's own migration file, or a small standalone one when
+// the update itself needs no schema change) whenever a real user-facing
+// change ships to a bot template -- plain Arabic, "#تحديث" + what was
+// added, never internal/sensitive detail. /api/cron/bot-update-announcements
+// (see vercel.json) picks up every row with sentAt still null and sends
+// it to that template's real users (via BotVisit, or NovaUser.telegramId
+// for NOVA_BOT which has no BotVisit rows) using each bot instance's own
+// token, then stamps sentAt -- no manual send action from the owner.
+model BotUpdateAnnouncement {
+  id        String    @id @default(uuid())
+  template  String // "AD_BOT" | "MARRIAGE_BOT" | "JOBS_BOT" | "NOVA_BOT"
+  text      String // full Arabic message, starts with "#تحديث"
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+  sentCount Int       @default(0)
+
+  @@index([template, sentAt])
+}
+
 model User {
   id             String        @id // Telegram User ID
   botId          String
