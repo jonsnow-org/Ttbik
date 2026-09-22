@@ -49,10 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **1. Unified points/rewards ledger across all bots** — a single
-      `PlatformPoints` balance per Telegram user id, earned from any bot
-      (daily streak, referral, quiz win, ...) and spendable in any other
-      bot on the platform. Foundational — later items plug into it.
 - [ ] **2. Anonymous confessions/questions box bot** — new template
       (`CONFESSION_BOT`?). Each user gets a shareable link; senders stay
       anonymous. Free tier + a paid unlock (reveal-sender / unlimited
@@ -81,4 +77,15 @@ conversion via a paid conversion API, plagiarism checking.
 - [ ] **12. Complete the HOSPITAL template** — same, rebuilt fresh.
 
 ## Done
-(nothing yet)
+
+- **1. Unified points/rewards ledger across all bots** (shipped 2026-09-22)
+      — `PlatformPoints` (one balance per `tgUserId`, cross-bot) +
+      append-only `PlatformPointsTransaction` ledger in
+      `prisma/schema.prisma`, with `earnPoints()`/`spendPoints()`/
+      `getPointsBalance()`/`getPointsHistory()` in
+      `src/lib/platformPoints.ts` (each mutation atomic via
+      `prisma.$transaction`, `spendPoints` throws `InsufficientPointsError`
+      on an insufficient balance). Foundational only, as scoped — no bot
+      template earns/spends against it yet; items 2+ call into it as they
+      land. ⚠️ Owner needs to run `prisma/migration_32_platform_points.sql`
+      in Supabase's SQL Editor.

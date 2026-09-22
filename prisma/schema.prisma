@@ -1084,3 +1084,36 @@ model NovaSubscription {
   expiresAt  DateTime?
   created_at DateTime  @default(now())
 }
+
+// Backlog item 1 (docs/claude-feature-backlog.md) — a single points balance
+// per real Telegram person, shared across every bot on the platform: earned
+// in any one bot (daily streak, referral, quiz win, ...) and spendable in
+// any other. Deliberately keyed on tgUserId alone, not (botId, tgUserId) —
+// the whole point is ONE balance that follows the person across bots, the
+// opposite of BotVisit's per-bot design just above. Foundational: no bot
+// template earns or spends against this yet — later queue items plug into
+// it via earnPoints()/spendPoints() in src/lib/platformPoints.ts.
+model PlatformPoints {
+  id         String   @id @default(uuid())
+  tgUserId   String   @unique
+  balance    Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+// Append-only ledger behind PlatformPoints.balance — every earn/spend writes
+// one row here (positive amount = earn, negative = spend) alongside the
+// balance update, in the same DB transaction, so the balance can always be
+// reconciled/audited from history the same way Transaction already backs
+// User.balance.
+model PlatformPointsTransaction {
+  id           String   @id @default(uuid())
+  tgUserId     String
+  botId        String? // which bot this earn/spend happened through, if any — informational only, the balance itself is cross-bot
+  amount       Int // positive (earn) or negative (spend)
+  reason       String // DAILY_STREAK | REFERRAL | QUIZ_WIN | REDEEM | ADMIN_ADJUST | ...
+  balanceAfter Int
+  created_at   DateTime @default(now())
+
+  @@index([tgUserId])
+}
