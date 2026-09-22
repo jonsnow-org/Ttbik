@@ -3,7 +3,7 @@ import { supabasePublic } from "@/lib/supabase";
 import type { StoreProduct } from "@/types";
 import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
-import StoreProductCard from "./StoreProductCard";
+import StoreCatalog from "./StoreCatalog";
 
 export const revalidate = 30;
 
@@ -52,10 +52,6 @@ function isHttpUrl(value: string | null | undefined): value is string {
   } catch {
     return false;
   }
-}
-
-function categoryAnchor(category: string) {
-  return `cat-${encodeURIComponent(category).replace(/%/g, "")}`;
 }
 
 async function getProducts(): Promise<StoreProduct[]> {
@@ -189,7 +185,7 @@ export default async function StorePage() {
       </nav>
 
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛝 متجر سوق تولز</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛼 متجر سوق تولز</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
           منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>
@@ -207,39 +203,19 @@ export default async function StorePage() {
 
       <AdSlot position="header-banner" label="أعلى صفحة المتجر" />
 
-      {groups.length > 1 && (
-        <nav className="mt-6 flex flex-wrap justify-center gap-2" aria-label="أقسام المتجر">
-          {groups.map((g) => (
-            <a
-              key={g.category}
-              href={`#${categoryAnchor(g.category)}`}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:border-slate-400"
-            >
-              {g.category} ({g.items.length})
-            </a>
-          ))}
-        </nav>
-      )}
-
-      {groups.length === 0 ? (
+      {products.length === 0 ? (
         <div className="mt-10 rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center">
           <div className="text-4xl">🛒</div>
           <p className="mt-3 font-bold text-slate-700">المنتجات قادمة قريباً</p>
           <p className="mt-1 text-sm text-slate-500">نعمل على إضافة أول دفعة من المنتجات المختارة.</p>
         </div>
       ) : (
-        groups.map((group, idx) => (
-          <section key={group.category} id={categoryAnchor(group.category)} className="mt-10 scroll-mt-24">
-            <h2 className="mb-4 text-xl font-bold text-slate-900">{group.category}</h2>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {group.items.map((p) => (
-                <StoreProductCard key={p.id} p={p} />
-              ))}
-            </div>
-            {idx % 2 === 1 && <AdSlot position="in-content" label={`بين أقسام المتجر (بعد ${group.category})`} />}
-          </section>
-        ))
+        <StoreCatalog products={products} />
       )}
+
+      <div className="mt-10">
+        <AdSlot position="in-content" label="وسط صفحة المتجر" />
+      </div>
 
       <section className="mt-14 rounded-3xl border border-slate-200 bg-white p-6" aria-labelledby="store-faq">
         <h2 id="store-faq" className="text-lg font-extrabold text-slate-900">
