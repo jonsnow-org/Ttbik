@@ -30,6 +30,12 @@ export const metadata: Metadata = {
     title: "متجر منتجات رقمية مختارة — سوق تولز",
     description: "منتجات مختارة بروابط شراء مباشرة من متاجر موثوقة.",
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "متجر سوق تولز — منتجات رقمية مختارة",
+    description: "روابط شراء مباشرة من متاجر موثوقة. لا عمولة مفعّلة حتى موافقة حساب الشريك.",
+  },
+  robots: { index: true, follow: true },
 };
 
 const CATEGORY_FALLBACK: Record<string, { emoji: string; gradient: string }> = {
@@ -76,19 +82,56 @@ function groupByCategory(products: StoreProduct[]): { category: string; items: S
   return groups;
 }
 
+function breadcrumbJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "الرئيسية", item: `${SITE_URL}/` },
+      { "@type": "ListItem", position: 2, name: "المتجر", item: `${SITE_URL}/store` },
+    ],
+  };
+}
+
 function storeJsonLd(products: StoreProduct[]) {
   return {
     "@context": "https://schema.org",
-    "@type": "ItemList",
+    "@type": "CollectionPage",
     name: "متجر سوق تولز",
     url: `${SITE_URL}/store`,
-    numberOfItems: products.length,
-    itemListElement: products.slice(0, 40).map((p, i) => ({
-      "@type": "ListItem",
-      position: i + 1,
-      name: p.title_ar,
-      url: isHttpUrl(p.affiliate_url) ? p.affiliate_url : `${SITE_URL}/store`,
-    })),
+    inLanguage: "ar",
+    mainEntity: {
+      "@type": "ItemList",
+      name: "متجر سوق تولز",
+      numberOfItems: products.length,
+      itemListElement: products.slice(0, 40).map((p, i) => {
+        const url = isHttpUrl(p.affiliate_url) ? p.affiliate_url : `${SITE_URL}/store`;
+        const product: Record<string, unknown> = {
+          "@type": "Product",
+          name: p.title_ar,
+          url,
+          category: p.category,
+        };
+        if (p.description_ar) product.description = p.description_ar;
+        if (isHttpUrl(p.image_url)) product.image = p.image_url;
+        if (p.price_display) {
+          product.offers = {
+            "@type": "Offer",
+            url,
+            availability: "https://schema.org/InStock",
+            priceCurrency: "USD",
+            price: String(p.price_display).replace(/[^0-9.]/g, "") || undefined,
+          };
+        }
+        return {
+          "@type": "ListItem",
+          position: i + 1,
+          name: p.title_ar,
+          url,
+          item: product,
+        };
+      }),
+    },
   };
 }
 
@@ -155,9 +198,19 @@ export default async function StorePage() {
     <main className="relative mx-auto max-w-6xl px-4 pb-20 pt-6">
       <script
         type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd()) }}
+      />
+      <script
+        type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd(products)) }}
       />
       <SectionBackdrop tone="store" />
+
+      <nav className="mb-4 text-xs text-slate-500" aria-label="مسار التنقل">
+        <a href="/" className="hover:text-slate-800">الرئيسية</a>
+        <span className="px-1.5">/</span>
+        <span className="font-semibold text-slate-700">المتجر</span>
+      </nav>
 
       <div className="mb-8 text-center">
         <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛍️ متجر سوق تولز</h1>
