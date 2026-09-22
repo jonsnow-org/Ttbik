@@ -87,5 +87,5 @@ conversion via a paid conversion API, plagiarism checking.
       `prisma.$transaction`, `spendPoints` throws `InsufficientPointsError`
       on an insufficient balance). Foundational only, as scoped — no bot
       template earns/spends against it yet; items 2+ call into it as they
-      land. ⚠️ Owner needs to run `prisma/migration_32_platform_points.sql`
+      land. ⚠️ Owner needs to run `prisma/migration_33_platform_points.sql`
       in Supabase's SQL Editor.
