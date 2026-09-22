@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5784394281,
   "last_actor": "grok",
-  "updated_at": "2026-09-22T21:26:00Z",
+  "updated_at": "2026-09-22T23:15:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only.",
@@ -14,6 +14,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G141 /bots/health-check: Arabic OG/Twitter/canonical + visible FAQ matching FAQPage JSON-LD + AdSlot in-content on server page (form stays client, no AdSlot import there).",
     "G140 /store: persist q/cat/sort in URL via replaceState so refresh/share keep the filter.",
     "G139 /store: category filter chips (all + per category) + live result count + reset when empty.",
     "G138 /store: client StoreCatalog — search by title/desc/category + sort default/price/title. AdSlot stays on server page (no client import).",
