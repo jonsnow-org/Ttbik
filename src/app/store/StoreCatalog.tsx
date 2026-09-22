@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { StoreProduct } from "@/types";
 import StoreProductCard from "./StoreProductCard";
 
@@ -16,10 +16,53 @@ function priceNum(p: StoreProduct): number {
 
 type SortKey = "default" | "price-asc" | "price-desc" | "title";
 
+const SORTS: SortKey[] = ["default", "price-asc", "price-desc", "title"];
+
+function readQuery(): { q: string; sort: SortKey; cat: string } {
+  if (typeof window === "undefined") return { q: "", sort: "default", cat: "all" };
+  const sp = new URLSearchParams(window.location.search);
+  const sortRaw = sp.get("sort") || "default";
+  const sort = (SORTS as string[]).includes(sortRaw) ? (sortRaw as SortKey) : "default";
+  return {
+    q: (sp.get("q") || "").slice(0, 80),
+    sort,
+    cat: (sp.get("cat") || "all").slice(0, 60),
+  };
+}
+
+function writeQuery(q: string, sort: SortKey, cat: string) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  if (q.trim()) url.searchParams.set("q", q.trim());
+  else url.searchParams.delete("q");
+  if (sort !== "default") url.searchParams.set("sort", sort);
+  else url.searchParams.delete("sort");
+  if (cat !== "all") url.searchParams.set("cat", cat);
+  else url.searchParams.delete("cat");
+  const next = url.pathname + (url.search || "") + url.hash;
+  const curr = window.location.pathname + window.location.search + window.location.hash;
+  if (next !== curr) window.history.replaceState(null, "", next);
+}
+
 export default function StoreCatalog({ products }: { products: StoreProduct[] }) {
-  const [q, setQ] = useState("");
-  const [sort, setSort] = useState<SortKey>("default");
-  const [cat, setCat] = useState<string>("all");
+  const initial = readQuery();
+  const [q, setQ] = useState(initial.q);
+  const [sort, setSort] = useState<SortKey>(initial.sort);
+  const [cat, setCat] = useState<string>(initial.cat);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const fromUrl = readQuery();
+    setQ(fromUrl.q);
+    setSort(fromUrl.sort);
+    setCat(fromUrl.cat);
+    setReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    writeQuery(q, sort, cat);
+  }, [q, sort, cat, ready]);
 
   const categories = useMemo(() => {
     const seen: string[] = [];
@@ -55,7 +98,13 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     return out;
   }, [filtered]);
 
-  const filtering = Boolean(q.trim()) || cat !== "all";
+  const filtering = Boolean(q.trim()) || cat !== "all" || sort !== "default";
+
+  function resetAll() {
+    setQ("");
+    setCat("all");
+    setSort("default");
+  }
 
   return (
     <>
@@ -129,14 +178,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
       {filtered.length === 0 ? (
         <p className="mt-8 text-center text-sm text-slate-500">
           لا نتائج مطابقة.
-          <button
-            type="button"
-            className="mr-2 font-bold text-slate-800 underline"
-            onClick={() => {
-              setQ("");
-              setCat("all");
-            }}
-          >
+          <button type="button" className="mr-2 font-bold text-slate-800 underline" onClick={resetAll}>
             إعادة الضبط
           </button>
         </p>
