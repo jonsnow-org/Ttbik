@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Script from "next/script";
 import { headers } from "next/headers";
 import "./globals.css";
 import Logo from "@/components/Logo";
@@ -7,6 +6,7 @@ import { isOwnerServer } from "@/lib/isOwner";
 import AdServiceWorker from "@/components/AdServiceWorker";
 import AdSlot from "@/components/AdSlot";
 import MultitagScript from "@/components/MultitagScript";
+import MonetagInPagePushScript from "@/components/MonetagInPagePushScript";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import StickyBottomAd from "@/components/StickyBottomAd";
@@ -79,14 +79,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {!isOwner && (
           <>
             <AdServiceWorker />
-            <Script
-              id="monetag-inpage-push"
-              strategy="afterInteractive"
-              dangerouslySetInnerHTML={{
-                __html:
-                  "(function(s){s.dataset.zone='11710148',s.src='https://nap5k.com/tag.min.js'})([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))",
-              }}
-            />
+            <MonetagInPagePushScript />
             <MultitagScript />
           </>
         )}
