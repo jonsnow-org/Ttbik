@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import { supabasePublic } from "@/lib/supabase";
 import type { StoreProduct } from "@/types";
-import { getCategoryTheme } from "@/lib/categoryTheme";
 import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
+import StoreProductCard from "./StoreProductCard";
 
 export const revalidate = 30;
 
@@ -40,17 +40,6 @@ export const metadata: Metadata = {
   },
   robots: { index: true, follow: true },
 };
-
-const CATEGORY_FALLBACK: Record<string, { emoji: string; gradient: string }> = {
-  "أجهزة": { emoji: "💻", gradient: "from-sky-100 to-indigo-100" },
-  "اشتراكات": { emoji: "🔑", gradient: "from-amber-100 to-orange-100" },
-  "مكتبية": { emoji: "🗂️", gradient: "from-emerald-100 to-teal-100" },
-  "كتب": { emoji: "📚", gradient: "from-violet-100 to-fuchsia-100" },
-};
-
-function categoryFallback(category: string) {
-  return CATEGORY_FALLBACK[category] || { emoji: "🛍️", gradient: "from-slate-100 to-slate-200" };
-}
 
 function isHttpUrl(value: string | null | undefined): value is string {
   if (!value) return false;
@@ -173,61 +162,6 @@ function storeJsonLd(products: StoreProduct[]) {
   };
 }
 
-function ProductCard({ p }: { p: StoreProduct }) {
-  const theme = getCategoryTheme(p.category);
-  const fallback = categoryFallback(p.category);
-  const imageOk = isHttpUrl(p.image_url);
-  const linkOk = isHttpUrl(p.affiliate_url);
-  const inner = (
-    <>
-      <div className={`aspect-square w-full overflow-hidden bg-gradient-to-br ${fallback.gradient}`}>
-        {imageOk ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={p.image_url!}
-            alt={p.title_ar}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center gap-2">
-            <span className="text-5xl" aria-hidden>
-              {fallback.emoji}
-            </span>
-            <span className="text-xs font-bold text-slate-500">{p.category}</span>
-          </div>
-        )}
-      </div>
-      <div className="flex flex-1 flex-col gap-1.5 p-4">
-        <h3 className="font-bold text-slate-900">{p.title_ar}</h3>
-        {p.description_ar && <p className="line-clamp-2 text-xs text-slate-500">{p.description_ar}</p>}
-        <div className="mt-auto flex items-center justify-between pt-2">
-          {p.price_display && <span className="font-extrabold text-slate-900">{p.price_display}</span>}
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${theme.badgeBg} ${theme.badgeText}`}>
-            {linkOk ? "عرض المنتج ←" : "قريباً"}
-          </span>
-        </div>
-      </div>
-    </>
-  );
-
-  const className = `group flex flex-col overflow-hidden rounded-2xl border ${theme.border} bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg`;
-
-  if (!linkOk) {
-    return <div className={className}>{inner}</div>;
-  }
-
-  return (
-    <a
-      href={p.affiliate_url}
-      target="_blank"
-      rel="sponsored nofollow noopener"
-      className={className}
-    >
-      {inner}
-    </a>
-  );
-}
-
 export default async function StorePage() {
   const products = await getProducts();
   const groups = groupByCategory(products);
@@ -255,7 +189,7 @@ export default async function StorePage() {
       </nav>
 
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛍️ متجر سوق تولز</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛝 متجر سوق تولز</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
           منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>
@@ -299,7 +233,7 @@ export default async function StorePage() {
             <h2 className="mb-4 text-xl font-bold text-slate-900">{group.category}</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {group.items.map((p) => (
-                <ProductCard key={p.id} p={p} />
+                <StoreProductCard key={p.id} p={p} />
               ))}
             </div>
             {idx % 2 === 1 && <AdSlot position="in-content" label={`بين أقسام المتجر (بعد ${group.category})`} />}
