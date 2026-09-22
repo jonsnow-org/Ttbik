@@ -6,6 +6,7 @@ import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
+import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -938,7 +939,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === "📣 إذاعة لكل المستخدمين" && tgUserId === SUPER_ADMIN_ID) {
     await setPending(user.id, { mode: "admin_broadcast" });
-    await bot.api.sendMessage(chatId, "أرسل نص الرسالة التي ستصل لكل مستخدمي المنصة:", { reply_markup: amountEntryMenu("ar") });
+    await bot.api.sendMessage(chatId, `أرسل نص الرسالة التي ستصل لكل مستخدمي المنصة:\n\n${BROADCAST_COMPOSE_HINT}`, { reply_markup: amountEntryMenu("ar") });
     return;
   }
   if (text === "📊 الإحصائيات والأرباح" && tgUserId === SUPER_ADMIN_ID) {
@@ -1145,16 +1146,21 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === "📣 إذاعة لمستخدمي البوت" && tgUserId === botRow.ownerId) {
     await setPending(user.id, { mode: "owner_broadcast" });
-    await bot.api.sendMessage(chatId, "أرسل نص الرسالة التي ستصل لمستخدمي بوتك فقط:", { reply_markup: amountEntryMenu("ar") });
+    await bot.api.sendMessage(chatId, `أرسل نص الرسالة التي ستصل لمستخدمي بوتك فقط:\n\n${BROADCAST_COMPOSE_HINT}`, { reply_markup: amountEntryMenu("ar") });
     return;
   }
   if (pending?.mode === "owner_broadcast" && tgUserId === botRow.ownerId) {
-    const users = await prisma.user.findMany({ where: { botId: botRow.id }, select: { id: true } });
+    // BotVisit, not User.findMany({ where: { botId } }) -- the latter
+    // undercounts a real user of THIS bot whose botId got stuck on a
+    // different bot they visited first (see migration_31_bot_visit_tracking.sql).
+    // BotVisit is the accurate "who has actually started this bot" list.
+    const visits = await prisma.botVisit.findMany({ where: { botId: botRow.id }, select: { tgUserId: true } });
+    const messageText = formatBroadcastText(text);
     let sent = 0;
     let failed = 0;
-    for (const u of users) {
+    for (const v of visits) {
       try {
-        await bot.api.sendMessage(Number(u.id), text);
+        await bot.api.sendMessage(Number(v.tgUserId), messageText);
         sent++;
       } catch {
         failed++;
@@ -1512,11 +1518,12 @@ async function consumeWithdrawAmount(bot: TelegramBot, chatId: number, user: any
 
 async function runBroadcast(bot: TelegramBot, chatId: number, text: string) {
   const users = await prisma.user.findMany({ select: { id: true } });
+  const messageText = formatBroadcastText(text);
   let sent = 0;
   let failed = 0;
   for (const u of users) {
     try {
-      await bot.api.sendMessage(Number(u.id), text);
+      await bot.api.sendMessage(Number(u.id), messageText);
       sent++;
     } catch {
       failed++;

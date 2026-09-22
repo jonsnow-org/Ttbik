@@ -6,6 +6,7 @@ import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
+import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -1264,10 +1265,11 @@ async function runBroadcast(bot: TelegramBot, chatId: number, text: string) {
     where: { phoneVerified: true, isBanned: false, id: { not: SUPER_ADMIN_ID || "__none__" } },
     select: { id: true },
   });
+  const messageText = formatBroadcastText(text);
   let sent = 0;
   for (const r of recipients) {
     try {
-      await bot.api.sendMessage(Number(r.id), `📢 إعلان من إدارة البوت:\n\n${text}`);
+      await bot.api.sendMessage(Number(r.id), messageText);
       sent++;
     } catch {
       // user blocked the bot or is unreachable — skip and keep going
@@ -1353,7 +1355,7 @@ async function handleAdminMessage(bot: TelegramBot, chatId: number, text: string
   }
   if (text === "📢 بث جماعي") {
     await setPending(adminId, { mode: "admin_broadcast" });
-    await bot.api.sendMessage(chatId, "📢 أرسل نص الرسالة التي تريد بثّها لجميع المستخدمين المُفعّلين. لإلغاء العملية اضغط أي زر آخر من القائمة.");
+    await bot.api.sendMessage(chatId, `📢 أرسل نص الرسالة التي تريد بثّها لجميع المستخدمين المُفعّلين. لإلغاء العملية اضغط أي زر آخر من القائمة.\n\n${BROADCAST_COMPOSE_HINT}`);
     return;
   }
   if (text === "🔎 بحث عن مستخدم") {

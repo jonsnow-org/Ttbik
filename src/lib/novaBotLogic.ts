@@ -2,6 +2,7 @@ import { Bot as TelegramBot, InlineKeyboard, InputFile, Keyboard } from "grammy"
 import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+import { formatBroadcastText } from "@/lib/utils";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -846,7 +847,11 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       return;
     }
     if (adminText === "📢 بث جماعي") {
-      await bot.api.sendMessage(chatId, "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة", { reply_markup: novaAdminMenu() });
+      await bot.api.sendMessage(
+        chatId,
+        "اكتب الأمر متبوعاً بنص البث: /بث نص الرسالة\n\nاذكر فقط ما أضفناه أو حسّنّاه — دون تفاصيل داخلية أو حساسة عن سير العمل. سيبدأ الإعلان تلقائياً بـ #تحديث ما لم تبدأ رسالتك بوسم آخر بنفسك.",
+        { reply_markup: novaAdminMenu() }
+      );
       return;
     }
     if (adminText.startsWith("/بث ")) {
@@ -861,10 +866,11 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         return;
       }
       const ids = (data.ids || []) as string[];
+      const messageText = formatBroadcastText(broadcastText);
       let sent = 0;
       for (const id of ids) {
         try {
-          await bot.api.sendMessage(Number(id), `📢 إعلان من إدارة Nova AI:\n\n${broadcastText}`);
+          await bot.api.sendMessage(Number(id), messageText);
           sent++;
         } catch {
           /* user blocked the bot or invalid id — skip */

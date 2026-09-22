@@ -292,6 +292,9 @@ export default function NovaAdminDashboard() {
             rows={5}
             className="w-full rounded-xl border px-3 py-2 text-sm"
           />
+          <p className="text-xs text-slate-500">
+            سيبدأ الإعلان تلقائياً بـ #تحديث ما لم تبدأ رسالتك بوسم آخر بنفسك — اذكر فقط ما أضفناه/حسّنّاه، دون تفاصيل داخلية أو حساسة.
+          </p>
           <button
             disabled={busy === "broadcast" || !broadcastText.trim()}
             onClick={sendBroadcast}

@@ -6,6 +6,7 @@ import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
+import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -1424,10 +1425,11 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     if (adminPending?.mode === "admin_broadcast" && text) {
       await setPending(tgUserId, null);
       const recipients = await prisma.jobsUser.findMany({ where: { id: { not: SUPER_ADMIN_ID } }, select: { id: true } });
+      const messageText = formatBroadcastText(text);
       let sent = 0;
       for (const r of recipients) {
         try {
-          await bot.api.sendMessage(Number(r.id), `📢 إعلان من الإدارة:\n\n${text}`);
+          await bot.api.sendMessage(Number(r.id), messageText);
           sent++;
         } catch {}
       }
@@ -1518,7 +1520,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     }
     if (text === "📢 بث جماعي") {
       await setPending(tgUserId, { mode: "admin_broadcast" });
-      await bot.api.sendMessage(chatId, "✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:");
+      await bot.api.sendMessage(chatId, `✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:\n\n${BROADCAST_COMPOSE_HINT}`);
       return;
     }
     return;

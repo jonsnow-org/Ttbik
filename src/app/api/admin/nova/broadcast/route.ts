@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { formatBroadcastText } from "@/lib/utils";
 
 // Sends a message to every Nova user who has a telegramId (i.e. reached
 // Nova through the Telegram channel) — same idea as the broadcast feature
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
     select: { telegramId: true },
   });
 
+  const messageText = formatBroadcastText(text);
   let sent = 0;
   let failed = 0;
   for (const u of users) {
@@ -26,7 +28,7 @@ export async function POST(req: NextRequest) {
       const res = await fetch(`https://api.telegram.org/bot${bot.token}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: u.telegramId, text }),
+        body: JSON.stringify({ chat_id: u.telegramId, text: messageText }),
       });
       const data = await res.json().catch(() => ({}));
       if (data?.ok) sent++;
