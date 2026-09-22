@@ -98,6 +98,16 @@ function collectNotes(result: Result): string[] {
     if (!au.includes("callback_query")) notes.push("allowed_updates لا يتضمن callback_query — أزرار الإنلاين قد لا تعمل.");
   }
   if ((b?.commands?.length ?? 0) === 0) notes.push("قائمة الأوامر فارغة في BotFather.");
+  const scopedCount = (b?.commandsPrivate?.length ?? 0) + (b?.commandsGroups?.length ?? 0) + (b?.commandsAdmins?.length ?? 0);
+  if ((b?.commands?.length ?? 0) === 0 && scopedCount > 0) {
+    notes.push("الأوامر العامة فارغة بينما توجد أوامر بنطاق خاص/مجموعات/مشرفين.");
+  }
+  const defSlugs = new Set((b?.commands ?? []).map((c) => c.command));
+  const arSlugs = new Set((b?.commandsAr ?? []).map((c) => c.command));
+  if (defSlugs.size && arSlugs.size) {
+    const missingAr = [...defSlugs].filter((x) => !arSlugs.has(x));
+    if (missingAr.length) notes.push(`أوامر عامة بلا نسخة عربية: ${missingAr.slice(0, 6).map((x) => "/" + x).join(" ")}`);
+  }
   const allCmds = [
     ...(b?.commands ?? []),
     ...(b?.commandsAr ?? []),
@@ -196,6 +206,7 @@ function buildReport(result: Result, notes: string[]): string {
     gRights.length ? `صلاحيات مجموعة: ${gRights.join(", ")}` : "صلاحيات مجموعة: لا شيء مفعّل",
     cRights.length ? `صلاحيات قناة: ${cRights.join(", ")}` : "صلاحيات قناة: لا شيء مفعّل",
     `أوامر عامة: ${b?.commands?.length ?? 0} / عربي ${b?.commandsAr?.length ?? 0}`,
+    (b?.commands?.length ?? 0) ? `عيّنة أوامر عامة: ${(b?.commands ?? []).slice(0, 8).map((c) => "/" + c.command).join(" ")}` : "",
     `أوامر خاصة/مجموعات/مشرفين: ${b?.commandsPrivate?.length ?? 0} / ${b?.commandsGroups?.length ?? 0} / ${b?.commandsAdmins?.length ?? 0}`,
     notes.length ? "ملاحظات:" : "لا ملاحظات.",
     ...notes.map((n) => `- ${n}`),
@@ -335,6 +346,9 @@ export default function HealthCheckForm() {
             <li>صلاحيات مجموعة: {gRights.length ? gRights.join(", ") : "لا شيء مفعّل"}</li>
             <li>صلاحيات قناة: {cRights.length ? cRights.join(", ") : "لا شيء مفعّل"}</li>
             <li>أوامر عامة: {b.commands?.length ?? 0} / عربي {b.commandsAr?.length ?? 0}</li>
+            {(b.commands?.length ?? 0) > 0 ? (
+              <li>عيّنة أوامر عامة: {(b.commands ?? []).slice(0, 8).map((c) => `/${c.command}`).join(" ")}</li>
+            ) : null}
             <li>أوامر خاصة/مجموعات/مشرفين: {b.commandsPrivate?.length ?? 0} / {b.commandsGroups?.length ?? 0} / {b.commandsAdmins?.length ?? 0}</li>
           </ul>
           <div className="flex flex-wrap gap-2">
