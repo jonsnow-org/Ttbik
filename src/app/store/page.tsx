@@ -65,6 +65,10 @@ function isHttpUrl(value: string | null | undefined): value is string {
   }
 }
 
+function categoryAnchor(category: string) {
+  return `cat-${encodeURIComponent(category).replace(/%/g, "")}`;
+}
+
 async function getProducts(): Promise<StoreProduct[]> {
   const db = supabasePublic();
   const { data } = await db
@@ -96,36 +100,30 @@ function breadcrumbJsonLd() {
   };
 }
 
+const STORE_FAQ = [
+  {
+    q: "هل الشراء من متجر سوق تولز يحتاج حساباً؟",
+    a: "لا. الروابط تفتح صفحة المنتج لدى المتجر المصدر مباشرة دون إنشاء حساب على سوق تولز.",
+  },
+  {
+    q: "هل سوق تولز يحصل على عمولة من هذه الروابط حالياً؟",
+    a: "لا. الروابط حالياً روابط عرض عامة فقط. لا يوجد حساب عمولة مفعّل حتى تكتمل موافقة حساب الشريك.",
+  },
+  {
+    q: "هل تبيعون أكواداً أو ملفات للتحميل؟",
+    a: "لا. الصفحة تعرض منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة، وليست سوقاً لبيع ملفات كود.",
+  },
+];
+
 function faqJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity: [
-      {
-        "@type": "Question",
-        name: "هل الشراء من متجر سوق تولز يحتاج حساباً؟",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "لا. الروابط تفتح صفحة المنتج لدى المتجر المصدر مباشرة دون إنشاء حساب على سوق تولز.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "هل سوق تولز يحصل على عمولة من هذه الروابط حالياً؟",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "لا. الروابط حالياً روابط عرض عامة فقط. لا يوجد حساب عمولة مفعّل حتى تكتمل موافقة حساب الشريك.",
-        },
-      },
-      {
-        "@type": "Question",
-        name: "هل تبيعون أكواداً أو ملفات للتحميل؟",
-        acceptedAnswer: {
-          "@type": "Answer",
-          text: "لا. الصفحة تعرض منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة، وليست سوقاً لبيع ملفات كود.",
-        },
-      },
-    ],
+    mainEntity: STORE_FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
   };
 }
 
@@ -261,6 +259,11 @@ export default async function StorePage() {
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
           منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>
+        {products.length > 0 && (
+          <p className="mt-2 text-xs font-semibold text-slate-400">
+            {products.length} منتج مختار في {groups.length} أقسام
+          </p>
+        )}
         <p className="mx-auto mt-3 max-w-2xl rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
           تنبيه: روابط المتجر حالياً روابط عرض عامة فقط. لا يوجد حساب عمولة مفعّل (لا tag=
           أمازون ولا deeplink Admitad)، لذلك أي شراء عبر هذه الصفحة لا يولّد عمولة للموقع
@@ -270,6 +273,20 @@ export default async function StorePage() {
 
       <AdSlot position="header-banner" label="أعلى صفحة المتجر" />
 
+      {groups.length > 1 && (
+        <nav className="mt-6 flex flex-wrap justify-center gap-2" aria-label="أقسام المتجر">
+          {groups.map((g) => (
+            <a
+              key={g.category}
+              href={`#${categoryAnchor(g.category)}`}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 hover:border-slate-400"
+            >
+              {g.category} ({g.items.length})
+            </a>
+          ))}
+        </nav>
+      )}
+
       {groups.length === 0 ? (
         <div className="mt-10 rounded-3xl border border-dashed border-slate-200 bg-white p-10 text-center">
           <div className="text-4xl">🛒</div>
@@ -278,7 +295,7 @@ export default async function StorePage() {
         </div>
       ) : (
         groups.map((group, idx) => (
-          <section key={group.category} className="mt-10">
+          <section key={group.category} id={categoryAnchor(group.category)} className="mt-10 scroll-mt-24">
             <h2 className="mb-4 text-xl font-bold text-slate-900">{group.category}</h2>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {group.items.map((p) => (
@@ -289,6 +306,20 @@ export default async function StorePage() {
           </section>
         ))
       )}
+
+      <section className="mt-14 rounded-3xl border border-slate-200 bg-white p-6" aria-labelledby="store-faq">
+        <h2 id="store-faq" className="text-lg font-extrabold text-slate-900">
+          أسئلة شائعة عن المتجر
+        </h2>
+        <dl className="mt-4 space-y-4">
+          {STORE_FAQ.map((item) => (
+            <div key={item.q}>
+              <dt className="font-bold text-slate-800">{item.q}</dt>
+              <dd className="mt-1 text-sm leading-6 text-slate-600">{item.a}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       <div className="mt-10">
         <AdSlot position="footer-banner" label="أسفل صفحة المتجر" />
