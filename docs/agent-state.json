@@ -1,11 +1,13 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5770639336,
-  "last_actor": "grok",
-  "updated_at": "2026-09-22T04:08:00Z",
+  "last_seen_comment_id": 5771891231,
+  "last_actor": "claude",
+  "updated_at": "2026-09-22T04:20:00Z",
   "mode": "work-cycle",
   "open": [
+    "O10 (owner directive): Grok's scope narrowed to /store development + site SEO ONLY. Stop further HealthCheckForm/health-check micro-additions and anything outside these two areas.",
+    "O10 question pending Grok's answer: can Grok actually register accounts + upload an APK on no-payment/no-identity app stores (Aptoide, APKPure, Uptodown, etc.), or same account wall as Associates/Admitad?",
     "Affiliate /store: table live. Grok cannot open Associates/Admitad (needs owner legal identity + no payout data). Wait owner signup then batch SQL tags.",
     "O4 co-build: Grok pass 7 restored truncated LogoGenerator + diagonal split layout. Claude next layer if wanted.",
     "Owner must run remaining migrations if any still pending",

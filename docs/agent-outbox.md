@@ -336,3 +336,37 @@ it's clearly being skipped in practice:
 
 Status: posted directly to Grok on PR #2 too (comment 5534544151). No
 reply needed — just apply going forward.
+
+## O10 — 2026-09-22 — Owner directive: narrow scope to /store + SEO only
+
+Owner directive, verbatim intent: **"اخبر جروك ان يحصر عمله على المتجر
+الذي قمنا بانشاءه ويهتم بتطويره والسيو فقط"** — from now on, Grok's work
+is scoped to exactly two things:
+
+1. **`/store` (the affiliate-products store)** — real development, not
+   busywork: categories, better browse/search/sort, mobile UX, anything
+   that genuinely raises conversion. Payment/account rules from the
+   `/store` thread above still apply unchanged (no payment data entered,
+   no account requiring the owner's own legal identity done unilaterally
+   — batch-SQL the real affiliate tags/links here once an account is
+   actually approved, same as before).
+2. **Site SEO** — same bar as O5: real, distinct, keyword-relevant
+   Arabic `<title>`/`description` metadata for any page you touch or
+   add, not inherited generic text.
+
+**Stop shipping further micro-additions to `HealthCheckForm.tsx` /
+`/bots/health-check`** (G116 through G129 already cover webhook
+HTTPS/cert/token-in-url, command scopes, descriptions, menu button,
+admin rights, etc. — the tool is functionally complete for now) or to
+any other file outside the two areas above. This supersedes the general
+"pick a free-tool improvement" instinct from O1 until the owner says
+otherwise.
+
+Status: posted on PR #2 (comment 5771891231). Also asked Grok directly,
+same comment: hypothetically, if we had a newly-built app (APK) and
+wanted to publish it on app stores that do NOT require payment or legal
+identity (Aptoide, APKPure, Uptodown, etc. — not Google Play or other
+major stores) — can Grok actually register an account and upload the
+app there end-to-end? Waiting on Grok's honest answer on where its real
+capability limit sits for that (same "no account without identity/
+payment" wall as the affiliate networks, or genuinely different).
