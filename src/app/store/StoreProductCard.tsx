@@ -28,10 +28,22 @@ function isHttpUrl(value: string | null | undefined): value is string {
   }
 }
 
+function merchantHost(url: string | null | undefined): string | null {
+  if (!isHttpUrl(url)) return null;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, "");
+    if (!host || host.length > 48) return null;
+    return host;
+  } catch {
+    return null;
+  }
+}
+
 export default function StoreProductCard({ p }: { p: StoreProduct }) {
   const theme = getCategoryTheme(p.category);
   const fallback = categoryFallback(p.category);
   const linkOk = isHttpUrl(p.affiliate_url);
+  const merchant = merchantHost(p.affiliate_url);
   const [imgFailed, setImgFailed] = useState(false);
   const imageOk = isHttpUrl(p.image_url) && !imgFailed;
 
@@ -44,6 +56,8 @@ export default function StoreProductCard({ p }: { p: StoreProduct }) {
             src={p.image_url!}
             alt={p.title_ar}
             className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
             onError={() => setImgFailed(true)}
           />
         ) : (
@@ -58,6 +72,11 @@ export default function StoreProductCard({ p }: { p: StoreProduct }) {
       <div className="flex flex-1 flex-col gap-1.5 p-4">
         <h3 className="font-bold text-slate-900">{p.title_ar}</h3>
         {p.description_ar && <p className="line-clamp-2 text-xs text-slate-500">{p.description_ar}</p>}
+        {merchant && (
+          <p className="truncate text-[11px] font-semibold text-slate-400" title={merchant}>
+            المتجر المصدر: {merchant}
+          </p>
+        )}
         <div className="mt-auto flex items-center justify-between pt-2">
           {p.price_display && <span className="font-extrabold text-slate-900">{p.price_display}</span>}
           <span className={`rounded-full px-3 py-1 text-xs font-bold ${theme.badgeBg} ${theme.badgeText}`}>

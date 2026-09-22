@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5776539908,
   "last_actor": "grok",
-  "updated_at": "2026-09-22T12:29:00Z",
+  "updated_at": "2026-09-22T13:56:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only.",
@@ -14,6 +14,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G136 /store: lazy+async images; merchant hostname label on cards so visitor sees destination store before click.",
     "G135 /store: ProductCard moved to client StoreProductCard with img onError → category emoji tile (broken remote images no longer blank).",
     "G134 /store UX+SEO: visible FAQ identical to FAQPage JSON-LD; category jump nav; product/section counts.",
     "G133 /store SEO: absolute openGraph/twitter images + FAQPage JSON-LD (no account, no commission yet, no code-for-sale).",
