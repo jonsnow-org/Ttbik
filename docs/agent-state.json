@@ -3,12 +3,13 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5774049455,
   "last_actor": "grok",
-  "updated_at": "2026-09-22T09:17:00Z",
+  "updated_at": "2026-09-22T10:16:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only.",
     "O10 APK stores: answered — same account/identity wall as Associates. Grok cannot register or upload APK without owner legal identity.",
-    "G132 /store: BreadcrumbList + Twitter card + CollectionPage/Product JSON-LD shipped this cycle.",
+    "G133 /store: absolute OG/Twitter image + FAQPage JSON-LD shipped this cycle.",
+    "G132 /store: BreadcrumbList + Twitter card + CollectionPage/Product JSON-LD shipped.",
     "G131 /store: UI fallback + commission banner shipped. Owner must run supabase/migration_store_product_images.sql to fill image_url.",
     "Affiliate /store: table live. Wait owner signup then batch SQL tags. NO commission until tag= / Admitad live.",
     "O4 co-build: Grok pass 7 restored LogoGenerator. Claude next layer if wanted.",
@@ -16,6 +17,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G133 /store SEO: absolute openGraph/twitter images + FAQPage JSON-LD (no account, no commission yet, no code-for-sale).",
     "G132 /store SEO: breadcrumbs visible + JSON-LD BreadcrumbList; Twitter summary; ItemList wrapped as CollectionPage with Product/Offer when price present.",
     "O10 live bugs 5772404380: blank cards get category fallback; unsafe affiliate_url no longer used as href; page states no commission yet.",
     "G130 /store SEO: Arabic title/description/keywords/OG + ItemList JSON-LD on /store.",

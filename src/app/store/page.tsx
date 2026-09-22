@@ -8,6 +8,7 @@ import AdSlot from "@/components/AdSlot";
 export const revalidate = 30;
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const OG_IMAGE = `${SITE_URL}/opengraph-image`;
 
 export const metadata: Metadata = {
   title: "متجر منتجات رقمية مختارة — روابط شراء مباشرة",
@@ -25,15 +26,17 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "ar_AR",
-    url: "/store",
+    url: `${SITE_URL}/store`,
     siteName: "سوق تولز",
     title: "متجر منتجات رقمية مختارة — سوق تولز",
     description: "منتجات مختارة بروابط شراء مباشرة من متاجر موثوقة.",
+    images: [{ url: OG_IMAGE, alt: "متجر سوق تولز" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "متجر سوق تولز — منتجات رقمية مختارة",
     description: "روابط شراء مباشرة من متاجر موثوقة. لا عمولة مفعّلة حتى موافقة حساب الشريك.",
+    images: [OG_IMAGE],
   },
   robots: { index: true, follow: true },
 };
@@ -93,6 +96,39 @@ function breadcrumbJsonLd() {
   };
 }
 
+function faqJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "هل الشراء من متجر سوق تولز يحتاج حساباً؟",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "لا. الروابط تفتح صفحة المنتج لدى المتجر المصدر مباشرة دون إنشاء حساب على سوق تولز.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "هل سوق تولز يحصل على عمولة من هذه الروابط حالياً؟",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "لا. الروابط حالياً روابط عرض عامة فقط. لا يوجد حساب عمولة مفعّل حتى تكتمل موافقة حساب الشريك.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "هل تبيعون أكواداً أو ملفات للتحميل؟",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "لا. الصفحة تعرض منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة، وليست سوقاً لبيع ملفات كود.",
+        },
+      },
+    ],
+  };
+}
+
 function storeJsonLd(products: StoreProduct[]) {
   return {
     "@context": "https://schema.org",
@@ -100,10 +136,13 @@ function storeJsonLd(products: StoreProduct[]) {
     name: "متجر سوق تولز",
     url: `${SITE_URL}/store`,
     inLanguage: "ar",
+    description: "منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة.",
+    image: OG_IMAGE,
     mainEntity: {
       "@type": "ItemList",
       name: "متجر سوق تولز",
       numberOfItems: products.length,
+      itemListOrder: "https://schema.org/ItemListOrderAscending",
       itemListElement: products.slice(0, 40).map((p, i) => {
         const url = isHttpUrl(p.affiliate_url) ? p.affiliate_url : `${SITE_URL}/store`;
         const product: Record<string, unknown> = {
@@ -115,12 +154,13 @@ function storeJsonLd(products: StoreProduct[]) {
         if (p.description_ar) product.description = p.description_ar;
         if (isHttpUrl(p.image_url)) product.image = p.image_url;
         if (p.price_display) {
+          const numeric = String(p.price_display).replace(/[^0-9.]/g, "");
           product.offers = {
             "@type": "Offer",
             url,
             availability: "https://schema.org/InStock",
             priceCurrency: "USD",
-            price: String(p.price_display).replace(/[^0-9.]/g, "") || undefined,
+            ...(numeric ? { price: numeric } : {}),
           };
         }
         return {
@@ -203,6 +243,10 @@ export default async function StorePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd(products)) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd()) }}
       />
       <SectionBackdrop tone="store" />
 
