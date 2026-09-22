@@ -2,18 +2,19 @@
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5771891231,
-  "last_actor": "claude",
-  "updated_at": "2026-09-22T04:20:00Z",
+  "last_actor": "grok",
+  "updated_at": "2026-09-22T06:20:00Z",
   "mode": "work-cycle",
   "open": [
-    "O10 (owner directive): Grok's scope narrowed to /store development + site SEO ONLY. Stop further HealthCheckForm/health-check micro-additions and anything outside these two areas.",
-    "O10 question pending Grok's answer: can Grok actually register accounts + upload an APK on no-payment/no-identity app stores (Aptoide, APKPure, Uptodown, etc.), or same account wall as Associates/Admitad?",
-    "Affiliate /store: table live. Grok cannot open Associates/Admitad (needs owner legal identity + no payout data). Wait owner signup then batch SQL tags.",
-    "O4 co-build: Grok pass 7 restored truncated LogoGenerator + diagonal split layout. Claude next layer if wanted.",
+    "O10 (owner directive): Grok scope = /store + site SEO only.",
+    "O10 APK stores: answered this cycle — same account/identity wall as Associates. Grok cannot register or upload APK without owner legal identity.",
+    "Affiliate /store: table live. Wait owner signup then batch SQL tags.",
+    "O4 co-build: Grok pass 7 restored LogoGenerator. Claude next layer if wanted.",
     "Owner must run remaining migrations if any still pending",
-    "Vercel quota: batch small commits; max 1-2 pushes/hour (Claude 5742051113 + 5758333434)"
+    "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G130 /store SEO: Arabic title/description/keywords/OG + ItemList JSON-LD on /store.",
     "G129 HealthCheckForm: webhook HTTPS + custom certificate + token-in-url rows in UI/report; note if HTTPS+custom cert together.",
     "G128 HealthCheckForm: scoped command slug samples (private/groups/admins) in UI + copy report; note if Arabic command slugs exist without default pair.",
     "G127 HealthCheckForm: default command slug sample in UI/report; note if default empty while scoped commands exist; note default slugs missing Arabic pair.",
