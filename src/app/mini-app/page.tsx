@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
+import { mediaStreamUrl } from "@/lib/mediaStream";
 
 // "video" was a duplicate of Trending (both listed the latest downloads);
 // owner directive 2026-09-24: it became "تتابعه" — posts from the people
@@ -169,6 +170,12 @@ export default function MiniAppPage() {
   const [autoplay, setAutoplay] = useState(true);
   const [autoId, setAutoId] = useState<string | null>(null);
   const [autoFailed, setAutoFailed] = useState<Record<string, boolean>>({});
+  // Ids whose Cloudflare stream failed once — retried through Vercel's /api/media-stream.
+  const [viaVercel, setViaVercel] = useState<Record<string, boolean>>({});
+  const onPlayError = (id: string) => {
+    if (!viaVercel[id]) { setViaVercel((v) => ({ ...v, [id]: true })); return; }
+    setPlayingId(null); setPlayError(id);
+  };
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(text: string) {
@@ -884,12 +891,12 @@ export default function MiniAppPage() {
               <article key={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : p.vertical ? "aspect-[4/5]" : "aspect-video"}`}>
                   {playingId === item.id ? (
-                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio src={`/api/media-stream?id=${item.id}`} controls autoPlay className="w-[90%]" onError={() => { setPlayingId(null); setPlayError(item.id); }} /></div>)
-                    : (<video src={`/api/media-stream?id=${item.id}`} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => { setPlayingId(null); setPlayError(item.id); }} />)
+                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} /></div>)
+                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={`/api/media-stream?id=${item.id}`} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} />
+                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (

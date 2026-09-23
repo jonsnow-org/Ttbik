@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isTikTok, mediaBotUsername, mediaDb } from "@/lib/mediaSocial";
+import { mediaStreamUrl } from "@/lib/mediaStream";
 
 // Public share page for one media mini-app post: the "نسخ رابط خارجي"
 // link. Its Open Graph tags give a real preview card (thumbnail + title)
@@ -41,7 +42,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
       description,
       url: `${SITE}/m/${p.id}`,
       images: [{ url: p.thumb }],
-      ...(isAudio ? {} : { videos: [{ url: `${SITE}/api/media-stream?id=${p.id}`, type: "video/mp4" }] }),
+      ...(isAudio ? {} : { videos: [{ url: mediaStreamUrl(p.id), type: "video/mp4" }] }),
     },
     twitter: { card: "summary_large_image", title: p.title, description, images: [p.thumb] },
   };
@@ -52,7 +53,7 @@ export default async function SharedMediaPage({ params }: { params: { id: string
   if (!p) notFound();
   const bot = await mediaBotUsername();
   const isAudio = p.media_type === "audio" || p.media_type === "voice";
-  const stream = `/api/media-stream?id=${p.id}`;
+  const stream = mediaStreamUrl(p.id);
 
   return (
     <div className="mx-auto max-w-lg px-4 py-8">
