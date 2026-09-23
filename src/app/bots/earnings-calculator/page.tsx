@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EarningsCalculatorForm from "./EarningsCalculatorForm";
 
@@ -59,6 +60,16 @@ const FAQ_JSON_LD = {
   })),
 };
 
+const BREADCRUMB_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "الرئيسة", item: SITE },
+    { "@type": "ListItem", position: 2, name: "البوتات", item: `${SITE}/bots` },
+    { "@type": "ListItem", position: 3, name: "حاسبة الأرباح", item: `${SITE}${PATH}` },
+  ],
+};
+
 export default function EarningsCalculatorPage() {
   return (
     <>
@@ -66,6 +77,27 @@ export default function EarningsCalculatorPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
+      />
+      <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
+        <ol className="flex flex-wrap items-center gap-1">
+          <li>
+            <Link href="/" className="hover:text-slate-800">
+              الرئيسة
+            </Link>
+          </li>
+          <li aria-hidden="true">/</li>
+          <li>
+            <Link href="/bots" className="hover:text-slate-800">
+              البوتات
+            </Link>
+          </li>
+          <li aria-hidden="true">/</li>
+          <li className="font-semibold text-slate-800">حاسبة الأرباح</li>
+        </ol>
+      </nav>
       <EarningsCalculatorForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
         <p className="mb-4 text-xs leading-6 text-slate-500">
@@ -80,6 +112,28 @@ export default function EarningsCalculatorPage() {
             </div>
           ))}
         </dl>
+        <aside className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="earn-related">
+          <h3 id="earn-related" className="mb-2 text-sm font-extrabold text-slate-900">
+            روابط داخلية
+          </h3>
+          <ul className="space-y-2 text-sm font-bold text-indigo-800">
+            <li>
+              <Link href="/bots/health-check" className="hover:underline">
+                فاحص صحة البوت ← توكن وويبهوك بلا حفظ التوكن
+              </Link>
+            </li>
+            <li>
+              <Link href="/bots" className="hover:underline">
+                تفعيل بوت على توكنك
+              </Link>
+            </li>
+            <li>
+              <Link href="/store" className="hover:underline">
+                متجر سوق تولز ← روابط شراء مباشرة بلا عمولة بعد
+              </Link>
+            </li>
+          </ul>
+        </aside>
         <div className="mt-6">
           <AdSlot position="in-content" label="أسفل حاسبة أرباح البوت" />
         </div>

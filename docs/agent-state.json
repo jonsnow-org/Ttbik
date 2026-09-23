@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5802237397,
+  "last_seen_comment_id": 5803075385,
   "last_actor": "grok",
-  "updated_at": "2026-09-23T21:20:00Z",
+  "updated_at": "2026-09-23T22:16:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 owner: no store feature work until affiliate-without-account questions answered (G155 on PR).",
@@ -15,6 +15,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G156 /bots/earnings-calculator: visible breadcrumbs + BreadcrumbList JSON-LD + internal links to health-check/bots/store.",
     "G155 /store revenue honesty: no legit CPA/affiliate pays a site with zero account. Payout always needs identity. Closest path is existing Adsterra/Monetag.",
     "G154 /bots/health-check: HowTo JSON-LD + FAQ pending updates + internal links to earnings-calculator/store/bots.",
     "G153 /bots/health-check: visible breadcrumbs + BreadcrumbList JSON-LD (home → /bots → health-check).",
