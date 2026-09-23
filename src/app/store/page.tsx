@@ -54,6 +54,17 @@ function isHttpUrl(value: string | null | undefined): value is string {
   }
 }
 
+function merchantHost(url: string | null | undefined): string | null {
+  if (!isHttpUrl(url)) return null;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, "");
+    if (!host || host.length > 48) return null;
+    return host;
+  } catch {
+    return null;
+  }
+}
+
 async function getProducts(): Promise<StoreProduct[]> {
   const db = supabasePublic();
   const { data } = await db
@@ -146,6 +157,7 @@ function storeJsonLd(products: StoreProduct[]) {
       itemListOrder: "https://schema.org/ItemListOrderAscending",
       itemListElement: products.slice(0, 40).map((p, i) => {
         const url = isHttpUrl(p.affiliate_url) ? p.affiliate_url : `${SITE_URL}/store`;
+        const host = merchantHost(p.affiliate_url);
         const product: Record<string, unknown> = {
           "@type": "Product",
           name: p.title_ar,
@@ -154,6 +166,9 @@ function storeJsonLd(products: StoreProduct[]) {
         };
         if (p.description_ar) product.description = p.description_ar;
         if (isHttpUrl(p.image_url)) product.image = p.image_url;
+        if (host) {
+          product.brand = { "@type": "Brand", name: host };
+        }
         if (p.price_display) {
           const numeric = String(p.price_display).replace(/[^0-9.]/g, "");
           product.offers = {
@@ -162,6 +177,9 @@ function storeJsonLd(products: StoreProduct[]) {
             availability: "https://schema.org/InStock",
             priceCurrency: "USD",
             ...(numeric ? { price: numeric } : {}),
+            ...(host
+              ? { seller: { "@type": "Organization", name: host } }
+              : {}),
           };
         }
         return {
@@ -207,7 +225,7 @@ export default async function StorePage() {
       </nav>
 
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛼 متجر سوق تولز</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🪒 متجر سوق تولز</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
           منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>

@@ -174,25 +174,35 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
           />
         </label>
-        <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
-          ترتيب
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
+            ترتيب
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+            >
+              <option value="default">الافتراضي</option>
+              <option value="price-asc">السعر: الأقل</option>
+              <option value="price-desc">السعر: الأعلى</option>
+              <option value="title">الاسم</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={copyFilterLink}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:border-slate-400"
           >
-            <option value="default">الافتراضي</option>
-            <option value="price-asc">السعر: الأقل</option>
-            <option value="price-desc">السعر: الأعلى</option>
-            <option value="title">الاسم</option>
-          </select>
-        </label>
+            {copied ? "تم النسخ" : "نسخ الرابط"}
+          </button>
+        </div>
       </div>
 
       {categories.length > 1 && (
         <nav className="mt-4 flex flex-wrap justify-center gap-2" aria-label="تصفية أقسام المتجر">
           <button
             type="button"
+            aria-pressed={cat === "all"}
             onClick={() => setCat("all")}
             className={`rounded-full border px-3 py-1 text-xs font-bold ${
               cat === "all"
@@ -208,6 +218,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
               <button
                 key={c}
                 type="button"
+                aria-pressed={cat === c}
                 onClick={() => setCat(c)}
                 className={`rounded-full border px-3 py-1 text-xs font-bold ${
                   cat === c
@@ -226,6 +237,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
         <nav className="mt-3 flex flex-wrap justify-center gap-2" aria-label="تصفية المتجر المصدر">
           <button
             type="button"
+            aria-pressed={shop === "all"}
             onClick={() => setShop("all")}
             className={`rounded-full border px-3 py-1 text-xs font-bold ${
               shop === "all"
@@ -241,6 +253,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
               <button
                 key={h}
                 type="button"
+                aria-pressed={shop === h}
                 onClick={() => setShop(h)}
                 className={`rounded-full border px-3 py-1 text-xs font-bold ${
                   shop === h
@@ -261,13 +274,6 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
           {q.trim() ? ` لـ «${q.trim()}»` : ""}
           {cat !== "all" ? ` في «${cat}»` : ""}
           {shop !== "all" ? ` من ${shop}` : ""}
-          <button
-            type="button"
-            onClick={copyFilterLink}
-            className="mr-2 font-bold text-slate-800 underline"
-          >
-            {copied ? "تم نسخ الرابط" : "نسخ رابط التصفية"}
-          </button>
         </p>
       )}
 
