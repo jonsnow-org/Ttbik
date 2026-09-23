@@ -142,6 +142,10 @@ const STORE_FAQ = [
     q: "هل السعر المعروض نهائي؟",
     a: "لا. السعر الظاهر للعرض فقط كما سُجّل عند الإضافة. السعر النهائي والدفع والشحن عند المتجر المصدر.",
   },
+  {
+    q: "لماذا يختفي تقسيم الأقسام عند ترتيب السعر أو الاسم؟",
+    a: "لأن الترتيب عالمي على كل النتائج. تجميع البطاقات داخل أقسام كان يعيد خلط الترتيب. الترتيب الافتراضي يعيد التجميع حسب القسم.",
+  },
 ];
 
 function faqJsonLd() {
@@ -185,7 +189,7 @@ function storeJsonLd(products: StoreProduct[]) {
     image: OG_IMAGE,
     mainEntity: {
       "@type": "ItemList",
-      name: "متجر سوق تولز",
+      name: "ممتجر سوق تولز",
       numberOfItems: products.length,
       itemListOrder: "https://schema.org/ItemListOrderAscending",
       itemListElement: products.slice(0, 40).map((p, i) => {
