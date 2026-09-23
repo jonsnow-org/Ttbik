@@ -112,7 +112,6 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
       {LIVE_BOTS[0] && (
         <a
           href={LIVE_BOTS[0].href}
-          target="_blank"
           rel="noopener noreferrer"
           className="mb-6 flex items-center justify-between gap-3 rounded-2xl bg-gradient-to-br from-sky-600 to-indigo-700 p-4 text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
         >

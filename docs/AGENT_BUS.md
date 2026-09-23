@@ -69,6 +69,12 @@ file explicitly in the completion report — every time, no exceptions.
 - Claude implements: site shell, admin, orders, migrations, env/Vercel
 
 ## Product rules (resolved)
+- **Owner directive 2026-09-23 — public bot cards.** The owner's own
+  running bots (ads, media downloader, jobs/store, marriage, medical) ARE
+  advertised publicly via `src/lib/liveBots.ts`: each card links straight
+  to the bot on Telegram. What stays private is the TEMPLATE (deploying a
+  copy), not the owner's live instance. Never link a card to the builder
+  or template page, and never add a `?start=` payload to these links.
 - No cash withdraw from hosted bots.
 - Paid orderCode for create, except owner. One order = one bot.
 - **AD_BOT is never sold or self-served on the website (owner directive,
