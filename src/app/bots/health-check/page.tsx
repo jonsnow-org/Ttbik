@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import HealthCheckForm from "./HealthCheckForm";
 
@@ -41,7 +42,7 @@ const FAQ = [
   },
   {
     q: "ماذا يعني ويبهوك غير HTTPS؟",
-    a: "تليجرام يرفض ويبهوك غير مشفّر. استخدم عنوان يبدأ بـ https:// حتى يعمل الاستقبال.",
+    a: "تليجرام يرفض ويبهوك غير مشفَّر. استخدم عنوان يبدأ بـ https:// حتى يعمل الاستقبال.",
   },
   {
     q: "هل ظهور التوكن داخل رابط الويبهوك خطر؟",
@@ -59,6 +60,16 @@ const FAQ_JSON_LD = {
   })),
 };
 
+const BREADCRUMB_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "الرئيسة", item: SITE },
+    { "@type": "ListItem", position: 2, name: "البوتات", item: `${SITE}/bots` },
+    { "@type": "ListItem", position: 3, name: "فاحص صحة البوت", item: `${SITE}${PATH}` },
+  ],
+};
+
 export default function BotHealthCheckPage() {
   return (
     <>
@@ -66,6 +77,27 @@ export default function BotHealthCheckPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
+      />
+      <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
+        <ol className="flex flex-wrap items-center gap-1">
+          <li>
+            <Link href="/" className="hover:text-slate-800">
+              الرئيسة
+            </Link>
+          </li>
+          <li aria-hidden="true">/</li>
+          <li>
+            <Link href="/bots" className="hover:text-slate-800">
+              البوتات
+            </Link>
+          </li>
+          <li aria-hidden="true">/</li>
+          <li className="font-semibold text-slate-800">فاحص صحة البوت</li>
+        </ol>
+      </nav>
       <HealthCheckForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
