@@ -269,11 +269,14 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
       )}
 
       {filtering && filtered.length > 0 && (
-        <p className="mt-4 text-center text-xs font-semibold text-slate-500">
+        <p className="mt-4 text-center text-xs font-semibold text-slate-500" aria-live="polite">
           {filtered.length} نتيجة
           {q.trim() ? ` لـ «${q.trim()}»` : ""}
           {cat !== "all" ? ` في «${cat}»` : ""}
           {shop !== "all" ? ` من ${shop}` : ""}
+          <button type="button" className="mr-2 font-bold text-slate-800 underline" onClick={resetAll}>
+            إعادة الضبط
+          </button>
         </p>
       )}
 
