@@ -14,6 +14,10 @@ function priceNum(p: StoreProduct): number {
   return Number.isFinite(v) ? v : Number.POSITIVE_INFINITY;
 }
 
+function hasListedPrice(p: StoreProduct): boolean {
+  return Number.isFinite(priceNum(p)) && priceNum(p) !== Number.POSITIVE_INFINITY;
+}
+
 function isHttpUrl(value: string | null | undefined): value is string {
   if (!value) return false;
   const trimmed = value.trim();
@@ -39,23 +43,27 @@ function merchantHost(url: string | null | undefined): string | null {
 }
 
 type SortKey = "default" | "price-asc" | "price-desc" | "title";
+type PriceFilter = "all" | "priced";
 
 const SORTS: SortKey[] = ["default", "price-asc", "price-desc", "title"];
 
-function readQuery(): { q: string; sort: SortKey; cat: string; shop: string } {
-  if (typeof window === "undefined") return { q: "", sort: "default", cat: "all", shop: "all" };
+function readQuery(): { q: string; sort: SortKey; cat: string; shop: string; priced: PriceFilter } {
+  if (typeof window === "undefined") return { q: "", sort: "default", cat: "all", shop: "all", priced: "all" };
   const sp = new URLSearchParams(window.location.search);
   const sortRaw = sp.get("sort") || "default";
   const sort = (SORTS as string[]).includes(sortRaw) ? (sortRaw as SortKey) : "default";
+  const pricedRaw = sp.get("price") || "all";
+  const priced: PriceFilter = pricedRaw === "priced" ? "priced" : "all";
   return {
     q: (sp.get("q") || "").slice(0, 80),
     sort,
     cat: (sp.get("cat") || "all").slice(0, 60),
     shop: (sp.get("shop") || "all").slice(0, 60),
+    priced,
   };
 }
 
-function writeQuery(q: string, sort: SortKey, cat: string, shop: string) {
+function writeQuery(q: string, sort: SortKey, cat: string, shop: string, priced: PriceFilter) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   if (q.trim()) url.searchParams.set("q", q.trim());
@@ -66,6 +74,8 @@ function writeQuery(q: string, sort: SortKey, cat: string, shop: string) {
   else url.searchParams.delete("cat");
   if (shop !== "all") url.searchParams.set("shop", shop);
   else url.searchParams.delete("shop");
+  if (priced === "priced") url.searchParams.set("price", "priced");
+  else url.searchParams.delete("price");
   const next = url.pathname + (url.search || "") + url.hash;
   const curr = window.location.pathname + window.location.search + window.location.hash;
   if (next !== curr) window.history.replaceState(null, "", next);
@@ -77,26 +87,39 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
   const [sort, setSort] = useState<SortKey>(initial.sort);
   const [cat, setCat] = useState<string>(initial.cat);
   const [shop, setShop] = useState<string>(initial.shop);
+  const [priced, setPriced] = useState<PriceFilter>(initial.priced);
   const [ready, setReady] = useState(false);
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
+  function applyQuery(next: ReturnType<typeof readQuery>) {
+    setQ(next.q);
+    setSort(next.sort);
+    setCat(next.cat);
+    setShop(next.shop);
+    setPriced(next.priced);
+  }
+
   useEffect(() => {
-    const fromUrl = readQuery();
-    setQ(fromUrl.q);
-    setSort(fromUrl.sort);
-    setCat(fromUrl.cat);
-    setShop(fromUrl.shop);
+    applyQuery(readQuery());
     setReady(true);
     setCanNativeShare(typeof navigator.share === "function");
   }, []);
 
   useEffect(() => {
+    function onPop() {
+      applyQuery(readQuery());
+    }
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
     if (!ready) return;
-    writeQuery(q, sort, cat, shop);
-  }, [q, sort, cat, shop, ready]);
+    writeQuery(q, sort, cat, shop, priced);
+  }, [q, sort, cat, shop, priced, ready]);
 
   useEffect(() => {
     if (!ready || cat === "all") return;
@@ -129,6 +152,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
           setCat("all");
           setShop("all");
           setSort("default");
+          setPriced("all");
           setCopied(false);
           setShared(false);
         }
@@ -155,11 +179,14 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     return seen.sort((a, b) => a.localeCompare(b));
   }, [products]);
 
+  const pricedCount = useMemo(() => products.filter(hasListedPrice).length, [products]);
+
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list = products;
     if (cat !== "all") list = list.filter((p) => p.category === cat);
     if (shop !== "all") list = list.filter((p) => merchantHost(p.affiliate_url) === shop);
+    if (priced === "priced") list = list.filter(hasListedPrice);
     if (needle) {
       list = list.filter((p) => {
         const host = merchantHost(p.affiliate_url) || "";
@@ -171,7 +198,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     else if (sort === "price-desc") list = [...list].sort((a, b) => priceNum(b) - priceNum(a));
     else if (sort === "title") list = [...list].sort((a, b) => a.title_ar.localeCompare(b.title_ar, "ar"));
     return list;
-  }, [products, q, sort, cat, shop]);
+  }, [products, q, sort, cat, shop, priced]);
 
   const groups = useMemo(() => {
     const out: { category: string; items: StoreProduct[] }[] = [];
@@ -183,13 +210,14 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     return out;
   }, [filtered]);
 
-  const filtering = Boolean(q.trim()) || cat !== "all" || shop !== "all" || sort !== "default";
+  const filtering = Boolean(q.trim()) || cat !== "all" || shop !== "all" || sort !== "default" || priced === "priced";
 
   function resetAll() {
     setQ("");
     setCat("all");
     setShop("all");
     setSort("default");
+    setPriced("all");
     setCopied(false);
     setShared(false);
   }
@@ -355,12 +383,42 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
         </nav>
       )}
 
+      {pricedCount > 0 && pricedCount < products.length && (
+        <nav className="mt-3 flex flex-wrap justify-center gap-2" aria-label="تصفية السعر المعروض">
+          <button
+            type="button"
+            aria-pressed={priced === "all"}
+            onClick={() => setPriced("all")}
+            className={`rounded-full border px-3 py-1 text-xs font-bold ${
+              priced === "all"
+                ? "border-slate-800 bg-slate-800 text-white"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+            }`}
+          >
+            كل الأسعار ({products.length})
+          </button>
+          <button
+            type="button"
+            aria-pressed={priced === "priced"}
+            onClick={() => setPriced("priced")}
+            className={`rounded-full border px-3 py-1 text-xs font-bold ${
+              priced === "priced"
+                ? "border-slate-800 bg-slate-800 text-white"
+                : "border-slate-200 bg-white text-slate-700 hover:border-slate-400"
+            }`}
+          >
+            بسعر معروض ({pricedCount})
+          </button>
+        </nav>
+      )}
+
       {filtering && filtered.length > 0 && (
         <p className="mt-4 text-center text-xs font-semibold text-slate-500" aria-live="polite">
           {filtered.length} نتيجة
           {q.trim() ? ` لـ «${q.trim()}»` : ""}
           {cat !== "all" ? ` في «${cat}»` : ""}
           {shop !== "all" ? ` من ${shop}` : ""}
+          {priced === "priced" ? " · بسعر معروض فقط" : ""}
           <button type="button" className="mr-2 font-bold text-slate-800 underline" onClick={resetAll}>
             إعادة الضبط
           </button>
