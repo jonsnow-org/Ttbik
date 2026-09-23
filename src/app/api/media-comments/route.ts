@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isBlockedEitherWay, mediaDb } from "@/lib/mediaSocial";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,19 @@ export async function POST(req: NextRequest) {
   const parentId = body.parent_id ? String(body.parent_id).trim() : null;
   const fromName = String(body.from_name || "مستخدم").slice(0, 40);
   if (!postId || !text) return NextResponse.json({ error: "post_id, body required" }, { status: 400 });
+  // A user blocked by the post's owner (or who blocked them) can't comment there.
+  try {
+    const bdb = await mediaDb();
+    if (bdb) {
+      const { data: post } = await bdb.from("media_feed").select("sharer_id").eq("id", postId).maybeSingle();
+      const ownerId = String((post as any)?.sharer_id || "");
+      if (ownerId && ownerId !== fromId && (await isBlockedEitherWay(bdb, fromId, ownerId))) {
+        return NextResponse.json({ error: "blocked" }, { status: 403 });
+      }
+    }
+  } catch {
+    /* block table not created yet */
+  }
 
   const comment: Comment = {
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,

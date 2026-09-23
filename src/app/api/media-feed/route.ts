@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
+import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, resolveRealTitle } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -192,6 +193,35 @@ export async function GET(req: NextRequest) {
   let items = Array.from(byId.values());
 
   if (!includeHidden) items = items.filter((i) => !i.hidden);
+  // Per-viewer filtering (needs the viewer's verified Telegram identity):
+  // muted and blocked users' posts disappear for them, and ?feed=following
+  // keeps only the users they follow. ?sharer=<id> is one profile's posts.
+  const feed = (req.nextUrl.searchParams.get("feed") || "").trim();
+  const sharer = (req.nextUrl.searchParams.get("sharer") || "").trim();
+  const viewer = mediaUser(req.nextUrl.searchParams.get("init_data") || "");
+  if (viewer) {
+    try {
+      const db = await mediaDb();
+      if (db) {
+        const rel = await loadRelations(db, viewer.id);
+        // Muting hides someone from your feeds, but opening their profile
+        // directly still shows it; blocking hides it everywhere.
+        const hiddenFor = new Set(sharer ? [...rel.blocks, ...rel.blockedBy] : [...rel.mutes, ...rel.blocks, ...rel.blockedBy]);
+        if (sharer && sharer === viewer.id) hiddenFor.clear();
+        items = items.filter((i) => !hiddenFor.has(i.sharer_id));
+        if (feed === "following") {
+          const f = new Set(rel.following);
+          items = items.filter((i) => f.has(i.sharer_id));
+        }
+      }
+    } catch {
+      if (feed === "following") items = [];
+    }
+  } else if (feed === "following") {
+    items = [];
+  }
+  if (sharer) items = items.filter((i) => i.sharer_id === sharer);
+
   if (squad) items = items.filter((i) => (i.squad_code || "") === squad);
   // Private squads previously hid their content from the owner too --
   // there was no way to reach or moderate what got posted inside one. The
@@ -237,7 +267,29 @@ export async function GET(req: NextRequest) {
     items = [...items].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
   }
 
-  const publicItems = items.slice(0, 80).map(({ file_id: _f, ...rest }) => rest);
+  // Lazy backfill of real titles for older rows saved with a numeric id as
+  // the title: a few per request, time-boxed, written back so it's once only.
+  const needTitles = items.slice(0, 80).filter((i) => isPlaceholderTitle(i.title) && i.url).slice(0, 4);
+  if (needTitles.length) {
+    const db = await mediaDb();
+    await Promise.race([
+      Promise.all(
+        needTitles.map(async (i) => {
+          const real = await resolveRealTitle(i.url);
+          if (!real) return;
+          i.title = real;
+          if (db) await db.from("media_feed").update({ title: real }).eq("id", i.id).then(() => {}, () => {});
+        })
+      ),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
+  }
+
+  const publicItems = items.slice(0, 80).map(({ file_id: _f, ...rest }) => ({
+    ...rest,
+    // TikTok thumbnails are never stored (and expire) — see /api/media-thumb.
+    thumbnail: isTikTok(rest.url) || !rest.thumbnail ? (isTikTok(rest.url) ? `/api/media-thumb?id=${rest.id}` : "") : rest.thumbnail,
+  }));
   return NextResponse.json({
     items: publicItems,
     count: publicItems.length,
@@ -269,6 +321,12 @@ export async function POST(req: NextRequest) {
     created_at: Number(body.created_at || Math.floor(Date.now() / 1000)),
   };
   if (!item.file_id) return NextResponse.json({ error: "file_id required" }, { status: 400 });
+  // The downloader often only knows the platform's numeric id; fetch the
+  // real caption/title (TikTok/X oEmbed) so cards don't show a number.
+  if (isPlaceholderTitle(item.title) && item.url) {
+    const real = await Promise.race([resolveRealTitle(item.url), new Promise<string>((r) => setTimeout(() => r(""), 4000))]);
+    if (real) item.title = real;
+  }
 
   const saved = await saveToSupabase(item);
   if (saved.id) item.id = saved.id;

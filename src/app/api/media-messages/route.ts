@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
+import { isBlockedEitherWay, mediaDb } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +160,14 @@ export async function POST(req: NextRequest) {
   }
   if (from_id === to_id) {
     return NextResponse.json({ error: "cannot message self" }, { status: 400 });
+  }
+  try {
+    const bdb = await mediaDb();
+    if (bdb && (await isBlockedEitherWay(bdb, from_id, to_id))) {
+      return NextResponse.json({ error: "blocked" }, { status: 403 });
+    }
+  } catch {
+    /* block table not created yet */
   }
 
   const msg: Msg = {
