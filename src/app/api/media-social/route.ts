@@ -7,6 +7,7 @@ import {
   mediaBotUsername,
   mediaDb,
   mediaUser,
+  namesFor,
   tgApi,
 } from "@/lib/mediaSocial";
 
@@ -50,6 +51,24 @@ export async function GET(req: NextRequest) {
         db.from("media_follows").select("followee_id", { count: "exact", head: true }).eq("follower_id", profile),
       ]);
       out.profile = { id: profile, followers: followers.count || 0, following: followingCount.count || 0 };
+    }
+
+    // Followees whose new shares the caller chose NOT to be notified about.
+    const { data: quiet } = await db.from("media_follows").select("followee_id").eq("follower_id", me.id).eq("notify", false);
+    out.notifyOff = (quiet || []).map((r: any) => String(r.followee_id));
+
+    // ?list=followers|following&of=<id> — people list for a profile.
+    const list = req.nextUrl.searchParams.get("list");
+    const of = (req.nextUrl.searchParams.get("of") || "").trim();
+    if ((list === "followers" || list === "following") && of) {
+      const { data: rows } =
+        list === "followers"
+          ? await db.from("media_follows").select("follower_id,created_at").eq("followee_id", of).order("created_at", { ascending: false }).limit(300)
+          : await db.from("media_follows").select("followee_id,created_at").eq("follower_id", of).order("created_at", { ascending: false }).limit(300);
+      const hide = new Set([...relations.blocks, ...relations.blockedBy]);
+      const ids = (rows || []).map((r: any) => String(list === "followers" ? r.follower_id : r.followee_id)).filter((id: string) => !hide.has(id));
+      const names = await namesFor(db, ids);
+      out.people = ids.map((id: string) => ({ id, name: names[id] || "مستخدم" }));
     }
 
     if (req.nextUrl.searchParams.get("reports") === "1" && me.id === MEDIA_OWNER_ID) {
@@ -96,6 +115,12 @@ export async function POST(req: NextRequest) {
       case "unfollow":
         await db.from("media_follows").delete().eq("follower_id", me.id).eq("followee_id", target);
         return ok();
+      case "set_notify": {
+        const on = !!body.on;
+        const { error } = await db.from("media_follows").update({ notify: on }).eq("follower_id", me.id).eq("followee_id", target);
+        if (error) throw error;
+        return ok({ notify: on });
+      }
       case "mute":
         if (!target || target === me.id) return bad("invalid target");
         await db.from("media_mutes").upsert({ user_id: me.id, muted_id: target }, { onConflict: "user_id,muted_id" });

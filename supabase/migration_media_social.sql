@@ -11,6 +11,11 @@ create table if not exists public.media_follows (
   primary key (follower_id, followee_id)
 );
 create index if not exists idx_media_follows_followee on public.media_follows (followee_id);
+-- Per-follow bot notification when the followed user shares something new:
+-- notify = the follower's 🔔 toggle for that person; notified_at throttles
+-- it to at most one message per follow every 30 minutes.
+alter table public.media_follows add column if not exists notify boolean not null default true;
+alter table public.media_follows add column if not exists notified_at timestamptz;
 
 -- Mute: the muter stops seeing the muted user's posts. The muted user is
 -- not told and nothing else changes.

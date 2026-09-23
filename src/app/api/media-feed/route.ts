@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
-import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, resolveRealTitle } from "@/lib/mediaSocial";
+import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, notifyFollowers, resolveRealTitle } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -331,6 +331,11 @@ export async function POST(req: NextRequest) {
   const saved = await saveToSupabase(item);
   if (saved.id) item.id = saved.id;
   g.__mediaFeed = [item, ...(g.__mediaFeed || []).filter((x) => x.id !== item.id)].slice(0, 200);
+
+  // Followers get a bot message about the new share (private squad posts excluded).
+  if (saved.id && !item.squad_code) {
+    await Promise.race([notifyFollowers(item).catch(() => null), new Promise((r) => setTimeout(r, 8000))]);
+  }
 
   return NextResponse.json({
     ok: true,

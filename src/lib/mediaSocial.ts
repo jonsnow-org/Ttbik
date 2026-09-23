@@ -147,3 +147,86 @@ export async function resolveRealTitle(url: string): Promise<string> {
   }
   return "";
 }
+
+/** Display names for Telegram ids: mini_app_users first, then the name on their posts. */
+export async function namesFor(db: any, ids: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  if (!ids.length) return out;
+  const { data: users } = await db.from("mini_app_users").select("id,name").in("id", ids);
+  for (const u of users || []) if (u?.name) out[String(u.id)] = String(u.name);
+  const missing = ids.filter((id) => !out[id]);
+  if (missing.length) {
+    const { data: posts } = await db.from("media_feed").select("sharer_id,sharer_name").in("sharer_id", missing).limit(500);
+    for (const p of posts || []) if (p?.sharer_name && !out[String(p.sharer_id)]) out[String(p.sharer_id)] = String(p.sharer_name);
+  }
+  return out;
+}
+
+const NOTIFY_THROTTLE_MS = 30 * 60 * 1000;
+
+/**
+ * Tells a user's followers (via the bot) that they shared something new.
+ * Skips followers who turned the 🔔 off for this person, who muted or are
+ * blocked either way, and anyone already notified about this person in the
+ * last 30 minutes (so a burst of downloads is one message, not ten).
+ */
+export async function notifyFollowers(item: { id: string; sharer_id: string; sharer_name: string; title: string; media_type: string }) {
+  const db = await mediaDb();
+  if (!db || !item.sharer_id) return { sent: 0 };
+  const { data: follows, error } = await db
+    .from("media_follows")
+    .select("follower_id,notify,notified_at")
+    .eq("followee_id", item.sharer_id)
+    .limit(500);
+  if (error || !follows?.length) return { sent: 0 };
+
+  const now = Date.now();
+  let targets = follows
+    .filter((f: any) => f.notify !== false)
+    .filter((f: any) => !f.notified_at || now - new Date(f.notified_at).getTime() > NOTIFY_THROTTLE_MS)
+    .map((f: any) => String(f.follower_id));
+  if (!targets.length) return { sent: 0 };
+
+  const [mutes, blocks] = await Promise.all([
+    db.from("media_mutes").select("user_id").eq("muted_id", item.sharer_id).in("user_id", targets),
+    db.from("media_blocks").select("user_id,blocked_id").or(`user_id.eq.${item.sharer_id},blocked_id.eq.${item.sharer_id}`),
+  ]);
+  const skip = new Set<string>([
+    ...(mutes.data || []).map((m: any) => String(m.user_id)),
+    ...(blocks.data || []).flatMap((b: any) => [String(b.user_id), String(b.blocked_id)]),
+  ]);
+  targets = targets.filter((t: string) => !skip.has(t) && t !== item.sharer_id);
+  if (!targets.length) return { sent: 0 };
+
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const kind = item.media_type === "audio" || item.media_type === "voice" ? "مقطعاً صوتياً" : item.media_type === "photo" ? "صورة" : "فيديو";
+  const title = isPlaceholderTitle(item.title) ? "" : `\n«${item.title.slice(0, 80)}»`;
+  const text = `💜 ${item.sharer_name || "شخص تتابعه"} شارك ${kind} جديداً${title}`;
+  const reply_markup = {
+    inline_keyboard: [[{ text: "👀 شاهده في التطبيق", web_app: { url: `${site}/mini-app?u=${encodeURIComponent(item.sharer_id)}` } }]],
+  };
+
+  let sent = 0;
+  const notified: string[] = [];
+  for (let i = 0; i < targets.length; i += 20) {
+    const batch = targets.slice(i, i + 20);
+    const results = await Promise.all(
+      batch.map((chat_id: string) => tgApi("sendMessage", { chat_id, text, reply_markup }).catch(() => null))
+    );
+    results.forEach((r: any, j: number) => {
+      if (r?.ok) {
+        sent++;
+        notified.push(batch[j]);
+      }
+    });
+  }
+  if (notified.length) {
+    await db
+      .from("media_follows")
+      .update({ notified_at: new Date().toISOString() })
+      .eq("followee_id", item.sharer_id)
+      .in("follower_id", notified)
+      .then(() => {}, () => {});
+  }
+  return { sent };
+}

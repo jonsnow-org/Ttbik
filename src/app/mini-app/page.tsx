@@ -16,7 +16,7 @@ type Report = { id: string; post_id: string; post_title: string; post_owner_id: 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked", followMigrated: "mb_follow_migrated", names: "mb_names" };
+const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked", followMigrated: "mb_follow_migrated", names: "mb_names", autoplay: "mb_autoplay" };
 const EMPTY_REL: Relations = { following: [], mutes: [], blocks: [], blockedBy: [] };
 
 const REPORT_REASONS: { key: string; label: string; icon: string }[] = [
@@ -164,6 +164,11 @@ export default function MiniAppPage() {
   const [reports, setReports] = useState<Report[]>([]);
   const [toast, setToast] = useState("");
   const [names, setNames] = useState<Record<string, string>>({});
+  const [notifyOff, setNotifyOff] = useState<string[]>([]);
+  const [peopleSheet, setPeopleSheet] = useState<{ kind: "followers" | "following"; of: string; people: { id: string; name: string }[] | null } | null>(null);
+  const [autoplay, setAutoplay] = useState(true);
+  const [autoId, setAutoId] = useState<string | null>(null);
+  const [autoFailed, setAutoFailed] = useState<Record<string, boolean>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(text: string) {
@@ -219,6 +224,14 @@ export default function MiniAppPage() {
       try { if (u?.id) void fetch("/api/media-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: String(u.id), name: u.first_name || "" }) }); } catch {}
     }
     setLiked(loadJSON(LS.liked, {}));
+    // Autoplay defaults on, except when the phone asks to save data.
+    const saveData = !!(navigator as any).connection?.saveData;
+    setAutoplay(loadJSON(LS.autoplay, !saveData));
+    // Deep link from the bot's "new share" notification: ?u=<user id> opens that profile.
+    try {
+      const u = new URLSearchParams(window.location.search).get("u") || t?.initDataUnsafe?.start_param?.replace(/^u_/, "") || "";
+      if (/^\d{3,}$/.test(u)) { setViewUserId(u); setTab("me"); }
+    } catch {}
     setNames(loadJSON(LS.names, {}));
     const prof = loadJSON<{ name?: string; status?: string }>(LS.profile, {});
     if (prof.name) { setDisplayName(prof.name); setEditName(prof.name); }
@@ -238,6 +251,13 @@ export default function MiniAppPage() {
     });
   }, [items]);
 
+  // A profile opened by deep link only knows the id; take the name from their posts.
+  useEffect(() => {
+    if (!viewUserId || viewUserName) return;
+    const n = names[viewUserId] || items.find((i) => i.sharer_id === viewUserId)?.sharer_name;
+    if (n) setViewUserName(n);
+  }, [viewUserId, viewUserName, names, items]);
+
   const loadRelations = useCallback(async (profileId?: string | null) => {
     if (!userId) return;
     try {
@@ -246,6 +266,7 @@ export default function MiniAppPage() {
       const r = await fetch(`/api/media-social?${qs}`, { cache: "no-store" });
       const j = await r.json();
       if (j.relations) setRelations(j.relations);
+      if (Array.isArray(j.notifyOff)) setNotifyOff(j.notifyOff);
       setSocialReady(!!j.ready);
       if (j.profile) setProfileCounts({ followers: j.profile.followers, following: j.profile.following });
       // One-time move of follows that used to live only in this device's
@@ -492,6 +513,26 @@ export default function MiniAppPage() {
     return list;
   }, [items, tab, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
+  // Picks the one video card most in view (≥60% visible) for the muted
+  // autoplay preview — only one at a time, to keep data use sane.
+  useEffect(() => {
+    if (!autoplay || typeof IntersectionObserver === "undefined") return;
+    const ratios = new Map<string, number>();
+    const obs = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        const id = (e.target as HTMLElement).dataset.autoId;
+        if (id) ratios.set(id, e.intersectionRatio);
+      }
+      let best: string | null = null;
+      let bestR = 0.6;
+      ratios.forEach((r, id) => { if (r >= bestR) { best = id; bestR = r; } });
+      setAutoId(best);
+    }, { threshold: [0, 0.3, 0.6, 0.8, 1] });
+    document.querySelectorAll<HTMLElement>("article[data-auto-id]").forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [autoplay, visible, playingId]);
+  useEffect(() => { if (playingId) setAutoId(null); }, [playingId]);
+
   const profileStats = useMemo(() => {
     const mine = profileTargetId ? items.filter((i) => i.sharer_id === profileTargetId) : [];
     return {
@@ -500,6 +541,7 @@ export default function MiniAppPage() {
       likes: mine.reduce((a, b) => a + (b.likes || 0), 0),
       views: mine.reduce((a, b) => a + (b.views || 0), 0),
       followers: profileCounts?.followers ?? 0,
+      following: profileCounts?.following ?? 0,
     };
   }, [items, profileTargetId, profileCounts]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
@@ -545,6 +587,23 @@ export default function MiniAppPage() {
     try { await social(was ? "unfollow" : "follow", { target_id: sid }); showToast(was ? "أُلغيت المتابعة" : "تتابعه الآن — ستجد تحميلاته في «تتابعه»"); }
     catch (e) { void loadRelations(profileTargetId); relationError(e); }
   }
+  async function openPeople(kind: "followers" | "following", of: string) {
+    haptic();
+    setPeopleSheet({ kind, of, people: null });
+    try {
+      const r = await fetch(`/api/media-social?list=${kind}&of=${encodeURIComponent(of)}&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" });
+      const j = await r.json();
+      setPeopleSheet({ kind, of, people: Array.isArray(j.people) ? j.people : [] });
+    } catch { setPeopleSheet({ kind, of, people: [] }); }
+  }
+  async function toggleNotify(sid: string) {
+    const off = notifyOff.includes(sid);
+    haptic();
+    setNotifyOff((prev) => (off ? prev.filter((x) => x !== sid) : [...prev, sid]));
+    try { await social("set_notify", { target_id: sid, on: off }); showToast(off ? "🔔 ستصلك رسالة من البوت عند كل مشاركة جديدة له" : "🔕 أُوقفت إشعاراته"); }
+    catch (e) { setNotifyOff((prev) => (off ? [...prev, sid] : prev.filter((x) => x !== sid))); relationError(e); }
+  }
+  function setAutoplayPref(on: boolean) { setAutoplay(on); saveJSON(LS.autoplay, on); if (!on) setAutoId(null); showToast(on ? "▶️ التشغيل التلقائي مفعّل" : "⏸ التشغيل التلقائي متوقف"); }
   async function toggleMute(sid: string, name?: string) {
     const was = relations.mutes.includes(sid);
     if (!was && !(await confirmBox(`كتم ${name || "هذا المستخدم"}؟ لن ترى منشوراته بعد الآن، ولن يعلم بذلك.`))) return;
@@ -612,7 +671,7 @@ export default function MiniAppPage() {
     { id: "me", label: "ملفي", icon: "👤" },
     ...(isOwner ? [{ id: "admin" as Tab, label: "أدمن", icon: "👑" }] : []),
   ];
-  const headerName = viewUserId && !isOwnProfile ? viewUserName : displayName;
+  const headerName = viewUserId && !isOwnProfile ? viewUserName || "ملف مستخدم" : displayName;
   const viewedIsBlocked = !!profileTargetId && relations.blocks.includes(profileTargetId);
   const viewedIsMuted = !!profileTargetId && relations.mutes.includes(profileTargetId);
   const viewedBlockedMe = !!profileTargetId && relations.blockedBy.includes(profileTargetId);
@@ -702,6 +761,9 @@ export default function MiniAppPage() {
                 {isOwnProfile && (editing ? <button type="button" onClick={saveProfile} className="rounded-xl bg-teal-500 px-4 py-2 text-xs font-bold text-white">حفظ</button> : <button type="button" onClick={() => { setEditName(displayName); setEditStatus(statusLine); setEditing(true); }} className="rounded-xl bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700 ring-1 ring-teal-100">✏️ تعديل</button>)}
                 {profileTargetId && !isOwnProfile && !viewedBlockedMe && !viewedIsBlocked && (<>
                   <button type="button" onClick={() => void toggleFollow(profileTargetId)} className={`rounded-xl px-4 py-2 text-xs font-bold ${followingSet.has(profileTargetId) ? "bg-violet-50 text-violet-700 ring-1 ring-violet-200" : "bg-gradient-to-l from-violet-500 to-fuchsia-500 text-white shadow"}`}>{followingSet.has(profileTargetId) ? "✓ تتابعه" : "＋ متابعة"}</button>
+                  {followingSet.has(profileTargetId) && (
+                    <button type="button" onClick={() => void toggleNotify(profileTargetId)} title="إشعار عند مشاركاته الجديدة" className={`rounded-xl px-3 py-2 text-xs font-bold ring-1 ${notifyOff.includes(profileTargetId) ? "bg-slate-50 text-slate-500 ring-slate-200" : "bg-amber-50 text-amber-700 ring-amber-200"}`}>{notifyOff.includes(profileTargetId) ? "🔕" : "🔔"}</button>
+                  )}
                   <button type="button" onClick={() => void openThread(profileTargetId, viewUserName || "مستخدم")} className="rounded-xl bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100">💬 رسالة</button>
                   <button type="button" onClick={() => void toggleMute(profileTargetId, viewUserName)} className={`rounded-xl px-3 py-2 text-xs font-bold ring-1 ${viewedIsMuted ? "bg-slate-600 text-white ring-slate-600" : "bg-slate-50 text-slate-600 ring-slate-200"}`}>{viewedIsMuted ? "🔈 إلغاء الكتم" : "🔇 كتم"}</button>
                 </>)}
@@ -709,7 +771,8 @@ export default function MiniAppPage() {
                   <button type="button" onClick={() => void toggleBlock(profileTargetId, viewUserName)} className={`rounded-xl px-3 py-2 text-xs font-bold ring-1 ${viewedIsBlocked ? "bg-rose-500 text-white ring-rose-500" : "bg-rose-50 text-rose-600 ring-rose-100"}`}>{viewedIsBlocked ? "✓ إلغاء الحظر" : "⛔ حظر"}</button>
                 )}
               </div>
-              <div className="mt-4 grid grid-cols-5 gap-1.5">{([[profileStats.posts, "منشورات", "text-sky-600 bg-sky-50"], [profileStats.views, "مشاهدة", "text-indigo-600 bg-indigo-50"], [profileStats.clones, "تحميل", "text-emerald-600 bg-emerald-50"], [profileStats.likes, "إعجاب", "text-rose-600 bg-rose-50"], [profileStats.followers, "متابع", "text-violet-600 bg-violet-50"]] as [number, string, string][]).map(([v, l, c]) => (<div key={l} className={`rounded-2xl py-2.5 text-center ${c.split(" ")[1]}`}><p className={`text-base font-black ${c.split(" ")[0]}`}>{v}</p><p className="text-[9px] font-bold text-slate-500">{l}</p></div>))}</div>
+              <div className="mt-4 grid grid-cols-5 gap-1.5">{([[profileStats.posts, "منشورات", "text-sky-600 bg-sky-50"], [profileStats.views, "مشاهدة", "text-indigo-600 bg-indigo-50"], [profileStats.clones, "تحميل", "text-emerald-600 bg-emerald-50"], [profileStats.likes, "إعجاب", "text-rose-600 bg-rose-50"]] as [number, string, string][]).map(([v, l, c]) => (<div key={l} className={`rounded-2xl py-2.5 text-center ${c.split(" ")[1]}`}><p className={`text-base font-black ${c.split(" ")[0]}`}>{v}</p><p className="text-[9px] font-bold text-slate-500">{l}</p></div>))}<button type="button" onClick={() => profileTargetId && void openPeople("followers", profileTargetId)} className="rounded-2xl bg-violet-50 py-2.5 text-center ring-1 ring-violet-100 active:scale-95"><p className="text-base font-black text-violet-600">{profileStats.followers}</p><p className="text-[9px] font-bold text-violet-500">متابِع ›</p></button></div>
+              {profileTargetId && <button type="button" onClick={() => void openPeople("following", profileTargetId)} className="mt-2 text-[11px] font-bold text-violet-600">يتابع {profileStats.following} شخصاً ›</button>}
               <div className="mt-3 flex gap-1.5">{(["all", "video", "audio", "photo"] as const).map((id) => (<button key={id} type="button" onClick={() => setProfileSection(id)} className={`flex-1 rounded-xl py-1.5 text-[11px] font-bold ${profileSection === id ? "bg-gradient-to-l from-teal-500 to-sky-500 text-white" : "bg-slate-50 text-slate-600"}`}>{{ all: "الكل", video: "فيديو", audio: "صوت", photo: "صورة" }[id]}</button>))}</div>
             </div>
           </div>
@@ -724,6 +787,10 @@ export default function MiniAppPage() {
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-emerald-600">{inboxUnread}</p><p className="text-[9px] font-bold text-slate-500">رسائل جديدة</p></div>
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-amber-600">{unreadCount}</p><p className="text-[9px] font-bold text-slate-500">إشعارات جديدة</p></div>
             </div>
+            <button type="button" onClick={() => setAutoplayPref(!autoplay)} className="mt-3 flex w-full items-center justify-between rounded-xl bg-white px-3 py-2.5 shadow-sm">
+              <span className="text-xs font-bold text-slate-700">▶️ تشغيل الفيديو تلقائياً (بلا صوت) أثناء التمرير</span>
+              <span className={`relative h-5 w-9 rounded-full transition ${autoplay ? "bg-teal-500" : "bg-slate-300"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${autoplay ? "right-0.5" : "right-[18px]"}`} /></span>
+            </button>
             {(relations.mutes.length > 0 || relations.blocks.length > 0) && (
               <div className="mt-3 space-y-1.5">
                 <p className="text-xs font-bold text-slate-600">المكتومون والمحظورون</p>
@@ -814,11 +881,17 @@ export default function MiniAppPage() {
             const p = platformOf(item.url);
             const mine = !!userId && item.sharer_id === userId;
             return (
-              <article key={item.id} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <article key={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : p.vertical ? "aspect-[4/5]" : "aspect-video"}`}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio src={`/api/media-stream?id=${item.id}`} controls autoPlay className="w-[90%]" onError={() => { setPlayingId(null); setPlayError(item.id); }} /></div>)
                     : (<video src={`/api/media-stream?id=${item.id}`} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => { setPlayingId(null); setPlayError(item.id); }} />)
+                  ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
+                    // Muted preview while the card is on screen; a tap switches to the full player with sound.
+                    <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
+                      <video src={`/api/media-stream?id=${item.id}`} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} />
+                      <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
+                    </button>
                   ) : (
                     <button type="button" onClick={() => playItem(item)} className="group relative block h-full w-full">
                       {isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-indigo-100 via-sky-100 to-violet-100"><span className="text-5xl">{item.media_type === "voice" ? "🎙" : "🎵"}</span><p className="text-xs font-bold text-indigo-700">{item.media_type === "voice" ? "رسالة صوتية" : "مقطع صوتي"}</p></div>) : <Thumb item={item} />}
@@ -898,6 +971,27 @@ export default function MiniAppPage() {
             <textarea value={reportDetails} onChange={(e) => setReportDetails(e.target.value)} rows={2} maxLength={500} placeholder="تفاصيل إضافية (اختياري)" className="mt-3 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-rose-300" />
             <button type="button" disabled={!reportReason} onClick={() => void submitReport()} className="mt-3 w-full rounded-2xl bg-gradient-to-l from-rose-500 to-red-600 py-3 text-sm font-black text-white disabled:opacity-40">إرسال البلاغ</button>
             <button type="button" onClick={() => setReportItem(null)} className="mt-2 w-full rounded-2xl bg-slate-100 py-3 text-sm font-bold text-slate-600">إلغاء</button>
+          </div>
+        </div>
+      )}
+
+      {peopleSheet && (
+        <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setPeopleSheet(null)}>
+          <div className="max-h-[75vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
+            <p className="mb-3 text-center text-base font-black text-violet-700">{peopleSheet.kind === "followers" ? "💜 المتابِعون" : "👥 يتابع"}</p>
+            {peopleSheet.people === null ? <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-12 animate-pulse rounded-2xl bg-violet-50" />)}</div>
+              : peopleSheet.people.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">{socialReady === false ? "الميزة بانتظار تفعيلها من المالك" : "لا أحد بعد"}</p>
+              : <ul className="space-y-1.5">{peopleSheet.people.map((pp) => (
+                <li key={pp.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2">
+                  <button type="button" onClick={() => { setPeopleSheet(null); if (pp.id === userId) { closeOtherProfile(); setTab("me"); } else openProfile(pp.id, pp.name); }} className="flex min-w-0 flex-1 items-center gap-3 text-right">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400 text-sm font-black text-white">{(pp.name || "U").slice(0, 1)}</span>
+                    <span className="truncate text-sm font-bold">{pp.name}{pp.id === userId ? " (أنت)" : ""}</span>
+                  </button>
+                  {pp.id !== userId && <button type="button" onClick={() => void toggleFollow(pp.id)} className={`shrink-0 rounded-xl px-3 py-1.5 text-[11px] font-bold ${followingSet.has(pp.id) ? "bg-violet-50 text-violet-700 ring-1 ring-violet-200" : "bg-gradient-to-l from-violet-500 to-fuchsia-500 text-white"}`}>{followingSet.has(pp.id) ? "✓ تتابعه" : "＋ متابعة"}</button>}
+                </li>
+              ))}</ul>}
+            <button type="button" onClick={() => setPeopleSheet(null)} className="mt-3 w-full rounded-2xl bg-slate-100 py-3 text-sm font-bold text-slate-600">إغلاق</button>
           </div>
         </div>
       )}
