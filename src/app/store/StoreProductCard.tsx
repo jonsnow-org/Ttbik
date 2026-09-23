@@ -12,7 +12,7 @@ const CATEGORY_FALLBACK: Record<string, { emoji: string; gradient: string }> = {
 };
 
 function categoryFallback(category: string) {
-  return CATEGORY_FALLBACK[category] || { emoji: "🛝", gradient: "from-slate-100 to-slate-200" };
+  return CATEGORY_FALLBACK[category] || { emoji: "🛤️", gradient: "from-slate-100 to-slate-200" };
 }
 
 function isHttpUrl(value: string | null | undefined): value is string {
@@ -55,6 +55,9 @@ export default function StoreProductCard({ p }: { p: StoreProduct }) {
           <img
             src={p.image_url!}
             alt={p.title_ar}
+            width={400}
+            height={400}
+            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 33vw"
             className="h-full w-full object-cover"
             loading="lazy"
             decoding="async"

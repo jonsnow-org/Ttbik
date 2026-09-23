@@ -85,6 +85,15 @@ function groupByCategory(products: StoreProduct[]): { category: string; items: S
   return groups;
 }
 
+function uniqueMerchantCount(products: StoreProduct[]): number {
+  const seen = new Set<string>();
+  for (const p of products) {
+    const host = merchantHost(p.affiliate_url);
+    if (host) seen.add(host);
+  }
+  return seen.size;
+}
+
 function breadcrumbJsonLd() {
   return {
     "@context": "https://schema.org",
@@ -213,6 +222,7 @@ function storeJsonLd(products: StoreProduct[]) {
 export default async function StorePage() {
   const products = await getProducts();
   const groups = groupByCategory(products);
+  const shopCount = uniqueMerchantCount(products);
 
   return (
     <main className="relative mx-auto max-w-6xl px-4 pb-20 pt-6">
@@ -252,6 +262,7 @@ export default async function StorePage() {
         {products.length > 0 && (
           <p className="mt-2 text-xs font-semibold text-slate-400">
             {products.length} منتج مختار في {groups.length} أقسام
+            {shopCount > 0 ? ` من ${shopCount} متجر مصدر` : ""}
           </p>
         )}
         <p className="mx-auto mt-3 max-w-2xl rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
