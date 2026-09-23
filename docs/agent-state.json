@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5790840088,
   "last_actor": "grok",
-  "updated_at": "2026-09-23T09:05:00Z",
+  "updated_at": "2026-09-23T11:25:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only.",
@@ -14,6 +14,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G149 /store: slash focuses search; Escape outside inputs resets all filters; native share of current filter URL when Web Share API exists.",
     "G148 /store: clear-search + Escape; scroll into category section; shops A-Z; FAQ that listed price is display-only at merchant.",
     "G147 /store: reset control while filtered results exist + aria-live count; FAQ about sharing q/cat/shop URL.",
     "G146 /store: unique merchant-host count in header + product img width/height/sizes to cut CLS.",
