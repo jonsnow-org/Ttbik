@@ -189,7 +189,7 @@ function storeJsonLd(products: StoreProduct[]) {
     image: OG_IMAGE,
     mainEntity: {
       "@type": "ItemList",
-      name: "ممتجر سوق تولز",
+      name: "متجر سوق تولز",
       numberOfItems: products.length,
       itemListOrder: "https://schema.org/ItemListOrderAscending",
       itemListElement: products.slice(0, 40).map((p, i) => {
