@@ -159,6 +159,7 @@ export default function MiniAppPage() {
   const [inboxUnread, setInboxUnread] = useState(0);
   const [botOnline, setBotOnline] = useState<boolean | null>(null);
   const [adBusy, setAdBusy] = useState(false);
+  const [reward, setReward] = useState<{ ads: number; bonus: number; remaining: number; per_ad: number } | null>(null);
   const [menuItem, setMenuItem] = useState<FeedItem | null>(null);
   const [reportItem, setReportItem] = useState<FeedItem | null>(null);
   const [reportReason, setReportReason] = useState("");
@@ -199,12 +200,28 @@ export default function MiniAppPage() {
   // this app has no real credit/limit system to attach one to honestly.
   // It's framed plainly as supporting the app, matching what actually
   // happens: watching it is what generates real ad revenue.
+  // Rewarded ad = real reward: each finished ad adds bonus downloads for
+  // today in the media bot (see /api/media-reward + media-bot/services/rewards.py).
+  async function loadReward() {
+    try {
+      const j = await (await fetch(`/api/media-reward?init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })).json();
+      if (typeof j.remaining === "number") setReward({ ads: j.ads || 0, bonus: j.bonus || 0, remaining: j.remaining, per_ad: j.per_ad || 3 });
+    } catch {}
+  }
   async function watchSupportAd() {
     if (adBusy) return;
+    if (reward && reward.remaining <= 0) { showToast("استهلكت مكافآت اليوم — تتجدد غداً"); return; }
     setAdBusy(true);
     try {
       const played = await showRewardedAd();
-      tg()?.showAlert?.(played ? "شكراً لدعمك! 🎉" : "الإعلان غير متاح حالياً، حاول لاحقاً.");
+      if (!played) { showToast("الإعلان غير متاح الآن، حاول بعد قليل"); return; }
+      const r = await fetch("/api/media-reward", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) });
+      const j = await r.json().catch(() => ({}));
+      if (typeof j.remaining === "number") setReward({ ads: j.ads || 0, bonus: j.bonus || 0, remaining: j.remaining, per_ad: j.per_ad || 3 });
+      if (j.granted) { haptic("success"); showToast(`🎉 +${j.granted} تحميلات إضافية اليوم في البوت`); }
+      else if (j.reason === "cooldown") showToast("انتظر قليلاً قبل الإعلان التالي");
+      else if (j.reason === "daily_cap") showToast("استهلكت مكافآت اليوم — تتجدد غداً");
+      else if (j.needs_migration) showToast("المكافآت بانتظار تفعيلها من المالك");
     } finally {
       setAdBusy(false);
     }
@@ -391,6 +408,7 @@ export default function MiniAppPage() {
 
   useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   useEffect(() => { void loadRelations(showProfile ? profileTargetId : null); }, [loadRelations, showProfile, profileTargetId]);
+  useEffect(() => { if (isOwnProfile && userId) void loadReward(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isOwnProfile, userId]);
 
   async function loadAdmin() {
     try {
@@ -826,7 +844,7 @@ export default function MiniAppPage() {
               <button type="button" onClick={() => { if (chatPeer) setChatPeer(null); else setShowInbox(false); }} className="text-xs font-bold text-slate-500">{chatPeer ? "← رجوع" : "إغلاق"}</button>
             </div>
           </div>
-          <p className="bg-violet-50/50 px-4 py-1.5 text-[10px] text-slate-500">🔒 المحادثة خاصة بينكما. قد تطّلع الإدارة على المحادثات لمعالجة البلاغات والإساءة فقط.</p>
+
           {!chatPeer ? (inboxThreads.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا محادثات — اضغط «💬 رسالة» من ملف مستخدم</p> : (
             <ul className="max-h-80 overflow-y-auto">{inboxThreads.filter((th) => !relations.blocks.includes(th.peer_id)).map((th) => (<li key={th.peer_id}><button type="button" onClick={() => void openThread(th.peer_id, th.peer_name)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-violet-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-300 to-fuchsia-300 text-sm font-black text-white">{(th.peer_name || "U").slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{th.peer_name || th.peer_id}</p><p className="truncate text-[11px] text-slate-500">{th.last_body}</p></div>{th.unread > 0 && <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white">{th.unread}</span>}</button></li>))}</ul>
           )) : (
@@ -902,10 +920,21 @@ export default function MiniAppPage() {
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-emerald-600">{inboxUnread}</p><p className="text-[9px] font-bold text-slate-500">رسائل جديدة</p></div>
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-amber-600">{unreadCount}</p><p className="text-[9px] font-bold text-slate-500">إشعارات جديدة</p></div>
             </div>
-            <button type="button" disabled={adBusy} onClick={() => void watchSupportAd()} className="mt-3 flex w-full items-center justify-between rounded-xl bg-gradient-to-l from-amber-50 to-yellow-50 px-3 py-2.5 text-right shadow-sm ring-1 ring-amber-100 disabled:opacity-50">
-              <span className="text-xs font-bold text-amber-800">💛 ادعم التطبيق بمشاهدة إعلان قصير (اختياري)</span>
-              <span className="text-lg">🎬</span>
-            </button>
+            <div className="mt-3 rounded-2xl bg-gradient-to-l from-amber-100 via-yellow-50 to-orange-50 p-3 shadow-sm ring-1 ring-amber-200">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-black text-amber-800">🎁 تحميلات إضافية مجاناً</p>
+                  <p className="text-[11px] font-semibold text-amber-700/80">شاهد إعلاناً قصيراً = +{reward?.per_ad ?? 3} تحميلات اليوم في البوت</p>
+                </div>
+                <button type="button" disabled={adBusy || (reward ? reward.remaining <= 0 : false)} onClick={() => void watchSupportAd()} className="shrink-0 rounded-xl bg-gradient-to-l from-amber-500 to-orange-500 px-3 py-2 text-xs font-black text-white shadow disabled:opacity-50">{adBusy ? "..." : "🎬 شاهد"}</button>
+              </div>
+              {reward && (
+                <div className="mt-2 flex items-center justify-between text-[10px] font-bold text-amber-800/80">
+                  <span>ربحت اليوم: +{reward.bonus} تحميل</span>
+                  <span>متبقٍ: {reward.remaining} {reward.remaining === 1 ? "إعلان" : "إعلانات"}</span>
+                </div>
+              )}
+            </div>
             <button type="button" onClick={() => setAutoplayPref(!autoplay)} className="mt-3 flex w-full items-center justify-between rounded-xl bg-white px-3 py-2.5 shadow-sm">
               <span className="text-xs font-bold text-slate-700">▶️ تشغيل الفيديو تلقائياً (بلا صوت) أثناء التمرير</span>
               <span className={`relative h-5 w-9 rounded-full transition ${autoplay ? "bg-teal-500" : "bg-slate-300"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${autoplay ? "right-0.5" : "right-[18px]"}`} /></span>

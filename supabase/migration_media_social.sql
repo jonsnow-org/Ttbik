@@ -86,3 +86,17 @@ alter table public.media_views enable row level security;
 alter table public.media_likes enable row level security;
 grant select, insert, update, delete on public.media_views to service_role;
 grant select, insert, update, delete on public.media_likes to service_role;
+
+-- Rewarded ads → extra bot downloads: each finished rewarded ad in the
+-- mini-app adds bonus downloads for that UTC day (capped per day). The bot
+-- reads today's bonus before every download and adds it to the daily limit.
+create table if not exists public.media_ad_rewards (
+  user_id  text not null,
+  day      text not null,          -- YYYY-MM-DD (UTC, same day boundary as the bot)
+  ads      int  not null default 0,
+  bonus    int  not null default 0,
+  last_at  timestamptz,
+  primary key (user_id, day)
+);
+alter table public.media_ad_rewards enable row level security;
+grant select, insert, update, delete on public.media_ad_rewards to service_role;

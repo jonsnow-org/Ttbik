@@ -34,6 +34,7 @@ from keyboards import (
     INFO_TEXT,
 )
 from services.force_sub import require_subscription
+from services.rewards import refresh_bonus
 from services.downloader import extract_info, download_media, normalize_url, EXTRACT_TIMEOUT
 from services.archive import (
     get_cached_file_id,
@@ -301,6 +302,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if text == "📥 تحميل وسائط":
         await update.message.reply_text("أرسل الرابط مباشرة وسأعرض الخيارات.")
     elif text == "⚙️ إعداداتي":
+        await refresh_bonus(store, user.id)
         code = store.get_user_squad(user.id)
         await update.message.reply_text(
             f"إعداداتك:\n{store.perk_label(user.id)}\n"
@@ -383,6 +385,8 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     is_owner = user.id == cfg.owner_id
     if is_owner:
         store.set_share(user.id, True)
+    if not is_owner:
+        await refresh_bonus(store, user.id)
     allowed, limit_msg = store.can_download(user.id, is_owner)
     if not allowed:
         await update.message.reply_text(limit_msg)
@@ -549,6 +553,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text("انتهت صلاحية الطلب.")
         return
 
+    if not is_owner:
+        await refresh_bonus(store, user_id)
     allowed, limit_msg = store.can_download(user_id, is_owner)
     if not allowed:
         await query.edit_message_text(limit_msg)

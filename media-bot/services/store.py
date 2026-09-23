@@ -39,6 +39,8 @@ class Store:
     user_squad: dict[str, str] = field(default_factory=dict)
     # user_id -> order_code redeemed to activate the paid upgrade
     premium_users: dict[str, str] = field(default_factory=dict)
+    # user_id -> {"date": YYYY-MM-DD, "bonus": n} from rewarded ads (services/rewards.py)
+    ad_bonus: dict[str, dict] = field(default_factory=dict)
     settings_message_id: int | None = None
     last_wakeup: float = 0.0
     last_persist_ts: float = 0.0
@@ -85,24 +87,34 @@ class Store:
     def set_premium(self, user_id: int, order_code: str) -> None:
         self.premium_users[str(user_id)] = (order_code or "").strip().upper()
 
+    def set_ad_bonus(self, user_id: int, bonus: int) -> None:
+        self.ad_bonus[str(user_id)] = {"date": self._today(), "bonus": max(0, int(bonus))}
+
+    def get_ad_bonus(self, user_id: int) -> int:
+        row = self.ad_bonus.get(str(user_id)) or {}
+        return int(row.get("bonus") or 0) if row.get("date") == self._today() else 0
+
     def daily_limit(self, user_id: int, is_owner: bool = False) -> int:
         if is_owner:
             return 10_000
         if self.is_premium(user_id):
-            return PREMIUM_DAILY_LIMIT
-        return SHARE_DAILY_LIMIT if self.get_share(user_id) else FREE_DAILY_LIMIT
+            base = PREMIUM_DAILY_LIMIT
+        else:
+            base = SHARE_DAILY_LIMIT if self.get_share(user_id) else FREE_DAILY_LIMIT
+        return base + self.get_ad_bonus(user_id)
 
     def can_download(self, user_id: int, is_owner: bool = False) -> tuple[bool, str]:
         limit = self.daily_limit(user_id, is_owner)
         used = self.daily_count(user_id)
         if used >= limit:
+            ad_hint = "\n🎁 أو شاهد إعلاناً قصيراً في التطبيق المصغّر (ملفي ← تحميلات إضافية) لتحصل على +3 تحميلات اليوم."
             if self.is_premium(user_id) or self.get_share(user_id):
-                return False, f"وصلت للحد اليومي ({limit}). حاول غداً."
+                return False, f"وصلت للحد اليومي ({limit}). حاول غداً." + ad_hint
             return (
                 False,
-                f"وصلت للحد المجاني ({FREE_DAILY_LIMIT}/يوم).\n"
+                f"وصلت للحد المجاني ({limit}/يوم).\n"
                 f"فعّل المشاركة (عام أو غرفة) لرفع الحد إلى {SHARE_DAILY_LIMIT}، "
-                f"أو فعّل الترقية المدفوعة لرفعه إلى {PREMIUM_DAILY_LIMIT}.",
+                f"أو فعّل الترقية المدفوعة لرفعه إلى {PREMIUM_DAILY_LIMIT}." + ad_hint,
             )
         return True, f"{used + 1}/{limit}"
 

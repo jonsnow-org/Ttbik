@@ -248,8 +248,7 @@ async function notifyRecipient(msg: Msg) {
  * Owner-only moderation view (verified initData of the app owner):
  *   ?admin=1                 → every conversation (pair) with its last message
  *   ?admin=1&a=<id>&b=<id>   → the full conversation between two users
- * Users are told in the inbox that conversations can be reviewed by the
- * administration to handle reports and abuse.
+ * Used to verify reports and to answer lawful requests from authorities.
  */
 async function adminView(req: NextRequest, uid: string) {
   if (uid !== MEDIA_OWNER_ID) return NextResponse.json({ error: "owner only" }, { status: 403 });
