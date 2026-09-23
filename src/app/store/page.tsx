@@ -96,6 +96,18 @@ function breadcrumbJsonLd() {
   };
 }
 
+function organizationJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "سوق تولز",
+    url: SITE_URL,
+    logo: OG_IMAGE,
+    inLanguage: "ar",
+    sameAs: [] as string[],
+  };
+}
+
 const STORE_FAQ = [
   {
     q: "هل الشراء من متجر سوق تولز يحتاج حساباً؟",
@@ -108,6 +120,10 @@ const STORE_FAQ = [
   {
     q: "هل تبيعون أكواداً أو ملفات للتحميل؟",
     a: "لا. الصفحة تعرض منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة، وليست سوقاً لبيع ملفات كود.",
+  },
+  {
+    q: "كيف أعرف المتجر المصدر قبل الضغط؟",
+    a: "كل بطاقة تظهر اسم مضيف المتجر المصدر. الشراء والشحن والإرجاع تتم عند المتجر المصدر وليس على سوق تولز.",
   },
 ];
 
@@ -206,6 +222,10 @@ export default async function StorePage() {
       />
       <script
         type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd()) }}
+      />
+      <script
+        type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(storeJsonLd(products)) }}
       />
       <script
@@ -225,7 +245,7 @@ export default async function StorePage() {
       </nav>
 
       <div className="mb-8 text-center">
-        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🪒 متجر سوق تولز</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900 sm:text-3xl">🛒 متجر سوق تولز</h1>
         <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
           منتجات رقمية مختارة بروابط شراء مباشرة من متاجر موثوقة — بدون حساب وبدون كود للبيع.
         </p>
@@ -256,6 +276,27 @@ export default async function StorePage() {
       <div className="mt-10">
         <AdSlot position="in-content" label="وسط صفحة المتجر" />
       </div>
+
+      <section className="mt-14 rounded-3xl border border-slate-200 bg-white p-6" aria-labelledby="store-related">
+        <h2 id="store-related" className="text-lg font-extrabold text-slate-900">
+          أدوات مرتبطة
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          روابط داخلية لأقسام الموقع الأخرى — ليست منتجات للبيع.
+        </p>
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2">
+          <li>
+            <a href="/free-tools" className="block rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:border-slate-400">
+              الأدوات المجانية ← حاسبات ومولّدات تعمل في المتصفح
+            </a>
+          </li>
+          <li>
+            <a href="/bots" className="block rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:border-slate-400">
+              بوتات تليجرام ← تفعيل بوت يعمل على توكنك
+            </a>
+          </li>
+        </ul>
+      </section>
 
       <section className="mt-14 rounded-3xl border border-slate-200 bg-white p-6" aria-labelledby="store-faq">
         <h2 id="store-faq" className="text-lg font-extrabold text-slate-900">
