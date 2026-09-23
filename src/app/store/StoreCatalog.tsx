@@ -433,6 +433,20 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
             إعادة الضبط
           </button>
         </p>
+      ) : sort !== "default" ? (
+        <section className="mt-10" aria-label="نتائج مرتّبة بدون تجميع الأقسام">
+          <h2 className="mb-4 text-xl font-bold text-slate-900">
+            نتائج مرتّبة
+            <span className="mr-2 text-sm font-semibold text-slate-500">
+              {sort === "price-asc" ? "من الأقل سعراً" : sort === "price-desc" ? "من الأعلى سعراً" : "حسب الاسم"}
+            </span>
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((p) => (
+              <StoreProductCard key={p.id} p={p} />
+            ))}
+          </div>
+        </section>
       ) : (
         groups.map((group) => (
           <section key={group.category} id={categoryAnchor(group.category)} className="mt-10 scroll-mt-24">
