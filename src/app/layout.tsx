@@ -105,7 +105,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 الأقسام
               </a>
               <a
-                href="/free-tools"
+                href="/#free-tools"
                 className="rounded-full px-3 py-1.5 text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
               >
                 🎁 أدوات مجانية
@@ -153,7 +153,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
               <p className="flex items-center gap-4 text-sm text-slate-500">
                 <a href="/how-it-works" className="hover:text-brand-700">كيف يعمل الموقع؟</a>
-                <a href="/free-tools" className="hover:text-brand-700">أدوات مجانية</a>
+                <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
                 <a href="/order/lookup" className="hover:text-brand-700">تتبع طلبي</a>
               </p>
             </div>

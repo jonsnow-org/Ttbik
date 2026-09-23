@@ -309,7 +309,7 @@ export default async function StorePage() {
         </p>
         <ul className="mt-4 grid gap-3 sm:grid-cols-2">
           <li>
-            <a href="/free-tools" className="block rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:border-slate-400">
+            <a href="/#free-tools" className="block rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:border-slate-400">
               الأدوات المجانية ← حاسبات ومولّدات تعمل في المتصفح
             </a>
           </li>

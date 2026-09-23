@@ -32,7 +32,7 @@ export default function ToolsHubPage() {
       <p className="mt-2 text-sm text-slate-600">
         أدوات معالجة صوت/فيديو/صورة حقيقية تعمل بالكامل داخل متصفحك، بطلب مسبق ووصول دائم بعده — ليست جزءاً من
         الأدوات المجانية. تبحث عن الأدوات المجانية بلا تسجيل؟{" "}
-        <Link href="/free-tools" className="font-bold text-emerald-700 underline">
+        <Link href="/#free-tools" className="font-bold text-emerald-700 underline">
           كل الأدوات المجانية من هنا
         </Link>
         .

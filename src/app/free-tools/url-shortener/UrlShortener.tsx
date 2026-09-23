@@ -178,7 +178,7 @@ export default function UrlShortener({ lang = "ar" }: { lang?: "ar" | "en" }) {
 
       <div className="mt-6 rounded-xl border border-dashed border-brand-200 bg-brand-50/50 p-4 text-sm text-slate-600">
         {t.realToolPre}{" "}
-        <Link href="/free-tools" className="font-bold text-brand-700 underline">
+        <Link href="/#free-tools" className="font-bold text-brand-700 underline">
           {t.realToolLink}
         </Link>
         .

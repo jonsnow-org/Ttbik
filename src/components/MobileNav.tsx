@@ -34,11 +34,6 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [{ href: "/", label: "🏠 الصفحة الرئيسية" }],
     },
     {
-      label: "الأدوات المجانية",
-      badge: "G",
-      links: [{ href: "/free-tools", label: "🎁 كل الأدوات المجانية" }],
-    },
-    {
       label: "الأدوات المدفوعة",
       links: [{ href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" }],
     },

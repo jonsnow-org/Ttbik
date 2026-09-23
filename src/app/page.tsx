@@ -4,7 +4,19 @@ import type { Category, Service } from "@/types";
 import StorefrontBrowser from "@/components/StorefrontBrowser";
 import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
-import { FREE_TOOLS, getFreeToolTheme } from "@/lib/freeTools";
+import { FREE_TOOLS } from "@/lib/freeTools";
+
+// Full literal class strings so Tailwind's scanner generates them.
+const TOOL_GRADIENTS = [
+  "from-emerald-500 to-teal-700",
+  "from-sky-500 to-blue-700",
+  "from-amber-500 to-orange-700",
+  "from-rose-500 to-pink-700",
+  "from-violet-500 to-purple-700",
+  "from-cyan-500 to-sky-700",
+  "from-fuchsia-500 to-purple-700",
+  "from-lime-600 to-green-700",
+];
 import BotCards from "@/components/BotCards";
 
 export const revalidate = 30;
@@ -48,9 +60,9 @@ export default async function HomePage() {
             <Link href="/bots" className="rounded-full bg-indigo-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-800">
               منشئ البوتات
             </Link>
-            <Link href="/free-tools" className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700">
-              كل الأدوات المجانية
-            </Link>
+            <a href="#free-tools" className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700">
+              الأدوات المجانية
+            </a>
           </div>
         </div>
       </section>
@@ -59,34 +71,39 @@ export default async function HomePage() {
         <AdSlot position="in-content" label="بين الترحيب والأقسام" />
       </div>
 
-      <section className="mx-auto max-w-6xl px-4 py-8">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+      <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
+        <div>
+          <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🎁 أدوات مجانية بالكامل</h2>
+          <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — جرّبها الآن مباشرة.</p>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-4 lg:grid-cols-3">
+          {FREE_TOOLS.map((tool, index) => (
+            <Link
+              key={tool.href}
+              href={tool.href}
+              className={`flex flex-col rounded-2xl bg-gradient-to-br ${TOOL_GRADIENTS[index % TOOL_GRADIENTS.length]} p-4 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl sm:p-5`}
+            >
+              <h3 className="text-base font-extrabold leading-snug sm:text-lg">{tool.title}</h3>
+              <p className="mt-2 text-xs leading-relaxed text-white/85 sm:text-sm">{tool.desc}</p>
+            </Link>
+          ))}
+        </div>
+
+        {/* Moved here from the retired /free-tools index page (2026-09-23) so
+            this promo isn't lost with it. */}
+        <a
+          href="https://literium.ai.studio"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-6 flex items-center justify-between gap-4 overflow-hidden rounded-2xl border border-brand-200 bg-gradient-to-l from-brand-50 to-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🎁 أدوات مجانية بالكامل</h2>
-            <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — جرّبها الآن مباشرة.</p>
+            <span className="inline-block rounded-full bg-brand-100 px-2.5 py-0.5 text-[11px] font-bold text-brand-700">إعلان</span>
+            <h3 className="mt-2 text-lg font-bold text-slate-900">Literium AI Studio</h3>
+            <p className="mt-1 text-sm text-slate-600">literium.ai.studio</p>
           </div>
-          <Link href="/free-tools" className="text-sm font-bold text-brand-700 hover:text-brand-800">
-            كل الأدوات ←
-          </Link>
-        </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {FREE_TOOLS.map((tool, index) => {
-            const theme = getFreeToolTheme(index);
-            return (
-              <Link
-                key={tool.href}
-                href={tool.href}
-                className={`group rounded-2xl border ${theme.border} ${theme.bg} p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}
-              >
-                <span className={`inline-block rounded-full ${theme.badgeBg} px-2.5 py-0.5 text-[11px] font-bold ${theme.badgeText}`}>
-                  مجاني
-                </span>
-                <h3 className={`mt-2 font-bold text-slate-900 ${theme.hoverText}`}>{tool.title}</h3>
-                <p className="mt-1 text-sm text-slate-600">{tool.desc}</p>
-              </Link>
-            );
-          })}
-        </div>
+          <span className="shrink-0 rounded-full bg-brand-600 px-4 py-2 text-sm font-bold text-white">زيارة ←</span>
+        </a>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8">

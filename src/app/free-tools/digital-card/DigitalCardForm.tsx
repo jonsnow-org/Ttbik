@@ -305,7 +305,7 @@ export default function DigitalCardForm() {
 
       <div className="mt-6 rounded-xl border border-dashed border-brand-200 bg-brand-50/50 p-4 text-sm text-slate-600">
         بطاقة أعمال رقمية حقيقية على نطاق الموقع — صفحة عامة + عداد مشاهدات. راجع{" "}
-        <Link href="/free-tools" className="font-bold text-brand-700 underline">
+        <Link href="/#free-tools" className="font-bold text-brand-700 underline">
           باقي الأدوات المجانية
         </Link>
         .
