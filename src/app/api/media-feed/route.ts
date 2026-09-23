@@ -97,7 +97,7 @@ async function loadFromSupabase(): Promise<FeedItem[] | null> {
         "id,file_id,media_type,title,url,thumbnail,sharer_name,sharer_id,clones,views,likes,created_at,tags,squad_code,duration_sec,quality,hidden"
       )
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(500);
 
     if (r.error) {
       r = await db
@@ -168,6 +168,10 @@ async function saveToSupabase(item: FeedItem): Promise<{ id: string | null; erro
   } catch (e) {
     return { id: null, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function offset0(req: NextRequest) {
+  return Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0) || 0);
 }
 
 export async function GET(req: NextRequest) {
@@ -269,7 +273,7 @@ export async function GET(req: NextRequest) {
 
   // Lazy backfill of real titles for older rows saved with a numeric id as
   // the title: a few per request, time-boxed, written back so it's once only.
-  const needTitles = items.slice(0, 80).filter((i) => isPlaceholderTitle(i.title) && i.url).slice(0, 4);
+  const needTitles = items.slice(offset0(req), offset0(req) + 40).filter((i) => isPlaceholderTitle(i.title) && i.url).slice(0, 4);
   if (needTitles.length) {
     const db = await mediaDb();
     await Promise.race([
@@ -285,7 +289,26 @@ export async function GET(req: NextRequest) {
     ]);
   }
 
-  const publicItems = items.slice(0, 80).map(({ file_id: _f, ...rest }) => ({
+  // Paging: ?offset=N (20-80 per page) so the feed can keep loading older posts.
+  const offset = Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0) || 0);
+  const pageSize = Math.min(80, Math.max(10, Number(req.nextUrl.searchParams.get("limit") || 40) || 40));
+  const total = items.length;
+  items = items.slice(offset, offset + pageSize);
+
+  // Which of these the viewer has liked (server truth, not this device's memory).
+  let likedIds = new Set<string>();
+  if (viewer && items.length) {
+    try {
+      const ldb = await mediaDb();
+      const { data: lk } = ldb ? await ldb.from("media_likes").select("post_id").eq("user_id", viewer.id).in("post_id", items.map((i) => i.id)) : { data: [] as any[] };
+      likedIds = new Set((lk || []).map((r: any) => String(r.post_id)));
+    } catch {
+      /* table not created yet */
+    }
+  }
+
+  const publicItems = items.map(({ file_id: _f, ...rest }) => ({
+    liked: likedIds.has(rest.id),
     ...rest,
     // TikTok thumbnails are never stored (and expire) — see /api/media-thumb.
     thumbnail: isTikTok(rest.url) || !rest.thumbnail ? (isTikTok(rest.url) ? `/api/media-thumb?id=${rest.id}` : "") : rest.thumbnail,
@@ -293,6 +316,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     items: publicItems,
     count: publicItems.length,
+    total,
+    next_offset: offset + publicItems.length < total ? offset + publicItems.length : null,
     source: fromDb ? "supabase" : "memory",
   });
 }
@@ -376,20 +401,57 @@ export async function PATCH(req: NextRequest) {
   const spec = PATCH_DELTAS[action];
   if (!spec) return NextResponse.json({ error: "unknown action" }, { status: 400 });
   const { col, delta } = spec;
+  const db = await mediaDb();
 
-  const mem = (g.__mediaFeed || []).find((x) => x.id === id);
-  if (mem) (mem as any)[col] = Math.max(0, ((mem as any)[col] || 0) + delta);
+  async function bump(d: number) {
+    const mem = (g.__mediaFeed || []).find((x) => x.id === id);
+    if (mem) (mem as any)[col] = Math.max(0, ((mem as any)[col] || 0) + d);
+    if (!db) return;
+    const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
+    const next = Math.max(0, Number((data as any)?.[col] || 0) + d);
+    await db.from("media_feed").update({ [col]: next }).eq("id", id);
+  }
+
+  // Views and likes count once per real Telegram user per post (verified
+  // initData), never for the post's own sharer — so refreshing, replaying
+  // or scripting the endpoint can't inflate them. Anonymous calls count
+  // nothing. Clones are counted by the bot itself.
+  if (action === "view" || action === "like" || action === "unlike") {
+    const viewer = mediaUser(String(body.init_data || ""));
+    if (!viewer || !db) return NextResponse.json({ ok: true, counted: false });
+    try {
+      if (action === "view") {
+        const { data: post } = await db.from("media_feed").select("sharer_id").eq("id", id).maybeSingle();
+        if (!post || String((post as any).sharer_id) === viewer.id) return NextResponse.json({ ok: true, counted: false });
+        const { error } = await db.from("media_views").insert({ post_id: id, viewer_id: viewer.id });
+        if (error) {
+          if (error.code === "23505") return NextResponse.json({ ok: true, counted: false });
+          throw error;
+        }
+        await bump(1);
+      } else if (action === "like") {
+        const { error } = await db.from("media_likes").insert({ post_id: id, user_id: viewer.id });
+        if (error) {
+          if (error.code === "23505") return NextResponse.json({ ok: true, counted: false });
+          throw error;
+        }
+        await bump(1);
+      } else {
+        const { data: removed, error } = await db.from("media_likes").delete().eq("post_id", id).eq("user_id", viewer.id).select("post_id");
+        if (error) throw error;
+        if (!removed?.length) return NextResponse.json({ ok: true, counted: false });
+        await bump(-1);
+      }
+      return NextResponse.json({ ok: true, counted: true });
+    } catch {
+      // Dedup tables not created yet (migration pending): old behaviour.
+      await bump(delta).catch(() => {});
+      return NextResponse.json({ ok: true, counted: true, dedup: false });
+    }
+  }
 
   try {
-    const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-    const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-    if (url && key) {
-      const { createClient } = await import("@supabase/supabase-js");
-      const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-      const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
-      const next = Math.max(0, Number((data as any)?.[col] || 0) + delta);
-      await db.from("media_feed").update({ [col]: next }).eq("id", id);
-    }
+    await bump(delta);
   } catch {
     /* ignore */
   }

@@ -65,3 +65,24 @@ grant select, insert, update, delete on public.media_mutes   to service_role;
 grant select, insert, update, delete on public.media_blocks  to service_role;
 grant select, insert, update, delete on public.media_reports to service_role;
 grant delete on public.media_feed to service_role;
+
+-- Accurate counters: one view per person per post (the post's own sharer
+-- never counts), one like per person per post. media_feed.views / likes
+-- only change when a row here is actually inserted/deleted.
+create table if not exists public.media_views (
+  post_id    text not null,
+  viewer_id  text not null,
+  created_at timestamptz not null default now(),
+  primary key (post_id, viewer_id)
+);
+create table if not exists public.media_likes (
+  post_id    text not null,
+  user_id    text not null,
+  created_at timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+create index if not exists idx_media_likes_user on public.media_likes (user_id);
+alter table public.media_views enable row level security;
+alter table public.media_likes enable row level security;
+grant select, insert, update, delete on public.media_views to service_role;
+grant select, insert, update, delete on public.media_likes to service_role;

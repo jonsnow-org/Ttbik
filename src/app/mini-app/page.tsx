@@ -2,13 +2,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
+import AdsterraBanner from "@/components/AdsterraBanner";
 
 // "video" was a duplicate of Trending (both listed the latest downloads);
 // owner directive 2026-09-24: it became "تتابعه" — posts from the people
 // the viewer follows (server-side follows, see /api/media-social).
 type Tab = "trending" | "following" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
-type FeedItem = { id: string; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number; squad_code?: string };
+type FeedItem = { id: string; liked?: boolean; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number; squad_code?: string };
 type Notif = { id: string; type: "follow" | "like" | "comment" | "reply"; fromId: string; fromName: string; at: number; read: boolean; postId?: string };
 type CommentRow = { id: string; post_id: string; parent_id: string | null; from_id: string; from_name: string; body: string; created_at: number };
 type Relations = { following: string[]; mutes: string[]; blocks: string[]; blockedBy: string[] };
@@ -17,7 +18,7 @@ type Report = { id: string; post_id: string; post_title: string; post_owner_id: 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_MEDIA_BOT_USERNAME || "";
 const OWNER_IDS = (process.env.NEXT_PUBLIC_OWNER_ID || "420066855").split(",").map((s) => s.trim());
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked", followMigrated: "mb_follow_migrated", names: "mb_names", autoplay: "mb_autoplay" };
+const LS = { follow: "mb_following", profile: "mb_profile", liked: "mb_liked", followMigrated: "mb_follow_migrated", names: "mb_names", autoplay: "mb_autoplay", seen: "mb_seen" };
 const EMPTY_REL: Relations = { following: [], mutes: [], blocks: [], blockedBy: [] };
 
 const REPORT_REASONS: { key: string; label: string; icon: string }[] = [
@@ -172,6 +173,15 @@ export default function MiniAppPage() {
   const [autoFailed, setAutoFailed] = useState<Record<string, boolean>>({});
   // Ids whose Cloudflare stream failed once — retried through Vercel's /api/media-stream.
   const [viaVercel, setViaVercel] = useState<Record<string, boolean>>({});
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const [adminSection, setAdminSection] = useState<"reports" | "chats" | "rooms" | "content" | "settings">("reports");
+  const [adminConvs, setAdminConvs] = useState<{ a: string; b: string; a_name: string; b_name: string; last_body: string; last_at: number; count: number }[] | null>(null);
+  const [adminConv, setAdminConv] = useState<{ a: string; b: string; a_name: string; b_name: string; messages: { id: string; from_id: string; from_name: string; body: string; created_at: number }[] } | null>(null);
+  // Posts this viewer has already had on screen — Trending shows unseen ones first on each refresh.
+  const seenRef = useRef<Set<string>>(new Set());
+  const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const onPlayError = (id: string) => {
     if (!viaVercel[id]) { setViaVercel((v) => ({ ...v, [id]: true })); return; }
     setPlayingId(null); setPlayError(id);
@@ -222,6 +232,10 @@ export default function MiniAppPage() {
     const t = tg();
     if (t) {
       t.ready(); t.expand();
+      // Pull-to-refresh used to drag the whole mini-app down and collapse it
+      // (Telegram's swipe-to-minimize). Telegram ≥7.7 lets the app turn that
+      // gesture off; the app still closes from its header ✕.
+      try { t.disableVerticalSwipes?.(); } catch {}
       try { t.setHeaderColor("#eaf6ff"); t.setBackgroundColor("#eaf6ff"); t.MainButton.hide(); } catch {}
       const u = t.initDataUnsafe?.user;
       if (u?.first_name) { const full = u.first_name + (u.last_name ? ` ${u.last_name}` : ""); setDisplayName(full); setEditName(full); }
@@ -231,6 +245,8 @@ export default function MiniAppPage() {
       try { if (u?.id) void fetch("/api/media-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: String(u.id), name: u.first_name || "" }) }); } catch {}
     }
     setLiked(loadJSON(LS.liked, {}));
+    seenRef.current = new Set(loadJSON<string[]>(LS.seen, []));
+    try { document.documentElement.style.overscrollBehaviorY = "none"; document.body.style.overscrollBehaviorY = "none"; } catch {}
     // Autoplay defaults on, except when the phone asks to save data.
     const saveData = !!(navigator as any).connection?.saveData;
     setAutoplay(loadJSON(LS.autoplay, !saveData));
@@ -238,6 +254,8 @@ export default function MiniAppPage() {
     try {
       const u = new URLSearchParams(window.location.search).get("u") || t?.initDataUnsafe?.start_param?.replace(/^u_/, "") || "";
       if (/^\d{3,}$/.test(u)) { setViewUserId(u); setTab("me"); }
+      const dm = new URLSearchParams(window.location.search).get("dm") || "";
+      if (/^\d{3,}$/.test(dm)) setTimeout(() => void openThreadRef.current(dm, "مستخدم"), 600);
     } catch {}
     setNames(loadJSON(LS.names, {}));
     const prof = loadJSON<{ name?: string; status?: string }>(LS.profile, {});
@@ -302,22 +320,75 @@ export default function MiniAppPage() {
   const isOwnProfile = !!profileTargetId && profileTargetId === userId;
   const showProfile = tab === "me" || !!viewUserId;
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const qs = new URLSearchParams({ sort: tab === "trending" ? "trending" : "latest", type: tab === "audio" ? "audio" : "all" });
-      if (search.trim()) qs.set("q", search.trim());
-      const initData = tgInitData();
-      if (initData) qs.set("init_data", initData);
-      if (showProfile && profileTargetId) qs.set("sharer", profileTargetId);
-      else if (tab === "following") qs.set("feed", "following");
-      if (tab === "admin") qs.set("admin", "1");
-      const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
-      const j = await r.json();
-      setItems(Array.isArray(j.items) ? j.items : []);
-    } catch { setItems([]); } finally { setLoading(false); }
+  const buildQuery = useCallback((offset: number) => {
+    const qs = new URLSearchParams({ sort: tab === "trending" ? "trending" : "latest", type: tab === "audio" ? "audio" : "all", offset: String(offset), limit: tab === "admin" ? "80" : "30" });
+    if (search.trim()) qs.set("q", search.trim());
+    const initData = tgInitData();
+    if (initData) qs.set("init_data", initData);
+    if (showProfile && profileTargetId) qs.set("sharer", profileTargetId);
+    else if (tab === "following") qs.set("feed", "following");
+    if (tab === "admin") qs.set("admin", "1");
+    return qs;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, search, showProfile, profileTargetId]);
+
+  function mergeLiked(list: FeedItem[]) {
+    const fromServer = list.filter((i) => typeof i.liked === "boolean");
+    if (!fromServer.length) return;
+    setLiked((prev) => { const next = { ...prev }; for (const i of fromServer) next[i.id] = !!i.liked; saveJSON(LS.liked, next); return next; });
+  }
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setNewCount(0);
+    try {
+      const r = await fetch(`/api/media-feed?${buildQuery(0)}`, { cache: "no-store" });
+      const j = await r.json();
+      let list: FeedItem[] = Array.isArray(j.items) ? j.items : [];
+      // Trending rotates: posts already seen move behind unseen ones (each
+      // group keeps its ranking), so every refresh leads with something new.
+      if (tab === "trending" && !showProfile && seenRef.current.size) {
+        const fresh = list.filter((i) => !seenRef.current.has(i.id));
+        const seen = list.filter((i) => seenRef.current.has(i.id));
+        list = [...fresh, ...seen];
+      }
+      setItems(list);
+      mergeLiked(list);
+      setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
+    } catch { setItems([]); setNextOffset(null); } finally { setLoading(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildQuery, tab, showProfile]);
+
+  async function loadMore() {
+    if (loadingMore || nextOffset == null) return;
+    setLoadingMore(true);
+    try {
+      const r = await fetch(`/api/media-feed?${buildQuery(nextOffset)}`, { cache: "no-store" });
+      const j = await r.json();
+      const more: FeedItem[] = Array.isArray(j.items) ? j.items : [];
+      setItems((prev) => { const have = new Set(prev.map((i) => i.id)); return [...prev, ...more.filter((i) => !have.has(i.id))]; });
+      mergeLiked(more);
+      setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
+    } catch {} finally { setLoadingMore(false); }
+  }
+
+  // "New posts" pill: checks every minute for posts newer than what's on
+  // screen, without yanking the list the user is reading.
+  useEffect(() => {
+    if (showProfile || (tab !== "trending" && tab !== "following" && tab !== "audio")) return;
+    const t = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const qs = buildQuery(0); qs.set("sort", "latest"); qs.set("limit", "20");
+        const j = await (await fetch(`/api/media-feed?${qs}`, { cache: "no-store" })).json();
+        const newest = Math.max(0, ...items.map((i) => i.created_at || 0));
+        const have = new Set(items.map((i) => i.id));
+        setNewCount((Array.isArray(j.items) ? j.items : []).filter((i: FeedItem) => (i.created_at || 0) > newest && !have.has(i.id)).length);
+      } catch {}
+    }, 60000);
+    return () => clearInterval(t);
+  }, [buildQuery, items, tab, showProfile]);
+
   useEffect(() => { load(); if (tab === "admin" && isOwner) { void loadAdmin(); void loadReports(); } }, [load, tab, isOwner]);
   useEffect(() => { void loadRelations(showProfile ? profileTargetId : null); }, [loadRelations, showProfile, profileTargetId]);
 
@@ -334,6 +405,19 @@ export default function MiniAppPage() {
       const r = await fetch(`/api/media-social?reports=1&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" });
       const j = await r.json();
       if (Array.isArray(j.reports)) setReports(j.reports);
+    } catch {}
+  }
+  async function loadAdminConvs() {
+    try {
+      const j = await (await fetch(`/api/media-messages?admin=1&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })).json();
+      setAdminConvs(Array.isArray(j.conversations) ? j.conversations : []);
+    } catch { setAdminConvs([]); }
+  }
+  async function openAdminConv(c: { a: string; b: string; a_name: string; b_name: string }) {
+    setAdminConv({ ...c, messages: [] });
+    try {
+      const j = await (await fetch(`/api/media-messages?admin=1&a=${encodeURIComponent(c.a)}&b=${encodeURIComponent(c.b)}&init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })).json();
+      setAdminConv({ ...c, messages: Array.isArray(j.messages) ? j.messages : [] });
     } catch {}
   }
   async function resolveReport(rep: Report, decision: "hide" | "delete" | "dismiss") {
@@ -465,6 +549,7 @@ export default function MiniAppPage() {
     setShowInbox(true); setShowNotifs(false); setShowComments(false);
     await loadThreadMessages(peerId);
   }
+  openThreadRef.current = openThread;
   async function sendDm() {
     if (!chatPeer || !dmInput.trim() || !userId) return;
     const body = dmInput.trim(); setDmInput("");
@@ -521,22 +606,31 @@ export default function MiniAppPage() {
   }, [items, tab, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
   // Picks the one video card most in view (≥60% visible) for the muted
-  // autoplay preview — only one at a time, to keep data use sane.
+  // autoplay preview — only one at a time, to keep data use sane — and
+  // records which posts this viewer has had on screen (Trending rotation).
   useEffect(() => {
-    if (!autoplay || typeof IntersectionObserver === "undefined") return;
+    if (typeof IntersectionObserver === "undefined") return;
     const ratios = new Map<string, number>();
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
     const obs = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        const id = (e.target as HTMLElement).dataset.autoId;
-        if (id) ratios.set(id, e.intersectionRatio);
+        const id = (e.target as HTMLElement).dataset.feedId;
+        if (!id) continue;
+        ratios.set(id, (e.target as HTMLElement).dataset.autoId ? e.intersectionRatio : 0);
+        if (e.intersectionRatio >= 0.6 && !seenRef.current.has(id)) {
+          seenRef.current.add(id);
+          if (saveTimer) clearTimeout(saveTimer);
+          saveTimer = setTimeout(() => saveJSON(LS.seen, Array.from(seenRef.current).slice(-600)), 1500);
+        }
       }
+      if (!autoplay) return;
       let best: string | null = null;
       let bestR = 0.6;
       ratios.forEach((r, id) => { if (r >= bestR) { best = id; bestR = r; } });
       setAutoId(best);
     }, { threshold: [0, 0.3, 0.6, 0.8, 1] });
-    document.querySelectorAll<HTMLElement>("article[data-auto-id]").forEach((el) => obs.observe(el));
-    return () => obs.disconnect();
+    document.querySelectorAll<HTMLElement>("article[data-feed-id]").forEach((el) => obs.observe(el));
+    return () => { obs.disconnect(); if (saveTimer) clearTimeout(saveTimer); };
   }, [autoplay, visible, playingId]);
   useEffect(() => { if (playingId) setAutoId(null); }, [playingId]);
 
@@ -564,20 +658,27 @@ export default function MiniAppPage() {
     haptic();
     setLiked((p) => { const next = { ...p, [id]: !was }; saveJSON(LS.liked, next); return next; });
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like" }) }).catch(() => {});
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like", init_data: tgInitData() }) }).catch(() => {});
     if (!was && item.sharer_id && item.sharer_id !== userId) {
       void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
   };
-  // Views count once per item per page load, when someone actually presses play.
+  // A view counts once someone has actually watched ≥3 seconds (autoplay
+  // included), once per person per post — the server dedupes per verified
+  // Telegram user and ignores the post's own sharer.
   const viewedRef = useRef<Set<string>>(new Set());
+  const markViewed = (item: FeedItem, seconds: number) => {
+    if (seconds < 3 || viewedRef.current.has(item.id)) return;
+    viewedRef.current.add(item.id);
+    if (item.sharer_id && item.sharer_id === userId) return;
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
+      .then((r) => r.json())
+      .then((j) => { if (j?.counted) setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, views: (it.views || 0) + 1 } : it))); })
+      .catch(() => {});
+  };
   const playItem = (item: FeedItem) => {
     setPlayError(null);
     setPlayingId(item.id);
-    if (viewedRef.current.has(item.id)) return;
-    viewedRef.current.add(item.id);
-    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, views: (it.views || 0) + 1 } : it)));
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view" }) }).catch(() => {});
   };
 
   function relationError(e: any) {
@@ -695,7 +796,6 @@ export default function MiniAppPage() {
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
-            <button type="button" disabled={adBusy} onClick={() => void watchSupportAd()} title="ادعم التطبيق بمشاهدة إعلان" className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-lg shadow-sm ring-1 ring-amber-200 disabled:opacity-50">🎬</button>
             <button type="button" onClick={() => { haptic(); void load(); }} title="تحديث" className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
             <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
@@ -705,6 +805,9 @@ export default function MiniAppPage() {
         <nav className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
       </header>
 
+      {newCount > 0 && !overlayOpen && !showProfile && (
+        <button type="button" onClick={() => { haptic(); window.scrollTo({ top: 0, behavior: "smooth" }); void load(); }} className="fixed left-1/2 top-[132px] z-30 -translate-x-1/2 rounded-full bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-black text-white shadow-lg shadow-sky-300">⬆ {newCount} {newCount === 1 ? "منشور جديد" : "منشورات جديدة"}</button>
+      )}
       <div className="flex items-center justify-center overflow-hidden text-xl text-sky-500" style={{ height: refreshing ? 36 : pullY, transition: refreshing ? "height 0.15s ease-out" : pullY === 0 ? "height 0.2s ease-out" : undefined }}>
         {(refreshing || pullY > 0) && <span className={refreshing ? "animate-spin" : ""}>🔄</span>}
       </div>
@@ -712,13 +815,18 @@ export default function MiniAppPage() {
       <div className="px-3 pt-2"><input value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
+      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} /></div>}
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-xl">
           <div className="flex items-center justify-between border-b border-violet-100 bg-violet-50 px-4 py-3">
             <p className="text-sm font-black text-violet-800">{chatPeer ? `محادثة · ${chatPeer.name}` : "✉️ صندوق الرسائل"}</p>
-            <button type="button" onClick={() => { if (chatPeer) setChatPeer(null); else setShowInbox(false); }} className="text-xs font-bold text-slate-500">{chatPeer ? "← رجوع" : "إغلاق"}</button>
+            <div className="flex items-center gap-3">
+              {chatPeer && !OWNER_IDS.includes(chatPeer.id) && <button type="button" onClick={() => { const p = chatPeer; void toggleBlock(p.id, p.name).then(() => { setChatPeer(null); void loadInbox(); }); }} className="rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-600">⛔ حظر</button>}
+              <button type="button" onClick={() => { if (chatPeer) setChatPeer(null); else setShowInbox(false); }} className="text-xs font-bold text-slate-500">{chatPeer ? "← رجوع" : "إغلاق"}</button>
+            </div>
           </div>
+          <p className="bg-violet-50/50 px-4 py-1.5 text-[10px] text-slate-500">🔒 المحادثة خاصة بينكما. قد تطّلع الإدارة على المحادثات لمعالجة البلاغات والإساءة فقط.</p>
           {!chatPeer ? (inboxThreads.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا محادثات — اضغط «💬 رسالة» من ملف مستخدم</p> : (
             <ul className="max-h-80 overflow-y-auto">{inboxThreads.filter((th) => !relations.blocks.includes(th.peer_id)).map((th) => (<li key={th.peer_id}><button type="button" onClick={() => void openThread(th.peer_id, th.peer_name)} className="flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-violet-50"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-300 to-fuchsia-300 text-sm font-black text-white">{(th.peer_name || "U").slice(0, 1)}</div><div className="min-w-0 flex-1"><p className="text-sm font-bold">{th.peer_name || th.peer_id}</p><p className="truncate text-[11px] text-slate-500">{th.last_body}</p></div>{th.unread > 0 && <span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-black text-white">{th.unread}</span>}</button></li>))}</ul>
           )) : (
@@ -794,6 +902,10 @@ export default function MiniAppPage() {
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-emerald-600">{inboxUnread}</p><p className="text-[9px] font-bold text-slate-500">رسائل جديدة</p></div>
               <div className="rounded-2xl bg-white p-2.5 text-center shadow-sm"><p className="text-lg font-black text-amber-600">{unreadCount}</p><p className="text-[9px] font-bold text-slate-500">إشعارات جديدة</p></div>
             </div>
+            <button type="button" disabled={adBusy} onClick={() => void watchSupportAd()} className="mt-3 flex w-full items-center justify-between rounded-xl bg-gradient-to-l from-amber-50 to-yellow-50 px-3 py-2.5 text-right shadow-sm ring-1 ring-amber-100 disabled:opacity-50">
+              <span className="text-xs font-bold text-amber-800">💛 ادعم التطبيق بمشاهدة إعلان قصير (اختياري)</span>
+              <span className="text-lg">🎬</span>
+            </button>
             <button type="button" onClick={() => setAutoplayPref(!autoplay)} className="mt-3 flex w-full items-center justify-between rounded-xl bg-white px-3 py-2.5 shadow-sm">
               <span className="text-xs font-bold text-slate-700">▶️ تشغيل الفيديو تلقائياً (بلا صوت) أثناء التمرير</span>
               <span className={`relative h-5 w-9 rounded-full transition ${autoplay ? "bg-teal-500" : "bg-slate-300"}`}><span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${autoplay ? "right-0.5" : "right-[18px]"}`} /></span>
@@ -814,6 +926,10 @@ export default function MiniAppPage() {
 
         {tab === "admin" && isOwner && !viewUserId && !overlayOpen && (
           <div className="mb-4 space-y-3">
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5">{([["reports", "🚩 البلاغات"], ["chats", "💬 المحادثات"], ["rooms", "🔒 الغرف"], ["content", "🗂 المحتوى"], ["settings", "⚙️ الإعدادات"]] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => { setAdminSection(k); if (k === "chats" && adminConvs === null) void loadAdminConvs(); }} className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold ${adminSection === k ? "bg-amber-500 text-white shadow" : "bg-white text-amber-700 ring-1 ring-amber-100"}`}>{l}{k === "reports" && openReports.length > 0 ? ` (${openReports.length})` : ""}</button>
+            ))}</div>
+            {adminSection === "reports" && (
             <div className="rounded-3xl border border-rose-200 bg-gradient-to-br from-rose-50 to-white p-4">
               <div className="flex items-center justify-between"><p className="text-sm font-black text-rose-700">🚩 البلاغات {openReports.length > 0 && <span className="mr-1 rounded-full bg-rose-500 px-2 py-0.5 text-[10px] text-white">{openReports.length} مفتوح</span>}</p><button type="button" onClick={() => void loadReports()} className="text-[11px] font-bold text-rose-600">تحديث</button></div>
               {openReports.length === 0 ? <p className="mt-3 text-center text-xs text-slate-500">لا بلاغات مفتوحة ✅</p> : (
@@ -834,6 +950,64 @@ export default function MiniAppPage() {
               )}
               {reports.some((r) => r.status !== "open") && <p className="mt-2 text-[10px] text-slate-400">بلاغات تمت معالجتها: {reports.filter((r) => r.status !== "open").length}</p>}
             </div>
+            )}
+            {adminSection === "chats" && (
+            <div className="rounded-3xl border border-violet-200 bg-white p-3">
+              {adminConv ? (
+                <>
+                  <div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-violet-800">💬 {adminConv.a_name} ↔ {adminConv.b_name}</p><button type="button" onClick={() => setAdminConv(null)} className="text-[11px] font-bold text-slate-500">← رجوع</button></div>
+                  <div className="mb-2 flex gap-2"><button type="button" onClick={() => openProfile(adminConv.a, adminConv.a_name)} className="rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-700">👤 {adminConv.a_name}</button><button type="button" onClick={() => openProfile(adminConv.b, adminConv.b_name)} className="rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-700">👤 {adminConv.b_name}</button></div>
+                  <div className="max-h-[60vh] space-y-1.5 overflow-y-auto">{adminConv.messages.length === 0 ? <p className="py-4 text-center text-xs text-slate-400">...</p> : adminConv.messages.map((m) => (
+                    <div key={m.id} className={`rounded-2xl px-3 py-2 text-sm ${m.from_id === adminConv.a ? "ml-8 bg-slate-100" : "mr-8 bg-violet-100"}`}><p className="text-[10px] font-bold text-violet-700">{m.from_name || m.from_id} · {timeAgo(m.created_at)}</p><p className="whitespace-pre-wrap">{m.body}</p></div>
+                  ))}</div>
+                </>
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between"><p className="text-xs font-black text-violet-800">💬 المحادثات بين المستخدمين</p><button type="button" onClick={() => void loadAdminConvs()} className="text-[11px] font-bold text-violet-600">تحديث</button></div>
+                  {adminConvs === null ? <p className="py-4 text-center text-xs text-slate-400">جاري التحميل...</p> : adminConvs.length === 0 ? <p className="py-4 text-center text-xs text-slate-500">لا محادثات بعد</p> : (
+                    <ul className="space-y-1.5">{adminConvs.map((c) => (
+                      <li key={`${c.a}|${c.b}`}><button type="button" onClick={() => void openAdminConv(c)} className="w-full rounded-2xl bg-violet-50/60 px-3 py-2 text-right"><p className="text-xs font-black">{c.a_name} ↔ {c.b_name} <span className="font-normal text-slate-400">· {c.count} رسالة · {timeAgo(c.last_at)}</span></p><p className="truncate text-[11px] text-slate-500">{c.last_body}</p></button></li>
+                    ))}</ul>
+                  )}
+                </>
+              )}
+            </div>
+            )}
+            {adminSection === "rooms" && (
+            <div className="space-y-3">
+              {(() => {
+                const rooms = new Map<string, FeedItem[]>();
+                for (const it of items) if (it.squad_code) rooms.set(it.squad_code, [...(rooms.get(it.squad_code) || []), it]);
+                if (!rooms.size) return <p className="rounded-2xl bg-white p-4 text-center text-xs text-slate-500">لا منشورات في الغرف الخاصة بعد</p>;
+                return Array.from(rooms.entries()).map(([code, list]) => (
+                  <div key={code} className="rounded-3xl border border-amber-200 bg-amber-50/60 p-3">
+                    <p className="mb-2 text-xs font-black text-amber-800">🔒 غرفة {code} · {list.length} منشور · {new Set(list.map((x) => x.sharer_id)).size} مشارك</p>
+                    <div className="space-y-2">{list.slice(0, 40).map((it) => (
+                      <div key={it.id} className="flex items-center gap-2 rounded-2xl bg-white p-2 shadow-sm">
+                        <a href={mediaStreamUrl(it.id)} target="_blank" rel="noreferrer" className="h-12 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</span>}</a>
+                        <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{displayTitle(it)}</p><button type="button" onClick={() => openProfile(it.sharer_id, it.sharer_name)} className="text-[10px] font-bold text-amber-700">👤 {it.sharer_name} · {timeAgo(it.created_at)}</button></div>
+                        <a href={mediaStreamUrl(it.id)} target="_blank" rel="noreferrer" className="rounded-lg bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-700">▶</a>
+                        <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
+                      </div>
+                    ))}</div>
+                  </div>
+                ));
+              })()}
+            </div>
+            )}
+            {adminSection === "content" && (
+            <div className="space-y-2">
+              <p className="text-xs font-bold text-slate-600">مراجعة المحتوى العام — إخفاء</p>
+              {items.filter((it) => !it.squad_code).slice(0, 80).map((it) => (
+                <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-sky-100 bg-white p-2">
+                  <div className="h-12 w-16 overflow-hidden rounded-xl bg-sky-50">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
+                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{displayTitle(it)}</p><p className="text-[10px] text-slate-500">{it.sharer_name}</p></div>
+                  <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
+                </div>
+              ))}
+            </div>
+            )}
+            {adminSection === "settings" && (
             <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
               <div className="flex items-center justify-between"><p className="text-sm font-black text-amber-700">👑 لوحة المالك</p><LiveDot online={botOnline} label /></div>
               <div className="mt-3 grid grid-cols-4 gap-2">
@@ -853,50 +1027,29 @@ export default function MiniAppPage() {
                 {socialReady === false && <p className="rounded-xl bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">⚠️ المتابعة والكتم والحظر والبلاغات تحتاج تشغيل ملف supabase/migration_media_social.sql في Supabase مرة واحدة.</p>}
               </div>
             </div>
-            {/* Owner-only section for private-room posts. */}
-            {items.some((it) => it.squad_code) && (
-              <div className="space-y-2">
-                <p className="text-xs font-bold text-amber-700">🔒 منشورات الغرف الخاصة (تظهر لك فقط)</p>
-                {items.filter((it) => it.squad_code).slice(0, 30).map((it) => (
-                  <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2">
-                    <div className="h-12 w-16 overflow-hidden rounded-xl bg-white">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
-                    <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{displayTitle(it)}</p><p className="text-[10px] font-bold text-amber-700">{it.sharer_name} · غرفة {it.squad_code}</p></div>
-                    <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
-                  </div>
-                ))}
-              </div>
             )}
-            <div className="space-y-2">
-              <p className="text-xs font-bold text-slate-600">مراجعة المحتوى العام — إخفاء</p>
-              {items.filter((it) => !it.squad_code).slice(0, 30).map((it) => (
-                <div key={it.id} className="flex items-center gap-2 rounded-2xl border border-sky-100 bg-white p-2">
-                  <div className="h-12 w-16 overflow-hidden rounded-xl bg-sky-50">{it.thumbnail ? <img src={it.thumbnail} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg">{typeIcon(it.media_type)}</div>}</div>
-                  <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold">{displayTitle(it)}</p><p className="text-[10px] text-slate-500">{it.sharer_name}</p></div>
-                  <button type="button" onClick={() => void hideItem(it.id)} className="rounded-lg bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-600">إخفاء</button>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
         {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-40 animate-pulse rounded-3xl bg-sky-100" />)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
-          <div className="space-y-4">{visible.map((item) => {
+          <div className="space-y-4">{visible.map((item, idx) => {
             const isAudio = item.media_type === "audio" || item.media_type === "voice";
             const isLiked = !!liked[item.id];
             const p = platformOf(item.url);
             const mine = !!userId && item.sharer_id === userId;
             return (
-              <article key={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <FeedAdBefore key={item.id} index={idx}>
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : p.vertical ? "aspect-[4/5]" : "aspect-video"}`}>
                   {playingId === item.id ? (
-                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} /></div>)
-                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} />)
+                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} /></div>)
+                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} />
+                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (
@@ -930,8 +1083,12 @@ export default function MiniAppPage() {
                   )}
                 </div>
               </article>
+              </FeedAdBefore>
             );
-          })}</div>
+          })}
+          {nextOffset != null && <LoadMoreSentinel onVisible={() => void loadMore()} loading={loadingMore} />}
+          {nextOffset == null && visible.length > 5 && <p className="py-4 text-center text-[11px] font-bold text-slate-400">— وصلت إلى النهاية —</p>}
+          </div>
         ))}
       </div>
 
@@ -1018,4 +1175,45 @@ function SheetButton({ icon, label, hint, color, onClick }: { icon: string; labe
       </span>
     </button>
   );
+}
+
+// Every 5th post is preceded by one in-feed ad card (300×250), mounted only
+// when it scrolls near the screen so ads don't slow the first load.
+function FeedAdBefore({ index, children }: { index: number; children: React.ReactNode }) {
+  return (
+    <>
+      {index > 0 && index % 5 === 0 && <LazyFeedAd />}
+      {children}
+    </>
+  );
+}
+function LazyFeedAd() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") { setShow(true); return; }
+    const o = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setShow(true); o.disconnect(); } }, { rootMargin: "400px" });
+    o.observe(el);
+    return () => o.disconnect();
+  }, []);
+  return (
+    <div ref={ref} className="overflow-hidden rounded-3xl bg-white p-2 shadow-sm ring-1 ring-sky-100">
+      <p className="mb-1 px-1 text-[10px] font-bold text-slate-400">إعلان</p>
+      <div className="flex min-h-[250px] justify-center">{show && <AdsterraBanner adKey="3ee970813986977775e962f26938d143" width={300} height={250} />}</div>
+    </div>
+  );
+}
+function LoadMoreSentinel({ onVisible, loading }: { onVisible: () => void; loading: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cb = useRef(onVisible);
+  cb.current = onVisible;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const o = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) cb.current(); }, { rootMargin: "600px" });
+    o.observe(el);
+    return () => o.disconnect();
+  }, []);
+  return <div ref={ref} className="flex justify-center py-4">{loading ? <span className="animate-spin text-xl text-sky-500">🔄</span> : <button type="button" onClick={onVisible} className="rounded-xl bg-white px-4 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-200">تحميل المزيد</button>}</div>;
 }

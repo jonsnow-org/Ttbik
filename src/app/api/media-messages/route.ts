@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
-import { isBlockedEitherWay, mediaDb } from "@/lib/mediaSocial";
+import { MEDIA_OWNER_ID, isBlockedEitherWay, loadRelations, mediaDb, mediaUser, namesFor, tgApi } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,7 @@ async function sb() {
 export async function GET(req: NextRequest) {
   const uid = authedUserId(req.nextUrl.searchParams.get("init_data") || "");
   if (!uid) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (req.nextUrl.searchParams.get("admin") === "1") return adminView(req, uid);
   const withId = (req.nextUrl.searchParams.get("with") || "").trim();
 
   const db = await sb();
@@ -111,6 +112,18 @@ export async function GET(req: NextRequest) {
 
   messages.sort((a, b) => b.created_at - a.created_at);
 
+  // Blocked either way: their conversation disappears for both sides.
+  try {
+    const rdb = await mediaDb();
+    if (rdb) {
+      const rel = await loadRelations(rdb, uid);
+      const hide = new Set([...rel.blocks, ...rel.blockedBy]);
+      if (hide.size) messages = messages.filter((m) => !hide.has(m.from_id === uid ? m.to_id : m.from_id));
+    }
+  } catch {
+    /* block table not created yet */
+  }
+
   // build threads for inbox
   const threadsMap = new Map<
     string,
@@ -139,6 +152,17 @@ export async function GET(req: NextRequest) {
   }
 
   const threads = Array.from(threadsMap.values()).sort((a, b) => b.last_at - a.last_at);
+  // A thread where I sent the last message used to show the peer's raw id as its name.
+  try {
+    const ndb = await mediaDb();
+    const unnamed = threads.filter((t) => !t.peer_name || t.peer_name === t.peer_id).map((t) => t.peer_id);
+    if (ndb && unnamed.length) {
+      const names = await namesFor(ndb, unnamed);
+      for (const t of threads) if (names[t.peer_id] && (!t.peer_name || t.peer_name === t.peer_id)) t.peer_name = names[t.peer_id];
+    }
+  } catch {
+    /* keep ids */
+  }
 
   return NextResponse.json({
     threads,
@@ -198,7 +222,69 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  await notifyRecipient(msg).catch(() => {});
   return NextResponse.json({ ok: true, message: msg });
+}
+
+// A bot message tells the recipient they have a new DM (with a button that
+// opens the conversation), at most once per sender every 10 minutes so a
+// chat in progress doesn't spam them. Best-effort, per server instance.
+const g2 = globalThis as unknown as { __dmNotified?: Map<string, number> };
+if (!g2.__dmNotified) g2.__dmNotified = new Map();
+async function notifyRecipient(msg: Msg) {
+  const key = `${msg.from_id}>${msg.to_id}`;
+  const last = g2.__dmNotified!.get(key) || 0;
+  if (Date.now() - last < 10 * 60 * 1000) return;
+  g2.__dmNotified!.set(key, Date.now());
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  await tgApi("sendMessage", {
+    chat_id: msg.to_id,
+    text: `📩 رسالة جديدة من ${msg.from_name || "مستخدم"}:\n«${msg.body.slice(0, 120)}»`,
+    reply_markup: { inline_keyboard: [[{ text: "💬 افتح المحادثة", web_app: { url: `${site}/mini-app?dm=${encodeURIComponent(msg.from_id)}` } }]] },
+  });
+}
+
+/**
+ * Owner-only moderation view (verified initData of the app owner):
+ *   ?admin=1                 → every conversation (pair) with its last message
+ *   ?admin=1&a=<id>&b=<id>   → the full conversation between two users
+ * Users are told in the inbox that conversations can be reviewed by the
+ * administration to handle reports and abuse.
+ */
+async function adminView(req: NextRequest, uid: string) {
+  if (uid !== MEDIA_OWNER_ID) return NextResponse.json({ error: "owner only" }, { status: 403 });
+  const db = await mediaDb();
+  if (!db) return NextResponse.json({ conversations: [], messages: [] });
+  const a = (req.nextUrl.searchParams.get("a") || "").trim();
+  const b = (req.nextUrl.searchParams.get("b") || "").trim();
+  const toMsg = (r: any) => ({
+    id: String(r.id), from_id: String(r.from_id), from_name: String(r.from_name || ""), to_id: String(r.to_id),
+    body: String(r.body || ""), created_at: r.created_at ? Math.floor(new Date(r.created_at).getTime() / 1000) : 0, read: !!r.read,
+  });
+  if (a && b) {
+    const [x, y] = await Promise.all([
+      db.from("direct_messages").select("*").eq("from_id", a).eq("to_id", b).order("created_at", { ascending: false }).limit(200),
+      db.from("direct_messages").select("*").eq("from_id", b).eq("to_id", a).order("created_at", { ascending: false }).limit(200),
+    ]);
+    const msgs = [...(x.data || []), ...(y.data || [])].map(toMsg).sort((m, n) => m.created_at - n.created_at);
+    return NextResponse.json({ messages: msgs });
+  }
+  const { data } = await db.from("direct_messages").select("*").order("created_at", { ascending: false }).limit(1000);
+  const convs = new Map<string, { a: string; b: string; last_body: string; last_at: number; count: number }>();
+  const ids = new Set<string>();
+  for (const r of (data || []).map(toMsg)) {
+    const [p, q] = [r.from_id, r.to_id].sort();
+    ids.add(p); ids.add(q);
+    const k = `${p}|${q}`;
+    const c = convs.get(k);
+    if (!c) convs.set(k, { a: p, b: q, last_body: r.body, last_at: r.created_at, count: 1 });
+    else c.count++;
+  }
+  const names = await namesFor(db, Array.from(ids)).catch(() => ({} as Record<string, string>));
+  const conversations = Array.from(convs.values())
+    .sort((m, n) => n.last_at - m.last_at)
+    .map((c) => ({ ...c, a_name: names[c.a] || c.a, b_name: names[c.b] || c.b }));
+  return NextResponse.json({ conversations });
 }
 
 /** PATCH — mark thread read, as the verified caller (init_data) */
