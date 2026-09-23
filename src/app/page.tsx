@@ -5,7 +5,7 @@ import StorefrontBrowser from "@/components/StorefrontBrowser";
 import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
 import { FREE_TOOLS, getFreeToolTheme } from "@/lib/freeTools";
-import { LIVE_BOTS } from "@/lib/liveBots";
+import BotCards from "@/components/BotCards";
 
 export const revalidate = 30;
 
@@ -94,23 +94,7 @@ export default async function HomePage() {
           <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🤖 جرّب بوتاتنا الآن على تليجرام</h2>
           <p className="mt-1 text-sm text-slate-600">بوتات حقيقية تعمل الآن — افتحها وجرّبها مباشرة.</p>
         </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
-          {LIVE_BOTS.map((bot) => (
-            <a
-              key={bot.href}
-              href={bot.href}
-              rel="noopener noreferrer"
-              className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-600 to-indigo-700 p-6 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl"
-            >
-              <span className="text-4xl">🤖</span>
-              <h3 className="mt-3 text-lg font-extrabold">{bot.title}</h3>
-              <p className="mt-1.5 text-sm text-sky-100">{bot.desc}</p>
-              <span className="mt-4 inline-flex items-center gap-1 rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-bold backdrop-blur transition group-hover:bg-white group-hover:text-indigo-700">
-                افتح على تليجرام ←
-              </span>
-            </a>
-          ))}
-        </div>
+        <BotCards />
       </section>
 
       {visible.length > 0 && <StorefrontBrowser categories={visible} services={services} />}
