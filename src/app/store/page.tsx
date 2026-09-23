@@ -112,6 +112,24 @@ function faqJsonLd() {
   };
 }
 
+function storeSearchJsonLd() {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "سوق تولز",
+    url: SITE_URL,
+    inLanguage: "ar",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${SITE_URL}/store?q={search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
+    },
+  };
+}
+
 function storeJsonLd(products: StoreProduct[]) {
   return {
     "@context": "https://schema.org",
@@ -175,6 +193,10 @@ export default async function StorePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd()) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(storeSearchJsonLd()) }}
       />
       <SectionBackdrop tone="store" />
 

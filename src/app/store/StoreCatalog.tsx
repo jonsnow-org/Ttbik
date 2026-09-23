@@ -50,6 +50,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
   const [sort, setSort] = useState<SortKey>(initial.sort);
   const [cat, setCat] = useState<string>(initial.cat);
   const [ready, setReady] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const fromUrl = readQuery();
@@ -104,6 +105,19 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     setQ("");
     setCat("all");
     setSort("default");
+    setCopied(false);
+  }
+
+  async function copyFilterLink() {
+    if (typeof window === "undefined") return;
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
@@ -172,6 +186,13 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
           {filtered.length} نتيجة
           {q.trim() ? ` لـ «${q.trim()}»` : ""}
           {cat !== "all" ? ` في «${cat}»` : ""}
+          <button
+            type="button"
+            onClick={copyFilterLink}
+            className="mr-2 font-bold text-slate-800 underline"
+          >
+            {copied ? "تم نسخ الرابط" : "نسخ رابط التصفية"}
+          </button>
         </p>
       )}
 
