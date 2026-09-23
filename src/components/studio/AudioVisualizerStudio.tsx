@@ -1,69 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import VideoResult from "./VideoResult";
+import { pickRecording } from "./videoExport";
 
 const CANVAS_W = 540;
 const CANVAS_H = 960;
-
-type Format = "mp4" | "webm" | "mov";
-type Output = { url: string; size: number };
-
-const FORMAT_LABELS: Record<Format, { label: string; hint: string }> = {
-  mp4: { label: "MP4", hint: "الأنسب لواتساب وإنستغرام وتيك توك" },
-  webm: { label: "WebM", hint: "أخف حجماً — للمتصفحات ويوتيوب" },
-  mov: { label: "MOV", hint: "لأجهزة آيفون وماك" },
-};
-
-// Prefer MP4 when the browser can record it natively (recent Chrome/Safari):
-// it plays everywhere, so most people never need a conversion step at all.
-function pickRecording(): { mimeType: string; format: "mp4" | "webm" } {
-  const candidates: { mimeType: string; format: "mp4" | "webm" }[] = [
-    { mimeType: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", format: "mp4" },
-    { mimeType: "video/mp4", format: "mp4" },
-    { mimeType: "video/webm;codecs=vp9,opus", format: "webm" },
-    { mimeType: "video/webm;codecs=vp8,opus", format: "webm" },
-    { mimeType: "video/webm", format: "webm" },
-  ];
-  for (const c of candidates) {
-    if (MediaRecorder.isTypeSupported(c.mimeType)) return c;
-  }
-  return { mimeType: "", format: "webm" };
-}
-
-function formatSize(bytes: number) {
-  return bytes > 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
-}
-
-// ffmpeg.wasm is ~30MB, so it's only fetched the first time someone asks
-// for a format the browser didn't record natively — never on page load.
-let ffmpegPromise: Promise<any> | null = null;
-function loadFfmpeg(onLog: (msg: string) => void) {
-  if (!ffmpegPromise) {
-    ffmpegPromise = (async () => {
-      // The @ffmpeg/ffmpeg ESM files are served as-is from /public/ffmpeg
-      // (copied from node_modules by scripts/copy-ffmpeg.mjs): webpack would
-      // otherwise rewrite the worker's own dynamic import() of the core and
-      // every conversion fails with "Cannot find module 'blob:...'".
-      const ffmpegUrl = "/ffmpeg/index.js";
-      const [{ FFmpeg }, { toBlobURL }] = await Promise.all([
-        import(/* webpackIgnore: true */ ffmpegUrl),
-        import("@ffmpeg/util"),
-      ]);
-      const ffmpeg = new FFmpeg();
-      ffmpeg.on("log", ({ message }: { message: string }) => onLog(message));
-      const base = "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm";
-      await ffmpeg.load({
-        coreURL: await toBlobURL(`${base}/ffmpeg-core.js`, "text/javascript"),
-        wasmURL: await toBlobURL(`${base}/ffmpeg-core.wasm`, "application/wasm"),
-      });
-      return ffmpeg;
-    })().catch((e) => {
-      ffmpegPromise = null;
-      throw e;
-    });
-  }
-  return ffmpegPromise;
-}
 
 export default function AudioVisualizerStudio({
   canGenerate,
@@ -79,10 +21,7 @@ export default function AudioVisualizerStudio({
   const [isRecording, setIsRecording] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
-  const [recordedFormat, setRecordedFormat] = useState<"mp4" | "webm" | null>(null);
-  const [outputs, setOutputs] = useState<Partial<Record<Format, Output>>>({});
-  const [converting, setConverting] = useState<Format | null>(null);
-  const [convertProgress, setConvertProgress] = useState(0);
+  const [recorded, setRecorded] = useState<{ blob: Blob; format: "mp4" | "webm" } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -94,11 +33,8 @@ export default function AudioVisualizerStudio({
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const sourceElRef = useRef<HTMLAudioElement | null>(null);
-  const recordedBlobRef = useRef<Blob | null>(null);
   const bgImageRef = useRef<HTMLImageElement | null>(null);
   const titleRef = useRef("");
-  const outputsRef = useRef(outputs);
-  outputsRef.current = outputs;
   bgImageRef.current = bgImage;
   titleRef.current = title;
 
@@ -106,15 +42,11 @@ export default function AudioVisualizerStudio({
     return () => {
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
       audioContextRef.current?.close().catch(() => {});
-      Object.values(outputsRef.current).forEach((o) => o && URL.revokeObjectURL(o.url));
     };
   }, []);
 
   function resetOutputs() {
-    Object.values(outputsRef.current).forEach((o) => o && URL.revokeObjectURL(o.url));
-    setOutputs({});
-    setRecordedFormat(null);
-    recordedBlobRef.current = null;
+    setRecorded(null);
   }
 
   function handleAudioUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -147,27 +79,42 @@ export default function AudioVisualizerStudio({
 
     if (analyser && dataArray) analyser.getByteFrequencyData(dataArray);
 
+    // Bass level (lowest bins) drives the "beat" pulse below.
+    let bass = 0;
+    if (dataArray) {
+      for (let i = 0; i < 8; i++) bass += dataArray[i];
+      bass = bass / (8 * 255);
+    }
+    const t = performance.now() / 1000;
+
     const bg = bgImageRef.current;
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     if (bg) {
-      // Cover-fit so portrait/landscape photos fill the 9:16 frame without stretching.
-      const scale = Math.max(CANVAS_W / bg.width, CANVAS_H / bg.height);
+      // Cover-fit so portrait/landscape photos fill the 9:16 frame without
+      // stretching, plus a slow Ken Burns zoom/drift and a bass-driven pulse
+      // so the background actually moves instead of being one still frame
+      // (owner report 2026-09-23: "مجرد صورة ثابتة").
+      const zoom = 1.12 + 0.06 * Math.sin(t * 0.35) + bass * 0.06;
+      const scale = Math.max(CANVAS_W / bg.width, CANVAS_H / bg.height) * zoom;
       const w = bg.width * scale;
       const h = bg.height * scale;
-      ctx.drawImage(bg, (CANVAS_W - w) / 2, (CANVAS_H - h) / 2, w, h);
+      const dx = Math.sin(t * 0.23) * (w - CANVAS_W) * 0.35;
+      const dy = Math.cos(t * 0.17) * (h - CANVAS_H) * 0.35;
+      ctx.drawImage(bg, (CANVAS_W - w) / 2 + dx, (CANVAS_H - h) / 2 + dy, w, h);
       ctx.fillStyle = "rgba(0,0,0,0.45)";
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     } else {
-      const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_H);
-      gradient.addColorStop(0, "#1a1a2e");
-      gradient.addColorStop(1, "#16213e");
+      const hue = (t * 12) % 360;
+      const gradient = ctx.createLinearGradient(0, 0, CANVAS_W * Math.sin(t * 0.2), CANVAS_H);
+      gradient.addColorStop(0, `hsl(${hue}, 45%, 14%)`);
+      gradient.addColorStop(1, `hsl(${(hue + 60) % 360}, 50%, 20%)`);
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     }
 
     const centerX = CANVAS_W / 2;
     const centerY = CANVAS_H / 2 - 100;
-    const radius = 180;
+    const radius = 170 + bass * 30;
 
     ctx.save();
     ctx.beginPath();
@@ -199,12 +146,15 @@ export default function AudioVisualizerStudio({
       }
     }
 
-    const t = titleRef.current;
-    if (t) {
+    const caption = titleRef.current;
+    if (caption) {
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 36px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(t.slice(0, 30), CANVAS_W / 2, CANVAS_H - 200);
+      ctx.shadowColor = "rgba(0,0,0,0.7)";
+      ctx.shadowBlur = 8;
+      ctx.fillText(caption.slice(0, 30), CANVAS_W / 2, CANVAS_H - 200);
+      ctx.shadowBlur = 0;
     }
 
     animationFrameId.current = requestAnimationFrame(() => drawFrame(analyser, dataArray));
@@ -266,11 +216,9 @@ export default function AudioVisualizerStudio({
 
     mediaRecorder.onstop = () => {
       const type = mediaRecorder.mimeType || (format === "mp4" ? "video/mp4" : "video/webm");
-      const blob = new Blob(chunks, { type });
-      recordedBlobRef.current = blob;
-      setRecordedFormat(format);
-      setOutputs({ [format]: { url: URL.createObjectURL(blob), size: blob.size } });
+      setRecorded({ blob: new Blob(chunks, { type }), format });
       setIsRecording(false);
+      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
       combinedStream.getTracks().forEach((tr) => tr.stop());
       source.disconnect(recordDest);
       // Count the free try only once a video was actually produced.
@@ -296,48 +244,6 @@ export default function AudioVisualizerStudio({
     }
   }
 
-  async function convertTo(target: Format) {
-    const source = recordedBlobRef.current;
-    if (!source || !recordedFormat || converting) return;
-    setConverting(target);
-    setConvertProgress(0);
-    setError("");
-    try {
-      const ffmpeg = await loadFfmpeg(() => {});
-      const onProgress = ({ progress: p }: { progress: number }) =>
-        setConvertProgress(Math.max(0, Math.min(100, Math.round(p * 100))));
-      ffmpeg.on("progress", onProgress);
-      const { fetchFile } = await import("@ffmpeg/util");
-      const input = `in.${recordedFormat}`;
-      await ffmpeg.writeFile(input, await fetchFile(source));
-      const out = `out.${target}`;
-      let args: string[];
-      if (target === "webm") {
-        args = ["-i", input, "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "2M", "-c:a", "libvorbis", out];
-      } else if (recordedFormat === "mp4") {
-        // Already H.264 — MOV is just a different container, no re-encode needed.
-        args = ["-i", input, "-c", "copy", "-movflags", "+faststart", out];
-      } else {
-        args = ["-i", input, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", out];
-      }
-      const code = await ffmpeg.exec(args);
-      ffmpeg.off("progress", onProgress);
-      if (code !== 0) throw new Error(`ffmpeg exit ${code}`);
-      const data = new Uint8Array((await ffmpeg.readFile(out)) as Uint8Array);
-      await ffmpeg.deleteFile(input).catch(() => {});
-      await ffmpeg.deleteFile(out).catch(() => {});
-      const mime = target === "mp4" ? "video/mp4" : target === "webm" ? "video/webm" : "video/quicktime";
-      const blob = new Blob([data], { type: mime });
-      setOutputs((prev) => ({ ...prev, [target]: { url: URL.createObjectURL(blob), size: blob.size } }));
-    } catch (e) {
-      console.error("ffmpeg convert failed", e);
-      setError("تعذّر تحويل الصيغة على هذا الجهاز. يمكنك تنزيل الفيديو بالصيغة الأصلية المتاحة.");
-    } finally {
-      setConverting(null);
-    }
-  }
-
-  const previewUrl = recordedFormat ? outputs[recordedFormat]?.url : undefined;
   const fileBase = (title.trim() || "reel").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60);
 
   return (
@@ -368,13 +274,13 @@ export default function AudioVisualizerStudio({
 
           <button
             onClick={generate}
-            disabled={!audioFile || isRecording || !!converting || !canGenerate}
+            disabled={!audioFile || isRecording || !canGenerate}
             className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:bg-slate-300"
           >
             {isRecording
               ? `جاري توليد الفيديو... ${progress}%`
               : canGenerate
-                ? previewUrl
+                ? recorded
                   ? "توليد فيديو جديد"
                   : "توليد فيديو الريلز الآن"
                 : "انتهت محاولاتك المجانية — اطلب الوصول الكامل بالأسفل"}
@@ -387,51 +293,13 @@ export default function AudioVisualizerStudio({
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          {previewUrl && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="mb-3 font-bold text-emerald-800">تم إنشاء الفيديو بنجاح — شاهده ثم نزّله بالصيغة التي تريدها:</p>
-              <video src={previewUrl} controls playsInline className="mb-4 max-h-[420px] w-full rounded-lg bg-black" />
-              <div className="flex flex-col gap-2">
-                {(Object.keys(FORMAT_LABELS) as Format[]).map((f) => {
-                  const out = outputs[f];
-                  const info = FORMAT_LABELS[f];
-                  if (out) {
-                    return (
-                      <a
-                        key={f}
-                        href={out.url}
-                        download={`${fileBase}.${f}`}
-                        className="flex items-center justify-between rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
-                      >
-                        <span>تنزيل {info.label}</span>
-                        <span className="text-xs font-normal opacity-90">
-                          {formatSize(out.size)} · {info.hint}
-                        </span>
-                      </a>
-                    );
-                  }
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => convertTo(f)}
-                      disabled={!!converting}
-                      className="flex items-center justify-between rounded-xl border border-emerald-300 bg-white px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
-                    >
-                      <span>{converting === f ? `جاري التحويل إلى ${info.label}... ${convertProgress}%` : `تحويل إلى ${info.label}`}</span>
-                      <span className="text-xs font-normal text-emerald-700">{info.hint}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-3 text-xs text-slate-500">
-                التحويل يتم داخل متصفحك أيضاً. أول تحويل يحمّل أداة التحويل مرة واحدة (حوالي 30MB) وقد يستغرق دقيقة على الهاتف.
-              </p>
-            </div>
-          )}
+          {recorded && !isRecording && <VideoResult recorded={recorded} fileBase={fileBase} />}
         </div>
 
-        <div className="flex items-center justify-center rounded-xl bg-black p-2">
+        {/* The live recording surface. Hidden once a finished video exists —
+            the <video> preview above replaces it; showing both looked like a
+            duplicated second screen under the preview (owner report). */}
+        <div className={`${recorded && !isRecording ? "hidden" : "flex"} items-center justify-center rounded-xl bg-black p-2`}>
           <canvas
             ref={canvasRef}
             width={CANVAS_W}
