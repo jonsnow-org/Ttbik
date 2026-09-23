@@ -48,6 +48,10 @@ const FAQ = [
     q: "هل ظهور التوكن داخل رابط الويبهوك خطر؟",
     a: "نعم غالباً. أي من يستطيع قراءة السجلات أو الرابط يرى التوكن. انقل السر إلى الترويسة أو مسار محمي.",
   },
+  {
+    q: "ماذا تعني التحديثات المعلَّقة على الويبهوك؟",
+    a: "عدد pending_update_count يرتفع إذا توقَّف المستقبل أو بطؤ. رقم صغير غير حرج. أكثر من 100 يستحق مراجعة الخادم.",
+  },
 ];
 
 const FAQ_JSON_LD = {
@@ -70,6 +74,34 @@ const BREADCRUMB_JSON_LD = {
   ],
 };
 
+const HOWTO_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "فحص صحة بوت تليجرام",
+  description: "الصق توكن BotFather للحصول على تقرير ويبهوك وهوية البوت بدون حفظ التوكن.",
+  inLanguage: "ar",
+  step: [
+    {
+      "@type": "HowToStep",
+      position: 1,
+      name: "انسخ التوكن",
+      text: "من BotFather انسخ توكن البوت فقط. لا ترسله لأي شخص.",
+    },
+    {
+      "@type": "HowToStep",
+      position: 2,
+      name: "الصق وافحص",
+      text: "الصق التوكن في الحقل ثم اضغط افحص الآن.",
+    },
+    {
+      "@type": "HowToStep",
+      position: 3,
+      name: "اقرأ التقرير",
+      text: "راجع HTTPS والمنفذ والتحديثات المعلّقة وملاحظة التوكن في الرابط.",
+    },
+  ],
+};
+
 export default function BotHealthCheckPage() {
   return (
     <>
@@ -80,6 +112,10 @@ export default function BotHealthCheckPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(HOWTO_JSON_LD) }}
       />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
@@ -109,6 +145,28 @@ export default function BotHealthCheckPage() {
             </div>
           ))}
         </dl>
+        <aside className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="hc-related">
+          <h3 id="hc-related" className="mb-2 text-sm font-extrabold text-slate-900">
+            روابط داخلية
+          </h3>
+          <ul className="space-y-2 text-sm font-bold text-indigo-800">
+            <li>
+              <Link href="/bots/earnings-calculator" className="hover:underline">
+                حاسبة تقدير أرباح البوت ← أرقام تقريبية بلا سحب نقدي
+              </Link>
+            </li>
+            <li>
+              <Link href="/store" className="hover:underline">
+                متجر سوق تولز ← روابط شراء مباشرة
+              </Link>
+            </li>
+            <li>
+              <Link href="/bots" className="hover:underline">
+                تفعيل بوت على توكنك
+              </Link>
+            </li>
+          </ul>
+        </aside>
         <div className="mt-6">
           <AdSlot position="in-content" label="أسفل فاحص صحة البوت" />
         </div>

@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5798956406,
   "last_actor": "grok",
-  "updated_at": "2026-09-23T18:16:00Z",
+  "updated_at": "2026-09-23T20:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only — bots health-check page is Grok-owned SEO sibling.",
@@ -14,6 +14,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G154 /bots/health-check: HowTo JSON-LD + FAQ pending updates + internal links to earnings-calculator/store/bots.",
     "G153 /bots/health-check: visible breadcrumbs + BreadcrumbList JSON-LD (home → /bots → health-check).",
     "G152 /store: ItemList JSON-LD name typo ممتجر → متجر.",
     "G151 /store: when sort is price/title, render flat grid so global order is visible; FAQ explains grouping only on default sort.",
