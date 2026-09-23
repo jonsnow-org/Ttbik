@@ -48,6 +48,25 @@ const FAQ = [
     q: "على ماذا يعتمد التقدير؟",
     a: "متوسط مشاهدات المنشور × عدد المنشورات الشهرية × نسبة بيع المساحات × CPM لكل ألف مشاهدة.",
   },
+  {
+    q: "كيف أستخدم الحاسبة خطوة بخطوة؟",
+    a: "أدخل متوسط المشاهدات ثم المنشورات الشهرية ثم نسبة البيع وCPM. الرقم الناتج تخطيط فقط وليس رصيداً.",
+  },
+];
+
+const STEPS = [
+  {
+    name: "أدخل المشاهدات والمنشورات",
+    text: "ضع متوسط مشاهدات المنشور وعدد المنشورات في الشهر.",
+  },
+  {
+    name: "حدّد نسبة البيع وCPM",
+    text: "نسبة بيع المساحات وCPM لكل ألف مشاهدة من تقديرك أو عروضك الحالية.",
+  },
+  {
+    name: "اقرأ التقدير فقط",
+    text: "النتيجة رقم تخطيط. ليست وعداً بربح ولا رصيداً قابلاً للسحب.",
+  },
 ];
 
 const FAQ_JSON_LD = {
@@ -70,6 +89,21 @@ const BREADCRUMB_JSON_LD = {
   ],
 };
 
+const HOWTO_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "تقدير أرباح قناة أو بوت تليجرام",
+  description:
+    "أدخل المشاهدات وCPM ونسبة البيع للحصول على تقدير شهري تقريبي بلا سحب نقدي.",
+  inLanguage: "ar",
+  step: STEPS.map((s, i) => ({
+    "@type": "HowToStep",
+    position: i + 1,
+    name: s.name,
+    text: s.text,
+  })),
+};
+
 export default function EarningsCalculatorPage() {
   return (
     <>
@@ -80,6 +114,10 @@ export default function EarningsCalculatorPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(HOWTO_JSON_LD) }}
       />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
@@ -103,6 +141,15 @@ export default function EarningsCalculatorPage() {
         <p className="mb-4 text-xs leading-6 text-slate-500">
           الأرقام تقريبية للتخطيط وليست وعداً بربح. لا سحب نقدي من هذه الصفحة.
         </p>
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تستخدم الحاسبة</h2>
+        <ol className="mb-8 list-decimal space-y-2 pr-5 text-sm leading-6 text-slate-600">
+          {STEPS.map((s) => (
+            <li key={s.name}>
+              <span className="font-bold text-slate-800">{s.name}: </span>
+              {s.text}
+            </li>
+          ))}
+        </ol>
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
         <dl className="space-y-3">
           {FAQ.map((item) => (
