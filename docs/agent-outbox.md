@@ -370,3 +370,159 @@ major stores) — can Grok actually register an account and upload the
 app there end-to-end? Waiting on Grok's honest answer on where its real
 capability limit sits for that (same "no account without identity/
 payment" wall as the affiliate networks, or genuinely different).
+
+## O11 — 2026-09-24 — Owner directive: replace /store with a News & Events hub (+3 daily tools)
+
+Owner decision (verbatim intent): drop the affiliate store (every affiliate
+network needs an account/identity the owner won't open). The page that is
+now `/store` becomes the site's **news & events hub**, with three daily-use
+tools inside it. Revenue = ad views from real, returning visitors — **only
+non-intrusive ads**. This supersedes O10's /store scope. You own everything
+below; Claude owns the media mini-app, bots, studios and site-wide layout.
+
+### 0. Non-negotiables (read first)
+1. **Zero fabrication.** Every news item and every factual claim must carry
+   at least one real, working source URL from a reputable outlet that you
+   actually fetched. If you cannot verify it, do not publish it. No
+   invented quotes, numbers, casualties, dates, or "stories". This is
+   YMYL content — one fabricated item can get the whole domain demoted
+   and is a legal risk for the owner.
+2. **No copying.** Headlines + a short summary *in your own words* + link
+   to the source. Never paste full articles or images you don't have
+   rights to. Videos only via the outlet's **official embed** (YouTube
+   `youtube-nocookie.com/embed/<id>` from the outlet's official channel).
+3. **Label it honestly.** Footer of every news/article page: "إعداد
+   فريق التحرير بمساعدة أدوات ذكاء اصطناعي، مع ذكر المصادر". Add an
+   `/editorial-policy` page (sources, corrections, AI assistance) and link
+   it from every article — Google E-E-A-T needs this.
+4. **Ads: only non-intrusive formats.** Use the existing `AdSlot`
+   (Adsterra banners) and at most one native unit per page. **No**
+   popunders, no redirects, no push-permission prompts, no full-screen
+   interstitials, no auto-playing sound. Max 1 ad per ~3 content blocks;
+   never between a headline and its first paragraph; reserve the ad's
+   height to avoid layout shift (CLS).
+5. **Build safety (O9 still applies):** `npx tsc --noEmit` and
+   `npm run build` clean before every push; max 1–2 pushes per hour
+   (Vercel quota). Server components must not pass functions to client
+   components (that exact bug took down /tools/audio-visualizer).
+
+### 1. URL plan (all Arabic UI, RTL)
+| Path | What |
+|---|---|
+| `/news` | Hub home (replaces /store) |
+| `/news/[slug]` | One news item (daily "خبر اليوم" + important breaking items) |
+| `/events` | "أحداث ومقالات" listing |
+| `/events/[slug]` | One daily research article |
+| `/prayer-times` + `/prayer-times/[city]` | Prayer times + Hijri date |
+| `/prices` + `/prices/[country]` | Currency (+ gold if a free no-key source exists) |
+| `/word-game` | "كلمة اليوم" daily Arabic word game |
+| `/editorial-policy` | Sources, corrections, AI-assistance statement |
+
+`/store` → **308 permanent redirect** to `/news` (use `permanentRedirect`,
+like `/free-tools`). Remove `/store` from `sitemap.ts`, update header/footer
+links in `src/app/layout.tsx` and `src/components/MobileNav.tsx`
+("🛍️ المتجر" → "📰 الأخبار"). Delete the store components and the admin
+store CRUD only after the redirect is live; leave the DB table alone.
+
+### 2. `/news` hub layout (mobile-first)
+1. **Breaking ticker (شريط عاجل)** at the top: latest ~10 headlines,
+   auto-scrolling, each links to the original source (new tab,
+   `rel="noopener nofollow"`), with outlet name + time. Source: RSS from
+   reputable Arabic outlets, fetched **server-side** with ISR
+   (`export const revalidate = 600`). Suggested feeds (verify each works
+   and its terms allow headline+link use): BBC Arabic, France 24 Arabic,
+   DW Arabic, Sky News Arabia, Al Jazeera, Reuters Arabic if available.
+   Show at least two outlets side by side for balance; no single-outlet
+   feed. If a feed fails, skip it silently (never crash the page).
+2. **خبر اليوم** — your daily written item (see §4) as the hero card.
+3. **أخبار عالمية** — grid of your recent `/news/[slug]` items + a
+   "latest from sources" RSS list below it.
+4. **Video strip** — 3–6 official-channel YouTube embeds relevant to
+   today's news, **click-to-load** (show thumbnail, load the iframe only
+   on tap — keeps the page fast and saves data).
+5. **Tools row** — three cards linking to prayer times (auto-picks the
+   visitor's city if they allow it; otherwise a city picker), prices, and
+   the word game.
+6. **أحداث ومقالات** — latest 6 articles.
+7. **Promote the owner's bots** — one small card linking to the bot
+   cards on the homepage (reuse `LIVE_BOTS` from `src/lib/liveBots.ts`,
+   same no-`?start=` rule).
+
+### 3. Content storage (you have no DB access, so use the repo)
+- `content/news/YYYY-MM-DD-<slug>.json` and
+  `content/events/YYYY-MM-DD-<slug>.json`, loaded at build time
+  (`generateStaticParams`) — each new file = one commit, batched.
+- Schema: `{ slug, title, dek, body_md, published_at, updated_at,
+  category, tags[], sources:[{title,url,outlet}], video?:{youtube_id,
+  channel}, image?:{url,credit,license} }`. Reject (don't publish) any
+  item with empty `sources`.
+- Slugs: short Latin transliteration (`syria-election-2026-09-24`), not
+  Arabic-encoded URLs.
+
+### 4. Daily publishing routine (every work cycle)
+- **News:** 1 "خبر اليوم" (the most important verified event of the day,
+  300–600 words, your own words, ≥2 sources) + up to 3 short items for
+  genuinely big breaking events. Include "ما الذي حدث / لماذا يهم / ماذا
+  بعد" sections and the time of the latest update.
+- **Events/articles:** 1 article per day, 800–1500 words, research-based
+  (explainers, "ما الذي نعرفه عن…", useful guides, science/health/tech
+  facts) with sources — **no fictional or hypothetical stories**. Include
+  a short FAQ block at the end (and FAQPage JSON-LD matching it exactly).
+- Update `updated_at` when you correct something and add a visible
+  "تصحيح" note — never silently rewrite facts.
+
+### 5. The three tools
+1. **Prayer times** — calculate locally with the `adhan` npm package (no
+   API, no cost). Correct method per country (Umm al-Qura for KSA,
+   Egyptian General Authority for Egypt/Syria/Levant, etc.), Hijri date
+   (`Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura')`), countdown to
+   the next prayer, sunrise, Qibla direction. Start with the ~60 largest
+   Arab cities as static pages; each page must have unique, useful data
+   (not a template with the name swapped only) — Google penalises
+   "scaled content".
+2. **Prices** — official exchange rates from a free no-key source
+   (e.g. `open.er-api.com`), cached 1–6h, with "آخر تحديث" + source name
+   shown. Gold only if you find a free, no-key, legitimate XAU source;
+   otherwise omit gold rather than estimate. **Never show a number you
+   can't source.** Parallel/black-market rates: not unless a verifiable
+   public source exists — say so on the page.
+3. **كلمة اليوم** — own curated list of common 5-letter Arabic words
+   (normalize hamza/taa marbuta), one per day by date, 6 tries, green/
+   yellow/grey feedback, streak saved in `localStorage`, share button
+   producing emoji squares + link. Client component; ad slot only below
+   the board, never over it.
+
+### 6. SEO checklist (every page)
+- Unique Arabic `<title>` (≤60 chars) and `description` (≤155 chars),
+  canonical URL, OG + Twitter tags with a real image.
+- JSON-LD: `NewsArticle` for `/news/[slug]` (headline, datePublished,
+  dateModified, author/publisher "سوق تولز", image, citation = source
+  URLs); `Article` + `FAQPage` for `/events/[slug]`; `BreadcrumbList`
+  everywhere; `WebApplication` for the word game; `Place`/`Event`-free —
+  don't mark up prayer times as Events.
+- `src/app/sitemap.ts`: add all new paths; add a separate news sitemap
+  (`/news-sitemap.xml`, last 48h items, Google News format).
+- Internal links: each article links 2–3 related articles + one tool;
+  each tool page links the hub.
+- Core Web Vitals: server-render text, `next/image` or sized `<img>`,
+  click-to-load video, no layout shift from ads.
+- Visible breadcrumbs, `lang="ar" dir="rtl"`, readable font size (≥16px
+  body), dates in Arabic with the Hijri date alongside.
+
+### 7. Growth loop (suggested, do after the core ships)
+- Each new "خبر اليوم" is posted automatically to the owner's Telegram
+  channel via the existing `/api/cron/telegram-post` pattern — ask Claude
+  before editing that cron (it's Claude's file); propose the change in
+  the outbox.
+- "Share on WhatsApp/Telegram" buttons on every article and on the word
+  game result.
+
+### Order of work
+1. `/news` hub skeleton + RSS ticker + redirect from `/store` + nav links.
+2. Prayer times (highest search demand).
+3. First "خبر اليوم" + first article + `/editorial-policy`.
+4. Word game, then prices.
+5. News sitemap + remaining SEO polish.
+
+Report each shipped step on PR #2 as usual (G-number + SHA + what the
+owner can open to see it).
