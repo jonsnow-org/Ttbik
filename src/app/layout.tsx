@@ -70,6 +70,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ar" dir="rtl">
       <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }} />
+        {/* Unconditional, for every visitor including the owner -- this now
+            only unregisters any stale service worker + clears Cache Storage
+            (see AdServiceWorker.tsx's own comment for why it stopped
+            registering the ad network's service worker at all). Anyone who
+            got it installed on a previous visit, owner included, needs it
+            actively removed, not just skipped going forward. */}
+        <AdServiceWorker />
         {/* The owner-ad-free rule (AdSlot.tsx, StickyBottomAd.tsx) only ever
             covered the banner/sticky placements -- these two more intrusive
             network-wide scripts (in-page push, Multitag's popunder/
@@ -78,7 +85,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             تظهر في صفحتي"، 2026-09-21). Gate both the same way. */}
         {!isOwner && (
           <>
-            <AdServiceWorker />
             <MonetagInPagePushScript />
             <MultitagScript />
           </>

@@ -99,7 +99,6 @@ export default async function HomePage() {
             <a
               key={bot.href}
               href={bot.href}
-              target="_blank"
               rel="noopener noreferrer"
               className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-sky-600 to-indigo-700 p-6 text-white shadow-md transition hover:-translate-y-1 hover:shadow-xl"
             >
