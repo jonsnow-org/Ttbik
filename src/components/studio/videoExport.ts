@@ -94,6 +94,17 @@ export async function convertVideo(
   }
 }
 
+// Browsers (and some Android file managers) fall back to a bare "download"
+// name when the suggested filename has non-Latin characters, so an Arabic
+// title becomes a dated Latin name instead.
+export function safeFileBase(raw: string, fallback: string) {
+  const ascii = raw.trim().replace(/[^A-Za-z0-9 _-]+/g, "").trim().replace(/\s+/g, "-").slice(0, 50);
+  if (ascii.length >= 3) return ascii;
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${fallback}-${stamp}`;
+}
+
 export function canShareFiles() {
   if (typeof navigator === "undefined" || typeof File === "undefined") return false;
   try {

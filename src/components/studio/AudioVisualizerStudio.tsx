@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import VideoResult from "./VideoResult";
-import { pickRecording } from "./videoExport";
+import { pickRecording, safeFileBase } from "./videoExport";
 
 const CANVAS_W = 540;
 const CANVAS_H = 960;
@@ -244,7 +244,7 @@ export default function AudioVisualizerStudio({
     }
   }
 
-  const fileBase = (title.trim() || "reel").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60);
+  const fileBase = safeFileBase(title, "ttbik-reel");
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6">

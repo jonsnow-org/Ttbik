@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import VideoResult from "./VideoResult";
-import { pickRecording } from "./videoExport";
+import { pickRecording, safeFileBase } from "./videoExport";
 
 // Description (+ optional photo, + optional audio) -> multi-scene vertical
 // video, entirely in the visitor's browser:
@@ -402,7 +402,7 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
 
   const busy = phase === "planning" || phase === "painting" || phase === "recording";
   const readyCount = scenes.filter((s) => s.status === "ready").length;
-  const fileBase = (description.trim().split(/\s+/).slice(0, 5).join("-") || "video").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 50);
+  const fileBase = safeFileBase(description, "ttbik-video");
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6">
