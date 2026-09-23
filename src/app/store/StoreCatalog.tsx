@@ -94,6 +94,12 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     writeQuery(q, sort, cat, shop);
   }, [q, sort, cat, shop, ready]);
 
+  useEffect(() => {
+    if (!ready || cat === "all") return;
+    const el = document.getElementById(categoryAnchor(cat));
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [cat, ready]);
+
   const categories = useMemo(() => {
     const seen: string[] = [];
     for (const p of products) {
@@ -108,7 +114,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
       const host = merchantHost(p.affiliate_url);
       if (host && !seen.includes(host)) seen.push(host);
     }
-    return seen;
+    return seen.sort((a, b) => a.localeCompare(b));
   }, [products]);
 
   const filtered = useMemo(() => {
@@ -164,15 +170,29 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
   return (
     <>
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <label className="block flex-1">
+        <label className="relative block flex-1">
           <span className="sr-only">بحث في المتجر</span>
           <input
             type="search"
             value={q}
+            dir="rtl"
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+            }}
             placeholder="ابحث باسم المنتج أو القسم أو المتجر المصدر…"
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
           />
+          {q.trim() ? (
+            <button
+              type="button"
+              onClick={() => setQ("")}
+              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-xs font-bold text-slate-500 hover:text-slate-800"
+              aria-label="مسح البحث"
+            >
+              مسح
+            </button>
+          ) : null}
         </label>
         <div className="flex items-center gap-2">
           <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
@@ -191,6 +211,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
           <button
             type="button"
             onClick={copyFilterLink}
+            aria-label="نسخ رابط التصفية الحالي"
             className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:border-slate-400"
           >
             {copied ? "تم النسخ" : "نسخ الرابط"}
