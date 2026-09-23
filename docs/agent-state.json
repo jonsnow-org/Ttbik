@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5788409358,
   "last_actor": "grok",
-  "updated_at": "2026-09-23T03:22:00Z",
+  "updated_at": "2026-09-23T04:07:00Z",
   "mode": "work-cycle",
   "open": [
     "O10 (owner directive): Grok scope = /store + site SEO only.",
@@ -14,6 +14,7 @@
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G145 /store: Organization JSON-LD + FAQ merchant-host + internal links to /free-tools and /bots.",
     "G144 /store: Product JSON-LD brand+seller from merchant hostname; always-visible copy-URL + aria-pressed chips.",
     "G143 /store: merchant hostname chips + search includes host + shop query param in replaceState.",
     "G142 /store: copy current filter URL (q/cat/sort already in replaceState) + WebSite SearchAction JSON-LD targeting /store?q={search_term_string}.",
