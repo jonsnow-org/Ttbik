@@ -160,6 +160,8 @@ def stream_hf_text_corpus(
     max_documents: int = 200_000,
     documents_per_file: int = 5_000,
     split: str = "train",
+    skip: int = 0,
+    progress_path: str | None = None,
 ) -> list[str]:
     """Run this ON KAGGLE (Settings -> Internet -> On) or any machine
     with real internet access — see this module's own docstring for
@@ -180,6 +182,11 @@ def stream_hf_text_corpus(
     output_path.mkdir(parents=True, exist_ok=True)
 
     dataset = load_dataset(dataset_name, config_name, split=split, streaming=True)
+    if skip:
+        # Resume: continue after the last article a previous run READ (not
+        # just kept), so no run re-trains on the same documents.
+        dataset = dataset.skip(skip)
+    raw_read = 0
     written_files = []
     buffer: list[str] = []
     file_index = 0
@@ -196,6 +203,7 @@ def stream_hf_text_corpus(
         buffer.clear()
 
     for example in dataset:
+        raw_read += 1
         text = example.get(text_field, "")
         if not text or not text.strip():
             continue
@@ -207,9 +215,33 @@ def stream_hf_text_corpus(
             break
 
     flush()
+    if progress_path:
+        Path(progress_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(progress_path).write_text(json.dumps({
+            "dataset": dataset_name, "config": config_name, "split": split,
+            "documents_consumed": skip + raw_read,
+        }), encoding="utf-8")
     print(f"wrote {total_written:,} documents from {dataset_name}/{config_name} into {len(written_files)} "
-          f"shard files under {output_dir}")
+          f"shard files under {output_dir} (stream position now {skip + raw_read:,})")
     return written_files
+
+
+def text_stream_position(dataset_name: str, config_name: str, split: str = "train",
+                         search_root: str = "/kaggle/input") -> int:
+    """Furthest position any previous run reached in this text stream, from
+    every text_stream_progress*.json found under search_root (own output,
+    checkpoint datasets...). 0 when none — i.e. a true first run."""
+    best = 0
+    root = Path(search_root)
+    for p in (root.rglob("text_stream_progress*.json") if root.exists() else []):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if d.get("dataset") == dataset_name and d.get("config") == config_name and d.get("split", "train") == split:
+            best = max(best, int(d.get("documents_consumed") or 0))
+    print(f"موضع الاستئناف في {dataset_name}/{config_name}: {best:,}")
+    return best
 
 
 def stream_common_voice_arabic(
