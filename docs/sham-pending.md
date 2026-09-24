@@ -28,6 +28,19 @@
 - لم تُؤكَّد بعد الخطوة الفعلية المحفوظة على Kaggle نفسه — عند أول تشغيل للدفتر الجديد راقبي سطر
   "resumed from ..." في الخرج للتأكد أنه فعلاً التقط الـ36 ألف خطوة قبل الوثوق بالنتيجة.
 
+## 2026-09-24 — تصحيح: الاستئناف من أي Input مُرفق يدوياً، بغض النظر عن اسمه
+- المالكة صححت: الدفاتر القديمة كانت أصلاً تبحث عن آخر نقطة حفظ بشكل عام
+  (Path("/kaggle/input").rglob("step_*.pt")) — أي مجموعة تُرفق يدوياً كـ Input كانت تُستأنف بغض
+  النظر عن اسمها. إصلاحي السابق (البحث بالاسم sham-checkpoint / nova-small-checkpoint) كان أضيق
+  من ذلك: لو أُرفقت المجموعة يدوياً تحت اسم آخر (مثلاً nova-small-checkpoint أو أي عنوان قديم)،
+  لم يكن `resume_text_lineage` يجدها لأنه يبحث بالاسم فقط.
+- الإصلاح: `resume_text_lineage` في sham_inputs.py يفحص الآن أولاً *كل* مجلد مُرفق أو مُنزَّل تحت
+  /kaggle/input أو /tmp/sham_inputs (بغض النظر عن اسمه)، ويختار الأعلى خطوة من بينها — تماماً كما
+  كانت الدفاتر تفعل قبل أي تعديل. البحث بالاسم (own ثم forks عبر Kaggle API) يبقى فقط احتياطاً
+  عندما لا يوجد أي شيء مُرفق إطلاقاً (لا يوجد Input ولا تنزيل سابق).
+- اختُبر: مجموعة مُرفقة باسم عشوائي غير مذكور في الكود تُكتشف وتُستخدم؛ الأعلى خطوة بين عدة مُرفقات
+  يفوز؛ أداة تقسيم نص صغيرة جداً تُرفض حتى لو كانت الأعلى خطوة، وتُختار غيرها المؤهلة.
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.

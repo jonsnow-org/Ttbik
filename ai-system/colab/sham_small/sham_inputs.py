@@ -152,37 +152,65 @@ def _tokenizer_in(root: Path, pattern: str) -> Path | None:
     return found[0] if found else None
 
 
+def _dataset_dirs() -> list[Path]:
+    """Every top-level attached/downloaded dataset folder under /kaggle/input
+    and /tmp/sham_inputs, WHATEVER it happens to be named on Kaggle. Mirrors
+    exactly what every Sham notebook did before automatic fetching existed
+    (a plain Path("/kaggle/input").rglob("step_*.pt")) -- a manually-attached
+    Input is found and used regardless of its title, not only when its name
+    happens to match a known slug like "sham-checkpoint"."""
+    # Depth 1 only: every real Kaggle dataset mounts as exactly /kaggle/input/<dataset>
+    # (and fetch_dataset() downloads to exactly FETCH_ROOT/<name>) -- one level deeper would
+    # start picking up a dataset's OWN internal subfolders (e.g. its checkpoints/ folder) as
+    # if they were separate datasets.
+    return [p for root in input_roots() for p in root.glob("*") if p.is_dir()]
+
+
 def resume_text_lineage(own: str, forks: list[str] | tuple[str, ...] = (),
                         tokenizer_pattern: str = "*tokenizer*.json",
                         min_vocab: int = 0) -> dict | None:
-    """{"checkpoint", "step", "has_optimizer", "tokenizer", "dataset", "forked"} or None."""
+    """{"checkpoint", "step", "has_optimizer", "tokenizer", "dataset", "forked"} or None.
+
+    Two-stage search:
+      1) ANY dataset already attached (Add Input) or already auto-downloaded
+         this run, whatever it's named -- the same "just find it" behavior
+         every Sham notebook always had. Highest step wins.
+      2) Only if nothing at all is attached: auto-download `own` via the
+         Kaggle API, then each of `forks` in order, and use the first that
+         has both a real checkpoint AND its own tokenizer."""
     from text_tokenizer import ShamTextTokenizer
 
-    def best_in(name: str) -> dict | None:
-        root = fetch_dataset(name)
+    def pair_in(root: Path | None, label: str) -> dict | None:
+        if root is None:
+            return None
         ckpts = text_checkpoints(root)
         if not ckpts:
             return None
         tok = _tokenizer_in(root, tokenizer_pattern)
         if tok is None:
-            print(f"  ✖ {name}: فيها نقطة حفظ بلا أداة تقسيم النص الخاصة بها — تُتجاهل")
+            print(f"  ✖ {label}: فيها نقطة حفظ بلا أداة تقسيم النص الخاصة بها — تُتجاهل")
             return None
         vocab = ShamTextTokenizer.load(tok).vocab_size
         if vocab < min_vocab:
-            print(f"  ✖ {name}: أداة تقسيم النص فيها صغيرة (vocab={vocab:,} < {min_vocab:,}) — لا يُستأنف منها")
+            print(f"  ✖ {label}: أداة تقسيم النص فيها صغيرة (vocab={vocab:,} < {min_vocab:,}) — لا يُستأنف منها")
             return None
         step, has_opt, path = ckpts[-1]
-        return {"checkpoint": path, "step": step, "has_optimizer": has_opt, "tokenizer": tok, "dataset": name}
+        return {"checkpoint": path, "step": step, "has_optimizer": has_opt, "tokenizer": tok, "dataset": label}
 
     print(f"البحث عن نقطة الاستئناف ({own}):")
-    picked = best_in(own)
-    if picked:
-        picked["forked"] = False
+    attached = [x for x in (pair_in(d, d.name) for d in _dataset_dirs()) if x]
+    if attached:
+        picked = max(attached, key=lambda x: x["step"])
+        picked["forked"] = picked["dataset"] not in (own, *forks)
     else:
-        options = [x for x in (best_in(f) for f in forks) if x]
-        picked = max(options, key=lambda x: x["step"]) if options else None
+        picked = pair_in(fetch_dataset(own), own)
         if picked:
-            picked["forked"] = True
+            picked["forked"] = False
+        else:
+            options = [x for x in (pair_in(fetch_dataset(f), f) for f in forks) if x]
+            picked = max(options, key=lambda x: x["step"]) if options else None
+            if picked:
+                picked["forked"] = True
     if picked:
         how = "تفرّع لمرة واحدة من" if picked["forked"] else "استئناف من"
         print(f"✅ {how} {picked['dataset']}: {picked['checkpoint'].name} (الخطوة {picked['step']:,}) "
@@ -224,6 +252,8 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
 if __name__ == "__main__":
     import tempfile
 
+    import glob
+
     import torch
 
     from checkpoint import save_checkpoint
@@ -240,9 +270,16 @@ if __name__ == "__main__":
         cfg = ShamSmallConfig(vocab_size=42256, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=16)
         seed = td / "seed.txt"
         seed.write_text("شام نموذج عربي يتعلم من النصوص الحقيقية. " * 50, encoding="utf-8")
-        tok = train_text_tokenizer([str(seed)], vocab_size=300)
+        small_tok = train_text_tokenizer([str(seed)], vocab_size=300)
+        # A real, much larger and more varied corpus (this repo's own text files) so this
+        # tokenizer's ACHIEVED vocab is genuinely bigger than small_tok's, not just requested
+        # bigger -- BPE only merges as far as the corpus's real diversity allows.
+        repo_root = Path(__file__).resolve().parents[3]
+        big_corpus = [p for p in glob.glob(str(repo_root / "**/*.md"), recursive=True) if Path(p).stat().st_size > 0][:60]
+        big_tok = train_text_tokenizer(big_corpus, vocab_size=1200)
+        assert big_tok.vocab_size > small_tok.vocab_size * 2, (small_tok.vocab_size, big_tok.vocab_size)
 
-        def make(ds: str, steps: list[int], with_final: int | None = None, tok_name="t_tokenizer.json"):
+        def make(ds: str, steps: list[int], with_final: int | None = None, tok=small_tok, tok_name="t_tokenizer.json"):
             d = KAGGLE_INPUT / ds / "checkpoints"
             d.mkdir(parents=True)
             m = ShamSmall(cfg)
@@ -253,19 +290,33 @@ if __name__ == "__main__":
                 save_checkpoint(d / "final.pt", m, with_final)
             tok.save(KAGGLE_INPUT / ds / tok_name)
 
-        make("old-track", [900])            # stale dataset, higher step, NOT ours
+        # Nothing attached anywhere yet -> no credentials in this sandbox, so no lineage (never crashes).
+        assert resume_text_lineage("own-v2", forks=["fork-src"]) is None
+
+        # ANY attached dataset is found and used, WHATEVER it's named on Kaggle -- exactly what
+        # every Sham notebook did before automatic fetching existed (owner report, 2026-09-24: a
+        # notebook manually resumed for months from an Input the code never knew the name of).
+        make("some-title-the-owner-picked", [900])
+        got = resume_text_lineage("own-v2", forks=["fork-src"])
+        assert got["dataset"] == "some-title-the-owner-picked" and got["step"] == 900 and got["forked"]
+
+        # Among several attached, the highest step wins regardless of which one matches own/forks.
         make("fork-src", [300], with_final=350)
-        # own dataset missing -> fork: highest step among forks, its own tokenizer
         got = resume_text_lineage("own-v2", forks=["fork-src"])
-        assert got["forked"] and got["step"] == 350 and got["checkpoint"].name == "final.pt", got
-        assert got["tokenizer"].parent.name == "fork-src"
-        # own dataset present -> own wins even though a stale one has more steps
-        make("own-v2", [120, 200])
+        assert got["dataset"] == "some-title-the-owner-picked" and got["step"] == 900, got
+        assert got["tokenizer"].parent.name == "some-title-the-owner-picked"  # paired from the SAME directory
+
+        # own dataset attached with a higher step wins -- forked=False because its name matches `own`.
+        make("own-v2", [950])
         got = resume_text_lineage("own-v2", forks=["fork-src"])
-        assert not got["forked"] and got["step"] == 200 and got["has_optimizer"], got
-        # tokenizer too small -> refused, falls back to the fork
-        got = resume_text_lineage("own-v2", forks=["fork-src"], min_vocab=10_000)
-        assert got is None or got["dataset"] != "own-v2"
+        assert not got["forked"] and got["dataset"] == "own-v2" and got["step"] == 950, got
+
+        # tokenizer too small in every attached dataset -> all rejected, even the highest step; a
+        # lower-step dataset whose tokenizer actually meets min_vocab is picked instead.
+        make("full-vocab-but-behind", [50], tok=big_tok)
+        threshold = (small_tok.vocab_size + big_tok.vocab_size) // 2
+        got = resume_text_lineage("own-v2", forks=["fork-src"], min_vocab=threshold)
+        assert got is not None and got["dataset"] == "full-vocab-but-behind" and got["step"] == 50, got
         # nested zip extraction (CLI download shape)
         z = FETCH_ROOT / "zipped"
         (z / "src").mkdir(parents=True)
