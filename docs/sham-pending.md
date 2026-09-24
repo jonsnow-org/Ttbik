@@ -8,10 +8,11 @@
 
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
-   — written by the owner's **sham_control_center.ipynb** run on Kaggle. It lists every Kaggle
-   kernel (auto-identified by content, not by name), its last status + failure reason, which one
-   is the primary per track vs duplicates, every dataset + progress metrics, and
-   `pipeline.next_step` (the current step, in Arabic).
+   — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.
+   It uses generic aliases only ("مسار ترميز الصورة 1"): status, role (primary/duplicate), progress,
+   error summary, and `pipeline.next_step`. **Owner directive 2026-09-24: Claude must NOT see or ask
+   for notebook names, links, titles or contents** — refer to notebooks by alias only; the owner
+   maps aliases to real notebooks from her full Telegram report.
 2. Tell the owner the current step from `pipeline.next_step`, then fix any `status: error`
    primary kernels (the failure text is in the registry).
 3. If the branch is missing: ask the owner to run `sham_control_center.ipynb` once

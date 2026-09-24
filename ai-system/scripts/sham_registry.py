@@ -469,6 +469,9 @@ def _fmt_progress(p: dict[str, Any]) -> str:
 
 
 def render_report(reg: dict[str, Any]) -> str:
+    """FULL report — for the owner only (Telegram). Real names + links."""
+    if reg["kernels"] and not all("alias" in k for k in reg["kernels"]):
+        assign_aliases(reg)
     L: list[str] = []
     ps = reg["pipeline"]
     L.append(f"🧭 تقرير مركز تحكم شام — {reg['generated_at']}")
@@ -492,7 +495,8 @@ def render_report(reg: dict[str, Any]) -> str:
             continue
         L.append(f"— {title}:")
         for k in ks:
-            line = f"  {STATUS_AR.get(k['status'], k['status'])} | {k['track_name']} | {k['ref']}"
+            alias = f"[{k['alias']}] " if k.get("alias") else ""
+            line = f"  {STATUS_AR.get(k['status'], k['status'])} | {alias}{k['track_name']} | {k['ref']}\n      🔗 https://www.kaggle.com/code/{k['ref']}"
             if k["status"] == "error" and k["failure"]:
                 line += f"\n      سبب الفشل: {k['failure'][:200]}"
             L.append(line)
@@ -509,6 +513,94 @@ def render_report(reg: dict[str, Any]) -> str:
             continue
         tname = TRACK_BY_ID[d["track"]]["name"] if d["track"] else "غير مصنّفة"
         L.append(f"  • {d['ref']} ({d['size_mb']}MB، آخر تحديث {d['last_updated'][:10]}) ← {tname}")
+    return "\n".join(L)
+
+
+# ---------------------------------------------------------------------------
+# Privacy split (owner directive 2026-09-24): the FULL registry/report —
+# real notebook names, Kaggle links, dataset refs — goes only to the owner
+# (Telegram). Anything that leaves her account for Claude/the repo is the
+# PUBLIC version: generic aliases ("دفتر ترميز الصورة 1"), status, progress,
+# and the error summary only — never notebook names, links, titles, source,
+# inputs, or dataset refs. The owner maps aliases to real names from her own
+# full report, where each alias is printed next to the real notebook.
+# ---------------------------------------------------------------------------
+
+def assign_aliases(reg: dict[str, Any]) -> None:
+    """Adds an `alias` to every kernel/dataset in the FULL registry (in place)."""
+    counters: dict[str, int] = {}
+    for k in sorted(reg["kernels"], key=lambda k: k.get("last_run") or ""):
+        base = TRACK_BY_ID[k["track"]]["name"].split(" —")[0].split(" (")[0] if k["track"] else (
+            "دفتر شام غير مصنّف" if k["role"] == "sham_other" else "دفتر آخر")
+        counters[base] = counters.get(base, 0) + 1
+        k["alias"] = f"{base} {counters[base]}"
+    dcount: dict[str, int] = {}
+    for d in reg["datasets"]:
+        base = "نتائج " + (TRACK_BY_ID[d["track"]]["name"].split(" —")[0].split(" (")[0] if d["track"] else "غير مصنّفة")
+        dcount[base] = dcount.get(base, 0) + 1
+        d["alias"] = f"{base} {dcount[base]}"
+
+
+def _scrub(text: str, secrets: list[str]) -> str:
+    out = text or ""
+    for s in secrets:
+        if s:
+            out = out.replace(s, "…")
+    out = re.sub(r"/kaggle/(input|working)/[^\s'\"]+", "/kaggle/…", out)
+    out = re.sub(r"https?://\S+", "[رابط]", out)
+    return out[:300]
+
+
+def public_registry(reg: dict[str, Any]) -> dict[str, Any]:
+    """Privacy-safe copy for Claude / the repo (see note above)."""
+    if not all("alias" in k for k in reg["kernels"]):
+        assign_aliases(reg)
+    secrets = [k["ref"] for k in reg["kernels"]] + [k["title"] for k in reg["kernels"] if k.get("title")]
+    secrets += [d["ref"] for d in reg["datasets"]] + [d["ref"].split("/")[0] for d in reg["datasets"]]
+    secrets += [k["ref"].split("/")[0] for k in reg["kernels"]]
+    secrets = sorted({s for s in secrets if len(s) > 2}, key=len, reverse=True)
+    alias_of = {d["ref"]: d["alias"] for d in reg["datasets"]}
+    kernels = [
+        {"alias": k["alias"], "track": k["track"], "status": k["status"], "role": k["role"],
+         "last_run": k["last_run"][:10], "gpu": k["gpu"], "failure": _scrub(k["failure"], secrets)}
+        for k in reg["kernels"] if k["role"] != "not_sham"
+    ]
+    datasets = [
+        {"alias": d["alias"], "track": d["track"], "size_mb": d["size_mb"], "last_updated": d["last_updated"][:10],
+         "progress": d["progress"], "has_key_files": bool(d["track"] and _dataset_ready([DatasetInfo(**{kk: vv for kk, vv in d.items() if kk != "alias"})], d["track"]))}
+        for d in reg["datasets"] if d["track"]
+    ]
+    stages = {}
+    for key, st in reg["pipeline"]["stages"].items():
+        stages[key] = {"name": st["name"], "ready": st["ready"], "kernel_status": st["kernel_status"],
+                       "progress": st["progress"], "dataset": alias_of.get(st["dataset"]) if st["dataset"] else None}
+    step = dict(reg["pipeline"]["next_step"])
+    for ref, al in alias_of.items():
+        step["do"] = step["do"].replace(ref, f"«{al}»")
+    step["do"] = _scrub(step["do"], secrets)
+    return {
+        "generated_at": reg["generated_at"],
+        "privacy": "public — aliases only; real names are in the owner's Telegram report",
+        "kernels": kernels,
+        "other_notebooks_count": sum(1 for k in reg["kernels"] if k["role"] == "not_sham"),
+        "datasets": datasets,
+        "pipeline": {"current_stage": reg["pipeline"]["current_stage"], "next_step": step, "stages": stages},
+    }
+
+
+def render_public_report(pub: dict[str, Any]) -> str:
+    L = [f"🧭 تقرير شام (نسخة مختصرة بلا أسماء) — {pub['generated_at']}", "",
+         "👉 الخطوة الحالية:", f"   {pub['pipeline']['next_step']['why']}", f"   {pub['pipeline']['next_step']['do']}", ""]
+    for key, st in pub["pipeline"]["stages"].items():
+        mark = "✅" if st["ready"] else ("⏳" if st["kernel_status"] in ("running", "queued") else "⬜")
+        extra = _fmt_progress(st["progress"])
+        L.append(f"{mark} {st['name']}" + (f" — {extra}" if extra else ""))
+    L.append("")
+    for k in pub["kernels"]:
+        line = f"{STATUS_AR.get(k['status'], k['status'])} | {k['alias']} | {k['role']}"
+        if k["status"] == "error" and k["failure"]:
+            line += f" | الخطأ: {k['failure'][:150]}"
+        L.append(line)
     return "\n".join(L)
 
 
@@ -571,7 +663,14 @@ def _self_test() -> None:
     assert reg["pipeline"]["stages"]["image_tokenizer"]["progress"]["samples_consumed"] == 12000
     report = render_report(reg)
     assert "الخطوة الحالية" in report and "CUDA out of memory" in report
+    assert "https://www.kaggle.com/code/me/notebook24ffaf0b22" in report  # owner sees real names + links
     print(report)
+    pub = public_registry(reg)
+    blob = json.dumps(pub, ensure_ascii=False) + render_public_report(pub)
+    for leak in ("notebook24ffaf0b22", "notebookf4a8feee6", "me/", "sham-image-tokenizer-checkpoint", "random"):
+        assert leak not in blob, f"public registry leaked {leak!r}"
+    assert "مسار ترميز الصوت 1" in blob and "CUDA out of memory" in blob
+    print("\n--- public (Claude) ---\n" + render_public_report(pub))
     print("\nsham_registry self-test: OK")
 
 
