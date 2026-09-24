@@ -175,8 +175,8 @@ export default function EarningsCalculatorPage() {
               </Link>
             </li>
             <li>
-              <Link href="/store" className="hover:underline">
-                متجر سوق تولز ← روابط شراء مباشرة بلا عمولة بعد
+              <Link href="/news" className="hover:underline">
+                أخبار سوق تولز
               </Link>
             </li>
           </ul>

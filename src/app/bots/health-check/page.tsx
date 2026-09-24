@@ -52,6 +52,25 @@ const FAQ = [
     q: "ماذا تعني التحديثات المعلَّقة على الويبهوك؟",
     a: "عدد pending_update_count يرتفع إذا توقَّف المستقبل أو بطؤ. رقم صغير غير حرج. أكثر من 100 يستحق مراجعة الخادم.",
   },
+  {
+    q: "كيف أفحص البوت خطوة بخطوة؟",
+    a: "انسخ التوكن من BotFather ثم الصقه هنا واضغط افحص الآن. اقرأ تقرير HTTPS والمنفذ والتحديثات المعلّقة دون حفظ التوكن.",
+  },
+];
+
+const STEPS = [
+  {
+    name: "انسخ التوكن",
+    text: "من BotFather انسخ توكن البوت فقط. لا ترسله لأي شخص.",
+  },
+  {
+    name: "الصق وافحص",
+    text: "الصق التوكن في الحقل ثم اضغط افحص الآن.",
+  },
+  {
+    name: "اقرأ التقرير",
+    text: "راجع HTTPS والمنفذ والتحديثات المعلّقة وملاحظة التوكن في الرابط.",
+  },
 ];
 
 const FAQ_JSON_LD = {
@@ -80,26 +99,12 @@ const HOWTO_JSON_LD = {
   name: "فحص صحة بوت تليجرام",
   description: "الصق توكن BotFather للحصول على تقرير ويبهوك وهوية البوت بدون حفظ التوكن.",
   inLanguage: "ar",
-  step: [
-    {
-      "@type": "HowToStep",
-      position: 1,
-      name: "انسخ التوكن",
-      text: "من BotFather انسخ توكن البوت فقط. لا ترسله لأي شخص.",
-    },
-    {
-      "@type": "HowToStep",
-      position: 2,
-      name: "الصق وافحص",
-      text: "الصق التوكن في الحقل ثم اضغط افحص الآن.",
-    },
-    {
-      "@type": "HowToStep",
-      position: 3,
-      name: "اقرأ التقرير",
-      text: "راجع HTTPS والمنفذ والتحديثات المعلّقة وملاحظة التوكن في الرابط.",
-    },
-  ],
+  step: STEPS.map((s, i) => ({
+    "@type": "HowToStep",
+    position: i + 1,
+    name: s.name,
+    text: s.text,
+  })),
 };
 
 export default function BotHealthCheckPage() {
@@ -136,6 +141,15 @@ export default function BotHealthCheckPage() {
       </nav>
       <HealthCheckForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تفحص البوت</h2>
+        <ol className="mb-8 list-decimal space-y-2 pr-5 text-sm leading-6 text-slate-600">
+          {STEPS.map((s) => (
+            <li key={s.name}>
+              <span className="font-bold text-slate-800">{s.name}: </span>
+              {s.text}
+            </li>
+          ))}
+        </ol>
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
         <dl className="space-y-3">
           {FAQ.map((item) => (
@@ -156,8 +170,8 @@ export default function BotHealthCheckPage() {
               </Link>
             </li>
             <li>
-              <Link href="/store" className="hover:underline">
-                متجر سوق تولز ← روابط شراء مباشرة
+              <Link href="/news" className="hover:underline">
+                أخبار سوق تولز
               </Link>
             </li>
             <li>

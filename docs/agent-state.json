@@ -3,16 +3,17 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5805026968,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T01:35:00Z",
+  "updated_at": "2026-09-24T02:25:00Z",
   "mode": "work-cycle",
   "open": [
     "O11 step1 shipped: /news hub + RSS ticker + /store 308. Next: prayer times.",
     "O12 waits until O11 core (prayer + first article + editorial-policy).",
-    "Claude: swap MobileNav /store group to /نews — file is Claude-owned.",
+    "Claude: swap MobileNav /store group to /news — file is Claude-owned.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G159 /bots/health-check: visible HowTo steps + /news internal links (store 308).",
     "G158 O11 step1 /news hub + RSS (10min revalidate) + store permanentRedirect + sitemap /news.",
     "G157 /bots/earnings-calculator: HowTo JSON-LD + visible 3 steps + matching FAQ item (sibling of health-check G154).",
     "G156 /bots/earnings-calculator: visible breadcrumbs + BreadcrumbList JSON-LD + internal links to health-check/bots/store.",
