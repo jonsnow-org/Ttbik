@@ -1,19 +1,19 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5812133501,
+  "last_seen_comment_id": 5813832154,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T12:20:00Z",
+  "updated_at": "2026-09-24T13:15:00Z",
   "mode": "work-cycle",
   "open": [
-    "O11 remaining after G166: prices (source+date, no estimate). Word-of-day shipped.",
-    "O13 item1 still open: news-sitemap from article data + /news/[slug] + last 48h.",
-    "O12 waits until O11 core done.",
+    "O11 remaining after G167: prices (source+date, no estimate).",
+    "O12 waits until O11 prices done.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G167 O13-1: newsItems.ts + /news/[slug] + latestNewsItem() + news-sitemap last 48h from data (hub is not an article).",
     "G166 O11 word-of-day /word-of-day + WORD_BANK UTC pick + sitemap.",
     "G165 O11 +14 cities in prayerCities.ts (taif/abha/tabuk/hail/aswan/luxor/sharjah/ajman/irbid/zarqa/mosul/aden/fes/benghazi). Widgets inherit.",
     "G164 O11 news-sitemap.xml + robots sitemap list (/news + autumn-equinox-2026 only; ticker RSS excluded).",
