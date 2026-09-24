@@ -1,3 +1,4 @@
+import AdSlot from "@/components/AdSlot";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SITE_URL } from "@/lib/siteUrl";
@@ -98,6 +99,9 @@ export default function EditorialPolicyPage() {
             الأحداث والمقالات ←
           </Link>
         </p>
+        <div className="mt-8">
+          <AdSlot position="in-content" label="أسفل سياسة التحرير" />
+        </div>
       </main>
     </>
   );

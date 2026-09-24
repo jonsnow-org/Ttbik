@@ -1,3 +1,4 @@
+import AdSlot from "@/components/AdSlot";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { STUDIO_TOOL_LABELS } from "@/lib/studioTools";
@@ -51,6 +52,9 @@ export default function ToolsHubPage() {
             </span>
           </Link>
         ))}
+      </div>
+      <div className="mt-8">
+        <AdSlot position="in-content" label="أسفل الأدوات المتقدمة" />
       </div>
     </div>
   );

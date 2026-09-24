@@ -1,3 +1,4 @@
+import AdSlot from "@/components/AdSlot";
 export const metadata = { title: "سياسة الخصوصية | سوق تولز" };
 
 export default function PrivacyPage() {
@@ -38,6 +39,9 @@ export default function PrivacyPage() {
             خارجي (Groq) لمعالجته وإرجاع النتيجة فوراً؛ لا يُخزَّن هذا النص لدينا بعد إرجاع النتيجة.
           </p>
         </section>
+      </div>
+      <div className="mt-8">
+        <AdSlot position="in-content" label="أسفل الخصوصية" />
       </div>
     </div>
   );

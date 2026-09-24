@@ -1,3 +1,4 @@
+import AdSlot from "@/components/AdSlot";
 export const metadata = { title: "الشروط وسياسة الاسترجاع | سوق تولز" };
 
 export default function TermsPage() {
@@ -50,6 +51,9 @@ export default function TermsPage() {
             معنا عبر وسيلة التواصل التي أدخلتها عند تقديم الطلب.
           </p>
         </section>
+      </div>
+      <div className="mt-8">
+        <AdSlot position="in-content" label="أسفل الشروط" />
       </div>
     </div>
   );

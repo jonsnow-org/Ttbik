@@ -1,3 +1,4 @@
+import AdSlot from "@/components/AdSlot";
 import { notFound } from "next/navigation";
 import { STUDIO_TOOL_LABELS } from "@/lib/studioTools";
 import { isOwnerServer } from "@/lib/isOwner";
@@ -33,6 +34,9 @@ export default function ToolPage({
         initialOrderCode={searchParams.order || ""}
         isOwner={isOwner}
       />
+      <div className="mt-8">
+        <AdSlot position="in-content" label="أسفل أداة الاستوديو" />
+      </div>
     </div>
   );
 }

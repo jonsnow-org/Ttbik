@@ -8,7 +8,7 @@ export default function WidgetBuilder({ site }: { site: string }) {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [copied, setCopied] = useState(false);
   const src = `${site}/embed/prayer/${city}${theme === "dark" ? "?theme=dark" : ""}`;
-  const code = `<iframe src="${src}" width="340" height="360" style="border:0;max-width:100%" loading="lazy" title="مواقيت الصلاة"></iframe>`;
+  const code = `<iframe src="${src}" width="340" height="420" style="border:0;max-width:100%" loading="lazy" title="مواقيت الصلاة"></iframe>`;
 
   function copy() {
     navigator.clipboard?.writeText(code).then(() => {
@@ -48,7 +48,7 @@ export default function WidgetBuilder({ site }: { site: string }) {
         </button>
       </div>
       <div className={`flex justify-center rounded-xl p-2 ${theme === "dark" ? "bg-slate-800" : "bg-slate-50"}`}>
-        <iframe key={src} src={src.replace(site, "")} width={340} height={360} style={{ border: 0, maxWidth: "100%" }} title="معاينة الودجت" />
+        <iframe key={src} src={src.replace(site, "")} width={340} height={420} style={{ border: 0, maxWidth: "100%" }} title="معاينة الودجت" />
       </div>
     </div>
   );
