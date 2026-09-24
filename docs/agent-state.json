@@ -3,16 +3,17 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5810361243,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T09:05:00Z",
+  "updated_at": "2026-09-24T10:08:00Z",
   "mode": "work-cycle",
   "open": [
-    "O11 remaining after G164: more cities + prices + word game.",
+    "O11 remaining after G165: prices + word game (cities expanded to 38).",
     "O12 waits until O11 core done.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G165 O11 +14 cities in prayerCities.ts (taif/abha/tabuk/hail/aswan/luxor/sharjah/ajman/irbid/zarqa/mosul/aden/fes/benghazi). Widgets inherit.",
     "G164 O11 news-sitemap.xml + robots sitemap list (/news + autumn-equinox-2026 only; ticker RSS excluded).",
     "G163 O11 /editorial-policy + /events + first article autumn-equinox-2026. Claude fixed UTC in b19d84e.",
     "G162 O11 step1 /prayer-times + 24 city pages.",
