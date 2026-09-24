@@ -32,7 +32,7 @@ model Bot {
   id            String   @id @default(uuid())
   token         String   @unique
   ownerId       String // Telegram User ID of the bot creator
-  template      String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT"
+  template      String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT" | "CONFESSION_BOT"
   totalRevenue  Float    @default(0.0)
   ownerBalance  Float    @default(0.0) // creator's withdrawable commission (matured, past the 48h hold)
   pendingBalance Float   @default(0.0) // creator commission still inside the 48h hold, not yet withdrawable — see CREATOR_EARNING_PENDING transactions
@@ -1140,4 +1140,86 @@ model PlatformPointsTransaction {
   created_at   DateTime @default(now())
 
   @@index([tgUserId])
+}
+
+// CONFESSION_BOT (docs/claude-feature-backlog.md item 2) — every user gets
+// their own anonymous confessions/questions box behind a shareable deep
+// link (?start=<ownerId>); whoever writes to it stays anonymous to the box
+// owner unless the owner has paid to unlock REVEAL_SENDER. Same
+// owner-only-to-DEPLOY gate as MARRIAGE_BOT/JOBS_BOT/MEDICAL_BOT/NOVA_BOT
+// (CONFESSION_BOT_CREATOR_PASSWORD) — see BotsDeployForm.tsx. Fully
+// isolated wallet/ledger, same reasoning as MatchUser.balance/
+// JobsUser.balance: reusing another bot's balance table would mix money
+// across bots that must never share custody bookkeeping.
+model ConfessionUser {
+  id            String    @id // Telegram User ID
+  botId         String
+  pendingAction Json?
+  lastActiveAt  DateTime  @default(now())
+  isBanned      Boolean   @default(false)
+  mutedUntil    DateTime?
+  created_at    DateTime  @default(now())
+
+  balance Float @default(0.0)
+
+  // One-time paid unlocks (backlog item 2's own spec: "reveal-sender /
+  // unlimited replies"), permanent once bought like MatchUser's
+  // advancedFiltersUnlocked and siblings.
+  revealSenderUnlocked     Boolean @default(false) // every confession (past and future) shows the sender's Telegram name/username instead of "🕵️ مرسل مجهول"
+  unlimitedRepliesUnlocked Boolean @default(false) // lifts the one-free-reply-per-confession cap (see ConfessionMessage.replyCount)
+
+  receivedConfessions ConfessionMessage[]     @relation("ConfessionBoxOwner")
+  sentConfessions     ConfessionMessage[]     @relation("ConfessionSender")
+  blocksGiven         ConfessionBlock[]
+  transactions        ConfessionTransaction[]
+}
+
+// One anonymous message into a box. senderName/senderUsername are captured
+// at send time regardless of the box owner's current unlock state, so
+// buying REVEAL_SENDER later can retroactively reveal identity on
+// already-received confessions too, not just future ones.
+model ConfessionMessage {
+  id              String         @id @default(uuid())
+  boxOwnerId      String
+  boxOwner        ConfessionUser @relation("ConfessionBoxOwner", fields: [boxOwnerId], references: [id])
+  senderId        String
+  sender          ConfessionUser @relation("ConfessionSender", fields: [senderId], references: [id])
+  senderName      String?
+  senderUsername  String?
+  text            String
+  reply           String?
+  repliedAt       DateTime?
+  replyCount      Int            @default(0) // >0 once the free reply is used — further replies need unlimitedRepliesUnlocked
+  created_at      DateTime       @default(now())
+
+  @@index([boxOwnerId])
+}
+
+// A box owner blocking a specific anonymous sender (by their real Telegram
+// id, even though the sender never sees it) from sending again — basic
+// anti-harassment, independent of the platform-wide ConfessionUser.isBanned
+// admin action.
+model ConfessionBlock {
+  id              String         @id @default(uuid())
+  ownerId         String
+  owner           ConfessionUser @relation(fields: [ownerId], references: [id])
+  blockedSenderId String
+  created_at      DateTime       @default(now())
+
+  @@unique([ownerId, blockedSenderId])
+}
+
+// CONFESSION_BOT's own isolated financial ledger — see ConfessionUser.balance.
+model ConfessionTransaction {
+  id         String         @id @default(uuid())
+  userId     String
+  user       ConfessionUser @relation(fields: [userId], references: [id])
+  amount     Float
+  currency   String // USD-equivalent value credited/charged
+  type       String // DEPOSIT | REVEAL_SENDER | UNLIMITED_REPLIES
+  status     String         @default("COMPLETED")
+  txHash     String? // NOWPayments payment_id — IPN idempotency
+  created_at DateTime       @default(now())
+
+  @@unique([txHash])
 }

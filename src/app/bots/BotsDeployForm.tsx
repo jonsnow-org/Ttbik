@@ -153,6 +153,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             {isOwner && <option value="JOBS_BOT">بوت فرص العمل والمتجر</option>}
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
             {isOwner && <option value="NOVA_BOT">Nova AI (مساعد ذكاء اصطناعي مجاني)</option>}
+            {isOwner && <option value="CONFESSION_BOT">بوت الاعترافات المجهولة</option>}
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
@@ -164,7 +165,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             </p>
           )}
         </div>
-        {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" ? (
+        {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>
             <input
