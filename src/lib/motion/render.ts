@@ -2,6 +2,7 @@
 // place, sky and weather effect is drawn here from plain shapes — nothing is
 // downloaded — so the output belongs to us and renders instantly.
 import type { Action, Actor, Kind, Place, SceneCode } from "./brain";
+import { symbolInfo } from "./lexicon";
 
 export const W = 540;
 export const H = 960;
@@ -929,9 +930,123 @@ function ball(ctx: CanvasRenderingContext2D, color: string, spin: number) {
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- library symbols
+
+const SYM_IMG = new Map<number, HTMLImageElement>();
+const SYM_OK = new Set<number>();
+
+/** Loads the drawings a story needs (each one only once). */
+export function loadSymbols(ids: number[]): Promise<void> {
+  return Promise.all(
+    ids.map((id) => {
+      if (SYM_IMG.has(id)) return null;
+      return new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          SYM_OK.add(id);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = `/rumooz/s/${symbolInfo(id).file}.svg`;
+        SYM_IMG.set(id, img);
+      });
+    }),
+  ).then(() => undefined);
+}
+
+const symImg = (id?: number) => (id !== undefined && SYM_OK.has(id) ? SYM_IMG.get(id) : undefined);
+const SYM_SCALE: Record<string, number> = { a: 1.1, m: 1, v: 1.5, w: 1.6, f: 1.2 };
+
+/** A library drawing brought to life: the motion comes from the action, not the picture. */
+function symbol(ctx: CanvasRenderingContext2D, img: HTMLImageElement, action: Action, t: number, ph: number) {
+  const S = 110;
+  let sx = 1;
+  let sy = 1;
+  let rot = 0;
+  let dy = 0;
+  switch (action) {
+    case "walk":
+      rot = Math.sin(t * 6 + ph) * 0.07;
+      dy = -Math.abs(Math.sin(t * 6 + ph)) * 6;
+      break;
+    case "run":
+    case "chase":
+      rot = Math.sin(t * 12 + ph) * 0.1;
+      dy = -Math.abs(Math.sin(t * 12 + ph)) * 12;
+      break;
+    case "play":
+      rot = Math.sin(t * 3 + ph) * 0.12;
+      sy = 1 + Math.sin(t * 6.4 + ph) * 0.06;
+      break;
+    case "jump": {
+      const k = Math.sin(t * 4 + ph);
+      sy = k < 0.08 ? 0.84 : 1.08; // squash on landing, stretch in the air
+      sx = 1 / sy;
+      break;
+    }
+    case "fly":
+      rot = Math.sin(t * 3 + ph) * 0.15;
+      sy = 1 + Math.sin(t * 14 + ph) * 0.1;
+      break;
+    case "swim":
+      rot = Math.sin(t * 2 + ph) * 0.12;
+      break;
+    case "laugh":
+      rot = Math.sin(t * 14 + ph) * 0.08;
+      sy = 1 + Math.abs(Math.sin(t * 14 + ph)) * 0.05;
+      break;
+    case "eat":
+      rot = ((Math.sin(t * 4 + ph) + 1) / 2) * 0.25;
+      break;
+    case "dance":
+      rot = Math.sin(t * 5 + ph) * 0.25;
+      break;
+    case "sleep":
+      sy = 0.92 + Math.sin(t * 1.6 + ph) * 0.03;
+      sx = 1.04;
+      break;
+    default:
+      sy = 1 + Math.sin(t * 2 + ph) * 0.025;
+  }
+  ctx.save();
+  ctx.scale(-1, 1); // library drawings face left; the caller's flip points them where they move
+  ctx.translate(0, dy);
+  ctx.rotate(rot);
+  ctx.scale(sx, sy);
+  ctx.drawImage(img, -S / 2, -S, S, S);
+  ctx.restore();
+}
+
+/** Buildings on the horizon, things on the ground, sun/moon/rainbow in the sky. */
+function drawProps(ctx: CanvasRenderingContext2D, s: SceneCode, t: number, layer: "sky" | "back") {
+  const sky = s.props.filter((p) => symbolInfo(p.sym).role === "s");
+  const big = s.props.filter((p) => symbolInfo(p.sym).role === "b");
+  const small = s.props.filter((p) => symbolInfo(p.sym).role === "p");
+  const draw = (id: number, x: number, y: number, size: number, rot: number) => {
+    const img = symImg(id);
+    if (!img) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.drawImage(img, -size / 2, -size, size, size);
+    ctx.restore();
+  };
+  if (layer === "sky") {
+    if (s.place === "house") return;
+    sky.forEach((p, i) => draw(p.sym, W * (0.22 + 0.5 * ((i * 0.61) % 1)), H * 0.24 + Math.sin(t * 0.8 + i) * 8, 120, 0));
+    return;
+  }
+  if (s.place !== "house" && s.place !== "space") {
+    const slots = [0.24, 0.76, 0.5];
+    big.forEach((p, i) => draw(p.sym, W * slots[i % 3], HORIZON + 70, 220, 0));
+  }
+  const spots = [0.12, 0.88, 0.3, 0.7, 0.5];
+  small.forEach((p, i) => draw(p.sym, W * spots[i % 5], GROUND - 6 - (i % 2) * 14, 92, Math.sin(t * 1.5 + i) * 0.05));
+}
+
 // ---------------------------------------------------------------- motion
 
-type Placed = { kind: Kind; x: number; y: number; s: number; f: number; pose: Pose; color: string; action: Action; seed: number; air: boolean; spin: number };
+type Placed = { kind: Kind | "sym"; sym?: number; x: number; y: number; s: number; f: number; pose: Pose; color: string; action: Action; seed: number; air: boolean; spin: number };
 
 const FLYING: Kind[] = ["bird", "butterfly"];
 
@@ -958,19 +1073,20 @@ function placeScene(s: SceneCode, t: number): Placed[] {
       const seed = gi * 7 + j * 3 + 1;
       const ph = j * 1.9 + gi * 0.8;
       const depth = (j % 2) * 26 + gi * 14;
-      const s0 = a.size * (0.9 + depth / 260) * (a.kind === "car" ? 1.1 : a.kind === "person" || a.kind === "child" ? 1.25 : 1.4);
+      const role = a.kind === "sym" ? symbolInfo(a.sym ?? 0).role : "";
+      const s0 = a.size * (0.9 + depth / 260) * (a.kind === "sym" ? SYM_SCALE[role] ?? 1.1 : a.kind === "car" ? 1.1 : a.kind === "person" || a.kind === "child" ? 1.25 : 1.4);
       const pose = basePose();
       let x = W * (0.3 + (0.45 * (j + 0.5)) / n) + (gi - 0.5) * 60;
       let y = GROUND + depth;
       let f = gi % 2 ? -1 : 1;
       let air = false;
       let spin = 0;
-      const flyer = FLYING.includes(a.kind);
+      const flyer = a.kind === "sym" ? role === "f" : FLYING.includes(a.kind);
       let action = a.action;
-      if (action === "fly" && !flyer) action = "jump";
+      if (action === "fly" && !flyer && !(a.kind === "sym" && role === "a")) action = "jump";
       if (flyer && action !== "sit" && action !== "sleep" && action !== "eat") action = action === "chase" ? "chase" : "fly";
-      if (a.kind === "fish") action = "swim";
-      if (a.kind === "car") action = action === "sleep" || action === "sit" ? "idle" : "run";
+      if (a.kind === "fish" || role === "m" || role === "w") action = "swim";
+      if (a.kind === "car" || role === "v") action = action === "sleep" || action === "sit" ? "idle" : "run";
 
       switch (action) {
         case "walk":
@@ -1019,8 +1135,9 @@ function placeScene(s: SceneCode, t: number): Placed[] {
         case "swim": {
           const [y0, y1] = waterY(s.place);
           air = true;
-          x = wrap(x + t * 70 * f, 60);
-          y = y0 + ((j + 0.5) / n) * (y1 - y0) + Math.sin(t * 2 + ph) * 8;
+          x = wrap(x + t * (role === "w" ? 45 : 70) * f, 90);
+          // boats ride the surface, creatures swim inside the water
+          y = role === "w" ? y0 + 26 + Math.sin(t * 1.6 + ph) * 5 : y0 + ((j + 0.5) / n) * (y1 - y0) + Math.sin(t * 2 + ph) * 8;
           break;
         }
         case "sleep":
@@ -1059,17 +1176,18 @@ function placeScene(s: SceneCode, t: number): Placed[] {
       if (["sit", "look", "sleep", "eat", "laugh", "idle"].includes(action) && s.actors.length + n > 1) {
         f = x < W / 2 ? 1 : -1;
       }
-      out.push({ kind: a.kind, x, y, s: s0, f, pose, color: a.color || DEFAULT_COLOR[a.kind], action, seed, air, spin });
+      out.push({ kind: a.kind, sym: a.sym, x, y, s: s0, f, pose, color: a.color || (a.kind === "sym" ? "#ffffff" : DEFAULT_COLOR[a.kind]), action, seed, air, spin });
     }
   });
 
   // the chased / played-with target
   if (s.target && subject) {
-    const tk = s.target;
+    const tk = s.target.kind;
+    const tRole = tk === "sym" ? symbolInfo(s.target.sym ?? 0).role : "";
     const pose = basePose();
     let x = leadX;
     let y = GROUND + 10;
-    let air = FLYING.includes(tk);
+    let air = tk === "sym" ? tRole === "f" : FLYING.includes(tk);
     let spin = 0;
     if (subject.action === "play") {
       x = W / 2 + Math.sin(t * 2.1) * 130;
@@ -1085,12 +1203,12 @@ function placeScene(s: SceneCode, t: number): Placed[] {
       pose.phase = t * 13;
       pose.swing = 1;
     }
-    if (tk === "fish") {
+    if (tk === "fish" || tRole === "m") {
       air = true;
       y = waterY(s.place)[0] + 20;
     }
     if (tk === "ball" && subject.action === "chase") spin = t * 8;
-    out.push({ kind: tk, x, y, s: 1.2, f: 1, pose, color: DEFAULT_COLOR[tk], action: tk === "ball" ? "idle" : "run", seed: 99, air, spin });
+    out.push({ kind: tk, sym: s.target.sym, x, y, s: tk === "sym" ? 1 : 1.2, f: 1, pose, color: tk === "sym" ? "#ffffff" : DEFAULT_COLOR[tk], action: tk === "ball" ? "idle" : "run", seed: 99, air, spin });
   }
   return out;
 }
@@ -1131,6 +1249,11 @@ function drawPlaced(ctx: CanvasRenderingContext2D, a: Placed, t: number, night: 
     case "ball":
       ball(ctx, a.color, a.spin);
       break;
+    case "sym": {
+      const img = symImg(a.sym);
+      if (img) symbol(ctx, img, a.action, t, a.seed);
+      break;
+    }
   }
   ctx.restore();
   // little extras that sell the action
@@ -1229,10 +1352,13 @@ export function drawScene(ctx: CanvasRenderingContext2D, s: SceneCode, t: number
   const seed = index * 1013 + s.place.length * 17 + 5;
   drawSky(ctx, s, t, rng(seed));
   drawClouds(ctx, s, t, rng(seed + 1));
+  drawProps(ctx, s, t, "sky");
   drawPlace(ctx, s, t, rng(seed + 2));
 
+  drawProps(ctx, s, t, "back");
   const placed = placeScene(s, t);
-  if (placed.some((a) => a.kind === "fish") && s.place !== "sea" && s.place !== "river") pond(ctx, t, night);
+  const inWater = (a: Placed) => a.kind === "fish" || (a.kind === "sym" && ["m", "w"].includes(symbolInfo(a.sym ?? 0).role));
+  if (placed.some(inWater) && s.place !== "sea" && s.place !== "river") pond(ctx, t, night);
   placed.sort((a, b) => a.y - b.y).forEach((a) => drawPlaced(ctx, a, t, night));
 
   weather(ctx, s.weather, t, rng(seed + 3));

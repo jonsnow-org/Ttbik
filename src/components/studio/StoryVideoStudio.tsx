@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import VideoResult from "./VideoResult";
 import { pickRecording, safeFileBase } from "./videoExport";
 import {
@@ -14,17 +14,20 @@ import {
   PLACE_LABEL,
   TIME_LABEL,
   WEATHER_LABEL,
+  readWords,
+  symbolsOf,
   understand,
   type SceneCode,
+  type WordRead,
 } from "@/lib/motion/brain";
-import { decodeStory, encodeStory } from "@/lib/motion/codec";
-import { H, W, drawScene } from "@/lib/motion/render";
+import { SYMBOL_COUNT, letterCode, symbolInfo } from "@/lib/motion/lexicon";
+import { H, W, drawScene, loadSymbols } from "@/lib/motion/render";
 import { scheduleSoundtrack } from "@/lib/motion/sound";
 
-// «رموز» — description → scene codes → animated video, entirely in the
-// visitor's browser with our own engine (src/lib/motion): a symbol lexicon and
-// rule-based parser, a code-drawn renderer with real in-frame motion, and
-// synthesised sound. No AI model, no outside image service, nothing uploaded.
+// «رموز» — description → words read letter by letter through the saved
+// letter-code model → scene codes → animated video, entirely in the visitor's
+// browser (src/lib/motion). ~900 free library symbols (Noto Emoji, Apache-2.0)
+// plus creatures we draw and animate ourselves; sound is synthesised.
 
 const FADE = 0.6;
 
@@ -73,6 +76,52 @@ function Thumb({ scene, index }: { scene: SceneCode; index: number }) {
   return <canvas ref={ref} width={135} height={240} className="h-full w-full rounded-lg bg-slate-200" />;
 }
 
+const KIND_STYLE: Record<WordRead["kind"], string> = {
+  actor: "bg-violet-100 text-violet-800",
+  thing: "bg-sky-100 text-sky-800",
+  action: "bg-amber-100 text-amber-800",
+  place: "bg-emerald-100 text-emerald-800",
+  time: "bg-indigo-100 text-indigo-800",
+  weather: "bg-cyan-100 text-cyan-800",
+  color: "bg-pink-100 text-pink-800",
+  size: "bg-slate-100 text-slate-700",
+  number: "bg-slate-100 text-slate-700",
+  unknown: "bg-slate-50 text-slate-400 line-through",
+};
+
+/** Shows how each word was read: its letters (with their codes) walked to a symbol. */
+function LetterPanel({ words }: { words: WordRead[] }) {
+  if (!words.length) return null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+      <p className="mb-1.5 text-[11px] font-bold text-slate-600">🔣 قراءة الحروف ← الرموز</p>
+      <div className="flex flex-wrap gap-1.5">
+        {words.map((w, i) => (
+          <span key={i} className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] ${KIND_STYLE[w.kind]}`} title={w.label}>
+            {w.sym !== undefined && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`/rumooz/s/${symbolInfo(w.sym).file}.svg`} alt="" className="h-5 w-5" />
+            )}
+            <span className="font-bold">{w.word}</span>
+            {w.path && (
+              <span className="flex items-end gap-px" dir="rtl">
+                {[...w.path].map((ch, k) => (
+                  <span key={k} className="flex flex-col items-center rounded bg-white/70 px-0.5 leading-none">
+                    <span className="text-[10px]">{ch}</span>
+                    <span className="font-mono text-[8px] opacity-60">{letterCode(ch) || "·"}</span>
+                  </span>
+                ))}
+              </span>
+            )}
+            {w.kind !== "unknown" && w.kind !== "thing" && <span className="opacity-80">= {w.label}</span>}
+            {w.fuzzy && <span title="تصحيح إملائي">~</span>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Pick<T extends string>({ value, options, labels, onChange }: { value: T; options: readonly T[]; labels: Record<T, string>; onChange: (v: T) => void }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value as T)} className="w-full rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]">
@@ -96,14 +145,18 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [recorded, setRecorded] = useState<{ blob: Blob; format: "mp4" | "webm" } | null>(null);
-  const [pasted, setPasted] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [words, setWords] = useState<WordRead[]>([]);
+  const [loading, setLoading] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
 
-  const code = useMemo(() => (scenes.length ? encodeStory(scenes) : ""), [scenes]);
+  // live reading as the visitor types
+  useEffect(() => {
+    const id = setTimeout(() => setWords(description.trim() ? readWords(description) : []), 200);
+    return () => clearTimeout(id);
+  }, [description]);
 
   useEffect(
     () => () => {
@@ -121,24 +174,16 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
     setPhase("idle");
   }
 
-  function build() {
+  async function build() {
     if (!description.trim()) return;
     stopAll();
     setError("");
     setRecorded(null);
-    setScenes(understand(description));
-  }
-
-  function recall() {
-    const decoded = decodeStory(pasted);
-    if (!decoded) {
-      setError("الرمز غير صحيح. انسخه كاملاً كما هو (يبدأ بـ R1.)");
-      return;
-    }
-    stopAll();
-    setError("");
-    setRecorded(null);
-    setScenes(decoded);
+    setLoading(true);
+    const next = understand(description);
+    await loadSymbols(symbolsOf(next));
+    setScenes(next);
+    setLoading(false);
   }
 
   function edit(i: number, patch: Partial<SceneCode>) {
@@ -243,16 +288,6 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
     frame();
   }
 
-  async function copyCode() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked — the code is still selectable */
-    }
-  }
-
   const fileBase = safeFileBase(description || scenes[0]?.caption || "", "ttbik-video");
 
   return (
@@ -276,16 +311,18 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
             ))}
           </div>
           <p className="mt-1 text-[11px] leading-5 text-slate-400">
-            افصل المشاهد بـ «ثم» أو بنقطة. يفهم: قطة، كلب، أرنب، عصفور، فراشة، سمكة، طفل، شخص، سيارة، كرة · يلعب، يطارد، يمشي، يركض، يقفز، يطير، يسبح، ينام، يضحك، يأكل، يرقص، يجلس، ينظر · حقل، غابة، حديقة، بحر، نهر، صحراء، مدينة، بيت، جبل، فضاء · صباح، نهار، غروب، ليل · مطر، ثلج، رياح، غيوم · والألوان والأعداد.
+            افصل المشاهد بـ «ثم» أو بنقطة. يعرف {SYMBOL_COUNT} رمزاً (حيوانات، مركبات، مبانٍ، نباتات، طعام، أشياء…) وحركات: يمشي، يركض، يطارد، يلعب، يقفز، يطير، يسبح، ينام، يضحك، يأكل، يرقص، يجلس، ينظر · وأماكن وأوقات وطقس وألوان وأعداد.
           </p>
         </div>
 
+        <LetterPanel words={words} />
+
         <button
           onClick={build}
-          disabled={!description.trim() || phase === "recording"}
+          disabled={!description.trim() || phase === "recording" || loading}
           className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-slate-300"
         >
-          {scenes.length ? "🔄 أعد تحويل الوصف إلى مشاهد" : "① حوّل الوصف إلى مشاهد متحركة"}
+          {loading ? "جاري استدعاء الرموز..." : scenes.length ? "🔄 أعد تحويل الوصف إلى مشاهد" : "① حوّل الوصف إلى مشاهد متحركة"}
         </button>
 
         {scenes.length > 0 && (
@@ -306,7 +343,15 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
                 </div>
                 <input value={s.caption} onChange={(e) => edit(i, { caption: e.target.value })} placeholder="نص المشهد" className="rounded border border-slate-200 px-1.5 py-1 text-[11px]" />
                 <div className="grid grid-cols-2 gap-1">
-                  <Pick value={s.actors[0].kind} options={ALL_KINDS} labels={KIND_LABEL} onChange={(v) => editActor(i, { kind: v })} />
+                  {s.actors[0].kind === "sym" ? (
+                    <span className="flex items-center gap-1 truncate rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`/rumooz/s/${symbolInfo(s.actors[0].sym ?? 0).file}.svg`} alt="" className="h-4 w-4" />
+                      <span className="truncate">{symbolInfo(s.actors[0].sym ?? 0).name}</span>
+                    </span>
+                  ) : (
+                    <Pick value={s.actors[0].kind} options={ALL_KINDS} labels={KIND_LABEL} onChange={(v) => editActor(i, { kind: v })} />
+                  )}
                   <Pick value={s.actors[0].action} options={ALL_ACTIONS} labels={ACTION_LABEL} onChange={(v) => editActor(i, { action: v })} />
                   <Pick value={s.place} options={ALL_PLACES} labels={PLACE_LABEL} onChange={(v) => edit(i, { place: v })} />
                   <Pick value={s.time} options={ALL_TIMES} labels={TIME_LABEL} onChange={(v) => edit(i, { time: v })} />
@@ -388,35 +433,14 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
 
         {recorded && phase === "idle" && <VideoResult recorded={recorded} fileBase={fileBase} />}
 
-        <div className="rounded-xl bg-slate-50 p-3">
-          <p className="mb-1 text-xs font-bold text-slate-700">🔣 رمز الفيديو</p>
-          {code ? (
-            <div className="flex gap-2">
-              <input readOnly value={code} onFocus={(e) => e.target.select()} dir="ltr" className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-mono text-[11px] text-slate-600" />
-              <button type="button" onClick={copyCode} className="shrink-0 rounded-lg bg-slate-800 px-3 text-xs font-bold text-white">
-                {copied ? "✓ نُسخ" : "نسخ"}
-              </button>
-            </div>
-          ) : (
-            <p className="text-[11px] text-slate-500">بعد تحويل الوصف يظهر هنا رمز قصير يحفظ الفيديو كاملاً.</p>
-          )}
-          <div className="mt-2 flex gap-2">
-            <input
-              value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
-              dir="ltr"
-              placeholder="لديك رمز؟ الصقه هنا (R1.…)"
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 font-mono text-[11px]"
-            />
-            <button type="button" onClick={recall} disabled={!pasted.trim()} className="shrink-0 rounded-lg bg-violet-600 px-3 text-xs font-bold text-white disabled:bg-slate-300">
-              استدعاء
-            </button>
-          </div>
-        </div>
       </div>
 
       <p className="mt-6 text-xs leading-5 text-slate-400">
-        يعمل بمحرك «رموز» الخاص بسوق تولز: يفهم الوصف ويحوّله إلى رموز مشاهد، ثم يرسم كل كائن ويحرّكه بالكود، ويولّد الأصوات. كل شيء يحدث داخل متصفحك، بلا ذكاء اصطناعي خارجي ولا صور من أحد — والفيديو ملكك بالكامل.
+        يعمل بمحرك «رموز» الخاص بسوق تولز: يقرأ كل كلمة حرفاً حرفاً عبر نموذج رموز محفوظ، ثم يستدعي رمزها ويحرّكه بحسب الوصف، ويولّد الأصوات — داخل متصفحك، بلا ذكاء اصطناعي خارجي. رسومات الرموز من مكتبة Noto Emoji المفتوحة (رخصة Apache 2.0) والأسماء العربية من Unicode CLDR —{" "}
+        <a href="/rumooz/LICENSES.txt" className="underline">
+          التراخيص
+        </a>
+        .
       </p>
     </div>
   );

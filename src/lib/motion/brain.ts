@@ -1,103 +1,91 @@
-// «رموز» — our own text-to-motion engine, part 1: the symbol lexicon and the
-// small rule-based "brain" that reads a description (Arabic or English) and
-// turns it into a list of scene codes. No AI model and no outside service:
-// every symbol here is ours, and the renderer (render.ts) draws each one from
-// code, so the whole engine is a few tens of KB and runs in the visitor's
-// browser.
+// «رموز» — the small brain. It reads a description word by word through the
+// letter-code model (lexicon.ts): each word is walked letter by letter until
+// it lands on a symbol. Engine words (motions, places, times, weather,
+// colours, sizes, numbers and the creatures we animate ourselves) live in the
+// same model as the library symbols. Then the words of each sentence are put
+// together into scene codes that the renderer turns into motion.
+import { letterModel, normalize, symbolInfo, type Hit } from "./lexicon";
 
 export type Kind = "cat" | "dog" | "rabbit" | "bird" | "butterfly" | "fish" | "person" | "child" | "car" | "ball";
-export type Action =
-  | "idle"
-  | "walk"
-  | "run"
-  | "chase"
-  | "play"
-  | "jump"
-  | "fly"
-  | "swim"
-  | "sleep"
-  | "laugh"
-  | "eat"
-  | "dance"
-  | "sit"
-  | "look";
+export type Action = "idle" | "walk" | "run" | "chase" | "play" | "jump" | "fly" | "swim" | "sleep" | "laugh" | "eat" | "dance" | "sit" | "look";
 export type Place = "field" | "forest" | "garden" | "sea" | "river" | "desert" | "city" | "house" | "mountain" | "space";
 export type Time = "morning" | "day" | "sunset" | "night";
 export type Weather = "clear" | "clouds" | "rain" | "snow" | "wind";
 
-export type Actor = { kind: Kind; count: number; action: Action; color?: string; size: number };
+/** kind "sym" = a library symbol (index into SYMBOLS); the others are drawn by our own code. */
+export type Actor = { kind: Kind | "sym"; sym?: number; count: number; action: Action; color?: string; size: number };
+export type Prop = { sym: number };
 export type SceneCode = {
   place: Place;
   time: Time;
   weather: Weather;
   actors: Actor[]; // actors[0] is the subject
-  target?: Kind; // what the subject chases / plays with
+  target?: { kind: Kind | "sym"; sym?: number };
+  props: Prop[];
   caption: string;
 };
 
-// ---------------------------------------------------------------- symbols
+// ---------------------------------------------------------------- engine words
 
 const KINDS: { kind: Kind; words: string[]; plural?: string[]; dual?: string[] }[] = [
-  { kind: "cat", words: ["قط", "قطه", "قطت", "هر", "هره", "بسه", "بس", "قطيطه", "cat", "kitten", "kitty"], plural: ["قطط", "قطط", "هررة", "cats", "kittens"], dual: ["قطتان", "قطتين", "قطان", "قطين"] },
-  { kind: "dog", words: ["كلب", "كلبه", "جرو", "puppy", "dog"], plural: ["كلاب", "جراء", "dogs", "puppies"], dual: ["كلبان", "كلبين"] },
-  { kind: "rabbit", words: ["ارنب", "ارنبه", "rabbit", "bunny"], plural: ["ارانب", "rabbits"], dual: ["ارنبان", "ارنبين"] },
-  { kind: "bird", words: ["طاير", "عصفور", "عصفوره", "حمامه", "طير", "bird", "sparrow", "dove"], plural: ["طيور", "عصافير", "حمام", "birds"], dual: ["عصفوران", "عصفورين"] },
-  { kind: "butterfly", words: ["فراشه", "فراشت", "butterfly"], plural: ["فراشات", "فراش", "butterflies"], dual: ["فراشتان", "فراشتين"] },
-  { kind: "fish", words: ["سمكه", "سمك", "fish"], plural: ["اسماك", "fishes"], dual: ["سمكتان", "سمكتين"] },
-  { kind: "child", words: ["طفل", "طفله", "ولد", "بنت", "صبي", "فتاه", "kid", "child", "boy", "girl"], plural: ["اطفال", "اولاد", "بنات", "children", "kids"], dual: ["طفلان", "طفلين"] },
-  { kind: "person", words: ["رجل", "امراه", "شاب", "شخص", "انسان", "رجلا", "man", "woman", "person"], plural: ["ناس", "رجال", "نساء", "اشخاص", "people"], dual: ["رجلان", "رجلين", "شخصان", "شخصين"] },
-  { kind: "car", words: ["سياره", "سيارت", "عربه", "قطار", "حافله", "باص", "car", "bus", "train"], plural: ["سيارات", "cars"] },
-  { kind: "ball", words: ["كره", "كرت", "ball"], plural: ["كرات", "balls"] },
+  { kind: "cat", words: ["قط", "قطه", "هر", "هره", "بسه", "قطيطه", "cat", "kitten", "kitty"], plural: ["قطط", "cats", "kittens"], dual: ["قطتان", "قطتين"] },
+  { kind: "dog", words: ["كلب", "كلبه", "جرو", "dog", "puppy"], plural: ["كلاب", "جراء", "dogs", "puppies"], dual: ["كلبان", "كلبين"] },
+  { kind: "rabbit", words: ["ارنب", "ارنبه", "rabbit", "bunny"], plural: ["ارانب", "rabbits"] },
+  { kind: "bird", words: ["عصفور", "عصفوره", "طاير", "طير", "bird", "sparrow"], plural: ["طيور", "عصافير", "birds"] },
+  { kind: "butterfly", words: ["فراشه", "butterfly"], plural: ["فراشات", "butterflies"] },
+  { kind: "fish", words: ["سمكه", "سمك", "fish"], plural: ["اسماك", "fishes"] },
+  { kind: "child", words: ["طفل", "طفله", "ولد", "بنت", "صبي", "فتاه", "child", "kid", "boy", "girl"], plural: ["اطفال", "اولاد", "بنات", "children", "kids"] },
+  { kind: "person", words: ["رجل", "امراه", "شاب", "شخص", "انسان", "man", "woman", "person"], plural: ["ناس", "رجال", "نساء", "اشخاص", "people"] },
+  { kind: "car", words: ["سياره", "car"], plural: ["سيارات", "cars"] },
+  { kind: "ball", words: ["كره", "ball"], plural: ["كرات", "balls"] },
 ];
 
-// Verb stems: matched on the token and on the token with one leading
-// imperfect prefix (ي/ت/ن/ا) removed, so يلعب/تلعب/يلعبون/لعب all hit "لعب".
 const ACTIONS: { action: Action; stems: string[] }[] = [
   { action: "chase", stems: ["طارد", "مطارد", "لاحق", "ملاحق", "chase"] },
   { action: "play", stems: ["لعب", "العب", "play"] },
-  { action: "run", stems: ["ركض", "جري", "جرى", "run", "race"] },
-  { action: "walk", stems: ["مشي", "مشى", "مش", "تجول", "سير", "سار", "walk", "stroll"] },
+  { action: "run", stems: ["ركض", "جري", "جرى", "run", "race", "drive"] },
+  { action: "walk", stems: ["مشي", "مشى", "تجول", "سير", "سار", "walk", "stroll"] },
   { action: "jump", stems: ["قفز", "نط", "jump", "hop"] },
   { action: "fly", stems: ["طير", "طار", "حلق", "fly", "flying"] },
-  { action: "swim", stems: ["سبح", "سباح", "swim"] },
+  { action: "swim", stems: ["سبح", "سباح", "swim", "sail"] },
   { action: "sleep", stems: ["نام", "نوم", "نايم", "رتاح", "ستريح", "استراح", "استراحه", "راحه", "غفو", "sleep", "rest", "nap"] },
   { action: "laugh", stems: ["ضحك", "فرح", "سعيد", "مبتسم", "بتسم", "laugh", "happy", "smile"] },
-  { action: "eat", stems: ["اكل", "كل", "طعام", "eat", "food"] },
+  { action: "eat", stems: ["اكل", "كل", "طعام", "شرب", "eat", "drink"] },
   { action: "dance", stems: ["رقص", "dance"] },
   { action: "sit", stems: ["جلس", "جالس", "جلوس", "قعد", "sit"] },
-  { action: "look", stems: ["نظر", "ينظر", "تامل", "شاهد", "راقب", "look", "watch", "gaze"] },
+  { action: "look", stems: ["نظر", "تامل", "شاهد", "راقب", "look", "watch", "gaze"] },
 ];
 
 const PLACES: { place: Place; words: string[] }[] = [
   { place: "forest", words: ["غابه", "غابات", "اشجار", "forest", "woods", "jungle"] },
-  { place: "garden", words: ["حديقه", "حدايق", "بستان", "منتزه", "ورود", "زهور", "garden", "park"] },
-  { place: "sea", words: ["بحر", "البحر", "شاطي", "شط", "موج", "امواج", "محيط", "sea", "beach", "ocean"] },
+  { place: "garden", words: ["حديقه", "حدايق", "بستان", "منتزه", "garden", "park"] },
+  { place: "sea", words: ["بحر", "شاطي", "شط", "موج", "امواج", "محيط", "sea", "beach", "ocean"] },
   { place: "river", words: ["نهر", "بحيره", "بركه", "river", "lake", "pond"] },
   { place: "desert", words: ["صحرا", "صحراء", "رمال", "كثبان", "desert", "dunes"] },
-  { place: "city", words: ["مدينه", "مدن", "شارع", "شوارع", "سوق", "اسواق", "حي", "city", "street", "town", "market"] },
+  { place: "city", words: ["مدينه", "مدن", "شارع", "شوارع", "سوق", "اسواق", "city", "street", "town", "market"] },
   { place: "house", words: ["بيت", "منزل", "غرفه", "داخل", "house", "home", "room"] },
   { place: "mountain", words: ["جبل", "جبال", "قمه", "mountain", "mountains", "hill"] },
-  { place: "space", words: ["فضاء", "الفضاء", "كواكب", "كوكب", "صاروخ", "space", "planet"] },
-  { place: "field", words: ["حقل", "حقول", "مرج", "مروج", "عشب", "حشيش", "مزرعه", "ريف", "field", "meadow", "grass", "farm"] },
+  { place: "space", words: ["فضاء", "فضا", "كواكب", "كوكب", "space", "planet"] },
+  { place: "field", words: ["حقل", "حقول", "مرج", "مروج", "عشب", "مزرعه", "ريف", "field", "meadow", "farm"] },
 ];
 
 const TIMES: { time: Time; words: string[] }[] = [
-  { time: "night", words: ["ليل", "ليلا", "ليله", "مساء", "قمر", "نجوم", "night", "moon", "stars"] },
-  { time: "sunset", words: ["غروب", "شفق", "المغرب", "sunset", "dusk"] },
+  { time: "night", words: ["ليل", "ليلا", "ليله", "مساء", "night"] },
+  { time: "sunset", words: ["غروب", "شفق", "مغرب", "sunset", "dusk"] },
   { time: "morning", words: ["صباح", "صباحا", "فجر", "شروق", "morning", "dawn", "sunrise"] },
-  { time: "day", words: ["نهار", "ظهر", "مشمس", "شمس", "day", "noon", "sunny"] },
+  { time: "day", words: ["نهار", "ظهر", "مشمس", "day", "noon", "sunny"] },
 ];
 
 const WEATHERS: { weather: Weather; words: string[] }[] = [
   { weather: "rain", words: ["مطر", "امطار", "ممطر", "rain", "rainy"] },
   { weather: "snow", words: ["ثلج", "ثلوج", "مثلج", "snow", "snowy"] },
-  { weather: "wind", words: ["ريح", "رياح", "عاصفه", "هواء", "wind", "windy", "storm"] },
+  { weather: "wind", words: ["ريح", "رياح", "عاصفه", "wind", "windy", "storm"] },
   { weather: "clouds", words: ["غيوم", "سحاب", "غيم", "clouds", "cloudy"] },
 ];
 
 const COLORS: { color: string; words: string[] }[] = [
-  { color: "#f8f6f0", words: ["ابيض", "بيضاء", "بيضا", "بيضاوان", "بيضاوين", "بيض", "white"] },
-  { color: "#2b2b30", words: ["اسود", "سوداء", "سودا", "سوداوان", "سوداوين", "سود", "black"] },
+  { color: "#f8f6f0", words: ["ابيض", "بيضاء", "بيضا", "بيضاوان", "بيضاوين", "white"] },
+  { color: "#2b2b30", words: ["اسود", "سوداء", "سودا", "سوداوان", "black"] },
   { color: "#f0913a", words: ["برتقالي", "برتقاليه", "orange"] },
   { color: "#9aa0a8", words: ["رمادي", "رماديه", "gray", "grey"] },
   { color: "#8a5a36", words: ["بني", "بنيه", "brown"] },
@@ -108,139 +96,210 @@ const COLORS: { color: string; words: string[] }[] = [
   { color: "#f39ac4", words: ["وردي", "ورديه", "pink"] },
 ];
 
-const SMALL = ["صغير", "صغيره", "صغار", "صغيرات", "little", "small", "baby", "tiny"];
-const BIG = ["كبير", "كبيره", "ضخم", "big", "huge"];
-const NUMBERS: Record<string, number> = { "اثنان": 2, "اثنين": 2, "ثلاث": 3, "ثلاثه": 3, "اربع": 4, "اربعه": 4, "خمس": 5, "خمسه": 5, two: 2, three: 3, four: 4, five: 5 };
+const SIZES: { size: number; words: string[] }[] = [
+  { size: 0.8, words: ["صغير", "صغيره", "صغار", "little", "small", "baby", "tiny"] },
+  { size: 1.25, words: ["كبير", "كبيره", "ضخم", "big", "huge"] },
+];
+const NUMBERS: Record<string, number> = { اثنان: 2, اثنين: 2, ثلاث: 3, ثلاثه: 3, اربع: 4, اربعه: 4, خمس: 5, خمسه: 5, two: 2, three: 3, four: 4, five: 5 };
 
-// ---------------------------------------------------------------- reading
-
-export function normalize(s: string) {
-  return s
-    .toLowerCase()
-    .replace(/[ً-ْـ]/g, "")
-    .replace(/[أإآ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/ة/g, "ه")
-    .replace(/ؤ/g, "و")
-    .replace(/ئ/g, "ي");
-}
-
-const PREFIXES = ["وبال", "فال", "وال", "بال", "كال", "لل", "ال", "و", "ف", "ب", "ل", "ك"];
-const SUFFIXES = ["", "ي", "ها", "ه", "هم", "هن", "نا", "ك", "ان", "ين", "ون", "ات"];
-
-/** All plausible bare forms of one word: with and without its clitics. */
-function forms(token: string): string[] {
-  const out = new Set([token]);
-  for (const p of PREFIXES) if (token.startsWith(p) && token.length - p.length >= 2) out.add(token.slice(p.length));
-  return [...out];
-}
-
-function hit(token: string, words: string[]) {
-  for (const f of forms(token)) {
-    for (const w of words) {
-      if (f === w) return true;
-      if (w.length >= 3 && f.startsWith(w) && SUFFIXES.includes(f.slice(w.length))) return true;
+const model = () =>
+  letterModel((m) => {
+    for (const k of KINDS) {
+      k.words.forEach((w) => m.insertTag(w, `k:${k.kind}:1`));
+      k.plural?.forEach((w) => m.insertTag(w, `k:${k.kind}:3`));
+      k.dual?.forEach((w) => m.insertTag(w, `k:${k.kind}:2`));
     }
-  }
-  return false;
-}
+    ACTIONS.forEach((a) => a.stems.forEach((w) => m.insertTag(w, `a:${a.action}`)));
+    PLACES.forEach((p) => p.words.forEach((w) => m.insertTag(w, `p:${p.place}`)));
+    TIMES.forEach((t) => t.words.forEach((w) => m.insertTag(w, `t:${t.time}`)));
+    WEATHERS.forEach((x) => x.words.forEach((w) => m.insertTag(w, `w:${x.weather}`)));
+    COLORS.forEach((c) => c.words.forEach((w) => m.insertTag(w, `c:${c.color}`)));
+    SIZES.forEach((s) => s.words.forEach((w) => m.insertTag(w, `z:${s.size}`)));
+    Object.entries(NUMBERS).forEach(([w, n]) => m.insertTag(w, `n:${n}`));
+  });
 
-function actionOf(token: string): Action | null {
-  const bases = forms(token);
-  for (const b of [...bases]) if (b.length >= 4 && /^[يتنا]/.test(b)) bases.push(b.slice(1));
-  for (const { action, stems } of ACTIONS) {
-    if (bases.some((b) => stems.some((s) => b === s || (s.length >= 2 && b.startsWith(s) && b.length - s.length <= 3)))) return action;
+// ---------------------------------------------------------------- reading words
+
+export type WordRead = {
+  word: string;
+  path: string;
+  kind: "actor" | "action" | "place" | "time" | "weather" | "color" | "size" | "number" | "thing" | "unknown";
+  label: string;
+  sym?: number;
+  fuzzy?: boolean;
+};
+
+type Meaning =
+  | { t: "kind"; kind: Kind; count: number }
+  | { t: "action"; action: Action }
+  | { t: "place"; place: Place }
+  | { t: "time"; time: Time }
+  | { t: "weather"; weather: Weather }
+  | { t: "color"; color: string }
+  | { t: "size"; size: number }
+  | { t: "number"; n: number }
+  | { t: "sym"; sym: number };
+
+const ORDER = ["k", "n", "c", "z", "p", "t", "w", "a"];
+
+function meaningOf(hit: Hit, token: string): Meaning | null {
+  const tags = [...hit.tags];
+  // an imperfect-verb spelling (يطير / تلعب) means the action even if the letters are also a noun
+  const verbLike = /^[يت]/.test(normalize(token)) && tags.some((t) => t.startsWith("a:"));
+  tags.sort((a, b) => (verbLike ? (b.startsWith("a:") ? 1 : 0) - (a.startsWith("a:") ? 1 : 0) : 0) || ORDER.indexOf(a[0]) - ORDER.indexOf(b[0]));
+  const tag = tags[0];
+  if (tag) {
+    const [c, v, extra] = tag.split(":");
+    if (c === "k") return { t: "kind", kind: v as Kind, count: hit.plural ? 3 : Number(extra) || 1 };
+    if (c === "a") return { t: "action", action: v as Action };
+    if (c === "p") return { t: "place", place: v as Place };
+    if (c === "t") return { t: "time", time: v as Time };
+    if (c === "w") return { t: "weather", weather: v as Weather };
+    if (c === "c") return { t: "color", color: v };
+    if (c === "z") return { t: "size", size: Number(v) };
+    if (c === "n") return { t: "number", n: Number(v) };
   }
+  if (hit.syms.length) return { t: "sym", sym: hit.syms[0] };
   return null;
 }
 
-function kindOf(token: string): { kind: Kind; count: number } | null {
-  for (const k of KINDS) {
-    if (k.dual && hit(token, k.dual)) return { kind: k.kind, count: 2 };
-    if (k.plural && hit(token, k.plural)) return { kind: k.kind, count: 3 };
-    if (hit(token, k.words)) return { kind: k.kind, count: 1 };
-  }
-  return null;
+// particles and prepositions carry no symbol of their own
+const STOP = new Set(
+  "في من على الى عن مع تحت فوق قرب عند بجانب جانب امام خلف بين حول ثم بعد قبل هذا هذه ذلك تلك التي الذي هو هي هم كان كانت كل بعض جدا مثل او ام لا لم لن قد ان انه يوجد هناك the a an in on at of to with and near under".split(" "),
+);
+
+function tokens(text: string) {
+  return text.split(/[^\p{L}\d]+/u).filter((w) => w && !STOP.has(normalize(w).replace(/^و/, "")));
 }
 
-const firstOf = <T,>(token: string, table: ({ words: string[] } & T)[]) => table.find((e) => hit(token, e.words));
+function read(token: string): { hit: Hit | null; meaning: Meaning | null; num?: number } {
+  if (/^\d+$/.test(token)) return { hit: null, meaning: { t: "number", n: Math.min(6, Number(token)) } };
+  const hit = model().lookup(token);
+  return { hit, meaning: hit ? meaningOf(hit, token) : null };
+}
+
+/** What the model understood from each word (for the live "letters → symbols" panel). */
+export function readWords(text: string): WordRead[] {
+  return tokens(text).map((w) => {
+    const { hit, meaning } = read(w);
+    const path = hit?.path || "";
+    if (!meaning) return { word: w, path, kind: "unknown", label: "" };
+    switch (meaning.t) {
+      case "kind":
+        return { word: w, path, kind: "actor", label: KIND_LABEL[meaning.kind], fuzzy: hit?.fuzzy };
+      case "action":
+        return { word: w, path, kind: "action", label: ACTION_LABEL[meaning.action], fuzzy: hit?.fuzzy };
+      case "place":
+        return { word: w, path, kind: "place", label: PLACE_LABEL[meaning.place], fuzzy: hit?.fuzzy };
+      case "time":
+        return { word: w, path, kind: "time", label: TIME_LABEL[meaning.time], fuzzy: hit?.fuzzy };
+      case "weather":
+        return { word: w, path, kind: "weather", label: WEATHER_LABEL[meaning.weather], fuzzy: hit?.fuzzy };
+      case "color":
+        return { word: w, path, kind: "color", label: "لون", fuzzy: hit?.fuzzy };
+      case "size":
+        return { word: w, path, kind: "size", label: meaning.size < 1 ? "صغير" : "كبير", fuzzy: hit?.fuzzy };
+      case "number":
+        return { word: w, path, kind: "number", label: String(meaning.n) };
+      case "sym":
+        return { word: w, path, kind: "thing", label: symbolInfo(meaning.sym).name, sym: meaning.sym, fuzzy: hit?.fuzzy };
+    }
+  });
+}
+
+// ---------------------------------------------------------------- scenes
 
 const FLYERS: Kind[] = ["bird", "butterfly"];
 
-/** Default action when the text names a creature but no verb. */
-function naturalAction(kind: Kind, place: Place): Action {
-  if (kind === "fish") return "swim";
-  if (FLYERS.includes(kind)) return "fly";
-  if (kind === "car") return "run";
-  if (kind === "ball") return "idle";
+function naturalAction(a: Actor, place: Place): Action {
+  if (a.kind === "sym") {
+    const role = symbolInfo(a.sym ?? 0).role;
+    if (role === "m" || role === "w") return "swim";
+    if (role === "f") return "fly";
+    if (role === "v") return "run";
+    return place === "house" ? "sit" : "walk";
+  }
+  if (a.kind === "fish") return "swim";
+  if (FLYERS.includes(a.kind)) return "fly";
+  if (a.kind === "car") return "run";
+  if (a.kind === "ball") return "idle";
   return place === "house" ? "sit" : "walk";
 }
 
-type Draft = Partial<Omit<SceneCode, "actors" | "caption">> & { actors: Actor[]; caption: string; hasAction: boolean };
+const isMover = (sym: number) => ["a", "m", "v", "w", "f"].includes(symbolInfo(sym).role);
+
+type Draft = {
+  actors: Actor[];
+  props: Prop[];
+  target?: SceneCode["target"];
+  place?: Place;
+  time?: Time;
+  weather?: Weather;
+  lastAction: Action | null;
+  caption: string;
+};
 
 function readChunk(text: string, inherits: boolean): Draft {
-  const tokens = normalize(text).split(/[^\p{L}\d]+/u).filter(Boolean);
-  const d: Draft = { actors: [], caption: text.trim(), hasAction: false };
+  const d: Draft = { actors: [], props: [], lastAction: null, caption: text.trim() };
   let pendingColor: string | undefined;
   let pendingSize = 1;
   let pendingCount = 0;
-  let lastAction: Action | null = null;
-  for (const tok of tokens) {
-    const num = NUMBERS[tok] ?? (/^\d+$/.test(tok) ? Math.min(6, Number(tok)) : 0);
-    if (num) {
-      pendingCount = num;
-      continue;
+  const addActor = (a: Omit<Actor, "count" | "action" | "size" | "color"> & { count: number }) => {
+    // a creature named right after a chase/play verb is what is chased / played with
+    if ((d.actors.length || inherits) && (d.lastAction === "chase" || d.lastAction === "play") && !d.target) {
+      d.target = { kind: a.kind, sym: a.sym };
+    } else if (!d.actors.some((x) => x.kind === a.kind && x.sym === a.sym)) {
+      d.actors.push({ ...a, count: pendingCount || a.count, action: d.lastAction || "idle", color: pendingColor, size: pendingSize });
     }
-    const k = kindOf(tok);
-    if (k) {
-      const subject = d.actors[0];
-      // A creature named after a chase/play verb is the target, not a new actor
-      // (also when the subject is carried over: "…وتطارد الفراشة").
-      if ((subject || inherits) && (lastAction === "chase" || lastAction === "play") && !d.target) {
-        d.target = k.kind;
-      } else if (!d.actors.some((a) => a.kind === k.kind)) {
-        d.actors.push({ kind: k.kind, count: pendingCount || k.count, action: lastAction || "idle", color: pendingColor, size: pendingSize });
+    pendingColor = undefined;
+    pendingSize = 1;
+    pendingCount = 0;
+  };
+  for (const tok of tokens(text)) {
+    const { hit, meaning } = read(tok);
+    if (!meaning) continue;
+    const last = d.actors[d.actors.length - 1];
+    switch (meaning.t) {
+      case "number":
+        pendingCount = meaning.n;
+        break;
+      case "kind":
+        addActor({ kind: meaning.kind, count: meaning.count });
+        break;
+      case "color":
+        if (last && !last.color) last.color = meaning.color;
+        else pendingColor = meaning.color;
+        break;
+      case "size":
+        if (last) last.size = meaning.size;
+        else pendingSize = meaning.size;
+        break;
+      case "place":
+        d.place ??= meaning.place;
+        break;
+      case "time":
+        d.time ??= meaning.time;
+        break;
+      case "weather":
+        d.weather ??= meaning.weather;
+        break;
+      case "action":
+        d.lastAction = meaning.action;
+        for (const a of d.actors) if (a.action === "idle") a.action = meaning.action;
+        break;
+      case "sym": {
+        const info = symbolInfo(meaning.sym);
+        if (info.role === "g") {
+          if (info.place) d.place ??= info.place as Place;
+        } else if (isMover(meaning.sym)) {
+          addActor({ kind: "sym", sym: meaning.sym, count: hit?.plural ? 3 : 1 });
+        } else if (d.props.length < 5 && !d.props.some((p) => p.sym === meaning.sym)) {
+          d.props.push({ sym: meaning.sym });
+        }
+        break;
       }
-      pendingColor = undefined;
-      pendingSize = 1;
-      pendingCount = 0;
-      continue;
-    }
-    const color = firstOf(tok, COLORS);
-    if (color) {
-      const a = d.actors[d.actors.length - 1];
-      if (a && !a.color) a.color = color.color;
-      else pendingColor = color.color;
-      continue;
-    }
-    if (SMALL.some((w) => hit(tok, [w]))) {
-      const a = d.actors[d.actors.length - 1];
-      if (a) a.size = 0.8;
-      else pendingSize = 0.8;
-      continue;
-    }
-    if (BIG.some((w) => hit(tok, [w]))) {
-      const a = d.actors[d.actors.length - 1];
-      if (a) a.size = 1.25;
-      else pendingSize = 1.25;
-      continue;
-    }
-    const place = firstOf(tok, PLACES);
-    if (place && !d.place) d.place = place.place;
-    const time = firstOf(tok, TIMES);
-    if (time && !d.time) d.time = time.time;
-    const weather = firstOf(tok, WEATHERS);
-    if (weather && !d.weather) d.weather = weather.weather;
-    if (place || time || weather) continue;
-    const act = actionOf(tok);
-    if (act) {
-      lastAction = act;
-      d.hasAction = true;
-      for (const a of d.actors) if (a.action === "idle") a.action = act;
     }
   }
-  if (lastAction && d.actors.length === 0) d.actors = [];
-  (d as Draft & { lastAction?: Action | null }).lastAction = lastAction;
   return d;
 }
 
@@ -254,21 +313,19 @@ function splitScenes(description: string): string[] {
     .split(/[.!؟?\n،,;]+|\s(?:ثم|بعد ذلك|بعدها|وبعدها|then|and then)\s/i)
     .map((s) => s.trim())
     .filter(Boolean);
+  const isVerb = (w: string) => read(w).meaning?.t === "action";
   const out: string[] = [];
   for (const piece of coarse) {
-    const words = piece.split(/\s+/);
     let cur: string[] = [];
     let curHasVerb = false;
-    for (const w of words) {
+    for (const w of piece.split(/\s+/)) {
       const n = normalize(w);
-      const isVerbAfterWa = n.startsWith("و") && n.length > 3 && actionOf(n.slice(1)) !== null;
-      if (isVerbAfterWa && curHasVerb && cur.length) {
+      if (n.startsWith("و") && n.length > 3 && curHasVerb && cur.length && isVerb(w.slice(1))) {
         out.push(cur.join(" "));
-        cur = [w.replace(/^و/, "")];
-        curHasVerb = true;
+        cur = [w.slice(1)];
         continue;
       }
-      if (actionOf(n)) curHasVerb = true;
+      if (isVerb(w)) curHasVerb = true;
       cur.push(w);
     }
     if (cur.length) out.push(cur.join(" "));
@@ -280,39 +337,51 @@ export const MAX_SCENES = 8;
 
 /** The brain: description → scene codes. Missing facts carry over from the previous scene. */
 export function understand(description: string): SceneCode[] {
-  const chunks = splitScenes(description).slice(0, MAX_SCENES);
   const scenes: SceneCode[] = [];
-  let prev: SceneCode = { place: "field", time: "day", weather: "clear", actors: [], caption: "" };
-  for (const chunk of chunks) {
-    const d = readChunk(chunk, prev.actors.length > 0) as Draft & { lastAction?: Action | null };
-    const nothing = !d.actors.length && !d.hasAction && !d.place && !d.time && !d.weather;
-    if (nothing) continue;
-    const place = d.place ?? prev.place;
+  let prev: SceneCode = { place: "field", time: "day", weather: "clear", actors: [], props: [], caption: "" };
+  for (const chunk of splitScenes(description).slice(0, MAX_SCENES)) {
+    const d = readChunk(chunk, prev.actors.length > 0);
+    if (!d.actors.length && !d.lastAction && !d.place && !d.time && !d.weather && !d.props.length && !d.target) continue;
     let actors = d.actors;
     if (!actors.length) {
-      // "وتطارد الفراشة" — same heroes as before, doing the new thing.
+      // "وتطارد الفراشة" — same heroes as before, doing the new thing
       actors = prev.actors.length
         ? prev.actors.map((a, i) => ({ ...a, action: i === 0 && d.lastAction ? d.lastAction : a.action }))
         : [{ kind: "cat", count: 1, action: d.lastAction || "walk", size: 1 }];
     }
-    actors = actors.map((a) => ({ ...a, action: a.action === "idle" ? d.lastAction || naturalAction(a.kind, place) : a.action }));
-    const target = d.target ?? (d.lastAction === "play" && !d.target ? "ball" : undefined);
+    const seaLife = actors.some((a) => a.kind === "sym" && ["m", "w"].includes(symbolInfo(a.sym ?? 0).role));
+    const place = d.place ?? (seaLife && !prev.caption ? "sea" : prev.place);
+    actors = actors.slice(0, 3).map((a) => ({ ...a, action: a.action === "idle" ? d.lastAction || naturalAction(a, place) : a.action }));
+    const subjectAction = actors[0]?.action;
     const scene: SceneCode = {
       place,
-      time: d.time ?? prev.time,
+      // space is always night; leaving it goes back to daylight unless the text says otherwise
+      time: place === "space" ? "night" : d.time ?? (prev.place === "space" ? "day" : prev.time),
       weather: d.weather ?? (d.place && d.place !== prev.place ? "clear" : prev.weather),
-      actors: actors.slice(0, 3),
-      target: actors[0]?.action === "chase" || actors[0]?.action === "play" ? target : undefined,
+      actors,
+      target: subjectAction === "chase" || subjectAction === "play" ? d.target ?? (subjectAction === "play" ? { kind: "ball" } : undefined) : undefined,
+      // things stay in the world until the place changes
+      props: d.props.length ? d.props : d.place && d.place !== prev.place ? [] : prev.props,
       caption: d.caption.slice(0, 80),
     };
-    if (scene.place === "space") scene.time = "night";
     scenes.push(scene);
     prev = scene;
   }
   if (!scenes.length) {
-    scenes.push({ place: "field", time: "day", weather: "clear", actors: [{ kind: "cat", count: 1, action: "walk", size: 1 }], caption: description.trim().slice(0, 80) });
+    scenes.push({ place: "field", time: "day", weather: "clear", actors: [{ kind: "cat", count: 1, action: "walk", size: 1 }], props: [], caption: description.trim().slice(0, 80) });
   }
   return scenes;
+}
+
+/** Every library symbol a story needs (to load its drawing before playing). */
+export function symbolsOf(scenes: SceneCode[]): number[] {
+  const set = new Set<number>();
+  for (const s of scenes) {
+    s.actors.forEach((a) => a.sym !== undefined && set.add(a.sym));
+    s.props.forEach((p) => set.add(p.sym));
+    if (s.target?.sym !== undefined) set.add(s.target.sym);
+  }
+  return [...set];
 }
 
 // ---------------------------------------------------------------- labels (UI)
