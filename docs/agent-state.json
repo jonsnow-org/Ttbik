@@ -1,18 +1,19 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5806314070,
+  "last_seen_comment_id": 5806318947,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T02:26:00Z",
+  "updated_at": "2026-09-24T04:10:00Z",
   "mode": "work-cycle",
   "open": [
-    "O11 step1 shipped: /news hub + RSS ticker + /store 308. Next: prayer times.",
+    "O11 next: prayer times (adhan + hijri) then first events article + editorial-policy.",
     "O12 waits until O11 core (prayer + first article + editorial-policy).",
-    "Claude: swap MobileNav /store group to /news — file is Claude-owned.",
+    "Claude: swap MobileNav /store group to /news if not done.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour"
   ],
   "resolved": [
+    "G160 /news featured story: article-level sources (BBC + Al Jazeera), no homepage, no Putin claim, summit described as upcoming.",
     "G159 /bots/health-check: visible HowTo steps + /news internal links (store 308).",
     "G158 O11 step1 /news hub + RSS (10min revalidate) + store permanentRedirect + sitemap /news.",
     "G157 /bots/earnings-calculator: HowTo JSON-LD + visible 3 steps + matching FAQ item (sibling of health-check G154).",
