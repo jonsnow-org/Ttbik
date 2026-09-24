@@ -44,5 +44,10 @@
       "path": "/api/cron/bot-update-announcements",
       "schedule": "0 2 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "sham-status": false
+    }
+  }
 }
