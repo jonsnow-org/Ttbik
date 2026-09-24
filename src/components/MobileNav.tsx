@@ -38,8 +38,8 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [{ href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" }],
     },
     {
-      label: "المتجر",
-      links: [{ href: "/store", label: "🛍️ المتجر" }],
+      label: "الأخبار",
+      links: [{ href: "/news", label: "📰 الأخبار والأحداث" }],
     },
     {
       label: "قسم البوتات",
