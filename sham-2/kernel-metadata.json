@@ -1,0 +1,26 @@
+{
+  "id": "jonsnowjonsnow/sham-2",
+  "id_no": 135518610,
+  "title": " sham 2 \u0627\u0644\u0645\u0631\u062d\u0644\u0629 \u0627\u0644\u062b\u0627\u0646\u064a\u0629",
+  "code_file": "sham-2.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "jonsnowjonsnow/sham-audio-tokenizer-adult-synth",
+    "jonsnowjonsnow/sham-audio-tokenizer-adult-synth-v2",
+    "jonsnowjonsnow/sham-checkpoint",
+    "jonsnowjonsnow/sham-video-frames-audio-tokenizers"
+  ],
+  "kernel_sources": [
+    "jonsnowjonsnow/notebookff914258b5"
+  ],
+  "competition_sources": [],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-images/python@sha256:dafd4ce5668bbf1ad422e4c109e0f18c9623c3a7c7f48b0235f13142755c40b9",
+  "machine_shape": "None"
+}

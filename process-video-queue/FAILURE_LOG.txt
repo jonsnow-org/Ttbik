@@ -1,0 +1,3 @@
+---> 58             raise ConnectionError(
+     60         except HTTPError as e:
+ConnectionError: Connection error trying to communicate with service.

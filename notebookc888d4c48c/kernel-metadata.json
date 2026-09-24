@@ -1,0 +1,32 @@
+{
+  "id": "jonsnowjonsnow/notebookc888d4c48c",
+  "id_no": 135556531,
+  "title": "notebookc888d4c48c\u062e\u0644\u064a\u0629 \u062a\u062c\u0631\u064a\u0628 \u0634\u0627\u0645 ",
+  "code_file": "notebookc888d4c48c.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [
+    "jonsnowjonsnow/nova-small-checkpoint",
+    "jonsnowjonsnow/sham-checkpoint",
+    "jonsnowjonsnow/sham-cpu-track-checkpoint",
+    "jonsnowjonsnow/sham-cpu-track-checkpoint-v2",
+    "jonsnowjonsnow/sham-research-track-checkpoint-v2"
+  ],
+  "kernel_sources": [
+    "jonsnowjonsnow/notebook2d0e40c1f1",
+    "jonsnowjonsnow/notebookf4a8feeee6",
+    "jonsnowjonsnow/notebook37c7469512",
+    "jonsnowjonsnow/notebookb85993aa78",
+    "jonsnowjonsnow/notebookff914258b5",
+    "jonsnowjonsnow/sham-2"
+  ],
+  "competition_sources": [],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-images/python@sha256:dafd4ce5668bbf1ad422e4c109e0f18c9623c3a7c7f48b0235f13142755c40b9",
+  "machine_shape": "None"
+}

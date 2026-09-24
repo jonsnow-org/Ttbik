@@ -1,0 +1,19 @@
+{
+  "id": "jonsnowjonsnow/notebook",
+  "id_no": 135628625,
+  "title": "notebook \u0631\u0641\u0639 \u0627\u0644\u062f\u0641\u0627\u062a\u0631 \u0644\u062c\u064a\u062a\u0647\u0648\u0628 \u0644\u0644\u0645\u0631\u0627\u062c\u0639\u0629",
+  "code_file": "notebook.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "keywords": [],
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": [],
+  "docker_image": "gcr.io/kaggle-images/python@sha256:dafd4ce5668bbf1ad422e4c109e0f18c9623c3a7c7f48b0235f13142755c40b9",
+  "machine_shape": "None"
+}
