@@ -32,3 +32,9 @@
 - Known live-edit bug reported by the owner's run: [المرحلة الأولى 2] fails with
   `NameError: realistic_steps` — the repo version defines `realistic_steps_for_session`; the Kaggle
   copy's cell 9 uses the short name. Fix = rename in that cell.
+
+## 2026-09-24 — إصلاح جمع البيانات (بلا تكرار) وقبول أدوات الترميز غير المتوافقة
+- `sham_data_sources.py`: مصادر موثّقة متعددة (صوت: CV17-ar mirror، FLEURS-ar، ClArTTS، ArVoice بشري؛ صورة: Flickr30k، COCO، CC3M؛ فيديو: Kinetics بترخيص CC فقط)، سجل `{kind}_ledger.json` = موضع استئناف خام لكل مصدر + بصمات (sha1 + dHash للتقارب) مدموجة من كل المدخلات.
+- السبب: Common Voice الأصلي فارغ على HF، و ucf101-subset = فيديوهان فقط، و skip كان يعدّ المحفوظ لا المقروء، والمرحلة 2 تأخذ نفس أول 3000 صورة كل مرة.
+- `tokenizer_select.py`: يصلح غير المتوافق ويقبله (توسيع/ضغط القاموس، إعدادات إصدار أقدم) بدل تجاهله.
+- المرحلة الأولى على Kaggle: الخلية 9 ما زالت تستخدم `realistic_steps` القديم — الصحيح `realistic_steps_for_session` (نسخة المستودع سليمة).
