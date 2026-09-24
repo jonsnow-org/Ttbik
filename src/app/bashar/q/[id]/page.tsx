@@ -26,7 +26,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const d = await load(params.id);
   if (!d) return { title: "بَشَر", robots: { index: false } };
   const title = `«${d.q.body.slice(0, 80)}» — أجبني خلال 75 ثانية`;
-  const description = `سؤال من إنسان في ${countryLabel(d.q.asker_cc)} على «بَشَر» — ${d.answers.length} إجابة حتى الآن. افتح وأجب.`;
+  const n = d.answers.length;
+  const description = `سؤال من إنسان حقيقي على «بَشَر» — ${n === 0 ? "كن أول من يجيب" : `${n} ${n <= 10 ? "إجابات" : "إجابة"} حتى الآن`}. افتح وأجب خلال 75 ثانية.`;
   return {
     title,
     description,
