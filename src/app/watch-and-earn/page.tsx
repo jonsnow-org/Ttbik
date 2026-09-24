@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { LIVE_BOTS } from "@/lib/liveBots";
 import AdSlot from "@/components/AdSlot";
+import ExploreMore from "@/components/ExploreMore";
 
 export const metadata: Metadata = {
   title: "الربح من مشاهدة الإعلانات على تليجرام | سوق تولز",
@@ -120,6 +121,7 @@ export default function WatchAndEarnPage() {
           </div>
         ))}
       </div>
+      <ExploreMore from="bots" />
     </div>
   );
 }

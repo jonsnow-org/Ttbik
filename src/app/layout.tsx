@@ -10,7 +10,7 @@ import MobileNav from "@/components/MobileNav";
 import StickyBottomAd from "@/components/StickyBottomAd";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
-const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+import { SITE_URL } from "@/lib/siteUrl";
 const SITE_TITLE = "سوق تولز — سوق الخدمات الرقمية المصغّرة";
 const SITE_DESCRIPTION =
   "سوق تولز: منصة لبيع خدمات وأدوات رقمية جاهزة (بوتات، أدوات ذكاء اصطناعي، أتمتة) بأسعار رمزية وتسليم فوري، بالإضافة لأدوات مجانية حقيقية تعمل مباشرة في متصفحك.";
@@ -104,6 +104,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🤖 منشئ البوتات
               </a>
+              <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+                🕌 المواقيت
+              </a>
               <a href="/news" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 📰 الأخبار
               </a>
@@ -142,7 +145,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/" className="flex items-center gap-2 text-base font-extrabold text-brand-800">
                 <Logo className="h-6 w-6" /> سوق تولز
               </a>
-              <p className="flex items-center gap-4 text-sm text-slate-500">
+              <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-slate-500">
+                <a href="/prayer-times" className="hover:text-brand-700">مواقيت الصلاة</a>
+                <a href="/news" className="hover:text-brand-700">الأخبار</a>
+                <a href="/events" className="hover:text-brand-700">الأحداث</a>
+                <a href="/bots" className="hover:text-brand-700">منشئ البوتات</a>
                 <a href="/how-it-works" className="hover:text-brand-700">كيف يعمل الموقع؟</a>
                 <a href="/#free-tools" className="hover:text-brand-700">أدوات مجانية</a>
                 <a href="/order/lookup" className="hover:text-brand-700">تتبع طلبي</a>

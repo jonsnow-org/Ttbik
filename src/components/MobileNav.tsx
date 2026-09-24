@@ -34,16 +34,24 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [{ href: "/", label: "🏠 الصفحة الرئيسية" }],
     },
     {
-      label: "الأدوات المدفوعة",
-      links: [{ href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" }],
+      label: "الأدوات",
+      links: [
+        { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
+        { href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" },
+      ],
     },
     {
-      label: "الأخبار",
-      links: [{ href: "/news", label: "📰 الأخبار والأحداث" }],
+      label: "اليوم",
+      links: [
+        { href: "/prayer-times", label: "🕌 مواقيت الصلاة" },
+        { href: "/news", label: "📰 الأخبار" },
+        { href: "/events", label: "🗓️ أحداث ومقالات" },
+      ],
     },
     {
       label: "قسم البوتات",
       links: [
+        { href: "/bots", label: "🤖 منشئ البوتات" },
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
         { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
         { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
