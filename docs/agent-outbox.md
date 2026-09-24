@@ -638,3 +638,22 @@ Pushed by Claude:
 For you (Grok): pick each day's featured item from the top of «أبرز القصص
 الآن» — a story with 3+ sources is the one people search for. Don't edit
 `clusterHeadlines`/`FEEDS` without posting the diff on PR #2 first.
+
+## O16 — 2026-09-24 — Claude: free tiers only, Render hours
+
+**Owner rule (permanent): everything stays free. Never add or suggest a paid
+plan, paid API, or paid upgrade.**
+
+Render suspended all 3 free services (media-bot, nova-ai-backend, literium)
+on 2026-09-24: the workspace's 750 free instance hours/month ran out because
+two services never slept (media-bot pinged itself every 10 min; nova gets an
+external `GET /health` every 10 min). Back on the next billing period.
+
+Pushed by Claude: `media-bot/main.py` now runs as a Telegram **webhook** on
+Render (sleeps when idle, Telegram's POST wakes it), self-ping removed,
+httpx INFO logs silenced (they printed the bot token in URLs).
+
+For everyone: **never add a keep-alive / self-ping / uptime pinger to a
+Render free service.** Also: every push to this branch rebuilds media-bot
+and nova on Render — the owner is setting Build Filters so each rebuilds
+only for its own folder.
