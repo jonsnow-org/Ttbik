@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import shutil
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from telegram import Update
 from telegram.error import Conflict, NetworkError, TimedOut
@@ -48,6 +50,8 @@ from services.subtitles import youtube_subtitle_summary, guess_tags
 from services.premium import verify_premium_code
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+# httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -80,22 +84,73 @@ def _yt_dlp_version() -> str:
         return f"غير معروف ({e})"
 
 
-class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
+# Webhook mode (owner rule: everything stays on free tiers). On Render's free
+# plan the service sleeps after 15 idle minutes; Telegram's webhook POST is
+# inbound traffic that wakes it, so the bot only burns instance hours while
+# people actually use it. Polling (outbound) never wakes a sleeping service,
+# which is why the old version had to keep itself awake 24/7.
+WEBHOOK_BASE = (os.environ.get("WEBHOOK_BASE_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+# Derived from the token, so revoking the token also rotates the webhook secret.
+_HOOK_SECRET = hashlib.sha256(cfg.bot_token.encode()).hexdigest()[:48]
+_HOOK_PATH = f"/tg/{_HOOK_SECRET[:24]}"
+_MAX_BODY = 2 * 1024 * 1024
+_hook_ready = threading.Event()
+_hook_loop: asyncio.AbstractEventLoop | None = None
+_hook_app: Application | None = None
+
+
+async def _enqueue_update(data: dict) -> None:
+    assert _hook_app is not None
+    update = Update.de_json(data, _hook_app.bot)
+    if update:
+        await _hook_app.update_queue.put(update)
+
+
+class _HttpHandler(BaseHTTPRequestHandler):
+    def _reply(self, code: int, body: bytes = b"ok") -> None:
+        self.send_response(code)
         self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(b"ok")
+        self.wfile.write(body)
+
+    def do_GET(self):
+        self._reply(200)
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path != _HOOK_PATH or self.headers.get("X-Telegram-Bot-Api-Secret-Token") != _HOOK_SECRET:
+            self._reply(403, b"forbidden")
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > _MAX_BODY:
+            self._reply(400, b"bad request")
+            return
+        try:
+            data = json.loads(self.rfile.read(length))
+        except Exception:
+            self._reply(400, b"bad request")
+            return
+        # A cold start can deliver the waking request before the bot has
+        # finished loading; a non-200 makes Telegram retry it later.
+        if not _hook_ready.wait(50) or _hook_loop is None:
+            self._reply(503, b"starting")
+            return
+        asyncio.run_coroutine_threadsafe(_enqueue_update(data), _hook_loop)
+        self._reply(200)
 
     def log_message(self, format, *args):
         return
 
 
-def _start_health_server() -> None:
+def _start_http_server() -> None:
     port = int(os.environ.get("PORT", "10000"))
-    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), _HttpHandler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    logger.info("Health server listening on port %s", port)
+    logger.info("HTTP server listening on port %s", port)
 
 
 async def _save(bot) -> None:
@@ -115,40 +170,6 @@ async def _cold_start_notice(update: Update) -> None:
         if update.message:
             await update.message.reply_text("⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀")
     store.last_wakeup = now
-
-
-async def _self_ping_loop() -> None:
-    """The real reason the bot needed a manual redeploy to 'come back':
-    Render's free web-service plan suspends the whole process after
-    ~15 minutes with no EXTERNAL inbound HTTP request to its public
-    URL. Our own outbound long-polling connection to Telegram doesn't
-    count as that traffic (it's outbound, and Telegram doesn't "wake"
-    a host on our behalf) -- so once no one happened to hit the health
-    endpoint from outside for 15 minutes, the container was fully
-    suspended, not just slow, and stayed that way indefinitely; the
-    "cold start" message above only ever printed on the FIRST message
-    after a manual redeploy woke it back up, which is exactly the
-    workflow being reported as broken. Pinging our own public URL
-    periodically is real, external-looking inbound traffic from
-    Render's perspective, so the service never goes to sleep in the
-    first place. Render sets RENDER_EXTERNAL_URL automatically; this
-    is a no-op (and harmless) on any host that doesn't."""
-    url = (os.environ.get("RENDER_EXTERNAL_URL") or "").strip()
-    if not url:
-        logger.info("RENDER_EXTERNAL_URL not set — self-ping keep-alive disabled (not needed off Render).")
-        return
-    try:
-        import httpx
-    except Exception:
-        return
-    logger.info("Self-ping keep-alive enabled for %s", url)
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        while True:
-            await asyncio.sleep(10 * 60)
-            try:
-                await client.get(url)
-            except Exception as e:
-                logger.warning("self-ping failed: %s", e)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -653,13 +674,63 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.exception("Unhandled error while processing an update", exc_info=err)
 
 
-def main() -> None:
-    _start_health_server()
+def _build_app() -> Application:
+    app = (
+        Application.builder()
+        .token(cfg.bot_token)
+        .connect_timeout(30.0)
+        .read_timeout(30.0)
+        .write_timeout(30.0)
+        .pool_timeout(30.0)
+        .build()
+    )
+    app.add_error_handler(_error_handler)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("version", version_cmd))
+    app.add_handler(CommandHandler("premium", premium_cmd))
+    # Distinct groups: PTB runs only the first matching handler per group, and
+    # owner_text_handler's filter matches every text (owner check is inside it).
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
+    app.add_handler(CallbackQueryHandler(callbacks))
+    return app
 
+
+async def _startup(application: Application) -> None:
+    await load_from_archive(application.bot, cfg.archive_channel_id)
+    await _force_menu_button(application.bot)
+
+
+async def _run_webhook() -> None:
+    global _hook_loop, _hook_app
+    app = _build_app()
+    _hook_loop = asyncio.get_running_loop()
+    _hook_app = app
+    await app.initialize()
+    await _startup(app)
+    await app.start()
+    # Re-registered on every wake-up: cheap, and keeps the URL right after a
+    # token change or service rename. Pending updates are kept (not dropped)
+    # because the message that woke the service is one of them.
+    await app.bot.set_webhook(
+        url=f"{WEBHOOK_BASE}{_HOOK_PATH}",
+        secret_token=_HOOK_SECRET,
+        allowed_updates=Update.ALL_TYPES,
+        max_connections=10,
+    )
+    _hook_ready.set()
+    logger.info("Bot running (webhook mode).")
+    try:
+        await asyncio.Event().wait()
+    finally:
+        _hook_ready.clear()
+        await app.stop()
+        await app.shutdown()
+
+
+def _run_polling() -> None:
     async def _post_init(application: Application) -> None:
-        # Retries guard against a stuck/conflicting webhook or a
-        # transient network hiccup right at startup silently leaving
-        # polling unable to start cleanly.
         for attempt in range(3):
             try:
                 await application.bot.delete_webhook(drop_pending_updates=True)
@@ -667,65 +738,33 @@ def main() -> None:
             except Exception as e:
                 logger.warning("delete_webhook attempt %s/3 failed: %s", attempt + 1, e)
                 await asyncio.sleep(2)
-        await load_from_archive(application.bot, cfg.archive_channel_id)
-        await _force_menu_button(application.bot)
-        asyncio.create_task(_self_ping_loop())
+        await _startup(application)
 
-    # Real bug (fixed): run_polling() can stop and return (e.g. on a
-    # Conflict during a deploy's brief old/new-instance overlap) without
-    # raising. main() would then simply finish, and since the health
-    # server thread is a daemon thread, the whole process exited quietly
-    # right after -- the health check kept passing (it runs in that
-    # separate thread) so nothing looked wrong from the outside, while
-    # the bot had stopped listening to Telegram entirely. This is
-    # exactly the reported symptom: works, goes silent, only a manual
-    # redeploy (a fresh process) brings it back. Wrapping run_polling in
-    # its own restart loop means the SAME process notices and resumes
-    # polling within seconds, with no human needed.
+    app = _build_app()
+    app.post_init = _post_init
+    logger.info("Bot starting (polling, no WEBHOOK_BASE_URL/RENDER_EXTERNAL_URL)...")
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+        bootstrap_retries=5,
+        poll_interval=1.0,
+        timeout=25,
+    )
+
+
+def main() -> None:
+    _start_http_server()
+    # Restart loop: if the bot loop ever stops or crashes, the same process
+    # resumes within seconds instead of going silent until a manual redeploy.
     while True:
         try:
-            app = (
-                Application.builder()
-                .token(cfg.bot_token)
-                .connect_timeout(30.0)
-                .read_timeout(30.0)
-                .write_timeout(30.0)
-                .pool_timeout(30.0)
-                .build()
-            )
-            app.post_init = _post_init
-            app.add_error_handler(_error_handler)
-            app.add_handler(CommandHandler("start", start))
-            app.add_handler(CommandHandler("version", version_cmd))
-            app.add_handler(CommandHandler("premium", premium_cmd))
-            # BUG (fixed separately): both handlers below used to be
-            # registered with no explicit group, which means the SAME
-            # default group (0). python-telegram-bot only runs the
-            # FIRST handler in a group whose filter matches an update --
-            # it does not fall through to the next one in that group
-            # regardless of what the first one does. owner_text_handler's
-            # filter (filters.TEXT & ~filters.COMMAND) matches EVERY
-            # non-command text message from ANYONE, not just the owner
-            # (the actual owner check happens inside the function body,
-            # after the match already "won"). Since it was added first,
-            # it silently absorbed every text message in group 0 and
-            # user_text_handler never ran at all for a real non-owner
-            # user. Explicit distinct groups let both actually run.
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
-            app.add_handler(CallbackQueryHandler(callbacks))
-            logger.info("Bot starting (polling)...")
-            app.run_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES,
-                bootstrap_retries=5,
-                poll_interval=1.0,
-                timeout=25,
-            )
-            logger.warning("run_polling() returned (polling stopped) — restarting in 5s to self-heal.")
+            if WEBHOOK_BASE:
+                asyncio.run(_run_webhook())
+            else:
+                _run_polling()
+            logger.warning("Bot loop returned — restarting in 5s.")
         except Exception:
-            logger.exception("run_polling() crashed — restarting in 5s to self-heal.")
+            logger.exception("Bot loop crashed — restarting in 5s.")
         time.sleep(5)
 
 

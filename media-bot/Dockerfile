@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Render sets PORT; we use polling so no need to expose HTTP
+# Render sets PORT; Telegram's webhook POSTs arrive on it (see main.py)
 CMD ["python", "main.py"]
