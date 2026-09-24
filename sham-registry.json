@@ -1,16 +1,7 @@
 {
-  "generated_at": "2026-09-24 06:07 UTC",
+  "generated_at": "2026-09-24 06:46 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
-    {
-      "alias": "دفتر شام غير مصنّف 3",
-      "track": null,
-      "status": "complete",
-      "role": "sham_other",
-      "last_run": "2026-09-22",
-      "gpu": false,
-      "failure": ""
-    },
     {
       "alias": "منسّق الاستئناف التلقائي 1",
       "track": "orchestrator",
@@ -41,18 +32,9 @@
     {
       "alias": "مركز تحكم شام 1",
       "track": "control_center",
-      "status": "unknown",
+      "status": "running",
       "role": "tool",
       "last_run": "2026-09-24",
-      "gpu": false,
-      "failure": "404 Client Error: Not Found for url: [رابط]"
-    },
-    {
-      "alias": "دفتر شام غير مصنّف 4",
-      "track": null,
-      "status": "running",
-      "role": "sham_other",
-      "last_run": "2026-09-23",
       "gpu": false,
       "failure": ""
     },
@@ -102,24 +84,6 @@
       "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined"
     },
     {
-      "alias": "دفتر شام غير مصنّف 5",
-      "track": null,
-      "status": "error",
-      "role": "sham_other",
-      "last_run": "2026-09-24",
-      "gpu": true,
-      "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service."
-    },
-    {
-      "alias": "دفتر شام غير مصنّف 1",
-      "track": null,
-      "status": "error",
-      "role": "sham_other",
-      "last_run": "2026-09-09",
-      "gpu": true,
-      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
-    },
-    {
       "alias": "المرحلة الأولى 1",
       "track": "text_stage1",
       "status": "cancelAcknowledged",
@@ -127,18 +91,10 @@
       "last_run": "2026-09-15",
       "gpu": true,
       "failure": ""
-    },
-    {
-      "alias": "دفتر شام غير مصنّف 2",
-      "track": null,
-      "status": "complete",
-      "role": "sham_other",
-      "last_run": "2026-09-13",
-      "gpu": true,
-      "failure": ""
     }
   ],
   "other_notebooks_count": 2,
+  "engineer_notebooks_count": 5,
   "datasets": [
     {
       "alias": "نتائج المسار B 1",

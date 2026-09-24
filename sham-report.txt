@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-09-24 06:07 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-09-24 06:46 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -12,12 +12,10 @@
 ✅ المسار A — التدريب النصي المستمر (CPU)
 ✅ المسار B — البحث الذاتي من الإنترنت (CPU)
 
-✅ اكتمل | دفتر شام غير مصنّف 3 | sham_other
 ✅ اكتمل | منسّق الاستئناف التلقائي 1 | tool
 ✅ اكتمل | مسار ترميز الصوت 1 | primary
 ⏳ يعمل الآن | المسار B 1 | primary
-❔ غير معروف | مركز تحكم شام 1 | tool
-⏳ يعمل الآن | دفتر شام غير مصنّف 4 | sham_other
+⏳ يعمل الآن | مركز تحكم شام 1 | tool
 ✅ اكتمل | المرحلة الثانية 1 | primary
 ✅ اكتمل | مسار ترميز الصورة 1 | primary
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ:     494     except FileNotFoundError:
@@ -26,11 +24,4 @@
 ❌ فشل | المرحلة الأولى 2 | primary | الخطأ: Exception encountered at "In [9]":
 NameError                                 Traceback (most recent call last)
 NameError: name 'realistic_steps' is no
-❌ فشل | دفتر شام غير مصنّف 5 | sham_other | الخطأ: ---> 58             raise ConnectionError(
-     60         except HTTPError as e:
-ConnectionError: Connection error trying to communicate with service
-❌ فشل | دفتر شام غير مصنّف 1 | sham_other | الخطأ: Traceback (most recent call last):
-    raise DeadKernelError("Kernel died")
-nbclient.exceptions.DeadKernelError: Kernel died
 ⛔ أُوقف | المرحلة الأولى 1 | duplicate
-✅ اكتمل | دفتر شام غير مصنّف 2 | sham_other
