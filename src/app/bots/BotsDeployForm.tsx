@@ -105,7 +105,8 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
       </span>
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تفعيل بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
-        هذا منشئ قوالب كلود (إعلانات، زواج، وظائف...). منشئ بوت الوسائط الخاص بجروك موجود في أدوات الأدمن.
+        ضع توكن بوتك من BotFather ويعمل بوت الإعلانات والمهام فوراً على خوادمنا — بلا استضافة ولا برمجة.
+        وأنت صاحب البوت تربح <strong>20%</strong> من قيمة كل مهمة إعلانية يُنجزها مستخدمو بوتك (50% للمستخدم المنفّذ، 30% للمنصة).
       </p>
 
       <form onSubmit={handleDeploy} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabasePublic } from "@/lib/supabase";
+import { readCatalog } from "@/lib/supabase";
 import type { Category, Service } from "@/types";
 import StorefrontBrowser from "@/components/StorefrontBrowser";
 import SectionBackdrop from "@/components/SectionBackdrop";
@@ -24,20 +24,15 @@ import { EVENT_ITEMS } from "@/lib/eventsIndex";
 export const revalidate = 30;
 
 async function getStorefront() {
-  try {
-    const db = supabasePublic();
-    const [{ data: categories }, { data: services }] = await Promise.all([
-      db.from("categories").select("*").order("sort_order"),
-      db.from("services").select("*").eq("is_active", true).order("sort_order"),
-    ]);
-    return {
-      categories: (categories ?? []) as Category[],
-      services: (services ?? []) as Service[],
-    };
-  } catch {
-    // Avoid failing the whole production deploy when env/DB is briefly unavailable at build.
-    return { categories: [] as Category[], services: [] as Service[] };
-  }
+  // readCatalog never throws — an unavailable DB just renders no storefront.
+  const [categories, services] = await Promise.all([
+    readCatalog((db) => db.from("categories").select("*").order("sort_order")),
+    readCatalog((db) => db.from("services").select("*").eq("is_active", true).order("sort_order")),
+  ]);
+  return {
+    categories: (categories ?? []) as Category[],
+    services: (services ?? []) as Service[],
+  };
 }
 
 export default async function HomePage() {

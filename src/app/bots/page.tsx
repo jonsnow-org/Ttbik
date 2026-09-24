@@ -82,8 +82,13 @@ export default function BotsDeployPage() {
             </Link>
           </li>
           <li>
-            <Link href="/news" className="hover:underline">
-              أخبار سوق تولز
+            <Link href="/service/media-bot-premium" className="hover:underline">
+              💎 ترقية بوت تحميل الوسائط ← 50 تحميلاً يومياً بدل 8
+            </Link>
+          </li>
+          <li>
+            <Link href="/watch-and-earn" className="hover:underline">
+              اربح من مشاهدة الإعلانات ← كمستخدم في بوت قائم
             </Link>
           </li>
         </ul>

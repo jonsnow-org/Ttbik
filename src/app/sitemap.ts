@@ -65,9 +65,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let serviceRoutes: MetadataRoute.Sitemap = [];
   try {
-    const { supabasePublic } = await import("@/lib/supabase");
-    const db = supabasePublic();
-    const { data: services } = await db.from("services").select("slug").eq("is_active", true);
+    const { readCatalog } = await import("@/lib/supabase");
+    const services = await readCatalog((db) => db.from("services").select("slug").eq("is_active", true));
     serviceRoutes = (services ?? []).map((s) => ({
       url: `${base}/service/${s.slug}`,
       changeFrequency: "weekly" as const,

@@ -42,5 +42,84 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // The media bot's /premium flow sends buyers to /service/media-bot-premium
+  // and verify-premium only unlocks approved orders for that slug. If
+  // migration_media_bot_premium.sql was never run in the SQL editor, the page
+  // 404s and the upgrade can't be bought at all — so ensure the row here too.
+  results["media-bot-premium"] = await ensureMediaBotPremium(db);
+
   return NextResponse.json({ ok: true, results });
+}
+
+// Same values as supabase/migration_media_bot_premium.sql.
+const MEDIA_BOT_PREMIUM = {
+  slug: "media-bot-premium",
+  name_ar: "ترقية بوت الوسائط المدفوعة",
+  subcategory: "بوتات تليجرام",
+  short_desc_ar: "ارفع حدك اليومي في بوت تحميل الوسائط وفعّل أولوية أعلى في المعالجة.",
+  long_desc_ar:
+    "بعد الموافقة على طلبك، عد إلى بوت الوسائط على تليجرام وأرسل الأمر: /premium ثم رمز طلبك (مثال: /premium ABC123) لتفعيل الترقية فوراً على حسابك.",
+  price_usd: 5,
+  demo_type: "bot_simulator",
+  delivery_type: "text",
+  delivery_content: "عد إلى بوت الوسائط على تليجرام وأرسل: /premium ثم رمز طلبك لتفعيل الترقية فوراً.",
+  tool_route: null,
+  sort_order: 7,
+};
+
+async function ensureMediaBotPremium(db: ReturnType<typeof supabaseAdmin>): Promise<string> {
+  const { data: existing, error: readError } = await db
+    .from("services")
+    .select("id, is_active")
+    .eq("slug", MEDIA_BOT_PREMIUM.slug)
+    .maybeSingle();
+  if (readError) return `FAILED to read services (${readError.message})`;
+  if (existing) {
+    if (existing.is_active) return "already live";
+    const { error } = await db.from("services").update({ is_active: true }).eq("id", existing.id);
+    return error ? `FAILED to reactivate (${error.message})` : "reactivated";
+  }
+  const { data: category, error: catError } = await db
+    .from("categories")
+    .select("id")
+    .eq("slug", "telegram-bots")
+    .maybeSingle();
+  if (catError || !category) return `FAILED: category telegram-bots not found${catError ? ` (${catError.message})` : ""}`;
+  const { error } = await db.from("services").insert({ ...MEDIA_BOT_PREMIUM, category_id: category.id, is_active: true });
+  return error ? `FAILED to insert (${error.message})` : "created";
+}
+
+/**
+ * Owner-only diagnosis of why the storefront is empty: counts what the anon
+ * client and the service-role client each see, with their error messages.
+ * Open /api/admin/catalog-cleanup in the browser while logged in as owner.
+ */
+export async function GET(req: NextRequest) {
+  if (!isOwnerRequest(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const { supabasePublic } = await import("@/lib/supabase");
+  const report: Record<string, unknown> = {};
+  for (const [name, make] of [
+    ["anon", supabasePublic],
+    ["service_role", supabaseAdmin],
+  ] as const) {
+    try {
+      const db = make();
+      const [cats, svcs, premium] = await Promise.all([
+        db.from("categories").select("slug"),
+        db.from("services").select("slug, is_active"),
+        db.from("services").select("slug, is_active, price_usd").eq("slug", MEDIA_BOT_PREMIUM.slug).maybeSingle(),
+      ]);
+      report[name] = {
+        categories: cats.error ? `error: ${cats.error.message}` : (cats.data ?? []).map((c) => c.slug),
+        services_active: svcs.error ? `error: ${svcs.error.message}` : (svcs.data ?? []).filter((s) => s.is_active).length,
+        services_total: svcs.error ? null : (svcs.data ?? []).length,
+        media_bot_premium: premium.error ? `error: ${premium.error.message}` : premium.data ?? "missing",
+      };
+    } catch (e) {
+      report[name] = `error: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  return NextResponse.json(report);
 }

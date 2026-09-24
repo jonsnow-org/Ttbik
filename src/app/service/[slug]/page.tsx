@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { supabasePublic } from "@/lib/supabase";
+import { readCatalog } from "@/lib/supabase";
 import type { Service } from "@/types";
 import { formatUsd } from "@/lib/utils";
 import OrderForm from "@/components/OrderForm";
@@ -18,12 +18,13 @@ import AdSlot from "@/components/AdSlot";
 export const revalidate = 30;
 
 async function getService(slug: string) {
-  const db = supabasePublic();
   // is_active filtered here too, not just in the storefront listing --
   // a deactivated service (e.g. removed via /api/admin/catalog-cleanup)
   // was still directly reachable and orderable by its old URL otherwise,
   // even though it no longer appeared anywhere a visitor could navigate to.
-  const { data } = await db.from("services").select("*, categories(slug)").eq("slug", slug).eq("is_active", true).single();
+  const data = await readCatalog((db) =>
+    db.from("services").select("*, categories(slug)").eq("slug", slug).eq("is_active", true).maybeSingle(),
+  );
   return data as (Service & { categories: { slug: string } | null }) | null;
 }
 

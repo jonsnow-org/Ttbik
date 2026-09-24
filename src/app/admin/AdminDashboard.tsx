@@ -91,6 +91,13 @@ export default function AdminDashboard() {
         <p className="mb-2 text-sm font-bold text-red-800">🧹 إزالة "أعلن في قناتنا" + "بوت الرد الآلي" + "بوت الأسئلة الشائعة" من الكتالوج (لمرة واحدة)</p>
         <p className="mb-3 text-xs text-red-700">
           يحذف الخدمات الثلاث نهائياً من قاعدة البيانات الحية مباشرة — بديل عن لصق SQL يدوياً.
+          ويُنشئ أيضاً خدمة «ترقية بوت الوسائط» (5$) إن كانت مفقودة، لأن البوت يرسل المشترين إلى صفحتها.
+        </p>
+        <p className="mb-3 text-xs text-red-700">
+          تشخيص الكتالوج (ماذا ترى قاعدة البيانات):{" "}
+          <a href="/api/admin/catalog-cleanup" target="_blank" className="font-bold underline">
+            افتح التقرير
+          </a>
         </p>
         <button
           disabled={cleanupBusy}
