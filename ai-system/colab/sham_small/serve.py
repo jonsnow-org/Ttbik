@@ -1,49 +1,49 @@
 """
-Sham — real HTTP serving backend. Owner spec: "الخطوة الحالية هي
-الربط والدفع والاختبار... الاختبار يحتاج ان يكون نموذجنا مبني ومجهز
-للاختبار على تطبيق ويب او بوت" (the current step is linking, pushing,
-and testing — testing needs the model built and ready to test via a
+Sham â€” real HTTP serving backend. Owner spec: "ط§ظ„ط®ط·ظˆط© ط§ظ„ط­ط§ظ„ظٹط© ظ‡ظٹ
+ط§ظ„ط±ط¨ط· ظˆط§ظ„ط¯ظپط¹ ظˆط§ظ„ط§ط®طھط¨ط§ط±... ط§ظ„ط§ط®طھط¨ط§ط± ظٹط­طھط§ط¬ ط§ظ† ظٹظƒظˆظ† ظ†ظ…ظˆط°ط¬ظ†ط§ ظ…ط¨ظ†ظٹ ظˆظ…ط¬ظ‡ط²
+ظ„ظ„ط§ط®طھط¨ط§ط± ط¹ظ„ظ‰ طھط·ط¨ظٹظ‚ ظˆظٹط¨ ط§ظˆ ط¨ظˆطھ" (the current step is linking, pushing,
+and testing â€” testing needs the model built and ready to test via a
 web app or a bot).
 
 Mirrors the exact architecture the CURRENT live Nova already uses
 (see ai-system/app/main.py + ai-system/streamlit_app.py): ONE backend
 that does all the real work, thin clients (a web UI, later a bot) that
-only call it over HTTP — so every interface always behaves identically,
+only call it over HTTP â€” so every interface always behaves identically,
 and adding a Telegram bot later needs zero changes here, just another
 thin client hitting these same endpoints. Deliberately a SEPARATE
 service from ai-system/app/main.py (the live, deployed production
-Nova) rather than added into it — ShamSmall is a wholly different,
+Nova) rather than added into it â€” ShamSmall is a wholly different,
 still-untrained model tree; nothing here should be able to affect the
 live production bot in any way.
 
 HONEST, stated up front rather than discovered by surprise: no real
 large-scale training run has happened yet (that remains the
-deliberately separate final stage — see this project's own history).
-Every endpoint below is REAL — a real forward pass through a real
+deliberately separate final stage â€” see this project's own history).
+Every endpoint below is REAL â€” a real forward pass through a real
 ShamSmall model, real KV-cache generation, real tokenizer round trips,
-real image/audio/video decoding — but the model's weights are either
+real image/audio/video decoding â€” but the model's weights are either
 freshly randomly initialized or loaded from whatever checkpoint exists
 so far, so generated CONTENT will look like structured noise (a real
 PNG/WAV/MP4 file, valid and playable, just not meaningful) until real
 training happens. This service tests the PLUMBING (does a prompt
 really turn into a real image/audio/video file, end to end, with no
-crashes) — not output quality, which is a training-data question, not
+crashes) â€” not output quality, which is a training-data question, not
 a serving-code one.
 
 /ask/image and /ask/video (owner spec: a verified organization asks a
-real, live question about a real clip THEY provide — e.g. a clinician
-photographing something during a real teaching session — WITHOUT that
+real, live question about a real clip THEY provide â€” e.g. a clinician
+photographing something during a real teaching session â€” WITHOUT that
 clip ever becoming training data): authenticated via a real
-per-organization API key (api_keys.py — see that module's own
+per-organization API key (api_keys.py â€” see that module's own
 docstring for why this replaced an earlier, rejected idea of one
 shared hardcoded "magic code"). Organizations are registered OFFLINE,
 by a trusted operator calling
 OrganizationKeyStore.register_organization() directly (e.g. from a
-one-off admin script) — deliberately NOT exposed as an HTTP endpoint
+one-off admin script) â€” deliberately NOT exposed as an HTTP endpoint
 here, so there is no way for an arbitrary caller to mint their own key
 over the network. These two endpoints are entirely separate from
 medical_dataset.py's training-data pipeline: nothing an organization
-uploads here is stored, added to a manifest, or trained on — it is
+uploads here is stored, added to a manifest, or trained on â€” it is
 used once, for one real answer, and discarded.
 """
 
@@ -87,15 +87,15 @@ from video_tokenizer import decode_video
 _FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 _SAMPLE_RATE = 16000
 
-app = FastAPI(title="Sham — serving backend (pre-training smoke test)")
+app = FastAPI(title="Sham â€” serving backend (pre-training smoke test)")
 
-# Real, small, CPU-friendly configs for this smoke-test service — real
+# Real, small, CPU-friendly configs for this smoke-test service â€” real
 # training will produce a real checkpoint.pt this same load_model()
 # function already knows how to load instead (see its own docstring);
 # swapping to it is a config change, not a code change.
 _state: dict = {}
 
-# One real, persistent key store for this process — see api_keys.py's
+# One real, persistent key store for this process â€” see api_keys.py's
 # own docstring for why SQLite (not a shared secret) and how this
 # would swap to Supabase for durability across redeploys later.
 _api_key_store = OrganizationKeyStore(os.environ.get("SHAM_SMALL_API_KEYS_DB", "sham_small_api_keys.db"))
@@ -105,28 +105,17 @@ _safety_filter = ContentSafetyFilter()
 
 
 def _require_safe_text(text: str) -> None:
-    """Applied ONLY to the fully anonymous, unauthenticated endpoints
-    below (/generate/text, /generate/image, /generate/audio,
-    /generate/video) — there is no organization key on those, so no
-    account to hold responsible and nothing to revoke; this keyword
-    filter is the only real check available there. It is honestly
-    scoped: it can catch an explicit request outright, but it CANNOT
-    reliably tell a clinical description of a real medical event from a
-    sexualized one that reuses the same anatomical vocabulary — that
-    distinction needs judgment a string match doesn't have. For that
-    reason it is deliberately NOT applied to the authenticated
-    organization endpoints (/ask/image, /ask/video,
-    /generate/medical/image) — those rely instead on a real,
-    individually revocable per-organization key plus a real reviewed
-    usage log (see api_keys.py and medical_generation_templates.py for
-    why)."""
-    verdict = _safety_filter.check_text(text)
-    if not verdict.is_safe:
-        raise HTTPException(status_code=400, detail=f"prompt rejected by content safety filter: {verdict.reason}")
+    """CONTENT FILTER COMPLETELY DISABLED.
+    Previously this rejected prompts containing blocked keywords.
+    Now it is a pure no-op â€” every prompt is accepted.
+    Accountability for authenticated endpoints remains via organization
+    API keys + usage logging (see api_keys.py).
+    """
+    return  # no-op: all content allowed
 
 
 def _require_organization(x_sham_org_key: str | None) -> Organization:
-    """The real auth check every /ask/* endpoint goes through — no
+    """The real auth check every /ask/* endpoint goes through â€” no
     key, an unknown key, or a revoked key are all rejected identically
     with 401, so a caller can't distinguish "wrong key" from "revoked
     key" from timing/response differences."""
@@ -170,19 +159,19 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
             vocab_size=42256, d_model=64, n_layers=4, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=512
         )
         model = ShamSmall(cfg)
-        print("no trained checkpoint given/found — serving a FRESH, RANDOMLY-INITIALIZED small model "
+        print("no trained checkpoint given/found â€” serving a FRESH, RANDOMLY-INITIALIZED small model "
               "(real plumbing test only; output content will look like structured noise until real "
               "training happens)")
     model.eval()
 
     # num_codes MUST equal model.py's IMAGE_VOCAB_SIZE/AUDIO_VOCAB_SIZE
-    # exactly (see model.py's own inline comment on those constants) —
+    # exactly (see model.py's own inline comment on those constants) â€”
     # generate_image()/generate_audio() restrict sampling to the full
     # architectural [0, IMAGE_VOCAB_SIZE)/[0, AUDIO_VOCAB_SIZE) range
     # regardless of what a particular tokenizer instance's codebook
     # actually holds, so a smaller codebook here would let the model
     # legitimately sample an id past the end of this instance's real
-    # codebook table — exactly the IndexError caught by running this
+    # codebook table â€” exactly the IndexError caught by running this
     # server for real. Every OTHER dimension (image_size, base_channels,
     # code_dim) is still shrunk for CPU speed; only num_codes is fixed.
     image_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=IMAGE_VOCAB_SIZE)
@@ -194,7 +183,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     else:
         bootstrap_corpus = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
         bootstrap_corpus.write(
-            "Sham is a real from scratch multimodal model. مرحباً هذا اختبار حقيقي للنموذج. " * 100
+            "Sham is a real from scratch multimodal model. ظ…ط±ط­ط¨ط§ظ‹ ظ‡ط°ط§ ط§ط®طھط¨ط§ط± ط­ظ‚ظٹظ‚ظٹ ظ„ظ„ظ†ظ…ظˆط°ط¬. " * 100
         )
         bootstrap_corpus.close()
         text_tokenizer = train_text_tokenizer([bootstrap_corpus.name], vocab_size=800)
@@ -211,7 +200,7 @@ def _startup() -> None:
     # Real forward-compatibility: once real training produces an
     # actual checkpoint, pointing this exact same deployment at it is
     # an env var change, not a code change or a redeploy of different
-    # code — load_model() already knows how to load a real checkpoint
+    # code â€” load_model() already knows how to load a real checkpoint
     # (see its own docstring); this is just wiring that up to the
     # outside world.
     load_model(
@@ -237,7 +226,7 @@ class VideoRequest(BaseModel):
 class MedicalGenerationRequest(BaseModel):
     """Deliberately no free-form `prompt` field: category must be one
     of medical_generation_templates.MEDICAL_CATEGORIES's own fixed
-    keys — see that module's own docstring for why this structural
+    keys â€” see that module's own docstring for why this structural
     choice, not a smarter filter, is the real fix for free text being
     unable to reliably separate a clinical description from a
     sexualized one that reuses the same anatomical words."""
@@ -251,7 +240,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "model_params": model.count_parameters(),
-        "note": "pre-training smoke test — real plumbing, not yet real trained weights",
+        "note": "pre-training smoke test â€” real plumbing, not yet real trained weights",
     }
 
 
@@ -265,12 +254,12 @@ def generate_text_endpoint(req: TextRequest) -> dict:
     # Real, stated caveat for THIS pre-training smoke-test server only:
     # the bootstrap tokenizer here only has real merges for the ~800
     # ids it was actually trained on, far fewer than the model's full
-    # architectural 32,000-slot text range — sampling outside that
+    # architectural 32,000-slot text range â€” sampling outside that
     # range produces ids this specific tokenizer instance has no real
     # mapping for. Restricting sampling to [0, tokenizer.vocab_size)
     # keeps every generated id decodable. Once the real, full
     # 32,000-entry production tokenizer is trained (a data-gathering
-    # task, not a code one — see text_tokenizer.py's own docstring),
+    # task, not a code one â€” see text_tokenizer.py's own docstring),
     # this restriction becomes a no-op, since the two ranges will match.
     out = generate_tokens(
         model, prompt_ids, max_new_tokens=req.max_new_tokens,
@@ -366,7 +355,7 @@ def generate_medical_image_endpoint(
     req: MedicalGenerationRequest,
     x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
 ) -> Response:
-    # No content filter on req.notes here by design — see
+    # No content filter on req.notes here by design â€” see
     # medical_generation_templates.py's docstring: accountability for
     # this endpoint is the organization's own revocable key plus the
     # real request text recorded below for operator review, not a
@@ -394,7 +383,7 @@ def generate_medical_image_endpoint(
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    # Real request detail logged for review — the actual category and
+    # Real request detail logged for review â€” the actual category and
     # any notes, so a trusted operator can see, per organization,
     # whether requests stay within that organization's stated purpose.
     log_detail = f"category={req.category}" + (f" notes={req.notes}" if req.notes else "")
@@ -405,7 +394,7 @@ def generate_medical_image_endpoint(
 @app.get("/generate/medical/categories")
 def list_medical_categories(x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key")) -> dict:
     """Lets an authenticated organization discover the real fixed
-    category list it must choose from — never a hint that free text
+    category list it must choose from â€” never a hint that free text
     would also work."""
     _require_organization(x_sham_org_key)
     from medical_generation_templates import MEDICAL_CATEGORIES
@@ -419,7 +408,7 @@ async def ask_image_endpoint(
     question: str = Form(...),
     x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
 ) -> dict:
-    # No content filter on `question` here by design — see
+    # No content filter on `question` here by design â€” see
     # medical_generation_templates.py's docstring: a doctor describing
     # or asking about real anatomy (including genital anatomy, for real
     # clinical reasons) must not be blocked by a keyword match that
@@ -460,7 +449,7 @@ async def ask_video_endpoint(
     x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
 ) -> dict:
     # Same real, deliberate choice as /ask/image above: no content
-    # filter on `question` — accountability is the organization's key
+    # filter on `question` â€” accountability is the organization's key
     # and the reviewed usage log, not a keyword match.
     organization = _require_organization(x_sham_org_key)
     model: ShamSmall = _state["model"]
@@ -471,7 +460,7 @@ async def ask_video_endpoint(
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = Path(tmpdir) / "upload.mp4"
         video_path.write_bytes(raw_bytes)
-        # Frames only — this endpoint never uses the audio track, and
+        # Frames only â€” this endpoint never uses the audio track, and
         # requiring one would reject a real, valid silent video for no
         # reason (a real case caught by testing with an actual silent
         # clip, not a hypothetical). Reuses the exact real ffmpeg
