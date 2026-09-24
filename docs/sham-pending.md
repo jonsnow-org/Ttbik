@@ -20,3 +20,15 @@
 - Stage 2 now auto-uses pretrained `image_tokenizer.pt` / `audio_tokenizer.pt` found anywhere
   under /kaggle/input (attach the tokenizer datasets as inputs), instead of training tiny new ones.
 - The resume orchestrator auto-discovers its CPU targets from the registry when `TARGET_KERNELS = []`.
+
+## Owner directives (2026-09-24, permanent)
+- **Engineer's notebooks are his domain.** Any Sham-related Kaggle notebook that isn't one of
+  Claude's known tracks (TRACKS in sham_registry.py) is the engineer's: reported to the owner only,
+  excluded from Claude's public registry, never treated as Claude's work to fix.
+- **Claude never sees notebook names/links/contents** — aliases + status/progress/error only.
+- Stage 2 accepts BOTH tokenizer sources automatically (dedicated CPU tracks or any other attached
+  dataset carrying `*_tokenizer.pt`): `tokenizer_select.py` picks the most-trained compatible one,
+  else trains fresh — no conflict.
+- Known live-edit bug reported by the owner's run: [المرحلة الأولى 2] fails with
+  `NameError: realistic_steps` — the repo version defines `realistic_steps_for_session`; the Kaggle
+  copy's cell 9 uses the short name. Fix = rename in that cell.

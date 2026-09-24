@@ -309,7 +309,7 @@ def discover(api: Any, workdir: Path, with_logs: bool = True) -> tuple[list[Kern
             ref=ref,
             title=title,
             track=track,
-            track_name=TRACK_BY_ID[track]["name"] if track else ("دفتر متعلق بشام (غير مصنّف)" if is_sham_related(source, title) else "ليس من شام"),
+            track_name=TRACK_BY_ID[track]["name"] if track else ("دفتر متعلق بشام — من دفاتر المهندس" if is_sham_related(source, title) else "ليس من شام"),
             status=status,
             failure=failure,
             last_run=_iso(_get(k, "last_run_time", "lastRunTime")),
@@ -372,7 +372,11 @@ def assign_roles(kernels: list[KernelInfo]) -> None:
     by_track: dict[str, list[KernelInfo]] = {}
     for k in kernels:
         if not k.track:
-            k.role = "sham_other" if k.track_name.startswith("دفتر متعلق") else "not_sham"
+            # Owner directive 2026-09-24: Sham-related notebooks that aren't one of
+            # Claude's known tracks are the ENGINEER's own notebooks — his domain.
+            # Reported to the owner, never listed as work for Claude, and excluded
+            # from the public (Claude-visible) registry entirely.
+            k.role = "engineer" if k.track_name.startswith("دفتر متعلق") else "not_sham"
             continue
         if TRACK_BY_ID[k.track]["kind"] == "tool":
             k.role = "tool"
@@ -488,7 +492,7 @@ def render_report(reg: dict[str, Any]) -> str:
         L.append(f"{mark} {s['name']}" + (f" — {extra}" if extra else ""))
     L.append("")
     L.append("📒 الدفاتر:")
-    groups = [("primary", "الأساسي لكل مسار"), ("duplicate", "مكررة (يمكن حذفها أو تجاهلها)"), ("sham_other", "متعلقة بشام لكن غير مصنّفة"), ("tool", "أدوات")]
+    groups = [("primary", "الأساسي لكل مسار"), ("duplicate", "مكررة (يمكن حذفها أو تجاهلها)"), ("engineer", "دفاتر المهندس (من اختصاصه)"), ("tool", "أدوات")]
     for role, title in groups:
         ks = [k for k in reg["kernels"] if k["role"] == role]
         if not ks:
@@ -500,12 +504,18 @@ def render_report(reg: dict[str, Any]) -> str:
             if k["status"] == "error" and k["failure"]:
                 line += f"\n      سبب الفشل: {k['failure'][:200]}"
             L.append(line)
-    failed = [k for k in reg["kernels"] if k["status"] == "error" and k["role"] in ("primary", "sham_other")]
+    failed = [k for k in reg["kernels"] if k["status"] == "error" and k["role"] == "primary"]
     if failed:
         L.append("")
-        L.append("⚠️ دفاتر فشلت وتحتاج إصلاحاً (أرسلي هذا التقرير إلى Claude):")
+        L.append("⚠️ دفاتر شام الأساسية التي فشلت (Claude يراها بأسمائها المختصرة فقط):")
         for k in failed:
-            L.append(f"  • {k['track_name']} — {k['ref']}")
+            L.append(f"  • [{k.get('alias', '')}] {k['track_name']} — {k['ref']}")
+    eng_failed = [k for k in reg["kernels"] if k["status"] == "error" and k["role"] == "engineer"]
+    if eng_failed:
+        L.append("")
+        L.append("🛠 دفاتر المهندس التي فشلت (للمهندس — ليست من مهام Claude):")
+        for k in eng_failed:
+            L.append(f"  • {k['ref']}")
     L.append("")
     L.append("💾 مجموعات البيانات (النتائج المحفوظة):")
     for d in reg["datasets"]:
@@ -531,7 +541,7 @@ def assign_aliases(reg: dict[str, Any]) -> None:
     counters: dict[str, int] = {}
     for k in sorted(reg["kernels"], key=lambda k: k.get("last_run") or ""):
         base = TRACK_BY_ID[k["track"]]["name"].split(" —")[0].split(" (")[0] if k["track"] else (
-            "دفتر شام غير مصنّف" if k["role"] == "sham_other" else "دفتر آخر")
+            "دفتر المهندس" if k["role"] == "engineer" else "دفتر آخر")
         counters[base] = counters.get(base, 0) + 1
         k["alias"] = f"{base} {counters[base]}"
     dcount: dict[str, int] = {}
@@ -563,7 +573,7 @@ def public_registry(reg: dict[str, Any]) -> dict[str, Any]:
     kernels = [
         {"alias": k["alias"], "track": k["track"], "status": k["status"], "role": k["role"],
          "last_run": k["last_run"][:10], "gpu": k["gpu"], "failure": _scrub(k["failure"], secrets)}
-        for k in reg["kernels"] if k["role"] != "not_sham"
+        for k in reg["kernels"] if k["role"] not in ("not_sham", "engineer")
     ]
     datasets = [
         {"alias": d["alias"], "track": d["track"], "size_mb": d["size_mb"], "last_updated": d["last_updated"][:10],
@@ -583,6 +593,7 @@ def public_registry(reg: dict[str, Any]) -> dict[str, Any]:
         "privacy": "public — aliases only; real names are in the owner's Telegram report",
         "kernels": kernels,
         "other_notebooks_count": sum(1 for k in reg["kernels"] if k["role"] == "not_sham"),
+        "engineer_notebooks_count": sum(1 for k in reg["kernels"] if k["role"] == "engineer"),
         "datasets": datasets,
         "pipeline": {"current_stage": reg["pipeline"]["current_stage"], "next_step": step, "stages": stages},
     }
