@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import { EVENT_ITEMS } from "@/lib/eventsIndex";
 
 const SITE = SITE_URL;
 const PATH = "/events";
@@ -30,14 +31,7 @@ const BREADCRUMB = {
   ],
 };
 
-const ITEMS = [
-  {
-    slug: "autumn-equinox-2026",
-    title: "ما الذي نعرفه عن الاعتدال الخريفي 2026؟",
-    dateLabel: "24 سبتمبر 2026",
-    blurb: "الموعد الفلكي، لماذا لا يتساوى الليل والنهار دقيقة بدقيقة، ومتى ينتهي الفصل.",
-  },
-];
+const ITEMS = EVENT_ITEMS;
 
 export default function EventsIndexPage() {
   return (

@@ -18,6 +18,8 @@ const TOOL_GRADIENTS = [
   "from-lime-600 to-green-700",
 ];
 import BotCards from "@/components/BotCards";
+import TodayStrip from "@/components/TodayStrip";
+import { EVENT_ITEMS } from "@/lib/eventsIndex";
 
 export const revalidate = 30;
 
@@ -44,6 +46,7 @@ export default async function HomePage() {
 
   return (
     <div>
+      <TodayStrip latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }} />
       <section className="relative overflow-hidden bg-hero-glow bg-white">
         <SectionBackdrop />
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 text-center sm:pb-14 sm:pt-20">
