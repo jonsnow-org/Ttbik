@@ -1,0 +1,284 @@
+{
+  "generated_at": "2026-09-24 06:07 UTC",
+  "privacy": "public — aliases only; real names are in the owner's Telegram report",
+  "kernels": [
+    {
+      "alias": "دفتر شام غير مصنّف 3",
+      "track": null,
+      "status": "complete",
+      "role": "sham_other",
+      "last_run": "2026-09-22",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "منسّق الاستئناف التلقائي 1",
+      "track": "orchestrator",
+      "status": "complete",
+      "role": "tool",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "مسار ترميز الصوت 1",
+      "track": "audio_tokenizer",
+      "status": "complete",
+      "role": "primary",
+      "last_run": "2026-09-22",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المسار B 1",
+      "track": "research_track",
+      "status": "running",
+      "role": "primary",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "مركز تحكم شام 1",
+      "track": "control_center",
+      "status": "unknown",
+      "role": "tool",
+      "last_run": "2026-09-24",
+      "gpu": false,
+      "failure": "404 Client Error: Not Found for url: [رابط]"
+    },
+    {
+      "alias": "دفتر شام غير مصنّف 4",
+      "track": null,
+      "status": "running",
+      "role": "sham_other",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المرحلة الثانية 1",
+      "track": "stage2_multimodal",
+      "status": "complete",
+      "role": "primary",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
+      "status": "complete",
+      "role": "primary",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "مسار ترميز الصوت 2",
+      "track": "audio_tokenizer",
+      "status": "error",
+      "role": "duplicate",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": "    494     except FileNotFoundError:\n--> 495         raise EmptyDatasetError(f\"The directory at {base_path} doesn't contain any data files\") from None\nEmptyDatasetError: The directory at hf://datasets/mozilla-foundation/common_voice_17_0@11dc88355e899d1bf2df74f01b904a8544a17b33 doesn't contain any "
+    },
+    {
+      "alias": "المسار A 1",
+      "track": "cpu_training_track",
+      "status": "running",
+      "role": "primary",
+      "last_run": "2026-09-23",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المرحلة الأولى 2",
+      "track": "text_stage1",
+      "status": "error",
+      "role": "primary",
+      "last_run": "2026-09-22",
+      "gpu": false,
+      "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined"
+    },
+    {
+      "alias": "دفتر شام غير مصنّف 5",
+      "track": null,
+      "status": "error",
+      "role": "sham_other",
+      "last_run": "2026-09-24",
+      "gpu": true,
+      "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service."
+    },
+    {
+      "alias": "دفتر شام غير مصنّف 1",
+      "track": null,
+      "status": "error",
+      "role": "sham_other",
+      "last_run": "2026-09-09",
+      "gpu": true,
+      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
+    },
+    {
+      "alias": "المرحلة الأولى 1",
+      "track": "text_stage1",
+      "status": "cancelAcknowledged",
+      "role": "duplicate",
+      "last_run": "2026-09-15",
+      "gpu": true,
+      "failure": ""
+    },
+    {
+      "alias": "دفتر شام غير مصنّف 2",
+      "track": null,
+      "status": "complete",
+      "role": "sham_other",
+      "last_run": "2026-09-13",
+      "gpu": true,
+      "failure": ""
+    }
+  ],
+  "other_notebooks_count": 2,
+  "datasets": [
+    {
+      "alias": "نتائج المسار B 1",
+      "track": "research_track",
+      "size_mb": 400.5,
+      "last_updated": "2026-09-23",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 2795.5,
+      "last_updated": "2026-09-23",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار ترميز الصوت 1",
+      "track": "audio_tokenizer",
+      "size_mb": 34.9,
+      "last_updated": "2026-09-24",
+      "progress": {
+        "samples_consumed": 500,
+        "step": 9,
+        "type": "adult_synthesized"
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 1575.1,
+      "last_updated": "2026-09-21",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار ترميز الصوت 2",
+      "track": "audio_tokenizer",
+      "size_mb": 34.9,
+      "last_updated": "2026-09-21",
+      "progress": {
+        "samples_consumed": 500,
+        "step": 9,
+        "type": "adult_synthesized"
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار جمع وترميز الفيديو 1",
+      "track": "video_corpus",
+      "size_mb": 0.0,
+      "last_updated": "2026-09-22",
+      "progress": {
+        "videos_consumed": 0
+      },
+      "has_key_files": false
+    },
+    {
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
+      "size_mb": 178.4,
+      "last_updated": "2026-09-23",
+      "progress": {
+        "samples_consumed": 489,
+        "step": 1,
+        "type": "video_frames",
+        "num_videos": 62,
+        "num_frames": 489
+      },
+      "has_key_files": true
+    }
+  ],
+  "pipeline": {
+    "current_stage": "serve",
+    "next_step": {
+      "why": "شام متعدد الوسائط جاهز (نص + صورة + صوت).",
+      "do": "الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام»."
+    },
+    "stages": {
+      "text_stage1": {
+        "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
+        "ready": true,
+        "kernel_status": "error",
+        "progress": {},
+        "dataset": "نتائج المرحلة الأولى 1"
+      },
+      "image_tokenizer": {
+        "name": "مسار ترميز الصورة (VQ-VAE)",
+        "ready": true,
+        "kernel_status": "complete",
+        "progress": {
+          "samples_consumed": 489,
+          "step": 1,
+          "type": "video_frames",
+          "num_videos": 62,
+          "num_frames": 489
+        },
+        "dataset": "نتائج مسار ترميز الصورة 1"
+      },
+      "audio_tokenizer": {
+        "name": "مسار ترميز الصوت (VQ-VAE)",
+        "ready": true,
+        "kernel_status": "complete",
+        "progress": {
+          "samples_consumed": 500,
+          "step": 9,
+          "type": "adult_synthesized"
+        },
+        "dataset": "نتائج مسار ترميز الصوت 1"
+      },
+      "video_corpus": {
+        "name": "مسار جمع وترميز الفيديو",
+        "ready": false,
+        "kernel_status": "missing",
+        "progress": {},
+        "dataset": null
+      },
+      "stage2_multimodal": {
+        "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
+        "ready": true,
+        "kernel_status": "complete",
+        "progress": {},
+        "dataset": null
+      },
+      "cpu_training_track": {
+        "name": "المسار A — التدريب النصي المستمر (CPU)",
+        "ready": true,
+        "kernel_status": "running",
+        "progress": {},
+        "dataset": "نتائج المسار A 1"
+      },
+      "research_track": {
+        "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
+        "ready": true,
+        "kernel_status": "running",
+        "progress": {},
+        "dataset": "نتائج المسار B 1"
+      }
+    }
+  }
+}
