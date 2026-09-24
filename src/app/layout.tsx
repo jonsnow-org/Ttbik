@@ -5,8 +5,6 @@ import Logo from "@/components/Logo";
 import { isOwnerServer } from "@/lib/isOwner";
 import AdServiceWorker from "@/components/AdServiceWorker";
 import AdSlot from "@/components/AdSlot";
-import MultitagScript from "@/components/MultitagScript";
-import MonetagInPagePushScript from "@/components/MonetagInPagePushScript";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import StickyBottomAd from "@/components/StickyBottomAd";
@@ -77,18 +75,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             got it installed on a previous visit, owner included, needs it
             actively removed, not just skipped going forward. */}
         <AdServiceWorker />
-        {/* The owner-ad-free rule (AdSlot.tsx, StickyBottomAd.tsx) only ever
-            covered the banner/sticky placements -- these two more intrusive
-            network-wide scripts (in-page push, Multitag's popunder/
-            interstitial bundle) ran unconditionally for every visitor,
-            owner included, which is the real complaint ("الإعلانات لا تزال
-            تظهر في صفحتي"، 2026-09-21). Gate both the same way. */}
-        {!isOwner && (
-          <>
-            <MonetagInPagePushScript />
-            <MultitagScript />
-          </>
-        )}
+        {/* Intrusive ad formats removed site-wide (owner directive
+            2026-09-24): Monetag In-Page Push (notification-style popups)
+            and Multitag (popunder / new-window / interstitial bundle).
+            Only non-intrusive placements remain: AdSlot banners and the
+            dismissible StickyBottomAd. Don't re-add push/popunder scripts. */}
         <AnalyticsTracker isOwner={isOwner} />
         {isOwner && (
           <div className="bg-emerald-600 py-1.5 text-center text-xs font-bold text-white">
