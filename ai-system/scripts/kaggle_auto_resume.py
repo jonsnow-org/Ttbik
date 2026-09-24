@@ -69,7 +69,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
+import time
 import sys
 from pathlib import Path
 
@@ -82,6 +84,57 @@ def _load_kaggle_api():
     return api
 
 
+GPU_RETRY_HOURS = 24
+# GPU/accelerator AND quota wording -- a plain "time limit exceeded" must not count.
+_GPU_QUOTA = re.compile(r"(gpu|accelerator).*(quota|exceed|limit)|(quota|limit).*(gpu|accelerator)", re.IGNORECASE)
+
+
+def _set_gpu(work_dir: Path, enable: bool) -> bool:
+    meta_path = work_dir / "kernel-metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    was = bool(meta.get("enable_gpu"))
+    meta["enable_gpu"] = enable
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    return was
+
+
+def _push_ok(api, work_dir: Path) -> None:
+    resp = api.kernels_push(str(work_dir))
+    error = getattr(resp, "error", None)
+    if isinstance(error, str) and error.strip():
+        raise RuntimeError(error)
+
+
+def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failure: str, state: dict) -> str:
+    entry = state.setdefault(slug, {})
+    set_to_gpu = _set_gpu(work_dir, False)  # read the notebook's current setting
+    fallback_since = entry.get("gpu_fallback_since")
+    if not set_to_gpu and not fallback_since:
+        # The owner chose CPU (the free option): never move it to a paid GPU.
+        _push_ok(api, work_dir)
+        return "CPU (owner's choice)"
+
+    now = time.time()
+    quota_failed = last_failed and bool(_GPU_QUOTA.search(failure))
+    waiting = fallback_since and now - fallback_since < GPU_RETRY_HOURS * 3600
+    if not quota_failed and not waiting:
+        _set_gpu(work_dir, True)
+        try:
+            _push_ok(api, work_dir)
+            entry.pop("gpu_fallback_since", None)
+            return "GPU (owner's choice)"
+        except Exception as exc:
+            print(f"kaggle_auto_resume: GPU refused for '{slug}' ({exc}) -- continuing on the free CPU instead.")
+            quota_failed = True
+        _set_gpu(work_dir, False)
+    if quota_failed:
+        entry["gpu_fallback_since"] = now
+        print(f"kaggle_auto_resume: '{slug}' is a GPU notebook without GPU quota -- running it on CPU; "
+              f"GPU will be tried again in {GPU_RETRY_HOURS}h.")
+    _push_ok(api, work_dir)
+    return "CPU (GPU quota exhausted)"
+
+
 def resume_kernel(
     kernel_slug: str,
     notebook_repo_path: str | Path,
@@ -89,6 +142,8 @@ def resume_kernel(
     sync_from_repo: bool = False,
     dry_run: bool = False,
     api=None,
+    auto_accelerator: bool = False,
+    state: dict | None = None,
 ) -> str:
     """Real orchestration logic, factored out from any CLI/argv concerns
     so it can be exercised directly (with a fake `api`) by this file's
@@ -101,7 +156,18 @@ def resume_kernel(
     "not_found" (kernel_slug does not exist on Kaggle -- deliberately
     never falls back to creating a substitute kernel, since that would
     silently start a second, disconnected training run instead of
-    resuming the real one)."""
+    resuming the real one).
+
+    auto_accelerator (owner design, 2026-09-24 -- every Sham notebook runs on
+    GPU or CPU, and the owner picks one per notebook):
+      * notebook set to CPU  -> always resumed on CPU, never moved to GPU;
+      * notebook set to GPU  -> resumed on GPU; when the free GPU quota is
+        exhausted (push refused, or the last run failed for lack of quota)
+        it is resumed on CPU instead, and moved back to GPU once the quota
+        can be tried again (at most one GPU retry per GPU_RETRY_HOURS).
+    `state` (a dict the caller persists between runs) remembers which CPU
+    runs are only a quota fallback of a GPU notebook -- without it, a
+    fallen-back notebook would look exactly like one the owner set to CPU."""
     from kagglesdk.kernels.types.kernels_enums import KernelWorkerStatus
 
     api = api or _load_kaggle_api()
@@ -115,6 +181,7 @@ def resume_kernel(
         return "not_found"
 
     status = status_response.status
+    failure = str(getattr(status_response, "failure_message", "") or "")
     if status in (KernelWorkerStatus.RUNNING, KernelWorkerStatus.QUEUED):
         print(f"kaggle_auto_resume: '{kernel_slug}' is still {status.name} -- nothing to do.")
         return "still_running"
@@ -138,8 +205,13 @@ def resume_kernel(
         shutil.copy2(notebook_repo_path, work_dir / code_file)
         print(f"kaggle_auto_resume: synced notebook content from {notebook_repo_path} before resuming.")
 
-    api.kernels_push(str(work_dir))
-    print(f"kaggle_auto_resume: pushed -- '{kernel_slug}' should start a fresh run shortly.")
+    if auto_accelerator:
+        device = _resume_accelerator(api, work_dir, kernel_slug, status == KernelWorkerStatus.ERROR,
+                                     failure, state if state is not None else {})
+    else:
+        api.kernels_push(str(work_dir))
+        device = "accelerator unchanged"
+    print(f"kaggle_auto_resume: pushed ({device}) -- '{kernel_slug}' should start a fresh run shortly.")
     print("kaggle_auto_resume: REMINDER -- verify on Kaggle's own UI that Secrets (GITHUB_TOKEN, "
           "KAGGLE_USERNAME, KAGGLE_KEY) and the GPU accelerator are still attached after this push. "
           "This is a known Kaggle API limitation (see this file's own module docstring), not something "
@@ -259,6 +331,47 @@ if __name__ == "__main__":
             "with sync_from_repo=True, the pushed notebook content must come from the repo file"
         )
         print("sync_from_repo=True correctly overwrote the pushed content with this repo's notebook.")
+
+    # 5b) auto_accelerator: owner's CPU choice never moves to GPU; GPU falls back to CPU without quota
+    def run(meta_gpu, last_status=KernelWorkerStatus.COMPLETE, failure="", push_errors=(), state=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            work_dir = Path(tmp) / "kaggle-kernel"
+            api = fake_api(last_status)
+            api.kernels_status.return_value.failure_message = failure
+
+            def pull(kernel, path, metadata=False, quiet=True):
+                fake_pull(kernel, path, metadata, quiet)
+                meta = json.loads((Path(path) / "kernel-metadata.json").read_text())
+                (Path(path) / "kernel-metadata.json").write_text(json.dumps({**meta, "enable_gpu": meta_gpu}))
+
+            api.kernels_pull.side_effect = pull
+            flags, errors = [], list(push_errors)
+
+            def push(path):
+                flags.append(json.loads((Path(path) / "kernel-metadata.json").read_text())["enable_gpu"])
+                if errors:
+                    raise errors.pop(0)
+                return MagicMock(error="")
+
+            api.kernels_push.side_effect = push
+            state = {} if state is None else state
+            assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
+                                 auto_accelerator=True, state=state) == "pushed"
+            return flags, state
+
+    assert run(False)[0] == [False]                                                   # CPU stays CPU
+    assert run(True, KernelWorkerStatus.ERROR, "Time limit exceeded")[0] == [True]    # not a quota issue
+    assert run(False, KernelWorkerStatus.ERROR, "GPU quota exceeded")[0] == [False]   # ...always
+    assert run(True)[0] == [True]                                                     # GPU stays GPU
+    flags, st = run(True, KernelWorkerStatus.ERROR, "You have exceeded your weekly GPU quota")
+    assert flags == [False] and st["user/slug"]["gpu_fallback_since"]                 # no quota -> CPU
+    flags, st = run(True, push_errors=[RuntimeError("GPU quota exceeded")])
+    assert flags == [True, False] and st["user/slug"]["gpu_fallback_since"]           # refused -> CPU
+    assert run(False, state=st)[0] == [False]                                         # fallback: wait 24h
+    st["user/slug"]["gpu_fallback_since"] -= (GPU_RETRY_HOURS + 1) * 3600
+    flags, st = run(False, state=st)
+    assert flags == [True] and "gpu_fallback_since" not in st["user/slug"]            # back on GPU
+    print("auto_accelerator: CPU choice never moves to GPU; GPU falls back to CPU without quota and returns later.")
 
     # 6) Kernel not found -> never create a substitute, just report not_found
     api = fake_api(KernelWorkerStatus.COMPLETE, status_error=True)

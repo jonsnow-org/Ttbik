@@ -517,8 +517,11 @@ def pipeline_state(kernels: list[KernelInfo], datasets: list[DatasetInfo]) -> di
 def build_registry(kernels: list[KernelInfo], datasets: list[DatasetInfo]) -> dict[str, Any]:
     assign_roles(kernels)
     state = pipeline_state(kernels, datasets)
-    resumable = [k.ref for k in kernels if k.role == "primary" and TRACK_BY_ID[k.track]["kind"] == "train"
-                 and k.track in ("cpu_training_track", "research_track", "image_tokenizer", "audio_tokenizer", "video_corpus")]
+    # Owner design (2026-09-24): every track runs on GPU or CPU, so the orchestrator keeps ALL of
+    # them going. Accelerator = the owner's own choice per notebook; a GPU notebook drops to CPU
+    # while the free GPU quota is exhausted, a CPU notebook never moves to GPU
+    # (kaggle_auto_resume.resume_kernel(auto_accelerator=True)).
+    resumable = [k.ref for k in kernels if k.role == "primary" and TRACK_BY_ID[k.track]["kind"] == "train"]
     return {
         "generated_at": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
         "kernels": [asdict(k) for k in kernels],
