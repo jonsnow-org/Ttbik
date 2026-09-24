@@ -34,6 +34,7 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [
         { href: "/", label: "🏠 الصفحة الرئيسية" },
         { href: "/bashar", label: "💬 بَشَر — يجيبك إنسان لا ذكاء اصطناعي" },
+        { href: "/guess-word", label: "🔤 خمّن الكلمة — لغز يومي" },
       ],
     },
     {

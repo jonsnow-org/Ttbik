@@ -9,6 +9,7 @@ type Item = { href: string; label: string; hint: string; section?: Section; exte
 // block without touching the page files. The current section is skipped.
 const ITEMS: Item[] = [
   { href: "/bashar", label: "💬 بَشَر", hint: "يجيبك إنسان لا ذكاء اصطناعي" },
+  { href: "/guess-word", label: "🔤 خمّن الكلمة", hint: "لغز يومي جديد للجميع", section: "tools" },
   { href: "/prayer-times", label: "🕌 مواقيت الصلاة", hint: "مدينتك + عدّاد الصلاة القادمة", section: "prayer" },
   { href: "/news", label: "📰 خبر اليوم", hint: "بمصدرين + شريط عاجل", section: "news" },
   { href: "/events", label: "🗓️ أحداث ومقالات", hint: "شروحات قصيرة بمصادر", section: "events" },

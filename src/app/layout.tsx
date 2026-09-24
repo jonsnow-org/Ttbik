@@ -117,6 +117,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/bashar" className="rounded-full px-3 py-1.5 font-extrabold text-indigo-700 transition hover:bg-indigo-50">
                 💬 بَشَر
               </a>
+              <a href="/guess-word" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
+                🔤 خمّن الكلمة
+              </a>
               <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🕌 المواقيت
               </a>
