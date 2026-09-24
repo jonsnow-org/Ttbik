@@ -20,6 +20,7 @@ const TOOL_GRADIENTS = [
 import BotCards from "@/components/BotCards";
 import TodayStrip from "@/components/TodayStrip";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
+import { latestNewsItem } from "@/lib/newsItems";
 
 export const revalidate = 30;
 
@@ -37,11 +38,15 @@ async function getStorefront() {
 
 export default async function HomePage() {
   const { categories, services } = await getStorefront();
+  const news = latestNewsItem();
   const visible = categories.filter((c) => ["telegram-bots", "creative-studio"].includes(c.slug));
 
   return (
     <div>
-      <TodayStrip latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }} />
+      <TodayStrip
+        latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
+        latestNews={news && { slug: news.slug, title: news.title }}
+      />
       <section className="relative overflow-hidden bg-hero-glow bg-white">
         <SectionBackdrop />
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 text-center sm:pb-14 sm:pt-20">

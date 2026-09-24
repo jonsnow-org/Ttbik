@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import { latestNewsItem } from "@/lib/newsItems";
-import { fetchNewsTicker } from "@/lib/newsRss";
+import { clusterHeadlines, fetchAllNews, interleaveNews, type RssItem } from "@/lib/newsRss";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -42,8 +42,17 @@ const BREADCRUMB = {
 };
 
 export default async function NewsHubPage() {
-  const ticker = await fetchNewsTicker(12);
-  const updated = new Date().toISOString();
+  const all = await fetchAllNews();
+  const ticker = interleaveNews(all, 12);
+  const stories = clusterHeadlines(all).slice(0, 6);
+  const now = Date.now();
+  const updated = new Intl.DateTimeFormat("ar-EG", {
+    timeZone: "Asia/Riyadh",
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "numeric",
+    month: "long",
+  }).format(new Date(now));
   const featured = latestNewsItem();
 
   return (
@@ -71,6 +80,45 @@ export default async function NewsHubPage() {
           والرابط يفتح الموقع الأصلي. لا نسخ للمقالات.
         </p>
 
+        {stories.length > 0 && (
+          <section className="mb-8" aria-labelledby="top-stories">
+            <h2 id="top-stories" className="mb-1 text-lg font-extrabold text-slate-900">
+              أبرز القصص الآن
+            </h2>
+            <p className="mb-3 text-xs text-slate-500">
+              قصص تغطيها عدة مؤسسات إخبارية في الوقت نفسه — عنوان كل مصدر كما نشره، والرابط يفتح مقاله.
+            </p>
+            <ol className="space-y-3">
+              {stories.map((st) => (
+                <li key={st.items[0].link} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="mb-2 text-[11px] font-bold text-indigo-700">
+                    📡 {st.sources} مصادر · {ago(st.latest, now)}
+                  </p>
+                  <a
+                    href={st.items[0].link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-base font-extrabold leading-7 text-slate-900 hover:underline"
+                  >
+                    {st.items[0].title}
+                  </a>
+                  <span className="mr-1 text-xs text-slate-500">— {st.items[0].source}</span>
+                  <ul className="mt-2 space-y-1.5 border-r-2 border-indigo-100 pr-3">
+                    {st.items.slice(1).map((it) => (
+                      <li key={it.link} className="text-sm leading-6">
+                        <a href={it.link} target="_blank" rel="noopener noreferrer" className="text-slate-700 hover:underline">
+                          {it.title}
+                        </a>
+                        <span className="mr-1 text-xs text-slate-500">— {it.source}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+
         <section className="mb-8 rounded-2xl border border-amber-200 bg-amber-50 p-4" aria-label="شريط عاجل">
           <h2 className="mb-3 text-sm font-extrabold text-amber-950">عاجل من المصادر</h2>
           {ticker.length === 0 ? (
@@ -89,13 +137,13 @@ export default async function NewsHubPage() {
                   </a>
                   <span className="mt-0.5 block text-xs text-slate-500">
                     {item.source}
-                    {item.publishedAt ? ` · ${item.publishedAt}` : ""}
+                    {item.ts ? ` · ${ago(item.ts, now)}` : ""}
                   </span>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-3 text-[11px] text-slate-500">آخر محاولة جلب: {updated}</p>
+          <p className="mt-3 text-[11px] text-slate-500">آخر تحديث: {updated} (بتوقيت مكة)</p>
         </section>
 
         <div className="mb-8">
@@ -136,4 +184,12 @@ export default async function NewsHubPage() {
       </main>
     </>
   );
+}
+
+function ago(ts: RssItem["ts"], now: number) {
+  const min = Math.max(0, Math.round((now - ts) / 60_000));
+  if (min < 1) return "الآن";
+  if (min < 60) return min === 1 ? "منذ دقيقة" : min === 2 ? "منذ دقيقتين" : `منذ ${min} ${min <= 10 ? "دقائق" : "دقيقة"}`;
+  const h = Math.round(min / 60);
+  return h === 1 ? "منذ ساعة" : h === 2 ? "منذ ساعتين" : `منذ ${h} ${h <= 10 ? "ساعات" : "ساعة"}`;
 }

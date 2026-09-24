@@ -44,7 +44,13 @@ function fmtLeft(ms: number) {
   return h > 0 ? `${h}س ${m}د ${s}ث` : `${m}د ${s}ث`;
 }
 
-export default function TodayStrip({ latestEvent }: { latestEvent?: { slug: string; title: string } }) {
+export default function TodayStrip({
+  latestEvent,
+  latestNews,
+}: {
+  latestEvent?: { slug: string; title: string };
+  latestNews?: { slug: string; title: string };
+}) {
   const [slug, setSlug] = useState<string | null>(null);
   const [now, setNow] = useState<Date | null>(null);
 
@@ -120,8 +126,13 @@ export default function TodayStrip({ latestEvent }: { latestEvent?: { slug: stri
           )}
         </div>
         <div className="flex flex-col gap-1.5 border-t border-slate-100 pt-3 text-sm sm:border-r sm:border-t-0 sm:pr-4 sm:pt-0">
-          <Link href="/news" className="font-bold text-slate-800 hover:text-indigo-700">
-            📰 خبر اليوم بمصدرين + الشريط العاجل ←
+          {latestNews ? (
+            <Link href={`/news/${latestNews.slug}`} className="line-clamp-2 font-bold text-slate-800 hover:text-indigo-700">
+              📰 {latestNews.title}
+            </Link>
+          ) : null}
+          <Link href="/news" className="text-slate-600 hover:text-indigo-700">
+            📡 أبرز القصص الآن من 7 مصادر ←
           </Link>
           {latestEvent && (
             <Link href={`/events/${latestEvent.slug}`} className="line-clamp-1 text-slate-600 hover:text-indigo-700">

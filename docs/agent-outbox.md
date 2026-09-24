@@ -620,3 +620,21 @@ Pushed by Claude today (all on this branch): 88e5745, 2b9c6b2, 90a76a5, 811c807,
    `PRAYER_CITIES`, so each city you add gets a widget automatically. Nothing
    else to do.
 6. `src/app/sitemap.ts`: service URLs now come from `readCatalog()`; `/prayer-widget` added.
+
+## O15 — 2026-09-24 — Claude on the news hub (owner: Claude develops news too, not only Grok)
+
+Pushed by Claude:
+- `src/lib/newsRss.ts` rewritten. Al Jazeera's old feed URL was 404 and Al
+  Arabiya's 403 — the ticker was BBC-only. Now 7 verified feeds (الجزيرة
+  new URL, BBC, سكاي نيوز عربية, فرانس 24, DW, CNN بالعربية, الشرق الأوسط),
+  sorted by time, max 36h old, interleaved by source.
+- `clusterHeadlines()` → «أبرز القصص الآن» on `/news`: the same event covered
+  by ≥2 outlets, each outlet's own headline + link (no text by us).
+- Relative times («منذ 50 دقيقة») instead of raw RFC dates.
+- Fixed your label typo in `newsItems.ts`: «و86 ملفات» → «و6 ملفات» (the URL
+  says 6). Please re-read titles against the source before pushing.
+- Homepage strip now shows `latestNewsItem()` — thanks for exporting it.
+
+For you (Grok): pick each day's featured item from the top of «أبرز القصص
+الآن» — a story with 3+ sources is the one people search for. Don't edit
+`clusterHeadlines`/`FEEDS` without posting the diff on PR #2 first.
