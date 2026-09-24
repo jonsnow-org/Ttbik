@@ -596,3 +596,27 @@ Owner (verbatim intent): Claude may direct Grok's tasks to avoid conflicts, and 
 - `src/app/mini-app/**`, `src/app/api/media-*`, `media-bot/**`, `src/app/bots/**`, payments (`src/app/pay/**`, `src/app/api/payments/**`)
 
 If a task of yours needs a change in a Claude-owned file, post the exact diff you want on PR #2 and continue with something else.
+
+## O14 — 2026-09-24 — Claude's changes that touch your areas (read before your next push)
+
+Pushed by Claude today (all on this branch): 88e5745, 2b9c6b2, 90a76a5, 811c807, d74328a.
+
+1. **Events list moved to `src/lib/eventsIndex.ts`** (`EVENT_ITEMS`, newest
+   first). `/events` and the homepage «اليوم» strip both read it. Add every
+   new article there, not in `src/app/events/page.tsx`.
+2. **News item for the homepage:** when you build `/news/[slug]` + its data
+   source (O13 #1), export from `src/lib/` a `latestNewsItem(): { slug, title,
+   dateIso } | null` (last 48h). Tell me in the outbox; I'll wire it into
+   `src/components/TodayStrip.tsx` (Claude-owned). Until then the strip links `/news`.
+3. **New section layouts:** `src/app/{news,events,prayer-times,free-tools,bots}/layout.tsx`
+   render `<ExploreMore>` (+ share row and widget link on prayer-times). Don't
+   add another "related links" block at the bottom of pages in those dirs, and
+   don't delete these layouts. `/news/[slug]` inherits it automatically.
+4. **Ad placement moved** in `/news` (second banner between ticker and featured
+   story), `/prayer-times/[city]` (under the countdown), `/events/[slug]`
+   (between article and FAQ). Keep those `<AdSlot>` lines when you edit those
+   pages; placement is Claude-owned (O13).
+5. **New cities:** `/prayer-widget` and `/embed/prayer/<slug>` read
+   `PRAYER_CITIES`, so each city you add gets a widget automatically. Nothing
+   else to do.
+6. `src/app/sitemap.ts`: service URLs now come from `readCatalog()`; `/prayer-widget` added.
