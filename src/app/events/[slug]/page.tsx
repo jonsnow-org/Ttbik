@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
+import { SITE_URL } from "@/lib/siteUrl";
 
-const SITE = "https://souqtools.com";
+const SITE = SITE_URL;
 
 const ARTICLE = {
   slug: "autumn-equinox-2026",

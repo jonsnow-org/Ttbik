@@ -5,8 +5,9 @@ import AdSlot from "@/components/AdSlot";
 import { PRAYER_CITIES, getPrayerCity } from "@/lib/prayerCities";
 import { PRAYER_LABELS, computePrayerTimes } from "@/lib/prayerCalc";
 import NextPrayerCountdown from "./NextPrayerCountdown";
+import { SITE_URL } from "@/lib/siteUrl";
 
-const SITE = "https://souqtools.com";
+const SITE = SITE_URL;
 
 type Params = { city: string };
 

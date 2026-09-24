@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import HealthCheckForm from "./HealthCheckForm";
+import { SITE_URL } from "@/lib/siteUrl";
 
-const SITE = "https://souqtools.com";
+const SITE = SITE_URL;
 const PATH = "/bots/health-check";
 
 export const metadata: Metadata = {

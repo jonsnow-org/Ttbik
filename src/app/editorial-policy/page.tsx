@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SITE_URL } from "@/lib/siteUrl";
 
-const SITE = "https://souqtools.com";
+const SITE = SITE_URL;
 const PATH = "/editorial-policy";
 
 export const metadata: Metadata = {

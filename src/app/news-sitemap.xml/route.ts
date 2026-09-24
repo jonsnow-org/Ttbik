@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
+import { SITE_URL } from "@/lib/siteUrl";
 
 export const revalidate = 600;
 
-const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://souqtools.com").replace(/\/$/, "");
+const SITE = SITE_URL;
 
 /** Google News sitemap — articles we authored, not ticker RSS items. */
 const NEWS_ITEMS = [
