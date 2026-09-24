@@ -31,7 +31,10 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
   const groups: { label: string; badge?: string; links: { href: string; label: string }[] }[] = [
     {
       label: "الرئيسية",
-      links: [{ href: "/", label: "🏠 الصفحة الرئيسية" }],
+      links: [
+        { href: "/", label: "🏠 الصفحة الرئيسية" },
+        { href: "/bashar", label: "🧍 بَشَر — يجيبك إنسان لا ذكاء اصطناعي" },
+      ],
     },
     {
       label: "الأدوات",

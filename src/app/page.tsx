@@ -47,6 +47,20 @@ export default async function HomePage() {
         latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
         latestNews={news && { slug: news.slug, title: news.title }}
       />
+      <section className="mx-auto max-w-6xl px-4 pt-4">
+        <Link
+          href="/bashar"
+          className="flex items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-slate-900 to-indigo-900 p-5 text-white shadow-lg transition hover:-translate-y-0.5"
+        >
+          <div>
+            <span className="rounded-full bg-emerald-400/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">جديد</span>
+            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">بَشَر: اسأل فيجيبك إنسان حقيقي، لا ذكاء اصطناعي</h2>
+            <p className="mt-1 text-xs text-white/75 sm:text-sm">جوابه خلال 75 ثانية، ثم تعرف من أي بلد هو. وكن أنت «الذكاء» لغيرك.</p>
+          </div>
+          <span className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">جرّب ←</span>
+        </Link>
+      </section>
+
       <section className="relative overflow-hidden bg-hero-glow bg-white">
         <SectionBackdrop />
         <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 text-center sm:pb-14 sm:pt-20">

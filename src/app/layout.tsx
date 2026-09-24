@@ -114,6 +114,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <a href="/bots" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🤖 منشئ البوتات
               </a>
+              <a href="/bashar" className="rounded-full px-3 py-1.5 font-extrabold text-indigo-700 transition hover:bg-indigo-50">
+                🧍 بَشَر
+              </a>
               <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🕌 المواقيت
               </a>
@@ -122,9 +125,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </a>
               <a href="/watch-and-earn" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 💰 اربح من الإعلانات
-              </a>
-              <a href="/how-it-works" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
-                كيف يعمل الموقع؟
               </a>
               <a href="/order/lookup" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 تتبع طلبي
