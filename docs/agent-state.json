@@ -1,19 +1,20 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5808047266,
+  "last_seen_comment_id": 5808939225,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T06:25:00Z",
+  "updated_at": "2026-09-24T08:08:00Z",
   "mode": "work-cycle",
   "open": [
-    "O11 remaining: first events article + editorial-policy + more cities + prices + word game.",
-    "O12 waits until O11 core (prayer + first article + editorial-policy).",
+    "O11 remaining: more cities + prices + word game + news-sitemap.xml.",
+    "O12 waits until O11 core done.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
-    "G162 O11 step1 /prayer-times + 24 city pages (local angles matching Umm al-Qura/Egyptian/MWL, hijri Intl, qibla, countdown). No adhan npm this push (lockfile).",
+    "G163 O11 /editorial-policy + /events + first article autumn-equinox-2026 (Youm7/NRIAG + Jeddah astro + Al Khaleej). FAQ+Article JSON-LD. No fabrication beyond sourced dates.",
+    "G162 O11 step1 /prayer-times + 24 city pages (Claude fixed adhan after manual-math error).",
     "G161 /bots hub: visible breadcrumbs + BreadcrumbList JSON-LD + internal links to health-check/earnings-calculator/news. No BotsDeployForm touch.",
     "G160 /news featured story: article-level sources (BBC + Al Jazeera), no homepage, no Putin claim, summit described as upcoming.",
     "G159 /bots/health-check: visible HowTo steps + /news internal links (store 308).",
