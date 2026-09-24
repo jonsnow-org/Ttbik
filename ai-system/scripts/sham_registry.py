@@ -286,7 +286,62 @@ def fetch_failure_log(api: Any, ref: str, workdir: Path) -> str:
     return ""
 
 
+class RateLimitedApi:
+    """Wraps the Kaggle API client: spaces calls out and retries when Kaggle
+    answers 429 (Too Many Requests) or a transient 5xx, honouring Retry-After.
+    A registry scan makes many calls (status + pull per notebook, file lists per
+    dataset); without this a big account trips Kaggle's rate limit mid-scan."""
+
+    def __init__(self, api: Any, min_interval: float = 1.2, retries: int = 6, sleep=time.sleep):
+        self._api, self._min, self._retries, self._sleep = api, min_interval, retries, sleep
+        self._last = 0.0
+
+    @staticmethod
+    def _transient(exc: Exception) -> tuple[bool, float | None]:
+        resp = getattr(exc, "response", None)
+        code = getattr(resp, "status_code", None) or getattr(exc, "status", None)
+        text = str(exc)
+        if code is None:
+            code = 429 if ("429" in text or "Too Many Requests" in text) else None
+            if code is None and any(f" {c} " in f" {text} " for c in ("500", "502", "503", "504")):
+                code = 503
+        if code == 429 or (isinstance(code, int) and 500 <= code < 600):
+            after = None
+            try:
+                after = float((getattr(resp, "headers", None) or {}).get("Retry-After"))
+            except (TypeError, ValueError):
+                pass
+            return True, after
+        return False, None
+
+    def __getattr__(self, name: str):
+        fn = getattr(self._api, name)
+        if not callable(fn):
+            return fn
+
+        def call(*args, **kwargs):
+            delay = 5.0
+            for attempt in range(self._retries + 1):
+                wait = self._min - (time.monotonic() - self._last)
+                if wait > 0:
+                    self._sleep(wait)
+                self._last = time.monotonic()
+                try:
+                    return fn(*args, **kwargs)
+                except Exception as exc:
+                    transient, after = self._transient(exc)
+                    if not transient or attempt == self._retries:
+                        raise
+                    pause = min(after or delay, 120.0)
+                    print(f"sham_registry: Kaggle طلب التمهّل ({name}) — انتظار {pause:.0f} ث ثم إعادة المحاولة {attempt + 1}/{self._retries}")
+                    self._sleep(pause)
+                    delay = min(delay * 2, 120.0)
+        return call
+
+
 def discover(api: Any, workdir: Path, with_logs: bool = True) -> tuple[list[KernelInfo], list[DatasetInfo]]:
+    if not isinstance(api, RateLimitedApi):
+        api = RateLimitedApi(api)
     kernels: list[KernelInfo] = []
     for k in list_all_kernels(api):
         ref = _get(k, "ref")
