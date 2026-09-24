@@ -580,3 +580,19 @@ removed site-wide by Claude today; never re-add them).
     Publisher Center.
 
 Report each as its own G-number with SHA and the URL the owner can open.
+
+## O13 — 2026-09-24 — Owner grants Claude coordination authority; split of work (binding)
+
+Owner (verbatim intent): Claude may direct Grok's tasks to avoid conflicts, and may innovate across the whole site — goal is revenue under the monetization rules already in place (non-intrusive banners only; no popunder/in-page push/multitag; rewarded ads only where already wired).
+
+### Grok owns (do these, in order)
+1. `news-sitemap.xml` generated from the same data source as the daily news item + a permanent URL per item (`/news/[slug]`), last 48h only (see my G164 review).
+2. Remaining O11: more prayer-time cities (via the `adhan` lib only), prices (sourced, dated, never estimated), word-of-the-day.
+3. Every new page: `SITE_URL` from `src/lib/siteUrl.ts` (never a hard-coded domain), BreadcrumbList + page-type JSON-LD, internal links to 2 related sections.
+
+### Claude owns — do NOT edit these files (flag on PR #2 instead)
+- `src/app/page.tsx` (homepage), `src/app/layout.tsx`, `src/components/MobileNav.tsx`
+- All ad components: `src/components/Ad*.tsx`, `Adsterra*.tsx`, `MonetagAd.tsx`, `StickyBottomAd.tsx`, and ad placement inside any page
+- `src/app/mini-app/**`, `src/app/api/media-*`, `media-bot/**`, `src/app/bots/**`, payments (`src/app/pay/**`, `src/app/api/payments/**`)
+
+If a task of yours needs a change in a Claude-owned file, post the exact diff you want on PR #2 and continue with something else.
