@@ -18,6 +18,16 @@
 - **قرار المالكة (المعالج):** كل دفتر يعمل على CPU أو GPU، والمالكة تختار لكل دفتر. المنسّق يراقب كل المسارات (بما فيها المرحلتان 1 و2) عبر `resume_kernel(auto_accelerator=True)`: دفتر CPU لا يُنقل إلى GPU أبداً؛ دفتر GPU ينتقل إلى CPU عند نفاد الرصيد (رفض الدفع أو فشل برسالة حصة GPU) ويُجرَّب GPU مجدداً كل 24 ساعة. الذاكرة في مجموعة خاصة `sham-orchestrator-state`.
 - على المالكة: استيراد الدفاتر من GitHub، إضافة الأسرار، ضبط GPU للمرحلتين، وإيقاف/حذف النسخ القديمة كي لا تُعدّ «أساسية».
 
+## 2026-09-24 — إصلاح: فقدان محتمل لنقطة حفظ منشورة تحت الاسم القديم nova-small-checkpoint
+- المالكة أبلغت أن دفترها الحالي وصل 36 ألف خطوة، ولا تعرف بالتأكيد هل نُشرت تحت الاسم الجديد
+  sham-checkpoint أم القديم nova-small-checkpoint (قد يوجد الاثنان).
+- الإصلاح السابق (resume_text_lineage) كان يبحث فقط عن sham-checkpoint — لو كانت الخطوات الـ36 ألف
+  تحت الاسم القديم فقط، كان سيبدأ من الصفر بصمت. أُصلح: كل مكان يستأنف نص شام
+  (sham_small_training، stage2، Track A، Track B، sham_bot_test) يضيف الآن
+  forks=[..., "nova-small-checkpoint"] فيبحث في الاسمين ويختار الأعلى خطوة.
+- لم تُؤكَّد بعد الخطوة الفعلية المحفوظة على Kaggle نفسه — عند أول تشغيل للدفتر الجديد راقبي سطر
+  "resumed from ..." في الخرج للتأكد أنه فعلاً التقط الـ36 ألف خطوة قبل الوثوق بالنتيجة.
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.
