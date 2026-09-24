@@ -64,7 +64,8 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
   }
   if (!view) return <p className="p-8 text-center text-sm text-slate-400">جارٍ فتح السؤال…</p>;
 
-  const showAnswers = done || view.mine || left === 0;
+  // The 75 s countdown is only a nudge: the answer box never disappears.
+  const showAnswers = done || view.mine;
 
   return (
     <div className="p-4">
@@ -93,6 +94,7 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
             placeholder="اكتب جوابك قبل انتهاء الوقت…"
             className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none"
           />
+          {left === 0 && <p className="mt-1 text-xs text-slate-500">انتهى العدّاد — لكن ما زال بإمكانك الإجابة.</p>}
           {err && <p className="mt-1 text-xs font-bold text-rose-700">{err}</p>}
           <button
             type="button"
@@ -106,8 +108,16 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
       ) : (
         <>
           {done && <p className="mb-2 text-center text-xs font-bold text-emerald-700">✅ وصل جوابك — هذه إجابات البشر:</p>}
-          {view.mine && <p className="mb-2 text-center text-xs font-bold text-indigo-700">هذا سؤالك — شاركه ليجيبك أكثر:</p>}
-          {!done && !view.mine && left === 0 && <p className="mb-2 text-center text-xs text-slate-500">انتهى وقتك — هذه إجابات الآخرين:</p>}
+          {view.mine && (
+            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-900">
+              <p className="font-extrabold">هذا سؤالك أنت، لذلك لا تظهر لك خانة الجواب.</p>
+              <p>
+                أرسل الرابط لغيرك: من يفتحه على هاتفه يظهر له السؤال مع خانة الجواب وعدّاد 75 ثانية، وتصلك إجاباتهم هنا وفي صفحة
+                «بَشَر» فوراً.
+              </p>
+              <p className="mt-1 text-amber-800/80">لتجرّب بنفسك كيف يراه غيرك: افتح الرابط في نافذة تصفح خاصة أو متصفح آخر.</p>
+            </div>
+          )}
           <ul className="max-h-56 space-y-2 overflow-y-auto">
             {view.answers.length === 0 && <li className="text-center text-xs text-slate-400">لا إجابات بعد…</li>}
             {view.answers.map((a) => (
