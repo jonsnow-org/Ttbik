@@ -16,7 +16,6 @@ export async function GET() {
 
 /** POST {queries: string[]} → real clips for each English concept query. */
 export async function POST(req: NextRequest) {
-  if (!pexelsConfigured()) return NextResponse.json({ error: "no_key" }, { status: 503 });
   if (isRateLimited(`clips:${requestIp(req)}`, 30, 10 * 60_000)) {
     return NextResponse.json({ error: "طلبات كثيرة، انتظر دقائق" }, { status: 429 });
   }

@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 
 // «رموز» footage store: every English concept query the tool has ever looked
-// up, with the real clips found for it (from Pexels, free licence). Each new
-// word a visitor writes grows the store; repeated words are served from here
-// without touching the Pexels API. Created on first use, like bashar's tables.
+// up, with the real clips found for it. Sources: Pexels (free licence, when
+// PEXELS_API_KEY is set) and Wikimedia Commons (free licences, no key needed).
+// Each new word a visitor writes grows the store; repeated words are served
+// from here. Created on first use, like bashar's tables.
 
 export type Clip = {
   id: number;
@@ -96,6 +97,92 @@ async function pexels<T>(path: string): Promise<T | null> {
   return (await res.json()) as T;
 }
 
+const UA = "TtbikRumooz/1.0 (https://ttbik.vercel.app)";
+const stripHtml = (x: string) => x.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+
+type CommonsPage = {
+  title: string;
+  videoinfo?: { width: number; height: number; duration?: number; descriptionurl: string; derivatives?: { src: string; type: string; width: number; height: number }[]; extmetadata?: Record<string, { value: string }> }[];
+  imageinfo?: { width: number; height: number; thumburl?: string; descriptionurl: string; extmetadata?: Record<string, { value: string }> }[];
+};
+
+async function commons(query: string, filetype: "video" | "bitmap"): Promise<CommonsPage[]> {
+  const params = new URLSearchParams({
+    action: "query",
+    format: "json",
+    generator: "search",
+    gsrsearch: `${query} filetype:${filetype} ${NOT_FOOTAGE_SEARCH}`,
+    gsrnamespace: "6",
+    gsrlimit: "12",
+    prop: filetype === "video" ? "videoinfo" : "imageinfo",
+    ...(filetype === "video" ? { viprop: "url|size|derivatives|extmetadata" } : { iiprop: "url|size|extmetadata", iiurlwidth: "1080" }),
+  });
+  const res = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(12_000) });
+  if (!res.ok) return [];
+  const data = (await res.json()) as { query?: { pages?: Record<string, CommonsPage> } };
+  return Object.values(data.query?.pages || {});
+}
+
+// Only real camera footage / photographs: no drawings, prints, animation, film trailers, maps, diagrams…
+const NOT_FOOTAGE = /\b(drawing|illustration|engraving|lithograph|painting|print|poster|map|diagram|chart|logo|icon|cartoon|anime|animation|animated|render|3d|cgi|sketch|trailer|film|movie|lecture|interview|slideshow|screenshot|billboard|advertisement|stereograph|postcard|stamp|coin|manuscript|book|page|scan|plate|figure|svg|clip art)\b|\b1[5-9]\d\d\b/i;
+const NOT_FOOTAGE_SEARCH = "-drawing -illustration -painting -engraving -cartoon -animation -trailer -map -diagram";
+
+const titleWords = (title: string) => title.replace(/^File:/, "").replace(/\.[a-z0-9]+$/i, "").replace(/[_\-()]+/g, " ").trim();
+
+/** Real footage and photos from Wikimedia Commons (no key). Short clips only, 480p WebM. */
+async function fetchFromCommons(query: string): Promise<Clip[]> {
+  const clips: Clip[] = [];
+  for (const p of await commons(query, "video")) {
+    const v = p.videoinfo?.[0];
+    if (!v || !v.duration || v.duration < 3 || v.duration > 120) continue;
+    if (NOT_FOOTAGE.test(`${p.title} ${stripHtml(v.extmetadata?.ImageDescription?.value || "")} ${stripHtml(v.extmetadata?.Categories?.value || "")}`)) continue;
+    const webm = (v.derivatives || []).filter((d) => d.type.startsWith("video/webm") && d.src.includes("/transcoded/") && d.height >= 360 && d.height <= 720).sort((a, b) => a.height - b.height)[0];
+    if (!webm) continue;
+    const meta = v.extmetadata || {};
+    clips.push({
+      id: hash(p.title),
+      kind: "video",
+      words: `${titleWords(p.title)} ${stripHtml(meta.ImageDescription?.value || "").slice(0, 160)}`,
+      url: webm.src,
+      poster: "",
+      w: webm.width,
+      h: webm.height,
+      dur: v.duration,
+      author: `${stripHtml(meta.Artist?.value || "Wikimedia Commons").slice(0, 60)} (${meta.LicenseShortName?.value || "Commons"})`,
+      authorUrl: v.descriptionurl,
+      page: v.descriptionurl,
+    });
+  }
+  if (clips.length < 4) {
+    for (const p of await commons(query, "bitmap")) {
+      const im = p.imageinfo?.[0];
+      if (!im?.thumburl || im.width < 800) continue;
+      if (NOT_FOOTAGE.test(`${p.title} ${stripHtml(im.extmetadata?.ImageDescription?.value || "")} ${stripHtml(im.extmetadata?.Categories?.value || "")}`)) continue;
+      const meta = im.extmetadata || {};
+      clips.push({
+        id: hash(p.title),
+        kind: "photo",
+        words: `${titleWords(p.title)} ${stripHtml(meta.ImageDescription?.value || "").slice(0, 160)}`,
+        url: im.thumburl,
+        poster: im.thumburl,
+        w: im.width,
+        h: im.height,
+        dur: 0,
+        author: `${stripHtml(meta.Artist?.value || "Wikimedia Commons").slice(0, 60)} (${meta.LicenseShortName?.value || "Commons"})`,
+        authorUrl: im.descriptionurl,
+        page: im.descriptionurl,
+      });
+    }
+  }
+  return clips;
+}
+
+function hash(s: string) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 async function fetchFromPexels(query: string): Promise<Clip[]> {
   const q = encodeURIComponent(query);
   const clips: Clip[] = [];
@@ -122,46 +209,57 @@ type Row = { kind: string; media_id: bigint; words: string; file_url: string; po
 
 /** Clips for one English query: from the store if we already have them, else from Pexels (and stored). */
 export async function clipsFor(query: string): Promise<Clip[]> {
-  await ensureTable();
-  const rows = await prisma.$queryRawUnsafe<Row[]>(
-    `SELECT kind, media_id, words, file_url, poster, width, height, duration, author, author_url, page_url
-     FROM rumooz_clips WHERE query = $1 AND created_at > now() - interval '${FRESH_DAYS} days'`,
-    query,
-  );
-  if (rows.length) {
-    return rows.map((r) => ({
-      id: Number(r.media_id),
-      kind: r.kind as Clip["kind"],
-      words: r.words,
-      url: r.file_url,
-      poster: r.poster || "",
-      w: r.width || 0,
-      h: r.height || 0,
-      dur: r.duration || 0,
-      author: r.author || "",
-      authorUrl: r.author_url || "",
-      page: r.page_url || "",
-    }));
-  }
-  const clips = await fetchFromPexels(query);
-  for (const c of clips) {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO rumooz_clips (query, kind, media_id, words, file_url, poster, width, height, duration, author, author_url, page_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-       ON CONFLICT (query, kind, media_id) DO UPDATE SET file_url = EXCLUDED.file_url, created_at = now()`,
+  let stored = true;
+  try {
+    await ensureTable();
+    const rows = await prisma.$queryRawUnsafe<Row[]>(
+      `SELECT kind, media_id, words, file_url, poster, width, height, duration, author, author_url, page_url
+       FROM rumooz_clips WHERE query = $1 AND created_at > now() - interval '${FRESH_DAYS} days'`,
       query,
-      c.kind,
-      c.id,
-      c.words,
-      c.url,
-      c.poster,
-      c.w,
-      c.h,
-      c.dur,
-      c.author,
-      c.authorUrl,
-      c.page,
     );
+    if (rows.length) {
+      return rows.map((r) => ({
+        id: Number(r.media_id),
+        kind: r.kind as Clip["kind"],
+        words: r.words,
+        url: r.file_url,
+        poster: r.poster || "",
+        w: r.width || 0,
+        h: r.height || 0,
+        dur: r.duration || 0,
+        author: r.author || "",
+        authorUrl: r.author_url || "",
+        page: r.page_url || "",
+      }));
+    }
+  } catch (e) {
+    // the store is an accelerator: without it the tool still fetches live
+    console.error("rumooz store unavailable", e);
+    stored = false;
+  }
+  let clips = pexelsConfigured() ? await fetchFromPexels(query).catch(() => []) : [];
+  if (clips.length < 6) clips = clips.concat(await fetchFromCommons(query).catch(() => []));
+  if (!stored) return clips;
+  for (const c of clips) {
+    await prisma
+      .$executeRawUnsafe(
+        `INSERT INTO rumooz_clips (query, kind, media_id, words, file_url, poster, width, height, duration, author, author_url, page_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (query, kind, media_id) DO UPDATE SET file_url = EXCLUDED.file_url, created_at = now()`,
+        query,
+        c.kind,
+        c.id,
+        c.words,
+        c.url,
+        c.poster,
+        c.w,
+        c.h,
+        c.dur,
+        c.author,
+        c.authorUrl,
+        c.page,
+      )
+      .catch(() => null);
   }
   return clips;
 }

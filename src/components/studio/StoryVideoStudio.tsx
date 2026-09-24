@@ -175,9 +175,7 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
     const { pools, error: err } = await fetchPools(next);
     if (err) {
       setError(
-        err === "no_key"
-          ? "الأداة تحتاج مفتاح مكتبة الفيديو المجاني (Pexels) — صاحبة الموقع تضيفه مرة واحدة."
-          : err === "unavailable"
+        err === "unavailable"
             ? "تعذّر الوصول لمخزن المقاطع. أعد المحاولة."
             : err,
       );
@@ -404,9 +402,13 @@ export default function StoryVideoStudio({ canGenerate, onGenerated }: { canGene
               return (
                 <div key={i} className="flex flex-col gap-1 rounded-xl border border-slate-200 p-1.5">
                   <div className="relative aspect-[9/16] overflow-hidden rounded-lg bg-slate-200">
-                    {clip ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={clip.poster} alt={clip.words} className="h-full w-full object-cover" />
+                    {shot?.media ? (
+                      shot.media.clip.kind === "video" ? (
+                        <video src={shot.media.src} muted loop autoPlay playsInline className="h-full w-full object-cover" />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={shot.media.src} alt={shot.media.clip.words} className="h-full w-full object-cover" />
+                      )
                     ) : (
                       <div className="flex h-full items-center justify-center p-2 text-center text-[11px] text-slate-500">
                         {shot?.loading || phase === "searching" ? "جاري الاستدعاء..." : "لا يوجد مقطع"}
