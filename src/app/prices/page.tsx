@@ -15,6 +15,21 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE_URL}${PATH}` },
 };
 
+const FAQ = [
+  {
+    q: "من أين تأتي الأرقام؟",
+    a: "من نشرة المصرف المركزي الأوروبي اليومية eurofxref-daily.xml فقط. تاريخ النشرة ورابط المصدر ظاهران في الصفحة.",
+  },
+  {
+    q: "لماذا لا يظهر الريال أو الدرهم أو الجنيه؟",
+    a: "هذه العملات ليست في جدول ECB المرجعي مقابل اليورو. لا نخترع سعراً ولا نحوّل عبر وسيط غير منشور في المصدر.",
+  },
+  {
+    q: "هل هذا سعر الصرافة في السوق المحلي؟",
+    a: "لا. الرقم مرجعي مقابل اليورو من ECB، وليس سعر بيع/شراء في بنك أو محل صرافة.",
+  },
+];
+
 export default async function PricesPage() {
   const snap = await fetchEcbRates();
   const jsonLd = {
@@ -33,11 +48,21 @@ export default async function PricesPage() {
       { "@type": "ListItem", position: 2, name: "أسعار الصرف", item: `${SITE_URL}${PATH}` },
     ],
   };
+  const faqLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
+  };
 
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(crumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
       <main className="mx-auto max-w-2xl px-4 py-8 text-slate-700" dir="rtl" lang="ar">
         <nav className="mb-5 text-sm text-slate-500" aria-label="مسار التنقل">
           <ol className="flex flex-wrap items-center gap-1">
@@ -90,6 +115,15 @@ export default async function PricesPage() {
           </p>
         )}
         <AdSlot position="in-content" label="وسط صفحة أسعار الصرف" />
+        <h2 className="mb-3 mt-8 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
+        <dl className="space-y-3">
+          {FAQ.map((item) => (
+            <div key={item.q} className="rounded-xl border border-slate-200 bg-white p-4">
+              <dt className="mb-1 text-sm font-bold text-slate-900">{item.q}</dt>
+              <dd className="text-sm leading-6 text-slate-600">{item.a}</dd>
+            </div>
+          ))}
+        </dl>
         <p className="mt-8 text-sm">
           <Link href="/news" className="font-bold text-indigo-800 hover:underline">
             مركز الأخبار ←
