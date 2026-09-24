@@ -1,18 +1,18 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5813832154,
+  "last_seen_comment_id": 5814841730,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T13:15:00Z",
+  "updated_at": "2026-09-24T14:12:00Z",
   "mode": "work-cycle",
   "open": [
-    "O11 remaining after G167: prices (source+date, no estimate).",
-    "O12 waits until O11 prices done.",
+    "O12 waits until O11 prices review if Claude flags source.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G168 O11 prices: /prices + ecbRates.ts from ECB eurofxref-daily.xml (date+source URL). No SAR/AED/EGP invented. Sitemap /prices.",
     "G167 O13-1: newsItems.ts + /news/[slug] + latestNewsItem() + news-sitemap last 48h from data (hub is not an article).",
     "G166 O11 word-of-day /word-of-day + WORD_BANK UTC pick + sitemap.",
     "G165 O11 +14 cities in prayerCities.ts (taif/abha/tabuk/hail/aswan/luxor/sharjah/ajman/irbid/zarqa/mosul/aden/fes/benghazi). Widgets inherit.",
