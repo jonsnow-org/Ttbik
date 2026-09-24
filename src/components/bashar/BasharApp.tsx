@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ShareButtons from "./ShareButtons";
 import { MAX_LEN, api, type Ans, type Api } from "./client";
 
@@ -30,9 +30,7 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
   const [reply, setReply] = useState("");
   const [left, setLeft] = useState(0);
   const [emptyQueue, setEmptyQueue] = useState(false);
-  const logEnd = useRef<HTMLDivElement>(null);
-  // Track mine.length to scroll only when a NEW question is added, not on answer updates
-  const prevMineLen = useRef(0);
+  const [showAll, setShowAll] = useState(false);
 
   const absorb = useCallback((r: Api) => {
     if (typeof r.credits === "number") setCredits(r.credits);
@@ -40,24 +38,24 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
     if (typeof r.answered === "number") setAnsweredCount(r.answered);
   }, []);
 
+  const [loaded, setLoaded] = useState(false);
+
   useEffect(() => {
     setMine(loadMine());
+    setLoaded(true);
     api("state").then(absorb);
   }, [absorb]);
 
-  // Save to localStorage + scroll ONLY when a new question is added
+  // No programmatic scrolling anywhere: the page scrolls only under the user's finger.
+  // Saving waits for the first load so the empty initial state never overwrites it.
   useEffect(() => {
+    if (!loaded) return;
     try {
       localStorage.setItem(STORE, JSON.stringify(mine.slice(-30)));
     } catch {
       /* storage blocked */
     }
-    if (mine.length > prevMineLen.current) {
-      prevMineLen.current = mine.length;
-      // Slight delay so the DOM has rendered the new item
-      setTimeout(() => logEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" }), 100);
-    }
-  }, [mine]);
+  }, [mine, loaded]);
 
   // Poll my recent questions (live answers) — does NOT trigger scroll
   const liveIds = mine
@@ -166,7 +164,9 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
   }
 
   const pendingCount = mine.filter((m) => !m.answers?.length && !m.expired).length;
-  const chatH = compact ? "h-[280px]" : "h-[360px]";
+  const VISIBLE = 4;
+  const hiddenCount = showAll ? 0 : Math.max(0, mine.length - VISIBLE);
+  const shown = mine.slice(hiddenCount);
 
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
@@ -208,10 +208,10 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
       {/* ── ASK MODE ── */}
       {mode === "ask" && (
         <div>
-          {/* Chat log — fixed height, scrolls INSIDE the component only */}
-          <div className={`${chatH} overflow-y-auto overscroll-contain bg-slate-50 p-4`}>
+          {/* Chat log — grows with the page (no inner scroll box, so page swipes always work) */}
+          <div className="bg-slate-50 p-4">
             {mine.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-slate-500">
+              <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-sm text-slate-500">
                 <span className="text-4xl">💬</span>
                 <p className="font-bold text-slate-700">هنا لا يجيبك ذكاء اصطناعي</p>
                 <p className="max-w-xs leading-6">
@@ -221,7 +221,16 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
               </div>
             ) : (
               <div className="space-y-4">
-                {mine.map((m) => (
+                {hiddenCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll(true)}
+                    className="w-full rounded-xl bg-white py-2 text-xs font-bold text-slate-500 ring-1 ring-slate-200"
+                  >
+                    عرض {hiddenCount} أسئلة أقدم
+                  </button>
+                )}
+                {shown.map((m) => (
                   <div key={m.id} className="space-y-2">
                     {/* Question bubble (right) */}
                     <div className="flex justify-end">
@@ -277,7 +286,6 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
                     )}
                   </div>
                 ))}
-                <div ref={logEnd} />
               </div>
             )}
           </div>

@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
-import { cookies } from "next/headers";
+import QuestionPanel from "@/components/bashar/QuestionPanel";
 import { SITE_URL } from "@/lib/siteUrl";
-import { answersFor, countryLabel, getQuestion } from "@/lib/bashar";
+import { answersFor, getQuestion } from "@/lib/bashar";
 
 export const dynamic = "force-dynamic";
 
@@ -40,28 +40,18 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 export default async function BasharQuestionPage({ params }: { params: { id: string } }) {
   const d = await load(params.id);
   if (!d) notFound();
-  const { q, answers } = d;
-  const mine = cookies().get("bashar_id")?.value === q.asker;
+  const { q } = d;
   return (
     <main className="mx-auto max-w-xl px-4 py-8" dir="rtl" lang="ar">
-      <p className="mb-3 text-xs font-bold text-indigo-700">💬 بَشَر · سؤال من إنسان في {countryLabel(q.asker_cc)}</p>
-      <h1 className="rounded-2xl bg-indigo-600 px-5 py-4 text-xl font-extrabold leading-9 text-white">{q.body}</h1>
-      <p className="mt-2 text-xs text-slate-500">
-        {answers.length === 0 ? "لا إجابات بعد" : `${answers.length} إجابة من بشر حقيقيين`} ·{" "}
-        {mine ? "هذا سؤالك — شارك الرابط ليجيبك غيرك" : "افتح بَشَر لتجيب أنت"}
-      </p>
+      <h1 className="sr-only">{q.body}</h1>
+      <p className="mb-3 text-sm font-bold text-indigo-700">💬 بَشَر — سؤال من إنسان حقيقي، أجبه أنت</p>
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 shadow-lg">
+        <QuestionPanel id={q.id} />
+      </div>
       <div className="my-6">
         <AdSlot position="in-content" label="تحت سؤال بَشَر" />
       </div>
-      <ul className="space-y-2">
-        {answers.map((a) => (
-          <li key={a.id} className="rounded-2xl bg-white px-4 py-3 text-sm leading-7 shadow-sm ring-1 ring-slate-200">
-            {a.body}
-            <span className="block text-[11px] text-slate-500">— إنسان من {countryLabel(a.cc)}</span>
-          </li>
-        ))}
-      </ul>
-      <Link href="/bashar" className="mt-8 block rounded-2xl bg-slate-900 px-5 py-4 text-center font-extrabold text-white hover:bg-indigo-900">
+      <Link href="/bashar" className="block rounded-2xl bg-slate-900 px-5 py-4 text-center font-extrabold text-white hover:bg-indigo-900">
         اسأل إنساناً أنت أيضاً ←
       </Link>
     </main>

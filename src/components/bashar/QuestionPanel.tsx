@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import ShareButtons from "./ShareButtons";
 import { ANSWER_SECONDS, MAX_LEN, api, type Ans } from "./client";
@@ -7,7 +8,7 @@ import { ANSWER_SECONDS, MAX_LEN, api, type Ans } from "./client";
 type View = { id: string; text: string; from: string; mine: boolean; answers: Ans[] };
 
 /** One shared question: answer it within 75 seconds, then see everyone's answers. */
-export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: () => void }) {
+export default function QuestionPanel({ id }: { id: string }) {
   const [view, setView] = useState<View | null>(null);
   const [missing, setMissing] = useState(false);
   const [reply, setReply] = useState("");
@@ -56,9 +57,9 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
     return (
       <div className="p-6 text-center text-sm text-slate-600">
         <p className="mb-3">هذا السؤال لم يعد متاحاً.</p>
-        <button type="button" onClick={onAskOwn} className="rounded-xl bg-indigo-600 px-4 py-2 font-bold text-white">
+        <Link href="/bashar" className="inline-block rounded-xl bg-indigo-600 px-4 py-2 font-bold text-white">
           اسأل أنت سؤالاً ←
-        </button>
+        </Link>
       </div>
     );
   }
@@ -90,7 +91,6 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
             value={reply}
             onChange={(e) => setReply(e.target.value.slice(0, MAX_LEN))}
             rows={3}
-            autoFocus
             placeholder="اكتب جوابك قبل انتهاء الوقت…"
             className="w-full rounded-xl border border-slate-300 p-3 text-sm focus:border-indigo-500 focus:outline-none"
           />
@@ -118,7 +118,7 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
               <p className="mt-1 text-amber-800/80">لتجرّب بنفسك كيف يراه غيرك: افتح الرابط في نافذة تصفح خاصة أو متصفح آخر.</p>
             </div>
           )}
-          <ul className="max-h-56 space-y-2 overflow-y-auto">
+          <ul className="space-y-2">
             {view.answers.length === 0 && <li className="text-center text-xs text-slate-400">لا إجابات بعد…</li>}
             {view.answers.map((a) => (
               <li key={a.id} className="rounded-xl bg-white px-3 py-2 text-sm leading-6 shadow-sm ring-1 ring-slate-200">
@@ -136,9 +136,9 @@ export default function QuestionPanel({ id, onAskOwn }: { id: string; onAskOwn: 
             <p className="mb-2 text-xs font-bold text-slate-700">وسّع الدائرة — شارك هذا السؤال:</p>
             <ShareButtons id={view.id} text={view.text} compact />
           </div>
-          <button type="button" onClick={onAskOwn} className="mt-3 w-full rounded-xl bg-slate-900 py-2.5 text-sm font-bold text-white">
+          <Link href="/bashar" className="mt-3 block w-full rounded-xl bg-slate-900 py-2.5 text-center text-sm font-bold text-white">
             💬 اسأل أنت سؤالك الآن ←
-          </button>
+          </Link>
         </>
       )}
     </div>

@@ -5,8 +5,6 @@ export type Api = Record<string, unknown> & { credits?: number; online?: number;
 
 export const ANSWER_SECONDS = 75;
 export const MAX_LEN = 280;
-// Same public 300x250 unit as AdsterraSlot's in-content position.
-export const AD_300x250 = "3ee970813986977775e962f26938d143";
 
 export async function api(action: string, extra: Record<string, unknown> = {}): Promise<Api> {
   try {
