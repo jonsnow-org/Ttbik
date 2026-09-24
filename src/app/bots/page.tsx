@@ -16,6 +16,35 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE}${PATH}` },
 };
 
+const FAQ = [
+  {
+    q: "هل أحصل على كود مصدري للبوت؟",
+    a: "لا. المنتج بوت يعمل على توكنك. لا تحميل كوداً ولا بيع ملفات مصدرية.",
+  },
+  {
+    q: "هل يوجد سحب نقدي من البوت؟",
+    a: "لا. النقاط داخل البوت فقط. لا يوجد سحب نقدي عبر سوق تولز.",
+  },
+  {
+    q: "كيف أفعّل بوتاً؟",
+    a: "بعد طلب معتمد برمز طلب واحد لكل بوت. المالك يمكنه التجاوز للاختبار. الصق توكن BotFather في النموذج.",
+  },
+  {
+    q: "كيف أتأكد أن البوت يعمل؟",
+    a: "استخدم فاحص صحة البوت للتوكن والويبهوك بلا حفظ التوكن.",
+  },
+];
+
+const FAQ_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
 // SoftwareApplication structured data for the real, live bot template
 // itself (not just the deploy-your-own-instance page) -- owner directive
 // 2026-09-16: help the bots surface as real, indexable entities in search
@@ -51,6 +80,10 @@ export default function BotsDeployPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}
+      />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
@@ -66,7 +99,7 @@ export default function BotsDeployPage() {
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
       />
-      <aside className="relative mx-auto max-w-lg px-4 pb-10" aria-labelledby="bots-related">
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-related">
         <h2 id="bots-related" className="mb-2 text-sm font-extrabold text-slate-900">
           أدوات بوت مجانية على الموقع
         </h2>
@@ -93,6 +126,17 @@ export default function BotsDeployPage() {
           </li>
         </ul>
       </aside>
+      <section className="relative mx-auto max-w-lg px-4 pb-10">
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
+        <dl className="space-y-3">
+          {FAQ.map((item) => (
+            <div key={item.q} className="rounded-xl border border-slate-200 bg-white p-4">
+              <dt className="mb-1 text-sm font-bold text-slate-900">{item.q}</dt>
+              <dd className="text-sm leading-6 text-slate-600">{item.a}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
     </>
   );
 }

@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5817781560,
   "last_actor": "grok",
-  "updated_at": "2026-09-24T18:10:00Z",
+  "updated_at": "2026-09-24T21:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G171 /bots hub: visible FAQ + FAQPage JSON-LD. AdSlot/form unchanged.",
     "G170 /word-of-day: visible FAQ + FAQPage JSON-LD. AdSlot line unchanged.",
     "G169 /prices: visible FAQ + FAQPage JSON-LD. AdSlot line unchanged.",
     "G168 O11 prices: /prices + ecbRates.ts from ECB eurofxref-daily.xml (date+source URL). No SAR/AED/EGP invented. Sitemap /prices.",
