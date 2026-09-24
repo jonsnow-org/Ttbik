@@ -52,6 +52,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const pathname = headers().get("x-pathname") || "";
   const isMiniApp = pathname.startsWith("/mini-app");
 
+  // Embeddable widgets (/embed/*) are shown inside other sites' iframes:
+  // no header, ads or footer — just the widget.
+  if (pathname.startsWith("/embed")) {
+    return (
+      <html lang="ar" dir="rtl">
+        <body className="bg-transparent font-sans text-slate-800 antialiased">{children}</body>
+      </html>
+    );
+  }
+
   if (isMiniApp) {
     return (
       <html lang="ar" dir="rtl">
