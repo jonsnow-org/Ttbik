@@ -9,7 +9,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: base, changeFrequency: "daily", priority: 1 },
     { url: `${base}/how-it-works`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/bots`, changeFrequency: "monthly", priority: 0.7 },
-    { url: `${base}/store`, changeFrequency: "daily", priority: 0.85 },
+    { url: `${base}/news`, changeFrequency: "hourly", priority: 0.9 },
     { url: `${base}/watch-and-earn`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/bots/health-check`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/bots/earnings-calculator`, changeFrequency: "monthly", priority: 0.75 },
@@ -53,7 +53,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/en/free-tools/image-optimizer`, changeFrequency: "monthly", priority: 0.85 },
   ];
 
-  // Never crash the whole deploy if Supabase is briefly unavailable at build time.
   let serviceRoutes: MetadataRoute.Sitemap = [];
   try {
     const { supabasePublic } = await import("@/lib/supabase");
