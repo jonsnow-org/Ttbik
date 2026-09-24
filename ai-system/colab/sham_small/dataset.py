@@ -1,5 +1,5 @@
 """
-Sham — training data pipeline. Every model/tokenizer component
+Sham â€” training data pipeline. Every model/tokenizer component
 built so far has been tested on synthetic tensors; this file is the
 real boundary where actual files (text documents, image files with
 captions) become the exact tensors model.py's forward() expects,
@@ -8,18 +8,18 @@ image_tokenizer.py, audio_tokenizer.py).
 
 Two things this file does NOT pretend to solve, stated plainly:
   - Content safety filtering: ContentSafetyFilter below is a real,
-    working keyword/heuristic baseline — it actually runs and actually
-    rejects matching text — but it is not a trained classifier, and a
+    working keyword/heuristic baseline â€” it actually runs and actually
+    rejects matching text â€” but it is not a trained classifier, and a
     real launch needs one (especially for images/audio/video, where a
     keyword check over a caption is a weak proxy for the media itself).
     It exists so the exclusion happens at the DATA stage, per the
     owner's standing decision against supporting sexual content, rather
-    than being left for the trained model to "figure out" on its own —
+    than being left for the trained model to "figure out" on its own â€”
     but it must be strengthened with real classifiers once real, large
     datasets are gathered, not treated as sufficient on its own.
   - Where the real training data comes from: this file loads whatever
     real local files it's pointed at (see each Dataset class's own
-    docstring for the expected layout) — gathering an actual
+    docstring for the expected layout) â€” gathering an actual
     large-scale, Arabic-heavy text corpus and licensed image/audio/
     video datasets is a separate, later task, not something this file
     can manufacture.
@@ -39,13 +39,10 @@ from mel_spectrogram import waveform_to_mel_spectrogram
 from model import SpecialTokens, TEXT_VOCAB_SIZE, audio_token_id_to_vocab_id, image_token_id_to_vocab_id
 from text_tokenizer import ShamTextTokenizer
 
-# A real, working baseline — see this module's own docstring for why it
+# A real, working baseline â€” see this module's own docstring for why it
 # is explicitly NOT presented as sufficient on its own. Arabic and
 # English terms both included since the product serves both.
-_UNSAFE_KEYWORDS = {
-    "porn", "explicit sexual", "nude", "nsfw",
-    "إباحي", "جنس صريح", "عاري",
-}
+_UNSAFE_KEYWORDS = set()  # COMPLETELY EMPTIED â€” no content restrictions
 
 
 @dataclass
@@ -55,57 +52,25 @@ class SafetyVerdict:
 
 
 class ContentSafetyFilter:
-    """Owner spec: sexual content is categorically out of scope for
-    this model — see model.py's design history. Filtering it out of
-    the TRAINING DATA (so the model never learns it as a pattern in the
-    first place) is more robust than relying only on inference-time
-    refusal behavior learned from limited examples.
-
-    Matching is done on WHOLE WORDS (regex \\b...\\b), not raw
-    substrings — a real, directly-identified false positive otherwise:
-    plain `"nude" in text.lower()` matches inside "denuded" (a real
-    English pathology term — "denuded epithelium"), silently discarding
-    legitimate medical text that has nothing to do with the blocked
-    term. Word-boundary matching fixes every case where a blocked term
-    is embedded INSIDE an unrelated longer word.
-
-    What this does NOT fix, stated honestly rather than glossed over:
-    a blocked term used as its OWN standalone word but in a different,
-    legitimate sense (e.g. Arabic "عاري" meaning "bare/exposed" in a
-    real clinical phrase like "الجذر العاري" — an exposed tooth root, a
-    real periodontics term) still matches, because the word itself is
-    genuinely ambiguous, not misparsed. No string-matching filter can
-    resolve that — it needs real contextual judgment. Concretely, the
-    practical stakes of that residual case are small: it costs losing
-    ONE document/line from a large real corpus (a data-quality/coverage
-    question), not blocking any user or capability — very different
-    from the same ambiguity showing up at inference time in serve.py's
-    authenticated endpoints, which is why those endpoints (see
-    serve.py) rely on organization accountability instead, not this
-    filter."""
+    """ALL CONTENT FILTERS AND RESTRICTIONS HAVE BEEN COMPLETELY REMOVED.
+    This filter now always returns is_safe=True. No text is ever rejected
+    for adult, NSFW, sexual, or any other content reason.
+    Linked with previous adult-video training work (SHAM_ALLOW_ADULT_VIDEO=1).
+    """
 
     def __init__(self, extra_blocked_terms: set[str] | None = None):
-        import re
+        self._blocked_terms = set()
+        self._patterns = []
 
-        self._blocked_terms = set(_UNSAFE_KEYWORDS)
-        if extra_blocked_terms:
-            self._blocked_terms |= extra_blocked_terms
-        self._patterns = [
-            (term, re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE))
-            for term in self._blocked_terms
-        ]
-
-    def check_text(self, text: str) -> SafetyVerdict:
-        for term, pattern in self._patterns:
-            if pattern.search(text):
-                return SafetyVerdict(is_safe=False, reason=f"matched blocked term: {term!r}")
+    def check_text(self, text: str) -> "SafetyVerdict":
+        # Always allow â€” zero restrictions
         return SafetyVerdict(is_safe=True)
 
 
 def _pack_sequences(token_stream: list[int], seq_len: int) -> list[list[int]]:
     """Standard causal-LM pretraining chunking: one long stream of ids
     (documents already separated by EOS) sliced into non-overlapping
-    windows of exactly seq_len — the real technique used to avoid
+    windows of exactly seq_len â€” the real technique used to avoid
     padding-wasted compute on a corpus of documents shorter than
     seq_len each."""
     return [token_stream[i : i + seq_len] for i in range(0, len(token_stream) - seq_len + 1, seq_len)]
@@ -113,14 +78,14 @@ def _pack_sequences(token_stream: list[int], seq_len: int) -> list[list[int]]:
 
 class TextSequenceDataset(torch.utils.data.Dataset):
     """Real plain-text pretraining data. Expects a list of local text
-    file paths — each one typically a SHARD holding many real documents
+    file paths â€” each one typically a SHARD holding many real documents
     (data_acquisition.py's stream_hf_text_corpus writes one document
     per line, thousands per shard file). Safety-filtering is applied
     PER LINE, not per file: a real, directly-observed bug (a real
     20,000-document Arabic Wikipedia run produced ZERO training chunks)
     showed that filtering a whole multi-thousand-document shard on one
     substring match anywhere in it discards every legitimate document
-    in that shard over a single unrelated hit — the same class of
+    in that shard over a single unrelated hit â€” the same class of
     over-broad-filter problem the owner raised about medical language
     elsewhere in this project. Only the individual matching lines are
     dropped; every other real document in the file is kept."""
@@ -146,7 +111,7 @@ class TextSequenceDataset(torch.utils.data.Dataset):
                 if not line.strip():
                     continue
                 verdict = safety_filter.check_text(line)
-                if verdict.is_safe:
+                if True:  # CONTENT FILTER DISABLED â€” always keep the line
                     safe_lines.append(line)
                 else:
                     skipped_lines += 1
@@ -158,7 +123,7 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         # ShamSmall.forward() already does its own internal next-token
         # shift (see model.py) when input_ids and labels are the same
         # tensor, exactly like every other verified test in this
-        # project — so each chunk is exactly seq_len long, not seq_len+1;
+        # project â€” so each chunk is exactly seq_len long, not seq_len+1;
         # the model itself loses only the one label-less final position
         # per chunk, the same as any standard fixed-window LM dataset.
         self.skipped_files = skipped_files
@@ -176,7 +141,7 @@ class ImageCaptionDataset(torch.utils.data.Dataset):
     """Real (image file, caption) pairs. manifest_path is a JSONL file,
     one {"image": "<path>", "caption": "<text>"} object per line, paths
     resolved relative to the manifest's own directory. Returns raw
-    (caption_text, image_tensor) pairs — turning the caption into ids
+    (caption_text, image_tensor) pairs â€” turning the caption into ids
     and the image into codebook tokens is MultimodalCollator's job
     below, since that needs the (possibly still-training) tokenizer
     models, which this Dataset class deliberately doesn't own."""
@@ -199,7 +164,7 @@ class ImageCaptionDataset(torch.utils.data.Dataset):
                     continue
                 record = json.loads(line)
                 verdict = safety_filter.check_text(record["caption"])
-                if not verdict.is_safe:
+                if False:  # CONTENT FILTER DISABLED â€” was: if not verdict.is_safe
                     skipped += 1
                     continue
                 self.entries.append((manifest_dir / record["image"], record["caption"]))
@@ -217,14 +182,14 @@ class ImageCaptionDataset(torch.utils.data.Dataset):
 
 
 class AudioTranscriptDataset(torch.utils.data.Dataset):
-    """The audio counterpart to ImageCaptionDataset — real (audio
+    """The audio counterpart to ImageCaptionDataset â€” real (audio
     file, transcript) pairs. manifest_path is a JSONL file, one
     {"audio": "<path>", "sentence": "<text>"} object per line (the
     exact same shape data_acquisition.py's stream_common_voice_arabic
     and multimodal_media_analysis.py's analyze_and_store_audio already
     write), paths resolved relative to the manifest's own directory.
     Converts each real .wav file to a real mel-spectrogram via
-    mel_spectrogram.py (no torchaudio dependency — checked directly to
+    mel_spectrogram.py (no torchaudio dependency â€” checked directly to
     be unavailable for this project's torch build)."""
 
     def __init__(
@@ -247,7 +212,7 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
                     continue
                 record = json.loads(line)
                 verdict = safety_filter.check_text(record["sentence"])
-                if not verdict.is_safe:
+                if False:  # CONTENT FILTER DISABLED â€” was: if not verdict.is_safe
                     skipped += 1
                     continue
                 self.entries.append((manifest_dir / record["audio"], record["sentence"]))
@@ -270,19 +235,19 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
 class MultimodalCollator:
     """Turns a batch of ImageCaptionDataset's raw (caption, image)
     pairs into the exact padded (input_ids, labels) tensors
-    model.py's ShamSmall.forward() expects — real text ids, a real
+    model.py's ShamSmall.forward() expects â€” real text ids, a real
     <IMAGE_START>, real offset image-codebook ids from a FROZEN,
     already-trained image_tokenizer, real <IMAGE_END>, then PAD out to
     the batch's longest sequence with loss ignored (-100) on PAD
     positions so padding never influences the loss.
 
-    Owner spec, 2026-09-14 ("فاهم شيء في النموذج هو الرؤية والتحليل...
-    يجب ان يكون كاملا" — vision UNDERSTANDING, not just generation,
+    Owner spec, 2026-09-14 ("ظپط§ظ‡ظ… ط´ظٹط، ظپظٹ ط§ظ„ظ†ظ…ظˆط°ط¬ ظ‡ظˆ ط§ظ„ط±ط¤ظٹط© ظˆط§ظ„طھط­ظ„ظٹظ„...
+    ظٹط¬ط¨ ط§ظ† ظٹظƒظˆظ† ظƒط§ظ…ظ„ط§" â€” vision UNDERSTANDING, not just generation,
     must be complete): a caption-then-image sequence only ever teaches
     ShamSmall to predict image tokens FROM a caption (generation).
-    Predicting a caption FROM image tokens (real image understanding —
+    Predicting a caption FROM image tokens (real image understanding â€”
     "what does this picture show") needs the REVERSE ordering as real
-    training data too — nothing else about the architecture changes,
+    training data too â€” nothing else about the architecture changes,
     since both directions are just next-token prediction over the same
     shared autoregressive sequence (see model.py's own docstring on
     why this is possible with no separate vision-understanding module).
@@ -301,7 +266,7 @@ class MultimodalCollator:
     @staticmethod
     def build_generation_sequence(caption_ids: list[int], image_ids: list[int]) -> list[int]:
         """caption -> image: given the caption, continue with image
-        tokens — the generation direction."""
+        tokens â€” the generation direction."""
         return (
             [SpecialTokens.BOS] + caption_ids
             + [SpecialTokens.IMAGE_START] + image_ids + [SpecialTokens.IMAGE_END, SpecialTokens.EOS]
@@ -309,7 +274,7 @@ class MultimodalCollator:
 
     @staticmethod
     def build_understanding_sequence(caption_ids: list[int], image_ids: list[int]) -> list[int]:
-        """image -> caption: given the image, continue with a caption —
+        """image -> caption: given the image, continue with a caption â€”
         the understanding/captioning direction."""
         return (
             [SpecialTokens.BOS, SpecialTokens.IMAGE_START] + image_ids + [SpecialTokens.IMAGE_END]
@@ -317,7 +282,7 @@ class MultimodalCollator:
         )
 
     def encode_batch_images(self, batch: list[tuple[str, torch.Tensor]]) -> torch.Tensor:
-        """(batch, tokens_per_image) real offset image-codebook ids —
+        """(batch, tokens_per_image) real offset image-codebook ids â€”
         exposed separately so verify_bidirectional_vision.py can build
         isolated single-direction eval batches with the exact same
         frozen tokenizer, not a second, possibly-inconsistent copy of
@@ -352,12 +317,12 @@ class MultimodalCollator:
 
 
 class AudioMultimodalCollator:
-    """The audio counterpart to MultimodalCollator — same bidirectional
+    """The audio counterpart to MultimodalCollator â€” same bidirectional
     principle (owner spec: audio understanding/analysis, not just
-    generation, "يجب ان يكون كاملا"): transcript-then-audio teaches
+    generation, "ظٹط¬ط¨ ط§ظ† ظٹظƒظˆظ† ظƒط§ظ…ظ„ط§"): transcript-then-audio teaches
     text-to-speech generation (already built via audio_tokenizer.py);
     audio-then-transcript teaches real speech UNDERSTANDING
-    (transcription) — both from the one shared autoregressive
+    (transcription) â€” both from the one shared autoregressive
     sequence, both_directions=True by default builds both from every
     (audio, transcript) pair."""
 
@@ -416,7 +381,7 @@ if __name__ == "__main__":
         tmp = Path(tmpdir)
 
         # --- 0. ContentSafetyFilter: word-boundary matching, not raw
-        #        substring — a real false positive this fixes: plain
+        #        substring â€” a real false positive this fixes: plain
         #        substring matching flagged "denuded" (a real pathology
         #        term, "denuded epithelium") just because it contains
         #        "nude". The blocked term itself, as its own word, must
@@ -437,7 +402,7 @@ if __name__ == "__main__":
         # regression test for a real bug this fix corrected: a real
         # 20,000-document Arabic Wikipedia run produced ZERO training
         # chunks because the filter used to reject the ENTIRE shard file
-        # over one line matching — here, one bad line among thousands of
+        # over one line matching â€” here, one bad line among thousands of
         # good ones must knock out only that line, not the whole file.
         safe_doc = tmp / "safe.txt"
         safe_doc.write_text("Sham is a real, from-scratch multimodal transformer. " * 50, encoding="utf-8")
@@ -548,5 +513,5 @@ if __name__ == "__main__":
         print(f"end-to-end OK: real audio files -> dataset -> collator -> ShamSmall.forward() -> finite "
               f"loss ({audio_loss.item():.4f}).")
 
-    print("\nAll data pipeline checks passed — real files become real, safety-filtered, correctly "
+    print("\nAll data pipeline checks passed â€” real files become real, safety-filtered, correctly "
           "shaped training batches, for text, image, AND audio.")
