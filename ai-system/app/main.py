@@ -298,7 +298,14 @@ class ChatResponse(BaseModel):
 
 
 @app.get("/health")
-def health():
+def health(request: Request):
+    # Something outside this repo hits /health every 10 min, which keeps the
+    # free Render service awake 24/7. Log who, so it can be found and stopped.
+    logger.info(
+        "health hit: ua=%r forwarded_for=%r",
+        request.headers.get("user-agent", ""),
+        request.headers.get("x-forwarded-for", ""),
+    )
     return {"status": "ok"}
 
 
