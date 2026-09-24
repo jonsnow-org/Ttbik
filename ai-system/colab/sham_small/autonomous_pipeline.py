@@ -111,12 +111,14 @@ def run_autonomous_cycle(
     device: str = "cpu",
     checkpoint_path: str | Path | None = None,
     max_pages_per_topic: int = 3,
+    train_on_new_only: bool = False,
 ) -> CycleResult:
     """One real cycle: crawl, filter, train, checkpoint. search_fn/
     fetch_fn default to web_access.py's real internet-facing
     implementations -- pass fakes (matching the same signature) for a
     test, exactly as this file's own __main__ does."""
     logger.info("autonomous cycle: crawling %d languages/topics...", len(topics_by_language))
+    files_before = set(corpus.file_paths())
     crawl_stats = crawl_and_learn(
         topics_by_language,
         search_fn,
@@ -132,10 +134,14 @@ def run_autonomous_cycle(
         crawl_stats.unsafe, crawl_stats.not_learnable, crawl_stats.fetch_failed,
     )
 
-    file_paths = corpus.file_paths()
+    all_paths = corpus.file_paths()
+    # train_on_new_only: the corpus persists across cycles and runs (dedup
+    # memory), so retraining on all of it every cycle would repeat the same
+    # documents over and over -- train only on what this cycle added.
+    file_paths = [p for p in all_paths if p not in files_before] if train_on_new_only else all_paths
     if not file_paths:
         logger.info("autonomous cycle: corpus is empty -- nothing to train on this cycle.")
-        return CycleResult(crawl_stats=crawl_stats, train_losses=[], total_documents_in_corpus=0)
+        return CycleResult(crawl_stats=crawl_stats, train_losses=[], total_documents_in_corpus=len(all_paths))
 
     def _corpus_text_stream():
         for path in file_paths:
@@ -157,7 +163,7 @@ def run_autonomous_cycle(
     return CycleResult(
         crawl_stats=crawl_stats,
         train_losses=losses,
-        total_documents_in_corpus=len(file_paths),
+        total_documents_in_corpus=len(all_paths),
         checkpoint_path=saved_path,
     )
 

@@ -118,15 +118,19 @@ def fit_codebook(tok, target: int) -> str | None:
     return how
 
 
-def select_pretrained_tokenizer(kind: str, search_root: str | Path = "/kaggle/input", loader: Any = None):
+def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None, loader: Any = None):
     """Returns (tokenizer, step, path) for the best candidate — repairing
     incompatible ones — or None when nothing at all could be loaded."""
     if kind not in _EXPECTED:
         raise ValueError(kind)
     if loader is None:
         loader = lambda p: robust_load(p, kind)
-    root = Path(search_root)
-    candidates = sorted(root.rglob(f"{kind}_tokenizer.pt")) if root.exists() else []
+    if search_root is None:  # /kaggle/input + datasets fetched by sham_inputs.fetch_dataset
+        from sham_inputs import rglob_inputs
+        candidates = sorted(rglob_inputs(f"{kind}_tokenizer.pt"))
+    else:
+        root = Path(search_root)
+        candidates = sorted(root.rglob(f"{kind}_tokenizer.pt")) if root.exists() else []
     best = None
     for path in candidates:
         try:

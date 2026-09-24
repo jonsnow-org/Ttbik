@@ -6,6 +6,17 @@
 - Map both auto-generated notebook ids to our notebooks (Track A/B, video/audio/image tokenizers, orchestrator) before fixing.
 - Use the correct "sham" naming in any new/renamed files (task #51).
 
+## 2026-09-24 — إصلاح المسارات (الاستئناف تلقائي بلا «Add Input»)
+- جديد: `sham_inputs.py` — كل دفتر يجلب آخر نسخة من مجموعة بياناته عبر Kaggle API إن لم تكن مرفقة (إلى /tmp/sham_inputs)، و`resume_text_lineage` يختار أعلى خطوة في مجموعة المسار نفسه مع أداة تقسيم النص المحفوظة معها (وإلا تفرّع لمرة واحدة). `tokenizer_select` و`Ledger.load` و`text_stream_position` صارت تبحث في المكانين.
+- المرحلة الأولى والمسار A: ويكيبيديا تكمل من الموضع المحفوظ (text_stream_progress_*.json، يبدأ من 20,000 عند غيابه) بدل نفس أول المقالات.
+- المسار A: لا يمكن بعد الآن أن يستأنف من المجموعة القديمة بلا -v2.
+- المسار B: يرفض سلالة أداة التقسيم الصغيرة (4000) ويتفرّع مرة من أعلى نقطة نصية (A أو المرحلة الأولى)؛ الخطوة تراكمية في final.pt؛ الموضوع يتغيّر كل دورة؛ مدوّنة الزحف تُنشر مع النقطة وكل دورة تتدرّب على الجديد فقط (`train_on_new_only`).
+- الصوت/الصورة/الفيديو: يجلب كل منها مجموعته تلقائياً (الفيديو يجلب أداة ترميز الصورة أيضاً).
+- المرحلة الثانية: تجلب كل مدخلاتها، تكمل من ناتجها السابق إن وُجد، وتنشر إلى `sham-multimodal-checkpoint`.
+- دفتر جديد `sham_bot_test.ipynb` يحل محل خلية تجربة البوت القديمة (نوفا) — مسار «bot_test» في sham_registry.
+- المنسّق في المستودع أصلاً TARGET_KERNELS = [] ويشمل مسار الصوت؛ نسخة Kaggle القديمة كانت قائمة يدوية.
+- على المالكة: استيراد الدفاتر من GitHub، إضافة الأسرار، ضبط GPU للمرحلتين، وإيقاف/حذف النسخ القديمة كي لا تُعدّ «أساسية».
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.

@@ -60,9 +60,18 @@ TRACKS: list[dict[str, Any]] = [
         "kind": "tool",
     },
     {
+        # Must stay before stage2: it loads that stage's published output.
+        "id": "bot_test",
+        "name": "تجربة بوت شام",
+        "markers": ["sham_bot_test"],
+        "kind": "tool",
+    },
+    {
         "id": "stage2_multimodal",
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
         "markers": ["final_multimodal.pt", "المرحلة الثانية: إضافة الصورة والصوت"],
+        "dataset": "sham-multimodal-checkpoint",
+        "key_files": ["final_multimodal.pt"],
         "kind": "train",
         "outputs": ["final_multimodal.pt"],
     },
@@ -494,8 +503,8 @@ def pipeline_state(kernels: list[KernelInfo], datasets: list[DatasetInfo]) -> di
         inputs = [x for x in (s["text_stage1"]["dataset"], s["image_tokenizer"]["dataset"], s["audio_tokenizer"]["dataset"]) if x]
         step = (
             "النص وأداتا الصورة والصوت جاهزة — حان وقت دمجها في شام (المرحلة الثانية).",
-            "افتحي دفتر «المرحلة الثانية» ← Add Input ← أضيفي هذه المجموعات: " + "، ".join(inputs)
-            + " ← فعّلي GPU ← Save & Run All. الدفتر يعثر عليها تلقائياً ويستخدم أداتي الترميز المدرّبتين بدل تدريب جديد.",
+            "افتحي دفتر «المرحلة الثانية» ← فعّلي GPU ← Save & Run All. لا حاجة لـ Add Input: يجلب تلقائياً "
+            + "، ".join(inputs) + " ويستخدم أداتي الترميز المدرّبتين بدل تدريب جديد.",
         )
         current = "stage2_multimodal"
     else:

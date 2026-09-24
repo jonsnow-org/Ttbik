@@ -149,10 +149,15 @@ class Ledger:
         return path
 
     @classmethod
-    def load(cls, kind: str, search_root: str | Path = "/kaggle/input", name: str = "") -> "Ledger":
+    def load(cls, kind: str, search_root: str | Path | None = None, name: str = "") -> "Ledger":
         ledger = cls(kind, name)
-        root = Path(search_root)
-        found = sorted(root.rglob(f"{name or kind}_ledger.json")) if root.exists() else []
+        pattern = f"{name or kind}_ledger.json"
+        if search_root is None:  # /kaggle/input + datasets fetched by sham_inputs.fetch_dataset
+            from sham_inputs import rglob_inputs
+            found = sorted(rglob_inputs(pattern))
+        else:
+            root = Path(search_root)
+            found = sorted(root.rglob(pattern)) if root.exists() else []
         for p in found:
             try:
                 ledger.merge(json.loads(p.read_text(encoding="utf-8")))

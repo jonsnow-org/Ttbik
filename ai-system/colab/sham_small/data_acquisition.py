@@ -227,13 +227,18 @@ def stream_hf_text_corpus(
 
 
 def text_stream_position(dataset_name: str, config_name: str, split: str = "train",
-                         search_root: str = "/kaggle/input") -> int:
+                         search_root: str | None = None) -> int:
     """Furthest position any previous run reached in this text stream, from
     every text_stream_progress*.json found under search_root (own output,
     checkpoint datasets...). 0 when none — i.e. a true first run."""
     best = 0
-    root = Path(search_root)
-    for p in (root.rglob("text_stream_progress*.json") if root.exists() else []):
+    if search_root is None:  # /kaggle/input + datasets fetched by sham_inputs.fetch_dataset
+        from sham_inputs import rglob_inputs
+        found = rglob_inputs("text_stream_progress*.json")
+    else:
+        root = Path(search_root)
+        found = list(root.rglob("text_stream_progress*.json")) if root.exists() else []
+    for p in found:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
