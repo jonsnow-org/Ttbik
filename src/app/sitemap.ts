@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { PRAYER_CITIES } from "@/lib/prayerCities";
 
 export const revalidate = 30;
 
@@ -10,6 +11,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/how-it-works`, changeFrequency: "monthly", priority: 0.6 },
     { url: `${base}/bots`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/news`, changeFrequency: "hourly", priority: 0.9 },
+    { url: `${base}/prayer-times`, changeFrequency: "daily", priority: 0.85 },
     { url: `${base}/watch-and-earn`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/bots/health-check`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/bots/earnings-calculator`, changeFrequency: "monthly", priority: 0.75 },
@@ -51,6 +53,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/en/free-tools/qr-generator`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/url-shortener`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/image-optimizer`, changeFrequency: "monthly", priority: 0.85 },
+    ...PRAYER_CITIES.map((c) => ({
+      url: `${base}/prayer-times/${c.slug}`,
+      changeFrequency: "daily" as const,
+      priority: 0.7,
+    })),
   ];
 
   let serviceRoutes: MetadataRoute.Sitemap = [];
