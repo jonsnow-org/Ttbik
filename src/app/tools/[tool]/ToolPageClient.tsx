@@ -2,12 +2,10 @@
 
 import StudioGate from "./StudioGate";
 import AudioVisualizerStudio from "@/components/studio/AudioVisualizerStudio";
-import StoryVideoStudio from "@/components/studio/StoryVideoStudio";
 import type { StudioToolProps } from "./StudioGate";
 
 const STUDIO_COMPONENTS: Record<string, React.ComponentType<StudioToolProps>> = {
   "audio-visualizer": AudioVisualizerStudio,
-  "story-video": StoryVideoStudio,
 };
 
 // Real bug fixed 2026-09-22 (owner report: /tools/audio-visualizer was a

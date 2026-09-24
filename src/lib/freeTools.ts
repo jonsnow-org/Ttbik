@@ -3,11 +3,6 @@
 // tool only needs to be added here once instead of drifting between pages.
 export const FREE_TOOLS = [
   {
-    href: "/tools/story-video",
-    title: "صانع الفيديو الحقيقي من الوصف",
-    desc: "اكتب ماذا يحدث (جمل في الصحراء عند الغروب، مطر في المدينة ليلاً…) فيختار محركنا لكل مشهد مقطعاً حقيقياً مصوّراً ويركّبها فيديو ريلز واحداً — مجاناً.",
-  },
-  {
     href: "/tools/audio-visualizer",
     title: "تحويل الصوت إلى فيديو ريلز",
     desc: "حوّل مقطعك الصوتي أو أغنيتك إلى فيديو ريلز متحرك مع صورة خلفية ومؤثرات تتفاعل مع الصوت — جرّبه مجاناً.",

@@ -1,5 +1,5 @@
 // Shared recording/export helpers for the in-browser video studios
-// (AudioVisualizerStudio, StoryVideoStudio).
+// (AudioVisualizerStudio).
 
 export type VideoFormat = "mp4" | "webm" | "mov";
 
