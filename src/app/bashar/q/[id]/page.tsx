@@ -2,9 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
-import BasharBubble from "@/components/bashar/BasharBubble";
 import { cookies } from "next/headers";
-import { isOwnerServer } from "@/lib/isOwner";
 import { SITE_URL } from "@/lib/siteUrl";
 import { answersFor, countryLabel, getQuestion } from "@/lib/bashar";
 
@@ -50,7 +48,7 @@ export default async function BasharQuestionPage({ params }: { params: { id: str
       <h1 className="rounded-2xl bg-indigo-600 px-5 py-4 text-xl font-extrabold leading-9 text-white">{q.body}</h1>
       <p className="mt-2 text-xs text-slate-500">
         {answers.length === 0 ? "لا إجابات بعد" : `${answers.length} إجابة من بشر حقيقيين`} ·{" "}
-        {mine ? "هذا سؤالك — شارك الرابط ليجيبك غيرك" : "اضغط الفقاعة العائمة لتجيب أنت"}
+        {mine ? "هذا سؤالك — شارك الرابط ليجيبك غيرك" : "افتح بَشَر لتجيب أنت"}
       </p>
       <div className="my-6">
         <AdSlot position="in-content" label="تحت سؤال بَشَر" />
@@ -66,7 +64,6 @@ export default async function BasharQuestionPage({ params }: { params: { id: str
       <Link href="/bashar" className="mt-8 block rounded-2xl bg-slate-900 px-5 py-4 text-center font-extrabold text-white hover:bg-indigo-900">
         اسأل إنساناً أنت أيضاً ←
       </Link>
-      <BasharBubble isOwner={isOwnerServer()} questionId={q.id} autoOpen />
     </main>
   );
 }
