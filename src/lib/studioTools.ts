@@ -15,7 +15,7 @@
  * normal soft freemium limit, same as any browser-only free tool here.
  */
 export const STUDIO_TOOL_LABELS: Record<string, { title: string; freeUses: number }> = {
-  "story-video": { title: "صانع الفيديو المتحرك من الوصف", freeUses: 3 },
+  "story-video": { title: "صانع الفيديو الحقيقي من الوصف", freeUses: 3 },
   "audio-visualizer": { title: "استوديو تحويل الصوت إلى فيديو ريلز", freeUses: 2 },
 };
 

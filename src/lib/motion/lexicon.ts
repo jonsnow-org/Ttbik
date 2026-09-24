@@ -164,10 +164,10 @@ export function letterModel(setup: (m: LetterModel) => void) {
   return model;
 }
 
-export type SymbolInfo = { file: string; role: "a" | "m" | "v" | "w" | "f" | "b" | "p" | "s" | "g"; place: string; name: string };
+export type SymbolInfo = { file: string; role: "a" | "m" | "v" | "w" | "f" | "b" | "p" | "s" | "g"; place: string; name: string; en: string };
 export function symbolInfo(i: number): SymbolInfo {
-  const [file, role, place, name] = SYMBOLS[i] || ["", "p", "", ""];
-  return { file, role: role as SymbolInfo["role"], place, name };
+  const [file, role, place, name, en] = SYMBOLS[i] || ["", "p", "", "", ""];
+  return { file, role: role as SymbolInfo["role"], place, name, en };
 }
 export const SYMBOL_COUNT = SYMBOLS.length;
 

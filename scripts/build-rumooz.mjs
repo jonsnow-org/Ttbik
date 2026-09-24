@@ -1,19 +1,17 @@
-// Builds the «رموز» symbol library and its letter-code index (run once, output is committed):
+// Builds the «رموز» concept store and its letter-code index (run once, output is committed):
 //   node scripts/build-rumooz.mjs
 //
-// Inputs (all free / open licence, fetched at build time):
-//   - Unicode emoji-test.txt  → which symbols exist + their subgroup     (Unicode License v3)
-//   - CLDR Arabic annotations → Arabic names/keywords for every symbol   (Unicode License v3)
-//   - Noto Emoji 2D SVGs      → the drawings                             (Apache License 2.0)
+// Inputs (free / open licence, fetched at build time):
+//   - Unicode emoji-test.txt  → ~930 concepts, their English name and category (Unicode License v3)
+//   - CLDR Arabic annotations → 3200+ Arabic words pointing at those concepts   (Unicode License v3)
 // Outputs:
-//   - public/rumooz/s/<codepoints>.svg     minified drawings, fetched lazily by the tool
-//   - src/lib/motion/symbols.generated.ts  symbol table + the letter trie (compressed string)
-//   - public/rumooz/LICENSES.txt           the notices the licences require
+//   - src/lib/motion/symbols.generated.ts  concept table + the letter trie (compressed string)
+//   - public/rumooz/LICENSES.txt           the notice the licence requires
+// The English name of each concept is what real footage is searched with.
 import fs from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const OUT_SVG = path.join(ROOT, "public/rumooz/s");
 const OUT_TS = path.join(ROOT, "src/lib/motion/symbols.generated.ts");
 const OUT_LIC = path.join(ROOT, "public/rumooz/LICENSES.txt");
 
@@ -22,8 +20,6 @@ const SRC = {
   ann: "https://cdn.jsdelivr.net/npm/cldr-annotations-full@48.2.0/annotations/ar/annotations.json",
   annDerived: "https://cdn.jsdelivr.net/npm/cldr-annotations-derived-full@48.2.0/annotationsDerived/ar/annotations.json",
   unicodeLicense: "https://cdn.jsdelivr.net/npm/cldr-annotations-full@48.2.0/LICENSE",
-  notoLicense: "https://raw.githubusercontent.com/googlefonts/noto-emoji/main/LICENSE",
-  noto: (name) => `https://cdn.jsdelivr.net/gh/googlefonts/noto-emoji@main/2D/svg/${name}`,
 };
 
 // subgroup → role: a = moving actor, m = sea creature, v = ground vehicle, w = boat, f = aircraft, b = building/landmark, p = prop, s = sky, g = geography (sets the place)
@@ -73,23 +69,6 @@ async function get(url, as = "text") {
   }
 }
 
-function minifySvg(svg) {
-  return svg
-    .replace(/<\?xml[^>]*>/g, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<metadata[\s\S]*?<\/metadata>/g, "")
-    .replace(/\s(?:version|id|x|y|xml:space|style)="(?:1\.1|Layer_\w+|0px|preserve|enable-background:[^"]*)"/g, "")
-    .replace(/xmlns:xlink="[^"]*"\s?/g, (m) => (svg.includes("xlink:") ? m : ""))
-    .replace(/(-?\d*\.\d+)/g, (m) => {
-      const v = Math.round(Number(m) * 10) / 10;
-      // keep a leading "-": it may be the only separator from the previous number
-      if (v === 0) return m.startsWith("-") ? "-0" : "0";
-      return String(v).replace(/^(-?)0\./, "$1.");
-    })
-    .replace(/\s+/g, " ")
-    .replace(/>\s+</g, "><")
-    .trim();
-}
 
 // ---------------------------------------------------------------- 1. symbols
 const test = await get(SRC.test);
@@ -112,28 +91,12 @@ console.log("candidates", picked.length);
 const ann = { ...(await get(SRC.ann, "json")).annotations.annotations, ...(await get(SRC.annDerived, "json")).annotationsDerived.annotations };
 const annFor = (e) => ann[e] || ann[e.replace(/️/g, "")];
 
-// ---------------------------------------------------------------- 3. drawings
-fs.mkdirSync(OUT_SVG, { recursive: true });
-const symbols = [];
-let bytes = 0;
-const queue = picked.filter((p) => annFor(p.emoji));
-await Promise.all(
-  Array.from({ length: 12 }, async () => {
-    while (queue.length) {
-      const p = queue.shift();
-      const file = p.cps.filter((c) => c !== "FE0F").map((c) => c.toLowerCase()).join("_");
-      const svg = await get(SRC.noto(`emoji_u${file}.svg`));
-      if (!svg) continue;
-      const min = minifySvg(svg);
-      if (min.length > 100_000) continue; // a handful of very detailed drawings aren't worth the weight
-      fs.writeFileSync(path.join(OUT_SVG, `${file}.svg`), min);
-      bytes += min.length;
-      symbols.push({ ...p, file });
-    }
-  }),
-);
-symbols.sort((a, b) => a.file.localeCompare(b.file));
-console.log("symbols", symbols.length, "svg KB", Math.round(bytes / 1024));
+// ---------------------------------------------------------------- 3. concepts
+const symbols = picked
+  .filter((p) => annFor(p.emoji))
+  .map((p) => ({ ...p, file: p.cps.filter((c) => c !== "FE0F").map((c) => c.toLowerCase()).join("_") }))
+  .sort((a, b) => a.file.localeCompare(b.file));
+console.log("concepts", symbols.length);
 
 // ---------------------------------------------------------------- 4. letter trie
 const byWord = new Map(); // word → Map(symbolIndex → score)
@@ -183,23 +146,23 @@ function ser(node) {
 const TRIE = ser(trie);
 console.log("words", words, "trie KB", Math.round(TRIE.length / 1024));
 
-const table = symbols.map((s) => [s.file, s.role, GEO_PLACE[s.name] || "", s.nameAr]);
+const table = symbols.map((s) => [s.file, s.role, GEO_PLACE[s.name] || "", s.nameAr, s.name.replace(/^(?:person|man|woman)\s+/, "").replace(/:.*$/, "").replace(/\s*facing (?:right|left)/, "")]);
 fs.writeFileSync(
   OUT_TS,
   `// GENERATED by scripts/build-rumooz.mjs — do not edit by hand.\n` +
-    `// Drawings: Noto Emoji (Apache-2.0). Arabic names: Unicode CLDR (Unicode License v3). See public/rumooz/LICENSES.txt\n` +
-    `// [file, role, place, arabicName] — role: a actor, m sea creature, v vehicle, w boat, f aircraft, b building, p prop, s sky, g geography\n` +
-    `export const SYMBOLS: [string, string, string, string][] = ${JSON.stringify(table)};\n` +
+    `// Concepts: Unicode emoji-test.txt; Arabic words: Unicode CLDR (Unicode License v3). See public/rumooz/LICENSES.txt\n` +
+    `// [id, role, place, arabicName, englishName] — role: a actor, m sea creature, v vehicle, w boat, f aircraft, b building, p prop, s sky, g geography\n` +
+    `export const SYMBOLS: [string, string, string, string, string][] = ${JSON.stringify(table)};\n` +
     `export const TRIE = ${JSON.stringify(TRIE)};\n`,
 );
 
-const [uni, noto] = [await get(SRC.unicodeLicense), await get(SRC.notoLicense)];
+const uni = await get(SRC.unicodeLicense);
+fs.mkdirSync(path.dirname(OUT_LIC), { recursive: true });
 fs.writeFileSync(
   OUT_LIC,
-  `«رموز» symbol library — third-party notices\n\n` +
-    `Drawings in /rumooz/s are from Noto Emoji by Google (https://github.com/googlefonts/noto-emoji),\n` +
-    `image resources licensed under the Apache License 2.0, minified (whitespace and number precision) by Ttbik.\n\n` +
-    `Arabic names and keywords are from the Unicode CLDR annotations and the symbol list from Unicode emoji-test.txt,\n` +
-    `used under the Unicode License v3:\n\n${uni}\n\n----\nApache License 2.0 (Noto Emoji):\n\n${noto}\n`,
+  `«رموز» concept store — third-party notices\n\n` +
+    `Arabic names and keywords are from the Unicode CLDR annotations and the concept list from Unicode emoji-test.txt,\n` +
+    `used under the Unicode License v3:\n\n${uni}\n\n` +
+    `Video footage shown by the tool is provided by Pexels (https://www.pexels.com) under the Pexels License.\n`,
 );
 console.log("done");

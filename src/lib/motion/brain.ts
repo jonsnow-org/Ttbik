@@ -19,7 +19,7 @@ export type SceneCode = {
   place: Place;
   time: Time;
   weather: Weather;
-  actors: Actor[]; // actors[0] is the subject
+  actors: Actor[]; // actors[0] is the subject; empty = a scene of the place itself
   target?: { kind: Kind | "sym"; sym?: number };
   props: Prop[];
   caption: string;
@@ -343,12 +343,11 @@ export function understand(description: string): SceneCode[] {
     const d = readChunk(chunk, prev.actors.length > 0);
     if (!d.actors.length && !d.lastAction && !d.place && !d.time && !d.weather && !d.props.length && !d.target) continue;
     let actors = d.actors;
-    if (!actors.length) {
+    if (!actors.length && (d.lastAction || d.target)) {
       // "وتطارد الفراشة" — same heroes as before, doing the new thing
-      actors = prev.actors.length
-        ? prev.actors.map((a, i) => ({ ...a, action: i === 0 && d.lastAction ? d.lastAction : a.action }))
-        : [{ kind: "cat", count: 1, action: d.lastAction || "walk", size: 1 }];
+      actors = prev.actors.map((a, i) => ({ ...a, action: i === 0 && d.lastAction ? d.lastAction : a.action }));
     }
+    // no hero and no action ("مطر في المدينة ليلاً") → a scene of the place itself
     const seaLife = actors.some((a) => a.kind === "sym" && ["m", "w"].includes(symbolInfo(a.sym ?? 0).role));
     const place = d.place ?? (seaLife && !prev.caption ? "sea" : prev.place);
     actors = actors.slice(0, 3).map((a) => ({ ...a, action: a.action === "idle" ? d.lastAction || naturalAction(a, place) : a.action }));
@@ -368,20 +367,9 @@ export function understand(description: string): SceneCode[] {
     prev = scene;
   }
   if (!scenes.length) {
-    scenes.push({ place: "field", time: "day", weather: "clear", actors: [{ kind: "cat", count: 1, action: "walk", size: 1 }], props: [], caption: description.trim().slice(0, 80) });
+    scenes.push({ place: "field", time: "day", weather: "clear", actors: [], props: [], caption: description.trim().slice(0, 80) });
   }
   return scenes;
-}
-
-/** Every library symbol a story needs (to load its drawing before playing). */
-export function symbolsOf(scenes: SceneCode[]): number[] {
-  const set = new Set<number>();
-  for (const s of scenes) {
-    s.actors.forEach((a) => a.sym !== undefined && set.add(a.sym));
-    s.props.forEach((p) => set.add(p.sym));
-    if (s.target?.sym !== undefined) set.add(s.target.sym);
-  }
-  return [...set];
 }
 
 // ---------------------------------------------------------------- labels (UI)
