@@ -49,10 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **2. Anonymous confessions/questions box bot** — new template
-      (`CONFESSION_BOT`?). Each user gets a shareable link; senders stay
-      anonymous. Free tier + a paid unlock (reveal-sender / unlimited
-      replies) via the existing NOWPayments flow.
 - [ ] **3. Name-compatibility ("نسبة التوافق") bot** — simple deterministic
       hash-based percentage between two names, shareable result card.
 - [ ] **4. Personality-quiz bot** — static question banks, shareable result
@@ -78,6 +74,26 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Done
 
+- **2. Anonymous confessions/questions box bot** (shipped 2026-09-24) — new
+      `CONFESSION_BOT` template, wired as a sibling branch in
+      `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
+      (owner-only `CONFESSION_BOT_CREATOR_PASSWORD` gate, same shape as
+      MARRIAGE_BOT/JOBS_BOT/MEDICAL_BOT/NOVA_BOT) and
+      `src/app/bots/BotsDeployForm.tsx`. Every user gets a free personal
+      confessions box behind `?start=<ownerId>`; senders stay anonymous
+      (`ConfessionUser`/`ConfessionMessage`/`ConfessionBlock`/
+      `ConfessionTransaction` in `prisma/schema.prisma`,
+      `src/lib/confessionBotLogic.ts`). Free tier: one reply per confession.
+      Paid unlocks via the existing NOWPayments flow (own isolated wallet +
+      `/pay/confession`, `/api/payments/confession-create-invoice`,
+      `/api/payments/confession-webhook`): 🕵️ reveal sender ($3, retroactive
+      on old confessions too) and ♾️ unlimited replies ($3). Box owners can
+      block an abusive sender. First real consumer of the item-1
+      `PlatformPoints` ledger (small points on send/receive). No
+      `liveBots.ts` card added — no owner-run instance exists yet.
+      ⚠️ Owner needs to run `prisma/migration_34_confession_bot.sql` in
+      Supabase's SQL Editor, and set `CONFESSION_BOT_CREATOR_PASSWORD` in
+      Vercel env vars before deploying an instance.
 - **1. Unified points/rewards ledger across all bots** (shipped 2026-09-22)
       — `PlatformPoints` (one balance per `tgUserId`, cross-bot) +
       append-only `PlatformPointsTransaction` ledger in

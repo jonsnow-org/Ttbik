@@ -6,6 +6,7 @@ import { handleMarriageBotUpdate } from "@/lib/matchBotLogic";
 import { handleJobsBotUpdate } from "@/lib/jobsBotLogic";
 import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
+import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 
 export const maxDuration = 60;
 
@@ -38,6 +39,8 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         await handleMedicalBotUpdate(bot, botRow, body);
       } else if (botRow.template === "NOVA_BOT") {
         await handleNovaBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "CONFESSION_BOT") {
+        await handleConfessionBotUpdate(bot, botRow, body);
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {
