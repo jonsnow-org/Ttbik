@@ -35,6 +35,21 @@ const FAQ = [
   },
 ];
 
+const STEPS = [
+  {
+    name: "احصل على رمز طلب معتمد",
+    text: "طلب واحد = بوت واحد. المالك يمكنه تجاوز بوابة الدفع للاختبار.",
+  },
+  {
+    name: "انسخ بوتاً من BotFather",
+    text: "انسخ بوتاً جديداً في تليجرام وانسخ التوكن. لا ترسل التوكن لأحد.",
+  },
+  {
+    name: "الصق التوكن في النموذج",
+    text: "الصق التوكن ورمز الطلب ثم فعّل. المنتج بوت عامل على توكنك، ليس كوداً للتحميل.",
+  },
+];
+
 const FAQ_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -42,6 +57,21 @@ const FAQ_JSON_LD = {
     "@type": "Question",
     name: item.q,
     acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
+const HOWTO_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: "تفعيل بوت تليجرام على سوق تولز",
+  description:
+    "طلب معتمد واحد لكل بوت، ثم توكن BotFather في النموذج. لا كود للبيع ولا سحب نقدي.",
+  inLanguage: "ar",
+  step: STEPS.map((s, i) => ({
+    "@type": "HowToStep",
+    position: i + 1,
+    name: s.name,
+    text: s.text,
   })),
 };
 
@@ -83,6 +113,10 @@ export default function BotsDeployPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(HOWTO_JSON_LD) }}
       />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
@@ -127,6 +161,15 @@ export default function BotsDeployPage() {
         </ul>
       </aside>
       <section className="relative mx-auto max-w-lg px-4 pb-10">
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تفعّل البوت</h2>
+        <ol className="mb-8 list-decimal space-y-2 pr-5 text-sm leading-6 text-slate-600">
+          {STEPS.map((s) => (
+            <li key={s.name}>
+              <span className="font-bold text-slate-800">{s.name}: </span>
+              {s.text}
+            </li>
+          ))}
+        </ol>
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">أسئلة شائعة</h2>
         <dl className="space-y-3">
           {FAQ.map((item) => (
