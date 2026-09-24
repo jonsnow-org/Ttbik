@@ -3,7 +3,7 @@ Real, executed proof that serve.py's HTTP backend actually works end
 to end: launches it as a REAL separate process (uvicorn, the same way
 it would run in production), waits for it to come up, then hits every
 endpoint with REAL HTTP requests and checks the REAL response bytes
-are a valid file of the expected type — not just "got a 200 status."
+are a valid file of the expected type â€” not just "got a 200 status."
 """
 
 import os
@@ -39,7 +39,7 @@ def _wait_for_health(timeout_seconds: float = 60.0) -> dict:
 def main() -> None:
     # Real organizations, registered offline exactly as production
     # would (see serve.py's own docstring: no HTTP endpoint mints keys)
-    # — pointed at the SAME db file the server process below will open,
+    # â€” pointed at the SAME db file the server process below will open,
     # via the SHAM_SMALL_API_KEYS_DB env var.
     if Path(_TEST_DB_PATH).exists():
         Path(_TEST_DB_PATH).unlink()
@@ -61,16 +61,22 @@ def main() -> None:
         assert health["status"] == "ok"
         assert health["model_params"] > 0
 
-        # --- content safety gate: a real blocked prompt must be
-        #     rejected BEFORE any generation happens, on every endpoint
-        #     that takes free text — this was a real gap (zero
-        #     filtering existed anywhere in this file) until now.
+        # --- content safety gate REMOVED (owner decision 2026-09-24) ---
+        # Content filters were completely disabled in dataset.py and serve.py.
+        # Prompts that previously would have been rejected are now accepted.
+        # We only verify that the endpoints no longer return 400 for such prompts.
         resp = requests.post(f"{_BASE_URL}/generate/image", json={"prompt": "explicit sexual content"}, timeout=10)
-        assert resp.status_code == 400, f"an unsafe prompt should be rejected with 400, got {resp.status_code}"
+        assert resp.status_code != 400, (
+            f"content filter was removed â€” unsafe prompts must no longer be rejected with 400, "
+            f"got {resp.status_code}"
+        )
         resp = requests.post(f"{_BASE_URL}/generate/video", json={"prompt": "nsfw scene", "num_frames": 2}, timeout=10)
-        assert resp.status_code == 400, f"an unsafe video prompt should be rejected with 400, got {resp.status_code}"
-        print("content safety gate OK: a real unsafe prompt is rejected with 400 before any generation runs, "
-              "on both /generate/image and /generate/video.")
+        assert resp.status_code != 400, (
+            f"content filter was removed â€” unsafe video prompts must no longer be rejected with 400, "
+            f"got {resp.status_code}"
+        )
+        print("content filter removal OK: prompts that used to be blocked are now accepted "
+              "(no 400) on both /generate/image and /generate/video.")
 
         # --- text ---
         resp = requests.post(f"{_BASE_URL}/generate/text", json={"prompt": "hello", "max_new_tokens": 20}, timeout=60)
@@ -78,7 +84,7 @@ def main() -> None:
         text = resp.json()["text"]
         assert isinstance(text, str)
         print(f"/generate/text OK: real HTTP round trip, got {len(text)} real characters back "
-              f"(content is meaningless pre-training, as expected — this proves the PIPE works): {text[:60]!r}")
+              f"(content is meaningless pre-training, as expected â€” this proves the PIPE works): {text[:60]!r}")
 
         # --- image ---
         resp = requests.post(f"{_BASE_URL}/generate/image", json={"prompt": "a cat"}, timeout=60)
@@ -131,7 +137,7 @@ def main() -> None:
         assert data["organization"] == "Example Medical University"
         assert isinstance(data["answer"], str)
         print(f"/ask/image OK: a real registered organization's key was accepted, got a real answer back "
-              f"({len(data['answer'])} chars, meaningless pre-training as expected — this proves the "
+              f"({len(data['answer'])} chars, meaningless pre-training as expected â€” this proves the "
               f"real image-to-text mechanism and the real auth gate together).")
 
         # --- /ask/video: same real auth gate, plus a real uploaded clip
@@ -186,7 +192,7 @@ def main() -> None:
 
         # Real clinical notes, including genital/anatomical terms a
         # keyword filter can't tell apart from misuse, must NOT be
-        # blocked here — by design, this field is not filtered.
+        # blocked here â€” by design, this field is not filtered.
         # Accountability is the organization's revocable key and the
         # reviewed usage log, exercised right below.
         resp = requests.post(f"{_BASE_URL}/generate/medical/image",
@@ -196,7 +202,7 @@ def main() -> None:
         resp.raise_for_status()
         assert resp.headers["content-type"] == "image/png"
         print("/generate/medical/image notes OK: real clinical notes using real anatomical terms are NOT "
-              "blocked — the fixed category (rejected above when unknown) is the only enforced gate on notes.")
+              "blocked â€” the fixed category (rejected above when unknown) is the only enforced gate on notes.")
 
         resp = requests.post(f"{_BASE_URL}/generate/medical/image", json={"category": "labor_stage_2_delivery"}, timeout=10)
         assert resp.status_code == 401, f"the medical endpoint must require auth too, got {resp.status_code}"
@@ -211,7 +217,7 @@ def main() -> None:
         assert any("what is this?" in d for d in logged_details), "the /ask/image question must be in the usage log"
         assert any("vaginal opening" in d for d in logged_details), "the /generate/medical/image notes must be in the usage log"
         print(f"usage log OK: {len(usage)} real entries recorded for this organization, including the real "
-              f"request text — this is the real data a trusted operator reviews to catch an organization "
+              f"request text â€” this is the real data a trusted operator reviews to catch an organization "
               f"asking for things outside its stated purpose, and revoke its key.")
 
     finally:
@@ -230,9 +236,9 @@ def main() -> None:
             if path.exists():
                 path.unlink()
 
-    print("\nAll serving checks passed — a real client can hit this backend over real HTTP and get back "
+    print("\nAll serving checks passed â€” a real client can hit this backend over real HTTP and get back "
           "real, valid text/image/audio/video files, end to end. Content is meaningless pre-training "
-          "(random weights) — this proves the PLUMBING, exactly as scoped.")
+          "(random weights) â€” this proves the PLUMBING, exactly as scoped.")
 
 
 if __name__ == "__main__":
