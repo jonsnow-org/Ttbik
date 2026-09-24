@@ -2,26 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type Mine = { id: string; text: string; answer?: string | null; from?: string | null; expired?: boolean; at: number };
+import ShareButtons from "./ShareButtons";
+import { MAX_LEN, api, type Ans, type Api } from "./client";
+
+type Mine = { id: string; text: string; answers?: Ans[]; expired?: boolean; at: number };
 type Task = { id: string; text: string; from: string; deadline: number };
-type Api = Record<string, unknown> & { credits?: number; online?: number; answered?: number; error?: string };
 
-const STORE = "bashar_mine_v1";
-const MAX_LEN = 280;
-
-async function api(action: string, extra: Record<string, unknown> = {}): Promise<Api> {
-  try {
-    const r = await fetch("/api/bashar", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, ...extra }),
-      cache: "no-store",
-    });
-    return (await r.json()) as Api;
-  } catch {
-    return { error: "تعذّر الاتصال" };
-  }
-}
+const STORE = "bashar_mine_v2";
 
 function loadMine(): Mine[] {
   try {
@@ -31,7 +18,7 @@ function loadMine(): Mine[] {
   }
 }
 
-export default function BasharApp() {
+export default function BasharApp({ compact = false }: { compact?: boolean }) {
   const [credits, setCredits] = useState<number | null>(null);
   const [online, setOnline] = useState(0);
   const [answeredCount, setAnsweredCount] = useState(0);
@@ -67,27 +54,31 @@ export default function BasharApp() {
     logEnd.current?.scrollIntoView({ block: "end", behavior: "smooth" });
   }, [mine]);
 
-  // poll my unanswered questions
+  // poll my recent questions (last 30 min) — shared ones keep collecting answers
+  const liveIds = mine
+    .filter((m) => !m.expired && Date.now() - m.at < 30 * 60_000)
+    .map((m) => m.id)
+    .join(",");
   useEffect(() => {
-    const pending = mine.filter((m) => !m.answer && !m.expired);
-    if (!pending.length) return;
-    const id = setInterval(async () => {
-      for (const p of pending) {
-        const r = await api("poll", { id: p.id });
+    if (!liveIds) return;
+    const ids = liveIds.split(",");
+    const t = setInterval(async () => {
+      for (const qid of ids) {
+        const r = await api("poll", { id: qid });
         absorb(r);
-        if (r.error === "not_found") {
-          setMine((all) => all.map((m) => (m.id === p.id ? { ...m, expired: true } : m)));
-        } else if (r.answer || r.expired) {
-          setMine((all) =>
-            all.map((m) =>
-              m.id === p.id ? { ...m, answer: (r.answer as string) || null, from: (r.from as string) || null, expired: !!r.expired } : m,
-            ),
-          );
-        }
+        setMine((all) =>
+          all.map((m) =>
+            m.id !== qid
+              ? m
+              : r.error === "not_found"
+                ? { ...m, expired: true }
+                : { ...m, answers: (r.answers as Ans[]) ?? m.answers, expired: !!r.expired },
+          ),
+        );
       }
-    }, 3000);
-    return () => clearInterval(id);
-  }, [mine, absorb]);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [liveIds, absorb]);
 
   // answer-mode countdown
   useEffect(() => {
@@ -161,13 +152,7 @@ export default function BasharApp() {
     void nextTask();
   }
 
-  function share(m: Mine) {
-    const url = `${window.location.origin}/bashar/a/${m.id}`;
-    const msg = `سألت «بَشَر» بدل الذكاء الاصطناعي، فأجابني إنسان حقيقي من ${m.from ?? "مكان ما"} 😄\n\nسؤالي: ${m.text}\nجوابه: ${m.answer}\n\nجرّبها: ${url}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
-  }
-
-  const pendingCount = mine.filter((m) => !m.answer && !m.expired).length;
+  const pendingCount = mine.filter((m) => !m.answers?.length && !m.expired).length;
 
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg">
@@ -205,7 +190,7 @@ export default function BasharApp() {
 
       {mode === "ask" ? (
         <div>
-          <div className="h-[380px] space-y-3 overflow-y-auto bg-slate-50 p-4">
+          <div className={`${compact ? "h-[300px]" : "h-[380px]"} space-y-3 overflow-y-auto bg-slate-50 p-4`}>
             {mine.length === 0 && (
               <div className="mt-10 text-center text-sm leading-7 text-slate-500">
                 <p className="text-3xl">🧍‍♂️🧍‍♀️</p>
@@ -217,33 +202,33 @@ export default function BasharApp() {
             {mine.map((m) => (
               <div key={m.id} className="space-y-2">
                 <div className="mr-auto max-w-[85%] rounded-2xl rounded-bl-sm bg-indigo-600 px-3 py-2 text-sm leading-6 text-white">{m.text}</div>
-                {m.answer ? (
-                  <div className="ml-auto max-w-[85%]">
-                    <div className="rounded-2xl rounded-br-sm bg-white px-3 py-2 text-sm leading-6 text-slate-800 shadow-sm ring-1 ring-slate-200">
-                      {m.answer}
-                    </div>
-                    <p className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
-                      — إنسان من {m.from}
-                      <button type="button" onClick={() => share(m)} className="font-bold text-emerald-700">
-                        شارك ↗
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void api("report", { id: m.id });
-                          setMine((all) => all.map((x) => (x.id === m.id ? { ...x, answer: "(أُخفي الجواب بعد الإبلاغ)" } : x)));
-                        }}
-                        className="text-slate-400"
-                      >
-                        إبلاغ
-                      </button>
-                    </p>
+                {m.answers && m.answers.length > 0 ? (
+                  <div className="ml-auto max-w-[88%] space-y-1.5">
+                    {m.answers.map((a) => (
+                      <div key={a.id}>
+                        <div className="rounded-2xl rounded-br-sm bg-white px-3 py-2 text-sm leading-6 text-slate-800 shadow-sm ring-1 ring-slate-200">
+                          {a.text}
+                        </div>
+                        <p className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                          — إنسان من {a.from}
+                          <button type="button" onClick={() => void api("report_answer", { id: a.id })} className="text-slate-400">
+                            إبلاغ
+                          </button>
+                        </p>
+                      </div>
+                    ))}
                   </div>
                 ) : m.expired ? (
-                  <p className="ml-auto max-w-[85%] text-xs text-slate-400">لم يتوفر إنسان في الوقت — أُعيد رصيدك.</p>
+                  <p className="ml-auto max-w-[85%] text-xs text-slate-400">لم يتوفر إنسان في الوقت — أُعيد رصيدك. شارك سؤالك ليجيبك أصحابك.</p>
                 ) : (
                   <div className="ml-auto max-w-[85%] rounded-2xl bg-white px-3 py-2 text-sm text-slate-500 shadow-sm ring-1 ring-slate-200">
                     <span className="animate-pulse">إنسان حقيقي يفكّر…</span>
+                  </div>
+                )}
+                {Date.now() - m.at < 30 * 60_000 && (
+                  <div className="rounded-xl bg-indigo-50 p-2">
+                    <p className="mb-1.5 text-[11px] font-bold text-indigo-800">📣 شارك سؤالك ليجيبك أصحابك أيضاً:</p>
+                    <ShareButtons id={m.id} text={m.text} compact />
                   </div>
                 )}
               </div>
@@ -279,7 +264,7 @@ export default function BasharApp() {
           </div>
         </div>
       ) : (
-        <div className="min-h-[440px] bg-slate-50 p-4">
+        <div className={`${compact ? "min-h-[340px]" : "min-h-[440px]"} bg-slate-50 p-4`}>
           {task ? (
             <div>
               <div className="mb-3 flex items-center justify-between text-xs text-slate-500">

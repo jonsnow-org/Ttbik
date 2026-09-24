@@ -56,6 +56,23 @@ export function ensureTables(): Promise<void> {
       // policies blocks that. The app's own table-owner connection is unaffected.
       await prisma.$executeRawUnsafe(`ALTER TABLE bashar_players ENABLE ROW LEVEL SECURITY`);
       await prisma.$executeRawUnsafe(`ALTER TABLE bashar_questions ENABLE ROW LEVEL SECURITY`);
+      // Every answer, from the random queue or from people who opened the
+      // question's shared link. One answer per person per question.
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS bashar_answers (
+          id text PRIMARY KEY,
+          question_id text NOT NULL,
+          body text NOT NULL,
+          answerer text NOT NULL,
+          cc text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          reports int NOT NULL DEFAULT 0,
+          hidden boolean NOT NULL DEFAULT false
+        )`);
+      await prisma.$executeRawUnsafe(`ALTER TABLE bashar_answers ENABLE ROW LEVEL SECURITY`);
+      await prisma.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS bashar_a_once ON bashar_answers (question_id, answerer)`,
+      );
       await prisma.$executeRawUnsafe(
         `CREATE INDEX IF NOT EXISTS bashar_q_open ON bashar_questions (created_at) WHERE answer IS NULL AND expired = false`,
       );
@@ -214,6 +231,14 @@ export async function answer(player: string, id: string, text: string, cc: strin
     cc,
   );
   if (!r.length) return { ok: false as const, error: "late" };
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO bashar_answers (id, question_id, body, answerer, cc) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+    newId(),
+    id,
+    text,
+    player,
+    cc,
+  );
   const p = await prisma.$queryRawUnsafe<{ credits: number }[]>(
     `UPDATE bashar_players SET credits = LEAST(${MAX_CREDITS}, credits + 1), answered = answered + 1 WHERE id = $1 RETURNING credits`,
     player,
@@ -228,6 +253,81 @@ export async function release(player: string, id: string) {
     id,
     player,
   );
+}
+
+export const SHARED_ANSWER_HOURS = 72;
+
+/**
+ * Answer a question opened from its shared link (no queue claim needed).
+ * One answer per person; own questions excluded; +1 credit like the queue.
+ */
+export async function reply(player: string, id: string, text: string, cc: string | null) {
+  const q = await prisma.$queryRawUnsafe<{ asker: string; hidden: boolean; created_at: Date }[]>(
+    `SELECT asker, hidden, created_at FROM bashar_questions WHERE id = $1`,
+    id,
+  );
+  const row = q[0];
+  if (!row || row.hidden) return { ok: false as const, error: "السؤال غير متاح" };
+  if (row.asker === player) return { ok: false as const, error: "لا يمكنك الإجابة عن سؤالك — شاركه ليجيبك الآخرون" };
+  if (Date.now() - new Date(row.created_at).getTime() > SHARED_ANSWER_HOURS * 3600_000) {
+    return { ok: false as const, error: "أُغلق هذا السؤال — اسأل أنت سؤالاً جديداً" };
+  }
+  const ins = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `INSERT INTO bashar_answers (id, question_id, body, answerer, cc) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (question_id, answerer) DO NOTHING RETURNING id`,
+    newId(),
+    id,
+    text,
+    player,
+    cc,
+  );
+  if (!ins.length) return { ok: false as const, error: "أجبت عن هذا السؤال من قبل" };
+  // First answer also takes it out of the random queue.
+  await prisma.$executeRawUnsafe(
+    `UPDATE bashar_questions SET answer = $2, answerer = $3, answer_cc = $4, answered_at = now()
+     WHERE id = $1 AND answer IS NULL`,
+    id,
+    text,
+    player,
+    cc,
+  );
+  const p = await prisma.$queryRawUnsafe<{ credits: number }[]>(
+    `UPDATE bashar_players SET credits = LEAST(${MAX_CREDITS}, credits + 1), answered = answered + 1 WHERE id = $1 RETURNING credits`,
+    player,
+  );
+  return { ok: true as const, credits: p[0]?.credits ?? 0 };
+}
+
+export type AnswerView = { id: string; body: string; cc: string | null; created_at: Date };
+
+export async function answersFor(questionId: string, limit = 50): Promise<AnswerView[]> {
+  await ensureTables();
+  return prisma.$queryRawUnsafe<AnswerView[]>(
+    `SELECT id, body, cc, created_at FROM bashar_answers
+     WHERE question_id = $1 AND hidden = false ORDER BY created_at DESC LIMIT ${Math.max(1, Math.min(100, limit))}`,
+    questionId,
+  );
+}
+
+export async function reportAnswer(answerId: string) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE bashar_answers SET reports = reports + 1, hidden = (reports + 1 >= ${HIDE_AFTER_REPORTS}) WHERE id = $1`,
+    answerId,
+  );
+}
+
+/** Numbers for the floating bubble: people online, answers today, all answers. */
+export async function liveStats() {
+  await ensureTables();
+  const r = await prisma.$queryRawUnsafe<{ online: bigint; today: bigint; total: bigint; waiting: bigint }[]>(
+    `SELECT
+       (SELECT count(*) FROM bashar_players WHERE last_seen > now() - interval '2 minutes')::bigint AS online,
+       (SELECT count(*) FROM bashar_answers WHERE created_at > now() - interval '24 hours')::bigint AS today,
+       (SELECT count(*) FROM bashar_answers)::bigint AS total,
+       (SELECT count(*) FROM bashar_questions WHERE answer IS NULL AND expired = false AND hidden = false)::bigint AS waiting`,
+  );
+  const x = r[0];
+  return { online: Number(x?.online ?? 0), today: Number(x?.today ?? 0), total: Number(x?.total ?? 0), waiting: Number(x?.waiting ?? 0) };
 }
 
 export async function report(id: string) {

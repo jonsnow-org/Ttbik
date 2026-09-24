@@ -8,6 +8,7 @@ import AdSlot from "@/components/AdSlot";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import StickyBottomAd from "@/components/StickyBottomAd";
+import BasharBubble from "@/components/bashar/BasharBubble";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 import { SITE_URL } from "@/lib/siteUrl";
@@ -175,6 +176,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </div>
         </footer>
         <StickyBottomAd isOwner={isOwner} />
+        <BasharBubble isOwner={isOwner} />
       </body>
     </html>
   );

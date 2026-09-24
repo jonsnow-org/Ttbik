@@ -26,6 +26,18 @@ CREATE TABLE IF NOT EXISTS bashar_questions (
   hidden boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS bashar_q_open ON bashar_questions (created_at) WHERE answer IS NULL AND expired = false;
+CREATE TABLE IF NOT EXISTS bashar_answers (
+  id text PRIMARY KEY,
+  question_id text NOT NULL,
+  body text NOT NULL,
+  answerer text NOT NULL,
+  cc text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  reports int NOT NULL DEFAULT 0,
+  hidden boolean NOT NULL DEFAULT false
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bashar_a_once ON bashar_answers (question_id, answerer);
+ALTER TABLE bashar_answers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bashar_players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bashar_questions ENABLE ROW LEVEL SECURITY;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE bashar_players, bashar_questions TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE bashar_players, bashar_questions, bashar_answers TO service_role;

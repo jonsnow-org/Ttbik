@@ -4,7 +4,8 @@ import AdSlot from "@/components/AdSlot";
 import ExploreMore from "@/components/ExploreMore";
 import { SITE_URL } from "@/lib/siteUrl";
 import { countryLabel, recentAnswered } from "@/lib/bashar";
-import BasharApp from "./BasharApp";
+import BasharApp from "@/components/bashar/BasharApp";
+import TelegramStart from "./TelegramStart";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export default async function BasharPage() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
+      <TelegramStart />
       <main className="mx-auto max-w-xl px-4 py-8" dir="rtl" lang="ar">
         <nav className="mb-4 text-sm text-slate-500" aria-label="مسار التنقل">
           <Link href="/" className="hover:text-slate-800">
@@ -92,7 +94,7 @@ export default async function BasharPage() {
                   <p className="text-slate-700">💬 {q.answer}</p>
                   <p className="mt-1 text-[11px] text-slate-500">
                     سؤال من {countryLabel(q.asker_cc)} · جواب من {countryLabel(q.answer_cc)} ·{" "}
-                    <Link href={`/bashar/a/${q.id}`} className="font-bold text-indigo-700">
+                    <Link href={`/bashar/q/${q.id}`} className="font-bold text-indigo-700">
                       رابط
                     </Link>
                   </p>
