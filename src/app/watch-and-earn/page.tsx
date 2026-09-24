@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { LIVE_BOTS } from "@/lib/liveBots";
+import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
   title: "الربح من مشاهدة الإعلانات على تليجرام | سوق تولز",
@@ -104,6 +105,10 @@ export default function WatchAndEarnPage() {
             <p className="mt-1.5 text-sm text-slate-500">{step.d}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-10">
+        <AdSlot position="in-content" label="بين الخطوات والأسئلة" />
       </div>
 
       <h2 className="mt-12 text-xl font-extrabold text-slate-900">أسئلة شائعة</h2>

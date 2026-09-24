@@ -132,6 +132,10 @@ export default async function NewsHubPage() {
           <p className="mt-3 text-[11px] text-slate-500">آخر محاولة جلب: {updated}</p>
         </section>
 
+        <div className="mb-8">
+          <AdSlot position="in-content" label="بين الشريط العاجل وخبر اليوم" />
+        </div>
+
         <article className="mb-8 rounded-2xl border border-slate-200 bg-white p-5">
           <p className="mb-1 text-xs font-bold text-indigo-700">خبر اليوم · {FEATURED.dateLabel}</p>
           <h2 className="mb-3 text-lg font-extrabold text-slate-900">{FEATURED.title}</h2>

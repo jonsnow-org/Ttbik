@@ -153,6 +153,10 @@ export default function EventArticlePage({ params }: { params: { slug: string } 
           </ul>
         </article>
 
+        <div className="mt-6">
+          <AdSlot position="in-content" label="بين المقال والأسئلة" />
+        </div>
+
         <section className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
           <h2 className="mb-3 text-base font-extrabold text-slate-900">أسئلة قصيرة</h2>
           <dl className="space-y-3 text-sm leading-7">
@@ -180,7 +184,6 @@ export default function EventArticlePage({ params }: { params: { slug: string } 
             مركز الأخبار ←
           </Link>
         </p>
-        <AdSlot position="in-content" label="أسفل مقال الأحداث" />
       </main>
     </>
   );

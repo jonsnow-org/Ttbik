@@ -92,6 +92,9 @@ export default function PrayerCityPage({ params }: { params: Params }) {
           ))}
         </ul>
         <NextPrayerCountdown nextName={PRAYER_LABELS[result.next]} nextIso={result.nextDate.toISOString()} />
+        <div className="mb-6">
+          <AdSlot position="in-content" label={`تحت عدّاد مواقيت ${city.nameAr}`} />
+        </div>
         <p className="mb-6 text-sm text-slate-700">
           اتجاه القبلة من إحداثيات المدينة نحو الكعبة: {Math.round(result.qibla)}° من الشمال الجغرافي.
         </p>
@@ -117,7 +120,6 @@ export default function PrayerCityPage({ params }: { params: Params }) {
             مركز الأخبار ←
           </Link>
         </p>
-        <AdSlot position="in-content" label={`أسفل مواقيت ${city.nameAr}`} />
       </main>
     </>
   );
