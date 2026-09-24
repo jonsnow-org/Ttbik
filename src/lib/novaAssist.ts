@@ -9,11 +9,13 @@
 // choice, not a shortcut: it's the one honest way to let every bot
 // benefit from Nova without creating a second, ownerless quota system
 // bots could be used to bypass.
+import { NOVA_PAUSED } from "@/lib/novaPause";
+
 const FASTAPI_URL = process.env.NOVA_FASTAPI_URL || "";
 const INTERNAL_SECRET = process.env.NOVA_INTERNAL_SECRET || "";
 
 export function novaAssistConfigured(): boolean {
-  return Boolean(FASTAPI_URL && INTERNAL_SECRET);
+  return !NOVA_PAUSED && Boolean(FASTAPI_URL && INTERNAL_SECRET);
 }
 
 export async function askNovaAssist(telegramId: string, message: string): Promise<{ ok: boolean; text?: string; error?: string }> {

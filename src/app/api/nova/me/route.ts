@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { NOVA_PAUSED } from "@/lib/novaPause";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   // dashboard can show real remaining-quota numbers instead of a
   // hardcoded constant that drifts from the actual backend config.
   let plans: Record<string, unknown> = {};
-  if (FASTAPI_URL) {
+  if (FASTAPI_URL && !NOVA_PAUSED) {
     try {
       const plansRes = await fetch(`${FASTAPI_URL}/plans`, { cache: "no-store" });
       const plansData = await plansRes.json();

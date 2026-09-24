@@ -657,3 +657,10 @@ For everyone: **never add a keep-alive / self-ping / uptime pinger to a
 Render free service.** Also: every push to this branch rebuilds media-bot
 and nova on Render — the owner is setting Build Filters so each rebuilds
 only for its own folder.
+
+**Update (same day): Nova is paused by the owner until further notice.**
+`src/lib/novaPause.ts` → `NOVA_PAUSED = true`. While true: the Nova bot only
+replies with a pause notice, «اسأل نوفا» buttons are hidden in AD/JOBS/MATCH
+bots, `/pay/nova` and the Nova invoice route refuse new subscriptions, and
+the Kaggle video-queue schedule is off. Don't call the Nova backend from new
+code while it's paused.

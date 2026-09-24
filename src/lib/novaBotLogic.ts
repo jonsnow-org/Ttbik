@@ -3,6 +3,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
+import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -752,6 +753,14 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 }
 
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
+  if (NOVA_PAUSED) {
+    if (update.callback_query?.id) {
+      await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
+    } else if (update.message?.chat?.id) {
+      await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
+    }
+    return;
+  }
   if (update.callback_query) {
     const cqData = String(update.callback_query.data || "");
     if (cqData.startsWith("nova_plan|")) {

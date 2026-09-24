@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 import { SITE_URL } from "@/lib/siteUrl";
+import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
 
 // NOVA_BOT's own subscription invoice — a separate route from every other
 // bot's create-invoice route, so ipnCallbackUrl always points at
@@ -17,6 +18,9 @@ import { SITE_URL } from "@/lib/siteUrl";
 const FASTAPI_URL = process.env.NOVA_FASTAPI_URL || "";
 
 export async function POST(req: NextRequest) {
+  if (NOVA_PAUSED) {
+    return NextResponse.json({ error: NOVA_PAUSED_TEXT }, { status: 503 });
+  }
   if (!isNowPaymentsConfigured()) {
     return NextResponse.json({ error: "الدفع بعملة رقمية غير مُفعَّل بعد." }, { status: 400 });
   }
