@@ -90,7 +90,7 @@ export default function PrayerCityPage({ params }: { params: Params }) {
             </li>
           ))}
         </ul>
-        <NextPrayerCountdown nextName={PRAYER_LABELS[result.next]} nextIso={result.times[result.next].date.toISOString()} />
+        <NextPrayerCountdown nextName={PRAYER_LABELS[result.next]} nextIso={result.nextDate.toISOString()} />
         <p className="mb-6 text-sm text-slate-700">
           اتجاه القبلة من إحداثيات المدينة نحو الكعبة: {Math.round(result.qibla)}° من الشمال الجغرافي.
         </p>

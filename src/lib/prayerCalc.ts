@@ -1,4 +1,5 @@
-import { METHOD_ANGLES, type PrayerCity } from "./prayerCities";
+import { CalculationMethod, CalculationParameters, Coordinates, Madhab, PrayerTimes } from "adhan";
+import type { PrayerCity } from "./prayerCities";
 
 export type PrayerName = "fajr" | "sunrise" | "dhuhr" | "asr" | "maghrib" | "isha";
 
@@ -18,66 +19,6 @@ function toRad(d: number) {
 }
 function toDeg(r: number) {
   return (r * 180) / Math.PI;
-}
-
-function julianDay(date: Date, lng: number) {
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth() + 1;
-  const d = date.getUTCDate();
-  const dayFrac = (date.getUTCHours() + date.getUTCMinutes() / 60 - lng / 15) / 24;
-  const a = Math.floor((14 - m) / 12);
-  const yy = y + 4800 - a;
-  const mm = m + 12 * a - 3;
-  return (
-    d +
-    dayFrac +
-    Math.floor((153 * mm + 2) / 5) +
-    365 * yy +
-    Math.floor(yy / 4) -
-    Math.floor(yy / 100) +
-    Math.floor(yy / 400) -
-    32045
-  );
-}
-
-function sunDeclination(jd: number) {
-  const n = jd - 2451545.0;
-  const L = (280.46 + 0.9856474 * n) % 360;
-  const g = toRad((357.528 + 0.9856003 * n) % 360);
-  const lambda = toRad(L + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g));
-  const eps = toRad(23.439 - 0.0000004 * n);
-  return Math.asin(Math.sin(eps) * Math.sin(lambda));
-}
-
-function equationOfTimeMinutes(jd: number) {
-  const n = jd - 2451545.0;
-  const g = toRad(357.528 + 0.9856003 * n);
-  const q = 280.46 + 0.9856474 * n;
-  const L = q + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g);
-  const RA = toDeg(Math.atan2(Math.cos(toRad(23.439)) * Math.sin(toRad(L)), Math.cos(toRad(L))));
-  let eot = 4 * (q - RA);
-  while (eot > 720) eot -= 1440;
-  while (eot < -720) eot += 1440;
-  return eot;
-}
-
-function hourAngle(lat: number, decl: number, angleDeg: number) {
-  const latR = toRad(lat);
-  const a = toRad(-angleDeg);
-  const cosH =
-    (Math.sin(a) - Math.sin(latR) * Math.sin(decl)) / (Math.cos(latR) * Math.cos(decl));
-  const clamped = Math.min(1, Math.max(-1, cosH));
-  return toDeg(Math.acos(clamped));
-}
-
-function asrHourAngle(lat: number, decl: number) {
-  const latR = toRad(lat);
-  const angle = toDeg(Math.atan(1 / (1 + Math.tan(Math.abs(latR - decl)))));
-  return hourAngle(lat, decl, 90 - angle);
-}
-
-function minutesFromSolarNoon(haDeg: number) {
-  return (haDeg / 15) * 60;
 }
 
 function clockInTz(base: Date, offsetMin: number, tz: string) {
@@ -119,6 +60,28 @@ export function gregorianLabel(date: Date, tz: string) {
   }).format(date);
 }
 
+// Times come from the `adhan` library (the reference implementation of the
+// standard methods). A hand-rolled solar calculation here was ~16 minutes off
+// and produced a nonsensical Asr, so it was replaced.
+function adhanParams(city: PrayerCity) {
+  let params: CalculationParameters;
+  switch (city.method) {
+    case "umm_al_qura":
+      params = CalculationMethod.UmmAlQura();
+      break;
+    case "egyptian":
+      params = CalculationMethod.Egyptian();
+      break;
+    case "karachi":
+      params = CalculationMethod.Karachi();
+      break;
+    default:
+      params = CalculationMethod.MuslimWorldLeague();
+  }
+  params.madhab = Madhab.Shafi;
+  return params;
+}
+
 export function computePrayerTimes(city: PrayerCity, when = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: city.tz,
@@ -130,43 +93,27 @@ export function computePrayerTimes(city: PrayerCity, when = new Date()) {
   const m = Number(parts.find((p) => p.type === "month")?.value);
   const d = Number(parts.find((p) => p.type === "day")?.value);
 
-  const utcGuess = Date.UTC(y, m - 1, d, 12, 0, 0);
-  const jd = julianDay(new Date(utcGuess), city.lng);
-  const decl = sunDeclination(jd);
-  const eot = equationOfTimeMinutes(jd);
-
-  const utcSolarNoon = Date.UTC(y, m - 1, d, 12, 0, 0) + (eot - city.lng * 4) * 60_000;
-  const noon = new Date(utcSolarNoon);
-
-  const angles = METHOD_ANGLES[city.method];
-  const fajrHa = hourAngle(city.lat, decl, angles.fajr);
-  const sunriseHa = hourAngle(city.lat, decl, 0.833);
-  const asrHa = asrHourAngle(city.lat, decl);
-  const maghribHa = hourAngle(city.lat, decl, 0.833);
-  const ishaHa =
-    city.method === "umm_al_qura"
-      ? maghribHa + (angles.maghribMin / 60) * 15
-      : hourAngle(city.lat, decl, angles.isha);
-
-  const mk = (offsetMin: number) => ({
-    label: clockInTz(noon, offsetMin, city.tz),
-    date: new Date(noon.getTime() + offsetMin * 60_000),
-  });
+  // adhan reads only the calendar day (y/m/d) from this Date.
+  const pt = new PrayerTimes(new Coordinates(city.lat, city.lng), new Date(y, m - 1, d), adhanParams(city));
+  const mk = (date: Date) => ({ label: clockInTz(date, 0, city.tz), date });
 
   const times = {
-    fajr: mk(-minutesFromSolarNoon(fajrHa)),
-    sunrise: mk(-minutesFromSolarNoon(sunriseHa)),
-    dhuhr: mk(1),
-    asr: mk(minutesFromSolarNoon(asrHa)),
-    maghrib: mk(minutesFromSolarNoon(maghribHa)),
-    isha: mk(minutesFromSolarNoon(ishaHa)),
+    fajr: mk(pt.fajr),
+    sunrise: mk(pt.sunrise),
+    dhuhr: mk(pt.dhuhr),
+    asr: mk(pt.asr),
+    maghrib: mk(pt.maghrib),
+    isha: mk(pt.isha),
   } as const;
 
   const order: PrayerName[] = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
   let next: PrayerName = "fajr";
+  // After Isha the next prayer is tomorrow's Fajr, not today's (already past).
+  let nextDate = new PrayerTimes(new Coordinates(city.lat, city.lng), new Date(y, m - 1, d + 1), adhanParams(city)).fajr;
   for (const name of order) {
     if (times[name].date.getTime() > when.getTime()) {
       next = name;
+      nextDate = times[name].date;
       break;
     }
   }
@@ -174,6 +121,7 @@ export function computePrayerTimes(city: PrayerCity, when = new Date()) {
   return {
     times,
     next,
+    nextDate,
     qibla: qiblaDegrees(city.lat, city.lng),
     hijri: hijriLabel(when, city.tz),
     gregorian: gregorianLabel(when, city.tz),
