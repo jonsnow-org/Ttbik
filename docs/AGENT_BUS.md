@@ -144,3 +144,16 @@ file explicitly in the completion report — every time, no exceptions.
   whatsapp-catalog) are permanently deleted, not just deactivated — the
   site sells real services, not locked code (owner directive, 2026-09-02).
   Don't re-add a "buy this code file" product.
+
+
+## Rule (2026-09-24): every new Supabase table needs explicit grants
+
+From 2026-10-30 Supabase stops auto-granting Data API access to new tables
+in `public`. Every migration that creates a table must, in the same file:
+
+    grant select, insert, update, delete on public.<table> to service_role;
+
+Do NOT grant `anon` / `authenticated` unless the table has RLS policies
+written for exactly that access. `supabase/grants_service_role_all.sql`
+(run once by the owner) also sets default privileges so future tables get
+the service_role grant automatically — keep adding the explicit GRANT anyway.
