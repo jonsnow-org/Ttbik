@@ -193,7 +193,7 @@ export default function BasharApp({ compact = false }: { compact?: boolean }) {
           <div className={`${compact ? "h-[300px]" : "h-[380px]"} space-y-3 overflow-y-auto bg-slate-50 p-4`}>
             {mine.length === 0 && (
               <div className="mt-10 text-center text-sm leading-7 text-slate-500">
-                <p className="text-3xl">🧍‍♂️🧍‍♀️</p>
+                <p className="text-3xl">💬</p>
                 <p className="mt-2 font-bold text-slate-700">هنا لا يجيبك ذكاء اصطناعي.</p>
                 <p>سؤالك يذهب إلى إنسان حقيقي عشوائي، لديه {75} ثانية ليكتب جوابه — ثم تعرف من أي بلد هو.</p>
                 <p className="mt-2 text-xs">اسأل أي شيء: نصيحة، رأي، نكتة، سؤال محرج…</p>

@@ -38,5 +38,5 @@ export function telegramQuestionUrl(id: string) {
 }
 
 export function inviteText(question: string) {
-  return `🧍 سؤال من إنسان حقيقي — أجبني خلال 75 ثانية:\n«${question}»`;
+  return `💬 سؤال من إنسان حقيقي ينتظر جوابك:\n\n«${question}»\n\n👇 افتح وأجب خلال 75 ثانية (بلا تسجيل):`;
 }

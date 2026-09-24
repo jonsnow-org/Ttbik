@@ -32,8 +32,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     description,
     robots: { index: false, follow: true },
     alternates: { canonical: `${SITE_URL}/bashar/q/${d.q.id}` },
-    openGraph: { title, description, url: `${SITE_URL}/bashar/q/${d.q.id}`, locale: "ar_AR", type: "article", images: [{ url: `${SITE_URL}/opengraph-image` }] },
-    twitter: { card: "summary_large_image", title, description },
+    openGraph: { title, description, url: `${SITE_URL}/bashar/q/${d.q.id}`, locale: "ar_AR", type: "article", images: [{ url: `${SITE_URL}/bashar-og.jpg`, width: 1200, height: 630, alt: "بَشَر — سؤال من إنسان حقيقي" }] },
+    twitter: { card: "summary_large_image", title, description, images: [`${SITE_URL}/bashar-og.jpg`] },
   };
 }
 
@@ -43,7 +43,7 @@ export default async function BasharQuestionPage({ params }: { params: { id: str
   const { q, answers } = d;
   return (
     <main className="mx-auto max-w-xl px-4 py-8" dir="rtl" lang="ar">
-      <p className="mb-3 text-xs font-bold text-indigo-700">🧍 بَشَر · سؤال من إنسان في {countryLabel(q.asker_cc)}</p>
+      <p className="mb-3 text-xs font-bold text-indigo-700">💬 بَشَر · سؤال من إنسان في {countryLabel(q.asker_cc)}</p>
       <h1 className="rounded-2xl bg-indigo-600 px-5 py-4 text-xl font-extrabold leading-9 text-white">{q.body}</h1>
       <p className="mt-2 text-xs text-slate-500">{answers.length} إجابة من بشر حقيقيين · اضغط الفقاعة العائمة لتجيب أنت</p>
       <div className="my-6">

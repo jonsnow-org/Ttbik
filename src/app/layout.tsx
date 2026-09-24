@@ -116,7 +116,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 🤖 منشئ البوتات
               </a>
               <a href="/bashar" className="rounded-full px-3 py-1.5 font-extrabold text-indigo-700 transition hover:bg-indigo-50">
-                🧍 بَشَر
+                💬 بَشَر
               </a>
               <a href="/prayer-times" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 🕌 المواقيت

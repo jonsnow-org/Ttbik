@@ -8,7 +8,7 @@ type Item = { href: string; label: string; hint: string; section?: Section; exte
 // bots). Rendered by each section's layout.tsx so every page in it gets the
 // block without touching the page files. The current section is skipped.
 const ITEMS: Item[] = [
-  { href: "/bashar", label: "🧍 بَشَر", hint: "يجيبك إنسان لا ذكاء اصطناعي" },
+  { href: "/bashar", label: "💬 بَشَر", hint: "يجيبك إنسان لا ذكاء اصطناعي" },
   { href: "/prayer-times", label: "🕌 مواقيت الصلاة", hint: "مدينتك + عدّاد الصلاة القادمة", section: "prayer" },
   { href: "/news", label: "📰 خبر اليوم", hint: "بمصدرين + شريط عاجل", section: "news" },
   { href: "/events", label: "🗓️ أحداث ومقالات", hint: "شروحات قصيرة بمصادر", section: "events" },

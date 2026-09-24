@@ -33,7 +33,7 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       label: "الرئيسية",
       links: [
         { href: "/", label: "🏠 الصفحة الرئيسية" },
-        { href: "/bashar", label: "🧍 بَشَر — يجيبك إنسان لا ذكاء اصطناعي" },
+        { href: "/bashar", label: "💬 بَشَر — يجيبك إنسان لا ذكاء اصطناعي" },
       ],
     },
     {

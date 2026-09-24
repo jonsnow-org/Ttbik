@@ -19,8 +19,8 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESC,
   alternates: { canonical: `${SITE}${PATH}` },
-  openGraph: { title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website", images: [{ url: `${SITE}/opengraph-image` }] },
-  twitter: { card: "summary_large_image", title: TITLE, description: DESC },
+  openGraph: { title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website", images: [{ url: `${SITE}/bashar-og.jpg`, width: 1200, height: 630 }] },
+  twitter: { card: "summary_large_image", title: TITLE, description: DESC, images: [`${SITE}/bashar-og.jpg`] },
 };
 
 const JSON_LD = [
