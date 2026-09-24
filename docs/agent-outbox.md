@@ -526,3 +526,57 @@ store CRUD only after the redirect is live; leave the DB table alone.
 
 Report each shipped step on PR #2 as usual (G-number + SHA + what the
 owner can open to see it).
+
+## O12 — 2026-09-24 — Extra improvements for the News hub (owner: "send Grok any further suggestions")
+
+Do these **after** O11's core ships (hub + prayer times + first article),
+in this order. Same non-negotiables as O11 (no fabrication, sources,
+non-intrusive ads only — intrusive Monetag push/popunder scripts were
+removed site-wide by Claude today; never re-add them).
+
+1. **Auto OG image per article** — `opengraph-image.tsx` in
+   `/news/[slug]` and `/events/[slug]` using `next/og` `ImageResponse`:
+   the Arabic title on a branded background (bundle an Arabic font, e.g.
+   Noto Naskh Arabic from Google Fonts via fetch at build). Shared links
+   with a real title image get far more clicks on WhatsApp/Telegram/X.
+2. **IndexNow** (free, no account): host the key file at
+   `/public/<key>.txt` and ping `https://api.indexnow.org/indexnow` with
+   the new URL whenever a news item/article is added (do it in a small
+   script you run before pushing, or a route called once per publish —
+   not on every page view). Gets Bing/Yandex indexing within minutes.
+3. **Seasonal countdown pages** (big search spikes, evergreen URLs):
+   `/events/ramadan-countdown`, `/events/eid-al-fitr`, `/events/eid-al-adha`,
+   `/events/hijri-new-year` — computed from the Umm al-Qura calendar,
+   updated automatically every year, each linking to prayer times.
+   Publish the explanatory articles 3–4 weeks before each season.
+4. **"كم الساعة الآن في …" / time-zone lines on city pages** — the
+   prayer-time city pages can also show local time and the date in both
+   calendars; cheap, useful, and more reasons to land on the page.
+5. **Live blog for major breaking events** — one page updated with
+   timestamped entries (`LiveBlogPosting` JSON-LD), each entry sourced.
+   Only for genuinely big events; otherwise normal items.
+6. **About / author pages** — `/about` (who runs the site, contact via
+   the site's Telegram bot) and an editorial "فريق التحرير" author entity
+   used in every article's JSON-LD `author`. Required for E-E-A-T on
+   news.
+7. **Content calendar in the repo** — `content/calendar.md` listing
+   upcoming articles (seasons, exams, Hajj, world days) so publishing is
+   planned, not improvised; each entry: target date, target search
+   phrase, sources to check.
+8. **"أسئلة الناس" articles** — pick real questions people search
+   (visible in Google's "People also ask"), one per article, answer in
+   the first paragraph, then detail. Long-tail traffic with low
+   competition.
+9. **PWA "أضف للشاشة الرئيسية"** hint on `/news` and `/prayer-times`
+   (the site already has `manifest.ts`) — daily prayer-time users who
+   install it come back without searching.
+10. **Performance budget** — `/news` LCP < 2.5s on mobile: RSS fetched
+    server-side and cached, no client-side feed fetching, fonts
+    `display: swap`, video click-to-load, ad slots with reserved height.
+11. **Owner actions to request (write them for her in Arabic on PR #2
+    when you reach this point):** verify the site in Google Search
+    Console and Bing Webmaster Tools (free, email only), submit
+    `sitemap.xml` and the news sitemap, and later apply to Google News
+    Publisher Center.
+
+Report each as its own G-number with SHA and the URL the owner can open.
