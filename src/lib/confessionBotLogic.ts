@@ -24,6 +24,12 @@ const PRICE_REVEAL_SENDER = 3;
 const PRICE_UNLIMITED_REPLIES = 3;
 const INBOX_PAGE_SIZE = 10;
 
+// حماية من الإساءة
+const MIN_CONFESSION_LENGTH = 5;
+const MAX_CONFESSION_LENGTH = 1000;
+const MAX_CONFESSIONS_PER_DAY = 20;
+const BANNED_WORDS = ["كلمة ممنوعة مثال"]; // يمكن توسيعها
+
 // ---------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------
@@ -45,9 +51,9 @@ function isBack(text: string): boolean {
 }
 function mainMenu(): Keyboard {
   return new Keyboard()
-    .text("📬 صندوقي").text("⚙️ الترقيات").row()
-    .text("💰 رصيدي وإيداع").text("ℹ️ معلومات").row()
-    .resized();
+    .text("📬 صندوقي").text("📊 الإحصائيات").row()
+    .text("⚙️ الترقيات").text("💰 رصيدي وإيداع").row()
+    .text("ℹ️ معلومات").resized();
 }
 function upgradesMenu(user: Pick<ConfessionUserRow, "revealSenderUnlocked" | "unlimitedRepliesUnlocked">): Keyboard {
   const kb = new Keyboard();
@@ -115,6 +121,28 @@ function senderLabel(msg: { text: string; senderName: string | null; senderUsern
 }
 function shortId(id: string): string {
   return id.slice(-6);
+}
+
+// إحصائيات شخصية
+async function getUserStats(userId: string) {
+  const [sent, received, replies, liked] = await Promise.all([
+    prisma.confessionMessage.count({ where: { senderId: userId } }),
+    prisma.confessionMessage.count({ where: { boxOwnerId: userId } }),
+    prisma.confessionMessage.count({ where: { boxOwnerId: userId, reply: { not: null } } }),
+    prisma.confessionMessage.aggregate({ where: { boxOwnerId: userId }, _sum: { replyCount: true } }),
+  ]);
+  return { sent, received, replies, liked: liked._sum.replyCount || 0 };
+}
+
+// التحقق من الاعتراف قبل الإرسال
+function validateConfession(text: string): { valid: boolean; error?: string } {
+  if (text.length < MIN_CONFESSION_LENGTH) return { valid: false, error: `⚠️ الاعتراف قصير جداً (الحد الأدنى ${MIN_CONFESSION_LENGTH} أحرف)` };
+  if (text.length > MAX_CONFESSION_LENGTH) return { valid: false, error: `⚠️ الاعتراف طويل جداً (الحد الأقصى ${MAX_CONFESSION_LENGTH} حرف)` };
+  const lower = text.toLowerCase();
+  if (BANNED_WORDS.some(w => lower.includes(w.toLowerCase()))) {
+    return { valid: false, error: "⚠️ يحتوي على كلمات غير مسموحة" };
+  }
+  return { valid: true };
 }
 
 // ---------------------------------------------------------------------
@@ -285,9 +313,21 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       return;
     }
 
+    const stats = await getUserStats(tgUserId);
     await bot.api.sendMessage(
       chatId,
-      "👋 أهلاً بك في بوت الاعترافات المجهولة!\n\nلديك صندوق اعترافات خاص بك — شارك رابطه ليرسل لك أصدقاؤك اعترافات وأسئلة مجهولة الهوية.",
+      `🎭 مرحباً بك في بوت الاعترافات المجهولة!\n\n` +
+      `هذا صندوقك الخاص والآمن للاعترافات والأسئلة.\n\n` +
+      `✨ كيف يعمل:\n` +
+      `• شارك رابط صندوقك مع من تثق بهم\n` +
+      `• يرسلون لك اعترافات بدون الكشف عن الهوية\n` +
+      `• أنت ترد عليها بحرية\n` +
+      `• اختياري: كشف الهوية (3$) أو ردود غير محدودة (3$)\n\n` +
+      `📊 إحصائياتك:\n` +
+      `📤 أرسلت: ${stats.sent} اعتراف\n` +
+      `📥 استقبلت: ${stats.received} اعتراف\n` +
+      `↩️ ردود: ${stats.replies}/${stats.received}\n` +
+      `❤️ إعجابات: ${stats.liked}`,
       { reply_markup: mainMenu() }
     );
     return;
@@ -296,11 +336,31 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
   const pending = user.pendingAction as PendingAction | null;
 
   if (pending?.mode === "writing_confession") {
+    // التحقق من سلامة الاعتراف
+    const validation = validateConfession(text);
+    if (!validation.valid) {
+      await bot.api.sendMessage(chatId, validation.error || "⚠️ الاعتراف غير صحيح", { reply_markup: plainBackMenu() });
+      return;
+    }
+
     if (await isBlockedFrom(pending.boxOwnerId, tgUserId)) {
       await setPending(tgUserId, null);
       await bot.api.sendMessage(chatId, "🚫 لا يمكنك إرسال رسائل إلى هذا الصندوق.", { reply_markup: mainMenu() });
       return;
     }
+
+    // التحقق من حد الاعترافات اليومية
+    const todayCount = await prisma.confessionMessage.count({
+      where: {
+        senderId: tgUserId,
+        created_at: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      },
+    });
+    if (todayCount >= MAX_CONFESSIONS_PER_DAY) {
+      await bot.api.sendMessage(chatId, `⚠️ وصلت للحد اليومي (${MAX_CONFESSIONS_PER_DAY}) اعترافات. حاول غداً.`, { reply_markup: plainBackMenu() });
+      return;
+    }
+
     const created = await prisma.confessionMessage.create({
       data: {
         boxOwnerId: pending.boxOwnerId,
@@ -311,7 +371,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       },
     });
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "✅ تم إرسال اعترافك بنجاح، لن يعرف صاحب الصندوق هويتك ما لم تكشفها بنفسك.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "✅ تم إرسال اعترافك بنجاح 🎭\n\nلن يعرف صاحب الصندوق هويتك ما لم تكشفها بنفسك.", { reply_markup: mainMenu() });
 
     const boxOwner = await prisma.confessionUser.findUnique({ where: { id: pending.boxOwnerId } });
     if (boxOwner) {
@@ -344,6 +404,23 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "✅ تم إرسال ردك.", { reply_markup: mainMenu() });
     await bot.api.sendMessage(Number(message.senderId), `↩️ رد صاحب الصندوق على اعترافك:\n\n${text}`).catch(() => null);
+    return;
+  }
+
+  if (text === "📊 الإحصائيات") {
+    const stats = await getUserStats(tgUserId);
+    await bot.api.sendMessage(
+      chatId,
+      `📊 إحصائياتك الشاملة:\n\n` +
+      `📤 اعترافات أرسلتها: ${stats.sent}\n` +
+      `📥 اعترافات استقبلتها: ${stats.received}\n` +
+      `↩️ عدد الردود: ${stats.replies} من ${stats.received} (${stats.received > 0 ? Math.round((stats.replies / stats.received) * 100) : 0}%)\n` +
+      `❤️ إعجابات على الردود: ${stats.liked}\n\n` +
+      `💰 رصيدك: $${user.balance.toFixed(2)}\n` +
+      `🕵️ كشف الهوية: ${user.revealSenderUnlocked ? "✅ مفعّل" : "❌ غير مفعّل"}\n` +
+      `♾️ ردود غير محدودة: ${user.unlimitedRepliesUnlocked ? "✅ مفعّل" : "❌ غير مفعّل"}`,
+      { reply_markup: mainMenu() }
+    );
     return;
   }
 
@@ -410,15 +487,27 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
   }
 
   if (text === "ℹ️ معلومات") {
+    const me = await bot.api.getMe();
     await bot.api.sendMessage(
       chatId,
-      "ℹ️ بوت الاعترافات المجهولة\n\nكل مستخدم يملك صندوق اعترافات خاصاً به. شارك رابط صندوقك مع أصدقائك ليرسلوا لك اعترافات وأسئلة مجهولة الهوية بحرية تامة، وردّ عليهم دون كشف هويتهم.",
+      `🎭 بوت الاعترافات المجهولة\n\n` +
+      `منصة آمنة للاعترافات والأسئلة المجهولة.\n\n` +
+      `✨ كيف يعمل:\n` +
+      `• لديك صندوق اعترافات شخصي\n` +
+      `• شارك الرابط مع من تثق بهم\n` +
+      `• يرسلون اعترافات مجهولة\n` +
+      `• ترد عليهم بحرية\n\n` +
+      `💎 الترقيات:\n` +
+      `🕵️ كشف الهوية: $3\n` +
+      `♾️ ردود غير محدودة: $3\n\n` +
+      `🔒 أمانك مضمون — المرسلون مجهولون دائماً\n\n` +
+      `📲 شارك: https://t.me/${me.username}`,
       { reply_markup: mainMenu() }
     );
     return;
   }
 
-  await bot.api.sendMessage(chatId, "لم أفهم طلبك، اختر من القائمة:", { reply_markup: mainMenu() });
+  await bot.api.sendMessage(chatId, "❓ لم أفهم طلبك. اختر من القائمة أعلاه.", { reply_markup: mainMenu() });
 }
 
 async function handleConfessionCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
