@@ -42,62 +42,91 @@ const WEEKDAYS = [
   "السبت",
 ];
 
-/** Kuwaiti algorithm (common pure-JS Hijri ↔ Gregorian). Accurate enough for civil/religious calendars. */
+// ---------------------------------------------------------------------
+// Conversions. The old version here returned nonsense (e.g. 1 Jan 2026 →
+// "11 محرّم 49"). Now: the browser's own Umm al-Qura calendar (the official
+// Saudi calendar, built into Intl) when available, else the standard
+// tabular Islamic calendar through Julian Day Numbers — both correct.
+// ---------------------------------------------------------------------
+const ISLAMIC_EPOCH = 1948439.5;
+const GREGORIAN_EPOCH = 1721425.5;
+
+function isLeapGregorian(y: number) {
+  return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+}
+function gregorianToJd(y: number, m: number, d: number) {
+  return (
+    GREGORIAN_EPOCH - 1 + 365 * (y - 1) + Math.floor((y - 1) / 4) - Math.floor((y - 1) / 100) + Math.floor((y - 1) / 400) +
+    Math.floor((367 * m - 362) / 12 + (m <= 2 ? 0 : isLeapGregorian(y) ? -1 : -2) + d)
+  );
+}
+function jdToGregorian(jd: number) {
+  const wjd = Math.floor(jd - 0.5) + 0.5;
+  const depoch = wjd - GREGORIAN_EPOCH;
+  const quadricent = Math.floor(depoch / 146097);
+  const dqc = depoch % 146097;
+  const cent = Math.floor(dqc / 36524);
+  const dcent = dqc % 36524;
+  const quad = Math.floor(dcent / 1461);
+  const dquad = dcent % 1461;
+  const yindex = Math.floor(dquad / 365);
+  let year = quadricent * 400 + cent * 100 + quad * 4 + yindex;
+  if (!(cent === 4 || yindex === 4)) year++;
+  const yearday = wjd - gregorianToJd(year, 1, 1);
+  const leapadj = wjd < gregorianToJd(year, 3, 1) ? 0 : isLeapGregorian(year) ? 1 : 2;
+  const month = Math.floor(((yearday + leapadj) * 12 + 373) / 367);
+  const day = wjd - gregorianToJd(year, month, 1) + 1;
+  return { gy: year, gm: month, gd: day };
+}
+function islamicToJd(y: number, m: number, d: number) {
+  return d + Math.ceil(29.5 * (m - 1)) + (y - 1) * 354 + Math.floor((3 + 11 * y) / 30) + ISLAMIC_EPOCH - 1;
+}
+function jdToIslamic(jd: number) {
+  const wjd = Math.floor(jd) + 0.5;
+  const y = Math.floor((30 * (wjd - ISLAMIC_EPOCH) + 10646) / 10631);
+  const m = Math.min(12, Math.ceil((wjd - (29 + islamicToJd(y, 1, 1))) / 29.5) + 1);
+  const d = wjd - islamicToJd(y, m, 1) + 1;
+  return { hy: y, hm: m, hd: d };
+}
+
+// Umm al-Qura via Intl (only defined for 1937–2076 CE; outside that, or on
+// browsers without it, the tabular calendar is used).
+let ummAlQura: Intl.DateTimeFormat | null | undefined;
+function uqFormatter(): Intl.DateTimeFormat | null {
+  if (ummAlQura !== undefined) return ummAlQura;
+  try {
+    const f = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura-nu-latn", { day: "numeric", month: "numeric", year: "numeric", timeZone: "UTC" });
+    ummAlQura = f.resolvedOptions().calendar === "islamic-umalqura" ? f : null;
+  } catch {
+    ummAlQura = null;
+  }
+  return ummAlQura;
+}
+function uqParts(gy: number, gm: number, gd: number) {
+  const f = uqFormatter();
+  if (!f || gy < 1937 || gy > 2076) return null;
+  const parts = f.formatToParts(new Date(Date.UTC(gy, gm - 1, gd)));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const hy = get("year"), hm = get("month"), hd = get("day");
+  return hy && hm && hd ? { hy, hm, hd } : null;
+}
+
 function gregorianToHijri(gy: number, gm: number, gd: number) {
-  let y = gy;
-  let m = gm;
-  let d = gd;
-  if (m < 3) {
-    y -= 1;
-    m += 12;
-  }
-  const a = Math.floor(y / 100);
-  const b = 2 - a + Math.floor(a / 4);
-  const jd =
-    Math.floor(365.25 * (y + 4716)) +
-    Math.floor(30.6001 * (m + 1)) +
-    d +
-    b -
-    1524.5;
-  const i = Math.floor((jd - 1948439.5) / 29.5305882);
-  const jd1 = 1948439.5 + i * 29.5305882;
-  const k = Math.floor((jd - jd1) / 1);
-  let hy = Math.floor((30 * i + 10646) / 10631);
-  let hm = Math.floor((k + 0.5) / 29.5) + 1;
-  if (hm > 12) {
-    hm = 12;
-  }
-  let hd = Math.floor(jd - jd1 - (hm - 1) * 29.5) + 1;
-  if (hd < 1) hd = 1;
-  if (hd > 30) hd = 30;
-  // refine month length roughly
-  const monthLen = [30, 29, 30, 29, 30, 29, 30, 29, 30, 29, 30, 29];
-  if (hd > monthLen[hm - 1]) hd = monthLen[hm - 1];
-  return { hy, hm, hd };
+  return uqParts(gy, gm, gd) ?? jdToIslamic(gregorianToJd(gy, gm, gd));
 }
 
 function hijriToGregorian(hy: number, hm: number, hd: number) {
-  const jd =
-    Math.floor((11 * hy + 3) / 30) +
-    354 * hy +
-    30 * hm -
-    Math.floor((hm - 1) / 2) +
-    hd +
-    1948440 -
-    385;
-  const z = Math.floor(jd + 0.5);
-  const a = Math.floor((z - 1867216.25) / 36524.25);
-  const aa = z + 1 + a - Math.floor(a / 4);
-  const b = aa + 1524;
-  const c = Math.floor((b - 122.1) / 365.25);
-  const d = Math.floor(365.25 * c);
-  const e = Math.floor((b - d) / 30.6001);
-  const day = b - d - Math.floor(30.6001 * e);
-  let month = e - 1;
-  if (month > 12) month -= 12;
-  let year = c - 4716;
-  if (month < 3) year += 1;
-  return { gy: year, gm: month, gd: day };
+  // Tabular estimate first, then (if Umm al-Qura is available) nudge by up
+  // to ±3 days to the exact Umm al-Qura match.
+  const g = jdToGregorian(islamicToJd(hy, hm, hd));
+  if (uqParts(g.gy, g.gm, g.gd)) {
+    for (const off of [0, -1, 1, -2, 2, -3, 3]) {
+      const dt = new Date(Date.UTC(g.gy, g.gm - 1, g.gd + off));
+      const h = uqParts(dt.getUTCFullYear(), dt.getUTCMonth() + 1, dt.getUTCDate());
+      if (h && h.hy === hy && h.hm === hm && h.hd === hd) return { gy: dt.getUTCFullYear(), gm: dt.getUTCMonth() + 1, gd: dt.getUTCDate() };
+    }
+  }
+  return g;
 }
 
 function weekdayFromGreg(gy: number, gm: number, gd: number): string {
@@ -111,10 +140,20 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export default function HijriConverter() {
-  const [dir, setDir] = useState<"h2g" | "g2h">("g2h");
-  const [day, setDay] = useState("1");
-  const [month, setMonth] = useState("1");
-  const [year, setYear] = useState(() => String(new Date().getFullYear()));
+  const [dir, setDirState] = useState<"h2g" | "g2h">("g2h");
+  const today = new Date();
+  const [day, setDay] = useState(() => String(today.getDate()));
+  const [month, setMonth] = useState(() => String(today.getMonth() + 1));
+  const [year, setYear] = useState(() => String(today.getFullYear()));
+  // Switching direction carries the same date across (e.g. today's Gregorian
+  // date becomes today's Hijri date) instead of reading "2026" as a Hijri year.
+  function setDir(next: "h2g" | "g2h") {
+    if (next === dir) return;
+    setDirState(next);
+    setDay(String(result.outDay));
+    setMonth(String(result.outMonth));
+    setYear(String(result.outYear));
+  }
   const [copied, setCopied] = useState(false);
 
   const result = useMemo(() => {
