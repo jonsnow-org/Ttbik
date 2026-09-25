@@ -146,10 +146,16 @@ export default function BotsDeployPage() {
         <ul className="space-y-2">
           {LIVE_BOTS.map((bot) => (
             <li key={bot.href} className="rounded-xl border border-slate-200 bg-white p-3">
-              <a href={bot.href} className="text-sm font-extrabold text-indigo-800 hover:underline" rel="noopener noreferrer">
+              <a
+                href={bot.href}
+                className="text-sm font-extrabold text-indigo-800 hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {bot.title} ←
               </a>
               <p className="mt-1 text-xs leading-5 text-slate-600">{bot.desc}</p>
+              <p className="mt-1 text-[11px] text-slate-400">t.me مباشر — بلا ?start= وبلا إحالة</p>
             </li>
           ))}
         </ul>
