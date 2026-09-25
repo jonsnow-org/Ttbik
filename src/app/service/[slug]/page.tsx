@@ -44,7 +44,7 @@ export default async function ServicePage({ params }: { params: { slug: string }
   if (!service) notFound();
 
   const isOwner = isOwnerServer();
-  const ownerLink = service.tool_route ? `/tools/${service.tool_route}` : null;
+  const ownerLink: string | null = null; // hosted /tools/* pages were retired (2026-09-25)
   const categorySlug = service.categories?.slug ?? null;
   const theme = getCategoryTheme(categorySlug);
 
@@ -69,12 +69,6 @@ export default async function ServicePage({ params }: { params: { slug: string }
             {service.demo_type === "catalog_builder" && <CatalogBuilder />}
             {service.demo_type === "ad_slot_preview" && (
               <AdSlotPreview channelName={service.slug === "channel-ad-slot" ? "@ttbik5" : "@your_channel"} />
-            )}
-            {service.demo_type === "studio_tool" && (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
-                🎬 أداة حقيقية تعمل بالكامل داخل متصفحك — لا رفع لملفاتك لأي خادم. بعد الموافقة على طلبك، تحصل على
-                رابط دائم للنسخة الكاملة بلا حدود استخدام.
-              </div>
             )}
           </div>
         </div>

@@ -21,9 +21,9 @@ export async function decideOrder(orderId: string, decision: Decision, note?: st
   if (error || !order) throw new Error("الطلب غير موجود");
   if (order.status !== "pending") return order; // already decided, no-op
 
-  const toolLink = order.services?.tool_route
-    ? `${process.env.NEXT_PUBLIC_SITE_URL}/tools/${order.services.tool_route}?order=${order.order_code}`
-    : null;
+  // Hosted /tools/* pages were retired (2026-09-25), so there is no tool
+  // link to hand out any more; delivery comes from the note or the service.
+  const toolLink: string | null = null;
 
   const deliveryContent =
     decision === "approved" ? note?.trim() || toolLink || order.services?.delivery_content || null : null;

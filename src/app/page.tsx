@@ -39,7 +39,7 @@ async function getStorefront() {
 export default async function HomePage() {
   const { categories, services } = await getStorefront();
   const news = latestNewsItem();
-  const visible = categories.filter((c) => ["telegram-bots", "creative-studio"].includes(c.slug));
+  const visible = categories.filter((c) => ["telegram-bots"].includes(c.slug));
 
   return (
     <div>

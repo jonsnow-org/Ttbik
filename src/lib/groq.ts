@@ -15,29 +15,58 @@ const SITE_IDENTITY_PROMPT = `أنت محرك تنفيذ نصوص مدمج دا�
 - لا تناقش استراتيجية العمل الداخلية، التسعير، الأفكار غير المنفذة، أو أي تفاصيل تقنية/أمنية للموقع (قواعد بيانات، مفاتيح، لوحة تحكم) — إن سُئلت عن ذلك، اعتذر بإيجاز ووجّه السائل للتواصل عبر قناة الدعم بدل الإجابة بنفسك.
 - التزم بالمهمة المحددة فقط ولا تتوسّع في نصائح أو مواضيع جانبية لم تُطلب.`;
 
+// Groq retires models from time to time; a retired model answers 400/404
+// and every AI tool on the site silently broke with it. Try the next free
+// model instead of failing (first one that answers wins).
+const GROQ_MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "meta-llama/llama-4-scout-17b-16e-instruct"];
+
+export class GroqError extends Error {
+  constructor(public status: number, detail: string) {
+    super(`GROQ_ERROR ${status}: ${detail.slice(0, 200)}`);
+  }
+}
+
 export async function callGroq(systemPrompt: string, userInput: string, maxTokens: number): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("NO_API_KEY");
 
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "llama-3.1-8b-instant",
-      messages: [
-        { role: "system", content: `${SITE_IDENTITY_PROMPT}\n\n---\n\n${systemPrompt}` },
-        { role: "user", content: userInput },
-      ],
-      max_tokens: maxTokens,
-      temperature: 0.6,
-    }),
-  });
+  let last: GroqError | null = null;
+  for (const model of GROQ_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: `${SITE_IDENTITY_PROMPT}\n\n---\n\n${systemPrompt}` },
+            { role: "user", content: userInput },
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.6,
+        }),
+      }).catch(() => null);
 
-  if (!res.ok) throw new Error("GROQ_ERROR");
-
-  const data = await res.json();
-  return data?.choices?.[0]?.message?.content?.trim() || "لم يتم توليد رد.";
+      if (res?.ok) {
+        const data = await res.json();
+        return data?.choices?.[0]?.message?.content?.trim() || "لم يتم توليد رد.";
+      }
+      const status = res?.status ?? 0;
+      const detail = res ? await res.text().catch(() => "") : "network error";
+      last = new GroqError(status, detail);
+      console.error(`[groq] ${model} → ${status} ${detail.slice(0, 200)}`);
+      // 401/403: bad key — no other model will help.
+      if (status === 401 || status === 403) throw last;
+      // 429 / 5xx / network: one short retry on the same model.
+      if ((status === 429 || status >= 500 || status === 0) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+      break; // 400/404 (e.g. model retired) → next model
+    }
+  }
+  throw last ?? new Error("GROQ_ERROR");
 }

@@ -40,6 +40,6 @@ export async function POST(req: NextRequest) {
     if (e.message === "NO_API_KEY") {
       return NextResponse.json({ error: "الأداة غير مفعّلة بعد على هذا السيرفر" }, { status: 503 });
     }
-    return NextResponse.json({ error: "تعذّر توليد الأسماء الآن، حاول لاحقاً" }, { status: 502 });
+    return NextResponse.json({ error: "تعذّر توليد الأسماء الآن، حاول لاحقاً", code: typeof e?.status === "number" ? e.status : undefined }, { status: 502 });
   }
 }

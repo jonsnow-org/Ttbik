@@ -41,7 +41,6 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       label: "الأدوات",
       links: [
         { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
-        { href: "/tools", label: "🎬 أدوات الاستوديو المتقدمة" },
       ],
     },
     {

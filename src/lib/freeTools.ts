@@ -3,11 +3,6 @@
 // tool only needs to be added here once instead of drifting between pages.
 export const FREE_TOOLS = [
   {
-    href: "/tools/audio-visualizer",
-    title: "تحويل الصوت إلى فيديو ريلز",
-    desc: "حوّل مقطعك الصوتي أو أغنيتك إلى فيديو ريلز متحرك مع صورة خلفية ومؤثرات تتفاعل مع الصوت — جرّبه مجاناً.",
-  },
-  {
     href: "/free-tools/bmi-calculator",
     title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي",
     desc: "احسب BMI والتصنيف (نحافة/طبيعي/زيادة/سمنة) والوزن المثالي التقريبي — فوري وبلا تسجيل.",
