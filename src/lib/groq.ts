@@ -18,7 +18,18 @@ const SITE_IDENTITY_PROMPT = `أنت محرك تنفيذ نصوص مدمج دا�
 // Groq retires models from time to time; a retired model answers 400/404
 // and every AI tool on the site silently broke with it. Try the next free
 // model instead of failing (first one that answers wins).
-const GROQ_MODELS = ["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "openai/gpt-oss-20b", "meta-llama/llama-4-scout-17b-16e-instruct"];
+const GROQ_MODELS = [
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+];
+// gpt-oss models reason before answering; with the small budgets the site's
+// tools use, the reasoning ate every token and the visible answer came back
+// empty. Keep their reasoning short and give them room for the answer.
+const isReasoningModel = (m: string) => m.startsWith("openai/gpt-oss");
 
 export class GroqError extends Error {
   constructor(public status: number, detail: string) {
@@ -45,14 +56,19 @@ export async function callGroq(systemPrompt: string, userInput: string, maxToken
             { role: "system", content: `${SITE_IDENTITY_PROMPT}\n\n---\n\n${systemPrompt}` },
             { role: "user", content: userInput },
           ],
-          max_tokens: maxTokens,
+          max_tokens: isReasoningModel(model) ? maxTokens + 1200 : maxTokens,
           temperature: 0.6,
+          ...(isReasoningModel(model) ? { reasoning_effort: "low" } : {}),
         }),
       }).catch(() => null);
 
       if (res?.ok) {
-        const data = await res.json();
-        return data?.choices?.[0]?.message?.content?.trim() || "لم يتم توليد رد.";
+        const data = await res.json().catch(() => null);
+        const text = String(data?.choices?.[0]?.message?.content || "").trim();
+        if (text) return text;
+        last = new GroqError(200, `empty answer from ${model}`);
+        console.error(`[groq] ${model} → empty answer`);
+        break; // try the next model
       }
       const status = res?.status ?? 0;
       const detail = res ? await res.text().catch(() => "") : "network error";
