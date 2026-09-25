@@ -20,6 +20,8 @@ export const metadata: Metadata = {
     "سوق تولز",
     "توكن BotFather",
     "بعد تفعيل البوت",
+    "إعادة توليد التوكن",
+    "اسم مستخدم البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -57,6 +59,12 @@ const AFTER = [
   "لا تشارك التوكن ولا تعد استخدام رمز طلب لبوت ثانٍ.",
 ];
 
+const LIMITS = [
+  "اسم المستخدم والوصف والصورة تُضبط من @BotFather — ليس من هذا النموذج.",
+  "إعادة توليد التوكن من BotFather تقطع الويبهوك حتى يُحدّث التوكن عند المالك. لا تفتح بوتاً ثانياً بنفس رمز الطلب.",
+  "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
+];
+
 const INCLUDES = [
   "تشغيل القالب على توكن BotFather الذي تلصقه أنت",
   "بوت واحد لكل رمز طلب معتمد — بلا إعادة استخدام الرمز",
@@ -88,6 +96,10 @@ const FAQ = [
   {
     q: "ماذا أفعل بعد التفعيل؟",
     a: "أرسل /start للبوت. إن لم يرد استخدم فاحص الصحة. الفحص لا يستهلك رمز الطلب. طلب واحد = بوت واحد.",
+  },
+  {
+    q: "ماذا يحدث إن أعدت توليد التوكن من BotFather؟",
+    a: "التوكن القديم يبطل ويتوقف الويبهوك. لا تفتح بوتاً جديداً بنفس رمز الطلب. التحديث عند المالك. اسم المستخدم يبقى من BotFather.",
   },
 ];
 
@@ -247,6 +259,16 @@ export default function BotsDeployPage() {
         </h2>
         <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
           {AFTER.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-limits">
+        <h2 id="bots-limits" className="mb-2 text-sm font-extrabold text-slate-900">
+          حدود بعد التشغيل
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {LIMITS.map((t) => (
             <li key={t}>{t}</li>
           ))}
         </ul>
