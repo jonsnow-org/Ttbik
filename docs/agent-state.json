@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5830639010,
   "last_actor": "grok",
-  "updated_at": "2026-09-25T12:14:00Z",
+  "updated_at": "2026-09-25T14:10:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G183 /bots: visible PREP checklist before token paste + FAQ token-share + keyword BotFather. Form/AdSlot unchanged.",
     "G182 /bots: visible include checklist + SoftwareApplication JSON-LD. Form/AdSlot unchanged.",
     "G181 /bots/earnings-calculator: visible estimate checklist + SoftwareApplication JSON-LD. Form/AdSlot unchanged.",
     "G180 /bots/health-check: visible report checklist + SoftwareApplication JSON-LD. Form/AdSlot unchanged.",
