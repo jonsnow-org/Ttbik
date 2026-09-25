@@ -104,7 +104,7 @@ async function setPending(userId: string, action: unknown) {
   await prisma.medUser.update({ where: { id: userId }, data: { pendingAction: (action ?? Prisma.DbNull) as any } });
 }
 
-// The tables ship in prisma/migration_35 — until the owner has run it,
+// The tables ship in prisma/migration_36 — until the owner has run it,
 // answer politely instead of failing the whole update.
 async function guarded(bot: TelegramBot, chatId: number, fn: () => Promise<void>) {
   try {
@@ -646,6 +646,6 @@ export async function bloodStatsLine(): Promise<string> {
     ]);
     return `\n\n🩸 نبض: ${donors} متبرع | ${open} طلب مفتوح | ${fulfilled} طلب مؤمَّن | ${responses} استجابة`;
   } catch {
-    return "\n\n🩸 نبض: بانتظار تشغيل migration_35";
+    return "\n\n🩸 نبض: بانتظار تشغيل migration_36";
   }
 }

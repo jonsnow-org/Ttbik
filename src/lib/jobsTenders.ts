@@ -118,7 +118,7 @@ function tenderCard(t: { kind: string; category: string; details: string; budget
   );
 }
 
-// Tables ship in prisma/migration_35 — answer politely until it has run.
+// Tables ship in prisma/migration_36 — answer politely until it has run.
 async function guarded(bot: TelegramBot, chatId: number, fn: () => Promise<void>) {
   try {
     await fn();
@@ -621,6 +621,6 @@ export async function tenderStatsLine(): Promise<string> {
     ]);
     return `\n\n🏷 اطلب وهم يتنافسون: ${open} طلب مفتوح | ${awarded} تم اختيار عرضه | ${bids} عرض مقدَّم`;
   } catch {
-    return "\n\n🏷 اطلب وهم يتنافسون: بانتظار تشغيل migration_35";
+    return "\n\n🏷 اطلب وهم يتنافسون: بانتظار تشغيل migration_36";
   }
 }
