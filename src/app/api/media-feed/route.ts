@@ -174,6 +174,32 @@ function offset0(req: NextRequest) {
   return Math.max(0, Number(req.nextUrl.searchParams.get("offset") || 0) || 0);
 }
 
+function mixFeed(list: FeedItem[], round: number): FeedItem[] {
+  const HEAD = 15;
+  const WINDOW = 15;
+  const head = list.slice(0, HEAD);
+  const tail = list.slice(HEAD);
+  let older: FeedItem[] = [];
+  if (tail.length) {
+    const start = (round * WINDOW) % tail.length;
+    older = [...tail.slice(start), ...tail.slice(0, start)].slice(0, WINDOW);
+  } else {
+    // Small feed: rotate what there is so the order still changes.
+    const shift = round % head.length;
+    return [...head.slice(shift), ...head.slice(0, shift)];
+  }
+  // Rotate the head a little too, so even the newest block isn't identical.
+  const shift = round % Math.max(1, Math.min(5, head.length));
+  const rotatedHead = [...head.slice(shift), ...head.slice(0, shift)];
+  const page: FeedItem[] = [];
+  for (let i = 0; i < Math.max(rotatedHead.length, older.length); i++) {
+    if (rotatedHead[i]) page.push(rotatedHead[i]);
+    if (older[i]) page.push(older[i]);
+  }
+  const used = new Set(page.map((x) => x.id));
+  return [...page, ...list.filter((x) => !used.has(x.id))];
+}
+
 export async function GET(req: NextRequest) {
   const type = (req.nextUrl.searchParams.get("type") || "all").toLowerCase();
   const sort = (req.nextUrl.searchParams.get("sort") || "latest").toLowerCase();
@@ -269,6 +295,17 @@ export async function GET(req: NextRequest) {
     items = [...items].sort((a, b) => score(b) - score(a));
   } else {
     items = [...items].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+  }
+
+  // ?mix=<round> (first page of Trending / Following, owner request
+  // 2026-09-25): every pull-to-refresh sends the next round number, and the
+  // first page becomes newest/top posts interleaved with a window of OLDER
+  // posts that moves further back each round (and wraps around), so the
+  // screen really changes on refresh and older posts get seen too, instead
+  // of the same top 30 forever. Later pages (?offset>0) stay in plain order.
+  const mixRound = Number(req.nextUrl.searchParams.get("mix"));
+  if (Number.isFinite(mixRound) && mixRound >= 0 && offset0(req) === 0 && items.length > 6) {
+    items = mixFeed(items, Math.floor(mixRound));
   }
 
   // Lazy backfill of real titles for older rows saved with a numeric id as

@@ -359,12 +359,23 @@ export default function MiniAppPage() {
     setLoading(true);
     setNewCount(0);
     try {
-      const r = await fetch(`/api/media-feed?${buildQuery(0)}`, { cache: "no-store" });
+      const qs = buildQuery(0);
+      // Trending and Following rotate on every refresh: the server mixes the
+      // newest posts with a window of older ones that moves back each round
+      // (see mixFeed in /api/media-feed), and posts already seen on this
+      // device move behind unseen ones — so pulling down always changes the
+      // screen and older posts come back around too.
+      const rotating = (tab === "trending" || tab === "following") && !showProfile && !search.trim();
+      if (rotating) {
+        const key = `mb_round_${tab}`;
+        const round = (Number(loadJSON<number>(key, 0)) || 0) + 1;
+        saveJSON(key, round);
+        qs.set("mix", String(round));
+      }
+      const r = await fetch(`/api/media-feed?${qs}`, { cache: "no-store" });
       const j = await r.json();
       let list: FeedItem[] = Array.isArray(j.items) ? j.items : [];
-      // Trending rotates: posts already seen move behind unseen ones (each
-      // group keeps its ranking), so every refresh leads with something new.
-      if (tab === "trending" && !showProfile && seenRef.current.size) {
+      if (rotating && seenRef.current.size) {
         const fresh = list.filter((i) => !seenRef.current.has(i.id));
         const seen = list.filter((i) => seenRef.current.has(i.id));
         list = [...fresh, ...seen];
@@ -374,7 +385,7 @@ export default function MiniAppPage() {
       setNextOffset(typeof j.next_offset === "number" ? j.next_offset : null);
     } catch { setItems([]); setNextOffset(null); } finally { setLoading(false); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buildQuery, tab, showProfile]);
+  }, [buildQuery, tab, showProfile, search]);
 
   async function loadMore() {
     if (loadingMore || nextOffset == null) return;
