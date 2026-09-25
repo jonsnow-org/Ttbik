@@ -105,9 +105,23 @@ const HOWTO_JSON_LD = {
   })),
 };
 
+const WEBPAGE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: "حاسبة أرباح قناة أو بوت تليجرام — سوق تولز",
+  url: `${SITE}${PATH}`,
+  inLanguage: "ar",
+  description:
+    "تقدير تقريبي للأرباح حسب المشاهدات وCPM. ليست وعداً بربح ولا سحب نقدي.",
+};
+
 export default function EarningsCalculatorPage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }}

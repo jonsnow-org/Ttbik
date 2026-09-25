@@ -84,21 +84,40 @@ export default function EarningsCalculatorForm() {
     const quarterlyUsd = monthlyUsd * 3;
     const dailyUsd = monthlyUsd / 30;
     const weeklyUsd = monthlyUsd / 4.345;
-    const eonsToTarget = monthlyUsd > 0 ? target / monthlyUsd / 12 / 1e7 : 0;
-    const agesToTarget = eonsToTarget / 10;
+    const monthsToTarget =
+      monthlyUsd > 0 && target > 0 ? Math.ceil(target / monthlyUsd) : 0;
     const targetProgressPct = target > 0 ? Math.min(9999, (monthlyUsd / target) * 100) : 0;
     const gapUsd = target - monthlyUsd;
     const reachPct = s > 0 ? Math.min(100, (v / s) * 100) : 0;
     const viewsExceedSubs = s > 0 && v > s;
-    return { monthlyUsd, yearlyUsd, fiveYearUsd, quarterlyUsd, dailyUsd, weeklyUsd, agesToTarget, targetProgressPct, gapUsd, reachPct, viewsExceedSubs, target, fill };
+    return {
+      monthlyUsd,
+      yearlyUsd,
+      fiveYearUsd,
+      quarterlyUsd,
+      dailyUsd,
+      weeklyUsd,
+      monthsToTarget,
+      targetProgressPct,
+      gapUsd,
+      reachPct,
+      viewsExceedSubs,
+      target,
+      fill,
+      soldViews,
+      monthlyViews,
+    };
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
   async function copySummary() {
     const text = [
       "تقدير أرباح قناة تليجرام — سوق تولز",
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
-      `مئات ملايين السنين لتغطية الهدف بنفس الوتيرة: ${result.agesToTarget.toFixed(2)}`,
-      "الأرقام تقريبية للتخطيط وليست وعداً بربح.",
+      `تغطية الهدف: ${result.targetProgressPct.toFixed(1)}%`,
+      result.monthsToTarget > 0
+        ? `أشهر للوصول للهدف بنفس الوتيرة: ${result.monthsToTarget}`
+        : "لا يمكن حساب أشهر الهدف بدون تقدير شهري وهدف",
+      "الأرقام تقريبية للتخطيط وليست وعداً بربح. لا سحب نقدي.",
     ].join("\n");
     try {
       await navigator.clipboard.writeText(text);
@@ -179,7 +198,10 @@ export default function EarningsCalculatorForm() {
             <li>نسبة الوصول: {result.reachPct.toFixed(1)}%</li>
             <li>تغطية الهدف الحالية: {result.targetProgressPct.toFixed(1)}%</li>
             <li>الفجوة مقابل الهدف: ${result.gapUsd.toFixed(2)}</li>
-            <li>مئات ملايين السنين لتغطية الهدف بنفس الوتيرة: {result.agesToTarget.toFixed(2)}</li>
+            <li>
+              {أشهر للوصول للهدف بنفس الوتيرة: }
+              {result.monthsToTarget > 0 ? result.monthsToTarget : "—"}
+            </li>
             {result.viewsExceedSubs ? <li className="text-amber-700">ملاحظة: المشاهدات أعلى من عدد المشتركين — راجع الأرقام.</li> : null}
           </ul>
           <button type="button" onClick={copySummary} className="mt-4 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-700">{copied ? "تم النسخ" : "نسخ الملخص"}</button>
