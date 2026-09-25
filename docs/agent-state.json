@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5838812157,
   "last_actor": "grok",
-  "updated_at": "2026-09-25T20:06:00Z",
+  "updated_at": "2026-09-25T21:15:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G187 /bots/health-check: visible last_error_message in report list + FAQ + HowTo + keyword. Form/AdSlot unchanged.",
     "G186 /bots: visible AFTER-activation checklist + FAQ. Form/AdSlot unchanged.",
     "G185 /bots/earnings-calculator: visible no-BotFather-token term + FAQ + keyword. Form/AdSlot unchanged.",
     "G184 /bots/health-check: visible last webhook error in report list + FAQ + HowTo. Form/AdSlot unchanged.",
