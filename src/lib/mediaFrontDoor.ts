@@ -70,3 +70,42 @@ export async function tg(method: string, body: Record<string, unknown>): Promise
 export function miniAppKeyboard() {
   return { inline_keyboard: [[{ text: "📱 فتح التطبيق المصغر", web_app: { url: MINI_APP_URL } }]] };
 }
+
+export function frontDoorUrl(): string {
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  return `${site}/api/media-bot/webhook`;
+}
+
+/**
+ * Points the media bot's webhook at the front door without needing the
+ * Python bot to run first — needed exactly when Render is suspended and
+ * can't start to do it itself. The Render address is learned from the
+ * webhook Telegram currently has (".../tg/<hash>" is the bot's own path),
+ * so forwarding resumes by itself once Render is back.
+ * Idempotent and harmless to call often: it only ever points the bot at
+ * this site's own route.
+ */
+export async function ensureFrontDoor(): Promise<{ ok: boolean; changed: boolean; detail: string }> {
+  const secret = hookSecret();
+  if (!secret) return { ok: false, changed: false, detail: "no bot token" };
+  const info = await tg("getWebhookInfo", {});
+  const current = String(info?.result?.url || "");
+  const target = frontDoorUrl();
+  if (current === target) return { ok: true, changed: false, detail: "already active" };
+
+  if (/\/tg\/[a-f0-9]{24}$/.test(current)) {
+    try {
+      const origin = new URL(current).origin;
+      if (!(await getRenderUrl())) await setRenderUrl(origin);
+    } catch {
+      /* keep going: fallback mode still works without it */
+    }
+  }
+  const res = await tg("setWebhook", {
+    url: target,
+    secret_token: secret,
+    max_connections: 10,
+    allowed_updates: ["message", "edited_message", "callback_query", "inline_query", "chosen_inline_result", "my_chat_member", "chat_member", "pre_checkout_query"],
+  });
+  return { ok: !!res?.ok, changed: !!res?.ok, detail: res?.description || (res?.ok ? "webhook moved to front door" : "setWebhook failed") };
+}

@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { callGroq } from "@/lib/groq";
 import { supabasePublic } from "@/lib/supabase";
 import { LIVE_BOTS } from "@/lib/liveBots";
+import { publishNew, isSafeForChannel, sendToChannel } from "@/lib/channelPublisher";
+import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
 
-// Triggered daily by Vercel Cron (see vercel.json). Publishes one varied
+export const maxDuration = 60;
+
+// Triggered three times a day by Vercel Cron (see vercel.json). Publishes one varied
 // promotional post to the public Telegram channel, rotating across four
 // pools: free tools, live paid catalog services, store products, and
 // (only if configured) an AD_BOT manual-purchase awareness post.
@@ -157,6 +161,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Telegram not configured" }, { status: 503 });
   }
 
+  // Three runs a day (vercel.json, ?slot=1|2|3). New features, bot updates
+  // and new pages go first (src/lib/channelPublisher.ts); slot 1 adds the
+  // daily news digest. A regular promo is posted only when the run had
+  // nothing new to say, so the channel never gets more than a few posts.
+  // Keeps the media bot reachable even while its Render server is suspended.
+  await ensureFrontDoor().catch(() => null);
+
+  const slot = Math.min(3, Math.max(1, Number(req.nextUrl.searchParams.get("slot") || "2") || 2));
+  const fresh = await publishNew(slot).catch((e) => {
+    console.error("[telegram-post] publishNew failed", e);
+    return { posted: [] as string[], skipped: [] as string[] };
+  });
+  if (fresh.posted.length > 0) {
+    return NextResponse.json({ ok: true, slot, posted: fresh.posted, skipped: fresh.skipped });
+  }
+
   const [paidTopics, storeTopics] = await Promise.all([getPaidTopics(), getStoreTopics()]);
   const botPromos = getBotPromos();
 
@@ -173,13 +193,9 @@ export async function GET(req: NextRequest) {
 
   const picked = pool[Math.floor(Math.random() * pool.length)];
   const text = await picked.run();
-
-  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: channel, text }),
-  });
-  const data = await res.json();
-
-  return NextResponse.json({ ok: data.ok === true, topic: picked.label });
+  if (!isSafeForChannel(text)) {
+    return NextResponse.json({ ok: false, slot, topic: picked.label, blocked: true });
+  }
+  const ok = await sendToChannel(text);
+  return NextResponse.json({ ok, slot, topic: picked.label, skipped: fresh.skipped });
 }

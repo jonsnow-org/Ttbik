@@ -1,8 +1,16 @@
 {
   "crons": [
     {
-      "path": "/api/cron/telegram-post",
-      "schedule": "0 12 * * *"
+      "path": "/api/cron/telegram-post?slot=1",
+      "schedule": "50 5 * * *"
+    },
+    {
+      "path": "/api/cron/telegram-post?slot=2",
+      "schedule": "50 11 * * *"
+    },
+    {
+      "path": "/api/cron/telegram-post?slot=3",
+      "schedule": "50 16 * * *"
     },
     {
       "path": "/api/cron/anti-cheat-retention",

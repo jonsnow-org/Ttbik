@@ -679,3 +679,17 @@ webhook, so nothing breaks if the Vercel side isn't deployed.
 `MEDIA_FRONT_DOOR=off` on Render restores the direct webhook.
 Needs `supabase/migration_media_bot_front_door.sql` for the queue (without
 it, users are asked to resend links instead).
+Update: `/api/media-bot/activate` (and every channel cron run) moves the
+webhook to the front door by itself, learning the Render address from the
+current webhook — so it works even while Render is suspended.
+
+## O18 — 2026-09-25 — Claude: Telegram channel publisher
+
+`/api/cron/telegram-post` now runs 3×/day (`?slot=1|2|3`, vercel.json) via
+`src/lib/channelPublisher.ts`. Each run posts what's new first: entries in
+**`src/lib/channelChangelog.ts`**, recent BotUpdateAnnouncement rows, and
+pages newly in the sitemap (one "tweet" each); slot 1 adds a daily news
+digest. A promo is posted only if nothing new went out.
+**When you ship something users will notice, add a changelog entry** —
+user-facing wording only, never owner/admin features, infra, secrets, Nova
+or Sham (see the file header). Every post also passes `isSafeForChannel()`.
