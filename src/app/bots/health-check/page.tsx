@@ -74,6 +74,13 @@ const STEPS = [
   },
 ];
 
+const REPORT_ITEMS = [
+  "صلاحية التوكن وهوية البوت (الاسم والمعرّف)",
+  "وجود رابط ويبهوك وكونه يبدأ بـ https://",
+  "عدد التحديثات المعلّقة على الويبهوك",
+  "ملاحظة ظهور التوكن داخل رابط الويبهوك",
+];
+
 const FAQ_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -124,6 +131,18 @@ const HOWTO_JSON_LD = {
   })),
 };
 
+const APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "فاحص صحة بوت تليجرام",
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "Web",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  url: `${SITE}${PATH}`,
+  description:
+    "فحص توكن وويبهوك HTTPS والتحديثات المعلّقة بلا حفظ التوكن وبلا سحب نقدي.",
+};
+
 export default function BotHealthCheckPage() {
   return (
     <>
@@ -142,6 +161,10 @@ export default function BotHealthCheckPage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(APP_JSON_LD) }}
       />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
@@ -172,6 +195,12 @@ export default function BotHealthCheckPage() {
       </aside>
       <HealthCheckForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">ما يفحصه التقرير</h2>
+        <ul className="mb-8 list-disc space-y-1 pr-5 text-sm leading-6 text-slate-600">
+          {REPORT_ITEMS.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تفحص البوت</h2>
         <ol className="mb-8 list-decimal space-y-2 pr-5 text-sm leading-6 text-slate-600">
           {STEPS.map((s) => (

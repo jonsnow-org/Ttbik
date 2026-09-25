@@ -36,6 +36,12 @@ export const metadata: Metadata = {
   },
 };
 
+const TERMS = [
+  "الأرقام تخطيط تقريبي — ليست وعداً بربح وليست رصيداً.",
+  "لا سحب نقدي عبر سوق تولز من هذه الصفحة ولا من البوت.",
+  "الحاسبة لا تستهلك رمز الطلب. طلب معتمد واحد = بوت واحد على /bots.",
+];
+
 const FAQ = [
   {
     q: "هل الرقم الظاهر ربح مضمون؟",
@@ -112,7 +118,7 @@ const WEBPAGE_JSON_LD = {
   url: `${SITE}${PATH}`,
   inLanguage: "ar",
   description:
-    "تقدير تقريبي للأرباح حسب المشاهدات وCPM. ليست وعداً بربح ولا سحب نقدي.",
+    "تقدير تقريبي للأرباح حسب المشاهدات وCPM. ليست وعداً بربح ولا سحب نقدي. لا يستهلك رمز الطلب.",
 };
 
 export default function EarningsCalculatorPage() {
@@ -151,6 +157,16 @@ export default function EarningsCalculatorPage() {
           <li className="font-semibold text-slate-800">حاسبة الأرباح</li>
         </ol>
       </nav>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="earn-terms">
+        <h2 id="earn-terms" className="mb-2 text-sm font-extrabold text-slate-900">
+          شروط التقدير
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {TERMS.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <EarningsCalculatorForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
         <p className="mb-4 text-xs leading-6 text-slate-500">

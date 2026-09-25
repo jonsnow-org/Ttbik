@@ -29,19 +29,19 @@ enum AdType {
 }
 
 model Bot {
-  id                String   @id @default(uuid())
-  token             String   @unique
-  ownerId           String // Telegram User ID of the bot creator
-  template          String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT" | "CONFESSION_BOT"
-  totalRevenue      Float    @default(0.0)
-  ownerBalance      Float    @default(0.0) // creator's withdrawable commission (matured, past the 48h hold)
-  pendingBalance    Float    @default(0.0) // creator commission still inside the 48h hold, not yet withdrawable — see CREATOR_EARNING_PENDING transactions
-  isActive          Boolean  @default(true)
-  webhookSecret     String // Telegram setWebhook secret_token — verified on every incoming update so a guessed bot id alone can't forge updates
-  requiredChannel   String? // optional mandatory-subscription channel (@handle) the bot owner sets; non-owners must join before /start unlocks
+  id            String   @id @default(uuid())
+  token         String   @unique
+  ownerId       String // Telegram User ID of the bot creator
+  template      String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT" | "CONFESSION_BOT" | "NAME_COMPAT_BOT"
+  totalRevenue  Float    @default(0.0)
+  ownerBalance  Float    @default(0.0) // creator's withdrawable commission (matured, past the 48h hold)
+  pendingBalance Float   @default(0.0) // creator commission still inside the 48h hold, not yet withdrawable — see CREATOR_EARNING_PENDING transactions
+  isActive      Boolean  @default(true)
+  webhookSecret String // Telegram setWebhook secret_token — verified on every incoming update so a guessed bot id alone can't forge updates
+  requiredChannel String? // optional mandatory-subscription channel (@handle) the bot owner sets; non-owners must join before /start unlocks
   referredByOwnerId String? // Telegram ID of the bot-owner whose B2B referral link this bot was activated through (set once at deploy time, /bots?ref=)
-  created_at        DateTime @default(now())
-  ads               Ad[]
+  created_at    DateTime @default(now())
+  ads           Ad[]
 }
 
 // Real per-(bot, real Telegram person) reach record — added 2026-09-22
@@ -98,11 +98,11 @@ model BotUpdateAnnouncement {
 }
 
 model User {
-  id               String           @id // Telegram User ID
-  botId            String
-  role             Role             @default(USER)
-  balance          Float            @default(0.0)
-  depositAddress   String?
+  id             String        @id // Telegram User ID
+  botId          String
+  role           Role          @default(USER)
+  balance        Float         @default(0.0)
+  depositAddress String?
   // Native TON deposit attribution (owner spec, 2026-09-02): the platform
   // uses ONE shared hot wallet (MASTER_HOT_WALLET_ADDRESS) for all native
   // TON/USDT-TON deposits — not a separate on-chain subwallet per user —
@@ -111,23 +111,23 @@ model User {
   // (converted to its USD value at credit time), same as NOWPayments
   // deposits already do — one wallet ledger for the whole platform, not a
   // second parallel TON-only balance.
-  tonMemo          String?          @unique
-  tonTransactions  TonTransaction[]
-  referredBy       String?
-  language         String           @default("ar") // "ar" | "en" — persisted UI language preference
+  tonMemo        String?       @unique
+  tonTransactions TonTransaction[]
+  referredBy     String?
+  language       String        @default("ar") // "ar" | "en" — persisted UI language preference
   // Phone verification via Telegram's native "share contact" button —
   // the closest honest substitute for "account age ≥ 30 days": the
   // official Bot API exposes no account-creation date at all, so this
   // trades that unbuildable check for real friction (a phone number tied
   // to the account) instead of a fake heuristic.
-  phoneNumber      String?
-  phoneVerified    Boolean          @default(false)
+  phoneNumber    String?
+  phoneVerified  Boolean       @default(false)
   // Set when this account's device fingerprint collides with >= 2 other
   // distinct accounts (see DeviceFingerprint) — blocks further task
   // payouts pending manual review rather than an automatic ban, since
   // basic browser fingerprinting has real false-positive risk (shared
   // devices, NAT).
-  multiAccountFlag Boolean          @default(false)
+  multiAccountFlag Boolean     @default(false)
   // Set once, the first time this user's referral count (people with
   // User.referredBy == this user's id) reaches the "invite 500, win a free
   // bot" contest threshold AND fewer than 3 winners exist yet for their
@@ -137,16 +137,16 @@ model User {
   // for the manual admin review this contest requires (owner spec,
   // 2026-09-14: winners are verified and given a free bot by the admin by
   // hand, not auto-provisioned).
-  contestWinnerAt  DateTime?
+  contestWinnerAt DateTime?
   // Tracks a mid-flight multi-step conversation (e.g. "creating an ad,
   // waiting for the budget"). Vercel serverless functions don't keep
   // in-memory state between requests, so this has to live in the DB —
   // not part of Gemini's original schema, added because grammy's
   // in-memory session middleware would silently lose state on cold starts.
-  pendingAction    Json?
-  created_at       DateTime         @default(now())
-  ads              Ad[]
-  transactions     Transaction[]
+  pendingAction  Json?
+  created_at     DateTime      @default(now())
+  ads            Ad[]
+  transactions   Transaction[]
 }
 
 model Ad {
@@ -201,17 +201,17 @@ model DeviceFingerprint {
 }
 
 model Transaction {
-  id          String   @id @default(uuid())
-  userId      String
-  botId       String? // which bot this happened through — set for TASK_REWARD/PLATFORM_PROFIT (the bot the click occurred in) and OWNER_WITHDRAWAL (which bot's commission); null for wallet-level DEPOSIT/WITHDRAWAL, which aren't bot-scoped
-  amount      Float
-  currency    String // USDT, TRX, TON, LTC, SOL, ...
-  type        String // DEPOSIT | WITHDRAWAL | TASK_REWARD | AD_PAYMENT | AD_REFUND | PLATFORM_PROFIT | OWNER_WITHDRAWAL | PENALTY | CREATOR_EARNING_PENDING | REFERRAL_COMMISSION | REFERRAL_B2B_COMMISSION
-  status      String // PENDING | PENDING_AUDIT | COMPLETED | FAILED | REJECTED | RELEASED
-  txHash      String? // NOWPayments payment_id, used for IPN idempotency
+  id         String   @id @default(uuid())
+  userId     String
+  botId      String? // which bot this happened through — set for TASK_REWARD/PLATFORM_PROFIT (the bot the click occurred in) and OWNER_WITHDRAWAL (which bot's commission); null for wallet-level DEPOSIT/WITHDRAWAL, which aren't bot-scoped
+  amount     Float
+  currency   String // USDT, TRX, TON, LTC, SOL, ...
+  type       String // DEPOSIT | WITHDRAWAL | TASK_REWARD | AD_PAYMENT | AD_REFUND | PLATFORM_PROFIT | OWNER_WITHDRAWAL | PENALTY | CREATOR_EARNING_PENDING | REFERRAL_COMMISSION | REFERRAL_B2B_COMMISSION
+  status     String // PENDING | PENDING_AUDIT | COMPLETED | FAILED | REJECTED | RELEASED
+  txHash     String? // NOWPayments payment_id, used for IPN idempotency
   destination String? // withdrawal payout address (TRC20/TON/etc) — set only for WITHDRAWAL/OWNER_WITHDRAWAL, so decideWithdrawal knows where to send on approval
-  created_at  DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id])
+  created_at DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
 
   @@unique([txHash])
 }
@@ -297,16 +297,16 @@ model BotPurchase {
 // A person's identity within a MARRIAGE_BOT instance — phone-verified
 // before any profile can be created, given how sensitive this context is.
 model MatchUser {
-  id            String    @id // Telegram User ID
-  botId         String // which MARRIAGE_BOT instance (multi-tenant, same pattern as Bot/User above)
-  phoneNumber   String?
-  phoneVerified Boolean   @default(false)
-  language      String    @default("ar")
-  pendingAction Json?
-  lastActiveAt  DateTime  @default(now()) // drives "متصل الآن" vs "آخر ظهور" on result cards
-  isBanned      Boolean   @default(false) // admin action from a reviewed report — blocks all bot use
-  mutedUntil    DateTime? // admin action from a reviewed report — temporary block, lifts on its own once past
-  created_at    DateTime  @default(now())
+  id             String    @id // Telegram User ID
+  botId          String // which MARRIAGE_BOT instance (multi-tenant, same pattern as Bot/User above)
+  phoneNumber    String?
+  phoneVerified  Boolean   @default(false)
+  language       String    @default("ar")
+  pendingAction  Json?
+  lastActiveAt   DateTime  @default(now()) // drives "متصل الآن" vs "آخر ظهور" on result cards
+  isBanned       Boolean   @default(false) // admin action from a reviewed report — blocks all bot use
+  mutedUntil     DateTime? // admin action from a reviewed report — temporary block, lifts on its own once past
+  created_at     DateTime  @default(now())
 
   // MARRIAGE_BOT's own wallet fields (owner spec, 2026-09-05) — deliberately
   // separate from AD_BOT's User.balance/User.tonMemo. Reusing that table
@@ -314,14 +314,14 @@ model MatchUser {
   // balance as any AD_BOT the same Telegram user has elsewhere (both
   // NOWPayments' webhook and the TON scanner key purely off Telegram ID) —
   // confirmed as a real risk, not a theoretical one. See MatchTransaction.
-  balance Float   @default(0.0)
-  tonMemo String? @unique
+  balance        Float     @default(0.0)
+  tonMemo        String?   @unique
 
   // Paid feature unlocks (owner spec, 2026-09-05) — one-time purchases,
   // permanent once bought (unlike boostedUntil/vipUntil, which expire).
-  advancedFiltersUnlocked Boolean   @default(false)
-  profileVisitorsUnlocked Boolean   @default(false)
-  extraPhotosUnlocked     Boolean   @default(false)
+  advancedFiltersUnlocked Boolean  @default(false)
+  profileVisitorsUnlocked Boolean  @default(false)
+  extraPhotosUnlocked     Boolean  @default(false)
   // Golden VIP membership — while active, also grants advanced filters,
   // profile visitors, incognito, and a continuously-refreshed boost
   // without needing the individual one-time unlocks. See isVipActive().
@@ -333,19 +333,19 @@ model MatchUser {
   // profile gets re-approved later (editing an approved profile sends it
   // back to PENDING for re-review) — the reward is a one-time thing per
   // referred person, not per approval event.
-  referralRewardGranted   Boolean   @default(false)
+  referralRewardGranted   Boolean  @default(false)
 
-  profile         MatchProfile?
-  preference      PartnerPreference?
-  likesGiven      MatchLike[]        @relation("LikesGiven")
-  likesReceived   MatchLike[]        @relation("LikesReceived")
-  blocksGiven     MatchBlock[]       @relation("BlocksGiven")
-  blocksReceived  MatchBlock[]       @relation("BlocksReceived")
-  reportsGiven    MatchReport[]      @relation("ReportsGiven")
-  reportsReceived MatchReport[]      @relation("ReportsReceived")
-  queueEntries    RandomChatQueue[]
-  adminMessages   AdminMessage[]
-  transactions    MatchTransaction[]
+  profile        MatchProfile?
+  preference     PartnerPreference?
+  likesGiven     MatchLike[]        @relation("LikesGiven")
+  likesReceived  MatchLike[]        @relation("LikesReceived")
+  blocksGiven    MatchBlock[]       @relation("BlocksGiven")
+  blocksReceived MatchBlock[]       @relation("BlocksReceived")
+  reportsGiven   MatchReport[]      @relation("ReportsGiven")
+  reportsReceived MatchReport[]     @relation("ReportsReceived")
+  queueEntries   RandomChatQueue[]
+  adminMessages  AdminMessage[]
+  transactions   MatchTransaction[]
 }
 
 // MARRIAGE_BOT's own financial ledger — fully isolated from AD_BOT's
@@ -372,34 +372,34 @@ model MatchTransaction {
 // Own profile — goes through SUPER_ADMIN manual approval (status) before
 // it can ever appear in another user's search results.
 model MatchProfile {
-  id                      String    @id @default(uuid())
-  userId                  String    @unique
-  user                    MatchUser @relation(fields: [userId], references: [id])
-  gender                  String // MALE | FEMALE
-  name                    String
-  age                     Int
-  country                 String
-  job                     String?
-  education               String?
-  attributes              String? // free-text description (height, build, etc.)
-  city                    String? // optional, free for everyone to set — only usable as a SEARCH filter by someone with advanced filters unlocked (see hasAdvancedFilters)
-  maritalStatus           String? // optional, same as above
-  contactMethod           String // TELEGRAM | WHATSAPP
-  contactValue            String // @username, or a phone number for a wa.me link
-  photoFileId             String? // Telegram file_id of the uploaded profile photo — null shows an empty placeholder
-  photoFileId2            String? // paid extra photo slot (see EXTRA_PHOTOS feature) — sent as a follow-up message, not part of the main card
-  photoFileId3            String? // paid extra photo slot
-  voiceFileId             String? // Telegram file_id of an optional short (~15s) voice intro — recorded as a normal Telegram voice message, no new upload UI needed
-  status                  String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  isHidden                Boolean   @default(false) // user-toggled pause — excluded from search results without deleting the profile
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  user          MatchUser @relation(fields: [userId], references: [id])
+  gender        String // MALE | FEMALE
+  name          String
+  age           Int
+  country       String
+  job           String?
+  education     String?
+  attributes    String? // free-text description (height, build, etc.)
+  city          String? // optional, free for everyone to set — only usable as a SEARCH filter by someone with advanced filters unlocked (see hasAdvancedFilters)
+  maritalStatus String? // optional, same as above
+  contactMethod String // TELEGRAM | WHATSAPP
+  contactValue  String // @username, or a phone number for a wa.me link
+  photoFileId   String? // Telegram file_id of the uploaded profile photo — null shows an empty placeholder
+  photoFileId2  String? // paid extra photo slot (see EXTRA_PHOTOS feature) — sent as a follow-up message, not part of the main card
+  photoFileId3  String? // paid extra photo slot
+  voiceFileId   String? // Telegram file_id of an optional short (~15s) voice intro — recorded as a normal Telegram voice message, no new upload UI needed
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  isHidden      Boolean   @default(false) // user-toggled pause — excluded from search results without deleting the profile
   // Paid features (owner spec, 2026-09-05) — see MatchTransaction for the
   // pricing/charge side.
-  boostedUntil            DateTime? // profile sorts first in search results until this timestamp — PROFILE_BOOST purchase, or continuously refreshed while MatchUser.vipUntil is active
-  verificationStatus      String    @default("NONE") // NONE | PENDING | VERIFIED | REJECTED — the ☑️ badge shown next to the name on search cards
+  boostedUntil  DateTime? // profile sorts first in search results until this timestamp — PROFILE_BOOST purchase, or continuously refreshed while MatchUser.vipUntil is active
+  verificationStatus String @default("NONE") // NONE | PENDING | VERIFIED | REJECTED — the ☑️ badge shown next to the name on search cards
   verificationPhotoFileId String? // ID photo submitted for the verification review — visible only to SUPER_ADMIN, never shown to other users
-  isIncognito             Boolean   @default(false) // only has effect while the owner's MatchUser.vipUntil is active — see isVipActive()
-  created_at              DateTime  @default(now())
-  updated_at              DateTime  @updatedAt
+  isIncognito   Boolean   @default(false) // only has effect while the owner's MatchUser.vipUntil is active — see isVipActive()
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 }
 
 // Who viewed whose profile in search results (owner spec, 2026-09-05) —
@@ -437,21 +437,21 @@ model MatchPhotoPermission {
 // from their own profile above. Every field nullable ("لا يهم"), except
 // country which drives the one-directional-vs-mutual matching rule.
 model PartnerPreference {
-  id            String    @id @default(uuid())
-  userId        String    @unique
-  user          MatchUser @relation(fields: [userId], references: [id])
-  country       String // required — drives the one-directional-vs-mutual matching rule, never skippable
-  ageMin        Int?
-  ageMax        Int?
-  job           String?
-  education     String?
-  attributes    String?
+  id         String    @id @default(uuid())
+  userId     String    @unique
+  user       MatchUser @relation(fields: [userId], references: [id])
+  country    String // required — drives the one-directional-vs-mutual matching rule, never skippable
+  ageMin     Int?
+  ageMax     Int?
+  job        String?
+  education  String?
+  attributes String?
   // Advanced filters (paid, owner spec, 2026-09-05) — only ever set/used
   // once MatchUser.advancedFiltersUnlocked (or an active VIP membership)
   // is true; harmless if set otherwise, just unused by buildSearchQueue.
-  city          String?
-  maritalStatus String?
-  updated_at    DateTime  @updatedAt
+  city            String?
+  maritalStatus   String?
+  updated_at DateTime  @updatedAt
 }
 
 model MatchLike {
@@ -526,19 +526,19 @@ model RandomChatQueue {
 // querying for any session between the same two users within 24h,
 // regardless of status.
 model RandomChatSession {
-  id                 String    @id @default(uuid())
-  user1Id            String
-  user2Id            String
-  botId              String
-  status             String    @default("ACTIVE") // ACTIVE | ENDED
+  id                  String    @id @default(uuid())
+  user1Id             String
+  user2Id             String
+  botId               String
+  status              String    @default("ACTIVE") // ACTIVE | ENDED
   // Formal-contact-request flow (owner spec, 2026-09-05): after enough
   // messages, both sides are offered a one-time button to request
   // exchanging real contact info (from their own MatchProfile, if any).
-  messageCount       Int       @default(0)
-  contactOfferSent   Boolean   @default(false) // the one-time offer button was already shown — don't show it again every message past the threshold
-  contactRequestedBy String? // set once the first side taps the button; the exchange happens once the second side also agrees
-  created_at         DateTime  @default(now())
-  ended_at           DateTime?
+  messageCount        Int       @default(0)
+  contactOfferSent    Boolean   @default(false) // the one-time offer button was already shown — don't show it again every message past the threshold
+  contactRequestedBy  String? // set once the first side taps the button; the exchange happens once the second side also agrees
+  created_at          DateTime  @default(now())
+  ended_at            DateTime?
 }
 
 // ===================================================================
@@ -832,7 +832,7 @@ model ShortLink {
   targetUrl   String
   clicks      Int       @default(0)
   createdAt   DateTime  @default(now())
-  ownerIpHash String? // optional light rate-limit fingerprint, no PII store
+  ownerIpHash String?   // optional light rate-limit fingerprint, no PII store
   expiresAt   DateTime?
 }
 
@@ -844,13 +844,13 @@ model DigitalCard {
   slug        String   @unique // 4-24 chars, [a-z0-9-_]
   title       String
   bio         String?
-  avatarUrl   String? // optional external https image URL only
-  links       Json // array of { label: string, url: string, order?: number }
+  avatarUrl   String?  // optional external https image URL only
+  links       Json     // array of { label: string, url: string, order?: number }
   theme       String   @default("simple") // simple | dark | brand
   views       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-  ownerIpHash String? // light rate-limit fingerprint, no PII
+  ownerIpHash String?  // light rate-limit fingerprint, no PII
   editToken   String   @unique // bearer secret for anonymous edit access
 }
 
@@ -969,37 +969,37 @@ model MedDoctor {
 }
 
 model MedAppointment {
-  id              String    @id @default(uuid())
+  id              String               @id @default(uuid())
   patientId       String
-  patient         MedUser   @relation(fields: [patientId], references: [id])
+  patient         MedUser              @relation(fields: [patientId], references: [id])
   doctorId        String
-  doctor          MedDoctor @relation(fields: [doctorId], references: [id])
+  doctor          MedDoctor            @relation(fields: [doctorId], references: [id])
   // Resolved to a real calendar date+time at booking time (the chosen
   // weekday's next actual occurrence, combined with the patient's entered
   // time) — not stored as a bare weekday string, so the reminder cron can
   // actually compare it against "now + 24h" / "now + 1h".
   appointmentAt   DateTime
-  status          String    @default("PENDING") // PENDING | CONFIRMED | CANCELLED | COMPLETED
+  status          String   @default("PENDING") // PENDING | CONFIRMED | CANCELLED | COMPLETED
   notes           String?
-  reminder24hSent Boolean   @default(false)
-  reminder1hSent  Boolean   @default(false)
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
+  reminder24hSent Boolean              @default(false)
+  reminder1hSent  Boolean              @default(false)
+  created_at      DateTime             @default(now())
+  updated_at      DateTime             @updatedAt
 }
 
 // Patient asks a specific pharmacy about a prescription (photo or text) —
 // a simple two-way relay, same pattern as JobsAdminMessage/AdminMessage
 // elsewhere in this project.
 model MedPrescriptionQuery {
-  id             String      @id @default(uuid())
+  id             String         @id @default(uuid())
   patientId      String
-  patient        MedUser     @relation(fields: [patientId], references: [id])
+  patient        MedUser        @relation(fields: [patientId], references: [id])
   facilityId     String
-  facility       MedFacility @relation(fields: [facilityId], references: [id])
+  facility       MedFacility    @relation(fields: [facilityId], references: [id])
   patientMessage String // text, or a Telegram file_id prefixed "photo:" for images
   reply          String?
-  status         String      @default("PENDING") // PENDING | ANSWERED
-  created_at     DateTime    @default(now())
+  status         String   @default("PENDING") // PENDING | ANSWERED
+  created_at     DateTime @default(now())
 }
 
 // ---- «نبض» blood bank (owner request, 2026-09-25) — part of MEDICAL_BOT,
@@ -1093,31 +1093,31 @@ model MedActivationCode {
 // ===================================================================
 
 model NovaUser {
-  id                    String             @id @default(uuid())
-  telegramId            String?            @unique // set when the user first talks via NOVA_BOT
-  email                 String?            @unique // set when the user first logs into the Streamlit web UI
-  apiKey                String?            @unique // issued on request for external API access
+  id                    String    @id @default(uuid())
+  telegramId            String?   @unique // set when the user first talks via NOVA_BOT
+  email                 String?   @unique // set when the user first logs into the Streamlit web UI
+  apiKey                String?   @unique // issued on request for external API access
   // FREE | PRO_BASIC | PRO_PLUS | PRO_ULTRA — owner spec 2026-09-08:
   // everything the bot can do stays available to every tier (text,
   // vision, voice, files, image generation); tiers only scale HOW MUCH
   // of it you get per day/week, cheaper than a single flat $5 plan.
   // Exact numbers live in ai-system/app/quota.py's PLANS dict, kept in
   // one place so pricing can change without a migration.
-  plan                  String             @default("FREE")
+  plan                  String    @default("FREE")
   subscriptionExpiresAt DateTime?
   // Daily counters, separate per media type since the owner wants a
   // much stricter cap on images specifically (heavier to compute) than
   // on plain text messages.
-  dailyUsed             Int                @default(0) // text/voice/file messages today
-  dailyUsedImage        Int                @default(0) // images today (understand + generate share one cap)
-  dailyResetAt          DateTime           @default(now())
+  dailyUsed             Int       @default(0) // text/voice/file messages today
+  dailyUsedImage        Int       @default(0) // images today (understand + generate share one cap)
+  dailyResetAt          DateTime  @default(now())
   // Weekly counters, same split — owner spec: "نفس النظام الذي تعمل
   // عليه أنت [Claude]" (a rolling weekly ceiling on top of the daily
   // one, so a paid plan can't be hammered non-stop every single day).
-  weeklyUsedText        Int                @default(0)
-  weeklyUsedImage       Int                @default(0)
-  weeklyResetAt         DateTime           @default(now())
-  created_at            DateTime           @default(now())
+  weeklyUsedText        Int       @default(0)
+  weeklyUsedImage       Int       @default(0)
+  weeklyResetAt         DateTime  @default(now())
+  created_at            DateTime  @default(now())
   usageLogs             NovaUsageLog[]
   subscriptions         NovaSubscription[]
   connections           NovaConnection[]
@@ -1137,10 +1137,10 @@ model NovaConnection {
   id         String    @id @default(uuid())
   novaUserId String
   novaUser   NovaUser  @relation(fields: [novaUserId], references: [id], onDelete: Cascade)
-  service    String // "github" | "vercel" — see connections.py's SUPPORTED_SERVICES
-  label      String // e.g. "owner/my-shop"
-  credential String // AES-256-GCM encrypted (owner decision 2026-09-20, src/lib/credentialCrypto.ts) — "encv1:" prefix; a row written before this change has no prefix and is legacy plain TEXT (see migration_28's original note)
-  baseBranch String? // GitHub only
+  service    String    // "github" | "vercel" — see connections.py's SUPPORTED_SERVICES
+  label      String    // e.g. "owner/my-shop"
+  credential String    // AES-256-GCM encrypted (owner decision 2026-09-20, src/lib/credentialCrypto.ts) — "encv1:" prefix; a row written before this change has no prefix and is legacy plain TEXT (see migration_28's original note)
+  baseBranch String?   // GitHub only
   status     String    @default("ACTIVE") // ACTIVE | REVOKED
   created_at DateTime  @default(now())
   revoked_at DateTime?
@@ -1270,18 +1270,18 @@ model ConfessionUser {
 // buying REVEAL_SENDER later can retroactively reveal identity on
 // already-received confessions too, not just future ones.
 model ConfessionMessage {
-  id             String         @id @default(uuid())
-  boxOwnerId     String
-  boxOwner       ConfessionUser @relation("ConfessionBoxOwner", fields: [boxOwnerId], references: [id])
-  senderId       String
-  sender         ConfessionUser @relation("ConfessionSender", fields: [senderId], references: [id])
-  senderName     String?
-  senderUsername String?
-  text           String
-  reply          String?
-  repliedAt      DateTime?
-  replyCount     Int            @default(0) // >0 once the free reply is used — further replies need unlimitedRepliesUnlocked
-  created_at     DateTime       @default(now())
+  id              String         @id @default(uuid())
+  boxOwnerId      String
+  boxOwner        ConfessionUser @relation("ConfessionBoxOwner", fields: [boxOwnerId], references: [id])
+  senderId        String
+  sender          ConfessionUser @relation("ConfessionSender", fields: [senderId], references: [id])
+  senderName      String?
+  senderUsername  String?
+  text            String
+  reply           String?
+  repliedAt       DateTime?
+  replyCount      Int            @default(0) // >0 once the free reply is used — further replies need unlimitedRepliesUnlocked
+  created_at      DateTime       @default(now())
 
   @@index([boxOwnerId])
 }
@@ -1313,4 +1313,43 @@ model ConfessionTransaction {
   created_at DateTime       @default(now())
 
   @@unique([txHash])
+}
+
+// NAME_COMPAT_BOT (docs/claude-feature-backlog.md item 3) — a free,
+// no-payment template: two names in, a deterministic "نسبة التوافق"
+// (compatibility %) out, as a shareable result card. Deterministic and
+// symmetric on purpose (swapping the two names must give the same
+// result) — see computeCompatibility() in src/lib/nameCompatBotLogic.ts,
+// a plain sha256 hash of the two normalized names sorted together, no
+// randomness and no AI call. Same owner-only-to-DEPLOY gate as the other
+// private templates (NAME_COMPAT_BOT_CREATOR_PASSWORD) — see
+// BotsDeployForm.tsx. No wallet/ledger table: this template has nothing
+// to charge for.
+model NameCompatUser {
+  id                String    @id // Telegram User ID
+  botId             String
+  pendingAction     Json?
+  calculationsCount Int       @default(0)
+  isBanned          Boolean   @default(false)
+  mutedUntil        DateTime?
+  lastActiveAt      DateTime  @default(now())
+  created_at        DateTime  @default(now())
+
+  results NameCompatResult[]
+}
+
+// One computed compatibility result, kept for the user's own "📜 آخر
+// نتائجي" history and for admin stats — never used to alter a future
+// result for the same name pair (computeCompatibility() stays a pure
+// function of the two names, this table is read-only history).
+model NameCompatResult {
+  id         String         @id @default(uuid())
+  userId     String
+  user       NameCompatUser @relation(fields: [userId], references: [id])
+  name1      String
+  name2      String
+  percentage Int
+  created_at DateTime       @default(now())
+
+  @@index([userId])
 }

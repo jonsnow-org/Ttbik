@@ -54,6 +54,15 @@ export async function POST(req: NextRequest) {
       if (!expected || String(password || "") !== expected) {
         return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
       }
+    } else if (template === "NAME_COMPAT_BOT") {
+      // Same private, owner-only DEPLOY gate as the others above
+      // (docs/claude-feature-backlog.md item 3) — a separate env var so
+      // the owner can reuse the same secret value across all of them if
+      // they want a single shared password.
+      const expected = process.env.NAME_COMPAT_BOT_CREATOR_PASSWORD;
+      if (!expected || String(password || "") !== expected) {
+        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
+      }
     } else {
       // Gate on a paid, admin-approved activation code (owner spec,
       // 2026-08-31) — /bots was previously open to anyone with a token and
