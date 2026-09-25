@@ -3,64 +3,39 @@ import { Bot } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
+const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT"];
+
+// Each template has its own <TEMPLATE>_CREATOR_PASSWORD env var. A newly
+// added template whose variable was never set on Vercel used to reject
+// every password (the owner uses one shared password for all of them), so
+// when the template's own variable is missing, any creator password that
+// IS configured for the other templates is accepted instead. Input is
+// trimmed: mobile keyboards often append a space.
+function creatorPasswordOk(template: string, password: unknown): boolean {
+  const given = String(password ?? "").trim();
+  if (!given) return false;
+  const own = process.env[`${template}_CREATOR_PASSWORD`]?.trim();
+  const candidates = own
+    ? [own]
+    : PASSWORD_TEMPLATES.map((t) => process.env[`${t}_CREATOR_PASSWORD`]?.trim()).filter((v): v is string => !!v);
+  const g = Buffer.from(given);
+  return candidates.some((c) => {
+    const e = Buffer.from(c);
+    return e.length === g.length && crypto.timingSafeEqual(e, g);
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { token, template, ownerId, ref, activationCode, password } = await req.json();
 
-    // MARRIAGE_BOT (owner spec, 2026-09-02): a separate, simple static-
-    // password gate — deliberately NOT the AD_BOT's paid activation-code/
-    // BotPurchase system, which only makes sense for the ad-network's
-    // sell-activation-codes-to-third-party-creators model. This template
-    // isn't sold to third parties (yet), so a single password set by the
-    // owner in MARRIAGE_BOT_CREATOR_PASSWORD is all it needs.
     let purchase: { id: string } | null = null;
-    if (template === "MARRIAGE_BOT") {
-      const expected = process.env.MARRIAGE_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
-        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
-      }
-    } else if (template === "JOBS_BOT") {
-      // Same private, owner-only gate as MARRIAGE_BOT (owner spec,
-      // 2026-09-05) — a separate env var so the owner can reuse the same
-      // secret value across both if they want a single shared password,
-      // without the two templates sharing any actual code or table.
-      const expected = process.env.JOBS_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
-        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
-      }
-    } else if (template === "MEDICAL_BOT") {
-      // Same private, owner-only gate as MARRIAGE_BOT/JOBS_BOT (owner
-      // spec, 2026-09-04) — this template isn't sold to third parties.
-      const expected = process.env.MEDICAL_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
-        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
-      }
-    } else if (template === "NOVA_BOT") {
-      // Same private, owner-only DEPLOY gate as the others above (owner
-      // spec, 2026-09-05) — the owner deploys their own single instance;
-      // real end-users then interact with THAT bot and pay for higher
-      // quota via /subscribe, same commercial shape AD_BOT already has
-      // (owner deploys once, many external users use it).
-      const expected = process.env.NOVA_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
-        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
-      }
-    } else if (template === "CONFESSION_BOT") {
-      // Same private, owner-only DEPLOY gate as MARRIAGE_BOT/JOBS_BOT/
-      // MEDICAL_BOT/NOVA_BOT (docs/claude-feature-backlog.md item 2) — a
-      // separate env var so the owner can reuse the same secret value
-      // across all of them if they want a single shared password.
-      const expected = process.env.CONFESSION_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
-        return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
-      }
-    } else if (template === "NAME_COMPAT_BOT") {
-      // Same private, owner-only DEPLOY gate as the others above
-      // (docs/claude-feature-backlog.md item 3) — a separate env var so
-      // the owner can reuse the same secret value across all of them if
-      // they want a single shared password.
-      const expected = process.env.NAME_COMPAT_BOT_CREATOR_PASSWORD;
-      if (!expected || String(password || "") !== expected) {
+    if (PASSWORD_TEMPLATES.includes(template)) {
+      // Private, owner-only templates (MARRIAGE_BOT, JOBS_BOT, MEDICAL_BOT,
+      // NOVA_BOT, CONFESSION_BOT, NAME_COMPAT_BOT) — not sold to third
+      // parties, so a static creator password is the whole gate. See
+      // creatorPasswordOk for how the expected value is found.
+      if (!creatorPasswordOk(template, password)) {
         return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
       }
     } else {
