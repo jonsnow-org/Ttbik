@@ -8,8 +8,8 @@ import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
 export const maxDuration = 60;
 
 // Triggered three times a day by Vercel Cron (see vercel.json). Publishes one varied
-// promotional post to the public Telegram channel, rotating across four
-// pools: free tools, live paid catalog services, store products, and
+// promotional post to the public Telegram channel, rotating across three
+// pools: free tools, live paid catalog services, and
 // (only if configured) an AD_BOT manual-purchase awareness post.
 //
 // Paid services and store products are fetched fresh from Supabase on
@@ -62,20 +62,6 @@ async function getPaidTopics(): Promise<{ name: string; url: string }[]> {
     const db = supabasePublic();
     const { data } = await db.from("services").select("slug, name_ar").eq("is_active", true).gt("price_usd", 0);
     return (data ?? []).map((s: any) => ({ name: s.name_ar as string, url: `${SITE_URL}/service/${s.slug}` }));
-  } catch {
-    return [];
-  }
-}
-
-// Store products have no individual page of their own (they link out to
-// their affiliate merchant) — the promo always points at /store itself so
-// the click lands on our page (and its ads) first, not straight past it to
-// the merchant. See src/app/store/page.tsx.
-async function getStoreTopics(): Promise<{ name: string; url: string }[]> {
-  try {
-    const db = supabasePublic();
-    const { data } = await db.from("store_products").select("title_ar").eq("is_active", true);
-    return (data ?? []).map((p: any) => ({ name: p.title_ar as string, url: `${SITE_URL}/store` }));
   } catch {
     return [];
   }
@@ -177,7 +163,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, slot, posted: fresh.posted, skipped: fresh.skipped });
   }
 
-  const [paidTopics, storeTopics] = await Promise.all([getPaidTopics(), getStoreTopics()]);
+  // No store topics: /store was retired and now redirects to /news.
+  const paidTopics = await getPaidTopics();
   const botPromos = getBotPromos();
 
   // Plain topics (free + live paid + store) far outnumber the bot-purchase
@@ -187,7 +174,6 @@ export async function GET(req: NextRequest) {
     ...FREE_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...LIVE_BOT_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...paidTopics.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
-    ...storeTopics.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
     ...botPromos.map((p) => ({ label: p.label, run: () => buildBotPromoText(p) })),
   ];
 

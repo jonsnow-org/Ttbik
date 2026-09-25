@@ -5,6 +5,7 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
 import {
   BLOOD_MENU_LABEL, isBloodMenuText, isBloodPending, handleBloodMenu, handleBloodPending,
   handleBloodCallback, showSharedRequest, bloodStatsLine, type BloodPending,
+  BLOOD_ADMIN_LABEL, sendBloodAdminOverview, handleBloodAdminCallback,
 } from "@/lib/medBloodBank";
 
 /**
@@ -245,7 +246,7 @@ function clinicMainMenu(): Keyboard {
     .row()
     .text("📞 تحديث الهاتف").text("📍 تحديث الموقع")
     .row()
-    .text("ℹ️ معلومات")
+    .text(BLOOD_MENU_LABEL).text("ℹ️ معلومات")
     .resized();
 }
 function hospitalMainMenu(): Keyboard {
@@ -264,14 +265,14 @@ function pharmacyMainMenu(isDuty: boolean): Keyboard {
     .row()
     .text("📞 تحديث الهاتف").text("📍 تحديث الموقع")
     .row()
-    .text("ℹ️ معلومات")
+    .text(BLOOD_MENU_LABEL).text("ℹ️ معلومات")
     .resized();
 }
 function adminMenu(): Keyboard {
   return new Keyboard()
     .text("🎫 كود عيادة").text("🎫 كود مشفى").text("🎫 كود صيدلية")
     .row()
-    .text("📊 إحصائيات")
+    .text("📊 إحصائيات").text(BLOOD_ADMIN_LABEL)
     .resized();
 }
 function mainMenuFor(role: MedRoleStr, isDuty?: boolean): Keyboard {
@@ -732,7 +733,7 @@ async function routeMainMenuText(bot: TelegramBot, botRow: BotRow, chatId: numbe
     return;
   }
 
-  if (isBloodMenuText(text) && (role === "PATIENT" || role === "HOSPITAL")) {
+  if (isBloodMenuText(text)) {
     await handleBloodMenu(bloodCtx(bot, chatId, tgUserId, role), text);
     return;
   }
@@ -1338,6 +1339,10 @@ async function handleAdminMessage(bot: TelegramBot, botRow: BotRow, chatId: numb
     });
     return;
   }
+  if (text === BLOOD_ADMIN_LABEL) {
+    await sendBloodAdminOverview(bot, chatId);
+    return;
+  }
   if (text === "📊 إحصائيات") {
     const [patients, clinics, hospitals, pharmacies, appts] = await Promise.all([
       prisma.medUser.count({ where: { role: "PATIENT" } }),
@@ -1365,6 +1370,15 @@ async function handleCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   const tgUserId = String(cq.from.id);
   const data = String(cq.data || "");
   if (!chatId) return;
+
+  if (data.startsWith("bldadm|")) {
+    if (!SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    await handleBloodAdminCallback(bot, chatId, cq);
+    return;
+  }
 
   if (data.startsWith("bld|")) {
     const u = await ensureMedUser(botRow.id, tgUserId);

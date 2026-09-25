@@ -121,9 +121,14 @@ async function guarded(bot: TelegramBot, chatId: number, fn: () => Promise<void>
 // ---------------------------------------------------------------------
 // Menus
 // ---------------------------------------------------------------------
+// Clinic / hospital / pharmacy accounts request blood for their patients
+// and see nearby requests; only personal (patient) accounts can be donors.
+function isFacility(role: string): boolean {
+  return role === "CLINIC" || role === "HOSPITAL" || role === "PHARMACY";
+}
 function bloodMenu(role: string): Keyboard {
-  if (role === "HOSPITAL") {
-    return new Keyboard().text(NEED_LABEL).text(MINE_LABEL).row().text(BACK_LABEL).resized();
+  if (isFacility(role)) {
+    return new Keyboard().text(NEED_LABEL).text(NEARBY_LABEL).row().text(MINE_LABEL).row().text(BACK_LABEL).resized();
   }
   return new Keyboard()
     .text(NEED_LABEL).text(NEARBY_LABEL).row()
@@ -171,7 +176,9 @@ export async function handleBloodMenu(ctx: Ctx, text: string) {
         chatId,
         "🩸 نبض — بنك الدم الفوري\n\n" +
           "• تحتاج دماً؟ انشر طلباً فيُبلَّغ فوراً كل متبرع متوافق قريب منك.\n" +
-          "• تستطيع التبرع؟ سجّل فصيلتك لتصلك النداءات القريبة فقط.\n\n" +
+          (isFacility(ctx.role)
+            ? "• ترى أيضاً طلبات الدم القريبة منك لتساعد في إيصالها لمن يستطيع التبرع.\n\n"
+            : "• تستطيع التبرع؟ سجّل فصيلتك لتصلك النداءات القريبة فقط.\n\n") +
           "ℹ️ البوت وسيط تواصل فقط؛ التبرع وفحص التوافق يتمّان في المستشفى أو بنك الدم.",
         { reply_markup: bloodMenu(ctx.role) }
       );
@@ -203,7 +210,7 @@ async function startRequest(ctx: Ctx) {
 // Where the request is anchored (donors are searched around it) and, for a
 // hospital account, the place/phone it already has on file.
 async function requesterOrigin(ctx: Ctx): Promise<{ lat: number; lng: number; place?: string; phone?: string } | null> {
-  if (ctx.role === "HOSPITAL") {
+  if (isFacility(ctx.role)) {
     const f = await prisma.medFacility.findUnique({ where: { ownerId: ctx.userId } });
     if (f) return { lat: f.latitude, lng: f.longitude, place: `${f.name} — ${f.area || f.city}`, phone: f.phone };
   } else {
@@ -422,12 +429,10 @@ async function sendDonorCard(ctx: Ctx) {
 
 async function sendNearby(ctx: Ctx) {
   const { bot, chatId, userId } = ctx;
-  const profile = await prisma.medPatientProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    await bot.api.sendMessage(chatId, "⚠️ يجب إكمال تسجيل ملفك أولاً. اضغط /start.");
-    return;
-  }
-  const donor = await prisma.medBloodDonor.findUnique({ where: { userId } });
+  const origin = await requesterOrigin(ctx);
+  if (!origin) return;
+  const profile = { latitude: origin.lat, longitude: origin.lng };
+  const donor = isFacility(ctx.role) ? null : await prisma.medBloodDonor.findUnique({ where: { userId } });
   const open = await prisma.medBloodRequest.findMany({
     where: {
       status: "OPEN",
@@ -456,7 +461,7 @@ async function sendNearby(ctx: Ctx) {
       reply_markup: new InlineKeyboard().text("🩸 أستطيع التبرع", `bld|yes|${r.id}`),
     });
   }
-  if (!donor) {
+  if (!donor && !isFacility(ctx.role)) {
     await bot.api.sendMessage(chatId, `💡 سجّل فصيلتك من «${DONOR_LABEL}» لتصلك النداءات المتوافقة تلقائياً.`, { reply_markup: bloodMenu(ctx.role) });
   }
 }
@@ -647,5 +652,56 @@ export async function bloodStatsLine(): Promise<string> {
     return `\n\n🩸 نبض: ${donors} متبرع | ${open} طلب مفتوح | ${fulfilled} طلب مؤمَّن | ${responses} استجابة`;
   } catch {
     return "\n\n🩸 نبض: بانتظار تشغيل migration_36";
+  }
+}
+
+// ---------------------------------------------------------------------
+// Platform owner (SUPER_ADMIN) view — stats + open requests, with the
+// ability to close a request (e.g. a fake or abusive one).
+// ---------------------------------------------------------------------
+export const BLOOD_ADMIN_LABEL = "🩸 نبض — المتابعة";
+
+export async function sendBloodAdminOverview(bot: TelegramBot, chatId: number) {
+  await guarded(bot, chatId, async () => {
+    const now = new Date();
+    const [donors, available, open, fulfilled, responses] = await Promise.all([
+      prisma.medBloodDonor.count(),
+      prisma.medBloodDonor.count({ where: { isAvailable: true } }),
+      prisma.medBloodRequest.findMany({ where: { status: "OPEN", expiresAt: { gt: now } }, orderBy: { created_at: "desc" }, take: 10, include: { _count: { select: { responses: true } } } }),
+      prisma.medBloodRequest.count({ where: { status: "FULFILLED" } }),
+      prisma.medBloodResponse.count(),
+    ]);
+    const byType = await prisma.medBloodDonor.groupBy({ by: ["bloodType"], _count: { _all: true } });
+    const types = byType.map((t) => `${t.bloodType}: ${t._count._all}`).join(" | ") || "—";
+    await bot.api.sendMessage(
+      chatId,
+      `🩸 نبض — لوحة المتابعة\n\n👥 المتبرعون: ${donors} (${available} يستقبلون النداءات)\n🧬 حسب الفصيلة: ${types}\n` +
+        `🟢 طلبات مفتوحة: ${open.length}\n✅ طلبات مؤمَّنة: ${fulfilled}\n🙋 مجموع الاستجابات: ${responses}` +
+        (open.length ? "\n\nالطلبات المفتوحة (الأحدث أولاً):" : "")
+    );
+    for (const r of open) {
+      await bot.api.sendMessage(
+        chatId,
+        `${requestText(r)}\n👤 صاحب الطلب: ${r.requesterId}\n📣 أُبلغ: ${r.notifiedCount} | 🙋 مستعدون: ${r._count.responses}\n⏳ ينتهي خلال ${hoursLeft(r.expiresAt)} ساعة`,
+        { reply_markup: new InlineKeyboard().text("🗑 إغلاق الطلب (مخالف)", `bldadm|close|${r.id}`) }
+      );
+    }
+  });
+}
+
+export async function handleBloodAdminCallback(bot: TelegramBot, chatId: number, cq: any) {
+  const [, action, id] = String(cq.data || "").split("|");
+  if (action !== "close" || !id) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  const req = await prisma.medBloodRequest.findUnique({ where: { id } });
+  const res = await prisma.medBloodRequest.updateMany({ where: { id, status: "OPEN" }, data: { status: "CANCELLED" } });
+  await bot.api.answerCallbackQuery(cq.id, { text: res.count ? "أُغلق الطلب" : "مغلق مسبقاً" }).catch(() => null);
+  if (res.count && req) {
+    await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: new InlineKeyboard().text("✔️ أُغلق", "bldadm|noop") }).catch(() => null);
+    await bot.api.sendMessage(Number(req.requesterId), "ℹ️ أغلقت الإدارة طلب الدم الخاص بك لمخالفته شروط الاستخدام.").catch(() => null);
+    const responders = await prisma.medBloodResponse.findMany({ where: { requestId: id }, select: { donorId: true } });
+    for (const d of responders) await bot.api.sendMessage(Number(d.donorId), "ℹ️ أُلغي طلب الدم الذي تطوعت له، لا حاجة للتوجه. شكراً لك.").catch(() => null);
   }
 }
