@@ -1,20 +1,23 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
-import { SITE_URL } from "@/lib/siteUrl";
+import ContentCard from "@/components/editorial/ContentCard";
+import EditorialHero from "@/components/editorial/EditorialHero";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
+import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 const PATH = "/events";
 
 export const metadata: Metadata = {
-  title: "أحداث ومقالات | سوق تولز",
+  title: "أحداث اليوم والعالم | سوق تولز",
   description:
-    "شروحات قصيرة بمصادر: ظواهر فلكية، معلومات مفيدة، بلا قصص مختلقة.",
+    "حدث يومي ومقالات قصيرة عن مناسبات عالمية وفلكية — بصياغة مستقلة وروابط للمصادر، دون نسخ الوكالات.",
+  keywords: ["أحداث عالمية", "حدث اليوم", "سوق تولز", "مناسبات"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أحداث ومقالات | سوق تولز",
-    description: "مقالات يومية بمصادر يمكن فتحها.",
+    title: "أحداث اليوم والعالم | سوق تولز",
+    description: "حدث يومي وشروحات قصيرة موثقة.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
@@ -31,59 +34,51 @@ const BREADCRUMB = {
   ],
 };
 
-const ITEMS = EVENT_ITEMS;
-
 export default function EventsIndexPage() {
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB) }} />
       <main className="mx-auto max-w-2xl px-4 py-8" dir="rtl" lang="ar">
-        <nav className="mb-5 text-sm text-slate-500" aria-label="مسار التنقل">
-          <ol className="flex flex-wrap items-center gap-1">
-            <li>
-              <Link href="/" className="hover:text-slate-800">
-                الرئيسة
-              </Link>
-            </li>
-            <li aria-hidden="true">/</li>
-            <li className="font-semibold text-slate-800">أحداث</li>
-          </ol>
-        </nav>
-        <h1 className="mb-2 text-2xl font-extrabold text-slate-900">أحداث ومقالات</h1>
-        <p className="mb-6 text-sm leading-7 text-slate-600">
-          مقالات قصيرة بصياغة مستقلة وروابط للمصادر. ليست نسخاً لوكالات.
-        </p>
+        <EditorialHero
+          crumbs={[{ href: "/", label: "الرئيسة" }, { label: "أحداث" }]}
+          title="أحداث ومناسبات"
+          subtitle="كل يوم نسلّط الضوء على مناسبة أو حدث يمكن شرحه بوضوح للقارئ العربي — مع مصادر عند الحاجة ودون مبالغة."
+          links={[
+            { href: "/news", label: "الأخبار العاجلة" },
+            { href: "/articles", label: "مقالات هادفة" },
+            { href: "/editorial-policy", label: "سياسة التحرير" },
+          ]}
+        />
+
         <ul className="mb-8 space-y-4">
-          {ITEMS.map((it) => (
-            <li key={it.slug} className="rounded-2xl border border-slate-200 bg-white p-4">
-              <p className="mb-1 text-xs font-bold text-indigo-700">{it.dateLabel}</p>
-              <Link
-                href={`/events/${it.slug}`}
-                className="text-lg font-extrabold text-slate-900 hover:underline"
-              >
-                {it.title}
-              </Link>
-              <p className="mt-2 text-sm leading-7 text-slate-600">{it.blurb}</p>
-            </li>
+          {EVENT_ITEMS.map((it) => (
+            <ContentCard
+              key={it.slug}
+              href={`/events/${it.slug}`}
+              title={it.title}
+              blurb={it.blurb}
+              dateLabel={it.dateLabel}
+              badge={it.badge || "حدث"}
+              variant="event"
+            />
           ))}
         </ul>
-        <p className="mb-6 text-sm">
+
+        <AdSlot position="in-content" label="أسفل قائمة الأحداث" />
+
+        <p className="mt-8 text-center text-sm text-slate-500">
           <Link href="/news" className="font-bold text-indigo-800 hover:underline">
-            مركز الأخبار ←
+            مركز الأخبار
           </Link>
           {" · "}
-          <Link href="/editorial-policy" className="font-bold text-indigo-800 hover:underline">
-            سياسة التحرير ←
+          <Link href="/articles" className="font-bold text-indigo-800 hover:underline">
+            المقالات
           </Link>
           {" · "}
           <Link href="/prayer-times" className="font-bold text-indigo-800 hover:underline">
-            مواقيت الصلاة ←
+            مواقيت الصلاة
           </Link>
         </p>
-        <AdSlot position="in-content" label="أسفل قائمة الأحداث" />
       </main>
     </>
   );
