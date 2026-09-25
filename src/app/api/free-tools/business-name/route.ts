@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const output = await callGroq(SYSTEM_PROMPT, description.slice(0, 200), 250);
+    const output = await callGroq(SYSTEM_PROMPT, description.slice(0, 200), 600);
     return NextResponse.json({ output });
   } catch (e: any) {
     if (e.message === "NO_API_KEY") {

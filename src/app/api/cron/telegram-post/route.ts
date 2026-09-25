@@ -124,7 +124,7 @@ async function buildBotPromoText(promo: BotPromo): Promise<string> {
     hook = await callGroq(
       `اكتب سطراً أو سطرين ترويجيين جذابين بالعربية (بدون رابط، بدون ذكر سعر) عن هذا المنتج، بنفس روح المثال التالي دون نسخه حرفياً: "${promo.intro}"`,
       promo.label,
-      120
+      250
     );
   } catch {
     // keep default intro

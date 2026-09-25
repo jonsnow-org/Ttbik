@@ -148,7 +148,7 @@ async function pageTweet(path: string): Promise<Post | null> {
     const hook = await callGroq(
       "اكتب تغريدة قصيرة جذابة بالعربية (سطران كحد أقصى، إيموجي أو اثنان، بدون هاشتاقات وبدون روابط) تعلن عن صفحة جديدة في موقعنا اعتماداً فقط على العنوان والوصف المعطيين. لا تضف أي معلومة غير موجودة فيهما.",
       `العنوان: ${meta.title}\nالوصف: ${meta.description}`,
-      120
+      250
     );
     if (hook.trim()) text = `🆕 ${hook.trim()}\n\n🔗 ${url}`;
   } catch {
