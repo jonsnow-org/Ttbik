@@ -32,7 +32,7 @@ model Bot {
   id            String   @id @default(uuid())
   token         String   @unique
   ownerId       String // Telegram User ID of the bot creator
-  template      String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT" | "CONFESSION_BOT"
+  template      String // "AD_BOT" | "STORE" | "HOSPITAL" | "MARRIAGE_BOT" | "JOBS_BOT" | "MEDICAL_BOT" | "NOVA_BOT" | "CONFESSION_BOT" | "NAME_COMPAT_BOT"
   totalRevenue  Float    @default(0.0)
   ownerBalance  Float    @default(0.0) // creator's withdrawable commission (matured, past the 48h hold)
   pendingBalance Float   @default(0.0) // creator commission still inside the 48h hold, not yet withdrawable — see CREATOR_EARNING_PENDING transactions
@@ -1222,4 +1222,43 @@ model ConfessionTransaction {
   created_at DateTime       @default(now())
 
   @@unique([txHash])
+}
+
+// NAME_COMPAT_BOT (docs/claude-feature-backlog.md item 3) — a free,
+// no-payment template: two names in, a deterministic "نسبة التوافق"
+// (compatibility %) out, as a shareable result card. Deterministic and
+// symmetric on purpose (swapping the two names must give the same
+// result) — see computeCompatibility() in src/lib/nameCompatBotLogic.ts,
+// a plain sha256 hash of the two normalized names sorted together, no
+// randomness and no AI call. Same owner-only-to-DEPLOY gate as the other
+// private templates (NAME_COMPAT_BOT_CREATOR_PASSWORD) — see
+// BotsDeployForm.tsx. No wallet/ledger table: this template has nothing
+// to charge for.
+model NameCompatUser {
+  id                String    @id // Telegram User ID
+  botId             String
+  pendingAction     Json?
+  calculationsCount Int       @default(0)
+  isBanned          Boolean   @default(false)
+  mutedUntil        DateTime?
+  lastActiveAt      DateTime  @default(now())
+  created_at        DateTime  @default(now())
+
+  results NameCompatResult[]
+}
+
+// One computed compatibility result, kept for the user's own "📜 آخر
+// نتائجي" history and for admin stats — never used to alter a future
+// result for the same name pair (computeCompatibility() stays a pure
+// function of the two names, this table is read-only history).
+model NameCompatResult {
+  id         String         @id @default(uuid())
+  userId     String
+  user       NameCompatUser @relation(fields: [userId], references: [id])
+  name1      String
+  name2      String
+  percentage Int
+  created_at DateTime       @default(now())
+
+  @@index([userId])
 }

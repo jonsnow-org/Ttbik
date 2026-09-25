@@ -49,8 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **3. Name-compatibility ("نسبة التوافق") bot** — simple deterministic
-      hash-based percentage between two names, shareable result card.
 - [ ] **4. Personality-quiz bot** — static question banks, shareable result
       image/text, no AI needed.
 - [ ] **5. Daily-streak challenge bot** (fasting/prayer/reading/exercise) —
@@ -74,6 +72,24 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Done
 
+- **3. Name-compatibility ("نسبة التوافق") bot** (shipped 2026-09-25) — new
+      `NAME_COMPAT_BOT` template, wired as a sibling branch in
+      `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
+      (owner-only `NAME_COMPAT_BOT_CREATOR_PASSWORD` gate, same shape as the
+      other private templates) and `src/app/bots/BotsDeployForm.tsx`. Free,
+      no payment — send two names, get a deterministic 0-100%
+      "نسبة التوافق" back as a shareable result card (progress-bar emoji +
+      verdict text); same two names always give the same % regardless of
+      order (sha256 of the sorted, normalized pair — no AI, no randomness).
+      `NameCompatUser`/`NameCompatResult` in `prisma/schema.prisma`,
+      `src/lib/nameCompatBotLogic.ts`. History button ("📜 آخر نتائجي"),
+      admin stats/lookup/ban/required-channel/broadcast panel for
+      `SUPER_ADMIN_TELEGRAM_ID`. Each calculation earns 1 point on the
+      item-1 `PlatformPoints` ledger. No `liveBots.ts` card added — no
+      owner-run instance exists yet.
+      ⚠️ Owner needs to run `prisma/migration_35_name_compat_bot.sql` in
+      Supabase's SQL Editor, and set `NAME_COMPAT_BOT_CREATOR_PASSWORD` in
+      Vercel env vars before deploying an instance.
 - **2. Anonymous confessions/questions box bot** (shipped 2026-09-24) — new
       `CONFESSION_BOT` template, wired as a sibling branch in
       `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
