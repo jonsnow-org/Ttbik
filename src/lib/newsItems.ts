@@ -13,6 +13,30 @@ export type NewsItem = {
 /** Authored news only. Newest first. Ticker RSS stays out. */
 export const NEWS_ITEMS: NewsItem[] = [
   {
+    slug: "european-day-of-languages-coverage-2026",
+    title: "اليوم الأوروبي للغات 2026: ماذا تعني المناسبة للقارئ العربي؟",
+    dateIso: "2026-09-26",
+    dateLabel: "26 سبتمبر 2026",
+    description:
+      "تغطية تعريفية بمناسبة 26 سبتمبر من مصادر رسمية أوروبية ومرجع عربي، دون خلط بالسياسة المحلية.",
+    paragraphs: [
+      "في 26 سبتمبر من كل عام يُحتفل باليوم الأوروبي للغات، مبادرة مشتركة بين مجلس أوروبا والاتحاد الأوروبي انطلقت بعد إعلان 2001. الهدف التوعوي: تشجيع تعلم اللغات وإبراز التنوع اللغوي — وليست عطلة رسمية ملزمة.",
+      "مواد المفوضية الأوروبية تشير إلى 24 لغة رسمية للاتحاد، وإلى فعاليات تعليمية وثقافية تنظمها مدارس ومعاهد. ويكيبيديا العربية تلخص الأهداف ذاتها: التعدد اللغوي والتواصل بين الثقافات.",
+      "للقارئ العربي: المناسبة فرصة لفهم كيف تتعامل مؤسسات كبيرة مع تعدد اللغات في الواجهات والخدمات. لا ننسب تصريحات لحكومات عربية غير واردة في المصادر أدناه.",
+      "هذا ملخص تعريفي بمصادر قابلة للفتح؛ للاطلاع على التفاصيل راجع الروابط الأصلية.",
+    ],
+    sources: [
+      {
+        href: "https://translation.ec.europa.eu/get-involved-european-language-activities-and-initiatives/26-september-european-day-languages_en",
+        label: "المفوضية الأوروبية — European Day of Languages",
+      },
+      {
+        href: "https://ar.wikipedia.org/wiki/%D8%A7%D9%84%D9%8A%D9%88%D9%85_%D8%A7%D9%84%D8%A3%D9%88%D8%B1%D9%88%D8%A8%D9%8A_%D9%84%D9%84%D8%BA%D8%A7%D8%AA",
+        label: "ويكيبيديا العربية — اليوم الأوروبي للغات",
+      },
+    ],
+  },
+  {
     slug: "trump-xi-summit-washington-2026",
     title: "القمة المقبلة بين ترمب وشي في واشنطن: اللقاء مقرر الخميس",
     dateIso: "2026-09-24",
@@ -55,22 +79,14 @@ export type NewsSitemapEntry = {
 };
 
 /** Authored URLs only, last 48 hours from dateIso (UTC midnight of that date). */
-export function newsSitemapEntries(now = new Date()): NewsSitemapEntry[] {
-  const extra: NewsSitemapEntry[] = [
-    {
-      path: "/events/autumn-equinox-2026",
-      title: "ما الذي نعرفه عن الاعتدال الخريفي 2026؟",
-      dateIso: "2026-09-24",
-    },
-  ];
-  const fromNews: NewsSitemapEntry[] = NEWS_ITEMS.map((n) => ({
+export function newsSitemapEntries(nowMs = Date.now()): NewsSitemapEntry[] {
+  return NEWS_ITEMS.filter((n) => {
+    const t = Date.parse(n.dateIso + "T00:00:00Z");
+    if (Number.isNaN(t)) return false;
+    return nowMs - t <= MS_48H && nowMs >= t - 12 * 3600_000;
+  }).map((n) => ({
     path: `/news/${n.slug}`,
     title: n.title,
     dateIso: n.dateIso,
   }));
-  return [...fromNews, ...extra].filter((e) => {
-    const published = Date.parse(`${e.dateIso}T00:00:00Z`);
-    if (Number.isNaN(published)) return false;
-    return now.getTime() - published <= MS_48H && now.getTime() >= published - 12 * 60 * 60 * 1000;
-  });
 }
