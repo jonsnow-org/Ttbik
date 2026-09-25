@@ -42,6 +42,13 @@ const TERMS = [
   "الحاسبة لا تستهلك رمز الطلب. طلب معتمد واحد = بوت واحد على /bots.",
 ];
 
+const ESTIMATE_ITEMS = [
+  "متوسط مشاهدات المنشور × عدد المنشورات في الشهر",
+  "نسبة بيع المساحات الإعلانية التي تدخلها أنت",
+  "CPM لكل ألف مشاهدة من تقديرك أو عروضك",
+  "الشهور المتبقية للهدف والفجوة — تخطيط فقط وليست رصيداً",
+];
+
 const FAQ = [
   {
     q: "هل الرقم الظاهر ربح مضمون؟",
@@ -121,12 +128,28 @@ const WEBPAGE_JSON_LD = {
     "تقدير تقريبي للأرباح حسب المشاهدات وCPM. ليست وعداً بربح ولا سحب نقدي. لا يستهلك رمز الطلب.",
 };
 
+const APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "حاسبة أرباح قناة أو بوت تليجرام",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  url: `${SITE}${PATH}`,
+  description:
+    "تقدير تخطيطي حسب المشاهدات وCPM. ليست وعداً بربح ولا سحب نقدي ولا رصيداً.",
+};
+
 export default function EarningsCalculatorPage() {
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(APP_JSON_LD) }}
       />
       <script
         type="application/ld+json"
@@ -172,6 +195,12 @@ export default function EarningsCalculatorPage() {
         <p className="mb-4 text-xs leading-6 text-slate-500">
           الأرقام تقريبية للتخطيط وليست وعداً بربح. لا سحب نقدي من هذه الصفحة.
         </p>
+        <h2 className="mb-3 text-lg font-extrabold text-slate-900">ماذا يحسب التقدير</h2>
+        <ul className="mb-8 list-disc space-y-1 pr-5 text-sm leading-6 text-slate-600">
+          {ESTIMATE_ITEMS.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تستخدم الحاسبة</h2>
         <ol className="mb-8 list-decimal space-y-2 pr-5 text-sm leading-6 text-slate-600">
           {STEPS.map((s) => (
