@@ -43,6 +43,13 @@ const TERMS = [
   "لا يوجد سحب نقدي عبر سوق تولز. النقاط داخل البوت فقط.",
 ];
 
+const INCLUDES = [
+  "تشغيل القالب على توكن BotFather الذي تلصقه أنت",
+  "بوت واحد لكل رمز طلب معتمد — بلا إعادة استخدام الرمز",
+  "نقاط داخل البوت فقط — بلا سحب نقدي من سوق تولز",
+  "ليس ملف كود وليس تحميل مصدر",
+];
+
 const FAQ = [
   {
     q: "هل أحصل على كود مصدري للبوت؟",
@@ -141,11 +148,23 @@ const WEBPAGE_JSON_LD = {
     "تفعيل بوت على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
 };
 
+const APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "تفعيل بوت تليجرام — سوق تولز",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Telegram",
+  url: `${SITE}${PATH}`,
+  description:
+    "بوت يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
+};
+
 export default function BotsDeployPage() {
   const isOwner = isOwnerServer();
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(APP_JSON_LD) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(LIVE_BOTS_JSON_LD) }} />
       <script
         type="application/ld+json"
@@ -184,6 +203,16 @@ export default function BotsDeployPage() {
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
       />
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-includes">
+        <h2 id="bots-includes" className="mb-2 text-sm font-extrabold text-slate-900">
+          ما يشمله التفعيل
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {INCLUDES.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="live-bots">
         <h2 id="live-bots" className="mb-2 text-sm font-extrabold text-slate-900">
           بوتات عاملة يمكنك تجربها الآن على تليجرام
