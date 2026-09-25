@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     "تفعيل بوت تليجرام",
     "بوت مستضاف",
     "سوق تولز",
+    "توكن BotFather",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -43,6 +44,12 @@ const TERMS = [
   "لا يوجد سحب نقدي عبر سوق تولز. النقاط داخل البوت فقط.",
 ];
 
+const PREP = [
+  "أنشئ بوتاً من @BotFather وانسخ التوكن فقط — لا تلصقه في محادثة عامة.",
+  "اختياري: افحص التوكن من فاحص الصحة قبل التفعيل.",
+  "رمز طلب معتمد واحد لكل بوت. المالك يتجاوز للاختبار فقط.",
+];
+
 const INCLUDES = [
   "تشغيل القالب على توكن BotFather الذي تلصقه أنت",
   "بوت واحد لكل رمز طلب معتمد — بلا إعادة استخدام الرمز",
@@ -66,6 +73,10 @@ const FAQ = [
   {
     q: "كيف أتأكد أن البوت يعمل؟",
     a: "استخدم فاحص صحة البوت للتوكن والويبهوك بلا حفظ التوكن.",
+  },
+  {
+    q: "هل أشارك توكن BotFather مع أحد؟",
+    a: "لا. التوكن مفتاح البوت. الصقه فقط في نموذج التفعيل أو فاحص الصحة على هذا الموقع.",
   },
 ];
 
@@ -198,6 +209,22 @@ export default function BotsDeployPage() {
             <li key={t}>{t}</li>
           ))}
         </ul>
+      </aside>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="bots-prep">
+        <h2 id="bots-prep" className="mb-2 text-sm font-extrabold text-slate-900">
+          قبل لصق التوكن
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {PREP.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-slate-500">
+          <Link href="/bots/health-check" className="font-bold text-indigo-800 hover:underline">
+            فاحص صحة البوت ←
+          </Link>{" "}
+          بلا حفظ التوكن.
+        </p>
       </aside>
       <BotsDeployForm
         isOwner={isOwner}
