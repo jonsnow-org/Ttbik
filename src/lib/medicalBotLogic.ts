@@ -1328,6 +1328,8 @@ async function handleAdminMessage(bot: TelegramBot, botRow: BotRow, chatId: numb
     );
     return;
   }
+  // anything else the owner sends used to get no reply at all
+  await bot.api.sendMessage(chatId, "🛠 اختر من لوحة التحكم بالأسفل.", { reply_markup: adminMenu() });
 }
 
 // ---------------------------------------------------------------------

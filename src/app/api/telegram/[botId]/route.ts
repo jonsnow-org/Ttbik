@@ -72,6 +72,10 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         /* best-effort */
       }
     }
-    return NextResponse.json({ error: "Internal Error" }, { status: 500 });
+    // 200, not 500: Telegram redelivers any update answered with an error status,
+    // repeatedly, so a handler that failed halfway (credits added, message sent,
+    // then a throw) would run its side effects again on every retry. The owner is
+    // already notified above; the update is dropped once, on purpose.
+    return NextResponse.json({ status: "error" });
   }
 }

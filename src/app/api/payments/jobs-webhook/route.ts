@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
+import { creditOnce } from "@/lib/paymentCredit";
 
 // JOBS_BOT's own NOWPayments IPN consumer — a separate route from
 // /api/payments/webhook (AD_BOT) and /api/payments/marriage-webhook
@@ -29,22 +30,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad order_id" }, { status: 400 });
   }
 
-  try {
-    // Idempotency: txHash has a unique constraint, so a duplicate IPN retry
-    // fails this insert and we skip crediting twice.
-    await prisma.jobsTransaction.create({
+  // Idempotency + atomicity: see creditOnce (unique txHash, one DB transaction).
+  const result = await creditOnce(
+    "jobs-webhook",
+    (tx) => tx.jobsTransaction.create({
       data: { userId, amount, currency: "crypto", type: "DEPOSIT", status: "COMPLETED", txHash: externalId },
-    });
-  } catch {
-    return NextResponse.json({ ok: true }); // already credited
-  }
-
-  // JobsUser should already exist — this link is only ever sent by the
-  // bot itself to someone who already ran /start. Not silently swallowed:
-  // the JobsTransaction row above is recorded either way.
-  await prisma.jobsUser
-    .update({ where: { id: userId }, data: { balance: { increment: amount } } })
-    .catch((e) => console.error("[jobs-webhook] balance credit failed — JobsUser missing?", { userId, error: e }));
-
+    }),
+    (tx) => tx.jobsUser.update({ where: { id: userId }, data: { balance: { increment: amount } } }),
+  );
+  if (result === "retry") return NextResponse.json({ error: "retry" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
+import { creditOnce } from "@/lib/paymentCredit";
 
 export async function POST(req: NextRequest) {
   const secret = process.env.NOWPAYMENTS_IPN_SECRET || "";
@@ -25,21 +26,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "bad order_id" }, { status: 400 });
   }
 
-  try {
-    // Idempotency: txHash has a unique constraint, so a duplicate IPN retry
-    // fails this insert and we skip crediting twice.
-    await prisma.transaction.create({
+  // Idempotency + atomicity: see creditOnce (unique txHash, one DB transaction).
+  const result = await creditOnce(
+    "webhook",
+    (tx) => tx.transaction.create({
       data: { userId, amount, currency: "crypto", type: "DEPOSIT", status: "COMPLETED", txHash: externalId },
-    });
-  } catch {
-    return NextResponse.json({ ok: true }); // already credited
-  }
-
-  await prisma.user.upsert({
-    where: { id: userId },
-    update: { balance: { increment: amount } },
-    create: { id: userId, botId: "", role: "USER", balance: amount },
-  });
-
+    }),
+    (tx) => tx.user.upsert({ where: { id: userId }, update: { balance: { increment: amount } }, create: { id: userId, botId: "", role: "USER", balance: amount } }),
+  );
+  if (result === "retry") return NextResponse.json({ error: "retry" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

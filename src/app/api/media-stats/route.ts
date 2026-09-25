@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mediaUser } from "@/lib/mediaSocial";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,13 @@ async function sb() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-/** POST — record mini-app open (per user) */
+/** POST — record mini-app open (per user, identity from Telegram-signed init_data) */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const id = String(body.user_id || "").trim();
-  const name = String(body.name || "مستخدم").slice(0, 40);
-  if (!id) return NextResponse.json({ error: "user_id required" }, { status: 400 });
+  const me = mediaUser(String(body.init_data || ""));
+  if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const id = me.id;
+  const name = me.name;
 
   const now = Math.floor(Date.now() / 1000);
   g.__maUsers!.set(id, { id, name, at: now });

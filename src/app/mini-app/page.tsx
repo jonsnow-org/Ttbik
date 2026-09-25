@@ -259,7 +259,7 @@ export default function MiniAppPage() {
       if (u?.username) setUsername(u.username);
       if (u?.id) setUserId(String(u.id));
       if (u?.photo_url) setPhotoUrl(u.photo_url);
-      try { if (u?.id) void fetch("/api/media-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: String(u.id), name: u.first_name || "" }) }); } catch {}
+      try { if (u?.id) void fetch("/api/media-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }); } catch {}
     }
     setLiked(loadJSON(LS.liked, {}));
     seenRef.current = new Set(loadJSON<string[]>(LS.seen, []));
@@ -480,7 +480,7 @@ export default function MiniAppPage() {
   const loadNotifs = useCallback(async () => {
     if (!userId) return;
     try {
-      const r = await fetch(`/api/media-notifications?user_id=${encodeURIComponent(userId)}`, { cache: "no-store" });
+      const r = await fetch(`/api/media-notifications?init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" });
       const j = await r.json();
       if (Array.isArray(j.notifications)) setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read, postId: n.postId })));
     } catch {}
@@ -678,7 +678,7 @@ export default function MiniAppPage() {
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
     fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like", init_data: tgInitData() }) }).catch(() => {});
     if (!was && item.sharer_id && item.sharer_id !== userId) {
-      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to_id: item.sharer_id, from_id: userId || "0", from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
+      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), to_id: item.sharer_id, from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
   };
   // A view counts once someone has actually watched ≥3 seconds (autoplay
@@ -815,7 +815,7 @@ export default function MiniAppPage() {
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-lg font-black text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => { haptic(); void load(); }} title="تحديث" className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
-            <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_id: userId }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
+            <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
             <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab("me"); }} className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{photoUrl ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>

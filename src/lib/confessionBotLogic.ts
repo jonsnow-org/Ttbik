@@ -206,6 +206,8 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
     await bot.api.sendMessage(chatId, `✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:\n\n${BROADCAST_COMPOSE_HINT}`);
     return true;
   }
+  // anything else the owner sends used to get no reply at all
+  await bot.api.sendMessage(chatId, "🛠 اختر من لوحة التحكم بالأسفل.", { reply_markup: adminMenu() });
   return true; // super admin's own chat never falls through to the regular flow below
 }
 

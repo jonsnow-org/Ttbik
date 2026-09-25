@@ -1,32 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
+import { mediaDb, mediaUser } from "@/lib/mediaSocial";
+import { isRateLimited } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
-// Real, server-side, cross-device notification delivery. The mini-app's
-// follow button used to write "X started following you" only into the
-// CURRENT browser's own localStorage -- which could never reach the
-// person who was actually followed, on any device, ever. This is the
-// actual delivery path that was missing.
+// Real, server-side, cross-device notification delivery for the media mini-app.
+// Who the caller is always comes from Telegram-signed init_data (mediaUser),
+// never from a client-sent user_id/from_id: those let anyone read anyone's
+// notifications, mark them read, or send notifications in someone else's name.
 
-async function client() {
-  const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-  if (!url || !key) return null;
-  const { createClient } = await import("@supabase/supabase-js");
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
+const TYPES = new Set(["like", "follow", "comment", "reply"]);
 
 export async function GET(req: NextRequest) {
-  const userId = (req.nextUrl.searchParams.get("user_id") || "").trim();
-  if (!userId) return NextResponse.json({ notifications: [] });
+  const me = mediaUser(req.nextUrl.searchParams.get("init_data") || "");
+  if (!me) return NextResponse.json({ notifications: [] });
 
-  const db = await client();
+  const db = await mediaDb();
   if (!db) return NextResponse.json({ notifications: [] });
 
   const { data } = await db
     .from("media_notifications")
     .select("id,from_id,from_name,type,read,created_at,post_id")
-    .eq("to_id", userId)
+    .eq("to_id", me.id)
     .order("created_at", { ascending: false })
     .limit(50);
 
@@ -45,20 +40,25 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
+  const me = mediaUser(String(body.init_data || ""));
+  if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const toId = String(body.to_id || "").trim();
-  const fromId = String(body.from_id || "").trim();
-  if (!toId || !fromId || toId === fromId) {
+  const type = String(body.type || "");
+  if (!/^\d{1,20}$/.test(toId) || toId === me.id || !TYPES.has(type)) {
     return NextResponse.json({ error: "invalid" }, { status: 400 });
   }
+  if (isRateLimited(`media-notif:${me.id}`, 60, 10 * 60_000)) {
+    return NextResponse.json({ ok: true }); // silently drop spam bursts
+  }
 
-  const db = await client();
+  const db = await mediaDb();
   if (db) {
     await db.from("media_notifications").insert({
       to_id: toId,
-      from_id: fromId,
-      from_name: String(body.from_name || "مستخدم").slice(0, 40),
-      type: String(body.type || "follow"),
-      post_id: body.post_id ? String(body.post_id) : null,
+      from_id: me.id,
+      from_name: String(body.from_name || me.name).slice(0, 40),
+      type,
+      post_id: body.post_id ? String(body.post_id).slice(0, 64) : null,
     });
   }
   return NextResponse.json({ ok: true });
@@ -66,12 +66,12 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const userId = String(body.user_id || "").trim();
-  if (!userId) return NextResponse.json({ error: "user_id required" }, { status: 400 });
+  const me = mediaUser(String(body.init_data || ""));
+  if (!me) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const db = await client();
+  const db = await mediaDb();
   if (db) {
-    await db.from("media_notifications").update({ read: true }).eq("to_id", userId);
+    await db.from("media_notifications").update({ read: true }).eq("to_id", me.id);
   }
   return NextResponse.json({ ok: true });
 }

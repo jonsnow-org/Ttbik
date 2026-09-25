@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
+import { creditOnce } from "@/lib/paymentCredit";
 
 // NOVA_BOT's own NOWPayments IPN consumer — automates what was previously
 // a manual-only flow (owner flipping NovaSubscription.status via the
@@ -48,31 +49,24 @@ export async function POST(req: NextRequest) {
   const now = new Date();
   const expiresAt = new Date(now.getTime() + THIRTY_DAYS_MS);
 
-  try {
-    // Idempotency: paymentId as the subscription row's own id — a
-    // duplicate IPN retry fails this insert (unique PK) and we skip
-    // activating twice, same pattern as every other webhook here (which
-    // use a unique txHash instead, since their tables are wallet ledgers
-    // rather than subscription records).
-    await prisma.novaSubscription.create({
-      data: {
-        id: paymentId,
-        novaUserId,
-        plan: resolvedPlan,
-        amountUsd: amount || 0,
-        status: "ACTIVE",
-        approvedBy: "NOWPAYMENTS_AUTO",
-        startedAt: now,
-        expiresAt,
-      },
-    });
-  } catch {
-    return NextResponse.json({ ok: true }); // already activated
-  }
-
-  await prisma.novaUser
-    .update({ where: { id: novaUserId }, data: { plan: resolvedPlan, subscriptionExpiresAt: expiresAt } })
-    .catch((e) => console.error("[nova-webhook] plan activation failed — NovaUser missing?", { novaUserId, error: e }));
-
+  // Idempotency + atomicity: paymentId is the subscription row's own id (unique PK).
+  const result = await creditOnce(
+    "nova-webhook",
+    (tx) =>
+      tx.novaSubscription.create({
+        data: {
+          id: paymentId,
+          novaUserId,
+          plan: resolvedPlan,
+          amountUsd: amount || 0,
+          status: "ACTIVE",
+          approvedBy: "NOWPAYMENTS_AUTO",
+          startedAt: now,
+          expiresAt,
+        },
+      }),
+    (tx) => tx.novaUser.update({ where: { id: novaUserId }, data: { plan: resolvedPlan, subscriptionExpiresAt: expiresAt } }),
+  );
+  if (result === "retry") return NextResponse.json({ error: "retry" }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

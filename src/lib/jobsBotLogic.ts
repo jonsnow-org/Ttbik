@@ -1523,6 +1523,8 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       await bot.api.sendMessage(chatId, `✍️ اكتب رسالة البث الجماعي — ستُرسل لجميع مستخدمي البوت:\n\n${BROADCAST_COMPOSE_HINT}`);
       return;
     }
+    // anything else the owner sends (typo, sticker, stale button) used to get no reply at all
+    await bot.api.sendMessage(chatId, "🛠 اختر من لوحة التحكم بالأسفل.", { reply_markup: adminMenu() });
     return;
   }
 
