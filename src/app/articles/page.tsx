@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
@@ -10,14 +9,14 @@ const SITE = SITE_URL;
 const PATH = "/articles";
 
 export const metadata: Metadata = {
-  title: "مقالات هادفة | سوق تولز",
+  title: "مقالات مفيدة | سوق تولز",
   description:
-    "مقالات عربية قصيرة تقدّم فائدة حقيقية: التحقق من الأخبار، الثقافة المالية، ووعي الإعلام — دون حشو.",
-  keywords: ["مقالات عربية", "التحقق من الأخبار", "ثقافة مالية", "سوق تولز"],
+    "مقالات عربية هادفة: محو أمية رقمية، ثقافة مالية، أمن حسابات، ومهارات عملية — قيمة حقيقية بلا حشو.",
+  keywords: ["مقالات عربية", "محو الأمية الرقمية", "أمن رقمي", "سوق تولز"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "مقالات هادفة | سوق تولز",
-    description: "محتوى يقدّم قيمة للقارئ: وضوح، خطوات عملية، وخلاصات.",
+    title: "مقالات مفيدة | سوق تولز",
+    description: "مقالات تقدّم فائدة حقيقية للقارئ.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
@@ -25,58 +24,42 @@ export const metadata: Metadata = {
   },
 };
 
-const BREADCRUMB = {
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, name: "الرئيسة", item: SITE },
-    { "@type": "ListItem", position: 2, name: "مقالات", item: `${SITE}${PATH}` },
-  ],
-};
-
-export default function ArticlesIndexPage() {
+export default function ArticlesHubPage() {
   return (
-    <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB) }} />
-      <main className="mx-auto max-w-2xl px-4 py-8" dir="rtl" lang="ar">
-        <EditorialHero
-          crumbs={[{ href: "/", label: "الرئيسة" }, { label: "مقالات" }]}
-          title="مقالات هادفة"
-          subtitle="نصوص مستقلة تركّز على الفائدة العملية والوضوح. ليست إعادة نشر لوكالات، وليست حشواً لتحسين محركات البحث فقط."
-          links={[
-            { href: "/news", label: "الأخبار" },
-            { href: "/events", label: "الأحداث" },
-            { href: "/editorial-policy", label: "سياسة التحرير" },
-          ]}
-        />
+    <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHero
+        crumbs={[{ href: "/", label: "الرئيسة" }, { label: "مقالات" }]}
+        title="مقالات مفيدة"
+        subtitle="محتوى يشرح مهارة أو مفهوماً بخطوات واضحة وخلاصة سريعة. لا حشو، ولا وعود كاذبة."
+        links={[
+          { href: "/digest", label: "ملخص اليوم" },
+          { href: "/news", label: "الأخبار" },
+          { href: "/events", label: "الأحداث" },
+        ]}
+      />
 
-        <ul className="mb-8 space-y-4">
-          {ARTICLE_ITEMS.map((a) => (
-            <ContentCard
-              key={a.slug}
-              href={`/articles/${a.slug}`}
-              title={a.title}
-              blurb={a.description}
-              dateLabel={a.dateLabel}
-              badge={a.category}
-              meta={`${a.readMinutes} د قراءة`}
-              variant="article"
-            />
-          ))}
-        </ul>
+      <div className="mb-6">
+        <AdSlot position="in-content" label="أعلى المقالات" />
+      </div>
 
-        <AdSlot position="in-content" label="أسفل قائمة المقالات" />
+      <ul className="space-y-4">
+        {ARTICLE_ITEMS.map((a) => (
+          <ContentCard
+            key={a.slug}
+            href={`/articles/${a.slug}`}
+            title={a.title}
+            blurb={a.description}
+            dateLabel={a.dateLabel}
+            meta={`${a.readMinutes} د`}
+            badge={a.category}
+            badgeTone="emerald"
+          />
+        ))}
+      </ul>
 
-        <p className="mt-8 text-center text-sm text-slate-500">
-          <Link href="/news" className="font-bold text-sky-800 hover:underline">
-            مركز الأخبار
-          </Link>
-          {" · "}
-          <Link href="/events" className="font-bold text-sky-800 hover:underline">
-            الأحداث
-          </Link>
-        </p>
-      </main>
-    </>
+      <div className="mt-8">
+        <AdSlot position="footer" label="أسفل المقالات" />
+      </div>
+    </main>
   );
 }

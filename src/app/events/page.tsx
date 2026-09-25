@@ -10,14 +10,14 @@ const SITE = SITE_URL;
 const PATH = "/events";
 
 export const metadata: Metadata = {
-  title: "أحداث اليوم والعالم | سوق تولز",
+  title: "أحداث عالمية | سوق تولز",
   description:
-    "حدث يومي ومقالات قصيرة عن مناسبات عالمية وفلكية — بصياغة مستقلة وروابط للمصادر، دون نسخ الوكالات.",
+    "حدث عالمي كل يوم: مناسبات فلكية وثقافية موثّقة بمصادر، مع أسئلة شائعة وملخص واضح بالعربية.",
   keywords: ["أحداث عالمية", "حدث اليوم", "سوق تولز", "مناسبات"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أحداث اليوم والعالم | سوق تولز",
-    description: "حدث يومي وشروحات قصيرة موثقة.",
+    title: "أحداث عالمية | سوق تولز",
+    description: "حدث عالمي موثّق كل يوم.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
@@ -25,61 +25,60 @@ export const metadata: Metadata = {
   },
 };
 
-const BREADCRUMB = {
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  itemListElement: [
-    { "@type": "ListItem", position: 1, name: "الرئيسة", item: SITE },
-    { "@type": "ListItem", position: 2, name: "أحداث", item: `${SITE}${PATH}` },
-  ],
-};
-
-export default function EventsIndexPage() {
+export default function EventsHubPage() {
+  const featured = EVENT_ITEMS[0];
   return (
-    <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB) }} />
-      <main className="mx-auto max-w-2xl px-4 py-8" dir="rtl" lang="ar">
-        <EditorialHero
-          crumbs={[{ href: "/", label: "الرئيسة" }, { label: "أحداث" }]}
-          title="أحداث ومناسبات"
-          subtitle="كل يوم نسلّط الضوء على مناسبة أو حدث يمكن شرحه بوضوح للقارئ العربي — مع مصادر عند الحاجة ودون مبالغة."
-          links={[
-            { href: "/news", label: "الأخبار العاجلة" },
-            { href: "/articles", label: "مقالات هادفة" },
-            { href: "/editorial-policy", label: "سياسة التحرير" },
-          ]}
-        />
+    <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHero
+        crumbs={[{ href: "/", label: "الرئيسة" }, { label: "أحداث" }]}
+        title="أحداث عالمية"
+        subtitle="كل يوم حدث موثّق: مناسبة عالمية أو فلكية أو ثقافية، بملخص عربي ومصادر وأسئلة شائعة — لا إشاعات."
+        links={[
+          { href: "/digest", label: "ملخص اليوم" },
+          { href: "/news", label: "الأخبار" },
+          { href: "/articles", label: "مقالات" },
+        ]}
+      />
 
-        <ul className="mb-8 space-y-4">
-          {EVENT_ITEMS.map((it) => (
-            <ContentCard
-              key={it.slug}
-              href={`/events/${it.slug}`}
-              title={it.title}
-              blurb={it.blurb}
-              dateLabel={it.dateLabel}
-              badge={it.badge || "حدث"}
-              variant="event"
-            />
-          ))}
-        </ul>
+      {featured && (
+        <section className="mb-8 overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-l from-indigo-50 via-white to-sky-50 shadow-sm">
+          <div className="p-5 sm:p-6">
+            <p className="text-[11px] font-black tracking-wide text-indigo-600">حدث اليوم</p>
+            <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
+              <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">{featured.title}</Link>
+            </h2>
+            <p className="mt-2 text-sm leading-7 text-slate-600">{featured.blurb}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href={`/events/${featured.slug}`} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-sky-600">
+                اقرأ التغطية كاملة
+              </Link>
+              <span className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-100">{featured.dateLabel}</span>
+            </div>
+          </div>
+        </section>
+      )}
 
-        <AdSlot position="in-content" label="أسفل قائمة الأحداث" />
+      <div className="mb-6">
+        <AdSlot position="in-content" label="أعلى قائمة الأحداث" />
+      </div>
 
-        <p className="mt-8 text-center text-sm text-slate-500">
-          <Link href="/news" className="font-bold text-indigo-800 hover:underline">
-            مركز الأخبار
-          </Link>
-          {" · "}
-          <Link href="/articles" className="font-bold text-indigo-800 hover:underline">
-            المقالات
-          </Link>
-          {" · "}
-          <Link href="/prayer-times" className="font-bold text-indigo-800 hover:underline">
-            مواقيت الصلاة
-          </Link>
-        </p>
-      </main>
-    </>
+      <ul className="space-y-4">
+        {EVENT_ITEMS.map((e) => (
+          <ContentCard
+            key={e.slug}
+            href={`/events/${e.slug}`}
+            title={e.title}
+            blurb={e.blurb}
+            dateLabel={e.dateLabel}
+            badge={e.category || "حدث"}
+            badgeTone="indigo"
+          />
+        ))}
+      </ul>
+
+      <div className="mt-8">
+        <AdSlot position="footer" label="أسفل الأحداث" />
+      </div>
+    </main>
   );
 }
