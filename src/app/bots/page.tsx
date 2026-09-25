@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE}${PATH}` },
 };
 
+const TERMS = [
+  "المنتج بوت يعمل على توكنك — ليس ملف كود للتحميل.",
+  "طلب معتمد واحد = بوت واحد. لا يُعاد استخدام رمز الطلب.",
+  "لا يوجد سحب نقدي عبر سوق تولز. النقاط داخل البوت فقط.",
+];
+
 const FAQ = [
   {
     q: "هل أحصل على كود مصدري للبوت؟",
@@ -104,10 +110,21 @@ const BREADCRUMB_JSON_LD = {
   ],
 };
 
+const WEBPAGE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: "تفعيل بوت تليجرام — سوق تولز",
+  url: `${SITE}${PATH}`,
+  inLanguage: "ar",
+  description:
+    "تفعيل بوت على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
+};
+
 export default function BotsDeployPage() {
   const isOwner = isOwnerServer();
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(LIVE_BOTS_JSON_LD) }} />
       <script
         type="application/ld+json"
@@ -132,6 +149,16 @@ export default function BotsDeployPage() {
           <li className="font-semibold text-slate-800">البوتات</li>
         </ol>
       </nav>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="bots-terms">
+        <h2 id="bots-terms" className="mb-2 text-sm font-extrabold text-slate-900">
+          شروط المنتج
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {TERMS.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <BotsDeployForm
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
