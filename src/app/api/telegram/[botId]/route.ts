@@ -11,6 +11,16 @@ import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 
 export const maxDuration = 60;
 
+// The SQL file (in prisma/) that creates each owner-only template's tables.
+const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
+  MARRIAGE_BOT: "migration_7_marriage_bot.sql",
+  JOBS_BOT: "migration_16_jobs_bot.sql",
+  MEDICAL_BOT: "migration_18_medical_bot.sql",
+  NOVA_BOT: "migration_19_nova_ai.sql",
+  CONFESSION_BOT: "migration_34_confession_bot.sql",
+  NAME_COMPAT_BOT: "migration_35_name_compat_bot.sql",
+};
+
 export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
   let botRow: Awaited<ReturnType<typeof prisma.bot.findUnique>> = null;
   let rawBody: any = null;
@@ -62,7 +72,14 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
     if (superAdminId && botRow) {
       try {
         const notifyBot = new TelegramBot(botRow.token);
-        const message = error instanceof Error ? error.message : String(error);
+        // A template whose tables were never created in Supabase fails on
+        // every update — tell the owner which SQL file to run instead of a
+        // raw Prisma dump.
+        const missingTable = (error as { code?: string })?.code === "P2021";
+        const migration = MIGRATION_FOR_TEMPLATE[botRow.template];
+        const message = missingTable
+          ? `جداول هذا القالب غير موجودة في قاعدة البيانات بعد.\nشغّل الملف prisma/${migration || "migration_full_current_schema.sql"} مرة واحدة في Supabase ← SQL Editor ثم جرّب /start من جديد.`
+          : error instanceof Error ? error.message : String(error);
         const fromChat =
           rawBody?.message?.chat?.id ?? rawBody?.callback_query?.message?.chat?.id ?? "?";
         await notifyBot.api
