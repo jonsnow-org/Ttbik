@@ -94,6 +94,22 @@ const BREADCRUMB_JSON_LD = {
   ],
 };
 
+const TERMS = [
+  "الفحص جلسة واحدة — لا نحفظ التوكن ولا ننشئ بوتاً من هذه الصفحة.",
+  "لا سحب نقدي عبر سوق تولز. هذه أداة فحص فني فقط.",
+  "طلب معتمد واحد = بوت واحد على /bots. الفاحص لا يستهلك رمز الطلب.",
+];
+
+const WEBPAGE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: "فاحص صحة بوت تليجرام — سوق تولز",
+  url: `${SITE}${PATH}`,
+  inLanguage: "ar",
+  description:
+    "فحص توكن وويبهوك بدون حفظ التوكن. لا سحب نقدي ولا استهلاك لرمز الطلب.",
+};
+
 const HOWTO_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "HowTo",
@@ -123,6 +139,10 @@ export default function BotHealthCheckPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(HOWTO_JSON_LD) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }}
+      />
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
@@ -140,6 +160,16 @@ export default function BotHealthCheckPage() {
           <li className="font-semibold text-slate-800">فاحص صحة البوت</li>
         </ol>
       </nav>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="hc-terms">
+        <h2 id="hc-terms" className="mb-2 text-sm font-extrabold text-slate-900">
+          شروط الفحص
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {TERMS.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <HealthCheckForm />
       <section className="relative mx-auto max-w-lg px-4 pb-10">
         <h2 className="mb-3 text-lg font-extrabold text-slate-900">كيف تفحص البوت</h2>

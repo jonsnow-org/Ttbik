@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE}${PATH}` },
 };
 
+const TERMS = [
+  "المنتج بوت يعمل على توكنك — ليس ملف كود للتحميل.",
+  "طلب معتمد واحد = بوت واحد. لا يُعاد استخدام رمز الطلب.",
+  "لا يوجد سحب نقدي عبر سوق تولز. النقاط داخل البوت فقط.",
+];
+
 const FAQ = [
   {
     q: "هل أحصل على كود مصدري للبوت؟",
@@ -75,19 +81,24 @@ const HOWTO_JSON_LD = {
   })),
 };
 
-// SoftwareApplication structured data for the real, live bot template
-// itself (not just the deploy-your-own-instance page) -- owner directive
-// 2026-09-16: help the bots surface as real, indexable entities in search
-// results, not only this page's own text.
-const SOFTWARE_JSON_LD = LIVE_BOTS[0] && {
+const LIVE_BOTS_JSON_LD = {
   "@context": "https://schema.org",
-  "@type": "SoftwareApplication",
-  name: LIVE_BOTS[0].title,
-  applicationCategory: "BusinessApplication",
-  operatingSystem: "Telegram",
-  description: LIVE_BOTS[0].desc,
-  url: LIVE_BOTS[0].href,
-  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  "@type": "ItemList",
+  name: "بوتات سوق تولز العاملة على تليجرام",
+  numberOfItems: LIVE_BOTS.length,
+  itemListElement: LIVE_BOTS.map((bot, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    item: {
+      "@type": "SoftwareApplication",
+      name: bot.title,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Telegram",
+      description: bot.desc,
+      url: bot.href,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    },
+  })),
 };
 
 const BREADCRUMB_JSON_LD = {
@@ -99,13 +110,22 @@ const BREADCRUMB_JSON_LD = {
   ],
 };
 
+const WEBPAGE_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  name: "تفعيل بوت تليجرام — سوق تولز",
+  url: `${SITE}${PATH}`,
+  inLanguage: "ar",
+  description:
+    "تفعيل بوت على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
+};
+
 export default function BotsDeployPage() {
   const isOwner = isOwnerServer();
   return (
     <>
-      {SOFTWARE_JSON_LD && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(SOFTWARE_JSON_LD) }} />
-      )}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(LIVE_BOTS_JSON_LD) }} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }}
@@ -129,10 +149,44 @@ export default function BotsDeployPage() {
           <li className="font-semibold text-slate-800">البوتات</li>
         </ol>
       </nav>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="bots-terms">
+        <h2 id="bots-terms" className="mb-2 text-sm font-extrabold text-slate-900">
+          شروط المنتج
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {TERMS.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <BotsDeployForm
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
       />
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="live-bots">
+        <h2 id="live-bots" className="mb-2 text-sm font-extrabold text-slate-900">
+          بوتات عاملة يمكنك تجربها الآن على تليجرام
+        </h2>
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          روابط مباشرة إلى البوت على تليجرام — بلا معلمة إحالة. ليست كوداً للتحميل.
+        </p>
+        <ul className="space-y-2">
+          {LIVE_BOTS.map((bot) => (
+            <li key={bot.href} className="rounded-xl border border-slate-200 bg-white p-3">
+              <a
+                href={bot.href}
+                className="text-sm font-extrabold text-indigo-800 hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {bot.title} ←
+              </a>
+              <p className="mt-1 text-xs leading-5 text-slate-600">{bot.desc}</p>
+              <p className="mt-1 text-[11px] text-slate-400">t.me مباشر — بلا ?start= وبلا إحالة</p>
+            </li>
+          ))}
+        </ul>
+      </aside>
       <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-related">
         <h2 id="bots-related" className="mb-2 text-sm font-extrabold text-slate-900">
           أدوات بوت مجانية على الموقع
