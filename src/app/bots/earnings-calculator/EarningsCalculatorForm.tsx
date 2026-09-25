@@ -199,7 +199,7 @@ export default function EarningsCalculatorForm() {
             <li>تغطية الهدف الحالية: {result.targetProgressPct.toFixed(1)}%</li>
             <li>الفجوة مقابل الهدف: ${result.gapUsd.toFixed(2)}</li>
             <li>
-              {أشهر للوصول للهدف بنفس الوتيرة: }
+              {"أشهر للوصول للهدف بنفس الوتيرة: "}
               {result.monthsToTarget > 0 ? result.monthsToTarget : "—"}
             </li>
             {result.viewsExceedSubs ? <li className="text-amber-700">ملاحظة: المشاهدات أعلى من عدد المشتركين — راجع الأرقام.</li> : null}

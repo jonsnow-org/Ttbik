@@ -7,6 +7,10 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import {
+  TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
+  handleTenderCallback, tenderStatsLine, type TenderPending,
+} from "@/lib/jobsTenders";
 
 /**
  * JOBS_BOT template (owner spec, 2026-09-05) — فرص عمل + متجر بيع وشراء.
@@ -21,6 +25,7 @@ import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
  * - Two independent top-level sections, open to browse regardless of role:
  *   💼 العمل (نشر — role-gated to EMPLOYER/PROFESSIONAL; بحث — open to all)
  *   🛒 المتجر (بيع/شراء — role-gated to TRADER; بحث — open to all)
+ *   🏷 اطلب وهم يتنافسون (reverse auction — see src/lib/jobsTenders.ts)
  * - Search results: a 5-item summary list + "عرض التفاصيل" per row opens
  *   a full detail card (Telegram has no native multi-card-with-buttons
  *   layout — sendMediaGroup can't carry inline keyboards).
@@ -138,7 +143,8 @@ type PendingAction =
   | { mode: "admin_lookup" }
   | { mode: "admin_unban" }
   | { mode: "admin_channel" }
-  | { mode: "admin_reply"; targetUserId: string; messageId: string };
+  | { mode: "admin_reply"; targetUserId: string; messageId: string }
+  | TenderPending;
 
 // ---------------------------------------------------------------------
 // Menus
@@ -171,6 +177,7 @@ function contactMethodMenu(): Keyboard {
 function mainMenu(): Keyboard {
   const kb = new Keyboard()
     .text("💼 قسم العمل").text("🛒 قسم المتجر").row()
+    .text(TENDER_MENU_LABEL).row()
     .text("👤 ملفي الشخصي").text("💰 رصيدي وإيداع").row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb.text("ℹ️ معلومات").resized();
@@ -233,6 +240,9 @@ function adminMenu(): Keyboard {
 // and the second create() throws, crashing the webhook silently).
 async function ensureJobsUser(botId: string, tgUserId: string) {
   return prisma.jobsUser.upsert({ where: { id: tgUserId }, update: {}, create: { id: tgUserId, botId } });
+}
+function tenderCtx(bot: TelegramBot, chatId: number, userId: string) {
+  return { bot, chatId, userId, home: mainMenu(), categories: PROFESSIONAL_CATEGORIES };
 }
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.jobsUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
@@ -1355,7 +1365,8 @@ async function sendAdminStats(bot: TelegramBot, chatId: number) {
     `📊 إحصائيات بوت فرص العمل\n\n👥 إجمالي المستخدمين: ${totalUsers}\n` +
     `👷 باحثون: ${seekers} | 🏢 معلنو وظائف: ${employers} | 🔨 مهنيون: ${professionals} | 🛒 تجار: ${traders}\n\n` +
     `📢 وظائف شاغرة مفتوحة: ${openPostings}\n🛒 منتجات معروضة: ${activeListings}\n💰 طلبات محجوزة حالياً: ${escrowedOrders}\n\n` +
-    `⚠️ نزاعات مفتوحة: ${openDisputes}\n🚩 بلاغات معلّقة: ${pendingReports}\n📥 رسائل واردة غير مقروءة: ${pendingInbox}`;
+    `⚠️ نزاعات مفتوحة: ${openDisputes}\n🚩 بلاغات معلّقة: ${pendingReports}\n📥 رسائل واردة غير مقروءة: ${pendingInbox}` +
+    (await tenderStatsLine());
   await bot.api.sendMessage(chatId, text);
 }
 async function sendAdminInboxSummary(bot: TelegramBot, chatId: number) {
@@ -1746,6 +1757,9 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
 
+  if (isTenderPending(pending)) return handleTenderPending(tenderCtx(bot, chatId, tgUserId), profile!, pending, text);
+  if (isTenderMenuText(text)) return handleTenderMenu(tenderCtx(bot, chatId, tgUserId), profile!, text);
+
   if (text === "👤 ملفي الشخصي") {
     const kb = new InlineKeyboard().text("✏️ تعديل الملف الشخصي", "jeditprofile");
     if (profile!.roleType === "PROFESSIONAL") {
@@ -1779,7 +1793,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   if (text === "ℹ️ معلومات") {
     await bot.api.sendMessage(
       chatId,
-      "ℹ️ بوت فرص العمل والمتجر\n\nابحث عن وظيفة أو مهني، أنشر وظيفة شاغرة، أو بع/اشترِ في المتجر بأمان عبر نظام الحجز الآمن.\n💡 لاقتراح خاصية جديدة أو تعديل محدد، اضغط «اقتراح».\n🔗 لدعوة آخرين، اضغط «مشاركة الرابط».",
+      "ℹ️ بوت فرص العمل والمتجر\n\nابحث عن وظيفة أو مهني، أنشر وظيفة شاغرة، أو بع/اشترِ في المتجر بأمان عبر نظام الحجز الآمن.\n🏷 «اطلب وهم يتنافسون»: اكتب حاجتك مرة واحدة فتصلك عروض أسعار سرية من المهنيين والتجار، وتختار الأنسب.\n💡 لاقتراح خاصية جديدة أو تعديل محدد، اضغط «اقتراح».\n🔗 لدعوة آخرين، اضغط «مشاركة الرابط».",
       { reply_markup: infoMenu() }
     );
     return;
@@ -1973,7 +1987,16 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     return;
   }
 
-  await ensureJobsUser(botRow.id, tgUserId);
+  const cbUser = await ensureJobsUser(botRow.id, tgUserId);
+
+  if (data.startsWith("jtn_")) {
+    if (cbUser.isBanned) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    await handleTenderCallback(tenderCtx(bot, chatId, tgUserId), cq, cbUser.pendingAction);
+    return;
+  }
 
   if (data === "jeditprofile") {
     await startProfileWizard(bot, chatId, tgUserId);

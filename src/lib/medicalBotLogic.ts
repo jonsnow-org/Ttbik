@@ -2,6 +2,10 @@ import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
+import {
+  BLOOD_MENU_LABEL, isBloodMenuText, isBloodPending, handleBloodMenu, handleBloodPending,
+  handleBloodCallback, showSharedRequest, bloodStatsLine, type BloodPending,
+} from "@/lib/medBloodBank";
 
 /**
  * MEDICAL_BOT template (owner spec, 2026-09-04, refined over several
@@ -17,8 +21,9 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
  *   answers patient prescription questions). CLINIC/HOSPITAL/PHARMACY
  *   accounts are created only by redeeming a MedActivationCode minted by
  *   the SUPER_ADMIN inside the bot.
- * - No blood bank, no lab reports, no separate ambulance-dispatcher role —
- *   explicitly ruled out by the owner.
+ * - «نبض» blood bank (added 2026-09-25 at the owner's request — earlier
+ *   ruled out, now wanted): lives in src/lib/medBloodBank.ts. Still no lab
+ *   reports and no separate ambulance-dispatcher role.
  * - "Map" = Telegram's own native sendVenue message (a real interactive
  *   map bubble in-chat) — no Mini App, no external maps SDK.
  * - "طوارئ" = nearest-hospitals directory + a phone number to call
@@ -178,7 +183,8 @@ type PendingAction =
   | { mode: "booking_time"; doctorId: string; dayCode: DayCode }
   | { mode: "booking_confirm"; doctorId: string; appointmentAtIso: string }
   | { mode: "prescription_query"; facilityId: string }
-  | { mode: "prescription_reply"; queryId: string };
+  | { mode: "prescription_reply"; queryId: string }
+  | BloodPending;
 
 // ---------------------------------------------------------------------
 // Menus
@@ -228,7 +234,9 @@ function patientMainMenu(): Keyboard {
     .row()
     .text("👨‍⚕️ حجز موعد طبيب").text("🚨 طوارئ")
     .row()
-    .text("📅 حجوزاتي").text("ℹ️ معلومات")
+    .text("📅 حجوزاتي").text(BLOOD_MENU_LABEL)
+    .row()
+    .text("ℹ️ معلومات")
     .resized();
 }
 function clinicMainMenu(): Keyboard {
@@ -246,7 +254,7 @@ function hospitalMainMenu(): Keyboard {
     .row()
     .text("📞 تحديث الهاتف").text("📍 تحديث الموقع")
     .row()
-    .text("ℹ️ معلومات")
+    .text(BLOOD_MENU_LABEL).text("ℹ️ معلومات")
     .resized();
 }
 function pharmacyMainMenu(isDuty: boolean): Keyboard {
@@ -287,6 +295,9 @@ function roleFacilityLabel(role: FacilityType): string {
 // and the second create() throws, crashing the webhook silently).
 async function ensureMedUser(botId: string, tgUserId: string) {
   return prisma.medUser.upsert({ where: { id: tgUserId }, update: {}, create: { id: tgUserId, botId } });
+}
+function bloodCtx(bot: TelegramBot, chatId: number, userId: string, role: string) {
+  return { bot, chatId, userId, role, home: mainMenuFor(role as MedRoleStr) };
 }
 async function setPending(userId: string, action: PendingAction | null) {
   await prisma.medUser.update({ where: { id: userId }, data: { pendingAction: action as any } });
@@ -340,6 +351,10 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     // the user sends next.
     await setPending(tgUserId, null);
     await routeStart(bot, botRow, chatId, tgUserId, user);
+    const startArg = text.startsWith("/start ") ? text.slice(7).trim() : "";
+    if (startArg.startsWith("bld_")) {
+      await showSharedRequest(bloodCtx(bot, chatId, tgUserId, user.role), startArg.slice(4));
+    }
     return;
   }
 
@@ -359,6 +374,11 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     pending?.mode === "facility_edit_location"
   ) {
     await bot.api.sendMessage(chatId, "📍 يرجى الضغط على زر مشاركة الموقع أدناه.", { reply_markup: shareLocationMenu() });
+    return;
+  }
+
+  if (isBloodPending(pending)) {
+    await handleBloodPending(bloodCtx(bot, chatId, tgUserId, user.role), pending, text, msg.contact?.phone_number);
     return;
   }
 
@@ -706,9 +726,14 @@ async function routeMainMenuText(bot: TelegramBot, botRow: BotRow, chatId: numbe
     const me = await bot.api.getMe();
     await bot.api.sendMessage(
       chatId,
-      `🏥 المساعد الطبي\n\nدليل صيدليات مناوبة، مشافي وعيادات، وحجز مواعيد أطباء — بالإضافة لمراسلة الصيدلية مباشرة والسؤال عن روشتة.\n\n🔗 شارك البوت: https://t.me/${me.username}`,
+      `🏥 المساعد الطبي\n\nدليل صيدليات مناوبة، مشافي وعيادات، وحجز مواعيد أطباء — بالإضافة لمراسلة الصيدلية مباشرة والسؤال عن روشتة.\n🩸 «نبض»: انشر طلب دم عاجل فيصل فوراً لكل متبرع متوافق قريب، أو سجّل كمتبرع.\n\n🔗 شارك البوت: https://t.me/${me.username}`,
       { reply_markup: mainMenuFor(role) }
     );
+    return;
+  }
+
+  if (isBloodMenuText(text) && (role === "PATIENT" || role === "HOSPITAL")) {
+    await handleBloodMenu(bloodCtx(bot, chatId, tgUserId, role), text);
     return;
   }
 
@@ -1323,7 +1348,7 @@ async function handleAdminMessage(bot: TelegramBot, botRow: BotRow, chatId: numb
     ]);
     await bot.api.sendMessage(
       chatId,
-      `📊 إحصائيات المنصة:\n👤 مرضى: ${patients}\n🩺 عيادات: ${clinics}\n🏥 مشافي: ${hospitals}\n💊 صيدليات: ${pharmacies}\n📅 إجمالي الحجوزات: ${appts}`,
+      `📊 إحصائيات المنصة:\n👤 مرضى: ${patients}\n🩺 عيادات: ${clinics}\n🏥 مشافي: ${hospitals}\n💊 صيدليات: ${pharmacies}\n📅 إجمالي الحجوزات: ${appts}` + (await bloodStatsLine()),
       { reply_markup: adminMenu() }
     );
     return;
@@ -1340,6 +1365,16 @@ async function handleCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   const tgUserId = String(cq.from.id);
   const data = String(cq.data || "");
   if (!chatId) return;
+
+  if (data.startsWith("bld|")) {
+    const u = await ensureMedUser(botRow.id, tgUserId);
+    if (u.isBanned) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return;
+    }
+    await handleBloodCallback(bloodCtx(bot, chatId, tgUserId, u.role), cq, u.pendingAction);
+    return;
+  }
 
   if (data.startsWith("medrole|")) {
     const role = data.split("|")[1] as MedRoleStr;
