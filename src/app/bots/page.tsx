@@ -19,6 +19,7 @@ export const metadata: Metadata = {
     "بوت مستضاف",
     "سوق تولز",
     "توكن BotFather",
+    "بعد تفعيل البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -50,6 +51,12 @@ const PREP = [
   "رمز طلب معتمد واحد لكل بوت. المالك يتجاوز للاختبار فقط.",
 ];
 
+const AFTER = [
+  "افتح البوت في تليجرام وأرسل /start.",
+  "إن لم يرد: افحص الويبهوك من فاحص الصحة — الفحص لا يستهلك رمز الطلب.",
+  "لا تشارك التوكن ولا تعد استخدام رمز طلب لبوت ثانٍ.",
+];
+
 const INCLUDES = [
   "تشغيل القالب على توكن BotFather الذي تلصقه أنت",
   "بوت واحد لكل رمز طلب معتمد — بلا إعادة استخدام الرمز",
@@ -77,6 +84,10 @@ const FAQ = [
   {
     q: "هل أشارك توكن BotFather مع أحد؟",
     a: "لا. التوكن مفتاح البوت. الصقه فقط في نموذج التفعيل أو فاحص الصحة على هذا الموقع.",
+  },
+  {
+    q: "ماذا أفعل بعد التفعيل؟",
+    a: "أرسل /start للبوت. إن لم يرد استخدم فاحص الصحة. الفحص لا يستهلك رمز الطلب. طلب واحد = بوت واحد.",
   },
 ];
 
@@ -230,6 +241,16 @@ export default function BotsDeployPage() {
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
       />
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-after">
+        <h2 id="bots-after" className="mb-2 text-sm font-extrabold text-slate-900">
+          بعد التفعيل
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {AFTER.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-includes">
         <h2 id="bots-includes" className="mb-2 text-sm font-extrabold text-slate-900">
           ما يشمله التفعيل
