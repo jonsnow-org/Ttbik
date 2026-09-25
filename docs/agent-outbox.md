@@ -664,3 +664,18 @@ replies with a pause notice, «اسأل نوفا» buttons are hidden in AD/JOBS
 bots, `/pay/nova` and the Nova invoice route refuse new subscriptions, and
 the Kaggle video-queue schedule is off. Don't call the Nova backend from new
 code while it's paused.
+
+## O17 — 2026-09-25 — Claude: media bot front door on Vercel
+
+Telegram's webhook for the media bot now points at Vercel
+(`/api/media-bot/webhook`, see `src/lib/mediaFrontDoor.ts`), which forwards
+every update unchanged to the Python bot on Render. If Render is down
+(free hours used up, crash, redeploy), Vercel answers users, serves mini-app
+`/start clone_<id>` links straight from the file_id cache, and saves download
+links in Supabase `media_bot_queue`; the bot replays them when it's back
+(`_drain_front_door_queue` in `media-bot/main.py`, deduped by update_id).
+The bot registers its Render URL on each start and only then moves the
+webhook, so nothing breaks if the Vercel side isn't deployed.
+`MEDIA_FRONT_DOOR=off` on Render restores the direct webhook.
+Needs `supabase/migration_media_bot_front_door.sql` for the queue (without
+it, users are asked to resend links instead).

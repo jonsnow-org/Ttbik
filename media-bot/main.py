@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
 import json
 import logging
@@ -99,8 +100,29 @@ _hook_loop: asyncio.AbstractEventLoop | None = None
 _hook_app: Application | None = None
 
 
+# Update ids already handed to the bot in this process. The Vercel front door
+# (below) may both forward an update and queue it when it can't confirm
+# delivery (e.g. a slow cold start), so replays must be idempotent.
+_seen_ids: set[int] = set()
+_seen_order: collections.deque[int] = collections.deque()
+
+
+def _first_time(update_id) -> bool:
+    if not isinstance(update_id, int):
+        return True
+    if update_id in _seen_ids:
+        return False
+    _seen_ids.add(update_id)
+    _seen_order.append(update_id)
+    if len(_seen_order) > 5000:
+        _seen_ids.discard(_seen_order.popleft())
+    return True
+
+
 async def _enqueue_update(data: dict) -> None:
     assert _hook_app is not None
+    if not _first_time(data.get("update_id")):
+        return
     update = Update.de_json(data, _hook_app.bot)
     if update:
         await _hook_app.update_queue.put(update)
@@ -702,6 +724,69 @@ async def _startup(application: Application) -> None:
     await _force_menu_button(application.bot)
 
 
+# ---------------------------------------------------------------------------
+# Vercel front door (src/lib/mediaFrontDoor.ts on the site): Telegram's webhook
+# points at Vercel, which is always on and forwards every update here. When
+# this Render service is suspended (free hours used up) or down, Vercel keeps
+# answering users, serves mini-app "clone" links from the file_id cache, and
+# saves download links; they are pulled back from there and replayed below.
+# Set MEDIA_FRONT_DOOR=off to point Telegram straight at Render as before.
+def _front_door_base() -> str:
+    if os.environ.get("MEDIA_FRONT_DOOR", "").strip().lower() in ("off", "0", "false", "no"):
+        return ""
+    from services.feed import _api_url
+    from urllib.parse import urlsplit
+
+    u = urlsplit(_api_url())
+    return f"{u.scheme}://{u.netloc}" if u.scheme and u.netloc else ""
+
+
+async def _register_front_door() -> str:
+    """Tell the site where this bot lives; returns the webhook URL to use there, or ''."""
+    base = _front_door_base()
+    if not base or not WEBHOOK_BASE.startswith("https://"):
+        return ""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"{base}/api/media-bot/front-door",
+                json={"render_url": WEBHOOK_BASE},
+                headers={"x-media-bot-key": _HOOK_SECRET},
+            )
+        if r.status_code == 200:
+            return f"{base}/api/media-bot/webhook"
+        logger.warning("Front door registration refused (%s) — using direct webhook.", r.status_code)
+    except Exception as e:
+        logger.warning("Front door unreachable (%s) — using direct webhook.", e)
+    return ""
+
+
+async def _drain_front_door_queue() -> None:
+    """Replay download links the front door saved while this service was down."""
+    base = _front_door_base()
+    if not base:
+        return
+    import httpx
+
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(f"{base}/api/media-bot/front-door", headers={"x-media-bot-key": _HOOK_SECRET})
+            updates = (r.json() or {}).get("updates") or [] if r.status_code == 200 else []
+            for data in updates:
+                if isinstance(data, dict):
+                    await _enqueue_update(data)
+            if updates:
+                logger.info("Replayed %s queued update(s) from the front door.", len(updates))
+                continue  # there may be more
+        except Exception as e:
+            logger.warning("Front door queue check failed: %s", e)
+        # Outbound only — it never keeps the Render service awake.
+        await asyncio.sleep(30)
+
+
 async def _run_webhook() -> None:
     global _hook_loop, _hook_app
     app = _build_app()
@@ -713,17 +798,21 @@ async def _run_webhook() -> None:
     # Re-registered on every wake-up: cheap, and keeps the URL right after a
     # token change or service rename. Pending updates are kept (not dropped)
     # because the message that woke the service is one of them.
+    front_door = await _register_front_door()
     await app.bot.set_webhook(
-        url=f"{WEBHOOK_BASE}{_HOOK_PATH}",
+        url=front_door or f"{WEBHOOK_BASE}{_HOOK_PATH}",
         secret_token=_HOOK_SECRET,
         allowed_updates=Update.ALL_TYPES,
         max_connections=10,
     )
     _hook_ready.set()
-    logger.info("Bot running (webhook mode).")
+    logger.info("Bot running (webhook mode, %s).", "via Vercel front door" if front_door else "direct")
+    drain = asyncio.create_task(_drain_front_door_queue()) if front_door else None
     try:
         await asyncio.Event().wait()
     finally:
+        if drain:
+            drain.cancel()
         _hook_ready.clear()
         await app.stop()
         await app.shutdown()

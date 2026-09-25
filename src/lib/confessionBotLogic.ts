@@ -28,13 +28,19 @@ const INBOX_PAGE_SIZE = 10;
 const MIN_CONFESSION_LENGTH = 5;
 const MAX_CONFESSION_LENGTH = 1000;
 const MAX_CONFESSIONS_PER_DAY = 20;
-const BANNED_WORDS = ["كلمة ممنوعة مثال"]; // يمكن توسيعها
+
+// Ready-made openers a sender can pick before writing (optional) — gives
+// people who don't know what to write a push, and tells the box owner what
+// kind of message it is at a glance.
+const TOPICS = ["💭 رأيي فيك بصراحة", "🤫 سر لم أخبرك به", "❓ سؤال محرج", "💌 شيء لم أقله لك", "🙏 اعتذار متأخر", "🌟 شيء يميّزك"];
+// One-tap reactions the box owner can send back without writing a reply.
+const REACTIONS = ["❤️", "😂", "😮", "😢", "🔥", "🙏"];
 
 // ---------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------
 type PendingAction =
-  | { mode: "writing_confession"; boxOwnerId: string }
+  | { mode: "writing_confession"; boxOwnerId: string; topic?: number; followUpOf?: string }
   | { mode: "replying"; messageId: string }
   | { mode: "admin_broadcast" }
   | { mode: "admin_lookup" }
@@ -123,25 +129,64 @@ function shortId(id: string): string {
   return id.slice(-6);
 }
 
+function excerpt(text: string, max = 80): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max)}…` : t;
+}
+
+// Buttons under a confession in the box owner's chat.
+function confessionKeyboard(messageId: string, canReply: boolean, withReactions: boolean, replyLabel = "↩️ رد"): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (withReactions) {
+    REACTIONS.forEach((r, i) => kb.text(r, `creact|${messageId}|${i}`));
+    kb.row();
+  }
+  if (canReply) kb.text(replyLabel, `creply|${messageId}`);
+  kb.text("🚫 حظر", `cblock|${messageId}`).text("🚩 إبلاغ", `creport|${messageId}`);
+  return kb;
+}
+
+// Abuse report → the platform owner (SUPER_ADMIN) sees the full message,
+// both sides' ids and the real sender, with one-tap actions.
+async function sendReportToAdmin(bot: TelegramBot, kind: "confession" | "reply", message: {
+  id: string; text: string; reply: string | null; senderId: string; senderName: string | null; senderUsername: string | null; boxOwnerId: string; created_at: Date;
+}, reporterId: string) {
+  if (!SUPER_ADMIN_ID) return false;
+  const offenderId = kind === "confession" ? message.senderId : message.boxOwnerId;
+  const [offender, previous] = await Promise.all([
+    prisma.confessionUser.findUnique({ where: { id: offenderId } }),
+    prisma.confessionMessage.count({ where: kind === "confession" ? { senderId: offenderId } : { boxOwnerId: offenderId, reply: { not: null } } }),
+  ]);
+  const who = kind === "confession"
+    ? `✍️ المرسل: ${message.senderName || "بلا اسم"}${message.senderUsername ? ` (@${message.senderUsername})` : ""} — ${message.senderId}`
+    : `✍️ صاحب الصندوق (كاتب الرد): ${message.boxOwnerId}`;
+  const body =
+    `🚩 بلاغ إساءة — ${kind === "confession" ? "اعتراف" : "رد"}\n\n` +
+    `${who}\n👤 المُبلِّغ: ${reporterId}\n🕒 ${message.created_at.toLocaleString("ar")}\n` +
+    `📊 سجل المُبلَّغ عنه: ${previous} ${kind === "confession" ? "رسالة مرسلة" : "رد"}${offender?.isBanned ? " — محظور حالياً" : ""}\n\n` +
+    (kind === "confession" ? `📝 النص:\n${message.text}` : `📝 الاعتراف:\n${excerpt(message.text, 300)}\n\n↩️ الرد المُبلَّغ عنه:\n${message.reply || "—"}`);
+  const kb = new InlineKeyboard()
+    .text("⛔ حظر", `cadmin_ban|${offenderId}`).text("🔇 كتم 7 أيام", `cadmin_mute|${offenderId}`).row()
+    .text("🗑 حذف الرسالة", `cadmin_del|${message.id}`).text("✅ لا مخالفة", "cadmin_ok");
+  const ok = await bot.api.sendMessage(Number(SUPER_ADMIN_ID), body.slice(0, 4000), { reply_markup: kb }).then(() => true).catch(() => false);
+  return ok;
+}
+
 // إحصائيات شخصية
 async function getUserStats(userId: string) {
-  const [sent, received, replies, liked] = await Promise.all([
+  const [sent, received, replies, repliesToMe] = await Promise.all([
     prisma.confessionMessage.count({ where: { senderId: userId } }),
     prisma.confessionMessage.count({ where: { boxOwnerId: userId } }),
     prisma.confessionMessage.count({ where: { boxOwnerId: userId, reply: { not: null } } }),
-    prisma.confessionMessage.aggregate({ where: { boxOwnerId: userId }, _sum: { replyCount: true } }),
+    prisma.confessionMessage.count({ where: { senderId: userId, reply: { not: null } } }),
   ]);
-  return { sent, received, replies, liked: liked._sum.replyCount || 0 };
+  return { sent, received, replies, repliesToMe };
 }
 
 // التحقق من الاعتراف قبل الإرسال
 function validateConfession(text: string): { valid: boolean; error?: string } {
   if (text.length < MIN_CONFESSION_LENGTH) return { valid: false, error: `⚠️ الاعتراف قصير جداً (الحد الأدنى ${MIN_CONFESSION_LENGTH} أحرف)` };
   if (text.length > MAX_CONFESSION_LENGTH) return { valid: false, error: `⚠️ الاعتراف طويل جداً (الحد الأقصى ${MAX_CONFESSION_LENGTH} حرف)` };
-  const lower = text.toLowerCase();
-  if (BANNED_WORDS.some(w => lower.includes(w.toLowerCase()))) {
-    return { valid: false, error: "⚠️ يحتوي على كلمات غير مسموحة" };
-  }
   return { valid: true };
 }
 
@@ -305,11 +350,17 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
         return;
       }
       await setPending(tgUserId, { mode: "writing_confession", boxOwnerId });
+      const topics = new InlineKeyboard();
+      TOPICS.forEach((t, i) => {
+        topics.text(t, `ctopic|${i}`);
+        if (i % 2 === 1) topics.row();
+      });
       await bot.api.sendMessage(
         chatId,
-        "✉️ اكتب اعترافك أو سؤالك بحرية — سيصل صاحب الصندوق دون معرفة هويتك:",
-        { reply_markup: plainBackMenu() }
+        "✉️ اكتب رسالتك بحرية — ستصل صاحب الصندوق دون أن يعرف هويتك 🕵️\n\nلا تعرف ماذا تكتب؟ اختر فكرة للبدء:",
+        { reply_markup: topics }
       );
+      await bot.api.sendMessage(chatId, "✍️ أو اكتب مباشرة:", { reply_markup: plainBackMenu() });
       return;
     }
 
@@ -326,8 +377,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       `📊 إحصائياتك:\n` +
       `📤 أرسلت: ${stats.sent} اعتراف\n` +
       `📥 استقبلت: ${stats.received} اعتراف\n` +
-      `↩️ ردود: ${stats.replies}/${stats.received}\n` +
-      `❤️ إعجابات: ${stats.liked}`,
+      `↩️ ردود: ${stats.replies}/${stats.received}`,
       { reply_markup: mainMenu() }
     );
     return;
@@ -361,26 +411,27 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       return;
     }
 
+    const topic = pending.topic !== undefined ? TOPICS[pending.topic] : undefined;
+    const followUp = pending.followUpOf ? await prisma.confessionMessage.findUnique({ where: { id: pending.followUpOf } }) : null;
+    const header = followUp ? `↪️ متابعة على رسالة #${shortId(followUp.id)}\n` : topic ? `${topic}\n` : "";
     const created = await prisma.confessionMessage.create({
       data: {
         boxOwnerId: pending.boxOwnerId,
         senderId: tgUserId,
         senderName: msg.from.first_name || null,
         senderUsername: msg.from.username || null,
-        text,
+        text: header + text,
       },
     });
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "✅ تم إرسال اعترافك بنجاح 🎭\n\nلن يعرف صاحب الصندوق هويتك ما لم تكشفها بنفسك.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "✅ وصلت رسالتك 🎭\n\nلن يعرف صاحب الصندوق هويتك، وسيصلك هنا ردّه أو تفاعله إن ردّ.", { reply_markup: mainMenu() });
 
     const boxOwner = await prisma.confessionUser.findUnique({ where: { id: pending.boxOwnerId } });
     if (boxOwner) {
       const label = senderLabel({ text, senderName: msg.from.first_name || null, senderUsername: msg.from.username || null }, boxOwner.revealSenderUnlocked);
       await bot.api
-        .sendMessage(Number(pending.boxOwnerId), `📬 اعتراف جديد من ${label}:\n\n${text}`, {
-          reply_markup: new InlineKeyboard()
-            .text("↩️ رد", `creply|${created.id}`)
-            .text("🚫 حظر المرسل", `cblock|${created.id}`),
+        .sendMessage(Number(pending.boxOwnerId), `📬 ${followUp ? "رد جديد في محادثة مجهولة" : "اعتراف جديد"} من ${label}:\n\n${created.text}`, {
+          reply_markup: confessionKeyboard(created.id, true, true),
         })
         .catch(() => null);
     }
@@ -403,7 +454,11 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     });
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "✅ تم إرسال ردك.", { reply_markup: mainMenu() });
-    await bot.api.sendMessage(Number(message.senderId), `↩️ رد صاحب الصندوق على اعترافك:\n\n${text}`).catch(() => null);
+    await bot.api
+      .sendMessage(Number(message.senderId), `↩️ رد صاحب الصندوق على رسالتك:\n«${excerpt(message.text)}»\n\n${text}`, {
+        reply_markup: new InlineKeyboard().text("💬 رد مجهول", `cfollow|${message.id}`).text("🚩 إبلاغ", `creportr|${message.id}`),
+      })
+      .catch(() => null);
     return;
   }
 
@@ -415,7 +470,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       `📤 اعترافات أرسلتها: ${stats.sent}\n` +
       `📥 اعترافات استقبلتها: ${stats.received}\n` +
       `↩️ عدد الردود: ${stats.replies} من ${stats.received} (${stats.received > 0 ? Math.round((stats.replies / stats.received) * 100) : 0}%)\n` +
-      `❤️ إعجابات على الردود: ${stats.liked}\n\n` +
+      `💬 ردود وصلتك على اعترافاتك: ${stats.repliesToMe}\n\n` +
       `💰 رصيدك: $${user.balance.toFixed(2)}\n` +
       `🕵️ كشف الهوية: ${user.revealSenderUnlocked ? "✅ مفعّل" : "❌ غير مفعّل"}\n` +
       `♾️ ردود غير محدودة: ${user.unlimitedRepliesUnlocked ? "✅ مفعّل" : "❌ غير مفعّل"}`,
@@ -433,20 +488,23 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       take: INBOX_PAGE_SIZE,
     });
     let body = `🔗 رابط صندوقك — شاركه ليصلك الاعترافات:\n${link}`;
+    const shareText = "أرسل لي رسالة مجهولة 👀 لن أعرف من أنت أبداً 🤫";
+    const shareKb = new InlineKeyboard().url(
+      "📣 انشر صندوقي في محادثاتك ومجموعاتك",
+      `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`
+    );
     if (messages.length === 0) {
-      body += "\n\n😔 لا توجد اعترافات بعد.";
-      await bot.api.sendMessage(chatId, body, { reply_markup: mainMenu() });
+      body += "\n\n😔 لا توجد اعترافات بعد — انشر رابطك ليبدأ أصدقاؤك بالكتابة.";
+      await bot.api.sendMessage(chatId, body, { reply_markup: shareKb });
       return;
     }
     body += `\n\n📥 آخر ${messages.length} اعتراف:`;
-    await bot.api.sendMessage(chatId, body, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, body, { reply_markup: shareKb });
     for (const m of messages) {
       const label = senderLabel(m, user.revealSenderUnlocked);
       const replyBlock = m.reply ? `\n\n↩️ ردك: ${m.reply}` : "";
       const canReply = !m.reply || user.unlimitedRepliesUnlocked;
-      const kb = new InlineKeyboard();
-      if (canReply) kb.text(m.reply ? "↩️ رد آخر" : "↩️ رد", `creply|${m.id}`);
-      kb.text("🚫 حظر المرسل", `cblock|${m.id}`);
+      const kb = confessionKeyboard(m.id, canReply, !m.reply, m.reply ? "↩️ رد آخر" : "↩️ رد");
       await bot.api.sendMessage(chatId, `#${shortId(m.id)} — ${label}:\n\n${m.text}${replyBlock}`, { reply_markup: kb }).catch(() => null);
     }
     return;
@@ -500,6 +558,9 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
       `💎 الترقيات:\n` +
       `🕵️ كشف الهوية: $3\n` +
       `♾️ ردود غير محدودة: $3\n\n` +
+      `💬 محادثة مجهولة: يستطيع المرسل الرد على ردّك دون كشف هويته\n` +
+      `❤️ تفاعل بضغطة: ❤️ 😂 😮 😢 🔥 🙏 يصل للمرسل فوراً\n` +
+      `🚩 إبلاغ عن الإساءة: يصل للإدارة مباشرة لتتخذ الإجراء\n\n` +
       `🔒 أمانك مضمون — المرسلون مجهولون دائماً\n\n` +
       `📲 شارك: https://t.me/${me.username}`,
       { reply_markup: mainMenu() }
@@ -535,6 +596,109 @@ async function handleConfessionCallback(bot: TelegramBot, botRow: BotRow, cq: an
         .catch(() => null);
       await bot.api.answerCallbackQuery(cq.id, { text: nowBanned ? "⛔ تم الحظر" : "🔓 تم رفع الحظر" }).catch(() => null);
       return;
+    }
+    // Actions from an abuse-report card (see sendReportToAdmin).
+    const [action, arg] = data.split("|");
+    const done = async (label: string) => {
+      await bot.api.answerCallbackQuery(cq.id, { text: label }).catch(() => null);
+      await bot.api
+        .editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: new InlineKeyboard().text(`✔️ ${label}`, "cadmin_noop") })
+        .catch(() => null);
+    };
+    if (action === "cadmin_ban" && arg) {
+      await prisma.confessionUser.update({ where: { id: arg }, data: { isBanned: true } }).catch(() => null);
+      await bot.api.sendMessage(Number(arg), "🚫 تم حظرك من استخدام هذا البوت من قِبل الإدارة بسبب مخالفة.").catch(() => null);
+      return done("تم الحظر");
+    }
+    if (action === "cadmin_mute" && arg) {
+      await prisma.confessionUser.update({ where: { id: arg }, data: { mutedUntil: new Date(Date.now() + 7 * 24 * 3600 * 1000) } }).catch(() => null);
+      await bot.api.sendMessage(Number(arg), "🔇 تم إيقافك عن استخدام البوت 7 أيام من قِبل الإدارة بسبب مخالفة.").catch(() => null);
+      return done("تم الكتم 7 أيام");
+    }
+    if (action === "cadmin_del" && arg) {
+      await prisma.confessionMessage.delete({ where: { id: arg } }).catch(() => null);
+      return done("حُذفت الرسالة");
+    }
+    if (action === "cadmin_ok") return done("لا مخالفة");
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+
+  const actor = await ensureConfessionUser(botRow.id, tgUserId);
+  if (actor.isBanned || (actor.mutedUntil && actor.mutedUntil > new Date())) {
+    await bot.api.answerCallbackQuery(cq.id, { text: "🚫 غير متاح" }).catch(() => null);
+    return;
+  }
+
+  if (data.startsWith("ctopic|")) {
+    const i = Number(data.split("|")[1]);
+    const pending = actor.pendingAction as PendingAction | null;
+    if (pending?.mode !== "writing_confession" || !TOPICS[i]) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "افتح رابط الصندوق من جديد" }).catch(() => null);
+      return;
+    }
+    await setPending(tgUserId, { ...pending, topic: i });
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await bot.api.sendMessage(chatId, `${TOPICS[i]}\n\n✍️ اكتب رسالتك الآن:`, { reply_markup: plainBackMenu() });
+    return;
+  }
+
+  // The sender answers the box owner's reply — still anonymous.
+  if (data.startsWith("cfollow|")) {
+    const message = await prisma.confessionMessage.findUnique({ where: { id: data.split("|")[1] } });
+    if (!message || message.senderId !== tgUserId) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "غير متاح" }).catch(() => null);
+      return;
+    }
+    if (await isBlockedFrom(message.boxOwnerId, tgUserId)) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "🚫 لا يمكنك الكتابة لهذا الصندوق" }).catch(() => null);
+      return;
+    }
+    await setPending(tgUserId, { mode: "writing_confession", boxOwnerId: message.boxOwnerId, followUpOf: message.id });
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await bot.api.sendMessage(chatId, "💬 اكتب ردك — سيصل دون كشف هويتك:", { reply_markup: plainBackMenu() });
+    return;
+  }
+
+  // Box owner reacts with one emoji; the sender is told which.
+  if (data.startsWith("creact|")) {
+    const [, messageId, idx] = data.split("|");
+    const message = await prisma.confessionMessage.findUnique({ where: { id: messageId } });
+    const emoji = REACTIONS[Number(idx)];
+    if (!message || message.boxOwnerId !== tgUserId || !emoji) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "غير متاح" }).catch(() => null);
+      return;
+    }
+    await bot.api
+      .sendMessage(Number(message.senderId), `${emoji} تفاعل صاحب الصندوق مع رسالتك:\n«${excerpt(message.text)}»`, {
+        reply_markup: new InlineKeyboard().text("💬 أرسل له رسالة أخرى", `cfollow|${message.id}`),
+      })
+      .catch(() => null);
+    const canReply = message.replyCount === 0 || actor.unlimitedRepliesUnlocked;
+    await bot.api
+      .editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: confessionKeyboard(message.id, canReply, false, message.reply ? "↩️ رد آخر" : "↩️ رد") })
+      .catch(() => null);
+    await bot.api.answerCallbackQuery(cq.id, { text: `أُرسل ${emoji}` }).catch(() => null);
+    return;
+  }
+
+  // Abuse reports: on a confession (by the box owner) or on a reply (by the sender).
+  if (data.startsWith("creport|") || data.startsWith("creportr|")) {
+    const isReply = data.startsWith("creportr|");
+    const message = await prisma.confessionMessage.findUnique({ where: { id: data.split("|")[1] } });
+    const allowed = message && (isReply ? message.senderId === tgUserId && !!message.reply : message.boxOwnerId === tgUserId);
+    if (!message || !allowed) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "غير متاح" }).catch(() => null);
+      return;
+    }
+    const sent = await sendReportToAdmin(bot, isReply ? "reply" : "confession", message, tgUserId);
+    await bot.api
+      .answerCallbackQuery(cq.id, { text: sent ? "🚩 وصل بلاغك للإدارة، شكراً لك" : "تعذّر إرسال البلاغ الآن", show_alert: sent })
+      .catch(() => null);
+    if (sent && !isReply) {
+      // Blocking right away is what most people want after reporting.
+      await prisma.confessionBlock.create({ data: { ownerId: tgUserId, blockedSenderId: message.senderId } }).catch(() => null);
+      await bot.api.sendMessage(chatId, "🚫 وتم أيضاً حظر هذا المرسل من صندوقك.").catch(() => null);
     }
     return;
   }
