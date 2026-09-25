@@ -18,6 +18,7 @@ export const metadata: Metadata = {
     "تفعيل بوت تليجرام",
     "بوت مستضاف",
     "سوق تولز",
+    "توكن BotFather",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -43,6 +44,19 @@ const TERMS = [
   "لا يوجد سحب نقدي عبر سوق تولز. النقاط داخل البوت فقط.",
 ];
 
+const PREP = [
+  "أنشئ بوتاً من @BotFather وانسخ التوكن فقط — لا تلصقه في محادثة عامة.",
+  "اختياري: افحص التوكن من فاحص الصحة قبل التفعيل.",
+  "رمز طلب معتمد واحد لكل بوت. المالك يتجاوز للاختبار فقط.",
+];
+
+const INCLUDES = [
+  "تشغيل القالب على توكن BotFather الذي تلصقه أنت",
+  "بوت واحد لكل رمز طلب معتمد — بلا إعادة استخدام الرمز",
+  "نقاط داخل البوت فقط — بلا سحب نقدي من سوق تولز",
+  "ليس ملف كود وليس تحميل مصدر",
+];
+
 const FAQ = [
   {
     q: "هل أحصل على كود مصدري للبوت؟",
@@ -59,6 +73,10 @@ const FAQ = [
   {
     q: "كيف أتأكد أن البوت يعمل؟",
     a: "استخدم فاحص صحة البوت للتوكن والويبهوك بلا حفظ التوكن.",
+  },
+  {
+    q: "هل أشارك توكن BotFather مع أحد؟",
+    a: "لا. التوكن مفتاح البوت. الصقه فقط في نموذج التفعيل أو فاحص الصحة على هذا الموقع.",
   },
 ];
 
@@ -141,11 +159,23 @@ const WEBPAGE_JSON_LD = {
     "تفعيل بوت على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
 };
 
+const APP_JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "تفعيل بوت تليجرام — سوق تولز",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Telegram",
+  url: `${SITE}${PATH}`,
+  description:
+    "بوت يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
+};
+
 export default function BotsDeployPage() {
   const isOwner = isOwnerServer();
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(APP_JSON_LD) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(LIVE_BOTS_JSON_LD) }} />
       <script
         type="application/ld+json"
@@ -180,10 +210,36 @@ export default function BotsDeployPage() {
           ))}
         </ul>
       </aside>
+      <aside className="relative mx-auto max-w-lg px-4 pb-4" aria-labelledby="bots-prep">
+        <h2 id="bots-prep" className="mb-2 text-sm font-extrabold text-slate-900">
+          قبل لصق التوكن
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {PREP.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs text-slate-500">
+          <Link href="/bots/health-check" className="font-bold text-indigo-800 hover:underline">
+            فاحص صحة البوت ←
+          </Link>{" "}
+          بلا حفظ التوكن.
+        </p>
+      </aside>
       <BotsDeployForm
         isOwner={isOwner}
         adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />}
       />
+      <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-includes">
+        <h2 id="bots-includes" className="mb-2 text-sm font-extrabold text-slate-900">
+          ما يشمله التفعيل
+        </h2>
+        <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">
+          {INCLUDES.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      </aside>
       <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="live-bots">
         <h2 id="live-bots" className="mb-2 text-sm font-extrabold text-slate-900">
           بوتات عاملة يمكنك تجربها الآن على تليجرام
