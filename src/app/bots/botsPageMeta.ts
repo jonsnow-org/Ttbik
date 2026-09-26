@@ -16,6 +16,8 @@ export const botsMetadata: Metadata = {
     "اسم مستخدم البوت",
     "ويبهوك البوت",
     "setWebhook",
+    "getUpdates",
+    "تعارض الويبهوك",
     "حذف البوت من BotFather",
     "استرجاع توكن البوت",
     "إضافة البوت لمجموعة",
