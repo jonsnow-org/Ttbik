@@ -72,5 +72,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Mirrors the grant into a table this site (and any future mini-app
+  // feature) can actually query — the bot's own store.set_premium() only
+  // ever lived inside its local, Telegram-archived JSON blob, invisible
+  // outside the bot process itself (owner concern, 2026-09-26). Best-effort:
+  // a failure here must never block the premium unlock the user already
+  // paid for.
+  await db
+    .from("media_premium_users")
+    .upsert({ tg_user_id: tgUserId.trim(), source: "order_code" })
+    .then(null, () => null);
+
   return NextResponse.json({ unlocked: true });
 }

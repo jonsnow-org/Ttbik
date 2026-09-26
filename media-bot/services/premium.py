@@ -45,3 +45,26 @@ async def verify_premium_code(order_code: str, tg_user_id: int) -> tuple[bool, s
     except Exception as e:
         logger.warning("premium verify failed: %s", e)
         return False, "تعذّر التحقق من الرمز حالياً، حاول لاحقاً."
+
+
+def _sync_api_url() -> str:
+    return _api_url().rsplit("/verify-premium", 1)[0] + "/sync-premium"
+
+
+async def sync_premium_grant(tg_user_id: int, source: str) -> None:
+    """Mirrors a premium grant made outside the order-code flow (e.g. a
+    Telegram Stars payment, handled entirely locally via
+    store.set_premium()) into the site's media_premium_users table, so it's
+    visible outside this bot process -- the admin panel, and any future
+    mini-app feature that checks premium status (owner concern, 2026-09-26).
+    Best-effort only: the local grant already happened and must not depend
+    on this call succeeding."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(
+                _sync_api_url(),
+                json={"tgUserId": str(tg_user_id), "source": source},
+                headers={"x-feed-secret": _secret(), "content-type": "application/json"},
+            )
+    except Exception as e:
+        logger.warning("premium sync failed: %s", e)

@@ -50,7 +50,7 @@ from services.archive import (
 from services.store import store, persist, load_from_archive, PREMIUM_DAILY_LIMIT
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
-from services.premium import verify_premium_code
+from services.premium import verify_premium_code, sync_premium_grant
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -721,6 +721,7 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
         return
     store.set_premium(user.id, "stars")
     await _save(context.bot)
+    await sync_premium_grant(user.id, "telegram_stars")
     await update.message.reply_text(
         f"✅ تم الدفع بنجاح! الترقية مفعّلة الآن.\nحدك اليومي: {PREMIUM_DAILY_LIMIT} تحميل."
     )

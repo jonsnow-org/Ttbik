@@ -18,6 +18,21 @@ export async function mediaDb() {
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+/**
+ * Whether a Telegram user has the paid media-bot upgrade — mirrored here
+ * from the bot's own local grant (see supabase/migration_media_premium_sync.sql)
+ * so the mini-app or any other site feature can check premium status without
+ * reaching into the bot process. Not wired into the mini-app UI yet (no
+ * premium-gated feature exists there today); this is the read side ready
+ * for whenever one does.
+ */
+export async function isMediaPremium(tgUserId: string): Promise<boolean> {
+  const db = await mediaDb();
+  if (!db) return false;
+  const { data } = await db.from("media_premium_users").select("tg_user_id").eq("tg_user_id", tgUserId).maybeSingle();
+  return !!data;
+}
+
 /** Verified Telegram user (id + display name) from the mini-app's initData, or null. */
 export function mediaUser(initData: string): { id: string; name: string } | null {
   const v = verifyTelegramInitData(initData, mediaBotToken());
