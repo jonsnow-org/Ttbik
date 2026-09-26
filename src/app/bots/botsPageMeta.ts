@@ -43,6 +43,9 @@ export const botsMetadata: Metadata = {
     "حظر البوت",
     "block bot",
     "فك حظر البوت",
+    "وضع الإنلاين",
+    "inline mode",
+    "setinline",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
