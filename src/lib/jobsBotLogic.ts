@@ -7,6 +7,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
   TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
   handleTenderCallback, tenderStatsLine, type TenderPending,
@@ -1551,6 +1552,30 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
 
+  if (msg.successful_payment) {
+    const sp = msg.successful_payment;
+    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+    if (parsed?.kind === "JOBS_DEPOSIT" && parsed.userId === tgUserId) {
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "jobs-stars",
+        async (tx) => {
+          await tx.jobsTransaction.create({
+            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+          });
+        },
+        async (tx) => {
+          await tx.jobsUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+        }
+      );
+      if (outcome !== "duplicate") {
+        const updated = await prisma.jobsUser.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
+      }
+    }
+    return;
+  }
+
   // Mandatory subscription channel gate (owner spec, 2026-09-05) — same
   // pattern as AD_BOT's requiredChannel.
   if (botRow.requiredChannel) {
@@ -1778,6 +1803,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   }
   if (text === "💰 رصيدي وإيداع") {
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع، افتح الرابط:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("jstars") });
     return;
   }
   if (text === "🔷 إيداع TON / USDT مباشر" && isNativeTonConfigured()) {
@@ -1946,6 +1972,20 @@ async function handleJobsCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   const tgUserId = String(cq.from.id);
   const data = String(cq.data || "");
   if (!chatId) return;
+
+  if (data.startsWith("jstars|")) {
+    const stars = Number(data.split("|")[1] || 0);
+    if (stars > 0) {
+      await sendStarsInvoice(bot, chatId, {
+        title: "شحن رصيد بوت فرص العمل",
+        description: `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`,
+        payload: starsPayload("JOBS_DEPOSIT", tgUserId),
+        stars,
+      });
+    }
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
 
   if (data.startsWith("jadmin_") || data.startsWith("jrep_") || data.startsWith("jresolve|")) {
     if (!SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {

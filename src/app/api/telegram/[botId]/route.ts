@@ -40,6 +40,14 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
+      // Telegram Stars (XTR): the pre-checkout handshake is identical for
+      // every bot — approve immediately, there's no stock to check, only a
+      // balance top-up. Must be answered within 10s, so this skips the
+      // per-template dispatch entirely. See src/lib/starsPayment.ts.
+      if (body.pre_checkout_query) {
+        await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
+        return NextResponse.json({ status: "ok" });
+      }
       if (botRow.template === "AD_BOT") {
         await handleAdBotUpdate(bot, botRow, body);
       } else if (botRow.template === "MARRIAGE_BOT") {

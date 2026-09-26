@@ -7,6 +7,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -810,6 +811,20 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     return;
   }
 
+  if (data.startsWith("mstars|")) {
+    const stars = Number(data.split("|")[1] || 0);
+    if (stars > 0) {
+      await sendStarsInvoice(bot, chatId, {
+        title: "شحن رصيد بوت الزواج",
+        description: `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`,
+        payload: starsPayload("MATCH_DEPOSIT", tgUserId),
+        stars,
+      });
+    }
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+
   const user = await ensureMatchUser(botRow.id, tgUserId);
   const pending = user.pendingAction as PendingAction | null;
 
@@ -1542,6 +1557,30 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
 
+  if (msg.successful_payment) {
+    const sp = msg.successful_payment;
+    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+    if (parsed?.kind === "MATCH_DEPOSIT" && parsed.userId === tgUserId) {
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "match-stars",
+        async (tx) => {
+          await tx.matchTransaction.create({
+            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+          });
+        },
+        async (tx) => {
+          await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+        }
+      );
+      if (outcome !== "duplicate") {
+        const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
+      }
+    }
+    return;
+  }
+
   if (msg.contact) {
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.matchUser.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
@@ -1818,6 +1857,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     const u = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
     const balance = Number(u?.balance || 0);
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${balance.toFixed(2)}\n\nللإيداع، افتح الرابط التالي:\n${depositLink(tgUserId)}`, { reply_markup: upgradesMenu() });
+    await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("mstars") });
     return;
   }
   if (text === "🔷 إيداع TON / USDT مباشر" && isNativeTonConfigured()) {

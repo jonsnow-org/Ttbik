@@ -4,6 +4,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 
 /**
  * CONFESSION_BOT template (docs/claude-feature-backlog.md item 2) — every
@@ -311,6 +312,30 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     return;
   }
 
+  if (msg.successful_payment) {
+    const sp = msg.successful_payment;
+    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+    if (parsed?.kind === "CONFESSION_DEPOSIT" && parsed.userId === tgUserId) {
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "confession-stars",
+        async (tx) => {
+          await tx.confessionTransaction.create({
+            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+          });
+        },
+        async (tx) => {
+          await tx.confessionUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+        }
+      );
+      if (outcome !== "duplicate") {
+        const updated = await prisma.confessionUser.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
+      }
+    }
+    return;
+  }
+
   // Mandatory subscription channel gate (same pattern as AD_BOT/JOBS_BOT).
   if (botRow.requiredChannel) {
     try {
@@ -541,6 +566,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
 
   if (text === "💰 رصيدي وإيداع") {
     await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("cstars") });
     return;
   }
 
@@ -596,6 +622,20 @@ async function handleConfessionCallback(bot: TelegramBot, botRow: BotRow, cq: an
   const tgUserId = String(cq.from.id);
   const data = String(cq.data || "");
   if (!chatId) return;
+
+  if (data.startsWith("cstars|")) {
+    const stars = Number(data.split("|")[1] || 0);
+    if (stars > 0) {
+      await sendStarsInvoice(bot, chatId, {
+        title: "شحن رصيد بوت الاعترافات",
+        description: `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`,
+        payload: starsPayload("CONFESSION_DEPOSIT", tgUserId),
+        stars,
+      });
+    }
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
 
   if (data.startsWith("cadmin_")) {
     if (!SUPER_ADMIN_ID || tgUserId !== SUPER_ADMIN_ID) {
