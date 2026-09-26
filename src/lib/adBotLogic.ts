@@ -7,6 +7,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
   getOrCreateTonMemo,
   getMasterHotWalletAddress,
@@ -383,6 +384,13 @@ function walletMenu(lang: Lang): Keyboard {
   // is actually configured (owner spec, 2026-09-02), alongside the
   // existing NOWPayments deposit link shown by btnDeposit, never replacing it.
   if (isNativeTonConfigured()) kb.text(t(lang, "btnTonDeposit")).row();
+  // Telegram Stars deposit (owner spec, 2026-09-26) — a third funding
+  // option for the same User.balance the other two already credit. No
+  // separate revenue-split logic needed here: whatever gets deposited this
+  // way is spent later exactly like any other balance, so payoutTask()'s
+  // existing 50% worker / 20% creator / 30% platform split already applies
+  // automatically once it's spent on an ad campaign.
+  kb.text(t(lang, "btnStarsDeposit")).row();
   kb.text(backLabel(lang));
   return kb.resized();
 }
@@ -546,6 +554,34 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       await bot.api.sendMessage(chatId, t(contactLang, "phoneVerified"), { reply_markup: mainMenu(contactLang) });
     } else {
       await bot.api.sendMessage(chatId, t(contactLang, "phoneMismatch"));
+    }
+    return;
+  }
+
+  // Telegram Stars deposit confirmation — also arrives with no msg.text, so
+  // it must be checked before the same bailout as msg.contact above.
+  if (msg.successful_payment) {
+    const payUser = await ensureUser(botRow.id, tgUserId, botRow);
+    const payLang = asLang(payUser.language);
+    const sp = msg.successful_payment;
+    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+    if (parsed?.kind === "ADBOT_DEPOSIT" && parsed.userId === tgUserId) {
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "adbot-stars",
+        async (tx) => {
+          await tx.transaction.create({
+            data: { userId: tgUserId, botId: null, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+          });
+        },
+        async (tx) => {
+          await tx.user.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+        }
+      );
+      if (outcome !== "duplicate") {
+        const updated = await prisma.user.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, t(payLang, "starsDepositDone", { amount: fmt(usd), balance: fmt(Number(updated?.balance || 0)) }), { reply_markup: mainMenu(payLang) });
+      }
     }
     return;
   }
@@ -903,6 +939,10 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === t(lang, "btnDeposit")) {
     await sendDepositOptions(bot, chatId, user.id, lang);
+    return;
+  }
+  if (text === t(lang, "btnStarsDeposit")) {
+    await bot.api.sendMessage(chatId, t(lang, "starsDepositPrompt"), { reply_markup: starsDepositKeyboard("adstars") });
     return;
   }
   if (text === t(lang, "btnTonDeposit") && isNativeTonConfigured()) {
@@ -1897,6 +1937,23 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     await bot.api.editMessageText(chatId, messageId, t(lang, "carouselCancelled")).catch(() => null);
     await bot.api.sendMessage(chatId, t(lang, "mainMenuTitle"), { reply_markup: mainMenu(lang) });
+    return;
+  }
+
+  if (data.startsWith("adstars|")) {
+    const stars = Number(data.split("|")[1] || 0);
+    if (stars > 0) {
+      await sendStarsInvoice(bot, chatId, {
+        title: lang === "ar" ? "شحن رصيد المحفظة" : "Wallet top-up",
+        description:
+          lang === "ar"
+            ? `شحن ${usdForStars(stars).toFixed(2)}$ في رصيدك عبر نجوم تيليجرام`
+            : `Add $${usdForStars(stars).toFixed(2)} to your balance via Telegram Stars`,
+        payload: starsPayload("ADBOT_DEPOSIT", tgUserId),
+        stars,
+      });
+    }
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
 

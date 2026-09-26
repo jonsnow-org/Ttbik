@@ -21,9 +21,10 @@ import sitemap from "@/app/sitemap";
  *      <title>/<meta description>.
  * Slot 1 also posts a daily digest of the top news stories, linking to /news.
  * Independently of slot or new content, once every 7 days it also posts a
- * reminder promoting /bots' self-serve "activate your own bot" service
- * (owner request, 2026-09-26 — the service exists but gets no customers
- * without recurring marketing in the channel).
+ * reminder that the owner personally builds a bot on request — the AD_BOT
+ * "أريد بوتاً مماثلاً" $100 manual-purchase flow (owner request, 2026-09-05:
+ * the service exists but gets no customers without recurring marketing in
+ * the channel; see weeklyBotPromoPost()).
  *
  * Every outgoing text also passes isSafeForChannel() as a last line of
  * defence. Progress (what was already posted, which pages are known) is
@@ -163,32 +164,34 @@ async function pageTweet(path: string): Promise<Post | null> {
   return { kind: "page", key: `page:${path}`, text };
 }
 
-// Weekly reminder (owner request, 2026-09-26: "بناء بوتات... لكن لا يوجد
-// زبائن، يحتاج تسويق في قناتنا") promoting the one bot-building service that
-// is always live and needs no owner configuration — /bots' self-serve
-// "activate a bot on your own token" flow. Deliberately separate from
-// getBotPromos()'s AD_BOT $100 manual-purchase pitch in the cron route
-// (gated behind PROMO_AD_BOT_USERNAME, and already mixed into that route's
-// random daily pool) — this one always has something to point to.
-const BOT_PROMO_FALLBACKS = [
-  "🤖 عندك فكرة بوت تليجرام ولا تعرف من أين تبدأ؟\nفعّل بوتك الخاص العامل فعلياً على توكنك خلال دقائق — بدون كتابة أي كود.",
-  "🤖 تبي بوت تليجرام خاص فيك؟ لا تحتاج مبرمجاً ولا تنتظر أسابيع.\nفعّله بنفسك الآن على توكنك في دقائق.",
-  "🤖 بوت تليجرام جاهز على توكنك الخاص، تملكه وتشغّله فوراً — بدون كتابة كود وبدون انتظار.",
-];
-async function weeklyBotPromoPost(): Promise<string> {
-  const url = `${SITE_URL}/bots`;
-  const fallback = BOT_PROMO_FALLBACKS[Math.floor(Math.random() * BOT_PROMO_FALLBACKS.length)];
+// Weekly reminder (owner request, 2026-09-05: "بناء بوتات هذا نعم ولكن
+// لايوجد زبائن يحتاج تسويق في قناتنا يقوم به بوت النشر كل فترة اسبوع") that
+// the owner personally builds a bot on request — the existing "أريد بوتاً
+// مماثلاً" flow already live inside every AD_BOT instance: a customer picks
+// it from that bot's menu, transfers $100, the owner approves manually in
+// the bot, and the buyer gets an activation code for /bots. This mirrors
+// getBotPromos()/buildBotPromoText() in the cron route exactly (same price,
+// same manual-only CTA, same PROMO_AD_BOT_USERNAME gate) — that route's
+// version stays in its own random daily pool; this one guarantees it
+// actually gets said at least once a week instead of leaving it to chance.
+// Returns null (skip, don't burn this week's slot) when the owner hasn't
+// set PROMO_AD_BOT_USERNAME yet, same as getBotPromos().
+async function weeklyBotPromoPost(): Promise<string | null> {
+  const username = process.env.PROMO_AD_BOT_USERNAME;
+  if (!username) return null;
+  const botLink = `https://t.me/${username}`;
+  const intro = "📢 عندك قناة أو مجموعة على تليجرام؟ فعّل بوت إعلانات ومهام خاصاً بك يوزّع أرباح المشاهدة تلقائياً بين المستخدمين والمنصة.";
+  let hook = intro;
   try {
-    const hook = await callGroq(
-      "اكتب سطرين ترويجيين قصيرين بالعربية (بدون رابط، بدون هاشتاقات) يشجعان صاحب قناة أو مجموعة تليجرام على تفعيل بوت تليجرام خاص به يعمل على توكنه الخاص خلال دقائق، بدون كتابة كود.",
-      "تفعيل بوت تليجرام على توكنك الخاص",
-      200
+    hook = await callGroq(
+      `اكتب سطراً أو سطرين ترويجيين جذابين بالعربية (بدون رابط، بدون ذكر سعر) عن هذا المنتج، بنفس روح المثال التالي دون نسخه حرفياً: "${intro}"`,
+      "بوت الإعلانات والمهام",
+      250
     );
-    if (hook.trim()) return `🤖 ${hook.trim()}\n\n👈 ${url}`;
   } catch {
-    /* fall through to the fixed line */
+    /* keep default intro */
   }
-  return `${fallback}\n\n👈 ${url}`;
+  return `${hook}\n\n🔗 هنا: ${botLink}\n💰 السعر: 100$ (تحويل بنكي)\nالتفعيل يتم يدوياً فقط: افتح البوت واضغط زر «أريد بوتاً مماثلاً» من القائمة، ثم اتبع الخطوات — لا تفعيل تلقائي ولا كود مجاني.`;
 }
 
 async function newsDigest(): Promise<string | null> {
@@ -277,13 +280,15 @@ export async function publishNew(slot: number): Promise<{ posted: string[]; skip
     }
   }
 
-  // Weekly "/bots" reminder — independent of slot and of whether anything
-  // else was posted this run, so it never silently starves behind new
-  // content or the news digest.
+  // Weekly "build me a bot" reminder — independent of slot and of whether
+  // anything else was posted this run, so it never silently starves behind
+  // new content or the news digest. If PROMO_AD_BOT_USERNAME isn't set yet,
+  // weeklyBotPromoPost() returns null and this week's slot isn't consumed —
+  // it'll post as soon as the owner configures it.
   const lastPromo = state.lastBotPromoAt ? Date.parse(state.lastBotPromoAt) : 0;
   if (!lastPromo || Date.now() - lastPromo >= 7 * 24 * 3600 * 1000) {
     const promo = await weeklyBotPromoPost();
-    if (isSafeForChannel(promo) && (await sendToChannel(promo))) {
+    if (promo && isSafeForChannel(promo) && (await sendToChannel(promo))) {
       state.lastBotPromoAt = new Date().toISOString();
       posted.push("bot-promo");
     }

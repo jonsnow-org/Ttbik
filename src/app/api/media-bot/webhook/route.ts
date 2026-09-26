@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mediaDb } from "@/lib/mediaSocial";
 import { getRenderUrl, hookPath, hookSecret, miniAppKeyboard, safeEqual, tg } from "@/lib/mediaFrontDoor";
+import { supabaseAdmin } from "@/lib/supabase";
+import { decideOrder } from "@/lib/orders";
+import { generateOrderCode } from "@/lib/utils";
+import { starsForUsd, starsPayload, parseStarsPayload } from "@/lib/starsPayment";
 
 // Telegram → Vercel → Render. See src/lib/mediaFrontDoor.ts.
 export const dynamic = "force-dynamic";
@@ -57,6 +61,71 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
   return true;
 }
 
+// Telegram Stars purchase of the $5 media-bot-premium upgrade (owner
+// request, 2026-09-26) — built entirely at this front-door layer, never
+// forwarded to the Python bot on Render, so it works even while Render is
+// asleep. Reuses the exact same orders/services rows and delivery flow as
+// the existing NOWPayments checkout on /service/media-bot-premium: an
+// approved order plus its order_code, redeemed by the user sending
+// "/premium <code>" to this same bot — that command is already handled by
+// the Python bot via /api/media-bot/verify-premium, completely unaware of
+// (and unmodified for) how the order got approved.
+async function createMediaPremiumOrder(tgUserId: string): Promise<{ orderId: string; priceUsd: number } | null> {
+  const db = supabaseAdmin();
+  const { data: service } = await db
+    .from("services")
+    .select("id, price_usd")
+    .eq("slug", "media-bot-premium")
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!service) return null;
+  const { data: order, error } = await db
+    .from("orders")
+    .insert({
+      order_code: generateOrderCode(),
+      service_id: service.id,
+      customer_name: "مستخدم بوت الوسائط",
+      customer_contact: `tg:${tgUserId}`,
+      payment_method: "telegram_stars",
+      transfer_reference: `stars:${tgUserId}`,
+      amount_usd: service.price_usd,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+  if (error || !order) return null;
+  return { orderId: order.id, priceUsd: Number(service.price_usd) };
+}
+
+async function sendMediaPremiumInvoice(chatId: number, orderId: string, priceUsd: number): Promise<void> {
+  await tg("sendInvoice", {
+    chat_id: chatId,
+    title: "💎 ترقية بوت الوسائط",
+    description: `رفع حدك اليومي وأولوية أعلى في المعالجة — $${priceUsd}`,
+    payload: starsPayload("MEDIA_PREMIUM", orderId),
+    currency: "XTR",
+    prices: [{ label: "ترقية بريميوم", amount: starsForUsd(priceUsd) }],
+  });
+}
+
+async function handleMediaPremiumPayment(chatId: number, successfulPayment: any): Promise<void> {
+  const parsed = parseStarsPayload(String(successfulPayment?.invoice_payload || ""));
+  if (parsed?.kind !== "MEDIA_PREMIUM") return;
+  try {
+    const order = await decideOrder(parsed.userId, "approved");
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: `✅ تم الدفع بنجاح!\n\nأرسل الأمر التالي الآن لتفعيل ترقيتك:\n/premium ${order.order_code}`,
+    });
+  } catch (e) {
+    console.error("[media-stars] decideOrder failed", e);
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "✅ تم الدفع، لكن حدث خطأ أثناء التفعيل — تواصل مع الدعم واذكر أنك دفعت بنجوم تيليجرام.",
+    });
+  }
+}
+
 async function fallback(update: any, queued: boolean) {
   const cq = update.callback_query;
   if (cq) {
@@ -91,7 +160,8 @@ async function fallback(update: any, queued: boolean) {
     text:
       "👋 أهلاً بك!\n\n" +
       "أرسل رابط الفيديو أو المحتوى الذي تريد تحميله من فيسبوك، تويتر، أو انستغرام وسأرسله لك.\n" +
-      "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.",
+      "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.\n" +
+      "💎 لرفع حدك اليومي، أرسل: /premium_stars",
     reply_markup: miniAppKeyboard(),
   });
 }
@@ -106,6 +176,27 @@ export async function POST(req: NextRequest) {
   try {
     update = JSON.parse(raw);
   } catch {
+    return NextResponse.json({ ok: true });
+  }
+
+  // Telegram Stars premium purchase — always handled here, never forwarded
+  // to Render (see createMediaPremiumOrder's comment for why).
+  if (update.pre_checkout_query) {
+    await tg("answerPreCheckoutQuery", { pre_checkout_query_id: update.pre_checkout_query.id, ok: true });
+    return NextResponse.json({ ok: true });
+  }
+  if (update.message?.successful_payment) {
+    await handleMediaPremiumPayment(update.message.chat.id, update.message.successful_payment);
+    return NextResponse.json({ ok: true });
+  }
+  if (update.message?.text === "/premium_stars" && update.message.chat?.type === "private") {
+    const chatId = update.message.chat.id;
+    const created = await createMediaPremiumOrder(String(update.message.from.id));
+    if (!created) {
+      await tg("sendMessage", { chat_id: chatId, text: "⚠️ ترقية البريميوم غير متاحة حالياً، حاول لاحقاً." });
+    } else {
+      await sendMediaPremiumInvoice(chatId, created.orderId, created.priceUsd);
+    }
     return NextResponse.json({ ok: true });
   }
 
