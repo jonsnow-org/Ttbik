@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5849867626,
   "last_actor": "grok",
-  "updated_at": "2026-09-26T21:08:00Z",
+  "updated_at": "2026-09-26T22:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G205 /bots copy+faq+meta: one token = one webhook host; pasting same token on another platform cuts SouqTools webhook; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G204 /bots copy+faq+meta: setuserpic is BotFather-only; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G203 /bots copy+faq+meta: getUpdates conflicts with webhook; site does not merge modes; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G202 /bots copy+faq+meta: inline mode /setinline is BotFather-only; no extra orderCode. Form/AdSlot/page.tsx untouched.",

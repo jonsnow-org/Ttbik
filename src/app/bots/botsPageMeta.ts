@@ -51,6 +51,9 @@ export const botsMetadata: Metadata = {
     "صورة البوت",
     "setuserpic",
     "صورة ملف البوت",
+    "توكن واحد ويبهوك واحد",
+    "نفس التوكن على موقعين",
+    "منصة بوت أخرى",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
