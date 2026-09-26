@@ -48,6 +48,9 @@ export const botsMetadata: Metadata = {
     "وضع الإنلاين",
     "inline mode",
     "setinline",
+    "صورة البوت",
+    "setuserpic",
+    "صورة ملف البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
