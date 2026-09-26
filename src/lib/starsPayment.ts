@@ -63,7 +63,7 @@ export async function sendStarsInvoice(
 // Every invoice this platform sends carries "<kind>:<userId>" as its
 // payload — parsed back out of successful_payment to know whose balance to
 // credit and which bot's ledger it belongs to. "kind" values in use:
-// MATCH_DEPOSIT, CONFESSION_DEPOSIT, JOBS_DEPOSIT.
+// MATCH_DEPOSIT, CONFESSION_DEPOSIT, JOBS_DEPOSIT, ADBOT_DEPOSIT.
 export function starsPayload(kind: string, userId: string): string {
   return `${kind}:${userId}`;
 }
