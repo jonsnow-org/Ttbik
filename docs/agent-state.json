@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5845773116,
   "last_actor": "grok",
-  "updated_at": "2026-09-26T12:20:00Z",
+  "updated_at": "2026-09-26T13:16:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G199 /bots: restored full page after G198 truncation; visible Bot API file-size limit + FAQ + keywords. Form/AdSlot unchanged.",
     "G198 /bots: visible BotFather /setname /setdescription /setabouttext not from form and does not consume orderCode + FAQ + keywords. Form/AdSlot unchanged.",
     "G197 /bots: visible BotFather /setusername change does not consume orderCode + FAQ + keywords. Form/AdSlot unchanged.",
     "G196 /bots/health-check: visible webhook vs getUpdates conflict + FAQ + keywords. Form/AdSlot unchanged.",
