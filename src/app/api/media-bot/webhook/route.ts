@@ -78,54 +78,10 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
   return true;
 }
 
-const INFO_TEXT =
-  "ℹ️ طريقة الاستخدام\n\n" +
-  "1) أرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر.\n" +
-  "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n" +
-  "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n" +
-  "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n" +
-  "🎁 المشاركة (اختر وضعاً)\n" +
-  "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n" +
-  "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n" +
-  "• إيقاف: لا يُنشر في التطبيق\n" +
-  "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n" +
-  "👥 الغرف الخاصة\n" +
-  "أنشئ غرفة → يُفعَّل نشر الغرفة تلقائياً.\n" +
-  "شارك الرمز مع أصدقائك.\n\n" +
-  "📱 Mini-App: الزر المربع بجانب حقل الرسالة.";
-
-const PREMIUM_TEXT =
-  "💎 الترقية المدفوعة\n\n" +
-  "• حد يومي أعلى (50 تحميل)\n" +
-  "• أولوية أعلى في المعالجة\n\n" +
-  "⭐ ادفع مباشرة بنجوم تيليجرام (500 نجمة) من الزر أدناه — تفعيل فوري.";
-
-const PREMIUM_KB = { inline_keyboard: [[{ text: "⭐ ادفع بنجوم تيليجرام", callback_data: "premium_stars_buy" }]] };
-
-const SERVER_NEEDED_BUTTONS = new Set([
-  "📊 إحصائيات",
-  "📢 قنوات الاشتراك",
-  "📢 قناة الاشتراك الإجباري",
-  "⚙️ إعدادات البوت",
-  "👥 إدارة المستخدمين",
-  "⚙️ إعداداتي",
-  "👥 غرفتي",
-]);
-
 async function fallback(update: any, queued: boolean) {
   const cq = update.callback_query;
   if (cq) {
-    if (cq.data === "premium_stars_buy" && cq.message?.chat?.id) {
-      await tg("sendInvoice", {
-        chat_id: cq.message.chat.id,
-        title: "💎 ترقية بوت الوسائط",
-        description: "رفع حدك اليومي إلى 50 تحميل وأولوية أعلى في المعالجة.",
-        payload: "media_premium_stars",
-        currency: "XTR",
-        prices: [{ label: "ترقية بريميوم", amount: 500 }],
-      });
-    }
-    await tg("answerCallbackQuery", { callback_query_id: cq.id });
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: "⏳ خادم التحميل في استراحة قصيرة، جرّب بعد قليل." });
     return;
   }
 
@@ -151,54 +107,22 @@ async function fallback(update: any, queued: boolean) {
     }
     return;
   }
-
-  if (text === "/start" || text.startsWith("/start ")) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text:
-        "👋 أهلاً بك!\n\n" +
-        "أرسل رابط الفيديو أو المحتوى الذي تريد تحميله من فيسبوك، تويتر، أو انستغرام وسأرسله لك.\n" +
-        "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.",
-      reply_markup: miniAppKeyboard(),
-    });
-    return;
-  }
-
   if (URL_RE.test(text)) {
     await tg("sendMessage", {
       chat_id: chatId,
       text: queued
-        ? "🛠️ يوجد صيانة سريعة حالياً، حفظنا رابطك وسيصلك الملف تلقائياً فور انتهائها — لا حاجة لإعادة الإرسال.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة."
-        : "🛠️ يوجد صيانة سريعة حالياً. أعد إرسال الرابط بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
+        ? "📥 استلمنا رابطك وحفظناه.\nخادم التحميل في استراحة قصيرة، وسيصلك الملف تلقائياً فور عودته — لا حاجة لإعادة الإرسال.\n\n📱 في الأثناء التطبيق المصغر يعمل بالكامل."
+        : "⏳ خادم التحميل في استراحة قصيرة. أعد إرسال الرابط بعد قليل.\n\n📱 التطبيق المصغر يعمل بالكامل في الأثناء.",
       reply_markup: miniAppKeyboard(),
     });
     return;
   }
-
-  if (text === "ℹ️ معلومات" || text === "❓ مساعدة") {
-    await tg("sendMessage", { chat_id: chatId, text: INFO_TEXT, reply_markup: miniAppKeyboard() });
-    return;
-  }
-  if (text === "📥 تحميل وسائط") {
-    await tg("sendMessage", { chat_id: chatId, text: "أرسل الرابط مباشرة وسأعرض الخيارات." });
-    return;
-  }
-  if (text === "💎 الترقية المدفوعة" || text === "💎 الميزات المدفوعة") {
-    await tg("sendMessage", { chat_id: chatId, text: PREMIUM_TEXT, reply_markup: PREMIUM_KB });
-    return;
-  }
-  if (SERVER_NEEDED_BUTTONS.has(text)) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: "⏳ هذه الميزة تحتاج الخادم الرئيسي وهو غير متاح حالياً.\n📱 يمكنك تصفح التطبيق المصغر:",
-      reply_markup: miniAppKeyboard(),
-    });
-    return;
-  }
-
   await tg("sendMessage", {
     chat_id: chatId,
-    text: "أرسل رابطاً أو استخدم الأزرار.\n📱 أو تصفّح التطبيق المصغر:",
+    text:
+      "مرحباً 👋\nخادم التحميل في استراحة قصيرة الآن ⏳\n\n" +
+      "📱 التطبيق المصغر يعمل بالكامل: تصفّح، شاهد، واحصل على أي فيديو منه فوراً.\n" +
+      "🔗 وإن أرسلت رابطاً نحفظه ونرسل لك الملف تلقائياً فور عودة الخادم.",
     reply_markup: miniAppKeyboard(),
   });
 }
