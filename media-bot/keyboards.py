@@ -99,6 +99,12 @@ def squad_keyboard(has_squad: bool, code: str | None = None, members: int = 0) -
     return InlineKeyboardMarkup(rows)
 
 
+def premium_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⭐ ادفع بنجوم تيليجرام", callback_data="premium_stars_buy")]]
+    )
+
+
 def owner_force_sub_keyboard(channels: list[str]) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton("➕ إضافة قناة", callback_data="owner_add_force_sub")]]
     for i, ch in enumerate(channels):

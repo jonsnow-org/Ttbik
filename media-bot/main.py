@@ -13,7 +13,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from telegram import Update
+from telegram import LabeledPrice, Update
 from telegram.error import Conflict, NetworkError, TimedOut
 from telegram.ext import (
     Application,
@@ -22,6 +22,7 @@ from telegram.ext import (
     MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
+    PreCheckoutQueryHandler,
     filters,
 )
 
@@ -31,6 +32,7 @@ from keyboards import (
     user_main_keyboard,
     quality_keyboard,
     owner_force_sub_keyboard,
+    premium_keyboard,
     user_settings_keyboard,
     squad_keyboard,
     menu_button_webapp,
@@ -54,6 +56,15 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Telegram Stars (XTR) price for the $5 premium upgrade (owner spec,
+# 2026-09-26) — 100 Stars = $1, same rate the site's own bots use
+# (src/lib/starsPayment.ts), so this never credits more than what the owner
+# gets back on withdrawal. Paid straight into THIS bot's own Stars balance —
+# no provider, no signup, no NEXT_PUBLIC_SITE_URL round trip needed at all,
+# unlike the existing /premium <code> flow, which stays untouched for
+# whoever already paid by crypto through /service/media-bot-premium.
+PREMIUM_STARS_PRICE = 500
 
 
 def _squad_kb(user_id: int):
@@ -378,7 +389,11 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         await update.message.reply_text(body, parse_mode="Markdown", reply_markup=_squad_kb(user.id))
     elif text == "💎 الترقية المدفوعة":
-        await update.message.reply_text(_premium_info_text(user.id))
+        is_prem = store.is_premium(user.id)
+        await update.message.reply_text(
+            _premium_info_text(user.id),
+            reply_markup=None if is_prem else premium_keyboard(),
+        )
     elif text in ("ℹ️ معلومات", "❓ مساعدة"):
         await update.message.reply_text(INFO_TEXT)
     elif text.startswith("http"):
@@ -395,6 +410,8 @@ def _premium_info_text(user_id: int) -> str:
         "💎 الترقية المدفوعة\n\n"
         f"• حد يومي أعلى ({PREMIUM_DAILY_LIMIT} تحميل بدل {store.daily_limit(user_id)})\n"
         "• أولوية أعلى في المعالجة\n\n"
+        f"⭐ ادفع مباشرة بنجوم تيليجرام ({PREMIUM_STARS_PRICE} نجمة) من الزر أدناه — تفعيل فوري.\n\n"
+        "— أو —\n"
         f"1) اطلب الخدمة من: {site}/service/media-bot-premium\n"
         "2) بعد موافقة الإدارة على طلبك، أرسل هنا: /premium ثم رمز طلبك\n"
         "مثال: /premium ABC123"
@@ -477,6 +494,19 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         ok = await require_subscription(context.bot, user_id, store.force_sub_channels, query.message.chat_id)
         if ok:
             await query.edit_message_text("✅ تم التحقق. أرسل الرابط الآن.")
+        return
+    if data == "premium_stars_buy":
+        if store.is_premium(user_id):
+            await query.answer("الترقية مفعّلة بالفعل.", show_alert=True)
+            return
+        await context.bot.send_invoice(
+            chat_id=query.message.chat_id,
+            title="💎 ترقية بوت الوسائط",
+            description=f"رفع حدك اليومي إلى {PREMIUM_DAILY_LIMIT} تحميل وأولوية أعلى في المعالجة.",
+            payload="media_premium_stars",
+            currency="XTR",
+            prices=[LabeledPrice("ترقية بريميوم", PREMIUM_STARS_PRICE)],
+        )
         return
     if data in ("toggle_share_feed", "share_public_toggle"):
         new_val = not store.get_share_public(user_id)
@@ -676,6 +706,26 @@ async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, ti
         logger.warning("publish_feed_item failed: %s", e)
 
 
+async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Must be answered within 10s. Nothing to validate — a flat balance-less
+    # digital unlock, not stock/inventory — so this always approves.
+    if update.pre_checkout_query:
+        await update.pre_checkout_query.answer(ok=True)
+
+
+async def successful_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message or not update.message.successful_payment:
+        return
+    if update.message.successful_payment.invoice_payload != "media_premium_stars":
+        return
+    store.set_premium(user.id, "stars")
+    await _save(context.bot)
+    await update.message.reply_text(
+        f"✅ تم الدفع بنجاح! الترقية مفعّلة الآن.\nحدك اليومي: {PREMIUM_DAILY_LIMIT} تحميل."
+    )
+
+
 async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
         await update.message.reply_text(f"yt-dlp: {_yt_dlp_version()}")
@@ -715,6 +765,8 @@ def _build_app() -> Application:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, owner_text_handler), group=0)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, user_text_handler), group=1)
+    app.add_handler(PreCheckoutQueryHandler(precheckout_callback))
+    app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
     app.add_handler(CallbackQueryHandler(callbacks))
     return app
 
