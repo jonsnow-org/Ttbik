@@ -63,6 +63,16 @@ async function fallback(update: any, queued: boolean) {
     await tg("answerCallbackQuery", { callback_query_id: cq.id, text: "🛠️ صيانة سريعة جارية، جرّب بعد قليل." });
     return;
   }
+
+  if (update.pre_checkout_query) {
+    await tg("answerPreCheckoutQuery", {
+      pre_checkout_query_id: update.pre_checkout_query.id,
+      ok: false,
+      error_message: "الخدمة في صيانة سريعة، حاول بعد قليل.",
+    });
+    return;
+  }
+
   const msg = update.message;
   const chatId = msg?.chat?.id;
   if (!chatId || msg.chat.type !== "private") return;
@@ -86,12 +96,22 @@ async function fallback(update: any, queued: boolean) {
     });
     return;
   }
+
+  if (text === "/start" || text.startsWith("/start ")) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text:
+        "👋 أهلاً بك!\n\n" +
+        "أرسل رابط الفيديو أو المحتوى الذي تريد تحميله من فيسبوك، تويتر، أو انستغرام وسأرسله لك.\n" +
+        "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.",
+      reply_markup: miniAppKeyboard(),
+    });
+    return;
+  }
+
   await tg("sendMessage", {
     chat_id: chatId,
-    text:
-      "👋 أهلاً بك!\n\n" +
-      "أرسل رابط الفيديو أو المحتوى الذي تريد تحميله من فيسبوك، تويتر، أو انستغرام وسأرسله لك.\n" +
-      "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.",
+    text: "🛠️ يوجد صيانة سريعة حالياً، جرّب بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
     reply_markup: miniAppKeyboard(),
   });
 }
