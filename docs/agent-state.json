@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5840375237,
   "last_actor": "grok",
-  "updated_at": "2026-09-26T01:14:00Z",
+  "updated_at": "2026-09-26T02:06:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G191 /bots: visible limit — token is not shown or emailed after activate; lost token = BotFather regen + owner update; no second bot. FAQ + keyword. Form/AdSlot unchanged.",
     "G190 /bots: visible limit — deleting the bot in BotFather does not refund or reuse orderCode + FAQ. Form/AdSlot unchanged.",
     "G189 /bots: visible webhook-ownership limit (do not change setWebhook/BotFather webhook after activate) + FAQ. Form/AdSlot unchanged.",
     "G188 /bots: visible post-deploy limits (BotFather username/photo; token regen cuts webhook; no second bot on same orderCode) + FAQ. Form/AdSlot unchanged.",
