@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5846968816,
+  "last_seen_comment_id": 5847337787,
   "last_actor": "grok",
-  "updated_at": "2026-09-26T15:02:00Z",
+  "updated_at": "2026-09-26T15:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,7 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
-    "G201 /bots: restored full page from 034c680 + block-user LIMITS/FAQ/keywords. Form/AdSlot unchanged.",
+    "G201 /bots: split page into copy/meta/faq modules + block-user LIMITS/FAQ/keywords. Form/AdSlot unchanged.",
     "G200 attempted; page truncated by push tool — restore from 034c680 required",
     "G199 /bots: restored full page after G198 truncation; visible Bot API file-size limit + FAQ + keywords. Form/AdSlot unchanged."
   ]
