@@ -20,6 +20,10 @@ import sitemap from "@/app/sitemap";
  *      service page…) → one short "tweet" per page, from its own public
  *      <title>/<meta description>.
  * Slot 1 also posts a daily digest of the top news stories, linking to /news.
+ * Independently of slot or new content, once every 7 days it also posts a
+ * reminder promoting /bots' self-serve "activate your own bot" service
+ * (owner request, 2026-09-26 — the service exists but gets no customers
+ * without recurring marketing in the channel).
  *
  * Every outgoing text also passes isSafeForChannel() as a last line of
  * defence. Progress (what was already posted, which pages are known) is
@@ -35,6 +39,7 @@ type State = {
   posted: string[]; // changelog ids + "ann:<id>" + "page:<path>"
   pages: string[] | null; // known sitemap paths; null until the first baseline
   newsDay: string; // YYYY-MM-DD of the last news digest
+  lastBotPromoAt: string; // ISO timestamp of the last weekly "/bots" reminder
 };
 
 export type Post = { kind: string; key: string; text: string };
@@ -69,9 +74,10 @@ async function loadState(): Promise<State> {
       posted: Array.isArray(v.posted) ? v.posted : [],
       pages: Array.isArray(v.pages) ? v.pages : null,
       newsDay: typeof v.newsDay === "string" ? v.newsDay : "",
+      lastBotPromoAt: typeof v.lastBotPromoAt === "string" ? v.lastBotPromoAt : "",
     };
   } catch {
-    return { posted: [], pages: null, newsDay: "" };
+    return { posted: [], pages: null, newsDay: "", lastBotPromoAt: "" };
   }
 }
 
@@ -157,6 +163,34 @@ async function pageTweet(path: string): Promise<Post | null> {
   return { kind: "page", key: `page:${path}`, text };
 }
 
+// Weekly reminder (owner request, 2026-09-26: "بناء بوتات... لكن لا يوجد
+// زبائن، يحتاج تسويق في قناتنا") promoting the one bot-building service that
+// is always live and needs no owner configuration — /bots' self-serve
+// "activate a bot on your own token" flow. Deliberately separate from
+// getBotPromos()'s AD_BOT $100 manual-purchase pitch in the cron route
+// (gated behind PROMO_AD_BOT_USERNAME, and already mixed into that route's
+// random daily pool) — this one always has something to point to.
+const BOT_PROMO_FALLBACKS = [
+  "🤖 عندك فكرة بوت تليجرام ولا تعرف من أين تبدأ؟\nفعّل بوتك الخاص العامل فعلياً على توكنك خلال دقائق — بدون كتابة أي كود.",
+  "🤖 تبي بوت تليجرام خاص فيك؟ لا تحتاج مبرمجاً ولا تنتظر أسابيع.\nفعّله بنفسك الآن على توكنك في دقائق.",
+  "🤖 بوت تليجرام جاهز على توكنك الخاص، تملكه وتشغّله فوراً — بدون كتابة كود وبدون انتظار.",
+];
+async function weeklyBotPromoPost(): Promise<string> {
+  const url = `${SITE_URL}/bots`;
+  const fallback = BOT_PROMO_FALLBACKS[Math.floor(Math.random() * BOT_PROMO_FALLBACKS.length)];
+  try {
+    const hook = await callGroq(
+      "اكتب سطرين ترويجيين قصيرين بالعربية (بدون رابط، بدون هاشتاقات) يشجعان صاحب قناة أو مجموعة تليجرام على تفعيل بوت تليجرام خاص به يعمل على توكنه الخاص خلال دقائق، بدون كتابة كود.",
+      "تفعيل بوت تليجرام على توكنك الخاص",
+      200
+    );
+    if (hook.trim()) return `🤖 ${hook.trim()}\n\n👈 ${url}`;
+  } catch {
+    /* fall through to the fixed line */
+  }
+  return `${fallback}\n\n👈 ${url}`;
+}
+
 async function newsDigest(): Promise<string | null> {
   try {
     const stories = await fetchTopStories(5);
@@ -240,6 +274,18 @@ export async function publishNew(slot: number): Promise<{ posted: string[]; skip
         state.newsDay = today;
         posted.push("news");
       }
+    }
+  }
+
+  // Weekly "/bots" reminder — independent of slot and of whether anything
+  // else was posted this run, so it never silently starves behind new
+  // content or the news digest.
+  const lastPromo = state.lastBotPromoAt ? Date.parse(state.lastBotPromoAt) : 0;
+  if (!lastPromo || Date.now() - lastPromo >= 7 * 24 * 3600 * 1000) {
+    const promo = await weeklyBotPromoPost();
+    if (isSafeForChannel(promo) && (await sendToChannel(promo))) {
+      state.lastBotPromoAt = new Date().toISOString();
+      posted.push("bot-promo");
     }
   }
 
