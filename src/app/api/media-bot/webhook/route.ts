@@ -78,9 +78,53 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
   return true;
 }
 
+const INFO_TEXT =
+  "ℹ️ طريقة الاستخدام\n\n" +
+  "1) أرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر.\n" +
+  "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n" +
+  "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n" +
+  "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n" +
+  "🎁 المشاركة (اختر وضعاً)\n" +
+  "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n" +
+  "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n" +
+  "• إيقاف: لا يُنشر في التطبيق\n" +
+  "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n" +
+  "👥 الغرف الخاصة\n" +
+  "أنشئ غرفة → يُفعَّل نشر الغرفة تلقائياً.\n" +
+  "شارك الرمز مع أصدقائك.\n\n" +
+  "📱 Mini-App: الزر المربع بجانب حقل الرسالة.";
+
+const PREMIUM_TEXT =
+  "💎 الترقية المدفوعة\n\n" +
+  "• حد يومي أعلى (50 تحميل)\n" +
+  "• أولوية أعلى في المعالجة\n\n" +
+  "⭐ ادفع مباشرة بنجوم تيليجرام (500 نجمة) من الزر أدناه — تفعيل فوري.";
+
+const PREMIUM_KB = { inline_keyboard: [[{ text: "⭐ ادفع بنجوم تيليجرام", callback_data: "premium_stars_buy" }]] };
+
+const SERVER_NEEDED_BUTTONS = new Set([
+  "📊 إحصائيات",
+  "📢 قنوات الاشتراك",
+  "📢 قناة الاشتراك الإجباري",
+  "⚙️ إعدادات البوت",
+  "👥 إدارة المستخدمين",
+  "⚙️ إعداداتي",
+  "👥 غرفتي",
+]);
+
 async function fallback(update: any, queued: boolean) {
   const cq = update.callback_query;
   if (cq) {
+    if (cq.data === "premium_stars_buy" && cq.message?.chat?.id) {
+      await tg("sendInvoice", {
+        chat_id: cq.message.chat.id,
+        title: "💎 ترقية بوت الوسائط",
+        description: "رفع حدك اليومي إلى 50 تحميل وأولوية أعلى في المعالجة.",
+        payload: "media_premium_stars",
+        currency: "XTR",
+        prices: [{ label: "ترقية بريميوم", amount: 500 }],
+      });
+    }
     await tg("answerCallbackQuery", { callback_query_id: cq.id });
     return;
   }
@@ -131,8 +175,32 @@ async function fallback(update: any, queued: boolean) {
     return;
   }
 
-  // Everything else (admin buttons, settings, info, etc.): these live on
-  // Render. Stay silent — no misleading maintenance or welcome message.
+  if (text === "ℹ️ معلومات" || text === "❓ مساعدة") {
+    await tg("sendMessage", { chat_id: chatId, text: INFO_TEXT, reply_markup: miniAppKeyboard() });
+    return;
+  }
+  if (text === "📥 تحميل وسائط") {
+    await tg("sendMessage", { chat_id: chatId, text: "أرسل الرابط مباشرة وسأعرض الخيارات." });
+    return;
+  }
+  if (text === "💎 الترقية المدفوعة" || text === "💎 الميزات المدفوعة") {
+    await tg("sendMessage", { chat_id: chatId, text: PREMIUM_TEXT, reply_markup: PREMIUM_KB });
+    return;
+  }
+  if (SERVER_NEEDED_BUTTONS.has(text)) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: "⏳ هذه الميزة تحتاج الخادم الرئيسي وهو غير متاح حالياً.\n📱 يمكنك تصفح التطبيق المصغر:",
+      reply_markup: miniAppKeyboard(),
+    });
+    return;
+  }
+
+  await tg("sendMessage", {
+    chat_id: chatId,
+    text: "أرسل رابطاً أو استخدم الأزرار.\n📱 أو تصفّح التطبيق المصغر:",
+    reply_markup: miniAppKeyboard(),
+  });
 }
 
 export async function POST(req: NextRequest) {
