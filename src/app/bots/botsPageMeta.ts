@@ -54,6 +54,9 @@ export const botsMetadata: Metadata = {
     "توكن واحد ويبهوك واحد",
     "نفس التوكن على موقعين",
     "منصة بوت أخرى",
+    "ويبهوك HTTPS",
+    "webhook http",
+    "شهادة SSL الويبهوك",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
