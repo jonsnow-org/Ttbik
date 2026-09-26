@@ -6,26 +6,48 @@ import { getRenderUrl, hookPath, hookSecret, miniAppKeyboard, safeEqual, tg } fr
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const FORWARD_TIMEOUT_MS = 50_000;
+const FORWARD_TIMEOUT_MS = 25_000;
+const RETRY_DELAY_MS = 12_000;
+const RETRY_TIMEOUT_MS = 20_000;
 const URL_RE = /https?:\/\/\S+/i;
 
 type Outcome = "delivered" | "timeout" | "down";
 
-async function forward(raw: string, secret: string): Promise<Outcome> {
-  const base = await getRenderUrl().catch(() => "");
-  if (!base) return "down";
+async function forwardOnce(
+  base: string, path: string, raw: string, secret: string, timeoutMs: number,
+): Promise<{ ok: boolean; coldStart: boolean; down: boolean }> {
   try {
-    const r = await fetch(`${base}${hookPath()}`, {
+    const r = await fetch(`${base}${path}`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
       body: raw,
-      signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
-    if (r.ok) return "delivered";
-    return r.status === 502 || r.status === 503 ? "timeout" : "down";
+    if (r.ok) return { ok: true, coldStart: false, down: false };
+    if (r.status === 502 || r.status === 503) return { ok: false, coldStart: true, down: false };
+    return { ok: false, coldStart: false, down: true };
   } catch (e) {
-    return (e as Error)?.name === "TimeoutError" ? "timeout" : "down";
+    if ((e as Error)?.name === "TimeoutError") return { ok: false, coldStart: false, down: false };
+    return { ok: false, coldStart: false, down: true };
   }
+}
+
+async function forward(raw: string, secret: string): Promise<Outcome> {
+  const base = await getRenderUrl().catch(() => "");
+  if (!base) return "down";
+  const path = hookPath();
+
+  const r1 = await forwardOnce(base, path, raw, secret, FORWARD_TIMEOUT_MS);
+  if (r1.ok) return "delivered";
+
+  if (r1.coldStart) {
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    const r2 = await forwardOnce(base, path, raw, secret, RETRY_TIMEOUT_MS);
+    if (r2.ok) return "delivered";
+    return r2.down ? "down" : "timeout";
+  }
+
+  return r1.down ? "down" : "timeout";
 }
 
 async function enqueue(update: any): Promise<boolean> {
