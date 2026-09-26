@@ -47,19 +47,4 @@ export const metadata: Metadata = {
     "setabouttext",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
-  openGraph: {
-    title: "تفعيل بوت تليجرام — سوق تولز",
-    description:
-      "بوت يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
-    url: `${SITE}${PATH}`,
-    locale: "ar_AR",
-    type: "website",
-    images: [{ url: `${SITE}/opengraph-image` }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "تفعيل بوت تليجرام — سوق تولز",
-    description: "منتج جاهز على توكنك. طلب واحد = بوت واحد. لا سحب نقدي.",
-    images: [`${SITE}/opengraph-image`],
-  },
 };
