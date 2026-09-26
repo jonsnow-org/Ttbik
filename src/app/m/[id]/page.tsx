@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isTikTok, mediaBotUsername, mediaDb } from "@/lib/mediaSocial";
 import { mediaStreamUrl } from "@/lib/mediaStream";
+import AdSlot from "@/components/AdSlot";
 
 // Public share page for one media mini-app post: the "نسخ رابط خارجي"
 // link. Its Open Graph tags give a real preview card (thumbnail + title)
@@ -85,6 +86,9 @@ export default async function SharedMediaPage({ params }: { params: { id: string
             </a>
           )}
         </div>
+      </div>
+      <div className="mt-4">
+        <AdSlot position="in-content" label="أسفل مقطع مشارك" />
       </div>
     </div>
   );
