@@ -21,10 +21,9 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
       body: raw,
       signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
     });
-    return r.ok ? "delivered" : "down";
+    if (r.ok) return "delivered";
+    return r.status === 502 || r.status === 503 ? "timeout" : "down";
   } catch (e) {
-    // Render holds requests while a sleeping service boots; a timeout
-    // usually means "still waking up", not "gone".
     return (e as Error)?.name === "TimeoutError" ? "timeout" : "down";
   }
 }
@@ -60,7 +59,7 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
 async function fallback(update: any, queued: boolean) {
   const cq = update.callback_query;
   if (cq) {
-    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: "🛠️ صيانة سريعة جارية، جرّب بعد قليل." });
+    await tg("answerCallbackQuery", { callback_query_id: cq.id });
     return;
   }
 
@@ -86,16 +85,6 @@ async function fallback(update: any, queued: boolean) {
     }
     return;
   }
-  if (URL_RE.test(text)) {
-    await tg("sendMessage", {
-      chat_id: chatId,
-      text: queued
-        ? "🛠️ يوجد صيانة سريعة حالياً، حفظنا رابطك وسيصلك الملف تلقائياً فور انتهائها — لا حاجة لإعادة الإرسال.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة."
-        : "🛠️ يوجد صيانة سريعة حالياً. أعد إرسال الرابط بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
-      reply_markup: miniAppKeyboard(),
-    });
-    return;
-  }
 
   if (text === "/start" || text.startsWith("/start ")) {
     await tg("sendMessage", {
@@ -109,11 +98,19 @@ async function fallback(update: any, queued: boolean) {
     return;
   }
 
-  await tg("sendMessage", {
-    chat_id: chatId,
-    text: "🛠️ يوجد صيانة سريعة حالياً، جرّب بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
-    reply_markup: miniAppKeyboard(),
-  });
+  if (URL_RE.test(text)) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: queued
+        ? "🛠️ يوجد صيانة سريعة حالياً، حفظنا رابطك وسيصلك الملف تلقائياً فور انتهائها — لا حاجة لإعادة الإرسال.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة."
+        : "🛠️ يوجد صيانة سريعة حالياً. أعد إرسال الرابط بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
+      reply_markup: miniAppKeyboard(),
+    });
+    return;
+  }
+
+  // Everything else (admin buttons, settings, info, etc.): these live on
+  // Render. Stay silent — no misleading maintenance or welcome message.
 }
 
 export async function POST(req: NextRequest) {
