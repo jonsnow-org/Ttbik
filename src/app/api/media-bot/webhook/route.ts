@@ -60,7 +60,7 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
 async function fallback(update: any, queued: boolean) {
   const cq = update.callback_query;
   if (cq) {
-    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: "⏳ خادم التحميل في استراحة قصيرة، جرّب بعد قليل." });
+    await tg("answerCallbackQuery", { callback_query_id: cq.id, text: "🛠️ صيانة سريعة جارية، جرّب بعد قليل." });
     return;
   }
   const msg = update.message;
@@ -80,8 +80,8 @@ async function fallback(update: any, queued: boolean) {
     await tg("sendMessage", {
       chat_id: chatId,
       text: queued
-        ? "📥 استلمنا رابطك وحفظناه.\nخادم التحميل في استراحة قصيرة، وسيصلك الملف تلقائياً فور عودته — لا حاجة لإعادة الإرسال.\n\n📱 في الأثناء التطبيق المصغر يعمل بالكامل."
-        : "⏳ خادم التحميل في استراحة قصيرة. أعد إرسال الرابط بعد قليل.\n\n📱 التطبيق المصغر يعمل بالكامل في الأثناء.",
+        ? "🛠️ يوجد صيانة سريعة حالياً، حفظنا رابطك وسيصلك الملف تلقائياً فور انتهائها — لا حاجة لإعادة الإرسال.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة."
+        : "🛠️ يوجد صيانة سريعة حالياً. أعد إرسال الرابط بعد قليل.\n\n📱 يمكنك تصفح التطبيق المصغر لحين انتهاء الصيانة.",
       reply_markup: miniAppKeyboard(),
     });
     return;
@@ -89,9 +89,9 @@ async function fallback(update: any, queued: boolean) {
   await tg("sendMessage", {
     chat_id: chatId,
     text:
-      "مرحباً 👋\nخادم التحميل في استراحة قصيرة الآن ⏳\n\n" +
-      "📱 التطبيق المصغر يعمل بالكامل: تصفّح، شاهد، واحصل على أي فيديو منه فوراً.\n" +
-      "🔗 وإن أرسلت رابطاً نحفظه ونرسل لك الملف تلقائياً فور عودة الخادم.",
+      "👋 أهلاً بك!\n\n" +
+      "أرسل رابط الفيديو أو المحتوى الذي تريد تحميله من فيسبوك، تويتر، أو انستغرام وسأرسله لك.\n" +
+      "📱 أو تصفّح التطبيق المصغر مباشرة من الزر أدناه.",
     reply_markup: miniAppKeyboard(),
   });
 }
