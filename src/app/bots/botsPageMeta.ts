@@ -85,6 +85,10 @@ export const botsMetadata: Metadata = {
     "Telegram Stars",
     "XTR",
     "فواتير نجوم",
+    "قصص تليجرام",
+    "Telegram Stories",
+    "نشر قصة بوت",
+    "bot stories",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
