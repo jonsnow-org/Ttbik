@@ -93,15 +93,23 @@ def _unzip_nested(root: Path) -> None:
             z.unlink()
 
 
-def fetch_dataset(name: str, owner: str | None = None) -> Path | None:
+def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
-    or None when it doesn't exist yet / can't be reached."""
-    attached = _attached_dir(name)
-    if attached:
-        print(f"  • {name}: مرفقة كمُدخل ({attached})")
-        return attached
-    dest = FETCH_ROOT / name
-    if dest.exists() and any(dest.iterdir()):
+    or None when it doesn't exist yet / can't be reached.
+
+    fresh=True ignores an attached Input and any earlier download and pulls
+    the version that is latest RIGHT NOW -- used just before publishing, so
+    a notebook merges what another notebook published meanwhile instead of
+    overwriting it."""
+    if not fresh:
+        attached = _attached_dir(name)
+        if attached:
+            print(f"  • {name}: مرفقة كمُدخل ({attached})")
+            return attached
+    dest = FETCH_ROOT / (f"{name}__fresh" if fresh else name)
+    if fresh:
+        shutil.rmtree(dest, ignore_errors=True)
+    elif dest.exists() and any(dest.iterdir()):
         return dest
     user = _ensure_credentials()
     if not user:

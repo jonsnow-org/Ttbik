@@ -128,6 +128,11 @@ TRACKS: list[dict[str, Any]] = [
     },
 ]
 TRACK_BY_ID = {t["id"]: t for t in TRACKS}
+# Tracks where the owner deliberately keeps SEVERAL notebooks running side by side
+# (2026-09-27: both video notebooks, "we rely on both, exclude neither"). Their
+# notebooks merge into the shared dataset instead of overwriting it, so every one
+# of them is primary and resumed -- none is ever marked a deletable duplicate.
+MULTI_WRITER_TRACKS = {"video_corpus"}
 # Anything mentioning these but matching no track above is still Sham-related.
 SHAM_HINTS = ["sham", "شام", "Ttbik", "tokenizer.pt", "vqvae", "VQ-VAE", "nova"]
 
@@ -448,6 +453,10 @@ def assign_roles(kernels: list[KernelInfo]) -> None:
         by_track.setdefault(k.track, []).append(k)
     for track, ks in by_track.items():
         ks.sort(key=lambda k: (_STATUS_RANK.get(k.status, 0), k.last_run), reverse=True)
+        if track in MULTI_WRITER_TRACKS:
+            for k in ks:
+                k.role = "primary"
+            continue
         ks[0].role = "primary"
         for other in ks[1:]:
             other.role = "duplicate"
@@ -697,9 +706,12 @@ def _self_test() -> None:
         "me/notebooktext": "# شام — أول دورة تدريب نصية حقيقية\n'sham-checkpoint' sham_small_tokenizer.json",
         "me/stage2nb": "# المرحلة الثانية: إضافة الصورة والصوت\nfinal_multimodal.pt",
         "me/random": "print('hello world')",
+        "me/videoA": "# شام — مسار جمع وترميز الفيديو\n'sham-video-corpus' video_corpus_progress.json",
+        "me/videoB": "# شام — مسار جمع وترميز الفيديو\n'sham-video-corpus' video_corpus_progress.json",
     }
     statuses = {"me/notebook24ffaf0b22": "error", "me/notebookf4a8feee6": "complete", "me/notebookold111": "complete",
-                "me/notebooktext": "complete", "me/stage2nb": "error", "me/random": "complete"}
+                "me/notebooktext": "complete", "me/stage2nb": "error", "me/random": "complete",
+                "me/videoA": "complete", "me/videoB": "complete"}
 
     class FakeApi:
         def kernels_list(self, **kw):
@@ -736,6 +748,9 @@ def _self_test() -> None:
     assert roles["me/notebook24ffaf0b22"] == ("audio_tokenizer", "primary"), roles
     assert roles["me/notebookf4a8feee6"][1] == "primary" and roles["me/notebookold111"][1] == "duplicate", roles
     assert roles["me/random"] == (None, "not_sham"), roles
+    # both video notebooks are kept on purpose: both primary, both resumed
+    assert roles["me/videoA"] == ("video_corpus", "primary") and roles["me/videoB"] == ("video_corpus", "primary"), roles
+    assert {"me/videoA", "me/videoB"} <= set(reg["orchestrator_targets"]), reg["orchestrator_targets"]
     assert reg["pipeline"]["current_stage"] == "stage2_multimodal", reg["pipeline"]
     assert "sham-image-tokenizer-checkpoint" in reg["pipeline"]["next_step"]["do"]
     assert reg["pipeline"]["stages"]["image_tokenizer"]["progress"]["samples_consumed"] == 12000

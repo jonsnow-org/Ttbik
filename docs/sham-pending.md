@@ -63,6 +63,14 @@
 - بديل أغنى لاحقاً: HuggingFaceFV/finevideo (43k فيديو CC-BY بصوت وأوصاف ونصوص كلام) — مقفل (gated)
   ويحتاج HF_TOKEN وقبول الشروط مرة؛ لم يُتحقق من أعمدته.
 
+## 2026-09-27 — قرار المالكة: دفترا الفيديو يعملان معاً دائماً ("لا نستثني أياً منهما")
+- كلاهما ينشر إلى sham-video-corpus. لمنع المحو المتبادل: قبل النشر يجلب الدفتر آخر نسخة منشورة الآن
+  (`fetch_dataset(..., fresh=True)`) ويدمج (`merge_corpus_lines`: نفس المقطع = نفس hash، بلا تكرار)،
+  ويدمج سجل البصمات أيضاً. كل تشغيل يبدأ من جزء أرشيف عشوائي (`shuffle_splits`) فلا يتسابقان على نفس المقاطع.
+- sham_registry: `MULTI_WRITER_TRACKS = {"video_corpus"}` — كل دفاتر الفيديو "primary" ويستأنفها المنسّق كلها.
+- شرط: الدفتر القديم يجب أن يحمل الخلايا الجديدة (إعادة استيراد داخله)، وإلا يكتب فوق المجموعة بلا دمج وبفيديو صامت.
+- بقي نافذة سباق لثوانٍ عند النشر المتزامن تماماً؛ نادرة، والخسارة إن حدثت دفعة واحدة تُجمع في التشغيل التالي.
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.

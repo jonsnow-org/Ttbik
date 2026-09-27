@@ -77,7 +77,7 @@ SOURCES: dict[str, list[dict[str, Any]]] = {
         # is_cc=1 (Creative Commons) are kept; each is 10 s with its sound.
         {"id": "kinetics400-cc", "kind": "kinetics_tar",
          "splits": [f"train/part_{i}" for i in range(242)] + [f"val/part_{i}" for i in range(20)],
-         "video": "video", "text": "label", "require_true": "is_cc",
+         "video": "video", "text": "label", "require_true": "is_cc", "shuffle_splits": True,
          "license": "CC-BY (per-clip is_cc flag from the official Kinetics-400 annotations)"},
     ],
 }
@@ -337,7 +337,17 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
 
     with open(manifest_path, "w", encoding="utf-8") as manifest:
         for src in sources:
-            for split in src["splits"]:
+            splits = list(src["splits"])
+            if src.get("shuffle_splits"):
+                # Several notebooks may collect for the same corpus at the same time
+                # (owner keeps both video notebooks running). Starting each run at a
+                # random part makes them read different archive parts instead of
+                # racing for the same clips; order after that is unchanged.
+                import random
+
+                k = random.randrange(len(splits))
+                splits = splits[k:] + splits[:k]
+            for split in splits:
                 if stats.written >= max_samples:
                     break
                 key = f"{src['id']}/{split}"
@@ -497,11 +507,35 @@ def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledg
         ledger.exact.add(h)
         ledger.add_phash(ph)
         rel = [str(p.relative_to(out)) for p in frames[:num_frames]]
-        manifest.write(json.dumps({"frames": rel, "audio": audio_rel, "caption": text or None, "source": src["id"]},
-                                  ensure_ascii=False) + "\n")
+        manifest.write(json.dumps({"frames": rel, "audio": audio_rel, "caption": text or None, "source": src["id"],
+                                   "hash": h}, ensure_ascii=False) + "\n")
         return "ok"
 
     raise ValueError(kind)
+
+
+def merge_corpus_lines(*groups: list[str]) -> list[str]:
+    """Union of JSONL corpus lines from several writers, first occurrence kept,
+    in order. Same clip = same "hash" (content fingerprint); older entries
+    without a hash fall back to their exact token sequence. Lets two notebooks
+    publish to the same corpus without one erasing the other's additions."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for group in groups:
+        for line in group:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            key = entry.get("hash") or json.dumps(entry.get("tokens"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(line)
+    return out
 
 
 # ---------------------------------------------------------------- self-test
@@ -589,4 +623,11 @@ if __name__ == "__main__":
             assert sr == 16000 and 3.5 <= len(data) / sr <= 4.1, (sr, len(data) / sr)  # exactly the 4 s the frames cover
             assert by_cap["silent"]["audio"] is None, by_cap["silent"]
         print("video+audio collection: clip sound kept beside its frames (4 s at 16 kHz); silent clip -> audio=null")
+    # Two notebooks writing one corpus: nothing lost, nothing doubled.
+    a = [json.dumps({"hash": "h1", "tokens": [1]}), json.dumps({"hash": "h2", "tokens": [2]})]
+    b = [json.dumps({"hash": "h2", "tokens": [2]}), json.dumps({"hash": "h3", "tokens": [3]})]
+    legacy = [json.dumps({"tokens": [9, 9]}), json.dumps({"tokens": [9, 9]})]
+    merged = [json.loads(x) for x in merge_corpus_lines(a, legacy, b, a)]
+    assert [m.get("hash") for m in merged] == ["h1", "h2", None, "h3"], merged
+    print("merge_corpus_lines: concurrent writers merged without loss or duplicates")
     print("sham_data_sources self-test: OK")
