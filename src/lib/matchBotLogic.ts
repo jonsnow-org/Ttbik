@@ -1070,14 +1070,18 @@ export async function dispatchFakeChatCheck(userId: string, lastAt: number) {
   const botRow = await prisma.bot.findUnique({ where: { id: user.botId }, select: { webhookSecret: true } }).catch(() => null);
   if (!botRow?.webhookSecret) return;
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 2500);
-  await fetch(`${SITE_URL}/api/internal/fake-chat-timeout`, {
+  const timer = setTimeout(() => ac.abort(), 15_000);
+  const res = await fetch(`${SITE_URL}/api/internal/fake-chat-timeout`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-fake-chat-secret": botRow.webhookSecret },
     body: JSON.stringify({ userId, lastAt }),
     signal: ac.signal,
-  }).catch(() => null);
+  }).catch((e) => {
+    console.error("[fake-chat] dispatch failed", e);
+    return null;
+  });
   clearTimeout(timer);
+  if (res && res.status !== 202) console.error("[fake-chat] dispatch rejected", res.status);
 }
 
 export async function isValidFakeChatSecret(userId: string, secret: string) {
