@@ -117,6 +117,11 @@ export const botsMetadata: Metadata = {
     "Premium boost",
     "boost channel",
     "تعزيز قناة تليجرام",
+    "تفاعلات الرسائل",
+    "Message reactions",
+    "setMessageReaction",
+    "تفاعل رسالة تليجرام",
+    "حملة تفاعلات تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
