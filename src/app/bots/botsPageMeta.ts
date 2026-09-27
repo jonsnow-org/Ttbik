@@ -65,6 +65,10 @@ export const botsMetadata: Metadata = {
     "Telegram Payments",
     "setpayments",
     "فواتير البوت",
+    "setdomain",
+    "Telegram Login",
+    "ويدجت تسجيل تليجرام",
+    "نطاق بوت تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
