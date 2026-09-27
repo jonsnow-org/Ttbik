@@ -103,6 +103,10 @@ export const botsMetadata: Metadata = {
     "custom emoji",
     "newstickers",
     "إيموجي مخصص",
+    "Telegram Passport",
+    "جواز تليجرام",
+    "بيانات جواز البوت",
+    "مستندات هوية تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
