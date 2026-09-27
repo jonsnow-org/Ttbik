@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESC,
   alternates: { canonical: `${SITE}${PATH}` },
-  openGraph: { title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website", images: [{ url: `${SITE}/opengraph-image` }] },
+  openGraph: { title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website", images: [{ url: `${SITE}/og/cover.jpg`, width: 1200, height: 630 }] },
 };
 
 const JSON_LD = [

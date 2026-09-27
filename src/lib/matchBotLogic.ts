@@ -1,5 +1,6 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
+import { SITE_URL } from "@/lib/siteUrl";
 import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
@@ -1060,6 +1061,52 @@ async function shouldUseFakeBots(botId: string): Promise<boolean> {
 const FAKE_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 let _lastFakeChatCleanup = 0;
 
+// Serverless can't hold a 5-minute timer, so each bot message starts a chain
+// of short self-calls to /api/internal/fake-chat-timeout keyed on that
+// message's lastAt. A user reply writes a new lastAt, which makes the old
+// chain stop and a new one start.
+export async function dispatchFakeChatCheck(userId: string, lastAt: number) {
+  const user = await prisma.matchUser.findUnique({ where: { id: userId }, select: { botId: true } }).catch(() => null);
+  if (!user?.botId) return;
+  const botRow = await prisma.bot.findUnique({ where: { id: user.botId }, select: { webhookSecret: true } }).catch(() => null);
+  if (!botRow?.webhookSecret) return;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 2500);
+  await fetch(`${SITE_URL}/api/internal/fake-chat-timeout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-fake-chat-secret": botRow.webhookSecret },
+    body: JSON.stringify({ userId, lastAt }),
+    signal: ac.signal,
+  }).catch(() => null);
+  clearTimeout(timer);
+}
+
+export async function isValidFakeChatSecret(userId: string, secret: string) {
+  if (!secret) return false;
+  const user = await prisma.matchUser.findUnique({ where: { id: userId }, select: { botId: true } }).catch(() => null);
+  if (!user?.botId) return false;
+  const botRow = await prisma.bot.findUnique({ where: { id: user.botId }, select: { webhookSecret: true } }).catch(() => null);
+  return !!botRow?.webhookSecret && botRow.webhookSecret === secret;
+}
+
+// "stale": the user replied (or left) since this chain started — stop.
+// "ended": 5 minutes passed with no reply — disconnected now.
+// "waiting": not yet 5 minutes — keep chaining.
+export async function expireFakeChatIfIdle(userId: string, lastAt: number): Promise<"stale" | "ended" | "waiting"> {
+  const user = await prisma.matchUser.findUnique({ where: { id: userId } });
+  const p = user?.pendingAction as any;
+  if (!user || p?.mode !== "fake_chatting" || p.lastAt !== lastAt) return "stale";
+  if (Date.now() - lastAt < FAKE_CHAT_TIMEOUT_MS) return "waiting";
+  await setPending(userId, null);
+  const botRow = await prisma.bot.findUnique({ where: { id: user.botId } });
+  if (botRow) {
+    await new TelegramBot(botRow.token).api
+      .sendMessage(Number(userId), "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() })
+      .catch(() => null);
+  }
+  return "ended";
+}
+
 async function endFakeChat(bot: TelegramBot, chatId: number, tgUserId: string) {
   await setPending(tgUserId, null);
   await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
@@ -1107,19 +1154,14 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 
   if (nextStep >= script.nodes.length) { await endFakeChat(bot, chatId, tgUserId); return; }
 
-  await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() });
-  const _h = process.env.VERCEL_URL;
-  if (_h) {
-    fetch(`https://${_h}/api/internal/fake-chat-timeout`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startedAt: Date.now() }),
-    }).catch(() => null);
-  }
+  const lastAt = Date.now();
+  await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep, lastAt });
 
   if (!node.reply && node.next) {
-    await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() }, userText);
+    await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep, lastAt }, userText);
+    return;
   }
+  await dispatchFakeChatCheck(tgUserId, lastAt);
 }
 
 // ---------------------------------------------------------------------
@@ -1197,13 +1239,14 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
       await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
       await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
       await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
-      const _host = process.env.VERCEL_URL;
-      if (_host) {
-        fetch(`https://${_host}/api/internal/fake-chat-timeout`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ startedAt: Date.now() }),
-        }).catch(() => null);
+      // Restart the 5-minute clock from the greeting itself, unless the user
+      // already replied during the greeting delay (that reply owns the clock).
+      const now = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
+      const p = now?.pendingAction as any;
+      if (p?.mode === "fake_chatting" && p.fakeBotId === fakeBotId && p.step === 0) {
+        const lastAt = Date.now();
+        await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt });
+        await dispatchFakeChatCheck(tgUserId, lastAt);
       }
       return;
     }

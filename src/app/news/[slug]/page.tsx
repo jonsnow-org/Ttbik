@@ -25,7 +25,7 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
       url,
       locale: "ar_AR",
       type: "article",
-      images: [{ url: `${SITE}/opengraph-image` }],
+      images: [{ url: `${SITE}/og/news.jpg`, width: 1200, height: 630 }],
     },
   };
 }

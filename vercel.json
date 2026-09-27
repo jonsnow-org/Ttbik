@@ -54,7 +54,7 @@
     },
     {
       "path": "/api/cron/fake-chat-cleanup",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 1 * * *"
     }
   ],
   "git": {

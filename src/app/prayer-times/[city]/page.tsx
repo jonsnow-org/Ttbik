@@ -28,7 +28,7 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
       url: `${SITE}/prayer-times/${city.slug}`,
       locale: "ar_AR",
       type: "website",
-      images: [{ url: `${SITE}/opengraph-image` }],
+      images: [{ url: `${SITE}/og/cover.jpg`, width: 1200, height: 630 }],
     },
   };
 }

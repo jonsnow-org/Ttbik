@@ -194,12 +194,43 @@ async function weeklyBotPromoPost(): Promise<string | null> {
   return `${hook}\n\n🔗 هنا: ${botLink}\n💰 السعر: 100$ (تحويل بنكي)\nالتفعيل يتم يدوياً فقط: افتح البوت واضغط زر «أريد بوتاً مماثلاً» من القائمة، ثم اتبع الخطوات — لا تفعيل تلقائي ولا كود مجاني.`;
 }
 
-async function newsDigest(): Promise<string | null> {
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Plain text is what isSafeForChannel() inspects; html is what gets posted,
+// with every headline linking straight to its original article.
+async function newsDigest(): Promise<{ text: string; html: string; previewUrl: string } | null> {
   try {
     const stories = await fetchTopStories(5);
     if (stories.length === 0) return null;
-    const lines = stories.map((s, i) => `${i + 1}. ${s.items[0].title} — ${s.items[0].source}`);
-    return `📰 أبرز أخبار اليوم\n\n${lines.join("\n\n")}\n\n🔎 تفاصيل وتغطية من عدة مصادر: ${SITE_URL}/news`;
+    // Dated query string: Telegram caches link previews per exact URL, so a
+    // fresh stamp each day makes it fetch the current preview card.
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const newsUrl = `${SITE_URL}/news?d=${day}`;
+    const count = (n: number) => (n >= 3 ? `📡 ${n} مصادر` : "📡 مصدران");
+    const text = stories
+      .map((s, i) => `${i + 1}. ${s.items[0].title} — ${s.items[0].source} (${s.sources})\n${s.items[0].link}`)
+      .join("\n\n");
+    const html = stories
+      .map((s, i) => {
+        const top = s.items[0];
+        const others = s.items
+          .slice(1, 3)
+          .map((it) => `<a href="${escapeHtml(it.link)}">${escapeHtml(it.source)}</a>`)
+          .join(" · ");
+        return (
+          `<b>${i + 1}. <a href="${escapeHtml(top.link)}">${escapeHtml(top.title)}</a></b>\n` +
+          `— ${escapeHtml(top.source)} · ${count(s.sources)}` +
+          (others ? `\nتغطية أخرى: ${others}` : "")
+        );
+      })
+      .join("\n\n");
+    return {
+      text: `📰 أبرز أخبار اليوم\n\n${text}\n\n${newsUrl}`,
+      html: `📰 <b>أبرز أخبار اليوم</b>\n\n${html}\n\n🔎 <a href="${escapeHtml(newsUrl)}">كل التفاصيل والتغطية من عدة مصادر</a>`,
+      previewUrl: newsUrl,
+    };
   } catch {
     return null;
   }
@@ -208,14 +239,26 @@ async function newsDigest(): Promise<string | null> {
 // ---------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------
-export async function sendToChannel(text: string): Promise<boolean> {
+export async function sendToChannel(
+  text: string,
+  opts: { html?: boolean; previewUrl?: string } = {}
+): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const channel = process.env.TELEGRAM_CHANNEL_ID;
   if (!token || !channel) return false;
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: channel, text: text.slice(0, 4000) }),
+    body: JSON.stringify({
+      chat_id: channel,
+      text: text.slice(0, 4000),
+      ...(opts.html ? { parse_mode: "HTML" } : {}),
+      // Pin the preview card to our own page (large image, under the text)
+      // instead of whichever source link happens to come first.
+      ...(opts.previewUrl
+        ? { link_preview_options: { url: opts.previewUrl, prefer_large_media: true, show_above_text: false } }
+        : {}),
+    }),
   }).catch(() => null);
   const data = res ? await res.json().catch(() => null) : null;
   return data?.ok === true;
@@ -273,7 +316,12 @@ export async function publishNew(slot: number): Promise<{ posted: string[]; skip
     const today = new Date().toISOString().slice(0, 10);
     if (state.newsDay !== today) {
       const digest = await newsDigest();
-      if (digest && isSafeForChannel(digest) && (await sendToChannel(digest))) {
+      if (
+        digest &&
+        isSafeForChannel(digest.text) &&
+        digest.html.length <= 4000 &&
+        (await sendToChannel(digest.html, { html: true, previewUrl: digest.previewUrl }))
+      ) {
         state.newsDay = today;
         posted.push("news");
       }

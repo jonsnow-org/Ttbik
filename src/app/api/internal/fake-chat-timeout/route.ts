@@ -1,33 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cleanupExpiredFakeChats } from "@/lib/matchBotLogic";
-import { prisma } from "@/lib/prisma";
+import { dispatchFakeChatCheck, expireFakeChatIfIdle, isValidFakeChatSecret } from "@/lib/matchBotLogic";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
+const STEP_MS = 50_000;
+const TIMEOUT_MS = 5 * 60 * 1000;
+
 export async function POST(req: NextRequest) {
-  const { startedAt } = await req.json().catch(() => ({ startedAt: Date.now() }));
-
-  await new Promise((r) => setTimeout(r, 55_000));
-
-  const cleaned = await cleanupExpiredFakeChats().catch(() => 0);
-
-  const remaining = await prisma.matchUser
-    .count({ where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } } })
-    .catch(() => 0);
-
-  if (remaining > 0 && Date.now() - startedAt < 7 * 60 * 1000) {
-    const host = req.headers.get("host") || process.env.VERCEL_URL;
-    if (host) {
-      const proto = host.includes("localhost") ? "http" : "https";
-      fetch(`${proto}://${host}/api/internal/fake-chat-timeout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startedAt }),
-      }).catch(() => null);
-      await new Promise((r) => setTimeout(r, 300));
-    }
+  const body = await req.json().catch(() => null);
+  const userId = typeof body?.userId === "string" ? body.userId : "";
+  const lastAt = typeof body?.lastAt === "number" ? body.lastAt : 0;
+  if (!userId || !lastAt) return NextResponse.json({ ok: false }, { status: 400 });
+  if (!(await isValidFakeChatSecret(userId, req.headers.get("x-fake-chat-secret") || ""))) {
+    return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  return NextResponse.json({ ok: true, cleaned, remaining });
+  const remaining = lastAt + TIMEOUT_MS - Date.now();
+  if (remaining > 0) await new Promise((r) => setTimeout(r, Math.min(remaining + 500, STEP_MS)));
+
+  const state = await expireFakeChatIfIdle(userId, lastAt).catch(() => "stale" as const);
+  if (state === "waiting") await dispatchFakeChatCheck(userId, lastAt);
+  return NextResponse.json({ ok: true, state });
 }

@@ -27,13 +27,13 @@ export const metadata: Metadata = {
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
-    images: [{ url: `${SITE}/opengraph-image` }],
+    images: [{ url: `${SITE}/og/cover.jpg`, width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "حاسبة أرباح قناة أو بوت تليجرام | سوق تولز",
     description: "تقدير تقريبي حسب المشاهدات وCPM. بلا توكن وبلا وعد بربح.",
-    images: [`${SITE}/opengraph-image`],
+    images: [`${SITE}/og/cover.jpg`],
   },
 };
 

@@ -22,13 +22,13 @@ export const metadata: Metadata = {
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
-    images: [{ url: `${SITE}/opengraph-image` }],
+    images: [{ url: `${SITE}/og/news.jpg`, width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "أخبار وأحداث | سوق تولز",
     description: "شريط عاجل من مصادر موثوقة.",
-    images: [`${SITE}/opengraph-image`],
+    images: [`${SITE}/og/news.jpg`],
   },
 };
 
