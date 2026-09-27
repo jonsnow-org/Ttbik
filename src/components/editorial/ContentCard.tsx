@@ -25,7 +25,7 @@ export default function ContentCard({
   };
   return (
     <li className="group relative list-none">
-      <div className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-md">
+      <div className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm transition [@media(hover:hover)]:hover:border-sky-200 [@media(hover:hover)]:hover:shadow-md">
         <div className="h-1.5 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500 opacity-80 transition group-hover:opacity-100" />
         <div className="p-4 sm:p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-bold">
@@ -35,7 +35,11 @@ export default function ContentCard({
             {dateLabel && <span className="text-slate-500">{dateLabel}</span>}
             {meta && <span className="text-slate-400">· {meta}</span>}
           </div>
-          <Link href={href} className="text-lg font-extrabold leading-8 text-slate-900 group-hover:text-sky-800">
+          {/* the ::after overlay stretches this link over the whole card, so any tap opens it */}
+          <Link
+            href={href}
+            className="text-lg font-extrabold leading-8 text-slate-900 after:absolute after:inset-0 after:rounded-3xl after:content-[''] group-hover:text-sky-800"
+          >
             {title}
           </Link>
           <p className="mt-2 text-sm leading-7 text-slate-600">{blurb}</p>
