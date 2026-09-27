@@ -5,11 +5,13 @@ Why this exists (problems found in the real runs):
     (Mozilla removed the files) — the audio track had nothing to read.
   * sayakpaul/ucf101-subset holds only 2 videos — the video track kept
     re-encoding the same two clips. Its replacement, the Hugging Face copy of
-    Kinetics (nateraw/kinetics), turned out to have NO per-clip licence
-    column (only video + label), so the CC-only filter rejected every clip
-    and the video track collected 0 videos (2026-09-27). Video now streams
-    the ORIGINAL Kinetics-400 archives, whose official annotations carry
-    the per-clip `is_cc` flag (~3% of clips, ~7.6k, each 10 s with sound).
+    Kinetics (nateraw/kinetics), works but holds only 4,000 clips (2 archive
+    parts per split, ~3% of them CC-licensed) and gives the label as a class
+    NUMBER, not words. Video now streams the ORIGINAL Kinetics-400 archives
+    with the official annotations: same per-clip `is_cc` flag, ~7.6k CC clips
+    (each 10 s with sound), and the label as real text ("playing guitar").
+    Clips already collected from the HF copy are the same files, so the
+    merged ledger's exact hashes skip them.
   * "skip" was the number of SAVED samples, but a stream also consumes
     examples it drops (empty caption, dead URL, bad file), so every resume
     restarted inside already-used data -> repeats. And one progress counter
