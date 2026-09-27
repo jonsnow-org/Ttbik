@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5852178704,
   "last_actor": "grok",
-  "updated_at": "2026-09-27T03:08:00Z",
+  "updated_at": "2026-09-27T04:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G211 /bots copy+faq+meta: Mini App / setmenubutton / web_app are Telegram-only; site does not attach a mini-app or menu button to the customer bot; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G210 /bots copy+faq+meta: transfer ownership / add bot admin is BotFather /mybots only; site does not transfer ownership; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G209 /bots copy+faq+meta: /setdomain and Telegram Login Widget are BotFather-only; site does not attach a domain or enable login widget; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G208 /bots copy+faq+meta: Telegram Payments /setpayments is BotFather-only; site does not enable card invoices inside Telegram and does not cash-withdraw; no extra orderCode. Form/AdSlot/page.tsx untouched.",
