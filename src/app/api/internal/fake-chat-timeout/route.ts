@@ -41,34 +41,7 @@ export async function POST(req: NextRequest) {
 
 // Anonymous status: how many fake chats are open and how long each has been
 // idle. No user IDs are exposed.
-export async function GET(req: NextRequest) {
-  if (req.nextUrl.searchParams.get("kick") === "1") {
-    const open = await prisma.matchUser.findMany({
-      where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
-      select: { id: true, pendingAction: true },
-    });
-    for (const u of open) {
-      const la = (u.pendingAction as any)?.lastAt;
-      await logFakeChatEvent(`kick: lastAt type=${typeof la}`);
-      if (typeof la === "number") await dispatchFakeChatCheck(u.id, la);
-    }
-    return NextResponse.json({ kicked: open.length });
-  }
-  const st = Number(req.nextUrl.searchParams.get("selftest") || 0);
-  if (st >= 1 && st <= 2) {
-    await logFakeChatEvent(`selftest ${st} start`);
-    waitUntil(
-      (async () => {
-        await new Promise((r) => setTimeout(r, STEP_MS));
-        await logFakeChatEvent(`selftest ${st} after sleep`);
-        if (st < 2) {
-          const res = await fetch(`${req.nextUrl.origin}/api/internal/fake-chat-timeout?selftest=${st + 1}`).catch((e) => e as Error);
-          await logFakeChatEvent(`selftest ${st} chained -> ${res instanceof Response ? res.status : String(res)}`);
-        }
-      })()
-    );
-    return NextResponse.json({ selftest: st, queued: true });
-  }
+export async function GET() {
   const rows = await prisma.matchUser.findMany({
     where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
     select: { pendingAction: true },
