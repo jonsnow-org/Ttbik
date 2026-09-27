@@ -122,6 +122,11 @@ export const botsMetadata: Metadata = {
     "setMessageReaction",
     "تفاعل رسالة تليجرام",
     "حملة تفاعلات تليجرام",
+    "وسائط مدفوعة",
+    "Paid Media",
+    "sendPaidMedia",
+    "محتوى مدفوع تليجرام",
+    "وسائط مدفوعة بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
