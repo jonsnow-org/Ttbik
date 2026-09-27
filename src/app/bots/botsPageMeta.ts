@@ -73,6 +73,11 @@ export const botsMetadata: Metadata = {
     "mybots",
     "مدير بوت مشارك",
     "نقل ملكية BotFather",
+    "Mini App",
+    "web_app",
+    "setmenubutton",
+    "زر قائمة البوت",
+    "تطبيق مصغر تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
