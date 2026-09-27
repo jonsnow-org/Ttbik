@@ -126,7 +126,8 @@ type PendingAction =
   | { mode: "verify_badge_photo" }
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
   | { mode: "advanced_filter_wizard"; step: "city" | "maritalStatus"; data: { city?: string | null; maritalStatus?: string | null } }
-  | { mode: "superlike_note"; targetUserId: string };
+  | { mode: "superlike_note"; targetUserId: string }
+  | { mode: "fake_chatting"; fakeBotId: number; step: number };
 
 const SKIP_LABEL = "⏭ غير محدد / لا يهم";
 
@@ -975,6 +976,140 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
 }
 
 // ---------------------------------------------------------------------
+// Fake bots for random chat (owner spec, 2026-09-27)
+// Simulated conversation partners to make the bot appear active.
+// Disabled once 100+ active subscribers exist.
+// ---------------------------------------------------------------------
+const FAKE_BOT_ACTIVE_THRESHOLD = 100;
+
+type FakeBotNode = {
+  reply: string;
+  next?: Record<string, number> | number;
+  disconnect?: boolean;
+  delayMs?: number;
+};
+
+type FakeBotScript = {
+  greeting: string;
+  greetingDelay?: number;
+  nodes: FakeBotNode[];
+};
+
+const FAKE_BOT_SCRIPTS: FakeBotScript[] = [
+  {
+    greeting: "مرحبا",
+    greetingDelay: 1500,
+    nodes: [
+      { reply: "شب ولا بنت؟", delayMs: 2000 },
+      {
+        reply: "",
+        next: { "شب": 2, "شاب": 2, "ذكر": 2, "رجال": 2, "ولد": 2, _default: 3 },
+      },
+      { reply: "آسف، ما أتكلم مع شباب 😅 يلا باي", disconnect: true, delayMs: 1500 },
+      { reply: "أهلين! من أي بلد؟", delayMs: 2000 },
+      { reply: "حلو! كم عمرك؟", delayMs: 2500 },
+      { reply: "تمام، يلا كان ظرف لطيف 😊 باي!", disconnect: true, delayMs: 2000 },
+    ],
+  },
+  {
+    greeting: "شب وانت؟",
+    greetingDelay: 1800,
+    nodes: [
+      { reply: "تمام، من وين؟", delayMs: 2000 },
+      { reply: "حلو، وش تسوي بالحياة؟", delayMs: 2500 },
+      { reply: "الله يوفقك! انا لازم اروح الحين، يلا مع السلامة 👋", disconnect: true, delayMs: 2000 },
+    ],
+  },
+  {
+    greeting: "نوعك؟",
+    greetingDelay: 1200,
+    nodes: [
+      { reply: "عمرك كم؟", delayMs: 2000 },
+      { reply: "من وين؟", delayMs: 2000 },
+      { reply: "اها تمام، الله يسعدك! بروح الحين 😊", disconnect: true, delayMs: 2500 },
+    ],
+  },
+  {
+    greeting: "من وين؟",
+    greetingDelay: 1500,
+    nodes: [
+      { reply: "حلو! انا من السعودية، نوعك؟", delayMs: 2000 },
+      { reply: "كم العمر؟", delayMs: 2000 },
+      { reply: "وش اهتماماتك؟", delayMs: 2500 },
+      { reply: "حلوو! طيب كان ظرف حلو، يلا مع السلامة ✌️", disconnect: true, delayMs: 2000 },
+    ],
+  },
+  {
+    greeting: "السلام عليكم",
+    greetingDelay: 2000,
+    nodes: [
+      { reply: "وعليكم السلام! كيف الحال؟", delayMs: 2000 },
+      { reply: "الحمدلله! انت من وين؟", delayMs: 2500 },
+      { reply: "ماشاءالله! وش تشتغل/تدرس؟", delayMs: 2500 },
+      { reply: "الله يوفقك 🤲 طيب انا لازم اطلع، تشرفت فيك!", disconnect: true, delayMs: 2000 },
+    ],
+  },
+];
+
+async function shouldUseFakeBots(botId: string): Promise<boolean> {
+  const activeCount = await prisma.matchUser.count({
+    where: {
+      botId,
+      lastActiveAt: { gt: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+    },
+  });
+  return activeCount < FAKE_BOT_ACTIVE_THRESHOLD;
+}
+
+function resolveFakeBotStep(script: FakeBotScript, currentStep: number, userText: string): number {
+  const node = script.nodes[currentStep];
+  if (!node?.next) return currentStep + 1;
+  if (typeof node.next === "number") return node.next;
+  const lower = userText.trim().toLowerCase();
+  for (const [keyword, targetStep] of Object.entries(node.next)) {
+    if (keyword === "_default") continue;
+    if (lower.includes(keyword)) return targetStep;
+  }
+  return node.next._default ?? currentStep + 1;
+}
+
+async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number }, userText: string) {
+  const script = FAKE_BOT_SCRIPTS[pending.fakeBotId];
+  if (!script) {
+    await setPending(tgUserId, null);
+    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    return;
+  }
+
+  const nextStep = resolveFakeBotStep(script, pending.step, userText);
+  const nextNode = script.nodes[nextStep];
+
+  if (!nextNode || nextStep >= script.nodes.length) {
+    await setPending(tgUserId, null);
+    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    return;
+  }
+
+  await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep });
+
+  if (nextNode.reply) {
+    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 2000));
+    await bot.api.sendMessage(chatId, nextNode.reply).catch(() => null);
+  }
+
+  if (nextNode.disconnect) {
+    await new Promise((r) => setTimeout(r, 1000));
+    await setPending(tgUserId, null);
+    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    return;
+  }
+
+  if (!nextNode.reply && nextNode.next) {
+    await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep }, userText);
+  }
+}
+
+// ---------------------------------------------------------------------
 // Random anonymous chat
 // ---------------------------------------------------------------------
 async function findWaitingPartner(botId: string, selfId: string) {
@@ -1012,6 +1147,18 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
     await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
     return;
   }
+
+  if (await shouldUseFakeBots(botRow.id)) {
+    const fakeBotId = Math.floor(Math.random() * FAKE_BOT_SCRIPTS.length);
+    const script = FAKE_BOT_SCRIPTS[fakeBotId];
+    await animateSearchingMessage(bot, chatId);
+    await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0 });
+    await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+    await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
+    await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
+    return;
+  }
+
   await prisma.randomChatQueue.create({
     data: { userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
   });
@@ -1649,6 +1796,11 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (!text) return;
 
   if (isBack(text)) {
+    if (pending?.mode === "fake_chatting") {
+      await setPending(tgUserId, null);
+      await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+      return;
+    }
     if (pending?.mode === "random_chatting") {
       await endRandomChat(bot, tgUserId, pending.sessionId, pending.partnerId, "end");
       return;
@@ -1671,6 +1823,17 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (text === "/start") {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "أهلاً بك 👋", { reply_markup: mainMenu() });
+    return;
+  }
+
+  // Active fake bot chat: handle control buttons and relay to script.
+  if (pending?.mode === "fake_chatting") {
+    if (text === "⏹ إنهاء المحادثة" || text === "⛔ حظر" || text === "🚩 إبلاغ") {
+      await setPending(tgUserId, null);
+      await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+      return;
+    }
+    await handleFakeBotReply(bot, chatId, tgUserId, pending, text);
     return;
   }
 

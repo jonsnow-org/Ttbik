@@ -58,9 +58,9 @@ function isBack(text: string): boolean {
 }
 function mainMenu(): Keyboard {
   return new Keyboard()
-    .text("📬 صندوقي").text("📊 الإحصائيات").row()
-    .text("⚙️ الترقيات").text("💰 رصيدي وإيداع").row()
-    .text("ℹ️ معلومات").resized();
+    .text("📬 صندوقي").text("🔗 مشاركة الرابط").row()
+    .text("📊 الإحصائيات").text("⚙️ الترقيات").row()
+    .text("💰 رصيدي وإيداع").text("ℹ️ معلومات").resized();
 }
 function upgradesMenu(user: Pick<ConfessionUserRow, "revealSenderUnlocked" | "unlimitedRepliesUnlocked">): Keyboard {
   const kb = new Keyboard();
@@ -504,27 +504,33 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     return;
   }
 
-  if (text === "📬 صندوقي") {
+  if (text === "🔗 مشاركة الرابط") {
     const me = await bot.api.getMe();
     const link = `https://t.me/${me.username}?start=${tgUserId}`;
-    const messages = await prisma.confessionMessage.findMany({
-      where: { boxOwnerId: tgUserId },
-      orderBy: { created_at: "desc" },
-      take: INBOX_PAGE_SIZE,
-    });
-    let body = `🔗 رابط صندوقك — شاركه ليصلك الاعترافات:\n${link}`;
     const shareText = "أرسل لي رسالة مجهولة 👀 لن أعرف من أنت أبداً 🤫";
     const shareKb = new InlineKeyboard().url(
       "📣 انشر صندوقي في محادثاتك ومجموعاتك",
       `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(shareText)}`
     );
+    await bot.api.sendMessage(
+      chatId,
+      `🔗 رابط صندوقك:\n${link}\n\nشارك هذا الرابط مع من تريد وضعه في اي مكان على حساباتك لتتلقى رسائل من مجهولين`,
+      { reply_markup: shareKb }
+    );
+    return;
+  }
+
+  if (text === "📬 صندوقي") {
+    const messages = await prisma.confessionMessage.findMany({
+      where: { boxOwnerId: tgUserId },
+      orderBy: { created_at: "desc" },
+      take: INBOX_PAGE_SIZE,
+    });
     if (messages.length === 0) {
-      body += "\n\n😔 لا توجد اعترافات بعد — انشر رابطك ليبدأ أصدقاؤك بالكتابة.";
-      await bot.api.sendMessage(chatId, body, { reply_markup: shareKb });
+      await bot.api.sendMessage(chatId, "😔 لا توجد اعترافات بعد — انشر رابطك من «🔗 مشاركة الرابط» ليبدأ أصدقاؤك بالكتابة.", { reply_markup: mainMenu() });
       return;
     }
-    body += `\n\n📥 آخر ${messages.length} اعتراف:`;
-    await bot.api.sendMessage(chatId, body, { reply_markup: shareKb });
+    await bot.api.sendMessage(chatId, `📥 آخر ${messages.length} اعتراف:`);
     for (const m of messages) {
       const label = senderLabel(m, user.revealSenderUnlocked);
       const replyBlock = m.reply ? `\n\n↩️ ردك: ${m.reply}` : "";
