@@ -1000,53 +1000,49 @@ const FAKE_BOT_SCRIPTS: FakeBotScript[] = [
     greeting: "مرحبا",
     greetingDelay: 1500,
     nodes: [
-      { reply: "شب ولا بنت؟", delayMs: 2000 },
+      { reply: "نوعك؟", delayMs: 2000 },
       {
         reply: "",
         next: { "شب": 2, "شاب": 2, "ذكر": 2, "رجال": 2, "ولد": 2, _default: 3 },
       },
-      { reply: "آسف، ما أتكلم مع شباب 😅 يلا باي", disconnect: true, delayMs: 1500 },
-      { reply: "أهلين! من أي بلد؟", delayMs: 2000 },
-      { reply: "حلو! كم عمرك؟", delayMs: 2500 },
-      { reply: "تمام، يلا كان ظرف لطيف 😊 باي!", disconnect: true, delayMs: 2000 },
+      { reply: "", disconnect: true, delayMs: 3000 },
+      { reply: "من وين", delayMs: 2000 },
+      { reply: "", disconnect: true, delayMs: 4000 },
     ],
   },
   {
     greeting: "شب وانت؟",
     greetingDelay: 1800,
     nodes: [
-      { reply: "تمام، من وين؟", delayMs: 2000 },
-      { reply: "حلو، وش تسوي بالحياة؟", delayMs: 2500 },
-      { reply: "الله يوفقك! انا لازم اروح الحين، يلا مع السلامة 👋", disconnect: true, delayMs: 2000 },
+      { reply: "من وين", delayMs: 2500 },
+      { reply: "", disconnect: true, delayMs: 3500 },
     ],
   },
   {
     greeting: "نوعك؟",
     greetingDelay: 1200,
     nodes: [
-      { reply: "عمرك كم؟", delayMs: 2000 },
-      { reply: "من وين؟", delayMs: 2000 },
-      { reply: "اها تمام، الله يسعدك! بروح الحين 😊", disconnect: true, delayMs: 2500 },
+      { reply: "من وين", delayMs: 2000 },
+      { reply: "عمرك", delayMs: 2500 },
+      { reply: "", disconnect: true, delayMs: 3000 },
     ],
   },
   {
-    greeting: "من وين؟",
+    greeting: "من وين",
     greetingDelay: 1500,
     nodes: [
-      { reply: "حلو! انا من السعودية، نوعك؟", delayMs: 2000 },
-      { reply: "كم العمر؟", delayMs: 2000 },
-      { reply: "وش اهتماماتك؟", delayMs: 2500 },
-      { reply: "حلوو! طيب كان ظرف حلو، يلا مع السلامة ✌️", disconnect: true, delayMs: 2000 },
+      { reply: "نوعك", delayMs: 2000 },
+      { reply: "عمرك كم", delayMs: 2500 },
+      { reply: "", disconnect: true, delayMs: 3500 },
     ],
   },
   {
-    greeting: "السلام عليكم",
+    greeting: "هلا",
     greetingDelay: 2000,
     nodes: [
-      { reply: "وعليكم السلام! كيف الحال؟", delayMs: 2000 },
-      { reply: "الحمدلله! انت من وين؟", delayMs: 2500 },
-      { reply: "ماشاءالله! وش تشتغل/تدرس؟", delayMs: 2500 },
-      { reply: "الله يوفقك 🤲 طيب انا لازم اطلع، تشرفت فيك!", disconnect: true, delayMs: 2000 },
+      { reply: "من وين", delayMs: 2000 },
+      { reply: "كم عمرك", delayMs: 2500 },
+      { reply: "", disconnect: true, delayMs: 3000 },
     ],
   },
 ];
@@ -1092,16 +1088,16 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 
   await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep });
 
-  if (nextNode.reply) {
-    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 2000));
-    await bot.api.sendMessage(chatId, nextNode.reply).catch(() => null);
-  }
-
   if (nextNode.disconnect) {
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 3000));
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
     return;
+  }
+
+  if (nextNode.reply) {
+    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 2000));
+    await bot.api.sendMessage(chatId, nextNode.reply).catch(() => null);
   }
 
   if (!nextNode.reply && nextNode.next) {
