@@ -69,6 +69,10 @@ export const botsMetadata: Metadata = {
     "Telegram Login",
     "ويدجت تسجيل تليجرام",
     "نطاق بوت تليجرام",
+    "نقل ملكية البوت",
+    "mybots",
+    "مدير بوت مشارك",
+    "نقل ملكية BotFather",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
