@@ -39,6 +39,13 @@ from pathlib import Path
 KAGGLE_INPUT = Path("/kaggle/input")
 FETCH_ROOT = Path("/tmp/sham_inputs")
 
+# Earlier names of the same datasets (renames), treated as the notebook's own lineage.
+OLD_NAMES = {
+    "sham-checkpoint": ("nova-small-checkpoint",),
+    "sham-cpu-track-checkpoint-v2": ("sham-cpu-track-checkpoint",),
+    "sham-research-track-checkpoint-v2": ("sham-research-track-checkpoint",),
+}
+
 _TEXT_CKPT = re.compile(r"^(?:step_(\d+)|final)\.pt$")
 
 
@@ -207,18 +214,32 @@ def resume_text_lineage(own: str, forks: list[str] | tuple[str, ...] = (),
 
     print(f"البحث عن نقطة الاستئناف ({own}):")
     attached = [x for x in (pair_in(d, d.name) for d in _dataset_dirs()) if x]
-    if attached:
-        picked = max(attached, key=lambda x: x["step"])
-        picked["forked"] = picked["dataset"] not in (own, *forks)
+    # A notebook continues its OWN lineage (its dataset, or that dataset's old name)
+    # whenever that is attached. Another lineage's checkpoint is only a starting
+    # point when there is nothing of its own -- otherwise e.g. Track A would jump
+    # to the GPU track's checkpoint as soon as that one has more steps, dropping
+    # Track A's own training (bug found 2026-09-27).
+    own_names = [own, *OLD_NAMES.get(own, ())]
+    mine = [x for x in attached if x["dataset"] in own_names]
+    if not mine:
+        # Own lineage not attached: download it (latest version) before considering
+        # anything else, so a notebook never forks again once it has its own dataset.
+        for name in own_names:
+            x = pair_in(fetch_dataset(name), name)
+            if x:
+                mine = [x]
+                break
+    if mine:
+        picked = max(mine, key=lambda x: x["step"])
+        picked["forked"] = False
     else:
-        picked = pair_in(fetch_dataset(own), own)
+        # First run ever: start from the most-trained other lineage (attached, else the forks).
+        others = [x for x in attached if x["dataset"] not in own_names]
+        if not others:
+            others = [x for x in (pair_in(fetch_dataset(f), f) for f in forks) if x]
+        picked = max(others, key=lambda x: x["step"]) if others else None
         if picked:
-            picked["forked"] = False
-        else:
-            options = [x for x in (pair_in(fetch_dataset(f), f) for f in forks) if x]
-            picked = max(options, key=lambda x: x["step"]) if options else None
-            if picked:
-                picked["forked"] = True
+            picked["forked"] = True
     if picked:
         how = "تفرّع لمرة واحدة من" if picked["forked"] else "استئناف من"
         print(f"✅ {how} {picked['dataset']}: {picked['checkpoint'].name} (الخطوة {picked['step']:,}) "
@@ -314,10 +335,15 @@ if __name__ == "__main__":
         assert got["dataset"] == "some-title-the-owner-picked" and got["step"] == 900, got
         assert got["tokenizer"].parent.name == "some-title-the-owner-picked"  # paired from the SAME directory
 
-        # own dataset attached with a higher step wins -- forked=False because its name matches `own`.
-        make("own-v2", [950])
+        # own dataset attached -> it wins EVEN WITH FEWER STEPS than another attached lineage
+        make("own-v2", [120])
         got = resume_text_lineage("own-v2", forks=["fork-src"])
-        assert not got["forked"] and got["dataset"] == "own-v2" and got["step"] == 950, got
+        assert not got["forked"] and got["dataset"] == "own-v2" and got["step"] == 120, got
+        # an old name of the own dataset counts as own
+        OLD_NAMES["own-v2"] = ("own-old",)
+        make("own-old", [500])
+        got = resume_text_lineage("own-v2", forks=["fork-src"])
+        assert not got["forked"] and got["dataset"] == "own-old" and got["step"] == 500, got
 
         # tokenizer too small in every attached dataset -> all rejected, even the highest step; a
         # lower-step dataset whose tokenizer actually meets min_vocab is picked instead.

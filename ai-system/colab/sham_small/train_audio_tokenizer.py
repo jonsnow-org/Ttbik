@@ -39,9 +39,13 @@ def train_vqvae(
     num_epochs: int,
     batch_size: int,
     lr: float = 3e-4,
-    device: str = "cpu",
+    device: str | None = None,
     log_every: int = 10,
 ) -> TrainStats:
+    # None = whatever the notebook runs on: the GPU if one is attached, else the CPU.
+    # (Owner, 2026-09-27: every notebook must use the accelerator she picks, GPU or CPU.)
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer.to(device)
     mels = mels.to(device)
     optimizer = torch.optim.AdamW(tokenizer.parameters(), lr=lr)
@@ -77,6 +81,8 @@ def train_vqvae(
             all_token_ids_last_epoch = torch.cat(epoch_token_ids)
 
     final_usage = int(torch.unique(all_token_ids_last_epoch).numel())
+    # Hand the tokenizer back on the CPU: callers save it and encode CPU tensors with it.
+    tokenizer.to("cpu")
     return TrainStats(epoch_losses=epoch_losses, final_codebook_usage=final_usage, codebook_size=tokenizer.cfg.num_codes)
 
 
