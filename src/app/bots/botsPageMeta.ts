@@ -98,6 +98,11 @@ export const botsMetadata: Metadata = {
     "Telegram Gifts",
     "إرسال هدية بوت",
     "bot gifts",
+    "حزم ملصقات",
+    "Sticker Set",
+    "custom emoji",
+    "newstickers",
+    "إيموجي مخصص",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
