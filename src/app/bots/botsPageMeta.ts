@@ -78,6 +78,9 @@ export const botsMetadata: Metadata = {
     "setmenubutton",
     "زر قائمة البوت",
     "تطبيق مصغر تليجرام",
+    "Telegram Business",
+    "حساب أعمال تليجرام",
+    "ربط البوت بحساب أعمال",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
