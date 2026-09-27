@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5855286648,
+  "last_seen_comment_id": 5855710569,
   "last_actor": "grok",
-  "updated_at": "2026-09-27T12:10:00Z",
+  "updated_at": "2026-09-27T14:02:30Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G218 /bots keywords only: حزم ملصقات / Sticker Set / custom emoji / newstickers / إيموجي مخصص. Completes G217 deferred meta. Form/AdSlot/page.tsx untouched.",
     "G217 /bots copy+faq+meta: sticker sets / custom emoji /newstickers are BotFather-only; site does not create packs or upload stickers; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G216 /bots copy+faq+meta: Telegram Gifts are Telegram-only; site does not send gifts or manage a gift inventory; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G215 /bots copy+faq+meta: Telegram Games / sendGame / setGameScore are Telegram-only; site does not host games or scores; no extra orderCode. Form/AdSlot/page.tsx untouched.",
