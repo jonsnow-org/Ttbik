@@ -1108,6 +1108,14 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
   if (nextStep >= script.nodes.length) { await endFakeChat(bot, chatId, tgUserId); return; }
 
   await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() });
+  const _h = process.env.VERCEL_URL;
+  if (_h) {
+    fetch(`https://${_h}/api/internal/fake-chat-timeout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ startedAt: Date.now() }),
+    }).catch(() => null);
+  }
 
   if (!node.reply && node.next) {
     await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() }, userText);
@@ -1161,6 +1169,14 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
     await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
     await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
     await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
+    const _host = process.env.VERCEL_URL;
+    if (_host) {
+      fetch(`https://${_host}/api/internal/fake-chat-timeout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startedAt: Date.now() }),
+      }).catch(() => null);
+    }
     return;
   }
 
