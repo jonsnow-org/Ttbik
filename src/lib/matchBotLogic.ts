@@ -1,6 +1,7 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { SITE_URL } from "@/lib/siteUrl";
+import { supabaseAdmin } from "@/lib/supabase";
 import type { Bot as BotRow, MatchProfile, MatchUser, PartnerPreference } from "@prisma/client";
 import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
@@ -1064,11 +1065,24 @@ const FAKE_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
 // of short self-calls to /api/internal/fake-chat-timeout keyed on that
 // message's lastAt. A user reply writes a new lastAt, which makes the old
 // chain stop and a new one start.
+// Last few timer events (no user IDs), readable via the timeout route's GET.
+export async function logFakeChatEvent(event: string) {
+  try {
+    const db = supabaseAdmin();
+    const { data } = await db.from("bot_settings").select("value").eq("key", "fake_chat_debug").maybeSingle();
+    const prev: string[] = Array.isArray((data as any)?.value) ? (data as any).value : [];
+    const next = [...prev, `${new Date().toISOString().slice(11, 19)} ${event}`].slice(-40);
+    await db.from("bot_settings").upsert({ key: "fake_chat_debug", value: next, updated_at: new Date().toISOString() });
+  } catch {
+    /* diagnostics only */
+  }
+}
+
 export async function dispatchFakeChatCheck(userId: string, lastAt: number) {
   const user = await prisma.matchUser.findUnique({ where: { id: userId }, select: { botId: true } }).catch(() => null);
-  if (!user?.botId) return;
+  if (!user?.botId) { await logFakeChatEvent("dispatch: no user/botId"); return; }
   const botRow = await prisma.bot.findUnique({ where: { id: user.botId }, select: { webhookSecret: true } }).catch(() => null);
-  if (!botRow?.webhookSecret) return;
+  if (!botRow?.webhookSecret) { await logFakeChatEvent("dispatch: no webhookSecret"); return; }
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 15_000);
   const res = await fetch(`${SITE_URL}/api/internal/fake-chat-timeout`, {
@@ -1078,10 +1092,12 @@ export async function dispatchFakeChatCheck(userId: string, lastAt: number) {
     signal: ac.signal,
   }).catch((e) => {
     console.error("[fake-chat] dispatch failed", e);
-    return null;
+    return e as Error;
   });
   clearTimeout(timer);
-  if (res && res.status !== 202) console.error("[fake-chat] dispatch rejected", res.status);
+  await logFakeChatEvent(
+    res instanceof Response ? `dispatch -> ${res.status} (idle ${Math.round((Date.now() - lastAt) / 1000)}s)` : `dispatch error: ${String((res as Error)?.message || res).slice(0, 120)}`
+  );
 }
 
 export async function isValidFakeChatSecret(userId: string, secret: string) {
@@ -1250,6 +1266,8 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
         const lastAt = Date.now();
         await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt });
         await dispatchFakeChatCheck(tgUserId, lastAt);
+      } else {
+        await logFakeChatEvent(`greeting: no dispatch (mode=${p?.mode} step=${p?.step})`);
       }
       return;
     }
