@@ -61,6 +61,10 @@ export const botsMetadata: Metadata = {
     "ويبهوك HTTPS",
     "webhook http",
     "شهادة SSL الويبهوك",
+    "مدفوعات تليجرام",
+    "Telegram Payments",
+    "setpayments",
+    "فواتير البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
