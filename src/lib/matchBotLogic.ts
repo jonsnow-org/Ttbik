@@ -2287,3 +2287,31 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
 
   await bot.api.sendMessage(chatId, "اختر من القائمة.", { reply_markup: mainMenu() });
 }
+
+export async function cleanupExpiredFakeChats() {
+  const users = await prisma.matchUser.findMany({
+    where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
+  });
+  const botTokens = new Map<string, string>();
+  let cleaned = 0;
+  for (const u of users) {
+    const p = u.pendingAction as any;
+    if (!p?.lastAt || Date.now() - p.lastAt < FAKE_CHAT_TIMEOUT_MS) continue;
+    await prisma.matchUser.update({ where: { id: u.id }, data: { pendingAction: null as any } });
+    let token = botTokens.get(u.botId);
+    if (!token) {
+      const botRow = await prisma.bot.findUnique({ where: { id: u.botId } });
+      if (botRow) { token = botRow.token; botTokens.set(u.botId, token); }
+    }
+    if (token) {
+      const bot = new TelegramBot(token);
+      await bot.api.sendMessage(
+        Number(u.id),
+        "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.",
+        { reply_markup: mainMenu() }
+      ).catch(() => null);
+    }
+    cleaned++;
+  }
+  return cleaned;
+}
