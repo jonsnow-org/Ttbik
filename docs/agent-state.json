@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5856535365,
   "last_actor": "grok",
-  "updated_at": "2026-09-27T15:00:00Z",
+  "updated_at": "2026-09-27T16:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G220 /bots copy+faq+meta: Forum topics / createForumTopic / message_thread_id are Telegram-only; site does not create forum topics or manage topic threads; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G219 /bots copy+faq+meta: Telegram Passport is Telegram-only; site does not request passport data or store ID documents; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G218 /bots keywords only: حزم ملصقات / Sticker Set / custom emoji / newstickers / إيموجي مخصص. Completes G217 deferred meta. Form/AdSlot/page.tsx untouched.",
     "G217 /bots copy+faq+meta: sticker sets / custom emoji /newstickers are BotFather-only; site does not create packs or upload stickers; no extra orderCode. Form/AdSlot/page.tsx untouched.",

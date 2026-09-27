@@ -107,6 +107,11 @@ export const botsMetadata: Metadata = {
     "جواز تليجرام",
     "بيانات جواز البوت",
     "مستندات هوية تليجرام",
+    "مواضيع منتدى",
+    "Forum topics",
+    "createForumTopic",
+    "message_thread_id",
+    "منتدى مجموعة تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
