@@ -1058,6 +1058,7 @@ async function shouldUseFakeBots(botId: string): Promise<boolean> {
 }
 
 const FAKE_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
+let _lastFakeChatCleanup = 0;
 
 async function endFakeChat(bot: TelegramBot, chatId: number, tgUserId: string) {
   await setPending(tgUserId, null);
@@ -1638,6 +1639,10 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
 // Main dispatcher
 // ---------------------------------------------------------------------
 export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  if (Date.now() - _lastFakeChatCleanup > 60_000) {
+    _lastFakeChatCleanup = Date.now();
+    await cleanupExpiredFakeChats().catch(() => null);
+  }
   if (update.callback_query) {
     await handleMatchCallback(bot, botRow, update.callback_query);
     return;
