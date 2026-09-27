@@ -8,6 +8,7 @@ import { handleMedicalBotUpdate } from "@/lib/medicalBotLogic";
 import { handleNovaBotUpdate } from "@/lib/novaBotLogic";
 import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
+import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 
 export const maxDuration = 60;
 
@@ -19,6 +20,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   NOVA_BOT: "migration_19_nova_ai.sql",
   CONFESSION_BOT: "migration_34_confession_bot.sql",
   NAME_COMPAT_BOT: "migration_35_name_compat_bot.sql",
+  QUIZ_BOT: "migration_37_quiz_bot.sql",
 };
 
 export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
@@ -62,6 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         await handleConfessionBotUpdate(bot, botRow, body);
       } else if (botRow.template === "NAME_COMPAT_BOT") {
         await handleNameCompatBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "QUIZ_BOT") {
+        await handleQuizBotUpdate(bot, botRow, body);
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {

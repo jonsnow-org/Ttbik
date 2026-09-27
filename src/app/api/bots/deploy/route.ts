@@ -3,7 +3,7 @@ import { Bot } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
-const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT"];
+const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT", "QUIZ_BOT"];
 
 // Each template has its own <TEMPLATE>_CREATOR_PASSWORD env var. A newly
 // added template whose variable was never set on Vercel used to reject
@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
     let purchase: { id: string } | null = null;
     if (PASSWORD_TEMPLATES.includes(template)) {
       // Private, owner-only templates (MARRIAGE_BOT, JOBS_BOT, MEDICAL_BOT,
-      // NOVA_BOT, CONFESSION_BOT, NAME_COMPAT_BOT) — not sold to third
-      // parties, so a static creator password is the whole gate. See
+      // NOVA_BOT, CONFESSION_BOT, NAME_COMPAT_BOT, QUIZ_BOT) — not sold to
+      // third parties, so a static creator password is the whole gate. See
       // creatorPasswordOk for how the expected value is found.
       if (!creatorPasswordOk(template, password)) {
         return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });

@@ -1353,3 +1353,39 @@ model NameCompatResult {
 
   @@index([userId])
 }
+
+// QUIZ_BOT (docs/claude-feature-backlog.md item 4) — static personality
+// quizzes: answer a fixed set of multiple-choice questions, get a
+// deterministic personality-type result back as a shareable card. Every
+// quiz definition (questions, options, result categories) lives in code
+// (src/lib/quizBotLogic.ts) — no AI, nothing user-generated, nothing to
+// moderate. Same owner-only-to-DEPLOY gate as NAME_COMPAT_BOT/
+// CONFESSION_BOT (QUIZ_BOT_CREATOR_PASSWORD). No wallet/ledger table:
+// this template has nothing to charge for.
+model QuizUser {
+  id               String    @id // Telegram User ID
+  botId            String
+  pendingAction    Json?
+  quizzesCompleted Int       @default(0)
+  isBanned         Boolean   @default(false)
+  mutedUntil       DateTime?
+  lastActiveAt     DateTime  @default(now())
+  created_at       DateTime  @default(now())
+
+  results QuizResult[]
+}
+
+// One completed quiz attempt, kept for the user's own "📜 آخر نتائجي"
+// history and for admin stats — quizId identifies which static quiz bank
+// was taken, resultKey identifies which of that quiz's result categories
+// won (see QUIZ_DEFINITIONS in quizBotLogic.ts for both).
+model QuizResult {
+  id         String   @id @default(uuid())
+  userId     String
+  user       QuizUser @relation(fields: [userId], references: [id])
+  quizId     String
+  resultKey  String
+  created_at DateTime @default(now())
+
+  @@index([userId])
+}

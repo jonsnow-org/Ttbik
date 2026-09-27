@@ -49,8 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **4. Personality-quiz bot** — static question banks, shareable result
-      image/text, no AI needed.
 - [ ] **5. Daily-streak challenge bot** (fasting/prayer/reading/exercise) —
       streak counter + daily reminder + social share of the streak.
 - [ ] **6. Prayer-times / dhikr reminder bot** — free, computed offline or
@@ -72,6 +70,25 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Done
 
+- **4. Personality-quiz bot** (shipped 2026-09-27) — new `QUIZ_BOT`
+      template, wired as a sibling branch in
+      `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
+      (owner-only `QUIZ_BOT_CREATOR_PASSWORD` gate, same shape as
+      NAME_COMPAT_BOT/CONFESSION_BOT) and `src/app/bots/BotsDeployForm.tsx`.
+      Free, no payment, no AI — two static quiz banks defined entirely in
+      code (`QUIZ_DEFINITIONS` in `src/lib/quizBotLogic.ts`): "ما نوع
+      شخصيتك؟" (leader/creative/social/analyst) and "ما هو حيوانك
+      المرشد؟" (owl/fox/dolphin/lion), 5 multiple-choice questions each,
+      answered by sending أ/ب/ج/د; the category with the most points wins
+      (deterministic tie-break) and gets sent back as a shareable text
+      result card. `QuizUser`/`QuizResult` in `prisma/schema.prisma`.
+      History button ("📜 آخر نتائجي"), admin stats/lookup/ban/
+      required-channel/broadcast panel for `SUPER_ADMIN_TELEGRAM_ID`. Each
+      completed quiz earns 1 point on the item-1 `PlatformPoints` ledger.
+      No `liveBots.ts` card added — no owner-run instance exists yet.
+      ⚠️ Owner needs to run `prisma/migration_37_quiz_bot.sql` in
+      Supabase's SQL Editor, and set `QUIZ_BOT_CREATOR_PASSWORD` in Vercel
+      env vars before deploying an instance.
 - **3. Name-compatibility ("نسبة التوافق") bot** (shipped 2026-09-25) — new
       `NAME_COMPAT_BOT` template, wired as a sibling branch in
       `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
