@@ -127,7 +127,7 @@ type PendingAction =
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
   | { mode: "advanced_filter_wizard"; step: "city" | "maritalStatus"; data: { city?: string | null; maritalStatus?: string | null } }
   | { mode: "superlike_note"; targetUserId: string }
-  | { mode: "fake_chatting"; fakeBotId: number; step: number };
+  | { mode: "fake_chatting"; fakeBotId: number; step: number; lastAt: number };
 
 const SKIP_LABEL = "⏭ غير محدد / لا يهم";
 
@@ -1057,51 +1057,59 @@ async function shouldUseFakeBots(botId: string): Promise<boolean> {
   return activeCount < FAKE_BOT_ACTIVE_THRESHOLD;
 }
 
-function resolveFakeBotStep(script: FakeBotScript, currentStep: number, userText: string): number {
-  const node = script.nodes[currentStep];
-  if (!node?.next) return currentStep + 1;
-  if (typeof node.next === "number") return node.next;
-  const lower = userText.trim().toLowerCase();
-  for (const [keyword, targetStep] of Object.entries(node.next)) {
-    if (keyword === "_default") continue;
-    if (lower.includes(keyword)) return targetStep;
-  }
-  return node.next._default ?? currentStep + 1;
+const FAKE_CHAT_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function endFakeChat(bot: TelegramBot, chatId: number, tgUserId: string) {
+  await setPending(tgUserId, null);
+  await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
 }
 
-async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number }, userText: string) {
+async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number; lastAt: number }, userText: string) {
+  if (Date.now() - pending.lastAt > FAKE_CHAT_TIMEOUT_MS) {
+    await endFakeChat(bot, chatId, tgUserId);
+    return;
+  }
+
   const script = FAKE_BOT_SCRIPTS[pending.fakeBotId];
-  if (!script) {
-    await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
+  if (!script) { await endFakeChat(bot, chatId, tgUserId); return; }
+
+  const node = script.nodes[pending.step];
+  if (!node) { await endFakeChat(bot, chatId, tgUserId); return; }
+
+  if (node.reply) {
+    await new Promise((r) => setTimeout(r, node.delayMs ?? 2000));
+    await bot.api.sendMessage(chatId, node.reply).catch(() => null);
+  }
+
+  if (node.disconnect) {
+    await new Promise((r) => setTimeout(r, node.reply ? 1000 : (node.delayMs ?? 3000)));
+    await endFakeChat(bot, chatId, tgUserId);
     return;
   }
 
-  const nextStep = resolveFakeBotStep(script, pending.step, userText);
-  const nextNode = script.nodes[nextStep];
-
-  if (!nextNode || nextStep >= script.nodes.length) {
-    await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
-    return;
+  let nextStep: number;
+  if (node.next) {
+    if (typeof node.next === "number") {
+      nextStep = node.next;
+    } else {
+      const lower = userText.trim().toLowerCase();
+      let resolved: number | undefined;
+      for (const [kw, target] of Object.entries(node.next)) {
+        if (kw === "_default") continue;
+        if (lower.includes(kw)) { resolved = target as number; break; }
+      }
+      nextStep = resolved ?? (node.next._default as number) ?? pending.step + 1;
+    }
+  } else {
+    nextStep = pending.step + 1;
   }
 
-  await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep });
+  if (nextStep >= script.nodes.length) { await endFakeChat(bot, chatId, tgUserId); return; }
 
-  if (nextNode.disconnect) {
-    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 3000));
-    await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
-    return;
-  }
+  await setPending(tgUserId, { mode: "fake_chatting", fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() });
 
-  if (nextNode.reply) {
-    await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 2000));
-    await bot.api.sendMessage(chatId, nextNode.reply).catch(() => null);
-  }
-
-  if (!nextNode.reply && nextNode.next) {
-    await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep }, userText);
+  if (!node.reply && node.next) {
+    await handleFakeBotReply(bot, chatId, tgUserId, { fakeBotId: pending.fakeBotId, step: nextStep, lastAt: Date.now() }, userText);
   }
 }
 
@@ -1148,7 +1156,7 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
     const fakeBotId = Math.floor(Math.random() * FAKE_BOT_SCRIPTS.length);
     const script = FAKE_BOT_SCRIPTS[fakeBotId];
     await animateSearchingMessage(bot, chatId);
-    await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0 });
+    await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt: Date.now() });
     await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
     await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
     await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
