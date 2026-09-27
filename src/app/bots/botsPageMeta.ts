@@ -112,6 +112,11 @@ export const botsMetadata: Metadata = {
     "createForumTopic",
     "message_thread_id",
     "منتدى مجموعة تليجرام",
+    "تعزيز دردشة",
+    "Chat Boost",
+    "Premium boost",
+    "boost channel",
+    "تعزيز قناة تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -121,7 +126,7 @@ export const botsMetadata: Metadata = {
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
     type: "website",
-    images: [{ url: `${SITE}/og/cover.jpg`, width: 1200, height: 630 }],
+    images: [{ url: `${SITE}/og/cover.jpg", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
