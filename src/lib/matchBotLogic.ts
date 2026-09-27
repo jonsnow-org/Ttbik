@@ -1149,42 +1149,65 @@ async function findWaitingPartner(botId: string, selfId: string) {
   return null;
 }
 
-async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string) {
+async function getAvailableFakeBotIds(): Promise<number[]> {
+  const busyUsers = await prisma.matchUser.findMany({
+    where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
+    select: { pendingAction: true },
+  });
+  const busyIds = new Set(
+    busyUsers.map((u) => (u.pendingAction as any)?.fakeBotId).filter((id: any) => typeof id === "number"),
+  );
+  return FAKE_BOT_SCRIPTS.map((_, i) => i).filter((id) => !busyIds.has(id));
+}
+
+async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, ownQueueId?: string) {
   const partnerEntry = await findWaitingPartner(botRow.id, tgUserId);
-  if (partnerEntry) {
-    const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
-    await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { status: "MATCHED", sessionId: session.id } });
-    await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
-    await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
-    await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
-    await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
-    return;
-  }
+  if (!partnerEntry) return false;
+  const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
+  await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { status: "MATCHED", sessionId: session.id } });
+  if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { status: "MATCHED", sessionId: session.id } }).catch(() => null);
+  await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
+  await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
+  await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+  await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
+  return true;
+}
 
-  if (await shouldUseFakeBots(botRow.id)) {
-    const fakeBotId = Math.floor(Math.random() * FAKE_BOT_SCRIPTS.length);
-    const script = FAKE_BOT_SCRIPTS[fakeBotId];
-    await animateSearchingMessage(bot, chatId);
-    await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt: Date.now() });
-    await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
-    await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
-    await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
-    const _host = process.env.VERCEL_URL;
-    if (_host) {
-      fetch(`https://${_host}/api/internal/fake-chat-timeout`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ startedAt: Date.now() }),
-      }).catch(() => null);
-    }
-    return;
-  }
+async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string) {
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId)) return;
 
-  await prisma.randomChatQueue.create({
+  const queueEntry = await prisma.randomChatQueue.create({
     data: { userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
   });
   await setPending(tgUserId, { mode: "random_waiting" });
   await animateSearchingMessage(bot, chatId);
+
+  const current = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
+  if ((current?.pendingAction as any)?.mode === "random_chatting") return;
+
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, queueEntry.id)) return;
+
+  if (await shouldUseFakeBots(botRow.id)) {
+    const availableIds = await getAvailableFakeBotIds();
+    if (availableIds.length > 0) {
+      const fakeBotId = availableIds[Math.floor(Math.random() * availableIds.length)];
+      const script = FAKE_BOT_SCRIPTS[fakeBotId];
+      await prisma.randomChatQueue.update({ where: { id: queueEntry.id }, data: { status: "MATCHED" } }).catch(() => null);
+      await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt: Date.now() });
+      await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
+      await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
+      const _host = process.env.VERCEL_URL;
+      if (_host) {
+        fetch(`https://${_host}/api/internal/fake-chat-timeout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ startedAt: Date.now() }),
+        }).catch(() => null);
+      }
+      return;
+    }
+  }
 }
 
 // Brief "live searching" animation (owner request, 2026-09-05): a single
