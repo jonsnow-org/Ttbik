@@ -209,7 +209,7 @@ function photoStepMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
 function randomChatMenu(): Keyboard {
-  return new Keyboard().text("⏹ إنهاء المحادثة").text("⛔ حظر").row().text("🚩 إبلاغ").resized();
+  return new Keyboard().text("⏹ إنهاء المحادثة").resized();
 }
 function isBack(text: string): boolean {
   return text === backLabel();
@@ -1832,7 +1832,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
 
   // Active fake bot chat: handle control buttons and relay to script.
   if (pending?.mode === "fake_chatting") {
-    if (text === "⏹ إنهاء المحادثة" || text === "⛔ حظر" || text === "🚩 إبلاغ") {
+    if (text === "⏹ إنهاء المحادثة") {
       await setPending(tgUserId, null);
       await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
       return;
