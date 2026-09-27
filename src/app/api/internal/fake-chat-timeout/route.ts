@@ -7,7 +7,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const STEP_MS = 50_000;
+const STEP_MS = 40_000;
 const TIMEOUT_MS = 5 * 60 * 1000;
 
 async function run(userId: string, lastAt: number) {
@@ -53,13 +53,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ kicked: open.length });
   }
   const st = Number(req.nextUrl.searchParams.get("selftest") || 0);
-  if (st >= 1 && st <= 2) {
+  if (st >= 1 && st <= 9) {
     await logFakeChatEvent(`selftest ${st} start`);
     waitUntil(
       (async () => {
-        await new Promise((r) => setTimeout(r, 20_000));
-        await logFakeChatEvent(`selftest ${st} after 20s sleep`);
-        if (st < 2) {
+        await new Promise((r) => setTimeout(r, STEP_MS));
+        await logFakeChatEvent(`selftest ${st} after sleep`);
+        if (st < 9) {
           const res = await fetch(`${req.nextUrl.origin}/api/internal/fake-chat-timeout?selftest=${st + 1}`).catch((e) => e as Error);
           await logFakeChatEvent(`selftest ${st} chained -> ${res instanceof Response ? res.status : String(res)}`);
         }
