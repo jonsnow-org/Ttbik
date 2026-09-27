@@ -4,7 +4,12 @@ Why this exists (problems found in the real runs):
   * mozilla-foundation/common_voice_17_0 is now EMPTY on Hugging Face
     (Mozilla removed the files) — the audio track had nothing to read.
   * sayakpaul/ucf101-subset holds only 2 videos — the video track kept
-    re-encoding the same two clips.
+    re-encoding the same two clips. Its replacement, the Hugging Face copy of
+    Kinetics (nateraw/kinetics), turned out to have NO per-clip licence
+    column (only video + label), so the CC-only filter rejected every clip
+    and the video track collected 0 videos (2026-09-27). Video now streams
+    the ORIGINAL Kinetics-400 archives, whose official annotations carry
+    the per-clip `is_cc` flag (~3% of clips, ~7.6k, each 10 s with sound).
   * "skip" was the number of SAVED samples, but a stream also consumes
     examples it drops (empty caption, dead URL, bad file), so every resume
     restarted inside already-used data -> repeats. And one progress counter
@@ -64,9 +69,14 @@ SOURCES: dict[str, list[dict[str, Any]]] = {
          "splits": ["train", "validation"], "image": "jpg", "text": "txt", "license": "CC3M terms"},
     ],
     "video": [
-        # Kinetics clips; only those flagged Creative-Commons are kept.
-        {"id": "kinetics-cc", "dataset": "nateraw/kinetics", "config": None,
-         "splits": ["train", "validation"], "video": "video", "text": "label", "require_true": "is_cc", "license": "CC-BY-4.0"},
+        # Original Kinetics-400 archives (DeepMind's public S3 bucket, verified
+        # reachable 2026-09-27): one "split" per archive part, so a finished part
+        # is never downloaded again. Only clips whose official annotation has
+        # is_cc=1 (Creative Commons) are kept; each is 10 s with its sound.
+        {"id": "kinetics400-cc", "kind": "kinetics_tar",
+         "splits": [f"train/part_{i}" for i in range(242)] + [f"val/part_{i}" for i in range(20)],
+         "video": "video", "text": "label", "require_true": "is_cc",
+         "license": "CC-BY (per-clip is_cc flag from the official Kinetics-400 annotations)"},
     ],
 }
 
@@ -176,6 +186,7 @@ class CollectStats:
     written: int = 0
     duplicates: int = 0
     dropped: int = 0
+    unlicensed: int = 0
     per_source: dict[str, int] = field(default_factory=dict)
     all_exhausted: bool = False
     errors: list[str] = field(default_factory=list)
@@ -183,12 +194,58 @@ class CollectStats:
     def summary(self) -> str:
         parts = ", ".join(f"{k}: {v:,}" for k, v in self.per_source.items()) or "—"
         s = f"جُمعت {self.written:,} عيّنة جديدة ({parts}) | مكرر مُستبعَد: {self.duplicates:,} | تالف/فارغ: {self.dropped:,}"
+        if self.unlicensed:
+            s += f" | غير مرخّص بالمشاع الإبداعي (مُستبعَد): {self.unlicensed:,}"
         if self.all_exhausted:
             s += " | ⚠ كل المصادر استُنفدت"
         return s
 
 
+_KINETICS = "https://s3.amazonaws.com/kinetics/400"
+_kinetics_ann: dict[str, dict[str, dict]] = {}
+
+
+def _kinetics_annotations(subset: str) -> dict[str, dict]:
+    """Official Kinetics-400 annotations for train/val, keyed by the archive's
+    member file name ({youtube_id}_{start:06}_{end:06}.mp4). Cached per process."""
+    if subset not in _kinetics_ann:
+        import csv
+        import urllib.request
+
+        with urllib.request.urlopen(f"{_KINETICS}/annotations/{subset}.csv", timeout=120) as resp:
+            rows = csv.DictReader(io.TextIOWrapper(resp, encoding="utf-8"))
+            _kinetics_ann[subset] = {
+                f"{r['youtube_id']}_{int(r['time_start']):06}_{int(r['time_end']):06}.mp4": r for r in rows
+            }
+    return _kinetics_ann[subset]
+
+
+def _stream_kinetics(split: str, start: int) -> Iterator[dict]:
+    """split = "train/part_N" | "val/part_N". Yields one example per archive
+    member (so positions are exact); the video bytes are read ONLY for clips
+    whose annotation says is_cc=1 -- everything else is skipped unread."""
+    import tarfile
+    import urllib.request
+
+    ann = _kinetics_annotations(split.split("/")[0])
+    resp = urllib.request.urlopen(f"{_KINETICS}/{split}.tar.gz", timeout=120)
+    with resp, tarfile.open(fileobj=resp, mode="r|gz") as tf:
+        pos = 0
+        for member in tf:
+            if not member.isfile() or not member.name.endswith(".mp4"):
+                continue
+            pos += 1
+            if pos <= start:
+                continue
+            a = ann.get(member.name.rsplit("/", 1)[-1])
+            is_cc = bool(a) and a.get("is_cc") == "1"
+            yield {"video": tf.extractfile(member).read() if is_cc else None,
+                   "label": a["label"] if a else "", "is_cc": is_cc}
+
+
 def _stream(src: dict, split: str, start: int) -> Iterator[dict]:
+    if src.get("kind") == "kinetics_tar":
+        return _stream_kinetics(split, start)
     from datasets import Audio, load_dataset
 
     kwargs = {"split": split, "streaming": True}
@@ -332,6 +389,8 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
                         stats.per_source[src["id"]] = stats.per_source.get(src["id"], 0) + 1
                     elif verdict == "dup":
                         stats.duplicates += 1
+                    elif verdict == "unlicensed":
+                        stats.unlicensed += 1
                     else:
                         stats.dropped += 1
                 else:
@@ -349,7 +408,7 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
 def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledger, *, image_size: int, num_frames: int) -> str:
     need = src.get("require_true")
     if need and not example.get(need):
-        return "dropped"
+        return "unlicensed"
     text = _text_of(example.get(src["text"]))
 
     if kind == "audio":

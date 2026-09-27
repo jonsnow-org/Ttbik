@@ -51,6 +51,16 @@
 - متابعة لاحقة: generate.generate_video وserve.py /generate/video يولّدان الإطارات فقط؛ عند بناء مرحلة تدريب
   الفيديو يجب أن يولّدا الصوت أيضاً (decode_video_with_audio جاهز).
 
+## 2026-09-27 — دفتر الفيديو جمع 0 مقطع: السبب والإصلاح
+- نسخة Kinetics على Hugging Face (nateraw/kinetics) فيها عمودا video وlabel فقط، بلا is_cc، فرفض فلتر
+  الترخيص كل المقاطع. الآن: `kinetics_tar` في sham_data_sources يبث الأرشيفات الأصلية من
+  s3.amazonaws.com/kinetics/400 (242 جزء تدريب + 20 تحقق، 1.6 GB للجزء) مع annotations/{train,val}.csv
+  الرسمي (is_cc). ~3% مرخّص (7,595 مقطعاً)، كل مقطع 10 ثوانٍ بصوت AAC. موضع استئناف لكل جزء.
+- اختُبر حياً من بيئة التطوير: 5 مقاطع مرخّصة (celebrating, snowboarding, playing guitar, digging,
+  busking) بـ 8 إطارات و4 ثوانٍ صوت ووصف، واستئناف بلا تكرار، ثم خلية الترميز في الدفتر (مقطعا صوت لكل فيديو).
+- بديل أغنى لاحقاً: HuggingFaceFV/finevideo (43k فيديو CC-BY بصوت وأوصاف ونصوص كلام) — مقفل (gated)
+  ويحتاج HF_TOKEN وقبول الشروط مرة؛ لم يُتحقق من أعمدته.
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.
