@@ -40,6 +40,18 @@ export async function POST(req: NextRequest) {
 // Anonymous status: how many fake chats are open and how long each has been
 // idle. No user IDs are exposed.
 export async function GET(req: NextRequest) {
+  if (req.nextUrl.searchParams.get("kick") === "1") {
+    const open = await prisma.matchUser.findMany({
+      where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
+      select: { id: true, pendingAction: true },
+    });
+    for (const u of open) {
+      const la = (u.pendingAction as any)?.lastAt;
+      await logFakeChatEvent(`kick: lastAt type=${typeof la}`);
+      if (typeof la === "number") await dispatchFakeChatCheck(u.id, la);
+    }
+    return NextResponse.json({ kicked: open.length });
+  }
   const st = Number(req.nextUrl.searchParams.get("selftest") || 0);
   if (st >= 1 && st <= 2) {
     await logFakeChatEvent(`selftest ${st} start`);
