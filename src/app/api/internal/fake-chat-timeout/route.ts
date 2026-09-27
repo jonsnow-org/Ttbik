@@ -4,10 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { dispatchFakeChatCheck, expireFakeChatIfIdle, isValidFakeChatSecret, logFakeChatEvent } from "@/lib/matchBotLogic";
 import { supabaseAdmin } from "@/lib/supabase";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-const STEP_MS = 40_000;
+// Vercel refuses a self-call chain after ~5 hops (HTTP 508), so each hop
+// waits as long as the function limit allows: normally one hop per chat.
+const STEP_MS = 280_000;
 const TIMEOUT_MS = 5 * 60 * 1000;
 
 async function run(userId: string, lastAt: number) {
@@ -53,13 +55,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ kicked: open.length });
   }
   const st = Number(req.nextUrl.searchParams.get("selftest") || 0);
-  if (st >= 1 && st <= 9) {
+  if (st >= 1 && st <= 2) {
     await logFakeChatEvent(`selftest ${st} start`);
     waitUntil(
       (async () => {
         await new Promise((r) => setTimeout(r, STEP_MS));
         await logFakeChatEvent(`selftest ${st} after sleep`);
-        if (st < 9) {
+        if (st < 2) {
           const res = await fetch(`${req.nextUrl.origin}/api/internal/fake-chat-timeout?selftest=${st + 1}`).catch((e) => e as Error);
           await logFakeChatEvent(`selftest ${st} chained -> ${res instanceof Response ? res.status : String(res)}`);
         }
