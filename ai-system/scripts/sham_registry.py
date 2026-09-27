@@ -128,11 +128,12 @@ TRACKS: list[dict[str, Any]] = [
     },
 ]
 TRACK_BY_ID = {t["id"]: t for t in TRACKS}
-# Tracks where the owner deliberately keeps SEVERAL notebooks running side by side
-# (2026-09-27: both video notebooks, "we rely on both, exclude neither"). Their
-# notebooks merge into the shared dataset instead of overwriting it, so every one
-# of them is primary and resumed -- none is ever marked a deletable duplicate.
-MULTI_WRITER_TRACKS = {"video_corpus"}
+# Tracks where the owner deliberately keeps SEVERAL notebooks running side by side:
+# every one of them is primary and resumed. Empty for now -- 2026-09-27 the owner
+# first kept both video notebooks, then chose the new one only, because the old one
+# still carries old cells (no merge, silent video) and would overwrite the corpus.
+# The video notebook's merge-before-publish stays in place either way.
+MULTI_WRITER_TRACKS: set[str] = set()
 # Anything mentioning these but matching no track above is still Sham-related.
 SHAM_HINTS = ["sham", "شام", "Ttbik", "tokenizer.pt", "vqvae", "VQ-VAE", "nova"]
 
@@ -748,9 +749,10 @@ def _self_test() -> None:
     assert roles["me/notebook24ffaf0b22"] == ("audio_tokenizer", "primary"), roles
     assert roles["me/notebookf4a8feee6"][1] == "primary" and roles["me/notebookold111"][1] == "duplicate", roles
     assert roles["me/random"] == (None, "not_sham"), roles
-    # both video notebooks are kept on purpose: both primary, both resumed
-    assert roles["me/videoA"] == ("video_corpus", "primary") and roles["me/videoB"] == ("video_corpus", "primary"), roles
-    assert {"me/videoA", "me/videoB"} <= set(reg["orchestrator_targets"]), reg["orchestrator_targets"]
+    # two video notebooks: only the most recent is primary and resumed (owner: new one only)
+    vroles = sorted(roles[r][1] for r in ("me/videoA", "me/videoB"))
+    assert vroles == ["duplicate", "primary"], vroles
+    assert len({"me/videoA", "me/videoB"} & set(reg["orchestrator_targets"])) == 1, reg["orchestrator_targets"]
     assert reg["pipeline"]["current_stage"] == "stage2_multimodal", reg["pipeline"]
     assert "sham-image-tokenizer-checkpoint" in reg["pipeline"]["next_step"]["do"]
     assert reg["pipeline"]["stages"]["image_tokenizer"]["progress"]["samples_consumed"] == 12000
