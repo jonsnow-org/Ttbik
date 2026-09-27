@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5860291450,
   "last_actor": "grok",
-  "updated_at": "2026-09-27T22:11:00Z",
+  "updated_at": "2026-09-27T23:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G225 /bots keywords + FAQ typo: Voice Chat / Video Chat / Group call / createVideoChat complete G223 deferred meta; Paid Media FAQ مدفوعة spelling. Form/AdSlot/page.tsx untouched.",
     "G224 /bots copy+faq+meta: Paid Media / sendPaidMedia are Telegram-only; site does not sell paid media or collect Stars to unlock files; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G223 /bots copy+faq+meta: Voice/Video Chat / Group call are Telegram-only; site does not start or manage group calls; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G222 /bots copy+faq+meta: Message reactions / setMessageReaction are Telegram-only; site does not sell reaction campaigns or press reactions for members; no extra orderCode. Form/AdSlot/page.tsx untouched.",
