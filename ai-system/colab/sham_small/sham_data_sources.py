@@ -268,7 +268,7 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
     """Collects up to max_samples NEW, non-duplicate samples of `kind` into
     output_dir/manifest.jsonl (same formats the notebooks already read:
     audio {"audio","sentence"}, image {"image","caption"},
-    video {"frames":[...],"caption"}). Updates `ledger` in place — save it
+    video {"frames":[...],"audio": wav path or null,"caption"}). Updates `ledger` in place — save it
     next to the checkpoint afterwards."""
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -412,16 +412,32 @@ def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledg
             subprocess.run([get_ffmpeg_exe(), "-y", "-i", tmp.name, "-vf", f"fps=2,scale={image_size}:{image_size}",
                             "-vsync", "vfr", "-frames:v", str(num_frames), str(frame_dir / "f%02d.jpg")],
                            capture_output=True, timeout=60, check=True)
+            # The clip's own sound over exactly the span the frames cover (fps=2 ->
+            # num_frames/2 s), so Sham learns video with its audio, not silent frames.
+            # A clip with no audio stream simply stays silent ("audio": null).
+            audio_rel = f"audio/{index:06d}.wav"
+            (out / "audio").mkdir(exist_ok=True)
+            got_audio = subprocess.run([get_ffmpeg_exe(), "-y", "-i", tmp.name, "-vn", "-ac", "1", "-ar", "16000",
+                                        "-t", str(num_frames / 2), str(out / audio_rel)],
+                                       capture_output=True, timeout=60)
+            if got_audio.returncode != 0 or not (out / audio_rel).exists() or (out / audio_rel).stat().st_size < 1000:
+                (out / audio_rel).unlink(missing_ok=True)
+                audio_rel = None
         frames = sorted(frame_dir.glob("f*.jpg"))
         if len(frames) < num_frames:
+            if audio_rel:
+                (out / audio_rel).unlink(missing_ok=True)
             return "dropped"
         ph = dhash(Image.open(frames[len(frames) // 2]))
         if ledger.near_duplicate(ph):  # same clip re-uploaded / re-encoded
+            if audio_rel:
+                (out / audio_rel).unlink(missing_ok=True)
             return "dup"
         ledger.exact.add(h)
         ledger.add_phash(ph)
         rel = [str(p.relative_to(out)) for p in frames[:num_frames]]
-        manifest.write(json.dumps({"frames": rel, "caption": text or None, "source": src["id"]}, ensure_ascii=False) + "\n")
+        manifest.write(json.dumps({"frames": rel, "audio": audio_rel, "caption": text or None, "source": src["id"]},
+                                  ensure_ascii=False) + "\n")
         return "ok"
 
     raise ValueError(kind)
@@ -477,4 +493,39 @@ if __name__ == "__main__":
         other.save(td / "ck_other")
         merged = Ledger.load("image", td)
         assert merged.cursors["a/train"] >= 6 and "zz" in merged.exact
+
+    # Video: real MP4 clips made with ffmpeg -- one WITH sound, one silent. The clip's
+    # audio must be kept next to its frames; a silent clip stays usable with audio=null.
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+    except ImportError:
+        get_ffmpeg_exe = None
+    if get_ffmpeg_exe:
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+
+            def clip(name: str, pattern: str, with_sound: bool) -> bytes:
+                cmd = [get_ffmpeg_exe(), "-y", "-f", "lavfi", "-i", f"{pattern}=size=96x96:rate=10:duration=5"]
+                if with_sound:
+                    cmd += ["-f", "lavfi", "-i", "sine=frequency=440:duration=5", "-shortest"]
+                cmd += ["-pix_fmt", "yuv420p", str(td / name)]
+                subprocess.run(cmd, capture_output=True, check=True)
+                return (td / name).read_bytes()
+
+            vrows = [{"video": clip("a.mp4", "testsrc", True), "label": "tone", "is_cc": True},
+                     {"video": clip("b.mp4", "smptebars", False), "label": "silent", "is_cc": True}]
+            vsrc = [{"id": "v", "dataset": "v", "config": None, "splits": ["train"], "video": "video",
+                     "text": "label", "require_true": "is_cc"}]
+            m, st = collect("video", td / "vid", 5, Ledger("video"), sources=vsrc, num_frames=8,
+                            stream_fn=lambda src, split, start: iter(vrows[start:]))
+            recs = [json.loads(l) for l in open(m, encoding="utf-8")]
+            assert st.written == 2 and len(recs) == 2, (st, recs)
+            by_cap = {r["caption"]: r for r in recs}
+            assert len(by_cap["tone"]["frames"]) == 8
+            wav = td / "vid" / by_cap["tone"]["audio"]
+            import soundfile as sf
+            data, sr = sf.read(str(wav))
+            assert sr == 16000 and 3.5 <= len(data) / sr <= 4.1, (sr, len(data) / sr)  # exactly the 4 s the frames cover
+            assert by_cap["silent"]["audio"] is None, by_cap["silent"]
+        print("video+audio collection: clip sound kept beside its frames (4 s at 16 kHz); silent clip -> audio=null")
     print("sham_data_sources self-test: OK")

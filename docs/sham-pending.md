@@ -41,6 +41,16 @@
 - اختُبر: مجموعة مُرفقة باسم عشوائي غير مذكور في الكود تُكتشف وتُستخدم؛ الأعلى خطوة بين عدة مُرفقات
   يفوز؛ أداة تقسيم نص صغيرة جداً تُرفض حتى لو كانت الأعلى خطوة، وتُختار غيرها المؤهلة.
 
+## 2026-09-27 — الفيديو بصوته (طلب المالكة: شام مدمج، لا فيديو صامت)
+- `sham_data_sources.collect("video")` يستخرج مع الإطارات الثمانية صوت نفس الثواني الأربع (16 kHz أحادي)،
+  `"audio": null` للمقطع الصامت. `video_tokenizer.encode_video_with_audio()` يضع الصوت داخل نفس
+  تسلسل الفيديو بعد الإطارات: `<AUDIO_START>[80 رمز]<AUDIO_END>` لكل 2.56 ثانية (مقطعان لكل فيديو)،
+  و`decode_video_with_audio()` عكسه. المقطع الصامت = `encode_video()` حرفياً.
+- دفتر الفيديو يجلب أداة ترميز الصوت أيضاً ويحفظ `num_audio_segments` مع كل تسلسل. بلا أداة صوت يعمل صامتاً مع تحذير.
+- اختُبر بمقاطع MP4 حقيقية (بصوت وبلا صوت) مولّدة بـ ffmpeg، من الجمع حتى الترميز وفك الترميز.
+- متابعة لاحقة: generate.generate_video وserve.py /generate/video يولّدان الإطارات فقط؛ عند بناء مرحلة تدريب
+  الفيديو يجب أن يولّدا الصوت أيضاً (decode_video_with_audio جاهز).
+
 ## 🧭 HOW TO RESUME SHAM (Claude: do this first, automatically)
 1. `git fetch origin sham-status && git show origin/sham-status:sham-registry.json` (and `sham-report.txt`)
    — the PUBLIC, privacy-safe registry written by the owner's **sham_control_center.ipynb**.

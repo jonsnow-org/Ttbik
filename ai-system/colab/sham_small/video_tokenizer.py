@@ -36,7 +36,13 @@ weights anywhere.
 import torch
 
 from image_tokenizer import ImageTokenizer
-from model import SpecialTokens, image_token_id_to_vocab_id, vocab_id_to_image_token_id
+from model import (
+    SpecialTokens,
+    audio_token_id_to_vocab_id,
+    image_token_id_to_vocab_id,
+    vocab_id_to_audio_token_id,
+    vocab_id_to_image_token_id,
+)
 
 
 def encode_video(image_tokenizer: ImageTokenizer, frames: torch.Tensor) -> torch.Tensor:
@@ -88,6 +94,64 @@ def decode_video(image_tokenizer: ImageTokenizer, video_sequence: torch.Tensor, 
     return frames.view(batch, num_frames, *frames.shape[1:])
 
 
+# ---------------------------------------------------------------- video WITH its sound
+#
+# Owner request, 2026-09-27: Sham is one unified model, so a video must carry
+# its own sound, not be learned as silent frames. Same shared vocabulary, no
+# new weights -- the clip's audio track goes through audio_tokenizer.py's own
+# codebook and sits INSIDE the same <VIDEO_START>...<VIDEO_END> span, after
+# the frames, as consecutive fixed-length audio segments:
+#   <VIDEO_START>
+#     <IMAGE_START> [frame 1] <IMAGE_END> ... <IMAGE_START> [frame N] <IMAGE_END>
+#     <AUDIO_START> [segment 1] <AUDIO_END> ... <AUDIO_START> [segment K] <AUDIO_END>
+#   <VIDEO_END>
+# K = 0 is a silent clip and is byte-for-byte what encode_video() produces.
+
+
+def encode_video_with_audio(image_tokenizer: ImageTokenizer, frames: torch.Tensor,
+                            audio_tokenizer=None, audio_mels: torch.Tensor | None = None) -> torch.Tensor:
+    """frames: (batch, num_frames, 3, H, W) in [-1, 1].
+    audio_mels: (batch, num_segments, 1, n_mels, segment_frames) or None
+    (silent). Returns (batch, video_len + num_segments * (2 + tokens_per_segment))."""
+    video = encode_video(image_tokenizer, frames)
+    if audio_mels is None or audio_mels.shape[1] == 0:
+        return video
+    if audio_tokenizer is None:
+        raise ValueError("audio_mels given without an audio_tokenizer")
+    batch, num_segments = audio_mels.shape[0], audio_mels.shape[1]
+    grids = audio_tokenizer.encode(audio_mels.reshape(batch * num_segments, *audio_mels.shape[2:]))
+    tokens = audio_token_id_to_vocab_id(grids.reshape(batch, num_segments, -1)).to(video.dtype)
+    start = torch.full((batch, num_segments, 1), SpecialTokens.AUDIO_START, dtype=video.dtype)
+    end = torch.full((batch, num_segments, 1), SpecialTokens.AUDIO_END, dtype=video.dtype)
+    audio_blocks = torch.cat([start, tokens, end], dim=2).reshape(batch, -1)
+    return torch.cat([video[:, :-1], audio_blocks, video[:, -1:]], dim=1)
+
+
+def decode_video_with_audio(image_tokenizer: ImageTokenizer, video_sequence: torch.Tensor, num_frames: int,
+                            audio_tokenizer=None, num_audio_segments: int = 0):
+    """Inverse of encode_video_with_audio(). Returns (frames, mels) where mels
+    is (batch, num_audio_segments, 1, n_mels, segment_frames), or None for a
+    silent clip / when no audio_tokenizer is given."""
+    frame_part_len = 2 + num_frames * (2 + image_tokenizer.cfg.tokens_per_image)
+    if num_audio_segments == 0:
+        return decode_video(image_tokenizer, video_sequence, num_frames), None
+    video_only = torch.cat([video_sequence[:, :frame_part_len - 1], video_sequence[:, -1:]], dim=1)
+    frames = decode_video(image_tokenizer, video_only, num_frames)
+    if audio_tokenizer is None:
+        return frames, None
+    batch = video_sequence.shape[0]
+    per_segment = audio_tokenizer.cfg.tokens_per_segment
+    audio_part = video_sequence[:, frame_part_len - 1:-1]
+    if audio_part.shape[1] != num_audio_segments * (2 + per_segment):
+        raise ValueError(f"audio part has {audio_part.shape[1]} tokens, expected "
+                         f"{num_audio_segments * (2 + per_segment)} for {num_audio_segments} segments")
+    blocks = audio_part.view(batch, num_audio_segments, 2 + per_segment)
+    raw = vocab_id_to_audio_token_id(blocks[:, :, 1:-1])
+    grid = raw.reshape(batch * num_audio_segments, audio_tokenizer.cfg.latent_mel_bins, audio_tokenizer.cfg.latent_time_steps)
+    mels = audio_tokenizer.decode(grid)
+    return frames, mels.view(batch, num_audio_segments, *mels.shape[1:])
+
+
 if __name__ == "__main__":
     from image_tokenizer import build_default_tokenizer
 
@@ -125,5 +189,27 @@ if __name__ == "__main__":
     recovered_raw = vocab_id_to_image_token_id(recovered_offset).reshape(batch * num_frames, tokenizer.cfg.latent_grid_size, tokenizer.cfg.latent_grid_size)
     assert torch.equal(recovered_raw, direct_grids), "round-tripping through the sequence did not recover the exact original per-frame token ids"
     print("exact round trip OK: every frame's token ids survived encode_video -> decode_video unchanged.")
+
+    # Video WITH sound: audio segments sit inside the same video span and round-trip exactly.
+    from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
+
+    audio_tok = AudioTokenizer(AudioTokenizerConfig(base_channels=8, code_dim=16)).eval()
+    num_segments = 2
+    mels = torch.rand(batch, num_segments, 1, audio_tok.cfg.n_mels, audio_tok.cfg.segment_frames) * 2 - 1
+    with torch.no_grad():
+        av = encode_video_with_audio(tokenizer, dummy_video, audio_tok, mels)
+    assert av.shape[1] == expected_len + num_segments * (2 + audio_tok.cfg.tokens_per_segment), av.shape
+    assert (av[:, 0] == SpecialTokens.VIDEO_START).all() and (av[:, -1] == SpecialTokens.VIDEO_END).all()
+    assert (av[:, expected_len - 1] == SpecialTokens.AUDIO_START).all(), "audio must follow the last frame"
+    assert torch.equal(av[:, :expected_len - 1], sequence[:, :-1]), "frame part must be unchanged"
+    with torch.no_grad():
+        f2, m2 = decode_video_with_audio(tokenizer, av, num_frames, audio_tok, num_segments)
+        direct_audio = audio_tok.encode(mels.reshape(batch * num_segments, *mels.shape[2:]))
+    assert f2.shape == expected_shape and m2.shape == (batch, num_segments, *mels.shape[2:])
+    got = vocab_id_to_audio_token_id(av[:, expected_len - 1:-1].view(batch, num_segments, -1)[:, :, 1:-1])
+    assert torch.equal(got.reshape(direct_audio.shape), direct_audio), "audio token ids did not round-trip"
+    silent = encode_video_with_audio(tokenizer, dummy_video)
+    assert torch.equal(silent, sequence), "a silent clip must be exactly encode_video()"
+    print(f"video+audio OK: {num_segments} audio segments inside the video span, exact round trip; silent clips unchanged.")
 
     print("\nAll video handling checks passed — video reuses the image codebook per-frame with correct framing.")
