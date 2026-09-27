@@ -1073,7 +1073,7 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
   const script = FAKE_BOT_SCRIPTS[pending.fakeBotId];
   if (!script) {
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "🏠", { reply_markup: mainMenu() });
     return;
   }
 
@@ -1082,7 +1082,7 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 
   if (!nextNode || nextStep >= script.nodes.length) {
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "🏠", { reply_markup: mainMenu() });
     return;
   }
 
@@ -1091,7 +1091,7 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
   if (nextNode.disconnect) {
     await new Promise((r) => setTimeout(r, nextNode.delayMs ?? 3000));
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, "🏠", { reply_markup: mainMenu() });
     return;
   }
 
@@ -1794,7 +1794,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (isBack(text)) {
     if (pending?.mode === "fake_chatting") {
       await setPending(tgUserId, null);
-      await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+      await bot.api.sendMessage(chatId, "🏠", { reply_markup: mainMenu() });
       return;
     }
     if (pending?.mode === "random_chatting") {
@@ -1826,7 +1826,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (pending?.mode === "fake_chatting") {
     if (text === "⏹ إنهاء المحادثة" || text === "⛔ حظر" || text === "🚩 إبلاغ") {
       await setPending(tgUserId, null);
-      await bot.api.sendMessage(chatId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+      await bot.api.sendMessage(chatId, "🏠", { reply_markup: mainMenu() });
       return;
     }
     await handleFakeBotReply(bot, chatId, tgUserId, pending, text);
