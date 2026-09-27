@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5857925564,
   "last_actor": "grok",
-  "updated_at": "2026-09-27T17:08:00Z",
+  "updated_at": "2026-09-27T20:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G222 /bots copy+faq+meta: Message reactions / setMessageReaction are Telegram-only; site does not sell reaction campaigns or press reactions for members; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G221 /bots copy+faq+meta: Chat Boost / Premium boost are Telegram-only; site does not buy or manage boosts; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G220 /bots copy+faq+meta: Forum topics / createForumTopic / message_thread_id are Telegram-only; site does not create forum topics or manage topic threads; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G219 /bots copy+faq+meta: Telegram Passport is Telegram-only; site does not request passport data or store ID documents; no extra orderCode. Form/AdSlot/page.tsx untouched.",
