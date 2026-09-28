@@ -55,6 +55,7 @@ export const FAQ = [
   { q: "هل أرقّي مشرفاً أو أضبط صلاحيات المجموعة (Promote / setChatPermissions) من نموذج الموقع؟", a: "لا. promoteChatMember وsetChatAdministratorCustomTitle وsetChatPermissions من تليجرام فقط. الموقع لا يرقّي مشرفاً ولا يضبط لقباً مخصصاً ولا يغيّر صلاحيات الدردشة نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أعدّل رسالة أو أحذفها (Edit / delete message) من نموذج الموقع؟", a: "لا. editMessageText وdeleteMessage وeditMessageCaption من تليجرام فقط. الموقع لا يعدّل رسالة بعد إرسالها ولا يحذفها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أعيد توجيه رسالة أو أنسخها (Forward / copy message) من نموذج الموقع؟", a: "لا. forwardMessage وcopyMessage وforwardMessages من تليجرام فقط. الموقع لا يعيد توجيه رسالة ولا ينسخها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أرسل صورة أو فيديو أو ملفاً من نموذج الموقع (sendPhoto / sendMediaGroup)؟", a: "لا. sendPhoto وsendVideo وsendDocument وsendAudio وsendMediaGroup من تليجرام فقط. الموقع لا يرفع صورة ولا يرسل فيديواً ولا يبث مجموعة وسائط نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
