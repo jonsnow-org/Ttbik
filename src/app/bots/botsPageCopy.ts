@@ -66,6 +66,7 @@ export const LIMITS = [
   "روابط الدعوة للمجموعات والقنوات (Invite link / createChatInviteLink وexportChatInviteLink وrevokeChatInviteLink) من تليجرام فقط. الموقع لا ينشئ رابط دعوة ولا يلغي رابطاً ولا يبيع حملة دعوات. لا رمز طلب إضافياً.",
   "تثبيت الرسائل وإلغاؤه (Pin message / pinChatMessage وunpinChatMessage وunpinAllChatMessages) من تليجرام فقط. الموقع لا يثبّت رسالة ولا يلغي تثبيتاً نيابة عنك. لا رمز طلب إضافياً.",
   "طلبات الانضمام للمجموعة أو القناة (Chat join request وapproveChatJoinRequest وdeclineChatJoinRequest) من تليجرام فقط. الموقع لا يوافق على طلب انضمام ولا يرفضه نيابة عنك. لا رمز طلب إضافياً.",
+  "حظر وطرد الأعضاء (Ban / kick وbanChatMember وunbanChatMember وrestrictChatMember) من تليجرام فقط. الموقع لا يحظر عضواً ولا يطرده ولا يقيّد صلاحياته نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
