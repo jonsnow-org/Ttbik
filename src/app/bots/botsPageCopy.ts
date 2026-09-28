@@ -70,6 +70,7 @@ export const LIMITS = [
   "ترقية المشرفين وصلاحيات المجموعة (Promote / promoteChatMember وsetChatAdministratorCustomTitle وsetChatPermissions) من تليجرام فقط. الموقع لا يرقّي مشرفاً ولا يضبط لقباً مخصصاً ولا يغيّر صلاحيات الدردشة نيابة عنك. لا رمز طلب إضافياً.",
   "تعديل الرسائل وحذفها (Edit / delete message وeditMessageText وdeleteMessage وeditMessageCaption) من تليجرام فقط. الموقع لا يعدّل رسالة بعد إرسالها ولا يحذفها نيابة عنك. لا رمز طلب إضافياً.",
   "إعادة توجيه الرسائل ونسخها (Forward / copy message وforwardMessage وcopyMessage وforwardMessages) من تليجرام فقط. الموقع لا يعيد توجيه رسالة ولا ينسخها نيابة عنك. لا رمز طلب إضافياً.",
+  "إرسال الوسائط (صورة / فيديو / ملف / مجموعة وsendPhoto وsendVideo وsendDocument وsendAudio وsendMediaGroup) من تليجرام فقط. الموقع لا يرفع صورة ولا يرسل فيديواً ولا يبث مجموعة وسائط نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
