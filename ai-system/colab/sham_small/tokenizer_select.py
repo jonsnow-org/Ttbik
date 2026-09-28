@@ -151,11 +151,37 @@ def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None
             print(f"  ✖ {path}: حجم القاموس {getattr(tok.cfg, 'num_codes', None)} ولا يمكن مطابقته")
             continue
         repaired = bool(notes)
-        score = (_progress_samples(path, kind), int(step or 0), 0 if repaired else 1, path.stat().st_mtime)
+        from sham_vq import live_codes
+        live = live_codes(tok)
+        healthy = live >= 0.05 * _EXPECTED[kind]
+        # A collapsed codebook (a handful of live codes) always ranks below a healthy one,
+        # however long it trained: it can only ever produce the same flat texture.
+        score = (1 if healthy else 0, _progress_samples(path, kind), int(step or 0), 0 if repaired else 1, path.stat().st_mtime)
         tag = "🔧 أُصلح وقُبل — " + "؛ ".join(notes) if repaired else "صالح"
-        print(f"  • {path}: {tag} — عيّنات={score[0]:,} خطوة={score[1]}")
+        state = f"رموز حيّة {live:,}/{_EXPECTED[kind]:,}" + ("" if healthy else " ⚠ قاموس منهار")
+        print(f"  • {path}: {tag} — عيّنات={score[1]:,} خطوة={score[2]} — {state}")
         if best is None or score > best[0]:
             best = (score, tok, int(step or 0), path)
+    if best is not None and best[0][0] == 0 and search_root is not None:
+        # The model's own saved tokenizer has collapsed: switch to a healthy
+        # (revived) one from the tokenizer tracks if one is available. Its codes
+        # mean different things, so the model relearns image/audio tokens from here
+        # — worth it, since the collapsed vocabulary can't express any real picture.
+        from sham_inputs import fetch_dataset
+        from sham_vq import is_collapsed
+        # Stage 2's own copy first (what the multimodal brain actually learned
+        # with — the chat stage and the bot must speak the same codes), then the
+        # tokenizer tracks.
+        mm = fetch_dataset("sham-multimodal-checkpoint")
+        fetch_dataset(f"sham-{kind}-tokenizer-checkpoint")
+        tried = []
+        if mm and Path(mm).resolve() != Path(search_root).resolve():
+            tried.append(select_pretrained_tokenizer(kind, mm, loader))
+        tried.append(select_pretrained_tokenizer(kind, None, loader))
+        for other in tried:
+            if other is not None and not is_collapsed(other[0]):
+                print(f"  ⇄ أداة {kind} المحفوظة مع النموذج منهارة — التبديل إلى الأداة المُحياة: {other[2]}")
+                return other
     if best is None:
         return None
     return best[1], best[2], best[3]

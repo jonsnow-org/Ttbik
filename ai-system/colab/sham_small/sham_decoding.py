@@ -11,11 +11,12 @@ What it adds:
   1. guarded_generate_tokens(): the same loop as generate.generate_tokens
      (same signature, same forced_ids/allowed_ranges/stop_ids semantics)
      plus, for TEXT tokens only:
-       - repetition penalty over everything already generated,
-       - frequency penalty (grows with every repeat, so a word can't win
-         forever),
-       - no-repeat n-gram ban (an n-gram already produced can't be
-         produced again — the direct cure for "سامي سامي سامي"),
+       - a MILD repetition + frequency penalty over what was generated
+         (Arabic BPE pieces like "ال" legitimately recur in every sentence;
+         the first, stronger settings pushed the model onto rare pieces and
+         produced invented words in the owner's live bot),
+       - no-repeat 4-gram ban (a phrase already produced can't be produced
+         again — the direct cure for "سامي سامي سامي"),
        - loop breaker: if the last `loop_window` tokens are one short
          pattern repeated, that pattern's next token is banned.
      Image/audio tokens are never penalized (a sky really does repeat the
@@ -87,9 +88,9 @@ def _loop_token(history: list[int], window: int) -> int | None:
 def penalize_text_logits(
     logits: torch.Tensor,
     history: list[int],
-    repetition_penalty: float = 1.3,
-    frequency_penalty: float = 0.4,
-    no_repeat_ngram: int = 3,
+    repetition_penalty: float = 1.1,
+    frequency_penalty: float = 0.05,
+    no_repeat_ngram: int = 4,
     loop_window: int = 8,
 ) -> torch.Tensor:
     """logits: (vocab,) for one sequence. Only text ids (< TEXT_VOCAB_SIZE)
@@ -127,9 +128,9 @@ def guarded_generate_tokens(
     forced_ids: list[int | None] | None = None,
     allowed_ranges: list[tuple[int, int] | None] | None = None,
     stop_ids: set[int] | None = None,
-    repetition_penalty: float = 1.3,
-    frequency_penalty: float = 0.4,
-    no_repeat_ngram: int = 3,
+    repetition_penalty: float = 1.1,
+    frequency_penalty: float = 0.05,
+    no_repeat_ngram: int = 4,
     guard: bool = True,
     extra_allowed: tuple[int, ...] = (),
 ) -> torch.Tensor:
@@ -319,6 +320,9 @@ def install_on_serve(serve_module, chat: bool, max_prompt_tokens: int = 384, sea
         is_plain_text = prompt_ids.shape[0] == 1 and ids and all(i < TEXT_VOCAB_SIZE for i in ids)
         if chat and is_plain_text:
             wrapped = torch.tensor([chat_prompt_ids(ids[-max_prompt_tokens:])], dtype=torch.long, device=prompt_ids.device)
+            # Answers: calmer sampling than serve.py's 0.8/top-k 50 (fewer invented words).
+            kw.update(temperature=min(kw.get("temperature", 0.7), 0.6), top_k=min(kw.get("top_k") or 40, 40),
+                      top_p=min(kw.get("top_p") or 0.9, 0.9))
             answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(),
                                                         search_fn=web_search_text if search else None, **kw)
             if queries:

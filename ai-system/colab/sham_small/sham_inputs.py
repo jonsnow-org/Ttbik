@@ -373,3 +373,11 @@ try:
     _sham_schedule.install()
 except Exception as _exc:  # never block a run over this
     print(f"sham_schedule not installed: {_exc}")
+
+# Same mechanism for the image/audio tokenizers: codebook revival instead of
+# the vanilla VQ training that collapsed to ~10 of 8,192 codes (sham_vq.py).
+try:
+    import sham_vq as _sham_vq
+    _sham_vq.install()
+except Exception as _exc:
+    print(f"sham_vq not installed: {_exc}")

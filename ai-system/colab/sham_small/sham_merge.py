@@ -81,7 +81,40 @@ def load_source(root: Path, pattern: str, main_model, main_tokenizer):
     for k in _ARCH_KEYS:
         if getattr(other.cfg, k) != getattr(main_model.cfg, k):
             return None, f"معمارية مختلفة ({k}: {getattr(other.cfg, k)} ≠ {getattr(main_model.cfg, k)})"
+    _neutralize_foreign_media_rows(root, other, main_model)
     return (other, step), None
+
+
+def _codebook(path: Path):
+    from tokenizer_select import robust_load
+    try:
+        kind = "image" if path.name.startswith("image") else "audio"
+        return robust_load(path, kind)[0].quantizer.codebook.weight.detach()
+    except Exception:
+        return None
+
+
+@torch.no_grad()
+def _neutralize_foreign_media_rows(root: Path, other, main_model, reference_dir: Path = Path("/kaggle/working")) -> None:
+    """Image/audio ids only mean the same thing under the SAME tokenizer. If the
+    source was trained with different image/audio tokenizers than the ones the
+    main model uses now (reference_dir holds those), its media rows are made
+    identical to the main model's, so interpolation leaves them untouched."""
+    from model import AUDIO_VOCAB_BASE, IMAGE_VOCAB_BASE
+    spans = {"image_tokenizer.pt": (IMAGE_VOCAB_BASE, IMAGE_VOCAB_BASE + IMAGE_VOCAB_SIZE),
+             "audio_tokenizer.pt": (AUDIO_VOCAB_BASE, AUDIO_VOCAB_BASE + AUDIO_VOCAB_SIZE)}
+    main_params = dict(main_model.named_parameters())
+    for fname, (lo, hi) in spans.items():
+        mine = reference_dir / fname
+        theirs = sorted(Path(root).rglob(fname))
+        if not mine.exists():
+            continue
+        a, b = _codebook(mine), (_codebook(theirs[0]) if theirs else None)
+        if a is not None and b is not None and a.shape == b.shape and torch.equal(a, b):
+            continue  # same tokenizer: media rows are comparable
+        for name, p in other.named_parameters():
+            if p.shape[0] == other.cfg.vocab_size and name in main_params:
+                p[lo:hi].copy_(main_params[name][lo:hi].to(p.device))
 
 
 @torch.no_grad()
@@ -178,4 +211,20 @@ if __name__ == "__main__":
     img_before = main2.token_embedding.weight[TEXT_VOCAB_SIZE:].clone()
     guarded_merge(main2, [("good-text", good, TEXT_ROWS)], score)
     assert torch.equal(main2.token_embedding.weight[TEXT_VOCAB_SIZE:], img_before)
+    # different image tokenizer on the source → its image rows can't move the main model
+    import tempfile
+    from image_tokenizer import ImageTokenizer, ImageTokenizerConfig
+    from model import IMAGE_VOCAB_BASE
+    from train_image_tokenizer import save_tokenizer_checkpoint
+    with tempfile.TemporaryDirectory() as d:
+        ref, src = Path(d, "ref"), Path(d, "src")
+        ref.mkdir(), src.mkdir()
+        small = lambda: ImageTokenizer(ImageTokenizerConfig(image_size=16, base_channels=8, channel_multipliers=(1, 2), code_dim=8))
+        torch.manual_seed(1); save_tokenizer_checkpoint(ref / "image_tokenizer.pt", small(), step=1)
+        torch.manual_seed(2); save_tokenizer_checkpoint(src / "image_tokenizer.pt", small(), step=1)
+        main3, src3 = ShamSmall(cfg), ShamSmall(cfg)
+        _neutralize_foreign_media_rows(src, src3, main3, reference_dir=ref)
+        lo = IMAGE_VOCAB_BASE
+        assert torch.equal(src3.token_embedding.weight[lo:lo + 10], main3.token_embedding.weight[lo:lo + 10])
+        assert not torch.equal(src3.token_embedding.weight[:10], main3.token_embedding.weight[:10])
     print("sham_merge self-test OK")
