@@ -43,7 +43,7 @@ KNOWN_SOURCES = [
     ("sham-multimodal-checkpoint", "final_multimodal.pt", MEDIA_ROWS),
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
-    ("sham-research-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
+    ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
 ]
 _ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
 
