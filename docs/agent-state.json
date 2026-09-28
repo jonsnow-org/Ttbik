@@ -3,16 +3,16 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5862008575,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T02:08:00Z",
+  "updated_at": "2026-09-28T03:00:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
-    "G20-G25/G40 inbox still waiting-ack — no re-propose",
-    "G228 FAQ line still to land if not in botsPageFaq.ts this cycle"
+    "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G228 FAQ row landed in botsPageFaq.ts: Poll/Quiz/sendPoll Telegram-only. Form/AdSlot/page.tsx untouched.",
     "G228 /bots copy+meta: Polls / Quiz / sendPoll Telegram-only LIMITS+keywords. FAQ row pending if missing from botsPageFaq.ts. Form/AdSlot/page.tsx untouched.",
     "G227 /bots copy+faq+meta: Checklist / todo list / sendChecklist are Telegram-only; site does not create checklists or tick items; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G226 /bots copy+faq+meta: Giveaways / Premium giveaway are Telegram-only; site does not create giveaways or award Premium; no extra orderCode. Form/AdSlot/page.tsx untouched.",
