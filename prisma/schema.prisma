@@ -1389,3 +1389,39 @@ model QuizResult {
 
   @@index([userId])
 }
+
+// STREAK_BOT (docs/claude-feature-backlog.md item 5) — daily-habit streak
+// tracker across a fixed set of categories (fasting/prayer/reading/
+// exercise, defined in code as STREAK_CATEGORIES in src/lib/streakBotLogic.ts).
+// One StreakEntry per (user, category): currentStreak/longestStreak +
+// lastCheckInDate ("YYYY-MM-DD", UTC) drive the day-to-day continuity
+// check-in logic. No AI, no payment, nothing user-generated to moderate.
+// Same owner-only-to-DEPLOY gate as QUIZ_BOT/NAME_COMPAT_BOT
+// (STREAK_BOT_CREATOR_PASSWORD).
+model StreakUser {
+  id            String    @id // Telegram User ID
+  botId         String
+  pendingAction Json?
+  isBanned      Boolean   @default(false)
+  mutedUntil    DateTime?
+  lastActiveAt  DateTime  @default(now())
+  created_at    DateTime  @default(now())
+
+  streaks StreakEntry[]
+}
+
+// One row per (user, category) — the live counter, not a log of every
+// check-in (there is no per-day history table, only the running streak).
+model StreakEntry {
+  id              String     @id @default(uuid())
+  userId          String
+  user            StreakUser @relation(fields: [userId], references: [id])
+  category        String
+  currentStreak   Int        @default(0)
+  longestStreak   Int        @default(0)
+  lastCheckInDate String?
+  created_at      DateTime   @default(now())
+
+  @@unique([userId, category])
+  @@index([userId])
+}

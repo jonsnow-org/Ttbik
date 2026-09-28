@@ -49,8 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **5. Daily-streak challenge bot** (fasting/prayer/reading/exercise) —
-      streak counter + daily reminder + social share of the streak.
 - [ ] **6. Prayer-times / dhikr reminder bot** — free, computed offline or
       via a free prayer-times API, no ongoing cost.
 - [ ] **7. Greeting-card generator bot** — canvas/sharp-based text-over-
@@ -70,6 +68,30 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Done
 
+- **5. Daily-streak challenge bot** (shipped 2026-09-28) — new `STREAK_BOT`
+      template, wired as a sibling branch in
+      `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
+      (owner-only `STREAK_BOT_CREATOR_PASSWORD` gate, same shape as
+      QUIZ_BOT/NAME_COMPAT_BOT) and `src/app/bots/BotsDeployForm.tsx`. Free,
+      no payment, no AI — 4 fixed habit categories (🌙 الصيام / 🕌 الصلاة /
+      📖 القراءة / 🏃 الرياضة, `STREAK_CATEGORIES` in
+      `src/lib/streakBotLogic.ts`), each tracked as its own independent
+      streak (`StreakEntry`, one row per user+category). "✅ سجلت اليوم"
+      check-in increments the streak if the last check-in was yesterday,
+      resets to 1 otherwise; "📤 مشاركة" sends a shareable result-card text;
+      "📊 كل سلاسلي" shows every category's current/longest streak.
+      `StreakUser`/`StreakEntry` in `prisma/schema.prisma`. History-free by
+      design (only the running counters persist, no per-day log). Admin
+      stats/lookup/ban/required-channel/broadcast panel for
+      `SUPER_ADMIN_TELEGRAM_ID`, same pattern as QUIZ_BOT. New daily cron
+      `src/app/api/cron/streak-reminders/route.ts` (`0 20 * * *` in
+      `vercel.json`) nudges any user with an active, not-yet-today-checked-in
+      streak before the day ends. Each check-in earns 1 point on the item-1
+      `PlatformPoints` ledger. No `liveBots.ts` card added — no owner-run
+      instance exists yet.
+      ⚠️ Owner needs to run `prisma/migration_38_streak_bot.sql` in
+      Supabase's SQL Editor, and set `STREAK_BOT_CREATOR_PASSWORD` in Vercel
+      env vars before deploying an instance.
 - **4. Personality-quiz bot** (shipped 2026-09-27) — new `QUIZ_BOT`
       template, wired as a sibling branch in
       `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
