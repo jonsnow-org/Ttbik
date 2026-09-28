@@ -49,7 +49,9 @@ def main() -> None:
     revoked_org = key_store.verify_api_key(revoked_org_key)
     key_store.revoke_organization(revoked_org.org_id)
 
-    env = {**os.environ, "SHAM_SMALL_API_KEYS_DB": _TEST_DB_PATH}
+    # Plumbing test only: explicitly allow the untrained diagnostic model
+    # (the real service refuses to start without a trained checkpoint).
+    env = {**os.environ, "SHAM_SMALL_API_KEYS_DB": _TEST_DB_PATH, "SHAM_DIAGNOSTIC_UNTRAINED": "1"}
     server = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "serve:app", "--host", "127.0.0.1", "--port", "8123", "--log-level", "warning"],
         cwd=str(Path(__file__).resolve().parent), env=env,
