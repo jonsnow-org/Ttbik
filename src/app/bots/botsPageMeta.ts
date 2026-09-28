@@ -165,6 +165,12 @@ export const botsMetadata: Metadata = {
     "sendContact",
     "vCard",
     "بطاقة تعريف بوت",
+    "رابط دعوة تليجرام",
+    "Invite link",
+    "createChatInviteLink",
+    "exportChatInviteLink",
+    "revokeChatInviteLink",
+    "رابط دعوة مجموعة",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
