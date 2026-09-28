@@ -160,6 +160,11 @@ export const botsMetadata: Metadata = {
     "sendLocation",
     "sendVenue",
     "موقع حي بوت",
+    "جهة اتصال تليجرام",
+    "Contact",
+    "sendContact",
+    "vCard",
+    "بطاقة تعريف بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
