@@ -96,7 +96,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             🔑 وضع المالك مفعّل — لديك وصول كامل لكل الخدمات والأدوات
           </div>
         )}
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/85 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3.5">
             <a href="/" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
               <Logo className="h-7 w-7" /> سوق تولز

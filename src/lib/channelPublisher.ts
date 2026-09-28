@@ -239,6 +239,15 @@ async function newsDigest(): Promise<{ text: string; html: string; previewUrl: s
 // ---------------------------------------------------------------------
 // Run
 // ---------------------------------------------------------------------
+// Telegram caches a link preview per exact URL indefinitely, so a page shared
+// before its preview image changed keeps showing the old card. A dated tag on
+// our own query-less links makes Telegram fetch the current preview.
+function freshenSiteLinks(text: string): string {
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const base = SITE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`${base}(/[^\\s"<>?#]*)?(?=[\\s"<>#]|$)`, "g"), (m) => `${m}?tg=${day}`);
+}
+
 export async function sendToChannel(
   text: string,
   opts: { html?: boolean; previewUrl?: string } = {}
@@ -246,6 +255,7 @@ export async function sendToChannel(
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const channel = process.env.TELEGRAM_CHANNEL_ID;
   if (!token || !channel) return false;
+  text = freshenSiteLinks(text);
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
