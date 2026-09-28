@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5863841679,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T06:05:00Z",
+  "updated_at": "2026-09-28T07:12:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G232 /bots copy+faq+meta: Invite link / createChatInviteLink / exportChatInviteLink / revokeChatInviteLink Telegram-only; site does not create or revoke invite links or sell invite campaigns; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G231 /bots copy+faq+meta: Contact / sendContact / vCard Telegram-only; site does not send contacts or collect phone numbers; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G230 FAQ row landed in botsPageFaq.ts: Location/sendLocation/sendVenue Telegram-only. Form/AdSlot/page.tsx untouched.",
     "G230 /bots copy+faq+meta: Location / live location / sendLocation / sendVenue Telegram-only; site does not send or track location; no extra orderCode. Form/AdSlot/page.tsx untouched.",
