@@ -133,6 +133,11 @@ export const botsMetadata: Metadata = {
     "Group call",
     "createVideoChat",
     "مكالمة صوت مجموعة",
+    "سحوبات تليجرام",
+    "Giveaways",
+    "Premium giveaway",
+    "giveaway",
+    "سحب بريميوم تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
