@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5873952336,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T16:12:00Z",
+  "updated_at": "2026-09-28T17:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G238 FAQ+keywords+LIMITS landed: Forward/copy message / forwardMessage / copyMessage / forwardMessages. Form/AdSlot/page.tsx untouched.",
     "G237 FAQ+keywords+LIMITS landed: Edit/delete message / editMessageText / deleteMessage / editMessageCaption. Form/AdSlot/page.tsx untouched.",
     "G236 FAQ+keywords+LIMITS landed: Promote / promoteChatMember / setChatAdministratorCustomTitle / setChatPermissions. Form/AdSlot/page.tsx untouched.",
     "G235 FAQ+keywords landed: Ban/kick / banChatMember / unbanChatMember / restrictChatMember. Form/AdSlot/page.tsx untouched.",
