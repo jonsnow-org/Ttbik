@@ -154,6 +154,12 @@ export const botsMetadata: Metadata = {
     "sendDice",
     "animated emoji",
     "إيموجي متحرك بوت",
+    "موقع تليجرام",
+    "Location",
+    "live location",
+    "sendLocation",
+    "sendVenue",
+    "موقع حي بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
