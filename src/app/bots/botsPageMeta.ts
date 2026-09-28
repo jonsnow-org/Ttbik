@@ -138,6 +138,11 @@ export const botsMetadata: Metadata = {
     "Premium giveaway",
     "giveaway",
     "سحب بريميوم تليجرام",
+    "قائمة مهام تليجرام",
+    "Checklist",
+    "todo list",
+    "sendChecklist",
+    "قائمة مهام بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
