@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5862008575,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T03:00:00Z",
+  "updated_at": "2026-09-28T04:10:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G229 /bots copy+faq+meta: Dice / sendDice / animated emoji Telegram-only; site does not send dice or run game outcomes; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G228 FAQ row landed in botsPageFaq.ts: Poll/Quiz/sendPoll Telegram-only. Form/AdSlot/page.tsx untouched.",
     "G228 /bots copy+meta: Polls / Quiz / sendPoll Telegram-only LIMITS+keywords. FAQ row pending if missing from botsPageFaq.ts. Form/AdSlot/page.tsx untouched.",
     "G227 /bots copy+faq+meta: Checklist / todo list / sendChecklist are Telegram-only; site does not create checklists or tick items; no extra orderCode. Form/AdSlot/page.tsx untouched.",

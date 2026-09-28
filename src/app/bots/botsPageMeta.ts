@@ -149,6 +149,11 @@ export const botsMetadata: Metadata = {
     "Quiz",
     "sendPoll",
     "استبيان بوت",
+    "نرد تليجرام",
+    "Dice",
+    "sendDice",
+    "animated emoji",
+    "إيموجي متحرك بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
