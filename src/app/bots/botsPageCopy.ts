@@ -71,6 +71,7 @@ export const LIMITS = [
   "تعديل الرسائل وحذفها (Edit / delete message وeditMessageText وdeleteMessage وeditMessageCaption) من تليجرام فقط. الموقع لا يعدّل رسالة بعد إرسالها ولا يحذفها نيابة عنك. لا رمز طلب إضافياً.",
   "إعادة توجيه الرسائل ونسخها (Forward / copy message وforwardMessage وcopyMessage وforwardMessages) من تليجرام فقط. الموقع لا يعيد توجيه رسالة ولا ينسخها نيابة عنك. لا رمز طلب إضافياً.",
   "إرسال الوسائط (صورة / فيديو / ملف / مجموعة وsendPhoto وsendVideo وsendDocument وsendAudio وsendMediaGroup) من تليجرام فقط. الموقع لا يرفع صورة ولا يرسل فيديواً ولا يبث مجموعة وسائط نيابة عنك. لا رمز طلب إضافياً.",
+  "الرسائل الصوتية والملاحظة المرئية والرسوم المتحركة (Voice / video note / GIF وsendVoice وsendVideoNote وsendAnimation) من تليجرام فقط. الموقع لا يرسل رسالة صوتية ولا ملاحظة دائرية ولا GIF نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
