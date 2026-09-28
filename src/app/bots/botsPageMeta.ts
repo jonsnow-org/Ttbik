@@ -184,6 +184,13 @@ export const botsMetadata: Metadata = {
     "setChatPermissions",
     "صلاحيات المجموعة",
     "لقب مشرف مخصص",
+    "تعديل رسالة تليجرام",
+    "حذف رسالة تليجرام",
+    "Edit message",
+    "delete message",
+    "editMessageText",
+    "deleteMessage",
+    "editMessageCaption",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
