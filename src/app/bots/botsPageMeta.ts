@@ -191,6 +191,13 @@ export const botsMetadata: Metadata = {
     "editMessageText",
     "deleteMessage",
     "editMessageCaption",
+    "إعادة توجيه رسالة تليجرام",
+    "نسخ رسالة تليجرام",
+    "Forward message",
+    "copy message",
+    "forwardMessage",
+    "copyMessage",
+    "forwardMessages",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
