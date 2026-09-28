@@ -78,7 +78,7 @@ async def generate_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.json().get('detail', r.text)[:200]}")
             return
         text = r.json().get("text") or ""
-        await update.message.reply_text(text or "(نص فارغ — طبيعي مع نموذج غير مُدرَّب بعد)")
+        await update.message.reply_text(text or "(لم يكتب شام رداً هذه المرة — أعيدي صياغة السؤال)")
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
 
@@ -97,7 +97,7 @@ async def generate_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.text[:200]}")
             return
         await update.message.reply_photo(
-            photo=io.BytesIO(r.content), caption="ناتج حقيقي من النموذج (عشوائي قبل التدريب الفعلي)"
+            photo=io.BytesIO(r.content), caption=f"🎨 شام: {prompt}"
         )
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
@@ -135,7 +135,7 @@ async def generate_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.text[:200]}")
             return
         await update.message.reply_video(
-            video=io.BytesIO(r.content), caption="ناتج حقيقي من النموذج (عشوائي قبل التدريب الفعلي)"
+            video=io.BytesIO(r.content), caption=f"🎬 شام: {prompt}"
         )
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")

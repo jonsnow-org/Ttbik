@@ -16,19 +16,12 @@ Nova) rather than added into it â€” ShamSmall is a wholly different,
 still-untrained model tree; nothing here should be able to affect the
 live production bot in any way.
 
-HONEST, stated up front rather than discovered by surprise: no real
-large-scale training run has happened yet (that remains the
-deliberately separate final stage â€” see this project's own history).
-Every endpoint below is REAL â€” a real forward pass through a real
-ShamSmall model, real KV-cache generation, real tokenizer round trips,
-real image/audio/video decoding â€” but the model's weights are either
-freshly randomly initialized or loaded from whatever checkpoint exists
-so far, so generated CONTENT will look like structured noise (a real
-PNG/WAV/MP4 file, valid and playable, just not meaningful) until real
-training happens. This service tests the PLUMBING (does a prompt
-really turn into a real image/audio/video file, end to end, with no
-crashes) â€” not output quality, which is a training-data question, not
-a serving-code one.
+What is served (owner directive 2026-09-28): only a real trained Sham — the
+checkpoint named by SHAM_SMALL_CHECKPOINT_PATH, the text tokenizer saved with
+it, and the image/audio tokenizers it was trained with (found next to the
+checkpoint). If any of them is missing the server refuses to start instead of
+falling back to random weights. An untrained model is available for plumbing
+diagnostics only, behind SHAM_DIAGNOSTIC_UNTRAINED=1 (verify_serve.py).
 
 /ask/image and /ask/video (owner spec: a verified organization asks a
 real, live question about a real clip THEY provide â€” e.g. a clinician
@@ -87,12 +80,10 @@ from video_tokenizer import decode_video
 _FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 _SAMPLE_RATE = 16000
 
-app = FastAPI(title="Sham â€” serving backend (pre-training smoke test)")
+app = FastAPI(title="Sham — serving backend")
 
-# Real, small, CPU-friendly configs for this smoke-test service â€” real
-# training will produce a real checkpoint.pt this same load_model()
-# function already knows how to load instead (see its own docstring);
-# swapping to it is a config change, not a code change.
+# Filled by load_model(): the trained model, its tokenizers, and a short
+# description of which checkpoint is being served (shown by /health).
 _state: dict = {}
 
 # One real, persistent key store for this process â€” see api_keys.py's
@@ -133,25 +124,34 @@ def _load_image_tensor(raw_bytes: bytes, image_size: int) -> torch.Tensor:
     return (tensor.permute(2, 0, 1) / 127.5 - 1.0).unsqueeze(0)
 
 
-def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = None) -> None:
-    """Loads a real trained checkpoint if one is given and exists;
-    otherwise builds a fresh, randomly-initialized model at a small,
-    fast-on-CPU config purely so this service's PLUMBING (every
-    endpoint, every tensor shape, every file format) can be tested for
-    real right now, without waiting for the actual training stage.
+def _trained_media_tokenizer(kind: str, checkpoint_path: str):
+    """The image/audio tokenizer the served model was trained with: an explicit
+    SHAM_{KIND}_TOKENIZER_PATH, else the one saved next to the checkpoint
+    (every Sham stage publishes its tokenizers with its checkpoint)."""
+    from tokenizer_select import select_pretrained_tokenizer
 
-    Real bug (fixed): this used to build a fresh bootstrap tokenizer
-    unconditionally, even when a real trained checkpoint was given --
-    so serving a real checkpoint still silently generated with a
-    tokenizer that had nothing to do with the ids that checkpoint was
-    actually trained on (a different vocab/merge mapping entirely,
-    same class of corruption this project's own Kaggle notebook
-    explicitly guards against when resuming training). A real
-    checkpoint needs its own matching saved tokenizer passed here too,
-    not just its weights."""
-    if checkpoint_path and Path(checkpoint_path).exists():
+    explicit = os.environ.get(f"SHAM_{kind.upper()}_TOKENIZER_PATH")
+    root = Path(explicit).parent if explicit else Path(checkpoint_path).parent
+    picked = select_pretrained_tokenizer(kind, root)
+    return picked[0].to("cpu").eval() if picked else None
+
+
+def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = None) -> None:
+    """Serves ONLY a real trained Sham: the checkpoint, the text tokenizer saved
+    with it, and the image/audio tokenizers it was trained with. Owner directive
+    (2026-09-28): no silent random fallback in the real service — if anything is
+    missing the server refuses to start and says what is missing. A random
+    untrained model exists only for plumbing diagnostics, and only when
+    SHAM_DIAGNOSTIC_UNTRAINED=1 is set explicitly (verify_serve.py does that)."""
+    diagnostic = os.environ.get("SHAM_DIAGNOSTIC_UNTRAINED") == "1"
+    real = bool(checkpoint_path and Path(checkpoint_path).exists())
+    if not real and not diagnostic:
+        raise RuntimeError(f"لا توجد نقطة حفظ مدرّبة لشام في {checkpoint_path!r} — الخادم يعمل بنموذج مدرّب فقط.")
+
+    if real:
         model, step, _ = load_checkpoint(checkpoint_path)
-        print(f"loaded a REAL trained checkpoint from {checkpoint_path} (step {step})")
+        _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
+        print(f"loaded the trained checkpoint {checkpoint_path} (step {step})")
     else:
         from model import ShamSmallConfig
 
@@ -159,40 +159,40 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
             vocab_size=42256, d_model=64, n_layers=4, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=512
         )
         model = ShamSmall(cfg)
-        print("no trained checkpoint given/found â€” serving a FRESH, RANDOMLY-INITIALIZED small model "
-              "(real plumbing test only; output content will look like structured noise until real "
-              "training happens)")
+        _state["source"] = "تشخيص فقط: نموذج غير مدرّب (SHAM_DIAGNOSTIC_UNTRAINED=1)"
+        print("DIAGNOSTIC MODE: serving an untrained model to test plumbing only")
     model.eval()
-
-    # num_codes MUST equal model.py's IMAGE_VOCAB_SIZE/AUDIO_VOCAB_SIZE
-    # exactly (see model.py's own inline comment on those constants) â€”
-    # generate_image()/generate_audio() restrict sampling to the full
-    # architectural [0, IMAGE_VOCAB_SIZE)/[0, AUDIO_VOCAB_SIZE) range
-    # regardless of what a particular tokenizer instance's codebook
-    # actually holds, so a smaller codebook here would let the model
-    # legitimately sample an id past the end of this instance's real
-    # codebook table â€” exactly the IndexError caught by running this
-    # server for real. Every OTHER dimension (image_size, base_channels,
-    # code_dim) is still shrunk for CPU speed; only num_codes is fixed.
-    image_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=IMAGE_VOCAB_SIZE)
-    audio_cfg = AudioTokenizerConfig(n_mels=16, segment_frames=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=AUDIO_VOCAB_SIZE)
 
     if tokenizer_path and Path(tokenizer_path).exists():
         text_tokenizer = ShamTextTokenizer.load(tokenizer_path)
-        print(f"loaded the REAL saved tokenizer from {tokenizer_path} (vocab={text_tokenizer.vocab_size})")
+        print(f"loaded the saved text tokenizer from {tokenizer_path} (vocab={text_tokenizer.vocab_size})")
+    elif not diagnostic:
+        raise RuntimeError(f"أداة تقسيم النص المحفوظة مع النقطة غير موجودة ({tokenizer_path!r}).")
     else:
         bootstrap_corpus = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8")
-        bootstrap_corpus.write(
-            "Sham is a real from scratch multimodal model. ظ…ط±ط­ط¨ط§ظ‹ ظ‡ط°ط§ ط§ط®طھط¨ط§ط± ط­ظ‚ظٹظ‚ظٹ ظ„ظ„ظ†ظ…ظˆط°ط¬. " * 100
-        )
+        bootstrap_corpus.write("Sham plumbing diagnostic. مرحباً هذا فحص للتوصيل فقط. " * 100)
         bootstrap_corpus.close()
         text_tokenizer = train_text_tokenizer([bootstrap_corpus.name], vocab_size=800)
         Path(bootstrap_corpus.name).unlink()
 
+    image_tokenizer = _trained_media_tokenizer("image", checkpoint_path) if real else None
+    audio_tokenizer = _trained_media_tokenizer("audio", checkpoint_path) if real else None
+    if (image_tokenizer is None or audio_tokenizer is None) and not diagnostic:
+        missing = [k for k, t in (("image", image_tokenizer), ("audio", audio_tokenizer)) if t is None]
+        raise RuntimeError(f"أداة ترميز {'/'.join(missing)} المدرّبة غير موجودة بجانب النقطة — الخادم يعمل بأدوات شام المدرّبة فقط.")
+    if image_tokenizer is None:
+        # num_codes MUST equal model.py's IMAGE_VOCAB_SIZE/AUDIO_VOCAB_SIZE — see model.py.
+        image_tokenizer = ImageTokenizer(ImageTokenizerConfig(
+            image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=IMAGE_VOCAB_SIZE)).eval()
+    if audio_tokenizer is None:
+        audio_tokenizer = AudioTokenizer(AudioTokenizerConfig(
+            n_mels=16, segment_frames=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32,
+            num_codes=AUDIO_VOCAB_SIZE)).eval()
+
     _state["model"] = model
     _state["text_tokenizer"] = text_tokenizer
-    _state["image_tokenizer"] = ImageTokenizer(image_cfg).eval()
-    _state["audio_tokenizer"] = AudioTokenizer(audio_cfg).eval()
+    _state["image_tokenizer"] = image_tokenizer
+    _state["audio_tokenizer"] = audio_tokenizer
 
 
 @app.on_event("startup")
@@ -240,7 +240,7 @@ def health() -> dict:
     return {
         "status": "ok",
         "model_params": model.count_parameters(),
-        "note": "pre-training smoke test â€” real plumbing, not yet real trained weights",
+        "note": f"شام: {_state.get('source', '')}",
     }
 
 
@@ -251,16 +251,8 @@ def generate_text_endpoint(req: TextRequest) -> dict:
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
 
-    # Real, stated caveat for THIS pre-training smoke-test server only:
-    # the bootstrap tokenizer here only has real merges for the ~800
-    # ids it was actually trained on, far fewer than the model's full
-    # architectural 32,000-slot text range â€” sampling outside that
-    # range produces ids this specific tokenizer instance has no real
-    # mapping for. Restricting sampling to [0, tokenizer.vocab_size)
-    # keeps every generated id decodable. Once the real, full
-    # 32,000-entry production tokenizer is trained (a data-gathering
-    # task, not a code one â€” see text_tokenizer.py's own docstring),
-    # this restriction becomes a no-op, since the two ranges will match.
+    # Sampling stays inside [0, tokenizer.vocab_size) so every generated id
+    # is decodable by the tokenizer the checkpoint was trained with.
     out = generate_tokens(
         model, prompt_ids, max_new_tokens=req.max_new_tokens,
         temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS,

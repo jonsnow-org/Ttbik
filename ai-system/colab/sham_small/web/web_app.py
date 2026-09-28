@@ -26,12 +26,9 @@ import streamlit as st
 
 BACKEND_URL = os.environ.get("SHAM_SMALL_BACKEND_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="Sham (تجريبي)", page_icon="🧪")
-st.title("🧪 Sham — اختبار مباشر")
-st.caption(
-    "نموذج من الصفر، ملكية كاملة — هذه نسخة اختبار قبل التدريب الفعلي الكبير: "
-    "تختبر أن كل شيء متصل ويعمل تقنياً، وليس جودة الناتج بعد."
-)
+st.set_page_config(page_title="Sham", page_icon="🤖")
+st.title("🤖 Sham")
+st.caption("نموذج شام — مبني من الصفر، ملكية كاملة: نص وصورة وصوت وفيديو في نموذج واحد.")
 
 mode = st.sidebar.radio("نوع التوليد", ["نص", "صورة", "صوت", "فيديو"])
 st.sidebar.caption(f"الخادم: {BACKEND_URL}")
@@ -68,7 +65,7 @@ elif mode == "صورة":
         with st.spinner("يرسم..."):
             try:
                 resp = _call_backend("image", {"prompt": prompt}, timeout=120)
-                st.image(resp.content, caption="ناتج حقيقي من النموذج (عشوائي قبل التدريب الفعلي)")
+                st.image(resp.content, caption="شام")
             except requests.RequestException as e:
                 st.error(f"تعذر الاتصال بالخادم: {e}")
 
