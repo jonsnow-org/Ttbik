@@ -362,3 +362,14 @@ if __name__ == "__main__":
         assert fetch_dataset("missing-without-credentials") is None
         assert {p.name for p in rglob_inputs("*.txt")} == {"a.txt"}
     print("sham_inputs self-test: OK")
+
+
+# Every training notebook imports this module before it trains: install the
+# per-session learning-rate schedule fix here so resumed runs stop training at
+# a tenth of their intended rate (see sham_schedule.py) — no notebook cell
+# changes, so no re-import needed.
+try:
+    import sham_schedule as _sham_schedule
+    _sham_schedule.install()
+except Exception as _exc:  # never block a run over this
+    print(f"sham_schedule not installed: {_exc}")
