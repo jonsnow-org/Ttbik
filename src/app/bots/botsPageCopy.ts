@@ -64,6 +64,7 @@ export const LIMITS = [
   "الموقع والموقع الحي والعنوان (Location / live location وsendLocation وsendVenue) من تليجرام فقط. الموقع لا يرسل موقعاً ولا يتتبّع موقعاً حياً نيابة عنك. لا رمز طلب إضافياً.",
   "جهة الاتصال وبطاقة المعرّف (Contact / sendContact وvCard) من تليجرام فقط. الموقع لا يرسل جهة اتصال ولا يجمع أرقام هواتف نيابة عنك. لا رمز طلب إضافياً.",
   "روابط الدعوة للمجموعات والقنوات (Invite link / createChatInviteLink وexportChatInviteLink وrevokeChatInviteLink) من تليجرام فقط. الموقع لا ينشئ رابط دعوة ولا يلغي رابطاً ولا يبيع حملة دعوات. لا رمز طلب إضافياً.",
+  "تثبيت الرسائل وإلغاؤه (Pin message / pinChatMessage وunpinChatMessage وunpinAllChatMessages) من تليجرام فقط. الموقع لا يثبّت رسالة ولا يلغي تثبيتاً نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
