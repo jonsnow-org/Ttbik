@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5861550145,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T01:05:00Z",
+  "updated_at": "2026-09-28T02:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G228 /bots copy+faq+meta: Polls / Quiz / sendPoll are Telegram-only; site does not create polls or collect votes; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G227 /bots copy+faq+meta: Checklist / todo list / sendChecklist are Telegram-only; site does not create checklists or tick items; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G226 /bots copy+faq+meta: Giveaways / Premium giveaway are Telegram-only; site does not create giveaways or award Premium; no extra orderCode. Form/AdSlot/page.tsx untouched.",
     "G225 /bots keywords + FAQ typo: Voice Chat / Video Chat / Group call / createVideoChat complete G223 deferred meta; Paid Media FAQ مدفوعة spelling. Form/AdSlot/page.tsx untouched.",

@@ -143,6 +143,12 @@ export const botsMetadata: Metadata = {
     "todo list",
     "sendChecklist",
     "قائمة مهام بوت",
+    "استطلاع تليجرام",
+    "تصويت تليجرام",
+    "Poll",
+    "Quiz",
+    "sendPoll",
+    "استبيان بوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
