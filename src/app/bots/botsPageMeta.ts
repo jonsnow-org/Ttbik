@@ -177,6 +177,13 @@ export const botsMetadata: Metadata = {
     "unpinChatMessage",
     "unpinAllChatMessages",
     "إلغاء تثبيت رسالة بوت",
+    "ترقية مشرف تليجرام",
+    "Promote chat member",
+    "promoteChatMember",
+    "setChatAdministratorCustomTitle",
+    "setChatPermissions",
+    "صلاحيات المجموعة",
+    "لقب مشرف مخصص",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
