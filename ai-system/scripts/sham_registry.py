@@ -67,6 +67,16 @@ TRACKS: list[dict[str, Any]] = [
         "kind": "tool",
     },
     {
+        # After bot_test (whose source also names final_chat.pt), before stage2.
+        "id": "chat_stage",
+        "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
+        "markers": ["مرحلة التجميع والمحادثة", "final_chat.pt"],
+        "dataset": "sham-chat-checkpoint",
+        "key_files": ["final_chat.pt"],
+        "kind": "train",
+        "outputs": ["final_chat.pt"],
+    },
+    {
         "id": "stage2_multimodal",
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
         "markers": ["final_multimodal.pt", "المرحلة الثانية: إضافة الصورة والصوت"],
@@ -495,7 +505,7 @@ def pipeline_state(kernels: list[KernelInfo], datasets: list[DatasetInfo]) -> di
 
     order = ["text_stage1", "image_tokenizer", "audio_tokenizer", "video_corpus", "stage2_multimodal"]
     stages = {t: stage(t) for t in order}
-    for t in ("cpu_training_track", "research_track"):
+    for t in ("cpu_training_track", "research_track", "chat_stage"):
         stages[t] = stage(t)
 
     s = stages
@@ -517,6 +527,10 @@ def pipeline_state(kernels: list[KernelInfo], datasets: list[DatasetInfo]) -> di
             + "، ".join(inputs) + " ويستخدم أداتي الترميز المدرّبتين بدل تدريب جديد.",
         )
         current = "stage2_multimodal"
+    elif not s["chat_stage"]["ready"]:
+        step = ("شام متعدد الوسائط جاهز (نص + صورة + صوت) — حان وقت تجميعه وتعليمه المحادثة.",
+                "شغّلي دفتر «مرحلة التجميع والمحادثة» (GPU أو None) ← Save & Run All. يجلب كل شيء تلقائياً.")
+        current = "chat_stage"
     else:
         step = ("شام متعدد الوسائط جاهز (نص + صورة + صوت).",
                 "الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام».")

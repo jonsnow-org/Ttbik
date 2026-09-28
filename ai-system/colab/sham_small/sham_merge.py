@@ -1,0 +1,181 @@
+"""
+Sham's guarded knowledge merge ("الدمج المحروس") — the missing link the
+owner caught: Track A (CPU text), Track B (autonomous web research) and the
+GPU text stage each train their OWN copy of Sham's text brain, and until now
+only the GPU copy ever reached the model that talks in the bot. Likewise the
+chat stage continues its own lineage, so later stage-2 progress on images and
+sound never reached it either.
+
+How merging works (no outside model involved — only Sham's own lineages):
+  1. Every candidate source is loaded and CHECKED first: same architecture
+     (d_model, layers, heads, mlp, vocab) and the IDENTICAL text tokenizer
+     (same token -> same id). Anything else is skipped with the reason — a
+     weight average across different tokenizers would be silent garbage.
+  2. Interpolation toward the source: θ = (1-λ)·θ_main + λ·θ_source, tried at
+     a few λ. Only the vocabulary rows the source actually trained are
+     touched (a text-only track never touches image/audio/special rows, so
+     the main model's media and chat abilities are never diluted).
+  3. The gate: each λ is scored on held-out data of EVERY skill (text, chat
+     answers, image/audio/video pairs). A λ is accepted only if the total
+     improves and no single skill gets worse by more than a hair. Otherwise
+     the main weights are restored exactly. The best accepted λ wins.
+  4. Each source version is merged at most once (its step is remembered), so
+     an old version never pulls the model back again and again.
+
+Data-level merge: Track B's filtered web corpus (research_corpus/*.txt) is
+also offered to rehearsal, so its knowledge arrives even when the tokenizer
+check fails.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import torch
+
+from model import AUDIO_VOCAB_SIZE, IMAGE_VOCAB_SIZE, TEXT_VOCAB_SIZE
+
+TEXT_ROWS = [(0, TEXT_VOCAB_SIZE)]
+MEDIA_ROWS = [(0, TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE)]
+
+# (dataset, checkpoint glob, vocabulary rows that source really trained)
+KNOWN_SOURCES = [
+    ("sham-multimodal-checkpoint", "final_multimodal.pt", MEDIA_ROWS),
+    ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
+    ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
+    ("sham-research-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
+]
+_ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
+
+
+def _step_of(p: Path) -> int:
+    try:
+        return int(p.stem.split("_")[-1])
+    except ValueError:
+        return -1
+
+
+def latest_checkpoint(root: Path, pattern: str) -> Path | None:
+    found = sorted(root.rglob(pattern), key=_step_of)
+    return found[-1] if found else None
+
+
+def same_tokenizer(a, b) -> bool:
+    return a._tokenizer.get_vocab() == b._tokenizer.get_vocab()
+
+
+def load_source(root: Path, pattern: str, main_model, main_tokenizer):
+    """(model, step) if the source is merge-compatible, else (None, reason)."""
+    from checkpoint import load_checkpoint
+    from text_tokenizer import ShamTextTokenizer
+
+    ckpt = latest_checkpoint(root, pattern)
+    if ckpt is None:
+        return None, "لا توجد نقطة حفظ"
+    toks = [p for p in sorted(root.rglob("*tokenizer*.json"))]
+    if not toks:
+        return None, "لا توجد أداة تقسيم نص معها"
+    if not any(same_tokenizer(main_tokenizer, ShamTextTokenizer.load(str(t))) for t in toks):
+        return None, "أداة تقسيم نص مختلفة (نفس الكلمة لها رقم مختلف) — يُكتفى بدمج بياناتها"
+    other, step, _ = load_checkpoint(ckpt, map_location="cpu")
+    for k in _ARCH_KEYS:
+        if getattr(other.cfg, k) != getattr(main_model.cfg, k):
+            return None, f"معمارية مختلفة ({k}: {getattr(other.cfg, k)} ≠ {getattr(main_model.cfg, k)})"
+    return (other, step), None
+
+
+@torch.no_grad()
+def _interpolate(model, base: dict, other: dict, lam: float, rows) -> None:
+    vocab = model.cfg.vocab_size
+    for name, p in model.named_parameters():
+        if name not in other:
+            continue
+        b, o = base[name], other[name].to(p.dtype)
+        if p.shape[0] == vocab and p.dim() >= 1:
+            p.copy_(b)
+            for lo, hi in rows:
+                p[lo:hi].copy_((1 - lam) * b[lo:hi] + lam * o[lo:hi].to(p.device))
+        else:
+            p.copy_((1 - lam) * b + lam * o.to(p.device))
+
+
+def _passes(score: dict, base: dict, tolerance: float) -> bool:
+    if any(score[k] > base[k] * (1 + tolerance) for k in base):
+        return False
+    return sum(score[k] / base[k] for k in base) < len(base) - 1e-3
+
+
+def guarded_merge(model, sources, score_fn, ratios=(0.15, 0.3, 0.5), tolerance=0.005):
+    """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
+    Mutates model in place (only accepted merges stay). Returns report lines."""
+    report = []
+    base_score = score_fn(model)
+    report.append("قبل الدمج: " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
+    for name, other, rows in sources:
+        base = {n: p.detach().clone() for n, p in model.named_parameters()}
+        other_sd = dict(other.named_parameters())
+        best = None
+        for lam in ratios:
+            _interpolate(model, base, other_sd, lam, rows)
+            s = score_fn(model)
+            if _passes(s, base_score, tolerance) and (best is None or sum(s.values()) < sum(best[1].values())):
+                best = (lam, s)
+        if best is None:
+            with torch.no_grad():
+                for n, p in model.named_parameters():
+                    p.copy_(base[n])
+            report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً)")
+        else:
+            _interpolate(model, base, other_sd, best[0], rows)
+            base_score = best[1]
+            report.append(f"✅ {name}: دُمج بنسبة {best[0]:.2f} — " + ", ".join(f"{k}={v:.3f}" for k, v in best[1].items()))
+        del base
+    return report
+
+
+@torch.no_grad()
+def batches_loss(model, batches, device: str) -> float:
+    """Mean loss over held-out batches (tensor = plain text, tuple = (ids, labels))."""
+    model.eval()
+    total, n = 0.0, 0
+    for b in batches:
+        ids, labels = b if isinstance(b, tuple) else (b, b)
+        _, loss = model(ids.to(device), labels=labels.to(device))[:2]
+        total += float(loss)
+        n += 1
+    model.train()
+    return total / max(n, 1)
+
+
+def research_corpus_files(root: Path | None) -> list[str]:
+    """Track B's filtered web documents (data-level merge)."""
+    if not root:
+        return []
+    return [str(p) for p in sorted(Path(root).rglob("research_corpus/**/*.txt"))]
+
+
+if __name__ == "__main__":
+    # Offline self-test: a compatible source that is strictly better on the
+    # gate gets merged; a harmful one is rejected and weights restored exactly.
+    from model import ShamSmall, ShamSmallConfig
+
+    torch.manual_seed(0)
+    cfg = ShamSmallConfig(vocab_size=42256, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=64)
+    main, good, bad = ShamSmall(cfg), ShamSmall(cfg), ShamSmall(cfg)
+    target = {n: p.detach().clone() for n, p in good.named_parameters()}
+    dist = lambda m: sum(float((p.detach() - target[n]).pow(2).sum()) for n, p in m.named_parameters())
+    score = lambda m: {"skill": dist(m) + 1.0}
+    with torch.no_grad():
+        for n, p in bad.named_parameters():
+            p.copy_(target[n] * -3)  # moving toward it only moves away from the target
+    before = {n: p.detach().clone() for n, p in main.named_parameters()}
+    rep = guarded_merge(main, [("bad", bad, MEDIA_ROWS)], score)
+    assert "❌" in rep[-1] and all(torch.equal(p, before[n]) for n, p in main.named_parameters())
+    rep = guarded_merge(main, [("good", good, MEDIA_ROWS)], score)
+    assert "✅" in rep[-1] and dist(main) < sum(float((before[n] - target[n]).pow(2).sum()) for n in before)
+    # text-only rows: image rows of the embedding stay untouched
+    main2 = ShamSmall(cfg)
+    img_before = main2.token_embedding.weight[TEXT_VOCAB_SIZE:].clone()
+    guarded_merge(main2, [("good-text", good, TEXT_ROWS)], score)
+    assert torch.equal(main2.token_embedding.weight[TEXT_VOCAB_SIZE:], img_before)
+    print("sham_merge self-test OK")

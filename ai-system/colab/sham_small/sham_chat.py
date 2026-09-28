@@ -44,6 +44,9 @@ IGNORE = -100
 
 DESCRIBE_IMAGE = ["صف هذه الصورة.", "ماذا ترى في الصورة؟", "اكتب وصفاً لهذه الصورة.", "ما الذي تظهره هذه الصورة؟"]
 DRAW_IMAGE = ["ارسم: {}", "أنشئ صورة: {}", "ارسم لي صورة لـ {}", "صورة: {}"]
+DESCRIBE_VIDEO = ["صف هذا الفيديو.", "ماذا يحدث في هذا الفيديو؟", "ما الذي يظهر في المقطع؟"]
+MAKE_VIDEO = ["أنشئ فيديو: {}", "اصنع مقطع فيديو: {}", "فيديو: {}"]
+ASK_ABOUT = ["ما هو {}؟", "حدثني عن {}.", "ماذا تعرف عن {}؟", "من هو {}؟", "عرّف {}."]
 TRANSCRIBE_AUDIO = ["اكتب ما يقال في هذا المقطع.", "ماذا يقول هذا الصوت؟", "حوّل هذا الصوت إلى نص."]
 SPEAK_AUDIO = ["انطق: {}", "قل بصوتك: {}", "حوّل إلى صوت: {}"]
 
@@ -82,6 +85,75 @@ def build_media_chat_examples(
     return [understand_ex, create_ex]
 
 
+def build_video_chat_examples(
+    text_ids_fn, caption: str, frame_ids: list[list[int]], audio_ids: list[int] | None, rng: random.Random,
+) -> list[tuple[list[int], list[int]]]:
+    """Video inside the conversation, both directions. frame_ids: offset image
+    ids per keyframe; audio_ids: one offset audio segment (the clip's sound)
+    or None. Same span layout as video_tokenizer.encode_video_with_audio."""
+    span = [SpecialTokens.VIDEO_START]
+    for f in frame_ids:
+        span += [SpecialTokens.IMAGE_START] + f + [SpecialTokens.IMAGE_END]
+    if audio_ids:
+        span += [SpecialTokens.AUDIO_START] + audio_ids + [SpecialTokens.AUDIO_END]
+    span += [SpecialTokens.VIDEO_END]
+    cap = text_ids_fn(caption)
+    u_prefix = [SpecialTokens.BOS, USER_TURN] + span + text_ids_fn(rng.choice(DESCRIBE_VIDEO)) + [SHAM_TURN]
+    c_prefix = [SpecialTokens.BOS, USER_TURN] + text_ids_fn(rng.choice(MAKE_VIDEO).format(caption)) + [SHAM_TURN]
+    return [
+        (u_prefix + cap + [SpecialTokens.EOS], [IGNORE] * len(u_prefix) + cap + [SpecialTokens.EOS]),
+        (c_prefix + span + [SpecialTokens.EOS], [IGNORE] * len(c_prefix) + span + [SpecialTokens.EOS]),
+    ]
+
+
+def build_search_example(
+    text_ids_fn, title: str, article: str, rng: random.Random, max_result_tokens: int = 160, max_answer_tokens: int = 96,
+) -> tuple[list[int], list[int]] | None:
+    """Learned search, self-supervised from Wikipedia (no labels needed):
+        <USER> ما هو {title}؟ <SHAM> <SEARCH_START> title <SEARCH_END>
+        <RESULT_START> article opening <RESULT_END> answer <EOS>
+    The query and the answer are learned; the result text is NOT (it comes
+    from the tool at inference), so its labels are ignored."""
+    paragraphs = [p.strip() for p in article.split("\n") if len(p.strip()) > 80]
+    if not title or not paragraphs:
+        return None
+    first = paragraphs[0]
+    answer = first.split(". ")[0].strip()
+    answer = answer if answer.endswith(".") else answer + "."
+    q = text_ids_fn(rng.choice(ASK_ABOUT).format(title))
+    query = text_ids_fn(title)
+    result = text_ids_fn(" ".join(paragraphs[:2]))[:max_result_tokens]
+    ans = text_ids_fn(answer)[:max_answer_tokens]
+    prefix = [SpecialTokens.BOS, USER_TURN] + q + [SHAM_TURN]
+    call = [SpecialTokens.SEARCH_START] + query + [SpecialTokens.SEARCH_END]
+    back = [SpecialTokens.RESULT_START] + result + [SpecialTokens.RESULT_END]
+    ids = prefix + call + back + ans + [SpecialTokens.EOS]
+    labels = [IGNORE] * len(prefix) + call + [IGNORE] * len(back) + ans + [SpecialTokens.EOS]
+    return ids, labels
+
+
+def load_wiki_articles(n: int, skip: int) -> list[tuple[str, str]]:
+    """(title, text) pairs from Arabic Wikipedia, continuing at `skip`."""
+    from datasets import load_dataset
+
+    ds = load_dataset("wikimedia/wikipedia", "20231101.ar", split="train", streaming=True).skip(skip)
+    out = []
+    for row in ds:
+        out.append((row.get("title", ""), row.get("text", "")))
+        if len(out) >= n:
+            break
+    return out
+
+
+def split_holdout(items: list, fraction: float = 0.05, seed: int = 0) -> tuple[list, list]:
+    """(train, holdout) — the holdout is never trained on; it guards merges
+    and self-reward rounds so they are judged on unseen examples."""
+    items = list(items)
+    random.Random(seed).shuffle(items)
+    k = max(1, int(len(items) * fraction)) if items else 0
+    return items[k:], items[:k]
+
+
 def pad_batch(examples: list[tuple[list[int], list[int]]]) -> tuple[torch.Tensor, torch.Tensor]:
     n = max(len(i) for i, _ in examples)
     ids = torch.full((len(examples), n), SpecialTokens.PAD, dtype=torch.long)
@@ -97,7 +169,7 @@ def batch_examples(examples: list, batch_size: int, seed: int = 0) -> list[tuple
     waste on CPU), then shuffled so buckets are interleaved."""
     order = sorted(range(len(examples)), key=lambda k: len(examples[k][0]))
     batches = [pad_batch([examples[k] for k in order[s:s + batch_size]])
-               for s in range(0, len(order) - batch_size + 1, batch_size)]
+               for s in range(0, len(order), batch_size)]  # the last, shorter batch too
     random.Random(seed).shuffle(batches)
     return batches
 
@@ -151,13 +223,18 @@ def load_progress(search_paths: list[Path]) -> dict:
             except Exception:
                 continue
             for k, v in d.items():
-                best[k] = max(int(best.get(k, 0)), int(v))
+                if isinstance(v, dict):  # e.g. {"merged": {dataset: step}}
+                    sub = best.setdefault(k, {})
+                    for kk, vv in v.items():
+                        sub[kk] = max(int(sub.get(kk, -1)), int(vv))
+                else:
+                    best[k] = max(int(best.get(k, 0)), int(v))
     return best
 
 
 def text_replay_batches(
     tokenizer, seq_len: int, batch_size: int, n_batches: int, workdir: str | Path,
-    max_position: int = 200_000, seed: int | None = None,
+    max_position: int = 200_000, seed: int | None = None, extra_files: list[str] | None = None,
 ) -> list[torch.Tensor]:
     """Rehearsal batches of plain Arabic Wikipedia from a RANDOM already-seen
     region of the stream (stage 1 has read ≥ max_position articles), so each
@@ -173,7 +250,9 @@ def text_replay_batches(
     skip = rng.randrange(0, max(1, max_position - docs))
     files = stream_hf_text_corpus("wikimedia/wikipedia", "20231101.ar", "text", str(workdir),
                                   max_documents=docs, skip=skip)
-    ds = TextSequenceDataset(files, tokenizer, seq_len)
+    # extra_files: e.g. Track B's filtered web corpus (sham_merge.research_corpus_files) —
+    # the data-level half of the knowledge merge.
+    ds = TextSequenceDataset(files + list(extra_files or []), tokenizer, seq_len)
     chunks = [ds[i] for i in range(len(ds))]
     rng.shuffle(chunks)
     batches = [torch.stack(chunks[s:s + batch_size]) for s in range(0, len(chunks) - batch_size + 1, batch_size)]
@@ -216,4 +295,11 @@ if __name__ == "__main__":
     assert len(bs) == 4 and all(b[0].shape == b[1].shape for b in bs)
     mixed = interleave([[1] * 6, [2] * 3], [1.0, 0.5])
     assert sorted(mixed) == [1] * 6 + [2] * 3 and 2 in mixed[:3]
+    v = build_video_chat_examples(fake, "رجل يركض", [[32000 + 1] * 4, [32000 + 2] * 4], [40192 + 3] * 5, rng)
+    assert v[1][0].count(SpecialTokens.IMAGE_START) == 2 and SpecialTokens.AUDIO_START in v[1][0]
+    t_ids, t_lab = build_search_example(fake, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng)
+    s0, r0 = t_ids.index(SpecialTokens.SEARCH_START), t_ids.index(SpecialTokens.RESULT_START)
+    assert t_lab[s0] == SpecialTokens.SEARCH_START and t_lab[r0 + 1] == IGNORE and t_lab[-1] == SpecialTokens.EOS
+    tr, ho = split_holdout(list(range(100)))
+    assert len(ho) == 5 and not set(tr) & set(ho)
     print("sham_chat self-test OK")
