@@ -24,6 +24,7 @@ export const AFTER = [
 export const LIMITS = [
   "اسم المستخدم والوصف والصورة تُضبط من @BotFather — ليس من هذا النموذج.",
   "عنوان المجموعة وصورتها وخروج البوت (setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat) من تليجرام فقط. الموقع لا يغيّر عنوان مجموعة ولا صورتها ولا يُخرج البوت نيابة عنك. لا رمز طلب إضافياً.",
+  "تثبيت الرسائل وفكه (pinChatMessage / unpinChatMessage / unpinAllChatMessages) من تليجرام فقط. الموقع لا يثبّت ولا يفك تثبيتاً نيابة عنك.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
