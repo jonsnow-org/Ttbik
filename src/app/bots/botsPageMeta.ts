@@ -34,6 +34,11 @@ export const botsMetadata: Metadata = {
     "حظر عضو تليجرام",
     "رفع حظر المجموعة",
     "تقييد صلاحيات عضو",
+    "setChatPermissions",
+    "approveChatJoinRequest",
+    "declineChatJoinRequest",
+    "صلاحيات المجموعة",
+    "طلب انضمام تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
