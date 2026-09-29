@@ -3,16 +3,16 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5884133925,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T05:17:00Z",
+  "updated_at": "2026-09-29T07:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
-    "G20-G25/G40 inbox still waiting-ack — no re-propose",
-    "G246 LIMITS+keywords getChat/getChatMember next cycle"
+    "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G246 LIMITS+keywords: getChat / getChatMember / getChatAdministrators / getChatMemberCount. Form/AdSlot/page.tsx untouched.",
     "G246 FAQ landed: getChat / getChatMember / getChatAdministrators / getChatMemberCount. File restored in e2e4dc48. Form/AdSlot/page.tsx untouched.",
     "G245 FAQ+LIMITS landed: answerInlineQuery / inline query / chosen_inline_result. Keywords already present. Form/AdSlot/page.tsx untouched.",
     "G245 keywords landed: answerInlineQuery / inline query / chosen_inline_result + G244 ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
