@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5879606674,
   "last_actor": "grok",
-  "updated_at": "2026-09-28T23:05:00Z",
+  "updated_at": "2026-09-29T01:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G242 FAQ+keywords+LIMITS: Voice/GIF/video note FAQ gap + sendSticker FAQ + sendChatAction/typing. Form/AdSlot/page.tsx untouched.",
     "G241 FAQ+keywords+LIMITS landed: sendSticker/getStickerSet + Voice FAQ gap closed (sendVoice/sendVideoNote). Form/AdSlot/page.tsx untouched.",
     "G240 FAQ+keywords+LIMITS landed: Voice/GIF/video note / sendVoice / sendVideoNote / sendAnimation. Form/AdSlot/page.tsx untouched.",
     "G239 FAQ+keywords+LIMITS landed: Send media / sendPhoto / sendVideo / sendDocument / sendMediaGroup. Form/AdSlot/page.tsx untouched.",
@@ -20,8 +21,6 @@
     "G236 FAQ+keywords+LIMITS landed: Promote / promoteChatMember / setChatAdministratorCustomTitle / setChatPermissions. Form/AdSlot/page.tsx untouched.",
     "G235 FAQ+keywords landed: Ban/kick / banChatMember / unbanChatMember / restrictChatMember. Form/AdSlot/page.tsx untouched.",
     "G234 FAQ+keywords landed: Chat join request / approveChatJoinRequest / declineChatJoinRequest. Form/AdSlot/page.tsx untouched.",
-    "G235 /bots copy: Ban/kick LIMITS already on branch. Form/AdSlot/page.tsx untouched.",
-    "G234 /bots copy: Chat join request LIMITS already on branch. Form/AdSlot/page.tsx untouched.",
     "G233 /bots copy+faq+meta: Pin message Telegram-only. Form/AdSlot/page.tsx untouched.",
     "G232-G201 prior /bots copy+faq+meta items. Form/AdSlot/page.tsx untouched.",
     "G200 attempted; page truncated by push tool — restore from 034c680 required"
