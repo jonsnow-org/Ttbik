@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5890988766,
+  "last_seen_comment_id": 5894913109,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T17:00:00Z",
+  "updated_at": "2026-09-29T19:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G252 FAQ+LIMITS+keywords: pinChatMessage / unpinChatMessage / unpinAllChatMessages. Form/AdSlot/page.tsx untouched.",
     "G251 restore: FAQ+meta were PLACEHOLDER after G250 push-tool truncate; restored from G249 + setChatTitle/leaveChat item. Form/AdSlot/page.tsx untouched.",
     "G250 FAQ+keywords+LIMITS: setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat. Form/AdSlot/page.tsx untouched.",
     "G249 FAQ+keywords: getFile / getUserProfilePhotos / file_id. Also closed missing G248 getMe FAQ in same file. Form/AdSlot/page.tsx untouched.",
