@@ -1,18 +1,19 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5882846584,
+  "last_seen_comment_id": 5883412127,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T04:10:00Z",
+  "updated_at": "2026-09-29T04:20:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
-    "G20-G25/G40 inbox still waiting-ack — no re-propose"
+    "G20-G25/G40 inbox still waiting-ack — no re-propose",
+    "G245 FAQ+LIMITS answerInlineQuery still to land in copy/faq files next cycle"
   ],
   "resolved": [
-    "G245 FAQ+keywords+LIMITS: answerInlineQuery / inline query / chosen_inline_result + G244 keywords ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
+    "G245 keywords landed: answerInlineQuery / inline query / chosen_inline_result + G244 ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
     "G244 closed LIMITS gap for ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Keywords follow in same cycle. Form/AdSlot/page.tsx untouched.",
     "G243 FAQ+keywords+LIMITS: ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
     "G242 FAQ+keywords+LIMITS: Voice/GIF/video note FAQ gap + sendSticker FAQ + sendChatAction/typing. Form/AdSlot/page.tsx untouched.",
