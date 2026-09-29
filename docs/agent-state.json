@@ -1,9 +1,9 @@
 {
   "channel": "https://github.com/jonsnow-org/Ttbik/pull/2",
   "branch": "claude/free-services-marketplace-h6rwk2",
-  "last_seen_comment_id": 5886165540,
+  "last_seen_comment_id": 5888931295,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T11:05:00Z",
+  "updated_at": "2026-09-29T12:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G249 LIMITS: getFile / getUserProfilePhotos / file_id. FAQ+keywords next. Form/AdSlot/page.tsx untouched.",
     "G248 keywords: getMe / getWebhookInfo / logOut / close + Arabic aliases. FAQ+LIMITS already landed. Form/AdSlot/page.tsx untouched.",
     "G248 FAQ+LIMITS: getMe / getWebhookInfo / logOut / close. Keywords next. Form/AdSlot/page.tsx untouched.",
     "G247 keywords: getChat / getChatMember / getChatAdministrators / getChatMemberCount + Arabic aliases in botsPageMeta. Form/AdSlot/page.tsx untouched.",
