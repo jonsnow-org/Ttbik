@@ -26,6 +26,7 @@ export const LIMITS = [
   "عنوان المجموعة وصورتها وخروج البوت (setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat) من تليجرام فقط. الموقع لا يغيّر عنوان مجموعة ولا صورتها ولا يُخرج البوت نيابة عنك. لا رمز طلب إضافياً.",
   "تثبيت الرسائل وفكه (pinChatMessage / unpinChatMessage / unpinAllChatMessages) من تليجرام فقط. الموقع لا يثبّت ولا يفك تثبيتاً نيابة عنك.",
   "روابط الدعوة (exportChatInviteLink / createChatInviteLink / editChatInviteLink / revokeChatInviteLink) من تليجرام فقط. الموقع لا يُنشئ رابط دعوة ولا يلغيه نيابة عنك. لا رمز طلب إضافياً.",
+  "حظر الأعضاء وتقييد الصلاحيات (banChatMember / unbanChatMember / restrictChatMember / promoteChatMember) من تليجرام فقط. الموقع لا يحظر ولا يرفع حظراً ولا يقيّد صلاحيات نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 

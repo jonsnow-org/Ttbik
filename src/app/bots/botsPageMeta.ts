@@ -27,6 +27,13 @@ export const botsMetadata: Metadata = {
     "revokeChatInviteLink",
     "رابط دعوة تليجرام",
     "إلغاء رابط دعوة",
+    "banChatMember",
+    "unbanChatMember",
+    "restrictChatMember",
+    "promoteChatMember",
+    "حظر عضو تليجرام",
+    "رفع حظر المجموعة",
+    "تقييد صلاحيات عضو",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
