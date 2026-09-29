@@ -245,6 +245,12 @@ export const botsMetadata: Metadata = {
     "معلومات الويبهوك",
     "إيقاف جلسة البوت",
     "إغلاق التوكن تليجرام",
+    "getFile",
+    "getUserProfilePhotos",
+    "file_id",
+    "تحميل ملف تليجرام",
+    "صور الملف الشخصي تليجرام",
+    "معرّف ملف تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
