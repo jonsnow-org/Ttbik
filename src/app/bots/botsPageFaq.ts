@@ -10,6 +10,7 @@ export const FAQ = [
   { q: "ماذا أفعل بعد التفعيل؟", a: "أرسل /start للبوت. إن لم يرد استخدم فاحص الصحة. الفحص لا يستهلك رمز الطلب. طلب واحد = بوت واحد." },
   { q: "هل أغيّر عنوان المجموعة أو صورتها أو أخرج البوت من الدردشة من نموذج الموقع (setChatTitle / leaveChat)؟", a: "لا. setChatTitle وsetChatDescription وsetChatPhoto وdeleteChatPhoto وleaveChat من تليجرام فقط. الموقع لا يغيّر عنوان مجموعة ولا صورتها ولا يُخرج البوت نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أثبّت أو أفك تثبيت رسالة في المجموعة من الموقع (pinChatMessage / unpinChatMessage)؟", a: "لا. pinChatMessage وunpinChatMessage وunpinAllChatMessages من تليجرام فقط. الموقع لا يثبّت رسائل ولا يفك تثبيتها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أنشئ أو ألغي رابط دعوة للمجموعة من الموقع (exportChatInviteLink / createChatInviteLink)؟", a: "لا. exportChatInviteLink وcreateChatInviteLink وeditChatInviteLink وrevokeChatInviteLink من تليجرام فقط. الموقع لا يُنشئ رابط دعوة ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
