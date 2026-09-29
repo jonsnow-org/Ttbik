@@ -56,6 +56,9 @@ export const FAQ = [
   { q: "هل أعدّل رسالة أو أحذفها (Edit / delete message) من نموذج الموقع؟", a: "لا. editMessageText وdeleteMessage وeditMessageCaption من تليجرام فقط. الموقع لا يعدّل رسالة بعد إرسالها ولا يحذفها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أعيد توجيه رسالة أو أنسخها (Forward / copy message) من نموذج الموقع؟", a: "لا. forwardMessage وcopyMessage وforwardMessages من تليجرام فقط. الموقع لا يعيد توجيه رسالة ولا ينسخها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أرسل صورة أو فيديو أو ملفاً من نموذج الموقع (sendPhoto / sendMediaGroup)؟", a: "لا. sendPhoto وsendVideo وsendDocument وsendAudio وsendMediaGroup من تليجرام فقط. الموقع لا يرفع صورة ولا يرسل فيديواً ولا يبث مجموعة وسائط نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أرسل رسالة صوتية أو ملاحظة مرئية أو GIF من نموذج الموقع (sendVoice / sendVideoNote)؟", a: "لا. sendVoice وsendVideoNote وsendAnimation من تليجرام فقط. الموقع لا يرسل رسالة صوتية ولا ملاحظة دائرية ولا GIF نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أرسل ملصقاً جاهزاً من نموذج الموقع (sendSticker / getStickerSet)؟", a: "لا. sendSticker وgetStickerSet من تليجرام فقط. الموقع لا يرسل ملصقاً جاهزاً ولا يرفع ملف ملصق للإرسال نيابة عنك. إنشاء حزمة ملصقات موضوع منفصل. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أظهر حالة الكتابة أو رفع ملف من نموذج الموقع (sendChatAction)؟", a: "لا. sendChatAction (typing / upload_photo / record_voice) من تليجرام فقط. الموقع لا يظهر حالة كتابة ولا يحاكي رفع ملف نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
