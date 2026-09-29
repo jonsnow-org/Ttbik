@@ -21,6 +21,12 @@ export const botsMetadata: Metadata = {
     "unpinAllChatMessages",
     "تثبيت رسالة تليجرام",
     "فك تثبيت المجموعة",
+    "exportChatInviteLink",
+    "createChatInviteLink",
+    "editChatInviteLink",
+    "revokeChatInviteLink",
+    "رابط دعوة تليجرام",
+    "إلغاء رابط دعوة",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
