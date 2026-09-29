@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5890988766,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T16:05:00Z",
+  "updated_at": "2026-09-29T17:00:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,29 +12,9 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G251 restore: FAQ+meta were PLACEHOLDER after G250 push-tool truncate; restored from G249 + setChatTitle/leaveChat item. Form/AdSlot/page.tsx untouched.",
     "G250 FAQ+keywords+LIMITS: setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat. Form/AdSlot/page.tsx untouched.",
     "G249 FAQ+keywords: getFile / getUserProfilePhotos / file_id. Also closed missing G248 getMe FAQ in same file. Form/AdSlot/page.tsx untouched.",
-    "G249 LIMITS: getFile / getUserProfilePhotos / file_id. FAQ+keywords next. Form/AdSlot/page.tsx untouched.",
-    "G248 keywords: getMe / getWebhookInfo / logOut / close + Arabic aliases. FAQ+LIMITS already landed. Form/AdSlot/page.tsx untouched.",
-    "G248 FAQ+LIMITS: getMe / getWebhookInfo / logOut / close. Keywords next. Form/AdSlot/page.tsx untouched.",
-    "G247 keywords: getChat / getChatMember / getChatAdministrators / getChatMemberCount + Arabic aliases in botsPageMeta. Form/AdSlot/page.tsx untouched.",
-    "G246 LIMITS: getChat / getChatMember / getChatAdministrators / getChatMemberCount in botsPageCopy. Restored after accidental PLACEHOLDER (4ebaa6f). Form/AdSlot/page.tsx untouched.",
-    "G246 FAQ landed: getChat / getChatMember / getChatAdministrators / getChatMemberCount. File restored in e2e4dc48. Form/AdSlot/page.tsx untouched.",
-    "G245 FAQ+LIMITS landed: answerInlineQuery / inline query / chosen_inline_result. Keywords already present. Form/AdSlot/page.tsx untouched.",
-    "G245 keywords landed: answerInlineQuery / inline query / chosen_inline_result + G244 ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
-    "G244 closed LIMITS gap for ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Keywords follow in same cycle. Form/AdSlot/page.tsx untouched.",
-    "G243 FAQ+keywords+LIMITS: ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
-    "G242 FAQ+keywords+LIMITS: Voice/GIF/video note FAQ gap + sendSticker FAQ + sendChatAction/typing. Form/AdSlot/page.tsx untouched.",
-    "G241 FAQ+keywords+LIMITS landed: sendSticker/getStickerSet + Voice FAQ gap closed (sendVoice/sendVideoNote). Form/AdSlot/page.tsx untouched.",
-    "G240 FAQ+keywords+LIMITS landed: Voice/GIF/video note / sendVoice / sendVideoNote / sendAnimation. Form/AdSlot/page.tsx untouched.",
-    "G239 FAQ+keywords+LIMITS landed: Send media / sendPhoto / sendVideo / sendDocument / sendMediaGroup. Form/AdSlot/page.tsx untouched.",
-    "G238 FAQ+keywords+LIMITS landed: Forward/copy message / forwardMessage / copyMessage / forwardMessages. Form/AdSlot/page.tsx untouched.",
-    "G237 FAQ+keywords+LIMITS landed: Edit/delete message / editMessageText / deleteMessage / editMessageCaption. Form/AdSlot/page.tsx untouched.",
-    "G236 FAQ+keywords landed: Promote / promoteChatMember / setChatAdministratorCustomTitle / setChatPermissions. Form/AdSlot/page.tsx untouched.",
-    "G235 FAQ+keywords landed: Ban/kick / banChatMember / unbanChatMember / restrictChatMember. Form/AdSlot/page.tsx untouched.",
-    "G234 FAQ+keywords landed: Chat join request / approveChatJoinRequest / declineChatJoinRequest. Form/AdSlot/page.tsx untouched.",
-    "G233 /bots copy+faq+meta: Pin message Telegram-only. Form/AdSlot/page.tsx untouched.",
-    "G232-G201 prior /bots copy+faq+meta items. Form/AdSlot/page.tsx untouched.",
-    "G200 attempted; page truncated by push tool — restore from 034c680 required"
+    "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ]
 }
