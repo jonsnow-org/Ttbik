@@ -59,6 +59,7 @@ export const FAQ = [
   { q: "هل أرسل رسالة صوتية أو ملاحظة مرئية أو GIF من نموذج الموقع (sendVoice / sendVideoNote)؟", a: "لا. sendVoice وsendVideoNote وsendAnimation من تليجرام فقط. الموقع لا يرسل رسالة صوتية ولا ملاحظة دائرية ولا GIF نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أرسل ملصقاً جاهزاً من نموذج الموقع (sendSticker / getStickerSet)؟", a: "لا. sendSticker وgetStickerSet من تليجرام فقط. الموقع لا يرسل ملصقاً جاهزاً ولا يرفع ملف ملصق للإرسال نيابة عنك. إنشاء حزمة ملصقات موضوع منفصل. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أظهر حالة الكتابة أو رفع ملف من نموذج الموقع (sendChatAction)؟", a: "لا. sendChatAction (typing / upload_photo / record_voice) من تليجرام فقط. الموقع لا يظهر حالة كتابة ولا يحاكي رفع ملف نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أرسل لوحة أزرار أو أجيب على زر إنلاين من نموذج الموقع (ReplyKeyboard / answerCallbackQuery)؟", a: "لا. ReplyKeyboardMarkup وInlineKeyboardMarkup وanswerCallbackQuery من تليجرام فقط. الموقع لا يرسل لوحة أزرار ولا يجيب على ضغط زر نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
