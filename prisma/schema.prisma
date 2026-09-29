@@ -1425,3 +1425,21 @@ model StreakEntry {
   @@unique([userId, category])
   @@index([userId])
 }
+
+// PRAYER_BOT (docs/claude-feature-backlog.md item 6) — prayer times computed
+// offline from a fixed city list (PRAYER_CITIES in src/lib/prayerBotLogic.ts)
+// plus an opt-in daily times+dhikr message (cron/prayer-reminders). No AI, no
+// payment, no third-party API. Same owner-only-to-DEPLOY gate as the other
+// private templates (PRAYER_BOT_CREATOR_PASSWORD).
+model PrayerUser {
+  id            String   @id // Telegram User ID
+  botId         String
+  cityId        String?
+  dailyReminder Boolean  @default(false)
+  pendingAction Json?
+  isBanned      Boolean  @default(false)
+  lastActiveAt  DateTime @default(now())
+  created_at    DateTime @default(now())
+
+  @@index([botId, dailyReminder])
+}

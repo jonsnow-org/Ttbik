@@ -49,8 +49,6 @@ conversion via a paid conversion API, plagiarism checking.
       all payment goes through what already exists, with only the
       $100 AD_BOT activation purchase as the one different (manual,
       fixed-price, internally-verified-token) case.
-- [ ] **6. Prayer-times / dhikr reminder bot** — free, computed offline or
-      via a free prayer-times API, no ongoing cost.
 - [ ] **7. Greeting-card generator bot** — canvas/sharp-based text-over-
       template image generation (no AI), seasonal templates.
 - [ ] **8. Crypto price-alert bot** — free-tier price API (e.g. CoinGecko
@@ -68,6 +66,24 @@ conversion via a paid conversion API, plagiarism checking.
 
 ## Done
 
+- **6. Prayer-times / dhikr reminder bot** (shipped 2026-09-29) — new
+      `PRAYER_BOT` template, wired as a sibling branch in
+      `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`
+      (owner-only `PRAYER_BOT_CREATOR_PASSWORD` gate) and
+      `src/app/bots/BotsDeployForm.tsx`. Free, no API, no AI: prayer times
+      are computed offline from solar-position formulas for 22 fixed Arab/
+      regional cities (`PRAYER_CITIES` in `src/lib/prayerBotLogic.ts`, with
+      per-city Fajr/Isha method and DST-correct timezone via Intl). User
+      picks a city, gets "🕌 مواقيت اليوم", "⏭ الصلاة القادمة" (with time
+      remaining), "📿 ذكر اليوم", and an opt-in daily morning message
+      (times + dhikr) via new cron `src/app/api/cron/prayer-reminders/route.ts`
+      (`0 3 * * *` in `vercel.json`; per-prayer-time pings were left out
+      because Vercel crons here are daily). `PrayerUser` in
+      `prisma/schema.prisma`; admin stats/lookup/ban/required-channel/
+      broadcast panel for `SUPER_ADMIN_TELEGRAM_ID`. No `liveBots.ts` card.
+      ⚠️ Owner needs to run `prisma/migration_39_prayer_bot.sql` in
+      Supabase's SQL Editor, and set `PRAYER_BOT_CREATOR_PASSWORD` in Vercel
+      env vars before deploying an instance.
 - **5. Daily-streak challenge bot** (shipped 2026-09-28) — new `STREAK_BOT`
       template, wired as a sibling branch in
       `src/app/api/telegram/[botId]/route.ts`, `src/app/api/bots/deploy/route.ts`

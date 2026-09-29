@@ -10,6 +10,7 @@ import { handleConfessionBotUpdate } from "@/lib/confessionBotLogic";
 import { handleNameCompatBotUpdate } from "@/lib/nameCompatBotLogic";
 import { handleQuizBotUpdate } from "@/lib/quizBotLogic";
 import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
+import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 
 export const maxDuration = 60;
 
@@ -23,6 +24,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   NAME_COMPAT_BOT: "migration_35_name_compat_bot.sql",
   QUIZ_BOT: "migration_37_quiz_bot.sql",
   STREAK_BOT: "migration_38_streak_bot.sql",
+  PRAYER_BOT: "migration_39_prayer_bot.sql",
 };
 
 export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
@@ -70,6 +72,8 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         await handleQuizBotUpdate(bot, botRow, body);
       } else if (botRow.template === "STREAK_BOT") {
         await handleStreakBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "PRAYER_BOT") {
+        await handlePrayerBotUpdate(bot, botRow, body);
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {
