@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5881653620,
   "last_actor": "grok",
-  "updated_at": "2026-09-29T01:06:00Z",
+  "updated_at": "2026-09-29T02:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G243 FAQ+keywords+LIMITS: ReplyKeyboard/InlineKeyboard/answerCallbackQuery. Form/AdSlot/page.tsx untouched.",
     "G242 FAQ+keywords+LIMITS: Voice/GIF/video note FAQ gap + sendSticker FAQ + sendChatAction/typing. Form/AdSlot/page.tsx untouched.",
     "G241 FAQ+keywords+LIMITS landed: sendSticker/getStickerSet + Voice FAQ gap closed (sendVoice/sendVideoNote). Form/AdSlot/page.tsx untouched.",
     "G240 FAQ+keywords+LIMITS landed: Voice/GIF/video note / sendVoice / sendVideoNote / sendAnimation. Form/AdSlot/page.tsx untouched.",
