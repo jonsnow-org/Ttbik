@@ -62,6 +62,8 @@ export const FAQ = [
   { q: "هل أرسل لوحة أزرار أو أجيب على زر إنلاين من نموذج الموقع (ReplyKeyboard / answerCallbackQuery)؟", a: "لا. ReplyKeyboardMarkup وInlineKeyboardMarkup وanswerCallbackQuery من تليجرام فقط. الموقع لا يرسل لوحة أزرار ولا يجيب على ضغط زر نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أرد على بحث إنلاين أو أرسل نتائج بحث من نموذج الموقع (answerInlineQuery)؟", a: "لا. answerInlineQuery وinline query وchosen_inline_result من تليجرام فقط. الموقع لا يرد على بحث إنلاين ولا يرسل نتائج بحث نيابة عنك. تفعيل وضع الإنلاين نفسه من BotFather فقط. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أعرض عدد أعضاء المجموعة أو قائمة المشرفين من نموذج الموقع (getChatMember)؟", a: "لا. getChat وgetChatMember وgetChatAdministrators وgetChatMemberCount من تليجرام فقط. الموقع لا يعرض عدد أعضاء ولا قائمة مشرفين ولا حالة عضو نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أوقف جلسة البوت أو أغلق التوكن من نموذج الموقع (getMe / logOut / close)؟", a: "لا. getMe وgetWebhookInfo وlogOut وclose من تليجرام فقط. فاحص الصحة يقرأ getMe وgetWebhookInfo ولا يستدعي logOut أو close. الموقع لا يوقف التوكن نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أحمّل ملف دردشة أو صور الملف الشخصي من نموذج الموقع (getFile / file_id)؟", a: "لا. getFile وgetUserProfilePhotos وfile_id من تليجرام فقط. الموقع لا يحمّل ملف دردشة ولا صور الملف الشخصي نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
