@@ -112,6 +112,10 @@ class Pacer:
         self._next = {}
         self._lock = threading.Lock()
 
+    def busy_for(self, host: str) -> float:
+        with self._lock:
+            return self._next.get(host, 0.0) - time.time()
+
     def wait(self, host: str):
         gap = next((g for h, g in self.gaps.items() if host.endswith(h)), self.default_gap)
         with self._lock:
@@ -144,16 +148,18 @@ def _session():
 
 
 def http_get(url: str, params: dict | None = None, timeout: float = 20, max_bytes: int | None = None,
-             tries: int = 4, headers: dict | None = None) -> bytes | None:
+             tries: int = 3, headers: dict | None = None) -> bytes | None:
     host = urllib.parse.urlparse(url).netloc
     for attempt in range(tries):
+        if PACER.busy_for(host) > 30:
+            return None  # this host asked us to back off: let the worker serve another source meanwhile
         PACER.wait(host)
         try:
             with _session().get(url, params=params, timeout=timeout, stream=max_bytes is not None, headers=headers) as r:
                 if r.status_code in (429, 503, 502, 504):
                     retry = r.headers.get("retry-after")
                     wait = float(retry) if retry and retry.replace(".", "").isdigit() else 2.0
-                    PACER.penalize(host, wait * (2 ** attempt))
+                    PACER.penalize(host, min(wait * (2 ** attempt), 120))
                     continue
                 if r.status_code != 200:
                     return None
