@@ -139,9 +139,8 @@ function backLabel() {
 function mainMenu(): Keyboard {
   return new Keyboard()
     .text("👤 ملفي الشخصي").text("💍 مواصفات الشريك").row()
-    .text("🔍 البحث عن شريك").text("🎯 بحث دقيق").row()
-    .text("🔀 مراسلة عشوائية").text("💌 من أعجب بي").row()
-    .text("ℹ️ معلومات").row()
+    .text("🔍 البحث عن شريك").text("🔀 مراسلة عشوائية").row()
+    .text("💌 من أعجب بي").text("ℹ️ معلومات").row()
     .text("⭐ الترقيات والمزايا")
     .resized();
 }
@@ -154,6 +153,7 @@ function upgradesMenu(): Keyboard {
     .text(`🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`).row()
     .text(`👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`).row()
     .text(`🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`).row()
+    .text("🎯 بحث دقيق (للمشتركين)").row()
     .text(`👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`).row()
     .text("🕶 وضع التخفي (ضمن الذهبية)").row()
     .text(backLabel())
@@ -196,6 +196,35 @@ const CONTACT_ADMIN_WARNING =
 function contactAdminConfirmMenu(): Keyboard {
   return new Keyboard().text(CONTACT_ADMIN_CONFIRM_LABEL).row().text(backLabel()).resized();
 }
+// Ready-made answers for profile / partner-preference fields (owner request
+// 2026-09-30): the user taps a choice so everyone uses the same wording and
+// matching works, but typing a custom answer is still accepted at every step.
+const MANUAL_LABEL = "✍️ كتابة يدوية";
+const COUNTRY_CHOICES = [
+  "السعودية", "مصر", "سوريا", "العراق", "الأردن", "لبنان",
+  "فلسطين", "اليمن", "الإمارات", "الكويت", "قطر", "البحرين",
+  "عُمان", "المغرب", "الجزائر", "تونس", "ليبيا", "السودان",
+];
+const JOB_CHOICES = ["موظف/ة", "طالب/ة", "أعمال حرة", "تاجر/ة", "مهندس/ة", "طبيب/ة", "معلّم/ة", "ربّة منزل", "لا أعمل حالياً"];
+const EDUCATION_CHOICES = ["ابتدائي / إعدادي", "ثانوي", "معهد / دبلوم", "جامعي", "دراسات عليا"];
+const MARITAL_CHOICES = ["أعزب / عزباء", "مطلّق / مطلّقة", "أرمل / أرملة", "متزوّج / متزوّجة"];
+const AGE_CHOICES = ["18", "20", "22", "25", "28", "30", "35", "40", "45", "50", "55", "60"];
+
+function choiceMenu(choices: string[], perRow: number, opts: { skip?: boolean; manual?: boolean } = {}): Keyboard {
+  const kb = new Keyboard();
+  choices.forEach((c, i) => {
+    kb.text(c);
+    if ((i + 1) % perRow === 0) kb.row();
+  });
+  if (choices.length % perRow !== 0) kb.row();
+  if (opts.manual !== false) kb.text(MANUAL_LABEL);
+  if (opts.skip) kb.text(SKIP_LABEL);
+  return kb.row().text(backLabel()).resized();
+}
+function isManual(text: string): boolean {
+  return text === MANUAL_LABEL;
+}
+
 function skipMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
@@ -321,13 +350,13 @@ async function askProfileStep(bot: TelegramBot, chatId: number, step: ProfileSte
       await bot.api.sendMessage(chatId, "أرسل عمرك (رقماً):", { reply_markup: plainBackMenu() });
       break;
     case "country":
-      await bot.api.sendMessage(chatId, "أرسل دولتك:", { reply_markup: plainBackMenu() });
+      await bot.api.sendMessage(chatId, "🌍 اختر دولتك، أو اكتبها يدوياً:", { reply_markup: choiceMenu(COUNTRY_CHOICES, 3) });
       break;
     case "job":
-      await bot.api.sendMessage(chatId, "أرسل عملك:", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "💼 اختر مجال عملك، أو اكتبه يدوياً:", { reply_markup: choiceMenu(JOB_CHOICES, 3, { skip: true }) });
       break;
     case "education":
-      await bot.api.sendMessage(chatId, "أرسل مستواك التعليمي:", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "🎓 اختر مستواك التعليمي، أو اكتبه يدوياً:", { reply_markup: choiceMenu(EDUCATION_CHOICES, 2, { skip: true }) });
       break;
     case "attributes":
       await bot.api.sendMessage(chatId, "أرسل وصفاً موجزاً لمواصفاتك (الطول، اللون، إلخ):", { reply_markup: skipMenu() });
@@ -336,7 +365,7 @@ async function askProfileStep(bot: TelegramBot, chatId: number, step: ProfileSte
       await bot.api.sendMessage(chatId, "أرسل مدينة سكنك (اختياري):", { reply_markup: skipMenu() });
       break;
     case "maritalStatus":
-      await bot.api.sendMessage(chatId, "أرسل حالتك الاجتماعية (أعزب/مطلق/أرمل...) (اختياري):", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "💍 اختر حالتك الاجتماعية (اختياري):", { reply_markup: choiceMenu(MARITAL_CHOICES, 2, { skip: true }) });
       break;
     case "contactMethod":
       await bot.api.sendMessage(chatId, "ما هي وسيلة التواصل التي تفضلها لتلقي الرسائل؟", { reply_markup: contactMethodMenu() });
@@ -424,6 +453,10 @@ async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
 
 async function consumeProfileStep(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "profile_wizard" }>, text: string) {
   const { step, data } = pending;
+  if (isManual(text)) {
+    await bot.api.sendMessage(chatId, "✍️ اكتب إجابتك الآن:", { reply_markup: plainBackMenu() });
+    return;
+  }
   if (step === "gender") {
     if (text !== "👨 ذكر" && text !== "👩 أنثى") {
       await bot.api.sendMessage(chatId, "اختر من القائمة.", { reply_markup: genderMenu() });
@@ -509,19 +542,19 @@ async function askPrefStep(bot: TelegramBot, chatId: number, step: PrefStep, gen
   const you = gender === "FEMALE" ? "أنتِ" : "أنت";
   switch (step) {
     case "country":
-      await bot.api.sendMessage(chatId, `💍 مواصفات الشريك الذي تبحث عنه\n\nما الدولة التي يفضّل ${you} أن يكون منها الشريك؟`, { reply_markup: plainBackMenu() });
+      await bot.api.sendMessage(chatId, `💍 مواصفات الشريك الذي تبحث عنه\n\nما الدولة التي يفضّل ${you} أن يكون منها الشريك؟ اختر أو اكتبها يدوياً:`, { reply_markup: choiceMenu(COUNTRY_CHOICES, 3) });
       break;
     case "ageMin":
-      await bot.api.sendMessage(chatId, "الحد الأدنى للعمر المطلوب:", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "الحد الأدنى للعمر المطلوب:", { reply_markup: choiceMenu(AGE_CHOICES, 4, { skip: true }) });
       break;
     case "ageMax":
-      await bot.api.sendMessage(chatId, "الحد الأقصى للعمر المطلوب:", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "الحد الأقصى للعمر المطلوب:", { reply_markup: choiceMenu(AGE_CHOICES, 4, { skip: true }) });
       break;
     case "job":
-      await bot.api.sendMessage(chatId, `ما العمل الذي ${you === "أنتِ" ? "تفضّلينه" : "تفضّله"} في الشريك؟`, { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, `ما العمل الذي ${you === "أنتِ" ? "تفضّلينه" : "تفضّله"} في الشريك؟ اختر أو اكتبه يدوياً:`, { reply_markup: choiceMenu(JOB_CHOICES, 3, { skip: true }) });
       break;
     case "education":
-      await bot.api.sendMessage(chatId, "المستوى التعليمي المطلوب:", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "المستوى التعليمي المطلوب:", { reply_markup: choiceMenu(EDUCATION_CHOICES, 2, { skip: true }) });
       break;
     case "attributes":
       await bot.api.sendMessage(chatId, "المواصفات الأخرى المطلوبة (الطول، اللون، إلخ):", { reply_markup: skipMenu() });
@@ -543,6 +576,10 @@ async function savePref(bot: TelegramBot, chatId: number, userId: string, data: 
 }
 async function consumePrefStep(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "pref_wizard" }>, text: string, gender: Gender | undefined) {
   const { step, data } = pending;
+  if (isManual(text)) {
+    await bot.api.sendMessage(chatId, "✍️ اكتب إجابتك الآن:", { reply_markup: plainBackMenu() });
+    return;
+  }
   if (step === "country") {
     if (!text) return;
     data.country = text;
@@ -2305,12 +2342,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await startSearch(bot, chatId, tgUserId, botRow.id);
     return;
   }
-  if (text === "🎯 بحث دقيق") {
+  if (text === "🎯 بحث دقيق" || text === "🎯 بحث دقيق (للمشتركين)") {
     const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
     if (!dbUser || !hasAdvancedFilters(dbUser)) {
       await bot.api.sendMessage(
         chatId,
-        `🎯 البحث الدقيق يعرض فقط الملفات التي تطابق كل مواصفاتك (الدولة، العمر، الوظيفة، التعليم، المدينة، الحالة الاجتماعية).\n\nميزة مدفوعة ضمن «🎯 فلاتر متقدمة» ($${PRICE_ADVANCED_FILTERS}) أو «👑 العضوية الذهبية» — من قائمة «⭐ الترقيات والمزايا».`,
+        `🎯 البحث الدقيق يعرض فقط الملفات التي تطابق كل مواصفاتك (الدولة، العمر، الوظيفة، التعليم، المدينة، الحالة الاجتماعية).\n\nيعمل بعد تفعيل «🎯 فلاتر متقدمة» ($${PRICE_ADVANCED_FILTERS}) أو «👑 العضوية الذهبية» من هذه القائمة.`,
         { reply_markup: upgradesMenu() }
       );
       return;
@@ -2603,10 +2640,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   }
 
   if (pending?.mode === "advanced_filter_wizard") {
+    if (isManual(text)) {
+      await bot.api.sendMessage(chatId, "✍️ اكتب إجابتك الآن:", { reply_markup: plainBackMenu() });
+      return;
+    }
     if (pending.step === "city") {
       pending.data.city = isSkip(text) ? null : text;
       await setPending(tgUserId, { mode: "advanced_filter_wizard", step: "maritalStatus", data: pending.data });
-      await bot.api.sendMessage(chatId, "🎯 الحالة الاجتماعية المطلوبة (أعزب/مطلق/أرمل...):", { reply_markup: skipMenu() });
+      await bot.api.sendMessage(chatId, "🎯 الحالة الاجتماعية المطلوبة:", { reply_markup: choiceMenu(MARITAL_CHOICES, 2, { skip: true }) });
       return;
     }
     await prisma.partnerPreference.update({
