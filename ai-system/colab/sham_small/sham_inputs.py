@@ -509,3 +509,11 @@ try:
     _sham_vq.install()
 except Exception as _exc:
     print(f"sham_vq not installed: {_exc}")
+
+# And the contrastive text<->media link loss inside train.train (sham_link_contrast.py):
+# stage 2 and the chat stage pull each caption toward its own image/sound.
+try:
+    import sham_link_contrast as _sham_link_contrast
+    _sham_link_contrast.install()
+except Exception as _exc:
+    print(f"sham_link_contrast not installed: {_exc}")
