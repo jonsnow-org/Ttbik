@@ -16,6 +16,7 @@ export const FAQ = [
   { q: "هل أعرض قائمة المشرفين أو عضواً أو عدد الأعضاء من الموقع (getChatAdministrators / getChatMember / getChatMemberCount)؟", a: "لا. getChatAdministrators وgetChatMember وgetChatMemberCount وgetChat من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا بيانات عضو ولا عدد أعضاء المجموعة نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أضع قائمة أوامر البوت أو أغيّر اسمه المعروض من الموقع (setMyCommands / getMyCommands / setMyName)؟", a: "لا. setMyCommands وdeleteMyCommands وgetMyCommands وsetMyName من تليجرام و@BotFather فقط. الموقع لا يضع قائمة أوامر ولا يغيّر اسم البوت المعروض نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أضع وصف البوت الطويل أو القصير من الموقع (setMyDescription / setMyShortDescription)؟", a: "لا. setMyDescription وgetMyDescription وsetMyShortDescription وgetMyShortDescription من تليجرام و@BotFather فقط. الموقع لا يضع وصف البوت ولا يقرأه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أضع صلاحيات المشرف الافتراضية للبوت من الموقع (setMyDefaultAdministratorRights / getMyDefaultAdministratorRights)؟", a: "لا. setMyDefaultAdministratorRights وgetMyDefaultAdministratorRights من تليجرام فقط. الموقع لا يضع صلاحيات المشرف الافتراضية للبوت ولا يقرأها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {

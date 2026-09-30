@@ -57,6 +57,9 @@ export const botsMetadata: Metadata = {
     "getMyShortDescription",
     "وصف البوت",
     "الوصف القصير للبوت",
+    "setMyDefaultAdministratorRights",
+    "getMyDefaultAdministratorRights",
+    "صلاحيات المشرف الافتراضية",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {

@@ -31,6 +31,7 @@ export const LIMITS = [
   "قائمة المشرفين وبيانات العضو وعدد الأعضاء (getChatAdministrators / getChatMember / getChatMemberCount / getChat) من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا عضواً ولا عدد أعضاء نيابة عنك. لا رمز طلب إضافياً.",
   "قائمة أوامر البوت واسمه المعروض (setMyCommands / deleteMyCommands / getMyCommands / setMyName) من تليجرام و@BotFather فقط. الموقع لا يضع قائمة / ولا يغيّر اسم البوت المعروض نيابة عنك. لا رمز طلب إضافياً.",
   "وصف البوت الطويل والقصير (setMyDescription / getMyDescription / setMyShortDescription / getMyShortDescription) من تليجرام و@BotFather فقط. الموقع لا يضع وصف البوت ولا يقرأه نيابة عنك. لا رمز طلب إضافياً.",
+  "صلاحيات المشرف الافتراضية للبوت (setMyDefaultAdministratorRights / getMyDefaultAdministratorRights) من تليجرام فقط. الموقع لا يضع هذه الصلاحيات ولا يقرأها نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
