@@ -98,6 +98,8 @@ export default async function HomePage() {
 
       <section id="free-tools" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-8">
         <div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/img/code.jpg" alt="" loading="lazy" className="mb-4 h-28 w-full rounded-2xl object-cover sm:h-36" />
           <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">🎁 أدوات مجانية بالكامل</h2>
           <p className="mt-1 text-sm text-slate-600">بلا تسجيل، بلا حدود استخدام — جرّبها الآن مباشرة.</p>
         </div>

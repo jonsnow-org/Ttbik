@@ -256,7 +256,7 @@ function Key({ label, state, onClick }: { label: string; state?: LetterState; on
     <button
       type="button"
       onClick={onClick}
-      className={`h-11 min-w-[2.1rem] rounded-md px-1.5 text-sm font-bold transition ${KEY_STYLE[state ?? "unused"]}`}
+      className={`h-11 min-w-[1.9rem] rounded-md px-1 text-sm font-bold transition ${KEY_STYLE[state ?? "unused"]}`}
     >
       {label}
     </button>

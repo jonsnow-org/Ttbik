@@ -11,7 +11,7 @@ import { scanTonDeposits, checkAndSweepOwnerProfits } from "@/services/ton-servi
 function isAuthorized(req: NextRequest): boolean {
   const auth = req.headers.get("authorization");
   const querySecret = req.nextUrl.searchParams.get("secret");
-  return auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET;
+  return !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
 }
 
 export async function GET(req: NextRequest) {

@@ -729,3 +729,11 @@ or Sham (see the file header). Every post also passes `isSafeForChannel()`.
 - **New bot template CAPSULE_BOT** (كبسولة الزمن) + daily cron `/api/cron/time-capsules`; **new tool** `/free-tools/life-counter`.
 - `/admin/platform` now shows each bot's @username, its creator (name/@user via getChat) and a "tables missing" warning.
 - Nova untouched (paused).
+
+## O20 — 2026-09-30 — Claude: audit follow-ups
+
+- Newer bots (name-compat/quiz/streak/prayer) ignored `/start <payload>` (promo deep links), so those visits were never
+  recorded: fixed (`startsWith("/start ")`).
+- Every cron route now requires a non-empty `CRON_SECRET` (before, an unset secret accepted `Bearer undefined`).
+- Catalog USDT checkout: one on-chain tx hash can no longer auto-approve more than one order (`usdtHashAlreadyUsed`).
+- `/bots` and homepage free-tools header got photos; word-game keyboard no longer overflows on 390px.
