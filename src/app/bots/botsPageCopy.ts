@@ -38,6 +38,7 @@ export const LIMITS = [
   "إرسال الرسائل والملفات من النموذج (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage) يتم عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا ملفاً ولا يعيد توجيهاً نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
   "تعديل الرسائل وحذفها والرد على الأزرار (editMessageText / deleteMessage / answerCallbackQuery / editMessageReplyMarkup) يتم عبر البوت المفعّل فقط. الموقع لا يعدّل نص رسالة ولا يحذفها ولا يرد على زر نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
   "الاستطلاع والنرد والموقع والمكان وجهة الاتصال (sendPoll / stopPoll / sendDice / sendLocation / sendVenue / sendContact) يتم عبر البوت المفعّل فقط. الموقع لا ينشر استطلاعاً ولا يوقفه ولا يرسل موقعاً ولا جهة اتصال نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
+  "الوسائط وحالة الكتابة (sendChatAction / sendSticker / sendAnimation / sendVideo / sendAudio / sendVoice) تتم عبر البوت المفعّل فقط. الموقع لا يرسل ملصقاً ولا أنيميشن ولا فيديو ولا صوتاً ولا يظهر «يكتب…» نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
