@@ -87,19 +87,19 @@ function LiveDot({ online, label }: { online: boolean | null; label?: boolean })
 // Renders one comment plus every reply under it, at any depth (a reply to
 // a reply nests one level deeper again), since comments are only ever
 // related to each other by parent_id -- there's no fixed "depth" field.
-function CommentThread({ comment, all, depth, onReply }: { comment: CommentRow; all: CommentRow[]; depth: number; onReply: (c: CommentRow) => void }) {
+function CommentThread({ comment, all, depth, onReply, onOpenProfile }: { comment: CommentRow; all: CommentRow[]; depth: number; onReply: (c: CommentRow) => void; onOpenProfile: (id: string, name: string) => void }) {
   const children = all.filter((c) => c.parent_id === comment.id);
   return (
     <div className={depth ? "mr-3 mt-2 border-r-2 border-violet-100 pr-2" : "mt-2"}>
       <div className="rounded-2xl bg-slate-50 px-3 py-2">
-        <p className="text-[11px] font-bold text-violet-700">{comment.from_name}</p>
+        <button type="button" onClick={() => onOpenProfile(comment.from_id, comment.from_name)} className="text-[11px] font-bold text-violet-700 underline-offset-2 hover:underline">👤 {comment.from_name}</button>
         <p className="whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
         <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
           <span>{timeAgo(comment.created_at)}</span>
           <button type="button" onClick={() => onReply(comment)} className="font-bold text-violet-600">رد</button>
         </div>
       </div>
-      {children.map((c) => (<CommentThread key={c.id} comment={c} all={all} depth={depth + 1} onReply={onReply} />))}
+      {children.map((c) => (<CommentThread key={c.id} comment={c} all={all} depth={depth + 1} onReply={onReply} onOpenProfile={onOpenProfile} />))}
     </div>
   );
 }
@@ -107,7 +107,7 @@ function CommentThread({ comment, all, depth, onReply }: { comment: CommentRow; 
 // Card preview: TikTok (and other vertical sources) get a taller frame, and
 // a failed thumbnail falls back to a tinted placeholder instead of a broken
 // image (owner report 2026-09-24: TikTok previews looked empty).
-function Thumb({ item }: { item: FeedItem }) {
+function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: number) => void }) {
   const [failed, setFailed] = useState(false);
   const p = platformOf(item.url);
   if (item.thumbnail && !failed) {
@@ -115,7 +115,7 @@ function Thumb({ item }: { item: FeedItem }) {
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
         {/* blurred copy fills the frame behind a vertical/odd-sized image */}
         <img src={item.thumbnail} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
-        <img src={item.thumbnail} alt="" loading="lazy" onError={() => setFailed(true)} className="relative h-full w-full object-contain" />
+        <img src={item.thumbnail} alt="" loading="lazy" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-contain" />
       </div>
     );
   }
@@ -145,6 +145,14 @@ export default function MiniAppPage() {
   const [profileCounts, setProfileCounts] = useState<{ followers: number; following: number } | null>(null);
   const [viewUserId, setViewUserId] = useState<string | null>(null);
   const [viewUserName, setViewUserName] = useState("");
+  // Real width/height ratio per post (from the video itself, else its thumbnail), so the
+  // card frame matches the media instead of letterboxing a portrait video inside a 16:9 box.
+  const [ratios, setRatios] = useState<Record<string, number>>({});
+  const setRatio = (id: string, w: number, h: number, force = true) => {
+    if (!w || !h) return;
+    const r = w / h;
+    setRatios((prev) => (prev[id] && (!force || Math.abs(prev[id] - r) < 0.01) ? prev : { ...prev, [id]: r }));
+  };
   const [profileSection, setProfileSection] = useState<ProfileSection>("all");
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
@@ -310,7 +318,7 @@ export default function MiniAppPage() {
       if (j.relations) setRelations(j.relations);
       if (Array.isArray(j.notifyOff)) setNotifyOff(j.notifyOff);
       setSocialReady(!!j.ready);
-      if (j.profile) setProfileCounts({ followers: j.profile.followers, following: j.profile.following });
+      if (j.profile) { setProfileCounts({ followers: j.profile.followers, following: j.profile.following }); if (j.profile.name) setViewUserName((prev) => (prev && prev !== "مستخدم" ? prev : j.profile.name)); }
       // One-time move of follows that used to live only in this device's
       // localStorage into the real server-side follow list.
       if (j.ready && !loadJSON(LS.followMigrated, false)) {
@@ -679,7 +687,7 @@ export default function MiniAppPage() {
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
   const shareLink = (id: string) => `${SITE}/m/${id}`;
 
-  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || names[sid] || "مستخدم"); setProfileSection("all"); setProfileCounts(null); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
+  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
   const closeOtherProfile = () => { setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
   const toggleLike = (item: FeedItem) => {
     const id = item.id;
@@ -880,7 +888,7 @@ export default function MiniAppPage() {
           </div>
           <div className="max-h-72 space-y-1 overflow-y-auto px-3 py-2">
             {comments.filter((c) => !c.parent_id && !hiddenUsers.has(c.from_id)).length === 0 && <p className="py-4 text-center text-xs text-slate-500">لا تعليقات بعد — كن أول من يعلّق</p>}
-            {comments.filter((c) => !c.parent_id && !hiddenUsers.has(c.from_id)).map((c) => (<CommentThread key={c.id} comment={c} all={comments.filter((x) => !hiddenUsers.has(x.from_id))} depth={0} onReply={setReplyTo} />))}
+            {comments.filter((c) => !c.parent_id && !hiddenUsers.has(c.from_id)).map((c) => (<CommentThread key={c.id} comment={c} all={comments.filter((x) => !hiddenUsers.has(x.from_id))} depth={0} onReply={setReplyTo} onOpenProfile={(id, nm) => openProfile(id, /^\d+$/.test(nm) || nm === "مستخدم" ? undefined : nm)} />))}
           </div>
           <div className="border-t border-amber-100 p-2">
             {replyTo && <div className="mb-1.5 flex items-center justify-between rounded-lg bg-amber-50 px-2 py-1"><p className="text-[11px] text-slate-600">الرد على <span className="font-bold text-amber-700">{replyTo.from_name}</span></p><button type="button" onClick={() => setReplyTo(null)} className="text-[11px] font-bold text-rose-500">إلغاء</button></div>}
@@ -1106,19 +1114,19 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
-                <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : p.vertical ? "aspect-[4/5]" : "aspect-video"}`}>
+                <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : ""}`} style={isAudio ? undefined : { aspectRatio: String(Math.min(2.2, Math.max(0.5, ratios[item.id] ?? (p.vertical ? 9 / 16 : 16 / 9)))), maxHeight: "82vh", width: "100%" }}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} /></div>)
-                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
+                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
+                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (
                     <button type="button" onClick={() => playItem(item)} className="group relative block h-full w-full">
-                      {isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-indigo-100 via-sky-100 to-violet-100"><span className="text-5xl">{item.media_type === "voice" ? "🎙" : "🎵"}</span><p className="text-xs font-bold text-indigo-700">{item.media_type === "voice" ? "رسالة صوتية" : "مقطع صوتي"}</p></div>) : <Thumb item={item} />}
+                      {isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-indigo-100 via-sky-100 to-violet-100"><span className="text-5xl">{item.media_type === "voice" ? "🎙" : "🎵"}</span><p className="text-xs font-bold text-indigo-700">{item.media_type === "voice" ? "رسالة صوتية" : "مقطع صوتي"}</p></div>) : <Thumb item={item} onRatio={(w, h) => setRatio(item.id, w, h, false)} />}
                       <span className="absolute inset-0 flex items-center justify-center bg-gradient-to-t from-black/30 via-transparent to-transparent"><span className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-2xl text-slate-800 shadow-xl transition group-active:scale-90">▶</span></span>
                     </button>
                   )}
