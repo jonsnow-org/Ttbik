@@ -44,6 +44,11 @@ KNOWN_SOURCES = [
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
+    # The engineer's crawl notebook (Wikipedia + news feeds). It once published its
+    # final.pt INTO sham-multimodal-checkpoint; sham_inputs repairs that dataset by
+    # moving such files here (FOREIGN_HOME), so it is merged only through the gate.
+    ("sham-crawl-checkpoint", "final*.pt", MEDIA_ROWS),
+    ("sham-chat-checkpoint-incoming", "final*.pt", MEDIA_ROWS),
 ]
 _ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
 
@@ -65,23 +70,18 @@ def same_tokenizer(a, b) -> bool:
 
 
 def load_source(root: Path, pattern: str, main_model, main_tokenizer):
-    """(model, step) if the source is merge-compatible, else (None, reason)."""
-    from checkpoint import load_checkpoint
-    from text_tokenizer import ShamTextTokenizer
+    """(model, step) if the source is (or could be repaired to be)
+    merge-compatible, else (None, reason). Every source first passes the
+    repair stage (sham_repair.py), which prints what it found and fixed."""
+    from sham_repair import repair_candidate
 
     ckpt = latest_checkpoint(root, pattern)
     if ckpt is None:
         return None, "لا توجد نقطة حفظ"
-    toks = [p for p in sorted(root.rglob("*tokenizer*.json"))]
-    if not toks:
-        return None, "لا توجد أداة تقسيم نص معها"
-    if not any(same_tokenizer(main_tokenizer, ShamTextTokenizer.load(str(t))) for t in toks):
-        return None, "أداة تقسيم نص مختلفة (نفس الكلمة لها رقم مختلف) — يُكتفى بدمج بياناتها"
-    other, step, _ = load_checkpoint(ckpt, map_location="cpu")
-    for k in _ARCH_KEYS:
-        if getattr(other.cfg, k) != getattr(main_model.cfg, k):
-            return None, f"معمارية مختلفة ({k}: {getattr(other.cfg, k)} ≠ {getattr(main_model.cfg, k)})"
-    _neutralize_foreign_media_rows(root, other, main_model)
+    other, step, report = repair_candidate(ckpt, root, main_model, main_tokenizer)
+    print("\n".join(report))
+    if other is None:
+        return None, report[-1].strip()
     return (other, step), None
 
 
@@ -138,7 +138,7 @@ def _passes(score: dict, base: dict, tolerance: float) -> bool:
     return sum(score[k] / base[k] for k in base) < len(base) - 1e-3
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.15, 0.3, 0.5), tolerance=0.005):
+def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=0.005):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
     Mutates model in place (only accepted merges stay). Returns report lines."""
     report = []
@@ -180,11 +180,21 @@ def batches_loss(model, batches, device: str) -> float:
     return total / max(n, 1)
 
 
-def research_corpus_files(root: Path | None) -> list[str]:
-    """Track B's filtered web documents (data-level merge)."""
-    if not root:
-        return []
-    return [str(p) for p in sorted(Path(root).rglob("research_corpus/**/*.txt"))]
+def research_corpus_files(root: Path | None, crawl: bool = True) -> list[str]:
+    """Track B's filtered web documents plus the crawl notebook's texts
+    (sham-crawl-corpus, text/**/*.txt) — the data-level merge."""
+    files = [str(p) for p in sorted(Path(root).rglob("research_corpus/**/*.txt"))] if root else []
+    if crawl:
+        try:
+            from sham_inputs import fetch_dataset
+            crawl_root = fetch_dataset("sham-crawl-corpus")
+        except Exception:
+            crawl_root = None
+        if crawl_root:
+            found = [str(p) for p in sorted(Path(crawl_root).rglob("text/**/*.txt"))]
+            print(f"  • نصوص الزاحف للتذكّر: {len(found):,}")
+            files += found
+    return files
 
 
 if __name__ == "__main__":
