@@ -17,6 +17,9 @@ network of many free sources that keeps finding NEW material:
   audio  Lingua Libre Arabic word recordings (the word is the transcript),
          plus the Arabic speech sets already used by the stages
          (Common Voice, FLEURS, ClArTTS, ArVoice) through sham_data_sources
+  pages  every news article the feeds point to and every Arabic Wikipedia
+         article read: all pictures, sounds and videos ON the page, each
+         with the page's own text about it (multimodal_media_analysis)
   video  Wikimedia Commons videos (smallest transcode), NASA videos
          (mobile/small mp4), Kinetics CC clips through sham_data_sources
 
@@ -249,6 +252,10 @@ class Frontier:
 
 
 FRONTIER = Frontier()
+# Pages whose pictures, sounds and videos are read with the text around them
+# (multimodal_media_analysis.discover_media_with_captions): every news article
+# the RSS feeds point to, and every Arabic Wikipedia article the spider reads.
+PAGES = Frontier(cap=3000)
 
 
 def src_wiki(name):
@@ -273,6 +280,8 @@ def src_wiki(name):
                 out.append(Item("text", f"{p.get('title', '')}\n{text[:12000]}", name, license="CC BY-SA"))
             if main:
                 FRONTIER.push(l["title"] for l in p.get("links", []) if ":" not in l["title"])
+                if p.get("title"):
+                    PAGES.push(["https://ar.wikipedia.org/wiki/" + urllib.parse.quote(p["title"].replace(" ", "_"))])
                 thumb = (p.get("thumbnail") or {}).get("source")
                 if thumb and text:
                     first = re.split(r"(?<=[.!؟?])\s", text, 1)[0][:300]
@@ -309,6 +318,9 @@ def src_rss(rng):
         if len(title) + len(desc) < 20:
             continue
         out.append(Item("text", f"{title}\n{desc}", f"rss:{name}", license="news summary"))
+        link = (f.get("link") or f.get("guid") or "").strip()
+        if link.startswith("http"):
+            PAGES.push([link])
         words = [w for w in re.findall(r"[؀-ۿ]{4,}", title)][:3]
         if words and rng.random() < 0.3:  # news → background knowledge
             j = get_json(WIKI_PROJECTS["wiki_ar"], {"action": "query", "format": "json", "list": "search",
@@ -321,6 +333,49 @@ def src_rss(rng):
             if img:
                 out.append(Item("image", title, f"rss_image:{name}", img, "news photo"))
     return out
+
+
+def src_page_media(rng):
+    """Reads one real page (a news article or a Wikipedia article) and takes
+    every picture, sound and video on it, each with the text that describes
+    it on that page (figure caption, alt text, nearest heading, page title)."""
+    from multimodal_media_analysis import discover_media_with_captions
+
+    url = PAGES.pop(rng)
+    if url is None:
+        title = FRONTIER.pop(rng)
+        if not title:
+            return []
+        url = "https://ar.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
+    fetch = url
+    if url.startswith("https://ar.wikipedia.org/wiki/"):  # the article body only (no site logos), with figure captions
+        fetch = "https://ar.wikipedia.org/api/rest_v1/page/html/" + url.rsplit("/wiki/", 1)[1]
+    raw = http_get(fetch, timeout=25, max_bytes=5 * 1024 * 1024)
+    if not raw:
+        return []
+    html_text = raw.decode("utf-8", errors="ignore")
+    out, per_kind = [], {"image": 0, "audio": 0, "video": 0}
+    for m in discover_media_with_captions(html_text, url):
+        if per_kind[m["kind"]] >= (4 if m["kind"] == "image" else 1):
+            continue
+        data = http_get(m["url"], timeout=40, max_bytes=MAX_MEDIA_BYTES)
+        if not data:
+            continue
+        if m["kind"] == "image" and not _is_picture(data):
+            continue
+        per_kind[m["kind"]] += 1
+        out.append(Item(m["kind"], clean(m["caption"], 300), "page_media", data, url))
+    return out
+
+
+def _is_picture(data: bytes) -> bool:
+    """Decodable and bigger than a tracking pixel / spacer."""
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data)) as im:
+            return min(im.size) >= 32
+    except Exception:
+        return False
 
 
 def src_commons_images(rng):
@@ -514,7 +569,7 @@ class SourceState:
 
 def default_sources(workdir: Path, ledgers: dict, mirrors: bool = True, video: bool = True):
     s = [SourceState(n, "text", src_wiki(n)) for n in WIKI_PROJECTS]
-    s += [SourceState("rss", "text", src_rss),
+    s += [SourceState("rss", "text", src_rss), SourceState("page_media", "image", src_page_media),
           SourceState("commons_image", "image", src_commons_images), SourceState("nasa_image", "image", src_nasa_images),
           SourceState("artic", "image", src_artic), SourceState("met", "image", src_met),
           SourceState("openverse", "image", src_openverse), SourceState("lingua_libre", "audio", src_lingua_libre)]
@@ -644,4 +699,24 @@ if __name__ == "__main__":
     assert sp.dups > 0
     assert clean("<p>مرحبا&amp; <b>شام</b>‏</p>") == "مرحبا& شام"
     print(sp.report())
+
+    # page media: a real article page → its pictures with the captions the page gives them
+    from PIL import Image as _Image
+
+    def _png(size):
+        b = io.BytesIO()
+        _Image.new("RGB", (size, size), (200, 10, 10)).save(b, "PNG")
+        return b.getvalue()
+
+    page = ('<html><head><meta property="og:title" content="خبر عن دمشق"></head><body>'
+            '<figure><img src="/big.png"><figcaption>سوق الحميدية في دمشق</figcaption></figure>'
+            '<img src="/pixel.png" alt="tracker"></body></html>')
+    files = {"https://news.test/a": page.encode(), "https://news.test/big.png": _png(200),
+             "https://news.test/pixel.png": _png(1)}
+    real_get = http_get
+    http_get = lambda url, *a, **k: files.get(url)  # noqa: F811 — swapped for this offline test only
+    PAGES.push(["https://news.test/a"])
+    got = src_page_media(random.Random(0))
+    http_get = real_get
+    assert [(g.kind, g.text) for g in got] == [("image", "سوق الحميدية في دمشق")], got
     print("sham_spider self-test OK")
