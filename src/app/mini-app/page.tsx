@@ -59,6 +59,27 @@ function displayTitle(item: FeedItem) {
 function timeAgo(ts?: number) { if (!ts) return ""; const s = Math.max(0, Math.floor(Date.now() / 1000) - ts); if (s < 60) return "الآن"; if (s < 3600) return `${Math.floor(s / 60)} د`; if (s < 86400) return `${Math.floor(s / 3600)} س`; return `${Math.floor(s / 86400)} ي`; }
 function loadJSON<T>(key: string, fb: T): T { try { const r = localStorage.getItem(key); return r ? (JSON.parse(r) as T) : fb; } catch { return fb; } }
 function saveJSON(key: string, val: unknown) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+// Crops the picked photo to a centred square and shrinks it to 256px, so any
+// image (any size / orientation) fits the round-cornered avatar frame and stays tiny.
+async function fileToAvatar(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("bad image")); i.src = url; });
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    const sx = (img.naturalWidth - side) / 2;
+    const sy = (img.naturalHeight - side) / 2;
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("no canvas");
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 function tg(): any { return (window as any).Telegram?.WebApp; }
 function haptic(kind: "light" | "success" | "warning" = "light") { try { if (kind === "light") tg()?.HapticFeedback?.impactOccurred?.("light"); else tg()?.HapticFeedback?.notificationOccurred?.(kind); } catch {} }
 function confirmBox(text: string): Promise<boolean> {
@@ -133,6 +154,9 @@ export default function MiniAppPage() {
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState("");
   const [photoUrl, setPhotoUrl] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(""); // custom picture chosen in the app (own)
+  const [viewAvatar, setViewAvatar] = useState(""); // custom picture of the profile being viewed
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [statusLine, setStatusLine] = useState("محبّ للوسائط ✨");
   const [items, setItems] = useState<FeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -285,6 +309,7 @@ export default function MiniAppPage() {
       if (/^\d{3,}$/.test(dm)) setTimeout(() => void openThreadRef.current(dm, "مستخدم"), 600);
     } catch {}
     setNames(loadJSON(LS.names, {}));
+    setAvatarUrl(loadJSON<string>("mb_avatar", ""));
     const prof = loadJSON<{ name?: string; status?: string }>(LS.profile, {});
     if (prof.name) { setDisplayName(prof.name); setEditName(prof.name); }
     if (prof.status) setStatusLine(prof.status);
@@ -320,7 +345,7 @@ export default function MiniAppPage() {
       if (j.relations) setRelations(j.relations);
       if (Array.isArray(j.notifyOff)) setNotifyOff(j.notifyOff);
       setSocialReady(!!j.ready);
-      if (j.profile) { setProfileCounts({ followers: j.profile.followers, following: j.profile.following }); if (j.profile.name) setViewUserName((prev) => (prev && prev !== "مستخدم" ? prev : j.profile.name)); }
+      if (j.profile) { setProfileCounts({ followers: j.profile.followers, following: j.profile.following }); if (j.profile.name) setViewUserName((prev) => (prev && prev !== "مستخدم" ? prev : j.profile.name)); if (j.profile.id === userId) { if (j.profile.avatar) { setAvatarUrl(j.profile.avatar); saveJSON("mb_avatar", j.profile.avatar); } } else { setViewAvatar(j.profile.avatar || ""); } }
       // One-time move of follows that used to live only in this device's
       // localStorage into the real server-side follow list.
       if (j.ready && !loadJSON(LS.followMigrated, false)) {
@@ -698,8 +723,8 @@ export default function MiniAppPage() {
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
   const shareLink = (id: string) => `${SITE}/m/${id}`;
 
-  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
-  const closeOtherProfile = () => { setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
+  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewAvatar(""); setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
+  const closeOtherProfile = () => { setViewAvatar(""); setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
   const toggleLike = (item: FeedItem) => {
     const id = item.id;
     const was = !!liked[id];
@@ -818,6 +843,17 @@ export default function MiniAppPage() {
       setReportItem(null); setReportReason(""); setReportDetails("");
     } catch (e) { relationError(e); }
   }
+  const pickAvatar = async (file: File) => {
+    if (!file.type.startsWith("image/")) { showToast("اختر صورة فقط"); return; }
+    setAvatarBusy(true);
+    try {
+      const data = await fileToAvatar(file);
+      const r = await fetch("/api/media-social", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "set_avatar", avatar: data, init_data: tgInitData() }) });
+      if (!r.ok) { showToast("تعذّر حفظ الصورة"); }
+      else { setAvatarUrl(data); saveJSON("mb_avatar", data); showToast("تم تحديث صورتك ✅"); }
+    } catch { showToast("تعذّر قراءة الصورة"); }
+    setAvatarBusy(false);
+  };
   const saveProfile = () => { if (editName.trim()) setDisplayName(editName.trim()); if (editStatus.trim()) setStatusLine(editStatus.trim()); saveJSON(LS.profile, { name: editName.trim() || displayName, status: editStatus.trim() || statusLine }); setEditing(false); };
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
@@ -848,7 +884,7 @@ export default function MiniAppPage() {
             <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
             <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
-            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{photoUrl ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
+            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
         </div>
         <nav className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
@@ -917,7 +953,7 @@ export default function MiniAppPage() {
             <div className="h-20 bg-gradient-to-l from-teal-400 via-sky-500 to-indigo-500" />
             <div className="relative px-4 pb-4">
               <div className="-mt-10 flex items-end gap-3">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border-4 border-white bg-gradient-to-br from-sky-400 to-indigo-500 text-2xl font-black text-white shadow">{isOwnProfile && photoUrl ? <img src={photoUrl} alt="" className="h-full w-full object-cover" /> : (headerName || "U").slice(0, 1)}</div>
+                <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 border-white bg-gradient-to-br from-sky-400 to-indigo-500 text-2xl font-black text-white shadow">{editing && isOwnProfile && (<label className="absolute inset-0 z-10 flex cursor-pointer flex-col items-center justify-center gap-0.5 bg-black/45 text-[10px] font-bold text-white"><span className="text-lg">{avatarBusy ? "⏳" : "📷"}</span>{avatarBusy ? "..." : "تغيير"}<input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void pickAvatar(f); }} /></label>)}{!isOwnProfile && viewAvatar ? <img src={viewAvatar} alt="" className="h-full w-full object-cover" /> : isOwnProfile && (avatarUrl || photoUrl) ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : (headerName || "U").slice(0, 1)}</div>
                 <div className="mb-1 flex-1">{editing && isOwnProfile ? <input value={editName} onChange={(e) => setEditName(e.target.value)} className="mb-1 w-full rounded-xl border border-sky-200 bg-white px-2 py-1 text-sm font-bold outline-none" /> : <p className="text-lg font-black">{headerName || "زائر"}</p>}<p className="text-xs text-slate-500">{isOwnProfile && username ? `@${username}` : profileTargetId ? `ID ${profileTargetId}` : "—"}</p></div>
               </div>
               {isOwnProfile && <p className="mt-2 text-xs text-slate-500">{statusLine}</p>}

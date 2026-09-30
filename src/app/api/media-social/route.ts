@@ -51,7 +51,14 @@ export async function GET(req: NextRequest) {
         db.from("media_follows").select("followee_id", { count: "exact", head: true }).eq("follower_id", profile),
       ]);
       const pn = await namesFor(db, [profile]).catch(() => ({} as Record<string, string>));
-      out.profile = { id: profile, followers: followers.count || 0, following: followingCount.count || 0, name: pn[profile] || null };
+      let avatar: string | null = null;
+      try {
+        const { data: av } = await db.from("mini_app_users").select("avatar").eq("id", profile).maybeSingle();
+        avatar = (av as { avatar?: string | null } | null)?.avatar || null;
+      } catch {
+        /* avatar column not created yet */
+      }
+      out.profile = { id: profile, followers: followers.count || 0, following: followingCount.count || 0, name: pn[profile] || null, avatar };
     }
 
     // Followees whose new shares the caller chose NOT to be notified about.
@@ -111,6 +118,18 @@ export async function POST(req: NextRequest) {
         const { error } = await db.from("media_follows").upsert({ follower_id: me.id, followee_id: target }, { onConflict: "follower_id,followee_id" });
         if (error) throw error;
         await db.from("media_notifications").insert({ to_id: target, from_id: me.id, from_name: me.name, type: "follow", post_id: null }).then(() => {}, () => {});
+        return ok();
+      }
+      case "set_avatar": {
+        // Custom profile picture, already cropped/resized by the client to a small square.
+        const av = String(body.avatar || "");
+        if (av && (av.length > 90000 || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(av))) return bad("invalid image");
+        const { data: ex } = await db.from("mini_app_users").select("id").eq("id", me.id).maybeSingle();
+        const nowIso = new Date().toISOString();
+        const { error } = ex
+          ? await db.from("mini_app_users").update({ avatar: av || null }).eq("id", me.id)
+          : await db.from("mini_app_users").insert({ id: me.id, name: me.name, avatar: av || null, first_seen: nowIso, last_seen: nowIso });
+        if (error) return bad("avatar column missing — run supabase/migration_mini_app_users.sql", 503);
         return ok();
       }
       case "unfollow":
