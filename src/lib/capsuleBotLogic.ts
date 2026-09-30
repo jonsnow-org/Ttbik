@@ -105,7 +105,7 @@ async function handleCapsuleAdmin(bot: TelegramBot, botRow: BotRow, msg: any): P
   const adminUser = await ensureCapsuleUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت كبسولة الزمن.", { reply_markup: adminMenu() });
     return true;

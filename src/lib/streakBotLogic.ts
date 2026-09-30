@@ -149,7 +149,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
   const adminUser = await ensureStreakUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت السلاسل اليومية.", { reply_markup: adminMenu() });
     return true;
@@ -280,7 +280,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     return;
   }
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     await bot.api.sendMessage(

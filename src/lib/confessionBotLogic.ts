@@ -222,7 +222,7 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
   const adminUser = await ensureConfessionUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت الاعترافات.", { reply_markup: adminMenu() });
     return true;

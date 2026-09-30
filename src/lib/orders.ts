@@ -63,3 +63,26 @@ export async function decideOrder(orderId: string, decision: Decision, note?: st
 
   return updated;
 }
+
+/**
+ * True when this on-chain transaction hash already paid for ANOTHER approved
+ * order. One real USDT transfer must never approve more than one order --
+ * without this, a single $5 transaction hash could be pasted into any number
+ * of orders and each would auto-approve. Only well-formed 64-hex hashes are
+ * looked up (also keeps user text out of the ilike pattern); anything else
+ * cannot be auto-verified anyway.
+ */
+export async function usdtHashAlreadyUsed(txHash: string, exceptOrderId: string): Promise<boolean> {
+  const hash = (txHash || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(hash)) return false;
+  const db = supabaseAdmin();
+  const { data } = await db
+    .from("orders")
+    .select("id")
+    .eq("payment_method", "usdt")
+    .eq("status", "approved")
+    .neq("id", exceptOrderId)
+    .ilike("transfer_reference", hash)
+    .limit(1);
+  return !!(data && data.length > 0);
+}

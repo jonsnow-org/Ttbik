@@ -34,6 +34,17 @@ export default function BotsDeployPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(BREADCRUMB_JSON_LD) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSON_LD) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(HOWTO_JSON_LD) }} />
+      <div className="relative mx-auto max-w-lg px-4 pt-6">
+        <div className="relative h-36 overflow-hidden rounded-3xl shadow-md">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/img/social.jpg" alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-l from-indigo-900/85 via-indigo-800/60 to-transparent" />
+          <div className="relative flex h-full flex-col justify-center px-5 text-white">
+            <p className="text-lg font-extrabold">🤖 منشئ بوتات تليجرام</p>
+            <p className="mt-1 text-xs opacity-90">ألصق التوكن ويستضيف الموقع بوتك جاهزاً للعمل.</p>
+          </div>
+        </div>
+      </div>
       <nav className="relative mx-auto max-w-lg px-4 pt-6 text-sm text-slate-500" aria-label="مسار التنقل">
         <ol className="flex flex-wrap items-center gap-1">
           <li>

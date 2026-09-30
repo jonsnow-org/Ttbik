@@ -269,7 +269,7 @@ async function handleQuizAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Prom
   const adminUser = await ensureQuizUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت الاختبارات.", { reply_markup: adminMenu() });
     return true;
@@ -394,7 +394,7 @@ export async function handleQuizBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     await bot.api.sendMessage(

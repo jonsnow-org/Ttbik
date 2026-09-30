@@ -25,7 +25,7 @@ const CATEGORY_TITLES: Record<string, string> = {
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const querySecret = req.nextUrl.searchParams.get("secret");
-  const isAuthorized = auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET;
+  const isAuthorized = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
   if (!isAuthorized) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

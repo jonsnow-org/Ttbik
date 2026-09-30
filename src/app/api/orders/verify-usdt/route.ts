@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { decideOrder } from "@/lib/orders";
+import { decideOrder, usdtHashAlreadyUsed } from "@/lib/orders";
 import { usdtAutoVerifySupported, verifyTrc20UsdtPayment } from "@/lib/usdtVerify";
 import { sendAdminNotice } from "@/lib/telegram";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
@@ -43,6 +43,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ done: false });
   }
 
+  if (await usdtHashAlreadyUsed(String(order.transfer_reference), order.id)) {
+    return NextResponse.json({ done: false, reason: "transaction hash already used for another order" });
+  }
   const check = await verifyTrc20UsdtPayment(order.transfer_reference, usdtAddress, order.amount_usd);
   if (!check.ok) {
     return NextResponse.json({ done: false, reason: check.reason });

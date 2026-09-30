@@ -125,7 +125,7 @@ async function handleNameCompatAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
   const adminUser = await ensureNameCompatUser(botRow.id, tgUserId);
   const pending = adminUser.pendingAction as PendingAction | null;
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await setPending(tgUserId, null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم بوت نسبة التوافق.", { reply_markup: adminMenu() });
     return true;
@@ -250,7 +250,7 @@ export async function handleNameCompatBotUpdate(bot: TelegramBot, botRow: BotRow
     return;
   }
 
-  if (text === "/start") {
+  if (text === "/start" || text.startsWith("/start ")) {
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     await bot.api.sendMessage(

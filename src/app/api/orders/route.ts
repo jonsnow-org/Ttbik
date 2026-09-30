@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { generateOrderCode } from "@/lib/utils";
 import { sendOrderAlert, sendAdminNotice } from "@/lib/telegram";
 import { isRateLimited, requestIp } from "@/lib/rateLimit";
-import { decideOrder } from "@/lib/orders";
+import { decideOrder, usdtHashAlreadyUsed } from "@/lib/orders";
 import { usdtAutoVerifySupported, verifyTrc20UsdtPayment } from "@/lib/usdtVerify";
 
 export async function POST(req: NextRequest) {
@@ -81,7 +81,8 @@ export async function POST(req: NextRequest) {
   const usdtAddress = (process.env.USDT_ADDRESS || "").trim();
   const usdtNetwork = process.env.USDT_NETWORK || "TRC20";
   if (paymentMethod === "usdt" && usdtAddress && usdtAutoVerifySupported(usdtNetwork)) {
-    const check = await verifyTrc20UsdtPayment(transferReference, usdtAddress, service.price_usd);
+    const reused = await usdtHashAlreadyUsed(String(transferReference), order.id);
+    const check = reused ? { ok: false } : await verifyTrc20UsdtPayment(transferReference, usdtAddress, service.price_usd);
     if (check.ok) {
       try {
         await decideOrder(order.id, "approved");
