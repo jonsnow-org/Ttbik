@@ -58,7 +58,6 @@ import imageio_ffmpeg
 from api_keys import Organization, OrganizationKeyStore
 from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
 from checkpoint import load_checkpoint
-from dataset import ContentSafetyFilter
 from medical_generation_templates import build_structured_prompt
 from generate import (
     build_image_understanding_prompt,
@@ -90,19 +89,6 @@ _state: dict = {}
 # own docstring for why SQLite (not a shared secret) and how this
 # would swap to Supabase for durability across redeploys later.
 _api_key_store = OrganizationKeyStore(os.environ.get("SHAM_SMALL_API_KEYS_DB", "sham_small_api_keys.db"))
-
-
-_safety_filter = ContentSafetyFilter()
-
-
-def _require_safe_text(text: str) -> None:
-    """CONTENT FILTER COMPLETELY DISABLED.
-    Previously this rejected prompts containing blocked keywords.
-    Now it is a pure no-op â€” every prompt is accepted.
-    Accountability for authenticated endpoints remains via organization
-    API keys + usage logging (see api_keys.py).
-    """
-    return  # no-op: all content allowed
 
 
 def _require_organization(x_sham_org_key: str | None) -> Organization:
@@ -246,7 +232,6 @@ def health() -> dict:
 
 @app.post("/generate/text")
 def generate_text_endpoint(req: TextRequest) -> dict:
-    _require_safe_text(req.prompt)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     prompt_ids = torch.tensor([tokenizer.encode(req.prompt)], dtype=torch.long)
@@ -266,7 +251,6 @@ def generate_text_endpoint(req: TextRequest) -> dict:
 
 @app.post("/generate/image")
 def generate_image_endpoint(req: MediaRequest) -> Response:
-    _require_safe_text(req.prompt)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -290,7 +274,6 @@ def generate_image_endpoint(req: MediaRequest) -> Response:
 
 @app.post("/generate/audio")
 def generate_audio_endpoint(req: MediaRequest) -> Response:
-    _require_safe_text(req.prompt)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     audio_tokenizer: AudioTokenizer = _state["audio_tokenizer"]
@@ -312,7 +295,6 @@ def generate_audio_endpoint(req: MediaRequest) -> Response:
 
 @app.post("/generate/video")
 def generate_video_endpoint(req: VideoRequest) -> Response:
-    _require_safe_text(req.prompt)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]

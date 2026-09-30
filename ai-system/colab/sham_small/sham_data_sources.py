@@ -8,8 +8,8 @@ Why this exists (problems found in the real runs):
     Kinetics (nateraw/kinetics), works but holds only 4,000 clips (2 archive
     parts per split, ~3% of them CC-licensed) and gives the label as a class
     NUMBER, not words. Video now streams the ORIGINAL Kinetics-400 archives
-    with the official annotations: same per-clip `is_cc` flag, ~7.6k CC clips
-    (each 10 s with sound), and the label as real text ("playing guitar").
+    with the official annotations: every clip (each 10 s with sound), and the
+    label as real text ("playing guitar").
     Clips already collected from the HF copy are the same files, so the
     merged ledger's exact hashes skip them.
   * "skip" was the number of SAVED samples, but a stream also consumes
@@ -73,12 +73,13 @@ SOURCES: dict[str, list[dict[str, Any]]] = {
     "video": [
         # Original Kinetics-400 archives (DeepMind's public S3 bucket, verified
         # reachable 2026-09-27): one "split" per archive part, so a finished part
-        # is never downloaded again. Only clips whose official annotation has
-        # is_cc=1 (Creative Commons) are kept; each is 10 s with its sound.
-        {"id": "kinetics400-cc", "kind": "kinetics_tar",
+        # is never downloaded again. Every clip is used, each 10 s with its sound
+        # (new id: the parts are read again from the start for the clips the
+        # earlier CC-only pass skipped; clips already collected are skipped by hash).
+        {"id": "kinetics400", "kind": "kinetics_tar",
          "splits": [f"train/part_{i}" for i in range(242)] + [f"val/part_{i}" for i in range(20)],
-         "video": "video", "text": "label", "require_true": "is_cc", "shuffle_splits": True,
-         "license": "CC-BY (per-clip is_cc flag from the official Kinetics-400 annotations)"},
+         "video": "video", "text": "label", "shuffle_splits": True,
+         "license": "Kinetics-400 (DeepMind research dataset)"},
     ],
 }
 
@@ -188,7 +189,6 @@ class CollectStats:
     written: int = 0
     duplicates: int = 0
     dropped: int = 0
-    unlicensed: int = 0
     per_source: dict[str, int] = field(default_factory=dict)
     all_exhausted: bool = False
     errors: list[str] = field(default_factory=list)
@@ -196,8 +196,6 @@ class CollectStats:
     def summary(self) -> str:
         parts = ", ".join(f"{k}: {v:,}" for k, v in self.per_source.items()) or "—"
         s = f"جُمعت {self.written:,} عيّنة جديدة ({parts}) | مكرر مُستبعَد: {self.duplicates:,} | تالف/فارغ: {self.dropped:,}"
-        if self.unlicensed:
-            s += f" | غير مرخّص بالمشاع الإبداعي (مُستبعَد): {self.unlicensed:,}"
         if self.all_exhausted:
             s += " | ⚠ كل المصادر استُنفدت"
         return s
@@ -224,8 +222,7 @@ def _kinetics_annotations(subset: str) -> dict[str, dict]:
 
 def _stream_kinetics(split: str, start: int) -> Iterator[dict]:
     """split = "train/part_N" | "val/part_N". Yields one example per archive
-    member (so positions are exact); the video bytes are read ONLY for clips
-    whose annotation says is_cc=1 -- everything else is skipped unread."""
+    member (so positions are exact), every clip of the archive with its label."""
     import tarfile
     import urllib.request
 
@@ -240,9 +237,7 @@ def _stream_kinetics(split: str, start: int) -> Iterator[dict]:
             if pos <= start:
                 continue
             a = ann.get(member.name.rsplit("/", 1)[-1])
-            is_cc = bool(a) and a.get("is_cc") == "1"
-            yield {"video": tf.extractfile(member).read() if is_cc else None,
-                   "label": a["label"] if a else "", "is_cc": is_cc}
+            yield {"video": tf.extractfile(member).read(), "label": a["label"] if a else ""}
 
 
 def _stream(src: dict, split: str, start: int) -> Iterator[dict]:
@@ -401,8 +396,6 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
                         stats.per_source[src["id"]] = stats.per_source.get(src["id"], 0) + 1
                     elif verdict == "dup":
                         stats.duplicates += 1
-                    elif verdict == "unlicensed":
-                        stats.unlicensed += 1
                     else:
                         stats.dropped += 1
                 else:
@@ -418,9 +411,6 @@ def collect(kind: str, output_dir: str | Path, max_samples: int, ledger: Ledger,
 
 
 def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledger, *, image_size: int, num_frames: int) -> str:
-    need = src.get("require_true")
-    if need and not example.get(need):
-        return "unlicensed"
     text = _text_of(example.get(src["text"]))
 
     if kind == "audio":
@@ -428,7 +418,7 @@ def _write_one(kind, example, src, out: Path, index: int, manifest, ledger: Ledg
         import soundfile as sf
 
         arr, sr = _audio_array(example, src)
-        if arr is None or arr.size < sr * 0.5 or not text:
+        if arr is None or arr.size < sr * 0.05 or not text:  # only empty clips (under 50 ms)
             return "dropped"
         if arr.ndim > 1:
             arr = arr.mean(axis=1)
@@ -607,10 +597,10 @@ if __name__ == "__main__":
                 subprocess.run(cmd, capture_output=True, check=True)
                 return (td / name).read_bytes()
 
-            vrows = [{"video": clip("a.mp4", "testsrc", True), "label": "tone", "is_cc": True},
-                     {"video": clip("b.mp4", "smptebars", False), "label": "silent", "is_cc": True}]
+            vrows = [{"video": clip("a.mp4", "testsrc", True), "label": "tone"},
+                     {"video": clip("b.mp4", "smptebars", False), "label": "silent"}]
             vsrc = [{"id": "v", "dataset": "v", "config": None, "splits": ["train"], "video": "video",
-                     "text": "label", "require_true": "is_cc"}]
+                     "text": "label"}]
             m, st = collect("video", td / "vid", 5, Ledger("video"), sources=vsrc, num_frames=8,
                             stream_fn=lambda src, split, start: iter(vrows[start:]))
             recs = [json.loads(l) for l in open(m, encoding="utf-8")]

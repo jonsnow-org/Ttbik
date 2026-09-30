@@ -269,12 +269,12 @@ def src_wiki(name):
         out = []
         for p in ((j or {}).get("query", {}).get("pages", {}) or {}).values():
             text = clean(p.get("extract", ""))
-            if len(text) >= 200:
+            if len(text) >= 40:
                 out.append(Item("text", f"{p.get('title', '')}\n{text[:12000]}", name, license="CC BY-SA"))
             if main:
                 FRONTIER.push(l["title"] for l in p.get("links", []) if ":" not in l["title"])
                 thumb = (p.get("thumbnail") or {}).get("source")
-                if thumb and len(text) > 40:
+                if thumb and text:
                     first = re.split(r"(?<=[.!؟?])\s", text, 1)[0][:300]
                     img = http_get(thumb, timeout=20, max_bytes=MAX_MEDIA_BYTES)
                     if img:
@@ -306,7 +306,7 @@ def src_rss(rng):
     for it in (e for e in root.iter() if e.tag.split("}")[-1] == "item"):
         f = {c.tag.split("}")[-1]: (c.text or "") for c in it}
         title, desc = clean(f.get("title", "")), clean(f.get("description", ""), 1500)
-        if len(title) + len(desc) < 60:
+        if len(title) + len(desc) < 20:
             continue
         out.append(Item("text", f"{title}\n{desc}", f"rss:{name}", license="news summary"))
         words = [w for w in re.findall(r"[؀-ۿ]{4,}", title)][:3]
@@ -323,11 +323,6 @@ def src_rss(rng):
     return out
 
 
-def _commons_license_ok(lic: str) -> bool:
-    lic = (lic or "").lower()
-    return any(k in lic for k in ("cc0", "public domain", "cc by", "cc-by", "pd")) and "nc" not in lic
-
-
 def src_commons_images(rng):
     j = get_json(COMMONS, {"action": "query", "format": "json", "generator": "random", "grnnamespace": 6,
                            "grnlimit": 10, "prop": "imageinfo", "iiprop": "url|mime|extmetadata", "iiurlwidth": 320,
@@ -338,7 +333,7 @@ def src_commons_images(rng):
         em = ii.get("extmetadata", {})
         lic = em.get("LicenseShortName", {}).get("value", "")
         cap = clean(em.get("ImageDescription", {}).get("value", "") or em.get("ObjectName", {}).get("value", ""), 300)
-        if ii.get("mime") not in ("image/jpeg", "image/png") or len(cap) < 15 or not _commons_license_ok(lic):
+        if ii.get("mime") not in ("image/jpeg", "image/png", "image/webp") or len(cap) < 3:
             continue
         img = http_get(ii.get("thumburl") or ii.get("url"), max_bytes=MAX_MEDIA_BYTES)
         if img:
@@ -356,7 +351,7 @@ def src_nasa_images(rng):
         link = next((l["href"] for l in it.get("links", []) if "~small" in l.get("href", "") or "~thumb" in l.get("href", "")), None)
         cap = clean(f"{d.get('title', '')}. {d.get('description', '')}", 300)
         img = http_get(link, max_bytes=MAX_MEDIA_BYTES) if link else None
-        if img and len(cap) > 15:
+        if img and len(cap) >= 3:
             out.append(Item("image", cap, "nasa_image", img, "NASA (public domain)"))
     return out
 
@@ -374,7 +369,7 @@ def src_artic(rng):
         # the museum's image server asks bots to identify themselves with AIC-User-Agent
         img = http_get(f"https://www.artic.edu/iiif/2/{a['image_id']}/full/200,/0/default.jpg", max_bytes=MAX_MEDIA_BYTES,
                        headers={"AIC-User-Agent": UA})
-        if img and len(cap) > 10:
+        if img and len(cap) >= 3:
             out.append(Item("image", cap, "artic", img, "CC0 (public domain)"))
         if len(out) >= 3:
             break
@@ -399,7 +394,7 @@ def src_met(rng):
 
 def src_openverse(rng):
     j = get_json("https://api.openverse.org/v1/images/", {"q": rng.choice(TOPICS), "page_size": 8,
-                                                          "page": rng.randint(1, 20), "license_type": "commercial"})
+                                                          "page": rng.randint(1, 20)})
     out = []
     for r in (j or {}).get("results", [])[:4]:
         cap = clean(r.get("title") or "", 200)
@@ -407,7 +402,7 @@ def src_openverse(rng):
         if tags:
             cap = f"{cap} ({tags})" if cap else tags
         img = http_get(r.get("thumbnail"), max_bytes=MAX_MEDIA_BYTES) if r.get("thumbnail") else None
-        if img and len(cap) > 8:
+        if img and len(cap) >= 3:
             out.append(Item("image", cap, "openverse", img, r.get("license", "cc")))
     return out
 
@@ -442,7 +437,7 @@ def src_commons_video(rng):
         cap = clean(em.get("ImageDescription", {}).get("value", "") or
                     re.sub(r"\.\w+$", "", p.get("title", "").replace("File:", "")).replace("_", " "), 300)
         ders = sorted((d for d in vi.get("derivatives", []) if d.get("transcodekey")), key=lambda d: d.get("width") or 9999)
-        if not ders or not _commons_license_ok(lic) or len(cap) < 10:
+        if not ders or len(cap) < 3:
             continue
         data = http_get(ders[0]["src"], timeout=60, max_bytes=MAX_MEDIA_BYTES)
         if data:
@@ -461,7 +456,7 @@ def src_nasa_video(rng):
         small = next((f for f in files if f.endswith("~mobile.mp4")), None) or next((f for f in files if f.endswith("~small.mp4")), None)
         cap = clean(f"{d.get('title', '')}. {d.get('description', '')}", 300)
         data = http_get(small.replace("http://", "https://"), timeout=60, max_bytes=MAX_MEDIA_BYTES) if small else None
-        if data and len(cap) > 10:
+        if data and len(cap) >= 3:
             out.append(Item("video", cap, "nasa_video", data, "NASA (public domain)"))
     return out
 

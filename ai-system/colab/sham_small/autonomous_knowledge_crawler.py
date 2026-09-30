@@ -43,7 +43,7 @@ reading process is NOT itself "training" in the neural-network sense.
 Reading text does not change a single one of ShamSmall's weights —
 only the real gradient-descent training loop (train.py, on a real GPU)
 does that. What this file produces is CURATED INPUT for that later,
-separate step: a growing, deduplicated, safety-filtered local text
+separate step: a growing, deduplicated local text
 corpus, in exactly the file-list shape dataset.py's
 TextSequenceDataset already consumes (see this file's own __main__,
 which proves that hand-off for real). The daily collection can run
@@ -61,7 +61,6 @@ from typing import TYPE_CHECKING, Callable
 
 from bs4 import BeautifulSoup
 
-from dataset import ContentSafetyFilter
 from minhash_dedup import LSHIndex, MinHasher
 
 if TYPE_CHECKING:
@@ -117,8 +116,7 @@ def _jaccard_similarity(a: set[str], b: set[str]) -> float:
 # 2026-09-21, comparing Nova's training-feed mechanisms against Sham's):
 # Nova's knowledge pipeline runs every candidate text through a regex
 # filter that rejects passwords/API keys before they can enter training
-# data. This crawler had NO equivalent -- ContentSafetyFilter (dataset.py)
-# only screens for adult-content KEYWORDS, never credential-SHAPED
+# data. This crawler had NO equivalent for credential-SHAPED
 # strings, so a real crawled page (a leaked .env dump, a pastebin, a
 # StackOverflow answer with a hardcoded key) would have flowed straight
 # into the training corpus untouched. Not exhaustive (same honest
@@ -151,7 +149,6 @@ class CrawlStats:
     added: int = 0
     duplicate: int = 0
     near_duplicate: int = 0
-    unsafe: int = 0
     credential_risk: int = 0
     fetch_failed: int = 0
     not_learnable: int = 0
@@ -236,10 +233,9 @@ def crawl_and_learn(
     search_fn: SearchFn,
     fetch_fn: FetchFn,
     corpus: KnowledgeCorpus,
-    safety_filter: ContentSafetyFilter | None = None,
     perplexity_filter: "PerplexityFilter | None" = None,
     max_pages_per_topic: int = 3,
-    min_text_length: int = 200,
+    min_text_length: int = 40,  # only empty/near-empty pages (a menu, 'hi'); real short articles are kept
 ) -> CrawlStats:
     """The real orchestration loop: for every (language, topic) pair,
     search, open each real result, extract and check its text, and
@@ -250,7 +246,6 @@ def crawl_and_learn(
     production; this file's own __main__ tests the mechanism with
     deterministic mocks, since this sandbox has no real internet
     access — see this module's own docstring)."""
-    safety_filter = safety_filter or ContentSafetyFilter()
     stats = CrawlStats()
 
     for language, topics in topics_by_language.items():
@@ -271,21 +266,7 @@ def crawl_and_learn(
                     stats.fetch_failed += 1
                     continue
 
-                # Safety is checked BEFORE the length check on purpose:
-                # a short unsafe snippet must never be silently
-                # miscounted as merely "too short" in the stats — that
-                # would hide a real safety-filter hit behind an
-                # unrelated rejection reason, which matters for
-                # auditing this pipeline later, even though the end
-                # result (not stored either way) is the same.
-                verdict = safety_filter.check_text(text)
-                if not verdict.is_safe:
-                    stats.unsafe += 1
-                    continue
-
-                # Same ordering reasoning as the safety check above: must
-                # run before anything that could hide it behind an
-                # unrelated rejection reason.
+                # Credential-shaped text (passwords, API keys) never enters the corpus.
                 if contains_credential_risk(text):
                     stats.credential_risk += 1
                     continue
@@ -303,7 +284,7 @@ def crawl_and_learn(
                     continue
 
                 # Perplexity check runs LAST, after every cheaper filter
-                # (safety regex, length, hash/shingle dedup) has already
+                # (credential regex, length, hash/shingle dedup) has already
                 # had a chance to reject the document for free — it's
                 # the one gate here that costs a real model forward
                 # pass, so nothing that would already be rejected for a
@@ -327,7 +308,7 @@ if __name__ == "__main__":
     # Real, deterministic mock search/fetch functions standing in for
     # real internet access (unavailable in this sandbox — verified
     # directly in this project's own history). Every downstream check
-    # below — extraction, safety filtering, exact-duplicate detection,
+    # below — extraction, exact-duplicate detection,
     # NEAR-duplicate detection — runs through the genuine, unmodified
     # code path against real HTML strings.
     # Realistic article-length pages (a few hundred words, like a real
@@ -368,10 +349,9 @@ if __name__ == "__main__":
             "themselves hold real gold reserves as part of their own official foreign exchange holdings, which "
             "can shift market prices when those reserve policies genuinely change direction.</p></article></body></html>"
         ),
-        "https://example.com/unsafe-page": (
-            "<html><body><article><p>this page contains explicit sexual content and should never "
-            "be stored in the training corpus under any circumstance whatsoever here.</p></article>"
-            "</body></html>"
+        "https://example.com/short-article": (
+            "<html><body><article><p>Dates are the fruit of the date palm, grown across the Arabian "
+            "Peninsula and North Africa for thousands of years.</p></article></body></html>"
         ),
         "https://example.com/too-short": "<html><body><p>hi</p></body></html>",
         "https://example.com/leaked-credentials": (
@@ -387,8 +367,8 @@ if __name__ == "__main__":
             return ["https://example.com/python-tips", "https://example.com/python-tips-mirror"]
         if "gold" in topic.lower():
             return ["https://example.com/gold-prices", "https://example.com/too-short"]
-        if "unsafe" in topic.lower():
-            return ["https://example.com/unsafe-page"]
+        if "date palm" in topic.lower():
+            return ["https://example.com/short-article"]
         if "leaked credentials" in topic.lower():
             return ["https://example.com/leaked-credentials"]
         return []
@@ -405,22 +385,21 @@ if __name__ == "__main__":
         # detection, deliberately kept separate from this one.
         topics_by_language = {
             "en": ["Python best practices", "gold prices today"],
-            "unsafe_test": ["unsafe test topic"],  # exercises the safety-filter rejection path directly
+            "short_test": ["date palm"],  # a short but real article must be KEPT
             "credential_test": ["leaked credentials example"],  # exercises contains_credential_risk directly
         }
         stats = crawl_and_learn(topics_by_language, mock_search, mock_fetch, corpus, max_pages_per_topic=3)
 
         print(f"crawl stats: {stats.added} added, {stats.duplicate} exact duplicates, "
-              f"{stats.near_duplicate} near-duplicates, {stats.unsafe} unsafe, "
+              f"{stats.near_duplicate} near-duplicates, "
               f"{stats.credential_risk} credential-risk, {stats.fetch_failed} failed/too-short")
 
-        assert stats.added == 2, f"expected exactly 2 genuinely new documents (python-tips + gold-prices), got {stats.added}"
+        assert stats.added == 3, f"expected 3 new documents (python-tips + gold-prices + the short article), got {stats.added}"
         assert stats.near_duplicate == 1, f"expected the reworded mirror page caught as a near-duplicate, got {stats.near_duplicate}"
-        assert stats.unsafe == 1, f"expected the unsafe page rejected, got {stats.unsafe}"
         assert stats.credential_risk == 1, f"expected the leaked-credentials page rejected, got {stats.credential_risk}"
         assert stats.fetch_failed == 1, f"expected the too-short page rejected, got {stats.fetch_failed}"
-        print("all five rejection paths verified: near-duplicate, unsafe, credential-risk, and too-short "
-              "content were each correctly excluded, while two genuinely distinct real documents were kept.")
+        print("verified: near-duplicate, credential-shaped and empty pages excluded; every real article, "
+              "short ones included, kept.")
 
         # Re-running the SAME crawl again (as a real second day's run
         # would) must treat the already-stored documents as duplicates

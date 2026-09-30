@@ -221,7 +221,7 @@ class Encoder:
         out = []
         for s in range(0, len(ids), room):
             chunk = ids[s:s + room]
-            if len(chunk) >= 32:
+            if len(chunk) >= 8:
                 seq = [SpecialTokens.BOS] + chunk + [SpecialTokens.EOS]
                 out.append((seq, list(seq)))
         return out
