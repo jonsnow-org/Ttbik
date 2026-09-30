@@ -40,8 +40,14 @@ def _find(name: str, near: Path) -> Path | None:
 
 
 def publish(checkpoint: str | Path | None = None, corpus_dir: str | Path | None = None,
-            message: str | None = None) -> dict:
+            message: str | None = None, name: str | None = None) -> dict:
+    """name: this notebook's own name (e.g. "news" → sham-crawl-news and
+    sham-crawl-news-corpus). Every sham-crawl-* dataset is found and merged
+    by the chat stage automatically; two notebooks must not share a name."""
     from sham_inputs import publish_dataset
+    from sham_live import dataset_names
+
+    model_ds, corpus_ds = dataset_names(name)
 
     checkpoint = Path(checkpoint or WORK / "checkpoints/final.pt")
     if not checkpoint.exists():
@@ -64,11 +70,11 @@ def publish(checkpoint: str | Path | None = None, corpus_dir: str | Path | None 
     import torch
     step = int(torch.load(checkpoint, map_location="cpu", weights_only=False).get("step", 0) or 0)
     (out / "crawl_progress.json").write_text(json.dumps({"step": step}), encoding="utf-8")
-    result = {"model": publish_dataset(out, MODEL_DATASET, message or f"crawl model at step {step:,}")}
+    result = {"model": publish_dataset(out, model_ds, message or f"crawl model at step {step:,}")}
 
     if corpus_dir and Path(corpus_dir).exists() and any(Path(corpus_dir).iterdir()):
         n_txt = len(list(Path(corpus_dir).rglob("text/**/*.txt")))
         if not n_txt:
             print("⚠ لا توجد نصوص تحت text/ — التذكّر النصي لن يستفيد منها (المتوقع: text/<اسم>.txt).")
-        result["corpus"] = publish_dataset(Path(corpus_dir), CORPUS_DATASET, message or f"crawl corpus ({n_txt:,} texts)")
+        result["corpus"] = publish_dataset(Path(corpus_dir), corpus_ds, message or f"crawl corpus ({n_txt:,} texts)")
     return result

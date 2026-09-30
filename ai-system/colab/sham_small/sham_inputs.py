@@ -377,6 +377,36 @@ def resume_text_lineage(own: str, forks: list[str] | tuple[str, ...] = (),
     return picked
 
 
+CRAWL_PREFIX = "sham-crawl-"
+
+
+def crawl_dataset_names(prefix: str = CRAWL_PREFIX) -> dict:
+    """Automatic discovery of every collection notebook's output: the
+    account's datasets whose name starts with `prefix`, split into models
+    and text corpora ({"models": [...], "corpora": [...]}). A new collection
+    notebook only has to publish under a name with this prefix — nothing
+    else needs to know its name."""
+    user = _ensure_credentials()
+    found = {"models": [], "corpora": []}
+    if not user:
+        return found
+    if not shutil.which("kaggle"):
+        subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
+    names = []
+    for page in range(1, 6):
+        r = subprocess.run(["kaggle", "datasets", "list", "-m", "-s", prefix, "--csv", "-p", str(page)],
+                           capture_output=True, text=True)
+        rows = [l.split(",", 1)[0] for l in (r.stdout or "").splitlines()[1:] if "/" in l.split(",", 1)[0]]
+        if not rows:
+            break
+        names += [ref.split("/", 1)[1] for ref in rows if ref.split("/", 1)[0] == user]
+    for n in sorted(set(names)):
+        if not n.startswith(prefix):
+            continue
+        (found["corpora"] if n.endswith("corpus") else found["models"]).append(n)
+    return found
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
