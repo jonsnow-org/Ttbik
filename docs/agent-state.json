@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5906897666,
   "last_actor": "grok",
-  "updated_at": "2026-09-30T11:05:00Z",
+  "updated_at": "2026-09-30T12:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G266 FAQ+LIMITS+keywords: sendChatAction / sendSticker / sendAnimation / sendVideo / sendAudio / sendVoice. Form/AdSlot/page.tsx untouched.",
     "G265 FAQ+LIMITS+keywords: sendPoll / stopPoll / sendDice / sendLocation / sendVenue / sendContact. Form/AdSlot/page.tsx untouched.",
     "G264 FAQ+LIMITS+keywords: editMessageText / deleteMessage / answerCallbackQuery / editMessageReplyMarkup. Form/AdSlot/page.tsx untouched.",
     "G263 FAQ+LIMITS+keywords: sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage. Form/AdSlot/page.tsx untouched.",
