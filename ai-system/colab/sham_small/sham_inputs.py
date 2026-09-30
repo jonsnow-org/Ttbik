@@ -100,6 +100,89 @@ def _unzip_nested(root: Path) -> None:
             z.unlink()
 
 
+# Each stage's own checkpoint file. If the LATEST version of that dataset does not
+# contain it, another notebook published over the dataset (a real incident: a
+# separate crawl notebook versioned sham-multimodal-checkpoint with its own
+# final.pt, dropping final_multimodal.pt and the ledgers) — fetch_dataset then
+# walks back to the newest version that still has it, instead of silently
+# restarting the stage from an earlier lineage.
+REQUIRED_FILE = {
+    "sham-multimodal-checkpoint": "final_multimodal.pt",
+    "sham-chat-checkpoint": "final_chat.pt",
+}
+WALK_BACK_VERSIONS = 15
+
+
+def _split_name(name: str) -> tuple[str, str | None]:
+    """"dataset#file" -> ("dataset", "file"): fetch the newest version of
+    `dataset` that contains `file` (used to read a foreign checkpoint that was
+    published into one of our datasets). Plain names use REQUIRED_FILE."""
+    if "#" in name:
+        base, need = name.split("#", 1)
+        return base, need
+    return name, REQUIRED_FILE.get(name)
+
+
+def _has(root: Path, pattern: str | None) -> bool:
+    return pattern is None or any(root.rglob(pattern))
+
+
+def _download_version(ref: str, version: int, dest: Path) -> bool:
+    """One specific dataset version through Kaggle's public REST API."""
+    import requests
+
+    user, key = os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")
+    url = f"https://www.kaggle.com/api/v1/datasets/download/{ref}?datasetVersionNumber={version}"
+    try:
+        with requests.get(url, auth=(user, key), stream=True, timeout=600) as r:
+            if r.status_code != 200:
+                return False
+            dest.mkdir(parents=True, exist_ok=True)
+            archive = dest / "_v.zip"
+            with open(archive, "wb") as fh:
+                for chunk in r.iter_content(1 << 20):
+                    fh.write(chunk)
+        with zipfile.ZipFile(archive) as zf:
+            zf.extractall(dest)
+        archive.unlink()
+        _unzip_nested(dest)
+        return True
+    except Exception as exc:
+        print(f"  ⚠ تعذّر تنزيل النسخة {version} من {ref}: {exc}")
+        return False
+
+
+def _current_version(ref: str) -> int | None:
+    import requests
+
+    try:
+        r = requests.get(f"https://www.kaggle.com/api/v1/datasets/view/{ref}",
+                         auth=(os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")), timeout=60)
+        data = r.json() if r.status_code == 200 else {}
+        v = data.get("currentVersionNumber") or max((x.get("versionNumber", 0) for x in data.get("versions") or []), default=0)
+        return int(v) or None
+    except Exception:
+        return None
+
+
+def _walk_back(ref: str, need: str, dest_root: Path) -> Path | None:
+    latest = _current_version(ref)
+    if not latest:
+        print(f"  ⚠ تعذّر معرفة رقم آخر نسخة من {ref} — لا يمكن البحث في النسخ السابقة.")
+        return None
+    for v in range(latest - 1, max(latest - 1 - WALK_BACK_VERSIONS, 0), -1):
+        d = dest_root.with_name(f"{dest_root.name}__v{v}")
+        if not (d.exists() and _has(d, need)):
+            shutil.rmtree(d, ignore_errors=True)
+            if not _download_version(ref, v, d):
+                continue
+        if _has(d, need):
+            print(f"  ↩ {ref}: آخر نسخة فيها {need} هي النسخة {v} (من {latest}) — استُخدمت هي.")
+            return d
+    print(f"  ⚠ {ref}: لا توجد نسخة فيها {need} ضمن آخر {WALK_BACK_VERSIONS} نسخة.")
+    return None
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -107,34 +190,49 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
     fresh=True ignores an attached Input and any earlier download and pulls
     the version that is latest RIGHT NOW -- used just before publishing, so
     a notebook merges what another notebook published meanwhile instead of
-    overwriting it."""
+    overwriting it.
+
+    If the stage's own checkpoint file (REQUIRED_FILE, or "dataset#file") is
+    missing from the latest version, the newest version that has it is used."""
+    base, need = _split_name(name)
     if not fresh:
-        attached = _attached_dir(name)
-        if attached:
-            print(f"  • {name}: مرفقة كمُدخل ({attached})")
+        attached = _attached_dir(base)
+        if attached and _has(attached, need):
+            print(f"  • {base}: مرفقة كمُدخل ({attached})")
             return attached
-    dest = FETCH_ROOT / (f"{name}__fresh" if fresh else name)
+    safe = name.replace("#", "__").replace("/", "_")
+    dest = FETCH_ROOT / (f"{safe}__fresh" if fresh else safe)
     if fresh:
         shutil.rmtree(dest, ignore_errors=True)
     elif dest.exists() and any(dest.iterdir()):
-        return dest
+        if _has(dest, need):
+            return dest
+        older = sorted((d for d in dest.parent.glob(f"{dest.name}__v*") if _has(d, need)),
+                       key=lambda d: int(d.name.rsplit("__v", 1)[1]))
+        return older[-1] if older else (None if name != base else dest)
     user = _ensure_credentials()
     if not user:
         return None
     if not shutil.which("kaggle"):
         subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
     dest.mkdir(parents=True, exist_ok=True)
-    ref = f"{owner or user}/{name}"
+    ref = f"{owner or user}/{base}"
     r = subprocess.run(["kaggle", "datasets", "download", "-d", ref, "-p", str(dest), "--unzip"],
                        capture_output=True, text=True)
     _unzip_nested(dest)
     if r.returncode != 0 or not any(dest.iterdir()):
         shutil.rmtree(dest, ignore_errors=True)
         msg = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
-        print(f"  • {name}: غير متاحة ({msg[-1][:160] if msg else 'لا شيء'}) — طبيعي في أول تشغيل لهذا المسار")
+        print(f"  • {base}: غير متاحة ({msg[-1][:160] if msg else 'لا شيء'}) — طبيعي في أول تشغيل لهذا المسار")
         return None
     size_mb = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file()) / 1e6
-    print(f"  • {name}: نُزّلت آخر نسخة تلقائياً ({size_mb:,.0f} MB) إلى {dest}")
+    print(f"  • {base}: نُزّلت آخر نسخة تلقائياً ({size_mb:,.0f} MB) إلى {dest}")
+    if not _has(dest, need):
+        print(f"  ⚠ آخر نسخة من {base} لا تحتوي {need} — نشر فوقها دفتر آخر. البحث في النسخ السابقة…")
+        older = _walk_back(ref, need, dest)
+        if older is not None:
+            return older
+        return None if name != base else dest
     return dest
 
 

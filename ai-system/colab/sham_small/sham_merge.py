@@ -44,6 +44,11 @@ KNOWN_SOURCES = [
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
+    # The engineer's crawl notebook (Wikipedia + news feeds) published its final.pt
+    # INTO sham-multimodal-checkpoint; "#final.pt" fetches the newest version that
+    # has it. Its future home, if it gets its own dataset: sham-crawl-checkpoint.
+    ("sham-multimodal-checkpoint#final.pt", "final.pt", MEDIA_ROWS),
+    ("sham-crawl-checkpoint", "final.pt", MEDIA_ROWS),
 ]
 _ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
 
@@ -77,7 +82,10 @@ def load_source(root: Path, pattern: str, main_model, main_tokenizer):
         return None, "لا توجد أداة تقسيم نص معها"
     if not any(same_tokenizer(main_tokenizer, ShamTextTokenizer.load(str(t))) for t in toks):
         return None, "أداة تقسيم نص مختلفة (نفس الكلمة لها رقم مختلف) — يُكتفى بدمج بياناتها"
-    other, step, _ = load_checkpoint(ckpt, map_location="cpu")
+    try:
+        other, step, _ = load_checkpoint(ckpt, map_location="cpu")
+    except Exception as exc:  # a foreign notebook's file in another format
+        return None, f"تعذّر تحميل {ckpt.name}: {str(exc)[:120]}"
     for k in _ARCH_KEYS:
         if getattr(other.cfg, k) != getattr(main_model.cfg, k):
             return None, f"معمارية مختلفة ({k}: {getattr(other.cfg, k)} ≠ {getattr(main_model.cfg, k)})"
