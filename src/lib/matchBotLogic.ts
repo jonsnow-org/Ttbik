@@ -579,14 +579,35 @@ function ageInRange(age: number, min: number | null | undefined, max: number | n
   return true;
 }
 
+// Weighted-random ordering instead of hard elimination (owner request,
+// 2026-09-30): a profile that does not literally match every typed
+// requirement used to be dropped, so searches looked empty. Now only gender,
+// blocks and hidden/unapproved profiles are excluded; everything else
+// (country, age, job, education, attributes, and the paid city/marital
+// filters) only changes how LIKELY a profile is to come up. Each search gets
+// a fresh random order (Efraimidis–Spirakis weighted shuffle), so better
+// matches tend to appear first but every profile can be reached.
+function norm(v: string | null | undefined): string {
+  return (v || "").trim().toLowerCase();
+}
+function ageDistance(age: number, min: number | null | undefined, max: number | null | undefined): number {
+  if (min != null && age < min) return min - age;
+  if (max != null && age > max) return age - max;
+  return 0;
+}
+const SEARCH_POOL_LIMIT = 1500;
+const SEARCH_QUEUE_LIMIT = 300;
+
 async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
-  const sameCountry = selfPref.country.trim().toLowerCase() === selfProfile.country.trim().toLowerCase();
+  const where = { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } };
 
+  const total = await prisma.matchProfile.count({ where });
   const candidates = await prisma.matchProfile.findMany({
-    where: { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } },
+    where,
     include: { user: true },
-    take: 200,
+    skip: total > SEARCH_POOL_LIMIT ? Math.floor(Math.random() * (total - SEARCH_POOL_LIMIT)) : 0,
+    take: SEARCH_POOL_LIMIT,
   });
 
   const blocks = await prisma.matchBlock.findMany({ where: { OR: [{ blockerId: selfId }, { blockedId: selfId }] } });
@@ -594,44 +615,32 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
 
   const selfUser = await prisma.matchUser.findUnique({ where: { id: selfId } });
   const useAdvancedFilters = selfUser ? hasAdvancedFilters(selfUser) : false;
+  const wantedCountry = norm(selfPref.country);
+  const now = Date.now();
 
-  const filtered: typeof candidates = [];
+  const ranked: { id: string; key: number }[] = [];
   for (const c of candidates) {
     if (blockedIds.has(c.userId)) continue;
-    if (c.country.trim().toLowerCase() !== selfPref.country.trim().toLowerCase()) continue;
-    if (!ageInRange(c.age, selfPref.ageMin, selfPref.ageMax)) continue;
-    if (!looseMatch(c.job, selfPref.job)) continue;
-    if (!looseMatch(c.education, selfPref.education)) continue;
-    if (!looseMatch(c.attributes, selfPref.attributes)) continue;
-    // Advanced filters (paid, owner spec, 2026-09-05) — only applied if
-    // the searcher has unlocked them; harmless no-op otherwise since
-    // looseMatch(x, null) always passes.
+
+    let w = 1;
+    w *= norm(c.country) === wantedCountry ? 3 : 0.5;
+    const dist = ageDistance(c.age, selfPref.ageMin, selfPref.ageMax);
+    w *= dist === 0 ? 3 : dist <= 3 ? 1.5 : dist <= 7 ? 0.8 : 0.3;
+    if (selfPref.job) w *= looseMatch(c.job, selfPref.job) ? 1.6 : 0.8;
+    if (selfPref.education) w *= looseMatch(c.education, selfPref.education) ? 1.6 : 0.8;
+    if (selfPref.attributes) w *= looseMatch(c.attributes, selfPref.attributes) ? 1.6 : 0.8;
     if (useAdvancedFilters) {
-      if (!looseMatch(c.city, selfPref.city)) continue;
-      if (!looseMatch(c.maritalStatus, selfPref.maritalStatus)) continue;
+      if (selfPref.city) w *= looseMatch(c.city, selfPref.city) ? 1.8 : 0.3;
+      if (selfPref.maritalStatus) w *= looseMatch(c.maritalStatus, selfPref.maritalStatus) ? 1.8 : 0.3;
     }
+    if (isEffectivelyBoosted(c, c.user)) w *= 2.5;
+    if (c.verificationStatus === "VERIFIED") w *= 1.3;
+    if (now - c.user.lastActiveAt.getTime() < 3 * 86400000) w *= 1.3;
 
-    if (!sameCountry) {
-      // Cross-country: mutual match — the candidate's own preference must
-      // also accept self (owner spec, 2026-09-02).
-      const theirPref = await prisma.partnerPreference.findUnique({ where: { userId: c.userId } });
-      if (!theirPref) continue;
-      if (theirPref.country.trim().toLowerCase() !== selfProfile.country.trim().toLowerCase()) continue;
-      if (!ageInRange(selfProfile.age, theirPref.ageMin, theirPref.ageMax)) continue;
-      if (!looseMatch(selfProfile.job, theirPref.job)) continue;
-      if (!looseMatch(selfProfile.education, theirPref.education)) continue;
-      if (!looseMatch(selfProfile.attributes, theirPref.attributes)) continue;
-    }
-    filtered.push(c);
+    ranked.push({ id: c.userId, key: Math.pow(Math.random(), 1 / w) });
   }
-
-  // Profile Boost (paid, owner spec, 2026-09-05) — boosted profiles sort
-  // first, within the already-matched/filtered set (never bypasses the
-  // actual matching rules above, just re-orders who's seen first among
-  // equally-eligible candidates).
-  filtered.sort((a, b) => (isEffectivelyBoosted(b, b.user) ? 1 : 0) - (isEffectivelyBoosted(a, a.user) ? 1 : 0));
-
-  return filtered.slice(0, 20).map((c) => c.userId);
+  ranked.sort((a, b) => b.key - a.key);
+  return ranked.slice(0, SEARCH_QUEUE_LIMIT).map((r) => r.id);
 }
 
 function likeButtonLabel(count: number): string {
@@ -662,25 +671,33 @@ function seriousnessLabel(score: number): string {
   return `🟠 مؤشر الجدية: أساسي (${score}%)`;
 }
 
-async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: string, viewerId: string) {
-  const [profile, targetUser, likeCount, reportsReceived, photoPermission, viewer] = await Promise.all([
+const SITE_ORIGIN = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+const PHOTO_LOCKED = `${SITE_ORIGIN}/img/match-locked.jpg`;
+const PHOTO_NONE = `${SITE_ORIGIN}/img/match-nophoto.jpg`;
+
+const clip = (v: string, n: number) => (v.length > n ? v.slice(0, n - 1) + "…" : v);
+
+// Every search card is a PHOTO message (the real photo once access is granted,
+// otherwise a neutral placeholder picture), so "next" can swap the card in
+// place with editMessageMedia instead of deleting and re-sending a message.
+async function buildSearchCard(targetUserId: string, viewerId: string): Promise<{ photo: string; caption: string; kb: InlineKeyboard } | null> {
+  const [profile, targetUser, likeCount, reportsReceived, photoPermission] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId: targetUserId } }),
     prisma.matchUser.findUnique({ where: { id: targetUserId } }),
     prisma.matchLike.count({ where: { toUserId: targetUserId } }),
     prisma.matchReport.count({ where: { targetId: targetUserId } }),
     prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: targetUserId, viewerId } } }),
-    prisma.matchUser.findUnique({ where: { id: viewerId }, include: { profile: true } }),
   ]);
-  if (!profile || !targetUser) return false;
+  if (!profile || !targetUser) return null;
 
   const lines = [
     `👤 ${profile.name}، ${profile.age}${profile.verificationStatus === "VERIFIED" ? " ☑️" : ""}`,
     `🌍 ${profile.country}`,
-    profile.job ? `💼 ${profile.job}` : null,
-    profile.education ? `🎓 ${profile.education}` : null,
-    profile.attributes ? `📝 ${profile.attributes}` : null,
-    profile.city ? `🏙 ${profile.city}` : null,
-    profile.maritalStatus ? `💍 ${profile.maritalStatus}` : null,
+    profile.job ? `💼 ${clip(profile.job, 80)}` : null,
+    profile.education ? `🎓 ${clip(profile.education, 80)}` : null,
+    profile.attributes ? `📝 ${clip(profile.attributes, 300)}` : null,
+    profile.city ? `🏙 ${clip(profile.city, 60)}` : null,
+    profile.maritalStatus ? `💍 ${clip(profile.maritalStatus, 40)}` : null,
     presenceLabel(targetUser.lastActiveAt),
     seriousnessLabel(computeSeriousnessScore(profile, targetUser, reportsReceived)),
     isEffectivelyBoosted(profile, targetUser) ? "🚀 ملف مرفوع" : null,
@@ -693,40 +710,27 @@ async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: st
   const kb = new InlineKeyboard();
   kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(`⭐ سوبر لايك`, `msuperlike|${targetUserId}`).row();
   const contactUrl = profile.contactMethod === "TELEGRAM" ? `https://t.me/${profile.contactValue.replace(/^@/, "")}` : `https://wa.me/${profile.contactValue.replace(/[^0-9]/g, "")}`;
-  kb.url("💬 رسالة", contactUrl).row();
-  kb.text("➡️ التالي", "mnext").row();
+  kb.url("💬 رسالة", contactUrl);
+  const photoGranted = photoPermission?.status === "GRANTED";
+  if (profile.voiceFileId) kb.text("🎙 صوت", `mvoice|${targetUserId}`);
+  kb.row();
+  if (photoGranted && (profile.photoFileId2 || profile.photoFileId3)) kb.text("🖼 المزيد من الصور", `mphotos|${targetUserId}`).row();
+  if (profile.photoFileId && !photoGranted) kb.text("🔒 اطلب رؤية الصورة", `mphotoreq|${targetUserId}`).row();
+  kb.text("➡️ الملف التالي", "mnext").row();
   kb.text("🚩 إبلاغ", `mreport|${targetUserId}`).text("⛔ حظر", `mblock|${targetUserId}`);
 
-  const text = lines.join("\n");
-  const photoGranted = photoPermission?.status === "GRANTED";
-  if (profile.photoFileId && photoGranted) {
-    await bot.api.sendPhoto(chatId, profile.photoFileId, { caption: text, reply_markup: kb });
-  } else if (profile.photoFileId) {
-    // Photo access is consent-gated (owner spec, 2026-09-05): the real
-    // photo is never sent until the profile owner explicitly grants this
-    // specific viewer permission (see the mphotoreq/mphotoyes/mphotono
-    // callbacks). Stronger privacy than a cosmetic blur — nothing leaks
-    // at all pre-consent, not even a blurred silhouette.
-    kb.row().text("🔒 اطلب رؤية الصورة", `mphotoreq|${targetUserId}`);
-    await bot.api.sendMessage(chatId, `🔒 (الصورة مخفية — اطلب إذن صاحب الملف لعرضها)\n\n${text}`, { reply_markup: kb });
-  } else {
-    await bot.api.sendMessage(chatId, `📷 (بلا صورة)\n\n${text}`, { reply_markup: kb });
-  }
-  if (profile.voiceFileId) {
-    await bot.api.sendVoice(chatId, profile.voiceFileId).catch(() => null);
-  }
-  // Extra photos (paid, owner spec, 2026-09-05) — sent as follow-up
-  // messages, only once the main photo is actually visible to this
-  // viewer (showing them while the main photo is still consent-gated
-  // would defeat the whole point of the gate).
-  if (photoGranted) {
-    if (profile.photoFileId2) await bot.api.sendPhoto(chatId, profile.photoFileId2).catch(() => null);
-    if (profile.photoFileId3) await bot.api.sendPhoto(chatId, profile.photoFileId3).catch(() => null);
-  }
+  // Photo access is consent-gated (owner spec, 2026-09-05): the real photo is
+  // never used until the profile owner explicitly grants this viewer.
+  const photo = profile.photoFileId && photoGranted ? profile.photoFileId : profile.photoFileId ? PHOTO_LOCKED : PHOTO_NONE;
+  const status = profile.photoFileId && !photoGranted ? "🔒 الصورة مخفية — اطلب إذن صاحب الملف\n\n" : !profile.photoFileId ? "📷 بلا صورة\n\n" : "";
+  return { photo, caption: status + lines.join("\n"), kb };
+}
 
-  // Profile Visitors tracking (paid, owner spec, 2026-09-05) — skipped
-  // entirely when the VIEWER has incognito active (their own activity,
-  // not the profile owner's, is what incognito hides).
+// Records the visit for the paid "who viewed my profile" feature (skipped
+// while the VIEWER has incognito active -- their own activity, not the
+// profile owner's, is what incognito hides).
+async function trackProfileVisit(targetUserId: string, viewerId: string) {
+  const viewer = await prisma.matchUser.findUnique({ where: { id: viewerId }, include: { profile: true } });
   const viewerIncognito = !!viewer && !!viewer.profile?.isIncognito && isVipActive(viewer);
   if (targetUserId !== viewerId && !viewerIncognito) {
     await prisma.matchProfileVisit
@@ -737,26 +741,67 @@ async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: st
       })
       .catch(() => null);
   }
+}
+
+/**
+ * Shows a profile card. With a messageId the card that was on screen is
+ * REPLACED IN PLACE (editMessageMedia: photo, caption and buttons swap in one
+ * step, the message and its "next" button never move). If that edit is not
+ * possible (an old text-style card, or the message is gone) a new card is
+ * sent instead.
+ */
+async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: string, viewerId: string, messageId?: number) {
+  const card = await buildSearchCard(targetUserId, viewerId);
+  if (!card) return false;
+  let done = false;
+  if (messageId) {
+    try {
+      await bot.api.editMessageMedia(chatId, messageId, { type: "photo", media: card.photo, caption: card.caption }, { reply_markup: card.kb });
+      done = true;
+    } catch (e) {
+      if (/message is not modified/i.test(String((e as Error)?.message || ""))) done = true;
+    }
+  }
+  if (!done) await bot.api.sendPhoto(chatId, card.photo, { caption: card.caption, reply_markup: card.kb });
+  await trackProfileVisit(targetUserId, viewerId);
   return true;
 }
 
-async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "search_browsing" }>) {
+async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "search_browsing" }>, messageId?: number) {
+  let queue = pending.queue;
   let idx = pending.index;
-  while (idx < pending.queue.length) {
-    const targetId = pending.queue[idx];
-    const stillBlocked = await isMutuallyBlocked(userId, targetId);
-    const stillApproved = await prisma.matchProfile.findUnique({ where: { userId: targetId }, select: { status: true } });
-    if (!stillBlocked && stillApproved?.status === "APPROVED") {
-      const sent = await sendSearchCard(bot, chatId, targetId, userId);
-      if (sent) {
-        await setPending(userId, { mode: "search_browsing", queue: pending.queue, index: idx + 1 });
-        return;
+  let refilled = false;
+  for (;;) {
+    while (idx < queue.length) {
+      const targetId = queue[idx];
+      const stillBlocked = await isMutuallyBlocked(userId, targetId);
+      const stillApproved = await prisma.matchProfile.findUnique({ where: { userId: targetId }, select: { status: true } });
+      if (!stillBlocked && stillApproved?.status === "APPROVED") {
+        const sent = await sendSearchCard(bot, chatId, targetId, userId, messageId);
+        if (sent) {
+          await setPending(userId, { mode: "search_browsing", queue, index: idx + 1 });
+          return;
+        }
       }
+      idx++;
     }
-    idx++;
+    // Reached the end of this shuffle: draw a fresh random order instead of
+    // stopping, so browsing never dead-ends while profiles exist.
+    if (refilled) break;
+    refilled = true;
+    const [me, prof, pref] = await Promise.all([
+      prisma.matchUser.findUnique({ where: { id: userId }, select: { botId: true } }),
+      prisma.matchProfile.findUnique({ where: { userId } }),
+      prisma.partnerPreference.findUnique({ where: { userId } }),
+    ]);
+    if (!me || !prof || !pref) break;
+    const fresh = await buildSearchQueue(me.botId, userId, prof, pref);
+    if (fresh.length === 0) break;
+    queue = fresh;
+    idx = 0;
   }
   await setPending(userId, null);
-  await bot.api.sendMessage(chatId, "🔚 لا يوجد المزيد من النتائج المطابقة حالياً.", { reply_markup: mainMenu() });
+  await bot.api.sendMessage(chatId, "🔚 لا توجد ملفات لعرضها حالياً. عد لاحقاً لترى الجديد.", { reply_markup: mainMenu() });
 }
 
 async function startSearch(bot: TelegramBot, chatId: number, userId: string, botId: string) {
@@ -863,7 +908,7 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   }
   if (data === "mnext") {
     if (pending?.mode === "search_browsing") {
-      await advanceSearch(bot, chatId, tgUserId, pending);
+      await advanceSearch(bot, chatId, tgUserId, pending, cq.message?.message_id);
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
@@ -886,6 +931,26 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     await bot.api
       .sendMessage(chatId, `⭐ اكتب رسالة قصيرة ترافق إعجابك (سيُخصم $${PRICE_SUPER_LIKE} من رصيدك):`, { reply_markup: plainBackMenu() })
       .catch(() => null);
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  if (data.startsWith("mvoice|")) {
+    const ownerId = data.split("|")[1];
+    const prof = await prisma.matchProfile.findUnique({ where: { userId: ownerId }, select: { voiceFileId: true, status: true } });
+    if (prof?.voiceFileId && prof.status === "APPROVED") await bot.api.sendVoice(chatId, prof.voiceFileId).catch(() => null);
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    return;
+  }
+  if (data.startsWith("mphotos|")) {
+    const ownerId = data.split("|")[1];
+    const [prof, perm] = await Promise.all([
+      prisma.matchProfile.findUnique({ where: { userId: ownerId }, select: { photoFileId2: true, photoFileId3: true, status: true } }),
+      prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId, viewerId: tgUserId } } }),
+    ]);
+    if (prof?.status === "APPROVED" && perm?.status === "GRANTED") {
+      if (prof.photoFileId2) await bot.api.sendPhoto(chatId, prof.photoFileId2).catch(() => null);
+      if (prof.photoFileId3) await bot.api.sendPhoto(chatId, prof.photoFileId3).catch(() => null);
+    }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
   }
@@ -970,7 +1035,7 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     }
     await bot.api.answerCallbackQuery(cq.id, { text: "⛔ تم الحظر" }).catch(() => null);
     if (pending?.mode === "search_browsing") {
-      await advanceSearch(bot, chatId, tgUserId, pending);
+      await advanceSearch(bot, chatId, tgUserId, pending, cq.message?.message_id);
     }
     return;
   }
