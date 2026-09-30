@@ -282,6 +282,63 @@ async def pending_message_relay_handler(update: Update, context: ContextTypes.DE
     raise ApplicationHandlerStop
 
 
+async def _mini_app_stats() -> dict | None:
+    """Mini-app user counts from the site (Supabase-backed), or None if unreachable."""
+    import httpx
+    from services.feed import _api_url
+
+    url = _api_url().rsplit("/api/", 1)[0] + "/api/media-stats"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url)
+        if r.status_code == 200:
+            return r.json()
+    except Exception as e:
+        logger.warning("mini-app stats unavailable: %s", e)
+    return None
+
+
+async def _send_owner_stats(update: Update) -> None:
+    s = store.bot_stats(exclude_id=cfg.owner_id)
+    m = await _mini_app_stats()
+    if m:
+        app_block = (
+            "\n📱 التطبيق المصغّر (Mini App)\n"
+            f"👥 المستخدمون: {m.get('mini_app_users', 0)}\n"
+            f"🆕 جدد آخر 24س: {m.get('new_24h', 0)}\n"
+            f"🟢 نشطون آخر 24س: {m.get('active_24h', 0)}\n"
+            f"⚡ متصلون (15 د): {m.get('online_15m', 0)}\n"
+            f"📰 منشورات عامة: {m.get('public_posts', 0)} · ناشرون: {m.get('publishers', 0)}\n"
+            f"🔁 إجمالي الاستنساخ: {m.get('total_clones', 0)}\n"
+        )
+        if m.get("source") == "memory":
+            app_block += "⚠️ الأعداد مؤقتة — شغّل supabase/migration_mini_app_users.sql في Supabase لتصبح دقيقة ودائمة.\n"
+    else:
+        app_block = "\n📱 التطبيق المصغّر: تعذّر جلب الأعداد الآن.\n"
+    await update.message.reply_text(
+        "📊 لوحة إحصائيات الوسائط\n\n"
+        "🤖 البوت (بدون حسابك)\n"
+        f"👥 إجمالي المستخدمين: {s['users']}\n"
+        f"🆕 منضمّون آخر 24س: {s['new_24h']}\n"
+        f"🟢 نشطون آخر 24س: {s['active_24h']}\n"
+        f"⚡ متصلون (15 د): {s['online_15m']}\n"
+        f"⬇️ إجمالي التحميلات: {s['downloads']}\n"
+        f"📥 حمّلوا اليوم: {s['active_downloaders_today']}\n"
+        f"🏠 الغرف الخاصة: {s['squads']}\n"
+        f"🌐 نشر عام مفعّل: {s['share_public']}\n"
+        f"🔐 نشر غرفة مفعّل: {s['share_room']}\n"
+        f"📢 قنوات الاشتراك: {s['force_sub']}\n"
+        f"💎 مشتركون مدفوعون: {s['premium']}\n"
+        + app_block,
+        reply_markup=owner_main_keyboard(),
+    )
+
+
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user and update.effective_user.id == cfg.owner_id and update.message:
+        await _send_owner_stats(update)
+
+
 async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.effective_user or update.effective_user.id != cfg.owner_id:
         return
@@ -296,21 +353,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(msg, reply_markup=owner_force_sub_keyboard(store.force_sub_channels))
         return
     if text == "📊 إحصائيات":
-        s = store.bot_stats()
-        await update.message.reply_text(
-            "📊 لوحة إحصائيات البوت\n"
-            "(منضمّو البوت فقط — غير مستخدمي التطبيق)\n\n"
-            f"👥 إجمالي المستخدمين: {s['users']}\n"
-            f"🆕 منضمّون آخر 24س: {s['new_24h']}\n"
-            f"🟢 نشطون آخر 24س: {s['active_24h']}\n"
-            f"⚡ متصلون (15 د): {s['online_15m']}\n"
-            f"⬇️ إجمالي التحميلات: {s['downloads']}\n"
-            f"📥 حمّلوا اليوم: {s['active_downloaders_today']}\n"
-            f"🏠 الغرف الخاصة: {s['squads']}\n"
-            f"🌐 نشر عام مفعّل: {s['share_public']}\n"
-            f"🔐 نشر غرفة مفعّل: {s['share_room']}\n"
-            f"📢 قنوات الاشتراك: {s['force_sub']}"
-        )
+        await _send_owner_stats(update)
     elif text in ("📢 قنوات الاشتراك", "📢 قناة الاشتراك الإجباري"):
         current = "\n".join(store.force_sub_channels) if store.force_sub_channels else "لا توجد قنوات"
         await update.message.reply_text(f"قنوات الاشتراك الإجباري:\n{current}\n\nحتى قناتين.", reply_markup=owner_force_sub_keyboard(store.force_sub_channels))
@@ -321,12 +364,12 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"• الاشتراك: {chans}\n• Mini-App: مفعّل\n• yt-dlp: {_yt_dlp_version()}"
         )
     elif text == "👥 إدارة المستخدمين":
-        s = store.bot_stats()
+        s = store.bot_stats(exclude_id=cfg.owner_id)
         await update.message.reply_text(
             f"👥 إدارة مستخدمي البوت\n\nالإجمالي: {s['users']}\nجدد 24س: {s['new_24h']}\nمتصلون: {s['online_15m']}"
         )
     elif text == "💎 الميزات المدفوعة":
-        s = store.bot_stats()
+        s = store.bot_stats(exclude_id=cfg.owner_id)
         await update.message.reply_text(f"💎 عدد المشتركين في الترقية المدفوعة: {s['premium']}")
     elif text == "ℹ️ معلومات":
         await update.message.reply_text(INFO_TEXT)
@@ -760,6 +803,7 @@ def _build_app() -> Application:
     app.add_error_handler(_error_handler)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("version", version_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("premium", premium_cmd))
     # Distinct groups: PTB runs only the first matching handler per group, and
     # owner_text_handler's filter matches every text (owner check is inside it).

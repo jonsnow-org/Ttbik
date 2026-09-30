@@ -159,6 +159,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             {isOwner && <option value="QUIZ_BOT">بوت اختبارات الشخصية</option>}
             {isOwner && <option value="STREAK_BOT">بوت السلاسل اليومية</option>}
             {isOwner && <option value="PRAYER_BOT">بوت مواقيت الصلاة</option>}
+            {isOwner && <option value="CAPSULE_BOT">بوت كبسولة الزمن</option>}
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
@@ -170,7 +171,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             </p>
           )}
         </div>
-        {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" ? (
+        {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>
             <input

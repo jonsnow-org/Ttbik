@@ -44,6 +44,50 @@ async function checkWebhook(token: string, expectedUrl: string): Promise<Webhook
   }
 }
 
+// Who made this bot and what is it called: getMe gives the @username, and
+// getChat(ownerId) (answered only if that customer ever started their own
+// bot) gives the customer's name/@username. Best-effort, never throws.
+async function botIdentity(token: string, ownerId: string): Promise<{ username: string | null; ownerName: string | null; ownerUsername: string | null }> {
+  const call = async (method: string, qs = "") => {
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${token}/${method}${qs}`, { signal: AbortSignal.timeout(6000) });
+      const j = await r.json();
+      return j?.ok ? j.result : null;
+    } catch {
+      return null;
+    }
+  };
+  const [me, chat] = await Promise.all([call("getMe"), call("getChat", `?chat_id=${encodeURIComponent(ownerId)}`)]);
+  const name = chat ? [chat.first_name, chat.last_name].filter(Boolean).join(" ") || chat.title || null : null;
+  return { username: me?.username ?? null, ownerName: name, ownerUsername: chat?.username ?? null };
+}
+
+// Does the template's main table exist in the database yet? (a bot whose
+// migration was never run answers every /start with a Prisma P2021).
+const TABLE_PROBE: Record<string, () => Promise<unknown>> = {
+  AD_BOT: () => prisma.user.findFirst({ select: { id: true } }),
+  MARRIAGE_BOT: () => prisma.matchUser.findFirst({ select: { id: true } }),
+  JOBS_BOT: () => prisma.jobsUser.findFirst({ select: { id: true } }),
+  MEDICAL_BOT: () => prisma.medUser.findFirst({ select: { id: true } }),
+  CONFESSION_BOT: () => prisma.confessionUser.findFirst({ select: { id: true } }),
+  NAME_COMPAT_BOT: () => prisma.nameCompatUser.findFirst({ select: { id: true } }),
+  QUIZ_BOT: () => prisma.quizUser.findFirst({ select: { id: true } }),
+  STREAK_BOT: () => prisma.streakUser.findFirst({ select: { id: true } }),
+  PRAYER_BOT: () => prisma.prayerUser.findFirst({ select: { id: true } }),
+  CAPSULE_BOT: () => prisma.capsuleUser.findFirst({ select: { id: true } }),
+};
+
+async function tablesReady(template: string): Promise<boolean | null> {
+  const probe = TABLE_PROBE[template];
+  if (!probe) return null;
+  try {
+    await probe();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
 export async function GET() {
@@ -80,6 +124,11 @@ export async function GET() {
     bots.map((b) => checkWebhook(b.token, `${SITE_URL}/api/telegram/${b.id}`)),
   );
   const webhookByBotId = new Map(bots.map((b, i) => [b.id, webhooks[i]]));
+  const identities = await Promise.all(bots.map((b) => botIdentity(b.token, b.ownerId)));
+  const identityByBotId = new Map(bots.map((b, i) => [b.id, identities[i]]));
+  const templates = Array.from(new Set(bots.map((b) => b.template)));
+  const readiness = await Promise.all(templates.map((t) => tablesReady(t)));
+  const readyByTemplate = new Map(templates.map((t, i) => [t, readiness[i]]));
 
   return NextResponse.json({
     bots: bots.map((b) => ({
@@ -87,6 +136,8 @@ export async function GET() {
       token: maskToken(b.token),
       userCount: usersByBotId.get(b.id) ?? 0,
       webhook: webhookByBotId.get(b.id),
+      identity: identityByBotId.get(b.id),
+      tablesReady: readyByTemplate.get(b.template) ?? null,
     })),
   });
 }

@@ -9,7 +9,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
-import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
  * MARRIAGE_BOT template (owner spec, 2026-09-02) — a fully independent
@@ -2128,7 +2128,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (text === "💰 رصيدي وإيداع") {
     const u = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
     const balance = Number(u?.balance || 0);
-    await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${balance.toFixed(2)}\n\nللإيداع، افتح الرابط التالي:\n${depositLink(tgUserId)}`, { reply_markup: upgradesMenu() });
+    await bot.api.sendMessage(chatId, depositChoicesText(balance, depositLink(tgUserId), isNativeTonConfigured()), { reply_markup: upgradesMenu() });
     await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("mstars") });
     return;
   }
