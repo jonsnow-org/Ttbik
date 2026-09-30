@@ -29,6 +29,7 @@ export const LIMITS = [
   "حظر الأعضاء وتقييد الصلاحيات (banChatMember / unbanChatMember / restrictChatMember / promoteChatMember) من تليجرام فقط. الموقع لا يحظر ولا يرفع حظراً ولا يقيّد صلاحيات نيابة عنك. لا رمز طلب إضافياً.",
   "صلاحيات المجموعة وطلبات الانضمام (setChatPermissions / approveChatJoinRequest / declineChatJoinRequest) من تليجرام فقط. الموقع لا يغيّر صلاحيات المجموعة ولا يوافق على طلب انضمام نيابة عنك. لا رمز طلب إضافياً.",
   "قائمة المشرفين وبيانات العضو وعدد الأعضاء (getChatAdministrators / getChatMember / getChatMemberCount / getChat) من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا عضواً ولا عدد أعضاء نيابة عنك. لا رمز طلب إضافياً.",
+  "قائمة أوامر البوت واسمه المعروض (setMyCommands / deleteMyCommands / getMyCommands / setMyName) من تليجرام و@BotFather فقط. الموقع لا يضع قائمة / ولا يغيّر اسم البوت المعروض نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 

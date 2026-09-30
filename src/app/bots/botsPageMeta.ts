@@ -45,6 +45,12 @@ export const botsMetadata: Metadata = {
     "getChat",
     "قائمة مشرفين المجموعة",
     "عدد أعضاء تليجرام",
+    "setMyCommands",
+    "deleteMyCommands",
+    "getMyCommands",
+    "setMyName",
+    "قائمة أوامر البوت",
+    "اسم البوت المعروض",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
