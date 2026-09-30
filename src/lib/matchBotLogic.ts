@@ -113,7 +113,7 @@ type PrefDraft = {
 type PendingAction =
   | { mode: "profile_wizard"; step: ProfileStep; data: ProfileDraft }
   | { mode: "pref_wizard"; step: PrefStep; data: PrefDraft }
-  | { mode: "search_browsing"; queue: string[]; index: number }
+  | { mode: "search_browsing"; queue: string[]; index: number; current?: string; msgId?: number }
   | { mode: "random_waiting" }
   | { mode: "random_chatting"; sessionId: string; partnerId: string }
   | { mode: "admin_reject_reason"; profileId: string }
@@ -128,7 +128,7 @@ type PendingAction =
   | { mode: "verify_badge_photo" }
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
   | { mode: "advanced_filter_wizard"; step: "city" | "maritalStatus"; data: { city?: string | null; maritalStatus?: string | null } }
-  | { mode: "superlike_note"; targetUserId: string }
+  | { mode: "superlike_note"; targetUserId: string; resume?: { queue: string[]; index: number; current?: string; msgId?: number } }
   | { mode: "fake_chatting"; fakeBotId: number; step: number; lastAt: number };
 
 const SKIP_LABEL = "⏭ غير محدد / لا يهم";
@@ -618,6 +618,20 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
   const wantedCountry = norm(selfPref.country);
   const now = Date.now();
 
+  // Fair, not forced: profiles this user saw in the last 7 days come up less
+  // often (never excluded -- they can still reappear), and profiles that few
+  // people have viewed get a small lift so nobody stays buried at the end.
+  const ids = candidates.map((c) => c.userId);
+  const [recentSeen, exposure] = await Promise.all([
+    prisma.matchProfileVisit.findMany({
+      where: { viewerId: selfId, visitedAt: { gte: new Date(now - 7 * 86400000) } },
+      select: { ownerId: true },
+    }),
+    prisma.matchProfileVisit.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids } }, _count: { _all: true } }),
+  ]);
+  const seenSet = new Set(recentSeen.map((v) => v.ownerId));
+  const exposureOf = new Map(exposure.map((e) => [e.ownerId, e._count._all]));
+
   const ranked: { id: string; key: number }[] = [];
   for (const c of candidates) {
     if (blockedIds.has(c.userId)) continue;
@@ -636,11 +650,35 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
     if (isEffectivelyBoosted(c, c.user)) w *= 2.5;
     if (c.verificationStatus === "VERIFIED") w *= 1.3;
     if (now - c.user.lastActiveAt.getTime() < 3 * 86400000) w *= 1.3;
+    if (seenSet.has(c.userId)) w *= 0.35;
+    w *= Math.max(0.6, Math.min(1.6, 1.6 / (1 + (exposureOf.get(c.userId) || 0) / 25)));
 
     ranked.push({ id: c.userId, key: Math.pow(Math.random(), 1 / w) });
   }
   ranked.sort((a, b) => b.key - a.key);
   return ranked.slice(0, SEARCH_QUEUE_LIMIT).map((r) => r.id);
+}
+
+// Share of the searcher's stated preferences this profile meets (0-100),
+// shown on the card as "💞 توافق X%". Country and age count double; age
+// outside the range still earns partial credit when it is close.
+function compatibilityPercent(profile: MatchProfile, pref: PartnerPreference | null, advanced: boolean): number | null {
+  if (!pref) return null;
+  let got = 0;
+  let total = 0;
+  const add = (weight: number, score: number) => { total += weight; got += weight * score; };
+  add(2, norm(profile.country) === norm(pref.country) ? 1 : 0);
+  if (pref.ageMin != null || pref.ageMax != null) {
+    const d = ageDistance(profile.age, pref.ageMin, pref.ageMax);
+    add(2, d === 0 ? 1 : d <= 3 ? 0.6 : d <= 7 ? 0.3 : 0);
+  }
+  if (pref.job) add(1, looseMatch(profile.job, pref.job) ? 1 : 0);
+  if (pref.education) add(1, looseMatch(profile.education, pref.education) ? 1 : 0);
+  if (pref.attributes) add(1, looseMatch(profile.attributes, pref.attributes) ? 1 : 0);
+  if (advanced && pref.city) add(1, looseMatch(profile.city, pref.city) ? 1 : 0);
+  if (advanced && pref.maritalStatus) add(1, looseMatch(profile.maritalStatus, pref.maritalStatus) ? 1 : 0);
+  if (!total) return null;
+  return Math.max(20, Math.round((got / total) * 100));
 }
 
 function likeButtonLabel(count: number): string {
@@ -680,28 +718,38 @@ const clip = (v: string, n: number) => (v.length > n ? v.slice(0, n - 1) + "…"
 // Every search card is a PHOTO message (the real photo once access is granted,
 // otherwise a neutral placeholder picture), so "next" can swap the card in
 // place with editMessageMedia instead of deleting and re-sending a message.
-async function buildSearchCard(targetUserId: string, viewerId: string): Promise<{ photo: string; caption: string; kb: InlineKeyboard } | null> {
-  const [profile, targetUser, likeCount, reportsReceived, photoPermission] = await Promise.all([
+async function buildSearchCard(targetUserId: string, viewerId: string, expanded = false): Promise<{ photo: string; caption: string; kb: InlineKeyboard } | null> {
+  const [profile, targetUser, likeCount, reportsReceived, photoPermission, viewerPref, viewerUser] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId: targetUserId } }),
     prisma.matchUser.findUnique({ where: { id: targetUserId } }),
     prisma.matchLike.count({ where: { toUserId: targetUserId } }),
     prisma.matchReport.count({ where: { targetId: targetUserId } }),
     prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: targetUserId, viewerId } } }),
+    prisma.partnerPreference.findUnique({ where: { userId: viewerId } }),
+    prisma.matchUser.findUnique({ where: { id: viewerId } }),
   ]);
   if (!profile || !targetUser) return null;
 
-  const lines = [
+  const pct = compatibilityPercent(profile, viewerPref, viewerUser ? hasAdvancedFilters(viewerUser) : false);
+  const head = [
     `👤 ${profile.name}، ${profile.age}${profile.verificationStatus === "VERIFIED" ? " ☑️" : ""}`,
-    `🌍 ${profile.country}`,
-    profile.job ? `💼 ${clip(profile.job, 80)}` : null,
-    profile.education ? `🎓 ${clip(profile.education, 80)}` : null,
-    profile.attributes ? `📝 ${clip(profile.attributes, 300)}` : null,
-    profile.city ? `🏙 ${clip(profile.city, 60)}` : null,
-    profile.maritalStatus ? `💍 ${clip(profile.maritalStatus, 40)}` : null,
+    `🌍 ${profile.country}${profile.city ? ` · ${clip(profile.city, 40)}` : ""}`,
+    pct != null ? `💞 توافق ${pct}%` : null,
     presenceLabel(targetUser.lastActiveAt),
-    seriousnessLabel(computeSeriousnessScore(profile, targetUser, reportsReceived)),
-    isEffectivelyBoosted(profile, targetUser) ? "🚀 ملف مرفوع" : null,
-  ].filter((l): l is string => !!l);
+  ];
+  // Short card by default; the full text sits behind "📖 المزيد" so the card
+  // stays compact and the buttons do not jump around between profiles.
+  const details = expanded
+    ? [
+        profile.job ? `💼 ${clip(profile.job, 80)}` : null,
+        profile.education ? `🎓 ${clip(profile.education, 80)}` : null,
+        profile.maritalStatus ? `💍 ${clip(profile.maritalStatus, 40)}` : null,
+        profile.attributes ? `📝 ${clip(profile.attributes, 400)}` : null,
+        seriousnessLabel(computeSeriousnessScore(profile, targetUser, reportsReceived)),
+        isEffectivelyBoosted(profile, targetUser) ? "🚀 ملف مرفوع" : null,
+      ]
+    : [];
+  const lines = [...head, ...(details.length ? [""] : []), ...details].filter((l): l is string => l !== null);
 
   // Callback data carries the full Telegram ID, not a shortId suffix — a
   // 6-char suffix of a plain numeric Telegram ID (unlike a UUID) has real
@@ -709,14 +757,17 @@ async function buildSearchCard(targetUserId: string, viewerId: string): Promise<
   // Telegram's 64-byte callback_data limit anyway.
   const kb = new InlineKeyboard();
   kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(`⭐ سوبر لايك`, `msuperlike|${targetUserId}`).row();
+  kb.text(expanded ? "🔼 إخفاء التفاصيل" : "📖 المزيد من المعلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`);
   const contactUrl = profile.contactMethod === "TELEGRAM" ? `https://t.me/${profile.contactValue.replace(/^@/, "")}` : `https://wa.me/${profile.contactValue.replace(/[^0-9]/g, "")}`;
-  kb.url("💬 رسالة", contactUrl);
+  kb.url("💬 رسالة", contactUrl).row();
   const photoGranted = photoPermission?.status === "GRANTED";
   if (profile.voiceFileId) kb.text("🎙 صوت", `mvoice|${targetUserId}`);
+  if (photoGranted && (profile.photoFileId2 || profile.photoFileId3)) kb.text("🖼 صور أخرى", `mphotos|${targetUserId}`);
+  if (profile.photoFileId && !photoGranted) kb.text("🔒 اطلب رؤية الصورة", `mphotoreq|${targetUserId}`);
   kb.row();
-  if (photoGranted && (profile.photoFileId2 || profile.photoFileId3)) kb.text("🖼 المزيد من الصور", `mphotos|${targetUserId}`).row();
-  if (profile.photoFileId && !photoGranted) kb.text("🔒 اطلب رؤية الصورة", `mphotoreq|${targetUserId}`).row();
-  kb.text("➡️ الملف التالي", "mnext").row();
+  // The profile id rides on "next" so a double tap on the same card is
+  // recognised and ignored instead of skipping a profile.
+  kb.text("➡️ الملف التالي", `mnext|${targetUserId}`).row();
   kb.text("🚩 إبلاغ", `mreport|${targetUserId}`).text("⛔ حظر", `mblock|${targetUserId}`);
 
   // Photo access is consent-gated (owner spec, 2026-09-05): the real photo is
@@ -750,21 +801,24 @@ async function trackProfileVisit(targetUserId: string, viewerId: string) {
  * possible (an old text-style card, or the message is gone) a new card is
  * sent instead.
  */
-async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: string, viewerId: string, messageId?: number) {
+async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: string, viewerId: string, messageId?: number): Promise<number | null> {
   const card = await buildSearchCard(targetUserId, viewerId);
-  if (!card) return false;
-  let done = false;
+  if (!card) return null;
+  let shownId: number | null = null;
   if (messageId) {
     try {
       await bot.api.editMessageMedia(chatId, messageId, { type: "photo", media: card.photo, caption: card.caption }, { reply_markup: card.kb });
-      done = true;
+      shownId = messageId;
     } catch (e) {
-      if (/message is not modified/i.test(String((e as Error)?.message || ""))) done = true;
+      if (/message is not modified/i.test(String((e as Error)?.message || ""))) shownId = messageId;
     }
   }
-  if (!done) await bot.api.sendPhoto(chatId, card.photo, { caption: card.caption, reply_markup: card.kb });
+  if (shownId == null) {
+    const m = await bot.api.sendPhoto(chatId, card.photo, { caption: card.caption, reply_markup: card.kb });
+    shownId = m.message_id;
+  }
   await trackProfileVisit(targetUserId, viewerId);
-  return true;
+  return shownId;
 }
 
 async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "search_browsing" }>, messageId?: number) {
@@ -777,9 +831,9 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
       const stillBlocked = await isMutuallyBlocked(userId, targetId);
       const stillApproved = await prisma.matchProfile.findUnique({ where: { userId: targetId }, select: { status: true } });
       if (!stillBlocked && stillApproved?.status === "APPROVED") {
-        const sent = await sendSearchCard(bot, chatId, targetId, userId, messageId);
-        if (sent) {
-          await setPending(userId, { mode: "search_browsing", queue, index: idx + 1 });
+        const shown = await sendSearchCard(bot, chatId, targetId, userId, messageId);
+        if (shown != null) {
+          await setPending(userId, { mode: "search_browsing", queue, index: idx + 1, current: targetId, msgId: shown });
           return;
         }
       }
@@ -804,7 +858,7 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
   await bot.api.sendMessage(chatId, "🔚 لا توجد ملفات لعرضها حالياً. عد لاحقاً لترى الجديد.", { reply_markup: mainMenu() });
 }
 
-async function startSearch(bot: TelegramBot, chatId: number, userId: string, botId: string) {
+async function startSearch(bot: TelegramBot, chatId: number, userId: string, botId: string, messageId?: number) {
   const [profile, pref] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId } }),
     prisma.partnerPreference.findUnique({ where: { userId } }),
@@ -822,7 +876,33 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     await bot.api.sendMessage(chatId, "😔 لا توجد نتائج مطابقة حالياً.", { reply_markup: mainMenu() });
     return;
   }
-  await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0 });
+  await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0 }, messageId);
+}
+
+// After a Super Like (sent, cancelled or unaffordable) the user returns to the
+// same browsing session, so the "next" button on the card keeps working.
+async function resumeBrowsing(userId: string, resume: { queue: string[]; index: number; current?: string; msgId?: number } | undefined): Promise<boolean> {
+  if (!resume) return false;
+  await setPending(userId, { mode: "search_browsing", ...resume });
+  return true;
+}
+
+// Both people liked each other: tell both, once, with a button to message.
+async function notifyMutualLike(bot: TelegramBot, fromId: string, toId: string) {
+  const back = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: toId, toUserId: fromId } } });
+  if (!back) return;
+  const [a, b] = await Promise.all([
+    prisma.matchProfile.findUnique({ where: { userId: fromId } }),
+    prisma.matchProfile.findUnique({ where: { userId: toId } }),
+  ]);
+  if (!a || !b) return;
+  const contactKb = (p: MatchProfile) =>
+    new InlineKeyboard().url(
+      "💬 راسل الآن",
+      p.contactMethod === "TELEGRAM" ? `https://t.me/${p.contactValue.replace(/^@/, "")}` : `https://wa.me/${p.contactValue.replace(/[^0-9]/g, "")}`,
+    );
+  await bot.api.sendMessage(Number(fromId), `💞 إعجاب متبادل!\n\nأنت و«${b.name}» أُعجب كلٌّ منكما بالآخر.`, { reply_markup: contactKb(b) }).catch(() => null);
+  await bot.api.sendMessage(Number(toId), `💞 إعجاب متبادل!\n\nأنت و«${a.name}» أُعجب كلٌّ منكما بالآخر.`, { reply_markup: contactKb(a) }).catch(() => null);
 }
 
 async function showLikedBy(bot: TelegramBot, chatId: number, userId: string) {
@@ -893,11 +973,13 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     const targetId = data.split("|")[1];
     const target = await prisma.matchProfile.findUnique({ where: { userId: targetId } });
     if (target) {
+      const already = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: tgUserId, toUserId: target.userId } } });
       await prisma.matchLike.upsert({
         where: { fromUserId_toUserId: { fromUserId: tgUserId, toUserId: target.userId } },
         update: {},
         create: { fromUserId: tgUserId, toUserId: target.userId },
       }).catch(() => null);
+      if (!already) await notifyMutualLike(bot, tgUserId, target.userId);
       const count = await prisma.matchLike.count({ where: { toUserId: target.userId } });
       const kb = InlineKeyboard.from(cq.message.reply_markup.inline_keyboard);
       kb.inline_keyboard[0][0].text = likeButtonLabel(count);
@@ -906,9 +988,26 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     await bot.api.answerCallbackQuery(cq.id, { text: "❤️ تم الإعجاب" }).catch(() => null);
     return;
   }
-  if (data === "mnext") {
+  if (data === "mnext" || data.startsWith("mnext|")) {
+    const shownId = data.split("|")[1];
+    const cardMsg = cq.message?.message_id;
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     if (pending?.mode === "search_browsing") {
-      await advanceSearch(bot, chatId, tgUserId, pending, cq.message?.message_id);
+      // A second tap on a card that has already moved on is ignored.
+      if (shownId && pending.current && shownId !== pending.current && cardMsg === pending.msgId) return;
+      await advanceSearch(bot, chatId, tgUserId, pending, cardMsg);
+    } else {
+      // No active browsing session (menu used meanwhile, old card): start a
+      // fresh search right inside this same card instead of doing nothing.
+      await startSearch(bot, chatId, tgUserId, botRow.id, cardMsg);
+    }
+    return;
+  }
+  if (data.startsWith("mmore|") || data.startsWith("mless|")) {
+    const targetId = data.split("|")[1];
+    const card = await buildSearchCard(targetId, tgUserId, data.startsWith("mmore|"));
+    if (card) {
+      await bot.api.editMessageCaption(chatId, messageId, { caption: card.caption, reply_markup: card.kb }).catch(() => null);
     }
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     return;
@@ -923,11 +1022,15 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
       }
     }
     await bot.api.answerCallbackQuery(cq.id, { text: "🚩 تم إرسال بلاغك" }).catch(() => null);
+    if (pending?.mode === "search_browsing") {
+      await advanceSearch(bot, chatId, tgUserId, pending, cq.message?.message_id);
+    }
     return;
   }
   if (data.startsWith("msuperlike|")) {
     const targetId = data.split("|")[1];
-    await setPending(tgUserId, { mode: "superlike_note", targetUserId: targetId });
+    const resume = pending?.mode === "search_browsing" ? { queue: pending.queue, index: pending.index, current: pending.current, msgId: pending.msgId } : undefined;
+    await setPending(tgUserId, { mode: "superlike_note", targetUserId: targetId, resume });
     await bot.api
       .sendMessage(chatId, `⭐ اكتب رسالة قصيرة ترافق إعجابك (سيُخصم $${PRICE_SUPER_LIKE} من رصيدك):`, { reply_markup: plainBackMenu() })
       .catch(() => null);
@@ -980,7 +1083,23 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     if (approve) {
       const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
       if (profile?.photoFileId) {
-        await bot.api.sendPhoto(Number(viewerId), profile.photoFileId, { caption: "🔓 تم منحك إذن مشاهدة الصورة." }).catch(() => null);
+        // If the viewer is still looking at this person's card, swap the
+        // locked placeholder for the real photo right there.
+        const viewer = await prisma.matchUser.findUnique({ where: { id: viewerId }, select: { pendingAction: true } });
+        const vp = viewer?.pendingAction as PendingAction | null;
+        let updated = false;
+        if (vp?.mode === "search_browsing" && vp.current === tgUserId && vp.msgId) {
+          const card = await buildSearchCard(tgUserId, viewerId);
+          if (card) {
+            updated = await bot.api
+              .editMessageMedia(Number(viewerId), vp.msgId, { type: "photo", media: card.photo, caption: card.caption }, { reply_markup: card.kb })
+              .then(() => true, () => false);
+          }
+        }
+        await bot.api
+          .sendMessage(Number(viewerId), updated ? `🔓 وافق «${profile.name}» على عرض صورته — ظهرت الآن على البطاقة.` : `🔓 وافق «${profile.name}» على عرض صورته.`)
+          .catch(() => null);
+        if (!updated) await bot.api.sendPhoto(Number(viewerId), profile.photoFileId).catch(() => null);
       }
     } else {
       await bot.api.sendMessage(Number(viewerId), "❌ لم يوافق صاحب الملف على مشاركة صورته.").catch(() => null);
@@ -1970,6 +2089,10 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (!text) return;
 
   if (isBack(text)) {
+    if (pending?.mode === "superlike_note" && (await resumeBrowsing(tgUserId, pending.resume))) {
+      await bot.api.sendMessage(chatId, "تم الإلغاء. اضغط «➡️ الملف التالي» على البطاقة لمتابعة التصفح.", { reply_markup: mainMenu() });
+      return;
+    }
     if (pending?.mode === "fake_chatting") {
       await setPending(tgUserId, null);
       await bot.api.sendMessage(chatId, "🏠 القائمة الرئيسية:", { reply_markup: mainMenu() });
@@ -2429,7 +2552,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   if (pending?.mode === "superlike_note") {
     const target = await prisma.matchProfile.findUnique({ where: { userId: pending.targetUserId } });
     if (!target) {
-      await setPending(tgUserId, null);
+      if (!(await resumeBrowsing(tgUserId, pending.resume))) await setPending(tgUserId, null);
       await bot.api.sendMessage(chatId, "لم يعد هذا الملف متاحاً.", { reply_markup: mainMenu() });
       return;
     }
@@ -2439,7 +2562,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     }
     const charge = await chargeMatchUser(tgUserId, PRICE_SUPER_LIKE, "SUPER_LIKE");
     if (!charge.ok) {
-      await setPending(tgUserId, null);
+      if (!(await resumeBrowsing(tgUserId, pending.resume))) await setPending(tgUserId, null);
       await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_SUPER_LIKE, charge.balance), { reply_markup: mainMenu() });
       return;
     }
@@ -2450,8 +2573,10 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
         create: { fromUserId: tgUserId, toUserId: pending.targetUserId, note: text },
       })
       .catch(() => null);
-    await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "⭐ تم إرسال إعجابك المميز مع رسالتك.", { reply_markup: mainMenu() });
+    const resumed = await resumeBrowsing(tgUserId, pending.resume);
+    if (!resumed) await setPending(tgUserId, null);
+    await notifyMutualLike(bot, tgUserId, pending.targetUserId);
+    await bot.api.sendMessage(chatId, `⭐ تم إرسال إعجابك المميز مع رسالتك.${resumed ? "\n\nاضغط «➡️ الملف التالي» على البطاقة لمتابعة التصفح." : ""}`, { reply_markup: mainMenu() });
     return;
   }
 
