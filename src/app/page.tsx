@@ -18,7 +18,6 @@ const TOOL_GRADIENTS = [
   "from-lime-600 to-green-700",
 ];
 import BotCards from "@/components/BotCards";
-import { LIVE_BOTS } from "@/lib/liveBots";
 import TodayStrip from "@/components/TodayStrip";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { latestNewsItem } from "@/lib/newsItems";
@@ -70,10 +69,10 @@ export default async function HomePage() {
               أدوات تعمل فعلياً — وليست ملفات للتحميل
             </span>
             <h1 className="mt-5 text-3xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
-              أدوات مجانية وبوتات تليجرام جاهزة للاستخدام
+              أدوات عربية مجانية تعمل فوراً
             </h1>
             <p className="mt-4 text-base text-slate-600 sm:text-lg">
-              احسب، حوّل، صمّم، وجرّب بوتات حقيقية — مباشرة من المتصفح أو من تليجرام، بلا تسجيل ولا تحميل. وإن أردت بوتاً خاصاً بك فمنشئ البوتات يستضيفه لك.
+              احسب، حوّل، وصمّم مباشرة من المتصفح، بلا تسجيل ولا تحميل — وتصفّح بوتاتنا الجاهزة أدناه.
             </p>
             <div className="mt-7 flex flex-wrap items-center justify-center gap-3 md:justify-start">
               <a href="#free-tools" className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
@@ -87,7 +86,6 @@ export default async function HomePage() {
           <div className="relative mx-auto w-full max-w-md">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/img/phone-apps.jpg" alt="هاتف يعرض تطبيقات التواصل وتليجرام" width={1000} height={667} className="h-64 w-full rounded-3xl object-cover shadow-2xl ring-1 ring-slate-200 sm:h-80" />
-            <div className="absolute -bottom-4 right-4 rounded-2xl bg-white px-4 py-2 text-xs font-extrabold text-slate-800 shadow-lg ring-1 ring-slate-100">🟢 {LIVE_BOTS.length} بوتات تعمل الآن</div>
           </div>
         </div>
       </section>
@@ -138,7 +136,7 @@ export default async function HomePage() {
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           {[
             { img: "/img/community.jpg", alt: "أصدقاء يعملون معاً", t: "مجاني وبلا تسجيل", d: "أدوات حسابية وتصميمية تعمل فوراً داخل المتصفح، بدون حساب وبدون حدود استخدام." },
-            { img: "/img/analytics.jpg", alt: "لوحة إحصائيات", t: "بوتات حقيقية تعمل الآن", d: "إعلانات ومهام، تحميل وسائط، فرص عمل، تعارف، وبوت طبي — افتحها من تليجرام مباشرة." },
+            { img: "/img/analytics.jpg", alt: "لوحة إحصائيات", t: "عربية وسريعة على الجوال", d: "واجهات عربية بالكامل تعمل بسلاسة على أي هاتف، مع نتائج فورية ومشاركة بضغطة واحدة." },
             { img: "/img/payment.jpg", alt: "دفع إلكتروني", t: "دفع موحّد وواضح", d: "عملات رقمية أو نجوم تليجرام بخطوات واحدة في كل البوتات، ويُضاف الرصيد تلقائياً." },
           ].map((f) => (
             <div key={f.t} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
