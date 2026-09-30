@@ -36,6 +36,7 @@ export const LIMITS = [
   "صورة البوت المعروضة (setMyProfilePhoto / deleteMyProfilePhoto / getMyName) من تليجرام و@BotFather فقط. الموقع لا يضع صورة البوت ولا يحذفها ولا يقرأ الاسم المعروض نيابة عنك. لا رمز طلب إضافياً.",
   "الويبهوك والتحديثات (setWebhook / deleteWebhook / getWebhookInfo / getUpdates) من تليجرام فقط. فاحص الصحة يقرأ حالة الويبهوك فقط ولا يسجّل ويبهوكاً مخصصاً ولا يلغي الويبهوك نيابة عنك. لا رمز طلب إضافياً.",
   "إرسال الرسائل والملفات من النموذج (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage) يتم عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا ملفاً ولا يعيد توجيهاً نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
+  "تعديل الرسائل وحذفها والرد على الأزرار (editMessageText / deleteMessage / answerCallbackQuery / editMessageReplyMarkup) يتم عبر البوت المفعّل فقط. الموقع لا يعدّل نص رسالة ولا يحذفها ولا يرد على زر نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 

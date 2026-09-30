@@ -80,6 +80,13 @@ export const botsMetadata: Metadata = {
     "copyMessage",
     "إرسال رسالة تليجرام",
     "إعادة توجيه رسالة",
+    "editMessageText",
+    "deleteMessage",
+    "answerCallbackQuery",
+    "editMessageReplyMarkup",
+    "تعديل رسالة تليجرام",
+    "حذف رسالة تليجرام",
+    "رد على زر البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
