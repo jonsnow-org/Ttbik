@@ -13,6 +13,7 @@ export const FAQ = [
   { q: "هل أنشئ أو ألغي رابط دعوة للمجموعة من الموقع (exportChatInviteLink / createChatInviteLink)؟", a: "لا. exportChatInviteLink وcreateChatInviteLink وeditChatInviteLink وrevokeChatInviteLink من تليجرام فقط. الموقع لا يُنشئ رابط دعوة ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أحظر أو أرفع حظر عضو أو أقيّد صلاحياته من الموقع (banChatMember / unbanChatMember / restrictChatMember / promoteChatMember)؟", a: "لا. banChatMember وunbanChatMember وrestrictChatMember وpromoteChatMember من تليجرام فقط. الموقع لا يحظر عضواً ولا يرفع حظراً ولا يقيّد صلاحيات نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أغيّر صلاحيات المجموعة أو أوافق على طلب انضمام من الموقع (setChatPermissions / approveChatJoinRequest)؟", a: "لا. setChatPermissions وapproveChatJoinRequest وdeclineChatJoinRequest من تليجرام فقط. الموقع لا يغيّر صلاحيات المجموعة ولا يوافق على طلب انضمام ولا يرفضه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أعرض قائمة المشرفين أو عضواً أو عدد الأعضاء من الموقع (getChatAdministrators / getChatMember / getChatMemberCount)؟", a: "لا. getChatAdministrators وgetChatMember وgetChatMemberCount وgetChat من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا بيانات عضو ولا عدد أعضاء المجموعة نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {

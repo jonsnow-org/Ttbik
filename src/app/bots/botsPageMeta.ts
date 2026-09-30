@@ -39,6 +39,12 @@ export const botsMetadata: Metadata = {
     "declineChatJoinRequest",
     "صلاحيات المجموعة",
     "طلب انضمام تليجرام",
+    "getChatAdministrators",
+    "getChatMember",
+    "getChatMemberCount",
+    "getChat",
+    "قائمة مشرفين المجموعة",
+    "عدد أعضاء تليجرام",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
