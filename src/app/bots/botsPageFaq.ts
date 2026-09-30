@@ -1,29 +1,36 @@
 import { LIVE_BOTS } from "@/lib/liveBots";
 import { SITE, PATH, STEPS } from "./botsPageCopy";
 
+/** Short, general FAQ only — no API method names, no owner/admin internals. */
 export const FAQ = [
-  { q: "هل أحصل على كود مصدري للبوت؟", a: "لا. المنتج بوت يعمل على توكنك. لا تحميل كوداً ولا بيع ملفات مصدرية." },
-  { q: "هل يوجد سحب نقدي من البوت؟", a: "لا. النقاط داخل البوت فقط. لا يوجد سحب نقدي عبر سوق تولز." },
-  { q: "كيف أفعّل بوتاً؟", a: "بعد طلب معتمد برمز طلب واحد لكل بوت. المالك يمكنه التجاوز للاختبار. الصق توكن BotFather في النموذج." },
-  { q: "كيف أتأكد أن البوت يعمل؟", a: "استخدم فاحص صحة البوت للتوكن والويبهوك بلا حفظ التوكن." },
-  { q: "هل أشارك توكن BotFather مع أحد؟", a: "لا. التوكن مفتاح البوت. الصقه فقط في نموذج التفعيل أو فاحص الصحة على هذا الموقع." },
-  { q: "ماذا أفعل بعد التفعيل؟", a: "أرسل /start للبوت. إن لم يرد استخدم فاحص الصحة. الفحص لا يستهلك رمز الطلب. طلب واحد = بوت واحد." },
-  { q: "هل أغيّر عنوان المجموعة أو صورتها أو أخرج البوت من الدردشة من نموذج الموقع (setChatTitle / leaveChat)؟", a: "لا. setChatTitle وsetChatDescription وsetChatPhoto وdeleteChatPhoto وleaveChat من تليجرام فقط. الموقع لا يغيّر عنوان مجموعة ولا صورتها ولا يُخرج البوت نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أثبّت أو أفك تثبيت رسالة في المجموعة من الموقع (pinChatMessage / unpinChatMessage)؟", a: "لا. pinChatMessage وunpinChatMessage وunpinAllChatMessages من تليجرام فقط. الموقع لا يثبّت رسائل ولا يفك تثبيتها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أنشئ أو ألغي رابط دعوة للمجموعة من الموقع (exportChatInviteLink / createChatInviteLink)؟", a: "لا. exportChatInviteLink وcreateChatInviteLink وeditChatInviteLink وrevokeChatInviteLink من تليجرام فقط. الموقع لا يُنشئ رابط دعوة ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أحظر أو أرفع حظر عضو أو أقيّد صلاحياته من الموقع (banChatMember / unbanChatMember / restrictChatMember / promoteChatMember)؟", a: "لا. banChatMember وunbanChatMember وrestrictChatMember وpromoteChatMember من تليجرام فقط. الموقع لا يحظر عضواً ولا يرفع حظراً ولا يقيّد صلاحيات نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أغيّر صلاحيات المجموعة أو أوافق على طلب انضمام من الموقع (setChatPermissions / approveChatJoinRequest)؟", a: "لا. setChatPermissions وapproveChatJoinRequest وdeclineChatJoinRequest من تليجرام فقط. الموقع لا يغيّر صلاحيات المجموعة ولا يوافق على طلب انضمام ولا يرفضه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أعرض قائمة المشرفين أو عضواً أو عدد الأعضاء من الموقع (getChatAdministrators / getChatMember / getChatMemberCount)؟", a: "لا. getChatAdministrators وgetChatMember وgetChatMemberCount وgetChat من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا بيانات عضو ولا عدد أعضاء المجموعة نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع قائمة أوامر البوت أو أغيّر اسمه المعروض من الموقع (setMyCommands / getMyCommands / setMyName)؟", a: "لا. setMyCommands وdeleteMyCommands وgetMyCommands وsetMyName من تليجرام و@BotFather فقط. الموقع لا يضع قائمة أوامر ولا يغيّر اسم البوت المعروض نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع وصف البوت الطويل أو القصير من الموقع (setMyDescription / setMyShortDescription)؟", a: "لا. setMyDescription وgetMyDescription وsetMyShortDescription وgetMyShortDescription من تليجرام و@BotFather فقط. الموقع لا يضع وصف البوت ولا يقرأه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع صلاحيات المشرف الافتراضية للبوت من الموقع (setMyDefaultAdministratorRights / getMyDefaultAdministratorRights)؟", a: "لا. setMyDefaultAdministratorRights وgetMyDefaultAdministratorRights من تليجرام فقط. الموقع لا يضع صلاحيات المشرف الافتراضية للبوت ولا يقرأها نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع زر قائمة الدردشة من الموقع (setChatMenuButton / getChatMenuButton)؟", a: "لا. setChatMenuButton وgetChatMenuButton من تليجرام فقط. الموقع لا يضع زر قائمة الدردشة ولا يقرأه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع أو أحذف صورة البوت من الموقع (setMyProfilePhoto / deleteMyProfilePhoto / getMyName)؟", a: "لا. setMyProfilePhoto وdeleteMyProfilePhoto وgetMyName من تليجرام و@BotFather فقط. الموقع لا يضع صورة البوت ولا يحذفها ولا يقرأ الاسم المعروض نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أضع أو ألغي الويبهوك أو أقرأ getUpdates من النموذج (setWebhook / deleteWebhook / getWebhookInfo)؟", a: "لا. setWebhook وdeleteWebhook وgetWebhookInfo وgetUpdates من تليجرام فقط. فاحص الصحة يقرأ حالة الويبهوك فقط ولا يسجّل ويبهوكاً مخصصاً ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أرسل رسالة أو صورة أو ملفاً من صفحة /bots (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage)؟", a: "لا من صفحة التفعيل. sendMessage وsendPhoto وsendDocument وforwardMessage وcopyMessage تعمل عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا يعيد توجيهاً نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أعدّل نص رسالة أو أحذفها أو أرد على زر من صفحة /bots (editMessageText / deleteMessage / answerCallbackQuery)؟", a: "لا من صفحة التفعيل. editMessageText وdeleteMessage وanswerCallbackQuery وeditMessageReplyMarkup تعمل عبر البوت المفعّل فقط. الموقع لا يعدّل رسالة ولا يحذفها ولا يرد على زر نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أنشر استطلاعاً أو موقعاً أو جهة اتصال من صفحة /bots (sendPoll / stopPoll / sendLocation / sendContact)؟", a: "لا من صفحة التفعيل. sendPoll وstopPoll وsendDice وsendLocation وsendVenue وsendContact تعمل عبر البوت المفعّل فقط. الموقع لا ينشر استطلاعاً ولا يرسل موقعاً ولا جهة اتصال نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
-  { q: "هل أرسل ملصقاً أو فيديو أو صوتاً أو حالة كتابة من صفحة /bots (sendSticker / sendVideo / sendAudio / sendChatAction)؟", a: "لا من صفحة التفعيل. sendChatAction وsendSticker وsendAnimation وsendVideo وsendAudio وsendVoice تعمل عبر البوت المفعّل فقط. الموقع لا يرسل ملصقاً ولا فيديو ولا صوتاً ولا يظهر حالة كتابة نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  {
+    q: "ماذا أحصل عليه بعد التفعيل؟",
+    a: "بوت يعمل على توكنك في تليجرام. ليس ملفاً للتحميل ولا كوداً مصدرياً.",
+  },
+  {
+    q: "هل يوجد سحب نقدي من البوت؟",
+    a: "لا. أي نقاط داخل البوت تبقى داخله فقط. لا سحب نقدي عبر سوق تولز.",
+  },
+  {
+    q: "كيف أفعّل بوتاً؟",
+    a: "بعد طلب معتمد (رمز واحد لكل بوت) الصق توكن BotFather في النموذج. المالك يمكنه التجاوز للاختبار.",
+  },
+  {
+    q: "كيف أتأكد أن البوت يعمل؟",
+    a: "أرسل /start للبوت في تليجرام. إن لم يرد استخدم فاحص الصحة على هذه الصفحة — الفحص لا يستهلك رمز الطلب.",
+  },
+  {
+    q: "هل أشارك توكن BotFather مع أحد؟",
+    a: "لا. التوكن مفتاح البوت. الصقه فقط في نموذج التفعيل أو فاحص الصحة على هذا الموقع.",
+  },
+  {
+    q: "هل أعدّل اسم البوت أو صورته من هذه الصفحة؟",
+    a: "لا. الاسم والصورة والوصف تُضبط من @BotFather في تليجرام.",
+  },
+  {
+    q: "هل أدير المجموعة أو الأعضاء من نموذج الموقع؟",
+    a: "لا. إدارة المجموعات والأعضاء تتم من داخل تليجرام والبوت المفعّل، وليس من نموذج التفعيل هنا.",
+  },
 ];
 
 export const FAQ_JSON_LD = {

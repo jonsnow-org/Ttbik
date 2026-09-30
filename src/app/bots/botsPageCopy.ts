@@ -17,28 +17,15 @@ export const PREP = [
 
 export const AFTER = [
   "افتح البوت في تليجرام وأرسل /start.",
-  "إن لم يرد: افحص الويبهوك من فاحص الصحة — الفحص لا يستهلك رمز الطلب.",
+  "إن لم يرد: افحص الحالة من فاحص الصحة — الفحص لا يستهلك رمز الطلب.",
   "لا تشارك التوكن ولا تعد استخدام رمز طلب لبوت ثانٍ.",
 ];
 
+/** Short limits only — no Telegram API method names. */
 export const LIMITS = [
-  "اسم المستخدم والوصف والصورة تُضبط من @BotFather — ليس من هذا النموذج.",
-  "عنوان المجموعة وصورتها وخروج البوت (setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat) من تليجرام فقط. الموقع لا يغيّر عنوان مجموعة ولا صورتها ولا يُخرج البوت نيابة عنك. لا رمز طلب إضافياً.",
-  "تثبيت الرسائل وفكه (pinChatMessage / unpinChatMessage / unpinAllChatMessages) من تليجرام فقط. الموقع لا يثبّت ولا يفك تثبيتاً نيابة عنك.",
-  "روابط الدعوة (exportChatInviteLink / createChatInviteLink / editChatInviteLink / revokeChatInviteLink) من تليجرام فقط. الموقع لا يُنشئ رابط دعوة ولا يلغيه نيابة عنك. لا رمز طلب إضافياً.",
-  "حظر الأعضاء وتقييد الصلاحيات (banChatMember / unbanChatMember / restrictChatMember / promoteChatMember) من تليجرام فقط. الموقع لا يحظر ولا يرفع حظراً ولا يقيّد صلاحيات نيابة عنك. لا رمز طلب إضافياً.",
-  "صلاحيات المجموعة وطلبات الانضمام (setChatPermissions / approveChatJoinRequest / declineChatJoinRequest) من تليجرام فقط. الموقع لا يغيّر صلاحيات المجموعة ولا يوافق على طلب انضمام نيابة عنك. لا رمز طلب إضافياً.",
-  "قائمة المشرفين وبيانات العضو وعدد الأعضاء (getChatAdministrators / getChatMember / getChatMemberCount / getChat) من تليجرام فقط. الموقع لا يعرض قائمة مشرفين ولا عضواً ولا عدد أعضاء نيابة عنك. لا رمز طلب إضافياً.",
-  "قائمة أوامر البوت واسمه المعروض (setMyCommands / deleteMyCommands / getMyCommands / setMyName) من تليجرام و@BotFather فقط. الموقع لا يضع قائمة / ولا يغيّر اسم البوت المعروض نيابة عنك. لا رمز طلب إضافياً.",
-  "وصف البوت الطويل والقصير (setMyDescription / getMyDescription / setMyShortDescription / getMyShortDescription) من تليجرام و@BotFather فقط. الموقع لا يضع وصف البوت ولا يقرأه نيابة عنك. لا رمز طلب إضافياً.",
-  "صلاحيات المشرف الافتراضية للبوت (setMyDefaultAdministratorRights / getMyDefaultAdministratorRights) من تليجرام فقط. الموقع لا يضع هذه الصلاحيات ولا يقرأها نيابة عنك. لا رمز طلب إضافياً.",
-  "زر قائمة الدردشة (setChatMenuButton / getChatMenuButton) من تليجرام فقط. الموقع لا يضع زر قائمة ولا يقرأه نيابة عنك. لا رمز طلب إضافياً.",
-  "صورة البوت المعروضة (setMyProfilePhoto / deleteMyProfilePhoto / getMyName) من تليجرام و@BotFather فقط. الموقع لا يضع صورة البوت ولا يحذفها ولا يقرأ الاسم المعروض نيابة عنك. لا رمز طلب إضافياً.",
-  "الويبهوك والتحديثات (setWebhook / deleteWebhook / getWebhookInfo / getUpdates) من تليجرام فقط. فاحص الصحة يقرأ حالة الويبهوك فقط ولا يسجّل ويبهوكاً مخصصاً ولا يلغي الويبهوك نيابة عنك. لا رمز طلب إضافياً.",
-  "إرسال الرسائل والملفات من النموذج (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage) يتم عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا ملفاً ولا يعيد توجيهاً نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
-  "تعديل الرسائل وحذفها والرد على الأزرار (editMessageText / deleteMessage / answerCallbackQuery / editMessageReplyMarkup) يتم عبر البوت المفعّل فقط. الموقع لا يعدّل نص رسالة ولا يحذفها ولا يرد على زر نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
-  "الاستطلاع والنرد والموقع والمكان وجهة الاتصال (sendPoll / stopPoll / sendDice / sendLocation / sendVenue / sendContact) يتم عبر البوت المفعّل فقط. الموقع لا ينشر استطلاعاً ولا يوقفه ولا يرسل موقعاً ولا جهة اتصال نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
-  "الوسائط وحالة الكتابة (sendChatAction / sendSticker / sendAnimation / sendVideo / sendAudio / sendVoice) تتم عبر البوت المفعّل فقط. الموقع لا يرسل ملصقاً ولا أنيميشن ولا فيديو ولا صوتاً ولا يظهر «يكتب…» نيابة عنك من صفحة /bots. لا رمز طلب إضافياً.",
+  "اسم البوت وصورته ووصفه تُضبط من @BotFather — ليس من هذا النموذج.",
+  "إدارة المجموعات والأعضاء والرسائل تتم داخل تليجرام والبوت المفعّل — ليس من نموذج التفعيل هنا.",
+  "فاحص الصحة يقرأ حالة البوت فقط ولا يستهلك رمز الطلب.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
@@ -55,8 +42,8 @@ export const STEPS = [
     text: "طلب واحد = بوت واحد. المالك يمكنه تجاوز بوابة الدفع للاختبار.",
   },
   {
-    name: "انسخ بوتاً من BotFather",
-    text: "انسخ بوتاً جديداً في تليجرام وانسخ التوكن. لا ترسل التوكن لأحد.",
+    name: "أنشئ بوتاً من BotFather",
+    text: "أنشئ بوتاً جديداً في تليجرام وانسخ التوكن. لا ترسل التوكن لأحد.",
   },
   {
     name: "الصق التوكن في النموذج",

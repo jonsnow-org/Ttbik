@@ -3,33 +3,17 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5910947051,
   "last_actor": "grok",
-  "updated_at": "2026-09-30T12:08:00Z",
-  "mode": "work-cycle",
+  "updated_at": "2026-09-30T14:05:00Z",
+  "mode": "manual-interactive",
   "open": [
-    "O12 waits until O11 prices review if Claude flags source.",
     "Owner must run remaining migrations if any still pending",
     "Vercel quota: batch small commits; max 1-2 pushes/hour",
+    "QUIZ_BOT / STREAK_BOT / PRAYER_BOT tables — post SQL paths when needed",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
-    "G266 FAQ+LIMITS+keywords: sendChatAction / sendSticker / sendAnimation / sendVideo / sendAudio / sendVoice. Form/AdSlot/page.tsx untouched.",
-    "G265 FAQ+LIMITS+keywords: sendPoll / stopPoll / sendDice / sendLocation / sendVenue / sendContact. Form/AdSlot/page.tsx untouched.",
-    "G264 FAQ+LIMITS+keywords: editMessageText / deleteMessage / answerCallbackQuery / editMessageReplyMarkup. Form/AdSlot/page.tsx untouched.",
-    "G263 FAQ+LIMITS+keywords: sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage. Form/AdSlot/page.tsx untouched.",
-    "G262 FAQ+LIMITS+keywords: setWebhook / deleteWebhook / getWebhookInfo / getUpdates. Health-check reads status only. Form/AdSlot/page.tsx untouched.",
-    "G261 FAQ+LIMITS+keywords: setMyProfilePhoto / deleteMyProfilePhoto / getMyName. Form/AdSlot/page.tsx untouched.",
-    "G260 FAQ+LIMITS+keywords: setChatMenuButton / getChatMenuButton. Form/AdSlot/page.tsx untouched.",
-    "G259 FAQ+LIMITS+keywords: setMyDefaultAdministratorRights / getMyDefaultAdministratorRights. Form/AdSlot/page.tsx untouched.",
-    "G258 FAQ+LIMITS+keywords: setMyDescription / getMyDescription / setMyShortDescription / getMyShortDescription. Form/AdSlot/page.tsx untouched.",
-    "G257 FAQ+LIMITS+keywords: setMyCommands / deleteMyCommands / getMyCommands / setMyName. Form/AdSlot/page.tsx untouched.",
-    "G256 FAQ+LIMITS+keywords: getChatAdministrators / getChatMember / getChatMemberCount / getChat. Form/AdSlot/page.tsx untouched.",
-    "G255 FAQ+LIMITS+keywords: setChatPermissions / approveChatJoinRequest / declineChatJoinRequest. Form/AdSlot/page.tsx untouched.",
-    "G254 FAQ+LIMITS+keywords: banChatMember / unbanChatMember / restrictChatMember / promoteChatMember. Form/AdSlot/page.tsx untouched.",
-    "G253 FAQ+LIMITS+keywords: exportChatInviteLink / createChatInviteLink / editChatInviteLink / revokeChatInviteLink. Form/AdSlot/page.tsx untouched.",
-    "G252 FAQ+LIMITS+keywords: pinChatMessage / unpinChatMessage / unpinAllChatMessages. Form/AdSlot/page.tsx untouched.",
-    "G251 restore: FAQ+meta were PLACEHOLDER after G250 push-tool truncate; restored from G249 + setChatTitle/leaveChat item. Form/AdSlot/page.tsx untouched.",
-    "G250 FAQ+keywords+LIMITS: setChatTitle / setChatDescription / setChatPhoto / deleteChatPhoto / leaveChat. Form/AdSlot/page.tsx untouched.",
-    "G249 FAQ+keywords: getFile / getUserProfilePhotos / file_id. Also closed missing G248 getMe FAQ in same file. Form/AdSlot/page.tsx untouched.",
+    "O21 FAQ cleanup: removed G260-G266 API-method FAQ/LIMITS/keywords; 7 short general Q&A only",
+    "Automations Ttbik-work-cycle + Ttbik-PR2-push + ttbik-hourly-health deleted by owner order; Grok works interactively only",
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ]
 }
