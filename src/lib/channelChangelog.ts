@@ -55,4 +55,13 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
       "ردّ عليها، تفاعل بـ ❤️ 😂 🔥، وتابع المحادثة دون أن تنكشف هوية أحد.",
     url: "https://t.me/ie3terafatbot",
   },
+  {
+    id: "2026-09-30-life-counter",
+    date: "2026-09-30",
+    title: "⏱️ أداة جديدة: عدّاد عمرك الحيّ",
+    body:
+      "اكتب تاريخ ميلادك وشاهد عمرك يعدّ بالثواني لحظة بلحظة، مع نبضات قلبك وبرجك وموعد عيد ميلادك القادم.\n" +
+      "ثم شارك بطاقتك مع أصدقائك!",
+    url: "https://ttbik.vercel.app/free-tools/life-counter",
+  },
 ];

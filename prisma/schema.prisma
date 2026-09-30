@@ -1443,3 +1443,36 @@ model PrayerUser {
 
   @@index([botId, dailyReminder])
 }
+
+// CAPSULE_BOT ("كبسولة الزمن") -- a message to your future self or a friend,
+// delivered on the chosen date by /api/cron/time-capsules. Fully isolated
+// from every other bot's tables.
+model CapsuleUser {
+  id            String    @id // Telegram User ID
+  botId         String
+  pendingAction Json?
+  isBanned      Boolean   @default(false)
+  mutedUntil    DateTime?
+  lastActiveAt  DateTime  @default(now())
+  created_at    DateTime  @default(now())
+
+  capsules Capsule[]
+}
+
+model Capsule {
+  id          String      @id @default(uuid())
+  code        String      @unique // share-link code: /start cap_<code>
+  botId       String
+  senderId    String
+  sender      CapsuleUser @relation(fields: [senderId], references: [id])
+  recipientId String? // set when a friend opens the share link; SELF capsules deliver to the sender
+  kind        String // SELF | FRIEND
+  text        String
+  deliverAt   DateTime
+  deliveredAt DateTime?
+  created_at  DateTime    @default(now())
+
+  @@index([deliverAt, deliveredAt])
+  @@index([senderId])
+  @@index([botId])
+}

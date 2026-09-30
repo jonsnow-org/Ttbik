@@ -3,6 +3,11 @@
 // tool only needs to be added here once instead of drifting between pages.
 export const FREE_TOOLS = [
   {
+    href: "/free-tools/life-counter",
+    title: "⏱️ عدّاد عمرك الحيّ",
+    desc: "شاهد عمرك يعدّ بالثواني لحظة بلحظة: أيامك وساعاتك ونبضات قلبك وبرجك وموعد عيد ميلادك — مع بطاقة للمشاركة.",
+  },
+  {
     href: "/free-tools/bmi-calculator",
     title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي",
     desc: "احسب BMI والتصنيف (نحافة/طبيعي/زيادة/سمنة) والوزن المثالي التقريبي — فوري وبلا تسجيل.",

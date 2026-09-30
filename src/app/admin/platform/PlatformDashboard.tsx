@@ -17,6 +17,8 @@ type Bot = {
   created_at: string;
   userCount: number;
   webhook: WebhookHealth;
+  identity?: { username: string | null; ownerName: string | null; ownerUsername: string | null };
+  tablesReady?: boolean | null;
 };
 
 const TEMPLATE_LABELS: Record<string, string> = {
@@ -25,6 +27,12 @@ const TEMPLATE_LABELS: Record<string, string> = {
   JOBS_BOT: "فرص العمل والمتجر",
   MEDICAL_BOT: "الطبي",
   NOVA_BOT: "Nova AI",
+  CONFESSION_BOT: "الاعترافات",
+  NAME_COMPAT_BOT: "نسبة التوافق",
+  QUIZ_BOT: "الاختبارات",
+  STREAK_BOT: "السلاسل اليومية",
+  PRAYER_BOT: "مواقيت الصلاة",
+  CAPSULE_BOT: "كبسولة الزمن",
   STORE: "متجر",
   HOSPITAL: "مشفى",
 };
@@ -112,9 +120,15 @@ export default function PlatformDashboard() {
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-800">
                     {TEMPLATE_LABELS[bot.template] ?? bot.template}
+                    {bot.identity?.username && <span className="block font-mono text-[11px] font-normal text-slate-500" dir="ltr">@{bot.identity.username}</span>}
+                    {bot.tablesReady === false && <span className="mt-1 block rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">⚠️ جداوله غير موجودة — شغّل ملف الـSQL</span>}
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{bot.token}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{bot.ownerId}</td>
+                  <td className="px-4 py-3 text-xs text-slate-600">
+                    {bot.identity?.ownerName && <span className="block font-semibold text-slate-800">{bot.identity.ownerName}</span>}
+                    {bot.identity?.ownerUsername && <span className="block font-mono" dir="ltr">@{bot.identity.ownerUsername}</span>}
+                    <span className="font-mono text-slate-400">{bot.ownerId}</span>
+                  </td>
                   <td className="px-4 py-3 font-bold text-slate-800">{bot.userCount.toLocaleString("ar")}</td>
                   <td className="px-4 py-3">
                     {bot.webhook?.ok ? (

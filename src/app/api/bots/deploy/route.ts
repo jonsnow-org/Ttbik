@@ -3,7 +3,7 @@ import { Bot } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
-const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT", "QUIZ_BOT", "STREAK_BOT", "PRAYER_BOT"];
+const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT", "QUIZ_BOT", "STREAK_BOT", "PRAYER_BOT", "CAPSULE_BOT"];
 
 // Each template has its own <TEMPLATE>_CREATOR_PASSWORD env var. A newly
 // added template whose variable was never set on Vercel used to reject

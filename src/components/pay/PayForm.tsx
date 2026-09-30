@@ -53,10 +53,14 @@ export default function PayForm({
 
   return (
     <div dir="rtl" className="mx-auto max-w-lg px-4 py-10">
-      <div className="rounded-3xl bg-gradient-to-br from-brand-700 to-indigo-700 p-6 text-white shadow-lg">
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-700 to-indigo-700 p-6 text-white shadow-lg">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/img/payment.jpg" alt="" className="absolute inset-0 h-full w-full object-cover opacity-25" />
+        <div className="relative">
         <p className="text-xs font-bold opacity-80">إيداع رصيد</p>
         <h1 className="mt-1 text-2xl font-extrabold">{botName}</h1>
         {validUid && <p className="mt-2 text-xs opacity-80">الحساب: <span dir="ltr" className="font-mono">{uid}</span></p>}
+        </div>
       </div>
 
       {justPaid && (

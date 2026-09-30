@@ -18,6 +18,7 @@ const TOOL_GRADIENTS = [
   "from-lime-600 to-green-700",
 ];
 import BotCards from "@/components/BotCards";
+import { LIVE_BOTS } from "@/lib/liveBots";
 import TodayStrip from "@/components/TodayStrip";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { latestNewsItem } from "@/lib/newsItems";
@@ -63,23 +64,30 @@ export default async function HomePage() {
 
       <section className="relative overflow-hidden bg-hero-glow bg-white">
         <SectionBackdrop />
-        <div className="mx-auto max-w-6xl px-4 pb-10 pt-14 text-center sm:pb-14 sm:pt-20">
-          <span className="inline-block rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-xs font-bold text-brand-700">
-            أدوات تعمل فعلياً — وليست ملفات للتحميل
-          </span>
-          <h1 className="mx-auto mt-5 max-w-3xl text-3xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
-            شغّل بوت تليجرام بتوكنك، أو استخدم أداة داخل المتصفح
-          </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-base text-slate-600 sm:text-lg">
-            منشئ البوتات يستضيف القالب على الموقع. روابط الإيداع والسحب تُولَّد من هنا وتربط رصيد البوت بتحويل بنكي أو USDT بعد المراجعة.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/bots" className="rounded-full bg-indigo-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-indigo-800">
-              منشئ البوتات
-            </Link>
-            <a href="#free-tools" className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2.5 text-sm font-bold text-emerald-700">
-              الأدوات المجانية
-            </a>
+        <div className="mx-auto grid max-w-6xl items-center gap-8 px-4 pb-10 pt-12 sm:pb-14 sm:pt-16 md:grid-cols-2">
+          <div className="text-center md:text-right">
+            <span className="inline-block rounded-full border border-brand-200 bg-brand-50 px-4 py-1.5 text-xs font-bold text-brand-700">
+              أدوات تعمل فعلياً — وليست ملفات للتحميل
+            </span>
+            <h1 className="mt-5 text-3xl font-extrabold leading-tight text-slate-900 sm:text-5xl">
+              أدوات مجانية وبوتات تليجرام جاهزة للاستخدام
+            </h1>
+            <p className="mt-4 text-base text-slate-600 sm:text-lg">
+              احسب، حوّل، صمّم، وجرّب بوتات حقيقية — مباشرة من المتصفح أو من تليجرام، بلا تسجيل ولا تحميل. وإن أردت بوتاً خاصاً بك فمنشئ البوتات يستضيفه لك.
+            </p>
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-3 md:justify-start">
+              <a href="#free-tools" className="rounded-full bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700">
+                🎁 ابدأ بالأدوات المجانية
+              </a>
+              <Link href="/bots" className="rounded-full border border-indigo-200 bg-indigo-50 px-5 py-2.5 text-sm font-bold text-indigo-700">
+                🤖 منشئ البوتات
+              </Link>
+            </div>
+          </div>
+          <div className="relative mx-auto w-full max-w-md">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/img/phone-apps.jpg" alt="هاتف يعرض تطبيقات التواصل وتليجرام" width={1000} height={667} className="h-64 w-full rounded-3xl object-cover shadow-2xl ring-1 ring-slate-200 sm:h-80" />
+            <div className="absolute -bottom-4 right-4 rounded-2xl bg-white px-4 py-2 text-xs font-extrabold text-slate-800 shadow-lg ring-1 ring-slate-100">🟢 {LIVE_BOTS.length} بوتات تعمل الآن</div>
           </div>
         </div>
       </section>
@@ -121,6 +129,26 @@ export default async function HomePage() {
           </div>
           <span className="shrink-0 rounded-full bg-brand-600 px-4 py-2 text-sm font-bold text-white">زيارة ←</span>
         </a>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 py-8">
+        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">لماذا سوق تولز؟</h2>
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          {[
+            { img: "/img/community.jpg", alt: "أصدقاء يعملون معاً", t: "مجاني وبلا تسجيل", d: "أدوات حسابية وتصميمية تعمل فوراً داخل المتصفح، بدون حساب وبدون حدود استخدام." },
+            { img: "/img/analytics.jpg", alt: "لوحة إحصائيات", t: "بوتات حقيقية تعمل الآن", d: "إعلانات ومهام، تحميل وسائط، فرص عمل، تعارف، وبوت طبي — افتحها من تليجرام مباشرة." },
+            { img: "/img/payment.jpg", alt: "دفع إلكتروني", t: "دفع موحّد وواضح", d: "عملات رقمية أو نجوم تليجرام بخطوات واحدة في كل البوتات، ويُضاف الرصيد تلقائياً." },
+          ].map((f) => (
+            <div key={f.t} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={f.img} alt={f.alt} loading="lazy" width={900} height={600} className="h-40 w-full object-cover" />
+              <div className="p-4">
+                <h3 className="font-extrabold text-slate-900">{f.t}</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">{f.d}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8">
