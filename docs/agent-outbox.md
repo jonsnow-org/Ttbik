@@ -713,3 +713,19 @@ digest. A promo is posted only if nothing new went out.
 **When you ship something users will notice, add a changelog entry** —
 user-facing wording only, never owner/admin features, infra, secrets, Nova
 or Sham (see the file header). Every post also passes `isSafeForChannel()`.
+
+## O19 — 2026-09-30 — Claude: stats fixes, unified deposits, CAPSULE_BOT, life counter
+
+- **Admin stats** (confession/name-compat/quiz/streak/prayer/match/jobs/medical/ad): counts are now per bot
+  (`countBotVisitors` in `src/lib/botVisit.ts`, admin excluded). Medical `/start` now records BotVisit.
+- **Media bot**: owner `📊 إحصائيات` + new `/stats` (bot users without the owner + mini-app users);
+  mini-app admin panel shows users/online/24h. Needs `supabase/migration_mini_app_users.sql` (table did not exist,
+  counts lived in serverless memory).
+- **Deposits**: one `PayForm` (`src/components/pay/PayForm.tsx`) for AD/MARRIAGE/JOBS/CONFESSION; each wrapper still posts
+  to its OWN invoice route/ledger (nothing merged). Invoice routes now require a numeric Telegram id. In-bot deposit
+  text is shared (`depositChoicesText`). Webhooks/ledgers/profit logic untouched.
+- **SQL to run once in Supabase**: `prisma/migration_new_bots_2026_09_30.sql` (all 20+2 tables of the newer bots incl.
+  CAPSULE_BOT) and `supabase/migration_mini_app_users.sql`.
+- **New bot template CAPSULE_BOT** (كبسولة الزمن) + daily cron `/api/cron/time-capsules`; **new tool** `/free-tools/life-counter`.
+- `/admin/platform` now shows each bot's @username, its creator (name/@user via getChat) and a "tables missing" warning.
+- Nova untouched (paused).
