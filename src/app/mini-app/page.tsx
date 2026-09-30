@@ -1114,7 +1114,7 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
-                <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : ""}`} style={isAudio ? undefined : { aspectRatio: String(Math.min(2.2, Math.max(0.5, ratios[item.id] ?? (p.vertical ? 9 / 16 : 16 / 9)))), maxHeight: "82vh", width: "100%" }}>
+                <div className={`relative bg-slate-900 ${isAudio ? "aspect-[16/7]" : ""}`} style={isAudio ? undefined : { aspectRatio: String(Math.min(2.2, Math.max(0.5, ratios[item.id] ?? (p.vertical ? 9 / 16 : 16 / 9)))), maxHeight: "75vh", width: "100%" }}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} /></div>)
                     : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
