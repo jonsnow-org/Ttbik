@@ -13,3 +13,4 @@ grant select, insert, update, delete on table public.mini_app_users to service_r
 alter table public.mini_app_users add column if not exists name text;
 alter table public.mini_app_users add column if not exists first_seen timestamptz not null default now();
 alter table public.mini_app_users add column if not exists last_seen timestamptz not null default now();
+alter table public.mini_app_users add column if not exists avatar text;
