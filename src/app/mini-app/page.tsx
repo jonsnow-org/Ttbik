@@ -158,6 +158,7 @@ export default function MiniAppPage() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [adNonce, setAdNonce] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
@@ -535,6 +536,7 @@ export default function MiniAppPage() {
   const refreshAllRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     refreshAllRef.current = async () => {
+      setAdNonce((n) => n + 1);
       await Promise.all([load(), loadNotifs(), loadInbox()]);
     };
   }, [load, loadNotifs, loadInbox]);
@@ -842,7 +844,7 @@ export default function MiniAppPage() {
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => { haptic(); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
+            <button type="button" onClick={() => { haptic(); setAdNonce((n) => n + 1); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
             <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
             <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
@@ -864,7 +866,7 @@ export default function MiniAppPage() {
       {searchOpen && <div className="px-3 pt-2"><input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>}
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
-      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} /></div>}
+      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} reloadKey={adNonce} /></div>}
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-xl">
