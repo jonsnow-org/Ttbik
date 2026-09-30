@@ -141,6 +141,13 @@ def grpo_round(model, tokenizer, device: str, questions: int = 48, seed: int = 0
 
 
 def guarded_grpo(model, tokenizer, device: str, gate_fn, seed: int = 0, tolerance: float = 0.002) -> str:
+    from sham_selfdev import record
+    report = _guarded_grpo(model, tokenizer, device, gate_fn, seed, tolerance)
+    record("الاستدلال المتحقَّق (GRPO)", report.split(":", 1)[1].strip())
+    return report
+
+
+def _guarded_grpo(model, tokenizer, device: str, gate_fn, seed: int = 0, tolerance: float = 0.002) -> str:
     """The whole stage: measure → sleep, or train one guarded round."""
     rate = success_rate(model, tokenizer, device, seed=seed)
     if rate < WAKE_AT:

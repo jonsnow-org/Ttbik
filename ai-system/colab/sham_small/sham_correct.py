@@ -120,8 +120,11 @@ def revision_gain(model, encode, dialogues, device: str, seed: int = 0) -> dict:
 
 
 def format_gain(g: dict) -> str:
+    from sham_selfdev import record
     if not g:
+        record("التصحيح الذاتي", "لا أمثلة قياس")
         return "✍️ التصحيح الذاتي: لا أمثلة قياس."
+    record("التصحيح الذاتي", f"خسارة الإجابة بلا مسودة {g['plain']:.3f} | بعد مسودة معطوبة + مراجعة {g['after_draft']:.3f}")
     return (f"✍️ التصحيح الذاتي: خسارة الإجابة بلا مسودة {g['plain']:.3f} | "
             f"بعد مسودة معطوبة + مراجعة {g['after_draft']:.3f}")
 

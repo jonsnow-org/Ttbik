@@ -105,4 +105,8 @@ def format_eval(name: str, step: int, r: dict, before: dict | None = None) -> st
     ]
     for q, a in r["samples"]:
         lines.append(f"👤 {q}\n🤖 {a[:200]}")
+    if before is not None:  # the session's final report: add what every self-development method did
+        from sham_selfdev import summary
+        if summary():
+            lines.append(summary())
     return "\n".join(lines)

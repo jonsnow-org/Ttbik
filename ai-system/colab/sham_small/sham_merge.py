@@ -108,9 +108,20 @@ def load_source(root: Path, pattern: str, main_model, main_tokenizer):
         return None, "لا توجد نقطة حفظ"
     other, step, report = repair_candidate(ckpt, root, main_model, main_tokenizer)
     print("\n".join(report))
+    fixes = [l.strip("• ").strip() for l in report[1:-1]]
+    _record("الإصلاح قبل الدمج", f"{ckpt.name} (خطوة {step:,}): " + (report[-1].strip() if not fixes
+            else "؛ ".join(fixes) + " — " + report[-1].strip()))
     if other is None:
         return None, report[-1].strip()
     return (other, step), None
+
+
+def _record(method, outcome):
+    try:
+        from sham_selfdev import record
+        record(method, outcome)
+    except Exception:
+        pass
 
 
 def _codebook(path: Path):
@@ -186,10 +197,12 @@ def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), toler
                 for n, p in model.named_parameters():
                     p.copy_(base[n])
             report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً)")
+            _record("دمج المعرفة", f"❌ {name}: رُفض (لم يحسّن كل المهارات معاً)")
         else:
             _interpolate(model, base, other_sd, best[0], rows)
             base_score = best[1]
             report.append(f"✅ {name}: دُمج بنسبة {best[0]:.2f} — " + ", ".join(f"{k}={v:.3f}" for k, v in best[1].items()))
+            _record("دمج المعرفة", f"✅ {name}: دُمج بنسبة {best[0]:.2f}")
         del base
     return report
 
