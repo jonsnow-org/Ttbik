@@ -538,3 +538,13 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "CapsuleUser" TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "Capsule" TO service_role;
+
+-- ===== migration_41 =====
+-- بوت التعارف: خيار «إظهار ملفي لدولتي فقط». شغّله مرة واحدة في Supabase ← SQL Editor.
+CREATE TABLE IF NOT EXISTS "MatchProfilePrivacy" (
+  "userId" TEXT NOT NULL,
+  "countryOnly" BOOLEAN NOT NULL DEFAULT false,
+  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "MatchProfilePrivacy_pkey" PRIMARY KEY ("userId")
+);
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "MatchProfilePrivacy" TO service_role;

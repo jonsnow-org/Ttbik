@@ -113,7 +113,7 @@ type PrefDraft = {
 type PendingAction =
   | { mode: "profile_wizard"; step: ProfileStep; data: ProfileDraft }
   | { mode: "pref_wizard"; step: PrefStep; data: PrefDraft }
-  | { mode: "search_browsing"; queue: string[]; index: number; current?: string; msgId?: number }
+  | { mode: "search_browsing"; queue: string[]; index: number; current?: string; msgId?: number; strict?: boolean }
   | { mode: "random_waiting" }
   | { mode: "random_chatting"; sessionId: string; partnerId: string }
   | { mode: "admin_reject_reason"; profileId: string }
@@ -128,7 +128,7 @@ type PendingAction =
   | { mode: "verify_badge_photo" }
   | { mode: "extra_photo_upload"; slot: 2 | 3 }
   | { mode: "advanced_filter_wizard"; step: "city" | "maritalStatus"; data: { city?: string | null; maritalStatus?: string | null } }
-  | { mode: "superlike_note"; targetUserId: string; resume?: { queue: string[]; index: number; current?: string; msgId?: number } }
+  | { mode: "superlike_note"; targetUserId: string; resume?: { queue: string[]; index: number; current?: string; msgId?: number; strict?: boolean } }
   | { mode: "fake_chatting"; fakeBotId: number; step: number; lastAt: number };
 
 const SKIP_LABEL = "⏭ غير محدد / لا يهم";
@@ -139,8 +139,9 @@ function backLabel() {
 function mainMenu(): Keyboard {
   return new Keyboard()
     .text("👤 ملفي الشخصي").text("💍 مواصفات الشريك").row()
-    .text("🔍 البحث عن شريك").text("🔀 مراسلة عشوائية").row()
-    .text("💌 من أعجب بي").text("ℹ️ معلومات").row()
+    .text("🔍 البحث عن شريك").text("🎯 بحث دقيق").row()
+    .text("🔀 مراسلة عشوائية").text("💌 من أعجب بي").row()
+    .text("ℹ️ معلومات").row()
     .text("⭐ الترقيات والمزايا")
     .resized();
 }
@@ -598,7 +599,22 @@ function ageDistance(age: number, min: number | null | undefined, max: number | 
 const SEARCH_POOL_LIMIT = 1500;
 const SEARCH_QUEUE_LIMIT = 300;
 
-async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference): Promise<string[]> {
+// Owners who chose "show my profile to my country only" (MatchProfilePrivacy).
+// Kept in its own table and read defensively: before the migration is run the
+// query fails and simply nobody is restricted.
+async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  try {
+    const rows = await prisma.matchProfilePrivacy.findMany({ where: { userId: { in: ids }, countryOnly: true }, select: { userId: true } });
+    return new Set(rows.map((r) => r.userId));
+  } catch {
+    return new Set();
+  }
+}
+
+// strict = "🎯 بحث دقيق" (paid): the original all-requirements-must-match
+// filter. Normal search only weights them.
+async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
   const where = { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } };
 
@@ -630,11 +646,23 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
     prisma.matchProfileVisit.groupBy({ by: ["ownerId"], where: { ownerId: { in: ids } }, _count: { _all: true } }),
   ]);
   const seenSet = new Set(recentSeen.map((v) => v.ownerId));
+  const countryOnly = await countryOnlyOwners(ids);
+  const selfCountry = norm(selfProfile.country);
   const exposureOf = new Map(exposure.map((e) => [e.ownerId, e._count._all]));
 
   const ranked: { id: string; key: number }[] = [];
   for (const c of candidates) {
     if (blockedIds.has(c.userId)) continue;
+    if (countryOnly.has(c.userId) && norm(c.country) !== selfCountry) continue;
+    if (strict) {
+      if (norm(c.country) !== wantedCountry) continue;
+      if (!ageInRange(c.age, selfPref.ageMin, selfPref.ageMax)) continue;
+      if (!looseMatch(c.job, selfPref.job)) continue;
+      if (!looseMatch(c.education, selfPref.education)) continue;
+      if (!looseMatch(c.attributes, selfPref.attributes)) continue;
+      if (!looseMatch(c.city, selfPref.city)) continue;
+      if (!looseMatch(c.maritalStatus, selfPref.maritalStatus)) continue;
+    }
 
     let w = 1;
     w *= norm(c.country) === wantedCountry ? 3 : 0.5;
@@ -833,7 +861,7 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
       if (!stillBlocked && stillApproved?.status === "APPROVED") {
         const shown = await sendSearchCard(bot, chatId, targetId, userId, messageId);
         if (shown != null) {
-          await setPending(userId, { mode: "search_browsing", queue, index: idx + 1, current: targetId, msgId: shown });
+          await setPending(userId, { mode: "search_browsing", queue, index: idx + 1, current: targetId, msgId: shown, strict: pending.strict });
           return;
         }
       }
@@ -849,7 +877,7 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
       prisma.partnerPreference.findUnique({ where: { userId } }),
     ]);
     if (!me || !prof || !pref) break;
-    const fresh = await buildSearchQueue(me.botId, userId, prof, pref);
+    const fresh = await buildSearchQueue(me.botId, userId, prof, pref, !!pending.strict);
     if (fresh.length === 0) break;
     queue = fresh;
     idx = 0;
@@ -858,7 +886,7 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
   await bot.api.sendMessage(chatId, "🔚 لا توجد ملفات لعرضها حالياً. عد لاحقاً لترى الجديد.", { reply_markup: mainMenu() });
 }
 
-async function startSearch(bot: TelegramBot, chatId: number, userId: string, botId: string, messageId?: number) {
+async function startSearch(bot: TelegramBot, chatId: number, userId: string, botId: string, messageId?: number, strict = false) {
   const [profile, pref] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId } }),
     prisma.partnerPreference.findUnique({ where: { userId } }),
@@ -871,17 +899,21 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     await bot.api.sendMessage(chatId, "⚠️ يجب تحديد مواصفات الشريك الذي تبحث عنه أولاً.", { reply_markup: mainMenu() });
     return;
   }
-  const queue = await buildSearchQueue(botId, userId, profile, pref);
+  const queue = await buildSearchQueue(botId, userId, profile, pref, strict);
   if (queue.length === 0) {
-    await bot.api.sendMessage(chatId, "😔 لا توجد نتائج مطابقة حالياً.", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(
+      chatId,
+      strict ? "🎯 لا توجد ملفات تطابق كل مواصفاتك حرفياً الآن. جرّب «🔍 البحث عن شريك» لعرض الأقرب لها." : "😔 لا توجد نتائج مطابقة حالياً.",
+      { reply_markup: mainMenu() }
+    );
     return;
   }
-  await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0 }, messageId);
+  await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0, strict }, messageId);
 }
 
 // After a Super Like (sent, cancelled or unaffordable) the user returns to the
 // same browsing session, so the "next" button on the card keeps working.
-async function resumeBrowsing(userId: string, resume: { queue: string[]; index: number; current?: string; msgId?: number } | undefined): Promise<boolean> {
+async function resumeBrowsing(userId: string, resume: { queue: string[]; index: number; current?: string; msgId?: number; strict?: boolean } | undefined): Promise<boolean> {
   if (!resume) return false;
   await setPending(userId, { mode: "search_browsing", ...resume });
   return true;
@@ -1029,7 +1061,7 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
   }
   if (data.startsWith("msuperlike|")) {
     const targetId = data.split("|")[1];
-    const resume = pending?.mode === "search_browsing" ? { queue: pending.queue, index: pending.index, current: pending.current, msgId: pending.msgId } : undefined;
+    const resume = pending?.mode === "search_browsing" ? { queue: pending.queue, index: pending.index, current: pending.current, msgId: pending.msgId, strict: pending.strict } : undefined;
     await setPending(tgUserId, { mode: "superlike_note", targetUserId: targetId, resume });
     await bot.api
       .sendMessage(chatId, `⭐ اكتب رسالة قصيرة ترافق إعجابك (سيُخصم $${PRICE_SUPER_LIKE} من رصيدك):`, { reply_markup: plainBackMenu() })
@@ -2187,8 +2219,13 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     const statusLabel = profile.status === "APPROVED" ? "✅ معتمد" : profile.status === "REJECTED" ? "❌ مرفوض" : "⏳ قيد المراجعة";
     const visibilityLabel = profile.isHidden ? "⏸ مخفي عن نتائج البحث" : "🟢 ظاهر في نتائج البحث";
     const toggleLabel = profile.isHidden ? "▶️ إظهار ملفي" : "⏸ إخفاء ملفي مؤقتاً";
-    const infoText = `👤 ملفك الشخصي\n\nالاسم: ${profile.name}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\nالحالة: ${statusLabel}\nالظهور: ${visibilityLabel}\n\nلتعديل الملف أرسل «✏️ تعديل».`;
-    const kb = new Keyboard().text("✏️ تعديل").text(toggleLabel).row().text("🗑 حذف ملفي نهائياً").row().text(backLabel()).resized();
+    const onlyMine = (await countryOnlyOwners([tgUserId])).has(tgUserId);
+    const infoText = `👤 ملفك الشخصي\n\nالاسم: ${profile.name}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\nالحالة: ${statusLabel}\nالظهور: ${visibilityLabel}\nمن يرى ملفي: ${onlyMine ? `🌍 ${profile.country} فقط` : "🌐 الجميع"}\n\nلتعديل الملف أرسل «✏️ تعديل».`;
+    const countryOnly = (await countryOnlyOwners([tgUserId])).has(tgUserId);
+    const kb = new Keyboard()
+      .text("✏️ تعديل").text(toggleLabel).row()
+      .text(countryOnly ? "🌐 إظهار ملفي للجميع" : "🌍 إظهار ملفي لدولتي فقط").row()
+      .text("🗑 حذف ملفي نهائياً").row().text(backLabel()).resized();
     if (profile.photoFileId) {
       await bot.api.sendPhoto(chatId, profile.photoFileId, { caption: infoText, reply_markup: kb });
     } else {
@@ -2213,6 +2250,25 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       newHidden ? "⏸ تم إخفاء ملفك مؤقتاً عن نتائج البحث." : "▶️ تم إظهار ملفك في نتائج البحث مجدداً.",
       { reply_markup: mainMenu() }
     );
+    return;
+  }
+  if (text === "🌍 إظهار ملفي لدولتي فقط" || text === "🌐 إظهار ملفي للجميع") {
+    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
+    if (!profile) {
+      await bot.api.sendMessage(chatId, "لا يوجد ملف شخصي بعد.", { reply_markup: mainMenu() });
+      return;
+    }
+    const on = text === "🌍 إظهار ملفي لدولتي فقط";
+    try {
+      await prisma.matchProfilePrivacy.upsert({ where: { userId: tgUserId }, update: { countryOnly: on }, create: { userId: tgUserId, countryOnly: on } });
+      await bot.api.sendMessage(
+        chatId,
+        on ? `🌍 تم. ملفك يظهر الآن فقط لمن هم من ${profile.country}.` : "🌐 تم. ملفك يظهر الآن للجميع.",
+        { reply_markup: mainMenu() }
+      );
+    } catch {
+      await bot.api.sendMessage(chatId, "⚠️ هذه الميزة غير مفعّلة بعد، حاول لاحقاً.", { reply_markup: mainMenu() });
+    }
     return;
   }
   if (text === "🗑 حذف ملفي نهائياً") {
@@ -2247,6 +2303,19 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   }
   if (text === "🔍 البحث عن شريك") {
     await startSearch(bot, chatId, tgUserId, botRow.id);
+    return;
+  }
+  if (text === "🎯 بحث دقيق") {
+    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+    if (!dbUser || !hasAdvancedFilters(dbUser)) {
+      await bot.api.sendMessage(
+        chatId,
+        `🎯 البحث الدقيق يعرض فقط الملفات التي تطابق كل مواصفاتك (الدولة، العمر، الوظيفة، التعليم، المدينة، الحالة الاجتماعية).\n\nميزة مدفوعة ضمن «🎯 فلاتر متقدمة» ($${PRICE_ADVANCED_FILTERS}) أو «👑 العضوية الذهبية» — من قائمة «⭐ الترقيات والمزايا».`,
+        { reply_markup: upgradesMenu() }
+      );
+      return;
+    }
+    await startSearch(bot, chatId, tgUserId, botRow.id, undefined, true);
     return;
   }
   if (text === "🔀 مراسلة عشوائية") {
