@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 /**
  * Adsterra "iframe" format banner (the atOptions technique). Rendered
  * inside an isolated iframe via srcDoc rather than injected straight into
@@ -18,7 +20,30 @@
  *    `srcDoc` is parsed as a real HTML document, so the script actually
  *    runs.
  */
-export default function AdsterraBanner({ adKey, width, height }: { adKey: string; width: number; height: number }) {
+export default function AdsterraBanner({ adKey, width, height, reloadKey = 0, onEmpty }: { adKey: string; width: number; height: number; reloadKey?: number; onEmpty?: () => void }) {
+  // Ad networks sometimes answer with nothing (no fill / slow script). The
+  // frame is same-origin (srcDoc), so we can see whether the network actually
+  // put a creative inside it; if not, reload it a few times instead of
+  // leaving an empty box. A new reloadKey (pull-to-refresh) also reloads it.
+  const [attempt, setAttempt] = useState(0);
+  const ref = useRef<HTMLIFrameElement>(null);
+  useEffect(() => { setAttempt(0); }, [reloadKey]);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        const body = ref.current?.contentDocument?.body;
+        if (!body) return;
+        const filled = !!body.querySelector("iframe, img, ins, a, canvas, object");
+        if (filled) return;
+        if (attempt < 3) setAttempt((a) => a + 1);
+        else onEmpty?.();
+      } catch {
+        /* cross-origin: cannot inspect, leave as is */
+      }
+    }, 7000 + attempt * 1500);
+    return () => clearTimeout(t);
+  }, [attempt, reloadKey, onEmpty]);
+
   const html = `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden}</style></head><body>
 <script>
   atOptions = {
@@ -34,6 +59,8 @@ export default function AdsterraBanner({ adKey, width, height }: { adKey: string
 
   return (
     <iframe
+      ref={ref}
+      key={`${reloadKey}-${attempt}`}
       srcDoc={html}
       width={width}
       height={height}

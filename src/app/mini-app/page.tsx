@@ -158,6 +158,7 @@ export default function MiniAppPage() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [adNonce, setAdNonce] = useState(0);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playError, setPlayError] = useState<string | null>(null);
   const [showInbox, setShowInbox] = useState(false);
@@ -530,43 +531,52 @@ export default function MiniAppPage() {
   const [pullY, setPullY] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const pullStartRef = useRef<number | null>(null);
+  const pullYRef = useRef(0);
   const refreshingRef = useRef(false);
   const refreshAllRef = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
     refreshAllRef.current = async () => {
+      setAdNonce((n) => n + 1);
       await Promise.all([load(), loadNotifs(), loadInbox()]);
     };
   }, [load, loadNotifs, loadInbox]);
+  // Facebook-style: a white circle floats down from the top while pulling and
+  // spins while refreshing, then slides back up. The content itself never
+  // moves, and a 12s cap guarantees the spinner can never get stuck.
   useEffect(() => {
-    const THRESHOLD = 64;
+    const THRESHOLD = 70;
+    const setPull = (v: number) => { pullYRef.current = v; setPullY(v); };
     function onStart(e: TouchEvent) {
-      pullStartRef.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+      pullStartRef.current = window.scrollY <= 0 && !refreshingRef.current ? e.touches[0].clientY : null;
     }
     function onMove(e: TouchEvent) {
       if (pullStartRef.current == null) return;
-      if (window.scrollY > 0) { pullStartRef.current = null; setPullY(0); return; }
+      if (window.scrollY > 0) { pullStartRef.current = null; setPull(0); return; }
       const dy = e.touches[0].clientY - pullStartRef.current;
-      if (dy > 0) setPullY(Math.min(dy * 0.5, 90));
+      setPull(dy > 0 ? Math.min(dy * 0.5, 90) : 0);
     }
     function onEnd() {
       if (pullStartRef.current == null) return;
       pullStartRef.current = null;
-      setPullY((py) => {
-        if (py > THRESHOLD * 0.5 && !refreshingRef.current) {
-          refreshingRef.current = true;
-          setRefreshing(true);
-          refreshAllRef.current().finally(() => { refreshingRef.current = false; setRefreshing(false); });
-        }
-        return 0;
-      });
+      const py = pullYRef.current;
+      setPull(0);
+      if (py >= THRESHOLD * 0.5 && !refreshingRef.current) {
+        refreshingRef.current = true;
+        setRefreshing(true);
+        const cap = new Promise<void>((res) => setTimeout(res, 12000));
+        Promise.race([refreshAllRef.current().catch(() => {}), cap]).finally(() => { refreshingRef.current = false; setRefreshing(false); });
+      }
     }
+    function onCancel() { pullStartRef.current = null; setPull(0); }
     window.addEventListener("touchstart", onStart, { passive: true });
     window.addEventListener("touchmove", onMove, { passive: true });
     window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onCancel);
     return () => {
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onCancel);
     };
   }, []);
 
@@ -834,7 +844,7 @@ export default function MiniAppPage() {
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => { haptic(); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
+            <button type="button" onClick={() => { haptic(); setAdNonce((n) => n + 1); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
             <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
             <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
@@ -847,14 +857,16 @@ export default function MiniAppPage() {
       {newCount > 0 && !overlayOpen && !showProfile && (
         <button type="button" onClick={() => { haptic(); window.scrollTo({ top: 0, behavior: "smooth" }); void load(); }} className="fixed left-1/2 top-[100px] z-30 -translate-x-1/2 rounded-full bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-black text-white shadow-lg shadow-sky-300">⬆ {newCount} {newCount === 1 ? "منشور جديد" : "منشورات جديدة"}</button>
       )}
-      <div className="flex items-center justify-center overflow-hidden text-xl text-sky-500" style={{ height: refreshing ? 36 : pullY, transition: refreshing ? "height 0.15s ease-out" : pullY === 0 ? "height 0.2s ease-out" : undefined }}>
-        {(refreshing || pullY > 0) && <span className={refreshing ? "animate-spin" : ""}>🔄</span>}
+      <div aria-hidden className="pointer-events-none fixed left-1/2 z-30 -translate-x-1/2" style={{ top: 78, transform: `translate(-50%, ${refreshing ? 14 : pullY * 0.6}px)`, opacity: refreshing ? 1 : Math.min(1, pullY / 30), transition: pullY === 0 ? "transform 0.25s ease-out, opacity 0.25s ease-out" : undefined }}>
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-lg ring-1 ring-slate-200">
+          <span className={`block h-5 w-5 rounded-full border-[3px] border-sky-100 border-t-sky-500 ${refreshing ? "animate-spin" : ""}`} style={refreshing ? undefined : { transform: `rotate(${pullY * 6}deg)` }} />
+        </div>
       </div>
 
       {searchOpen && <div className="px-3 pt-2"><input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>}
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
-      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} /></div>}
+      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} reloadKey={adNonce} /></div>}
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-xl">
