@@ -56,14 +56,17 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import urljoin
 
-import imageio_ffmpeg
 from bs4 import BeautifulSoup
 from PIL import Image
 
 ImageDescriberFn = Callable[[str], str]  # image file path -> real caption text
 AudioTranscriberFn = Callable[[str], str]  # audio file path -> real transcript text
 
-_FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+try:  # the bundled binary when available; the system ffmpeg otherwise (Kaggle has one)
+    import imageio_ffmpeg
+    _FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
+except Exception:
+    _FFMPEG = "ffmpeg"
 
 
 def discover_media_urls(html: str, base_url: str) -> dict[str, list[str]]:
@@ -78,6 +81,98 @@ def discover_media_urls(html: str, base_url: str) -> dict[str, list[str]]:
     video = [urljoin(base_url, tag["src"]) for tag in soup.find_all("video", src=True)]
     video += [urljoin(base_url, tag["src"]) for tag in soup.select("video source[src]")]
     return {"images": images, "audio": audio, "video": video}
+
+
+def _file_words(src: str) -> str:
+    """'…/330px-Umayyad_Mosque_night.jpg' -> 'Umayyad Mosque night' (the file
+    name is often the only description a picture carries)."""
+    from urllib.parse import unquote, urlparse
+    import re
+
+    name = unquote(urlparse(src).path.rsplit("/", 1)[-1])
+    name = re.sub(r"^\d+px-", "", name)
+    name = re.sub(r"\.(jpe?g|png|gif|webp|svg|tiff?)(\.png)?$", "", name, flags=re.I)
+    words = " ".join(re.split(r"[_\-]+", name)).strip()
+    return words if len(re.findall(r"[^\W\d_]{3,}", words)) >= 1 and len(words) > 3 else ""
+
+
+def _text(el) -> str:
+    return " ".join(el.get_text(" ", strip=True).split()) if el is not None else ""
+
+
+def discover_media_with_captions(html: str, base_url: str, limit: int = 12) -> list[dict]:
+    """Every picture, sound and video on a real page WITH the text that
+    describes it on that same page — what turns a page into text<->media
+    training pairs for the live trainer. Caption, in order of preference:
+    the <figcaption> of its <figure>, the tag's alt/title/aria-label, the
+    nearest heading before it, the page's own title. The page's lead image
+    (og:image) comes with the page's title and description.
+    Returns [{"kind": "image"|"audio"|"video", "url", "caption"}]."""
+    soup = BeautifulSoup(html, "html.parser")
+
+    def meta(*names):
+        for n in names:
+            tag = soup.find("meta", attrs={"property": n}) or soup.find("meta", attrs={"name": n})
+            if tag and tag.get("content"):
+                return " ".join(tag["content"].split())
+        return ""
+
+    page_title = meta("og:title", "twitter:title") or _text(soup.find("h1")) or _text(soup.find("title"))
+    for suffix in (" - ويكيبيديا", " - Wikipedia", " - BBC News عربي"):
+        page_title = page_title.removesuffix(suffix)
+    out, seen = [], set()
+
+    def add(kind, src, caption):
+        if not src or src.startswith("data:"):
+            return
+        url = urljoin(base_url, src.split()[0])
+        if url in seen or url.lower().split("?")[0].endswith(".svg"):
+            return
+        seen.add(url)
+        caption = " ".join((caption or "").split())
+        out.append({"kind": kind, "url": url, "caption": caption if len(caption) >= 3 else page_title})
+
+    lead = meta("og:image", "twitter:image")
+    if lead:
+        desc = meta("og:description", "description")
+        add("image", lead, f"{page_title}. {desc}" if desc else page_title)
+
+    def caption_for(tag):
+        fig = tag.find_parent("figure")
+        cap = _text(fig.find("figcaption")) if fig is not None else ""
+        if not cap:  # older MediaWiki markup: <div class="thumb"> ... <div class="thumbcaption">
+            box = tag.find_parent("div", class_="thumbinner") or tag.find_parent("div", class_="thumb")
+            cap = _text(box.find("div", class_="thumbcaption")) if box is not None else ""
+        cap = cap or tag.get("alt") or tag.get("title") or tag.get("aria-label") or ""
+        if not cap.strip():  # a gallery item's own text
+            box = tag.find_parent("li", class_="gallerybox") or tag.find_parent("div", class_="gallerybox")
+            cap = _text(box.find(class_="gallerytext")) if box is not None else ""
+        if not cap.strip():  # an infobox cell: the cell's text, else the next row's text
+            cell = tag.find_parent(["td", "th"])
+            if cell is not None:
+                cap = _text(cell)
+                if not cap and cell.find_parent("tr") is not None:
+                    nxt = cell.find_parent("tr").find_next_sibling("tr")
+                    cap = _text(nxt)[:200] if nxt is not None else ""
+        name = _file_words(tag.get("src") or tag.get("data-src") or "")
+        if cap.strip() and name and tag.find_parent(["td", "th"]) is not None:
+            cap = f"{cap} — {name}"  # a collage shares one caption: the file name tells its parts apart
+        if not cap.strip():
+            head = tag.find_previous(["h1", "h2", "h3"])
+            cap = " — ".join(x for x in (_text(head) or page_title, name) if x)
+        return cap
+
+    for tag in soup.find_all("img"):
+        src = tag.get("src") or tag.get("data-src") or (tag.get("srcset") or "").split(",")[0]
+        add("image", src, caption_for(tag))
+    for kind in ("audio", "video"):
+        for tag in soup.find_all(kind):
+            srcs = [tag.get("src")] + [s.get("src") for s in tag.find_all("source")]
+            for src in srcs:
+                if src:
+                    add(kind, src, caption_for(tag))
+                    break
+    return out[:limit]
 
 
 def perceptual_hash(image_path: str, hash_size: int = 8) -> str:
