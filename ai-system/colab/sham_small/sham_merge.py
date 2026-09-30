@@ -50,6 +50,32 @@ KNOWN_SOURCES = [
     ("sham-crawl-checkpoint", "final*.pt", MEDIA_ROWS),
     ("sham-chat-checkpoint-incoming", "final*.pt", MEDIA_ROWS),
 ]
+
+
+class _WithDiscovered(list):
+    """KNOWN_SOURCES plus, the first time it is iterated, every model dataset
+    of the account named sham-crawl-* (any number of collection notebooks,
+    each under its own name — found automatically, merged only through the
+    repair stage and the gate, each with its own "already merged" record)."""
+
+    _done = False
+
+    def __iter__(self):
+        if not self._done:
+            self._done = True
+            try:
+                from sham_inputs import crawl_dataset_names
+                have = {n for n, _, _ in list.__iter__(self)}
+                new = [n for n in crawl_dataset_names()["models"] if n not in have]
+                if new:
+                    print("🔎 مصادر جمع مكتشفة تلقائياً: " + ", ".join(new))
+                self.extend((n, "final*.pt", MEDIA_ROWS) for n in new)
+            except Exception as exc:
+                print(f"⚠ تعذّر اكتشاف مصادر الجمع تلقائياً: {exc}")
+        return list.__iter__(self)
+
+
+KNOWN_SOURCES = _WithDiscovered(KNOWN_SOURCES)
 _ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
 
 
@@ -186,14 +212,19 @@ def research_corpus_files(root: Path | None, crawl: bool = True) -> list[str]:
     files = [str(p) for p in sorted(Path(root).rglob("research_corpus/**/*.txt"))] if root else []
     if crawl:
         try:
-            from sham_inputs import fetch_dataset
-            crawl_root = fetch_dataset("sham-crawl-corpus")
+            from sham_inputs import crawl_dataset_names, fetch_dataset
+            corpora = sorted(set(crawl_dataset_names()["corpora"]) | {"sham-crawl-corpus"})
         except Exception:
-            crawl_root = None
-        if crawl_root:
-            found = [str(p) for p in sorted(Path(crawl_root).rglob("text/**/*.txt"))]
-            print(f"  • نصوص الزاحف للتذكّر: {len(found):,}")
-            files += found
+            corpora = []
+        for name in corpora:
+            try:
+                crawl_root = fetch_dataset(name)
+            except Exception:
+                crawl_root = None
+            if crawl_root:
+                found = [str(p) for p in sorted(Path(crawl_root).rglob("text/**/*.txt"))]
+                print(f"  • نصوص الجمع للتذكّر من {name}: {len(found):,}")
+                files += found
     return files
 
 

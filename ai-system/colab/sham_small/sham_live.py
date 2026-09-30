@@ -52,6 +52,16 @@ import torch
 WORK = Path("/kaggle/working")
 MODEL_DATASET = "sham-crawl-checkpoint"
 CORPUS_DATASET = "sham-crawl-corpus"
+
+
+def dataset_names(name: str | None) -> tuple[str, str]:
+    """Each collection notebook has its own pair of datasets. No name → the
+    original pair; name="news" → sham-crawl-news / sham-crawl-news-corpus.
+    The chat stage finds every sham-crawl-* dataset automatically."""
+    if not name:
+        return MODEL_DATASET, CORPUS_DATASET
+    slug = "".join(c if c.isalnum() else "-" for c in name.lower()).strip("-")
+    return f"sham-crawl-{slug}", f"sham-crawl-{slug}-corpus"
 TARGETS = {"text": 0.45, "image": 0.30, "audio": 0.15, "video": 0.10}
 HOLDOUT_PER_KIND = 12
 REHEARSAL_SHARE = 0.15
@@ -88,7 +98,7 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
             and tokenizer_fingerprint(aa[0]) == tokenizer_fingerprint(ab[0]))
 
 
-def resolve_start():
+def resolve_start(model_dataset: str = MODEL_DATASET):
     """(checkpoint path, its folder, progress dict, origin label)."""
     from sham_inputs import fetch_dataset
 
@@ -99,7 +109,7 @@ def resolve_start():
         if hits:
             main = (hits[0], hits[0].parent, name)
             break
-    own = fetch_dataset(MODEL_DATASET)
+    own = fetch_dataset(model_dataset)
     progress = {}
     if own:
         for p in own.rglob("crawl_progress.json"):
@@ -109,7 +119,7 @@ def resolve_start():
                 pass
     own_ckpt = sorted(own.rglob("final.pt")) if own else []
     if own_ckpt and progress.get("by") == "sham_live" and (main is None or _same_tokenizers(own_ckpt[0].parent, main[1])):
-        return own_ckpt[0], own_ckpt[0].parent, progress, f"{MODEL_DATASET} (جلسة سابقة لهذا المدرّب)"
+        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
     if main is None:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
     base = {"by": "sham_live", "base": main[2]}
@@ -306,7 +316,7 @@ def make_batches(examples: list, token_budget: int):
 # ---------------------------------------------------------------- run
 
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
-        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None) -> dict:
+        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None) -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
     (used by the offline test)."""
     from checkpoint import load_checkpoint, save_checkpoint
@@ -327,7 +337,9 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     token_budget = 8192 if cuda else 2048
     print(f"المدرّب الحي — الجهاز {device}، مدة {hours:.1f} ساعة، {workers} خيط جمع")
 
-    ckpt, ckpt_dir, progress, origin = resolve_start()
+    model_ds, corpus_ds = dataset_names(name)
+    print(f"المخارج: النموذج → {model_ds} | النصوص → {corpus_ds}")
+    ckpt, ckpt_dir, progress, origin = resolve_start(model_ds)
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tokenizer, (img_tok, img_step, _), (aud_tok, aud_step, _) = _load_tokenizers(ckpt_dir)
     img_tok, aud_tok = img_tok.to(device).eval(), aud_tok.to(device).eval()
@@ -444,7 +456,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             shutil.copy2(out / f, snap / f)
         for f in out.glob("live_*_ledger.json"):
             shutil.copy2(f, snap / f.name)
-        return publish_dataset(snap, MODEL_DATASET, message)
+        return publish_dataset(snap, model_ds, message)
 
     print("🚀 جمع ← ترميز ← تدريب ← تكرير ← حفظ (كلها معاً)")
     rng = random.Random(step)
@@ -526,7 +538,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     published = publish(f"live session to step {step:,}")
     corpus = None
     if any((WORK / "crawl_corpus" / "text").glob("*.txt")):
-        corpus = publish_dataset(WORK / "crawl_corpus", CORPUS_DATASET, f"live corpus to step {step:,}")
+        corpus = publish_dataset(WORK / "crawl_corpus", corpus_ds, f"live corpus to step {step:,}")
     try:
         from kaggle_secrets import UserSecretsClient
         from telegram_report import send_telegram_message
