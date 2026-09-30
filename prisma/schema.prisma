@@ -1476,3 +1476,11 @@ model Capsule {
   @@index([senderId])
   @@index([botId])
 }
+
+// "Show my profile to my country only" (owner request 2026-09-30). Its own
+// table so the match bot keeps working even before this migration is run.
+model MatchProfilePrivacy {
+  userId      String   @id // MatchUser.id (Telegram id)
+  countryOnly Boolean  @default(false)
+  updated_at  DateTime @default(now()) @updatedAt
+}
