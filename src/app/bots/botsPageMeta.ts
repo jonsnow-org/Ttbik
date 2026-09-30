@@ -67,6 +67,12 @@ export const botsMetadata: Metadata = {
     "deleteMyProfilePhoto",
     "getMyName",
     "صورة البوت",
+    "setWebhook",
+    "deleteWebhook",
+    "getWebhookInfo",
+    "getUpdates",
+    "ويبهوك تليجرام",
+    "إلغاء ويبهوك",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
