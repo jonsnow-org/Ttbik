@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5902015699,
   "last_actor": "grok",
-  "updated_at": "2026-09-30T01:06:00Z",
+  "updated_at": "2026-09-30T02:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G258 FAQ+LIMITS+keywords: setMyDescription / getMyDescription / setMyShortDescription / getMyShortDescription. Form/AdSlot/page.tsx untouched.",
     "G257 FAQ+LIMITS+keywords: setMyCommands / deleteMyCommands / getMyCommands / setMyName. Form/AdSlot/page.tsx untouched.",
     "G256 FAQ+LIMITS+keywords: getChatAdministrators / getChatMember / getChatMemberCount / getChat. Form/AdSlot/page.tsx untouched.",
     "G255 FAQ+LIMITS+keywords: setChatPermissions / approveChatJoinRequest / declineChatJoinRequest. Form/AdSlot/page.tsx untouched.",

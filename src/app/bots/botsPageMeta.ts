@@ -51,6 +51,12 @@ export const botsMetadata: Metadata = {
     "setMyName",
     "قائمة أوامر البوت",
     "اسم البوت المعروض",
+    "setMyDescription",
+    "getMyDescription",
+    "setMyShortDescription",
+    "getMyShortDescription",
+    "وصف البوت",
+    "الوصف القصير للبوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
