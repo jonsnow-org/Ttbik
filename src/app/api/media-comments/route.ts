@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isBlockedEitherWay, mediaDb } from "@/lib/mediaSocial";
+import { isBlockedEitherWay, mediaDb, mediaUser, namesFor } from "@/lib/mediaSocial";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +81,23 @@ export async function GET(req: NextRequest) {
     if (c.post_id === postId && !comments.find((x) => x.id === c.id)) comments.push(c);
   }
   comments.sort((a, b) => a.created_at - b.created_at);
+
+  // A comment stored with the generic fallback name (or a bare numeric id)
+  // gets the commenter's real display name looked up now, so nobody shows up
+  // as "مستخدم" or as a number.
+  const generic = (n: string) => !n || n === "مستخدم" || /^\d+$/.test(n);
+  const needName = Array.from(new Set(comments.filter((c) => generic(c.from_name)).map((c) => c.from_id)));
+  if (needName.length) {
+    try {
+      const ndb = await mediaDb();
+      if (ndb) {
+        const found = await namesFor(ndb, needName);
+        for (const c of comments) if (generic(c.from_name) && found[c.from_id]) c.from_name = found[c.from_id];
+      }
+    } catch {
+      /* names are best-effort */
+    }
+  }
   return NextResponse.json({ comments });
 }
 
@@ -92,7 +109,8 @@ export async function POST(req: NextRequest) {
   const postId = String(body.post_id || "").trim();
   const text = String(body.body || "").trim().slice(0, 500);
   const parentId = body.parent_id ? String(body.parent_id).trim() : null;
-  const fromName = String(body.from_name || "مستخدم").slice(0, 40);
+  // Prefer the name Telegram itself signed into init_data over anything the client claims.
+  const fromName = (mediaUser(String(body.init_data || ""))?.name || String(body.from_name || "مستخدم")).slice(0, 40);
   if (!postId || !text) return NextResponse.json({ error: "post_id, body required" }, { status: 400 });
   // A user blocked by the post's owner (or who blocked them) can't comment there.
   try {

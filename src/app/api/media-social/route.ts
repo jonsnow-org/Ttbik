@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
         db.from("media_follows").select("follower_id", { count: "exact", head: true }).eq("followee_id", profile),
         db.from("media_follows").select("followee_id", { count: "exact", head: true }).eq("follower_id", profile),
       ]);
-      out.profile = { id: profile, followers: followers.count || 0, following: followingCount.count || 0 };
+      const pn = await namesFor(db, [profile]).catch(() => ({} as Record<string, string>));
+      out.profile = { id: profile, followers: followers.count || 0, following: followingCount.count || 0, name: pn[profile] || null };
     }
 
     // Followees whose new shares the caller chose NOT to be notified about.
