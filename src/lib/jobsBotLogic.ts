@@ -5,7 +5,7 @@ import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton
 import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
@@ -1347,21 +1347,22 @@ async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string,
 // ---------------------------------------------------------------------
 // Admin panel
 // ---------------------------------------------------------------------
-async function sendAdminStats(bot: TelegramBot, chatId: number) {
+async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
   const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
-  const [totalUsers, seekers, employers, professionals, traders, openPostings, activeListings, escrowedOrders, openDisputes, pendingReports, pendingInbox] = await Promise.all([
-    prisma.jobsUser.count({ where: notAdmin }),
-    prisma.jobsProfile.count({ where: { roleType: "SEEKER" } }),
-    prisma.jobsProfile.count({ where: { roleType: "EMPLOYER" } }),
-    prisma.jobsProfile.count({ where: { roleType: "PROFESSIONAL" } }),
-    prisma.jobsProfile.count({ where: { roleType: "TRADER" } }),
-    prisma.jobPosting.count({ where: { status: "OPEN" } }),
-    prisma.storeListing.count({ where: { status: "ACTIVE" } }),
+  const [ownUsers, seekers, employers, professionals, traders, openPostings, activeListings, escrowedOrders, openDisputes, pendingReports, pendingInbox] = await Promise.all([
+    prisma.jobsUser.count({ where: { ...notAdmin, botId } }),
+    prisma.jobsProfile.count({ where: { roleType: "SEEKER", user: { botId } } }),
+    prisma.jobsProfile.count({ where: { roleType: "EMPLOYER", user: { botId } } }),
+    prisma.jobsProfile.count({ where: { roleType: "PROFESSIONAL", user: { botId } } }),
+    prisma.jobsProfile.count({ where: { roleType: "TRADER", user: { botId } } }),
+    prisma.jobPosting.count({ where: { status: "OPEN", poster: { botId } } }),
+    prisma.storeListing.count({ where: { status: "ACTIVE", seller: { botId } } }),
     prisma.storeOrder.count({ where: { status: "ESCROWED" } }),
     prisma.jobsDispute.count({ where: { status: { not: "RESOLVED" } } }),
     prisma.jobsReport.count({ where: { status: "PENDING" } }),
     prisma.jobsAdminMessage.count({ where: { status: "PENDING" } }),
   ]);
+  const totalUsers = await countBotVisitors(botId, SUPER_ADMIN_ID, ownUsers);
   const text =
     `📊 إحصائيات بوت فرص العمل\n\n👥 إجمالي المستخدمين: ${totalUsers}\n` +
     `👷 باحثون: ${seekers} | 🏢 معلنو وظائف: ${employers} | 🔨 مهنيون: ${professionals} | 🛒 تجار: ${traders}\n\n` +
@@ -1505,7 +1506,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
       await bot.api.sendMessage(chatId, "✅ تم إرسال ردك.");
       return;
     }
-    if (text === "📊 الإحصائيات") return sendAdminStats(bot, chatId);
+    if (text === "📊 الإحصائيات") return sendAdminStats(bot, botRow.id, chatId);
     if (text === "📥 رسائل واردة") return sendAdminInboxSummary(bot, chatId);
     if (text === "💰 المحفظة") {
       const [totalBalance, totalEscrowed] = await Promise.all([

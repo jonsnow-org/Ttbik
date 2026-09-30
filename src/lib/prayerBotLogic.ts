@@ -1,7 +1,7 @@
 import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 
 /**
@@ -327,11 +327,14 @@ async function handlePrayerAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
     return true;
   }
   if (text === "📊 الإحصائيات") {
-    const [users, reminders] = await Promise.all([
-      prisma.prayerUser.count(),
-      prisma.prayerUser.count({ where: { dailyReminder: true, cityId: { not: null } } }),
+    const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
+    const [ownUsers, reminders, banned] = await Promise.all([
+      prisma.prayerUser.count({ where: { botId: botRow.id, ...notAdmin } }),
+      prisma.prayerUser.count({ where: { botId: botRow.id, dailyReminder: true, cityId: { not: null }, ...notAdmin } }),
+      prisma.prayerUser.count({ where: { botId: botRow.id, isBanned: true } }),
     ]);
-    await bot.api.sendMessage(chatId, `📊 إحصائيات بوت مواقيت الصلاة\n\n👥 المستخدمون: ${users}\n🔔 مفعّلو التذكير اليومي: ${reminders}`);
+    const users = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
+    await bot.api.sendMessage(chatId, `📊 إحصائيات بوت مواقيت الصلاة\n\n👥 المستخدمون: ${users}\n🚫 المحظورون: ${banned}\n🔔 مفعّلو التذكير اليومي: ${reminders}`);
     return true;
   }
   if (text === "🔎 بحث عن مستخدم") {

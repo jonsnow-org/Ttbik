@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -102,14 +102,17 @@ function resultCardText(name1: string, name2: string, pct: number): string {
 // ---------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------
-async function sendAdminStats(bot: TelegramBot, chatId: number) {
-  const [usersCount, resultsCount] = await Promise.all([
-    prisma.nameCompatUser.count(),
-    prisma.nameCompatResult.count(),
+async function sendAdminStats(bot: TelegramBot, botRow: BotRow, chatId: number) {
+  const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
+  const [ownUsers, resultsCount, banned] = await Promise.all([
+    prisma.nameCompatUser.count({ where: { botId: botRow.id, ...notAdmin } }),
+    prisma.nameCompatResult.count({ where: { user: { botId: botRow.id } } }),
+    prisma.nameCompatUser.count({ where: { botId: botRow.id, isBanned: true } }),
   ]);
+  const usersCount = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
   await bot.api.sendMessage(
     chatId,
-    `📊 إحصائيات بوت نسبة التوافق\n\n👥 المستخدمون: ${usersCount}\n💞 عمليات الحساب: ${resultsCount}`
+    `📊 إحصائيات بوت نسبة التوافق\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n💞 عمليات الحساب: ${resultsCount}`
   );
 }
 
@@ -172,7 +175,7 @@ async function handleNameCompatAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
     return true;
   }
   if (text === "📊 الإحصائيات") {
-    await sendAdminStats(bot, chatId);
+    await sendAdminStats(bot, botRow, chatId);
     return true;
   }
   if (text === "🔎 بحث عن مستخدم") {

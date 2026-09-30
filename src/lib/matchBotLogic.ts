@@ -7,7 +7,7 @@ import { getMasterHotWalletAddress, isNativeTonConfigured } from "@/services/ton
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 
@@ -1443,24 +1443,25 @@ async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: s
   await applyProfileDecision(bot, chatId, profile, approve);
 }
 
-async function sendAdminStats(bot: TelegramBot, chatId: number) {
+async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
   const onlineSince = new Date(Date.now() - ONLINE_THRESHOLD_MINUTES * 60000);
   // The SUPER_ADMIN also gets a MatchUser row (purely to store their own
   // pendingAction state for the broadcast/lookup/unban flows below) — it
   // must never count as a real platform user in these stats.
   const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
-  const [totalUsers, onlineUsers, pendingProfiles, approvedProfiles, rejectedProfiles, pendingSearchReports, pendingChatReports, activeSessions, waitingQueue, pendingInbox] = await Promise.all([
-    prisma.matchUser.count({ where: notAdmin }),
-    prisma.matchUser.count({ where: { ...notAdmin, lastActiveAt: { gte: onlineSince } } }),
-    prisma.matchProfile.count({ where: { status: "PENDING" } }),
-    prisma.matchProfile.count({ where: { status: "APPROVED" } }),
-    prisma.matchProfile.count({ where: { status: "REJECTED" } }),
-    prisma.matchReport.count({ where: { status: "PENDING", source: "SEARCH" } }),
-    prisma.matchReport.count({ where: { status: "PENDING", source: "RANDOM_CHAT" } }),
-    prisma.randomChatSession.count({ where: { status: "ACTIVE" } }),
-    prisma.randomChatQueue.count({ where: { status: "WAITING", expiresAt: { gt: new Date() } } }),
-    prisma.adminMessage.count({ where: { status: "PENDING" } }),
+  const [ownUsers, onlineUsers, pendingProfiles, approvedProfiles, rejectedProfiles, pendingSearchReports, pendingChatReports, activeSessions, waitingQueue, pendingInbox] = await Promise.all([
+    prisma.matchUser.count({ where: { ...notAdmin, botId } }),
+    prisma.matchUser.count({ where: { ...notAdmin, botId, lastActiveAt: { gte: onlineSince } } }),
+    prisma.matchProfile.count({ where: { status: "PENDING", user: { botId } } }),
+    prisma.matchProfile.count({ where: { status: "APPROVED", user: { botId } } }),
+    prisma.matchProfile.count({ where: { status: "REJECTED", user: { botId } } }),
+    prisma.matchReport.count({ where: { status: "PENDING", source: "SEARCH", reporter: { botId } } }),
+    prisma.matchReport.count({ where: { status: "PENDING", source: "RANDOM_CHAT", reporter: { botId } } }),
+    prisma.randomChatSession.count({ where: { status: "ACTIVE", botId } }),
+    prisma.randomChatQueue.count({ where: { status: "WAITING", botId, expiresAt: { gt: new Date() } } }),
+    prisma.adminMessage.count({ where: { status: "PENDING", sender: { botId } } }),
   ]);
+  const totalUsers = await countBotVisitors(botId, SUPER_ADMIN_ID, ownUsers);
   const text =
     `📊 إحصائيات بوت التعارف\n\n` +
     `👥 إجمالي المستخدمين: ${totalUsers}\n` +
@@ -1602,13 +1603,13 @@ async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
   await bot.api.sendMessage(Number(targetId), "✅ تم رفع الحظر/الكتم عنك من قِبل الإدارة، يمكنك استخدام البوت الآن.").catch(() => null);
 }
 
-async function handleAdminMessage(bot: TelegramBot, chatId: number, text: string, adminId: string) {
+async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
     return;
   }
   if (text === "📊 الإحصائيات") {
-    await sendAdminStats(bot, chatId);
+    await sendAdminStats(bot, botId, chatId);
     return;
   }
   if (text === "📋 الملفات المعلقة") {
@@ -1781,7 +1782,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       }
     }
     if (adminPending) await setPending(tgUserId, null);
-    await handleAdminMessage(bot, chatId, text, tgUserId);
+    await handleAdminMessage(bot, botRow.id, chatId, text, tgUserId);
     return;
   }
 

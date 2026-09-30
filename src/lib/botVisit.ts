@@ -24,3 +24,28 @@ export async function recordBotVisit(botId: string, tgUserId: string): Promise<v
     // Never let stats-tracking failures affect a real user's /start.
   }
 }
+
+/**
+ * Accurate per-bot reach for an admin/owner stats screen: distinct real
+ * people who started THIS bot (BotVisit), never counting the admin
+ * account itself (it gets its own user row only to hold panel state).
+ *
+ * `ownTableCount` is the count from the template's own user table
+ * (already scoped to this bot and admin-free by the caller). Bots whose
+ * users predate BotVisit tracking can have fewer BotVisit rows than real
+ * users, so the larger of the two is the honest number.
+ */
+export async function countBotVisitors(
+  botId: string,
+  excludeTgId?: string,
+  ownTableCount = 0,
+): Promise<number> {
+  try {
+    const visits = await prisma.botVisit.count({
+      where: excludeTgId ? { botId, tgUserId: { not: excludeTgId } } : { botId },
+    });
+    return Math.max(visits, ownTableCount);
+  } catch {
+    return ownTableCount;
+  }
+}

@@ -1,7 +1,7 @@
 import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -126,14 +126,17 @@ function shareCardText(cat: StreakCategory, entry: { currentStreak: number }): s
 // ---------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------
-async function sendAdminStats(bot: TelegramBot, chatId: number) {
-  const [usersCount, activeStreaksCount] = await Promise.all([
-    prisma.streakUser.count(),
-    prisma.streakEntry.count({ where: { currentStreak: { gt: 0 } } }),
+async function sendAdminStats(bot: TelegramBot, botRow: BotRow, chatId: number) {
+  const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
+  const [ownUsers, activeStreaksCount, banned] = await Promise.all([
+    prisma.streakUser.count({ where: { botId: botRow.id, ...notAdmin } }),
+    prisma.streakEntry.count({ where: { currentStreak: { gt: 0 }, user: { botId: botRow.id, ...notAdmin } } }),
+    prisma.streakUser.count({ where: { botId: botRow.id, isBanned: true } }),
   ]);
+  const usersCount = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
   await bot.api.sendMessage(
     chatId,
-    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🔥 سلاسل نشطة: ${activeStreaksCount}`
+    `📊 إحصائيات بوت السلاسل اليومية\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n🔥 سلاسل نشطة: ${activeStreaksCount}`
   );
 }
 
@@ -199,7 +202,7 @@ async function handleStreakAdmin(bot: TelegramBot, botRow: BotRow, msg: any): Pr
     return true;
   }
   if (text === "📊 الإحصائيات") {
-    await sendAdminStats(bot, chatId);
+    await sendAdminStats(bot, botRow, chatId);
     return true;
   }
   if (text === "🔎 بحث عن مستخدم") {

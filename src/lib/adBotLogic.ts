@@ -5,7 +5,7 @@ import type { Bot as BotRow, Prisma } from "@prisma/client";
 import { t, type Lang, DEFAULT_LANG } from "@/lib/i18n";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
@@ -991,7 +991,11 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // first).
     const [botsCount, usersCount, revenueAgg, pendingWithdrawalsAgg, adGroups] = await Promise.all([
       prisma.bot.count(),
-      prisma.botVisit.count(),
+      // distinct people: BotVisit has one row per (bot, person), so a
+      // person who started two bots must count once on the platform total
+      prisma.botVisit
+        .findMany({ where: { tgUserId: { not: SUPER_ADMIN_ID || "__none__" } }, distinct: ["tgUserId"], select: { tgUserId: true } })
+        .then((rows) => rows.length),
       prisma.bot.aggregate({ _sum: { totalRevenue: true } }),
       prisma.transaction.aggregate({
         where: { type: { in: ["WITHDRAWAL", "OWNER_WITHDRAWAL"] }, status: { in: ["PENDING", "PENDING_AUDIT"] } },
@@ -1173,7 +1177,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // though they genuinely started THIS bot (real owner-reported
     // symptom, 2026-09-22: "the bots' user counts never grow").
     const [usersCount, tasksCompleted, adsAgg] = await Promise.all([
-      prisma.botVisit.count({ where: { botId: botRow.id } }),
+      countBotVisitors(botRow.id, botRow.ownerId),
       prisma.transaction.count({ where: { botId: botRow.id, type: "TASK_REWARD" } }),
       prisma.ad.aggregate({ where: { botId: botRow.id }, _sum: { totalBudget: true } }),
     ]);
