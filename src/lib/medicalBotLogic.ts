@@ -1,3 +1,4 @@
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
@@ -350,6 +351,7 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     // main menu) by checking profile & facility existence, not
     // pendingAction — so a stale wizard state never leaks into whatever
     // the user sends next.
+    await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
     await routeStart(bot, botRow, chatId, tgUserId, user);
     const startArg = text.startsWith("/start ") ? text.slice(7).trim() : "";
@@ -1372,16 +1374,22 @@ async function handleAdminMessage(bot: TelegramBot, botRow: BotRow, chatId: numb
     return;
   }
   if (text === "📊 إحصائيات") {
+    const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
     const [patients, clinics, hospitals, pharmacies, appts] = await Promise.all([
-      prisma.medUser.count({ where: { role: "PATIENT" } }),
-      prisma.medFacility.count({ where: { type: "CLINIC" } }),
-      prisma.medFacility.count({ where: { type: "HOSPITAL" } }),
-      prisma.medFacility.count({ where: { type: "PHARMACY" } }),
-      prisma.medAppointment.count(),
+      prisma.medUser.count({ where: { role: "PATIENT", botId: botRow.id, ...notAdmin } }),
+      prisma.medFacility.count({ where: { type: "CLINIC", owner: { botId: botRow.id } } }),
+      prisma.medFacility.count({ where: { type: "HOSPITAL", owner: { botId: botRow.id } } }),
+      prisma.medFacility.count({ where: { type: "PHARMACY", owner: { botId: botRow.id } } }),
+      prisma.medAppointment.count({ where: { patient: { botId: botRow.id } } }),
     ]);
+    const totalUsers = await countBotVisitors(
+      botRow.id,
+      SUPER_ADMIN_ID,
+      await prisma.medUser.count({ where: { botId: botRow.id, id: { not: SUPER_ADMIN_ID || "__none__" } } }),
+    );
     await bot.api.sendMessage(
       chatId,
-      `📊 إحصائيات المنصة:\n👤 مرضى: ${patients}\n🩺 عيادات: ${clinics}\n🏥 مشافي: ${hospitals}\n💊 صيدليات: ${pharmacies}\n📅 إجمالي الحجوزات: ${appts}` + (await bloodStatsLine()),
+      `📊 إحصائيات المنصة:\n👥 إجمالي المستخدمين: ${totalUsers}\n👤 مرضى: ${patients}\n🩺 عيادات: ${clinics}\n🏥 مشافي: ${hospitals}\n💊 صيدليات: ${pharmacies}\n📅 إجمالي الحجوزات: ${appts}` + (await bloodStatsLine()),
       { reply_markup: adminMenu() }
     );
     return;

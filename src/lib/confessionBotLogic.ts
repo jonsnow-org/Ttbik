@@ -1,7 +1,7 @@
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
-import { recordBotVisit } from "@/lib/botVisit";
+import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
@@ -194,15 +194,22 @@ function validateConfession(text: string): { valid: boolean; error?: string } {
 // ---------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------
-async function sendAdminStats(bot: TelegramBot, chatId: number) {
-  const [usersCount, messagesCount, revenue] = await Promise.all([
-    prisma.confessionUser.count(),
-    prisma.confessionMessage.count(),
-    prisma.confessionTransaction.aggregate({ where: { type: { in: ["REVEAL_SENDER", "UNLIMITED_REPLIES"] } }, _sum: { amount: true } }),
+async function sendAdminStats(bot: TelegramBot, botRow: BotRow, chatId: number) {
+  // Scoped to THIS bot and never counting the admin's own panel row.
+  const notAdmin = { id: { not: SUPER_ADMIN_ID || "__none__" } };
+  const [ownUsers, messagesCount, revenue, banned] = await Promise.all([
+    prisma.confessionUser.count({ where: { botId: botRow.id, ...notAdmin } }),
+    prisma.confessionMessage.count({ where: { boxOwner: { botId: botRow.id } } }),
+    prisma.confessionTransaction.aggregate({
+      where: { type: { in: ["REVEAL_SENDER", "UNLIMITED_REPLIES"] }, user: { botId: botRow.id } },
+      _sum: { amount: true },
+    }),
+    prisma.confessionUser.count({ where: { botId: botRow.id, isBanned: true } }),
   ]);
+  const usersCount = await countBotVisitors(botRow.id, SUPER_ADMIN_ID, ownUsers);
   await bot.api.sendMessage(
     chatId,
-    `📊 إحصائيات بوت الاعترافات\n\n👥 المستخدمون: ${usersCount}\n✉️ الاعترافات المرسلة: ${messagesCount}\n💵 إيراد الترقيات: $${(revenue._sum.amount || 0).toFixed(2)}`
+    `📊 إحصائيات بوت الاعترافات\n\n👥 المستخدمون: ${usersCount}\n🚫 المحظورون: ${banned}\n✉️ الاعترافات المرسلة: ${messagesCount}\n💵 إيراد الترقيات: $${(revenue._sum.amount || 0).toFixed(2)}`
   );
 }
 
@@ -262,7 +269,7 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
     return true;
   }
   if (text === "📊 الإحصائيات") {
-    await sendAdminStats(bot, chatId);
+    await sendAdminStats(bot, botRow, chatId);
     return true;
   }
   if (text === "🔎 بحث عن مستخدم") {
