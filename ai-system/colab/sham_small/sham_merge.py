@@ -44,10 +44,12 @@ KNOWN_SOURCES = [
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
-    # The engineer's crawl notebook (Wikipedia + news feeds). It once published its
-    # final.pt INTO sham-multimodal-checkpoint; sham_inputs repairs that dataset by
-    # moving such files here (FOREIGN_HOME), so it is merged only through the gate.
+    # The live trainer (sham_live.py).
     ("sham-crawl-checkpoint", "final*.pt", MEDIA_ROWS),
+    # The engineer's first crawl notebook published its final.pt INTO
+    # sham-multimodal-checkpoint; sham_inputs repairs that dataset by moving such
+    # files here (FOREIGN_HOME), so it is merged only through the repair + gate.
+    ("sham-crawl-legacy", "final*.pt", MEDIA_ROWS),
     ("sham-chat-checkpoint-incoming", "final*.pt", MEDIA_ROWS),
 ]
 

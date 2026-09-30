@@ -112,11 +112,12 @@ REQUIRED_FILE = {
 }
 WALK_BACK_VERSIONS = 15
 # Where a foreign publication found on top of one of our datasets is moved to
-# when the dataset is repaired (see _repair). sham-crawl-checkpoint is the
-# engineer's Wikipedia/news crawl notebook, which is merged from there by the
-# guarded merge (sham_merge.KNOWN_SOURCES).
+# when the dataset is repaired (see _repair). sham-crawl-legacy holds what the
+# engineer's first crawl notebook published there — its own name, so the live
+# trainer (sham-crawl-checkpoint) never overwrites it; the chat stage merges it
+# through the repair stage and the guard like every sham-crawl-* dataset.
 FOREIGN_HOME = {
-    "sham-multimodal-checkpoint": "sham-crawl-checkpoint",
+    "sham-multimodal-checkpoint": "sham-crawl-legacy",
     "sham-chat-checkpoint": "sham-chat-checkpoint-incoming",
 }
 
