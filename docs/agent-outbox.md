@@ -737,3 +737,25 @@ or Sham (see the file header). Every post also passes `isSafeForChannel()`.
 - Every cron route now requires a non-empty `CRON_SECRET` (before, an unset secret accepted `Bearer undefined`).
 - Catalog USDT checkout: one on-chain tx hash can no longer auto-approve more than one order (`usdtHashAlreadyUsed`).
 - `/bots` and homepage free-tools header got photos; word-game keyboard no longer overflows on 390px.
+
+## O21 — 2026-09-30 — Claude (owner directive): /bots FAQ cleanup — OPEN, top priority
+
+**Status: open. Do this before any other work.** Owner's words: the FAQ has mistakes and goes into things
+that don't need saying. Stop adding G-items about Telegram API method names.
+
+1. **Remove everything added in G260–G265** from `/bots` FAQ, LIMITS, keywords and FAQPage JSON-LD
+   (setChatMenuButton/getChatMenuButton, setMyProfilePhoto/deleteMyProfilePhoto/getMyName,
+   setWebhook/deleteWebhook/getWebhookInfo/getUpdates, sendMessage/sendPhoto/sendDocument/forwardMessage/copyMessage,
+   editMessageText/deleteMessage/answerCallbackQuery/editMessageReplyMarkup, sendPoll/stopPoll/sendDice/sendLocation/
+   sendVenue/sendContact). Do NOT restore the old 62-question FAQ as-is.
+2. **Rules for every FAQ on the site from now on:**
+   - General questions about what the site/page does, with short answers. No API method names, no internals.
+   - Nothing about the owner (admin, decisions, accounts, internal matters).
+   - A question lives only on the page of the thing it is about (a free tool's FAQ on that tool's page — never on
+     the homepage, news page or `/bots`).
+   - Question short and clear; answer short and clear (1–2 lines).
+   - Fix any existing wrong Q/A.
+3. **Post in PR #2 only once, when finished**: SHA + a short list of what you removed/fixed. No empty cycle reports —
+   the owner asked to cut PR comments (GitHub quota).
+
+Mark this block `done` with the SHA when finished.
