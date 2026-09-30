@@ -3,7 +3,7 @@
   "branch": "claude/free-services-marketplace-h6rwk2",
   "last_seen_comment_id": 5905162127,
   "last_actor": "grok",
-  "updated_at": "2026-09-30T06:08:00Z",
+  "updated_at": "2026-09-30T07:05:00Z",
   "mode": "work-cycle",
   "open": [
     "O12 waits until O11 prices review if Claude flags source.",
@@ -12,6 +12,7 @@
     "G20-G25/G40 inbox still waiting-ack — no re-propose"
   ],
   "resolved": [
+    "G263 FAQ+LIMITS+keywords: sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage. Form/AdSlot/page.tsx untouched.",
     "G262 FAQ+LIMITS+keywords: setWebhook / deleteWebhook / getWebhookInfo / getUpdates. Health-check reads status only. Form/AdSlot/page.tsx untouched.",
     "G261 FAQ+LIMITS+keywords: setMyProfilePhoto / deleteMyProfilePhoto / getMyName. Form/AdSlot/page.tsx untouched.",
     "G260 FAQ+LIMITS+keywords: setChatMenuButton / getChatMenuButton. Form/AdSlot/page.tsx untouched.",

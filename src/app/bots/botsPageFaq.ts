@@ -20,6 +20,7 @@ export const FAQ = [
   { q: "هل أضع زر قائمة الدردشة من الموقع (setChatMenuButton / getChatMenuButton)؟", a: "لا. setChatMenuButton وgetChatMenuButton من تليجرام فقط. الموقع لا يضع زر قائمة الدردشة ولا يقرأه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أضع أو أحذف صورة البوت من الموقع (setMyProfilePhoto / deleteMyProfilePhoto / getMyName)؟", a: "لا. setMyProfilePhoto وdeleteMyProfilePhoto وgetMyName من تليجرام و@BotFather فقط. الموقع لا يضع صورة البوت ولا يحذفها ولا يقرأ الاسم المعروض نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أضع أو ألغي الويبهوك أو أقرأ getUpdates من النموذج (setWebhook / deleteWebhook / getWebhookInfo)؟", a: "لا. setWebhook وdeleteWebhook وgetWebhookInfo وgetUpdates من تليجرام فقط. فاحص الصحة يقرأ حالة الويبهوك فقط ولا يسجّل ويبهوكاً مخصصاً ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أرسل رسالة أو صورة أو ملفاً من صفحة /bots (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage)؟", a: "لا من صفحة التفعيل. sendMessage وsendPhoto وsendDocument وforwardMessage وcopyMessage تعمل عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا يعيد توجيهاً نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {

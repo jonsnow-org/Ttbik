@@ -73,6 +73,13 @@ export const botsMetadata: Metadata = {
     "getUpdates",
     "ويبهوك تليجرام",
     "إلغاء ويبهوك",
+    "sendMessage",
+    "sendPhoto",
+    "sendDocument",
+    "forwardMessage",
+    "copyMessage",
+    "إرسال رسالة تليجرام",
+    "إعادة توجيه رسالة",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
