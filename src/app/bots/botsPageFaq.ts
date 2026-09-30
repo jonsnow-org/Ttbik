@@ -22,6 +22,7 @@ export const FAQ = [
   { q: "هل أضع أو ألغي الويبهوك أو أقرأ getUpdates من النموذج (setWebhook / deleteWebhook / getWebhookInfo)؟", a: "لا. setWebhook وdeleteWebhook وgetWebhookInfo وgetUpdates من تليجرام فقط. فاحص الصحة يقرأ حالة الويبهوك فقط ولا يسجّل ويبهوكاً مخصصاً ولا يلغيه نيابة عنك. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أرسل رسالة أو صورة أو ملفاً من صفحة /bots (sendMessage / sendPhoto / sendDocument / forwardMessage / copyMessage)؟", a: "لا من صفحة التفعيل. sendMessage وsendPhoto وsendDocument وforwardMessage وcopyMessage تعمل عبر البوت المفعّل فقط. الموقع لا يرسل رسالة ولا صورة ولا يعيد توجيهاً نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
   { q: "هل أعدّل نص رسالة أو أحذفها أو أرد على زر من صفحة /bots (editMessageText / deleteMessage / answerCallbackQuery)؟", a: "لا من صفحة التفعيل. editMessageText وdeleteMessage وanswerCallbackQuery وeditMessageReplyMarkup تعمل عبر البوت المفعّل فقط. الموقع لا يعدّل رسالة ولا يحذفها ولا يرد على زر نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
+  { q: "هل أنشر استطلاعاً أو موقعاً أو جهة اتصال من صفحة /bots (sendPoll / stopPoll / sendLocation / sendContact)؟", a: "لا من صفحة التفعيل. sendPoll وstopPoll وsendDice وsendLocation وsendVenue وsendContact تعمل عبر البوت المفعّل فقط. الموقع لا ينشر استطلاعاً ولا يرسل موقعاً ولا جهة اتصال نيابة عنك من النموذج. لا رمز طلب إضافياً. طلب واحد = بوت واحد." },
 ];
 
 export const FAQ_JSON_LD = {
