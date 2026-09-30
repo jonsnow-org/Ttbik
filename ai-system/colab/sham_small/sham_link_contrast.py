@@ -90,8 +90,11 @@ def attach(model):
 
 
 def report() -> str:
+    from sham_selfdev import record
     if not STATS["batches"]:
+        record("الربط التبايني", "لم يعمل: لا دفعات فيها أزواج نص/وسائط كافية")
         return "🔗 خسارة الربط التبايني: لا دفعات فيها أزواج نص/وسائط كافية."
+    record("الربط التبايني", f"{STATS['batches']:,} دفعة، متوسط {STATS['loss_sum'] / STATS['batches']:.3f}")
     return (f"🔗 خسارة الربط التبايني: {STATS['batches']:,} دفعة، "
             f"متوسط {STATS['loss_sum'] / STATS['batches']:.3f}")
 

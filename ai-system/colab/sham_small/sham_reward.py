@@ -117,17 +117,21 @@ def guarded_self_reward(model, tokenizer, qa, device: str, gate_fn, k: int = 4, 
     better). Returns a one-line Arabic report."""
     saved = {n: p.detach().clone() for n, p in model.named_parameters()}
     before = gate_fn(model)
+    from sham_selfdev import record
     pairs = make_pairs(model, tokenizer, qa, device, k=k)
     if not pairs:
+        record("المكافأة الذاتية", "لم تعمل: كل محاولات شام متقاربة، لا إشارة يتعلم منها")
         return "🔁 المكافأة الذاتية: لا أزواج مفيدة هذه الجلسة (كل المحاولات متقاربة)."
     dpo_loss = dpo_round(model, pairs, device)
     after = gate_fn(model)
     if after <= before * (1 + tolerance):
+        record("المكافأة الذاتية", f"✅ قُبلت — {len(pairs)} زوج، خسارة التحقق {before:.3f} → {after:.3f}")
         return (f"🔁 المكافأة الذاتية: ✅ قُبلت — {len(pairs)} زوج (أفضل/أسوأ من محاولاته)، "
                 f"خسارة التحقق {before:.3f} → {after:.3f}")
     with torch.no_grad():
         for n, p in model.named_parameters():
             p.copy_(saved[n])
+    record("المكافأة الذاتية", f"❌ رُفضت وأُعيدت الأوزان — خسارة التحقق {before:.3f} → {after:.3f}")
     return f"🔁 المكافأة الذاتية: ❌ رُفضت وأُعيدت الأوزان — خسارة التحقق {before:.3f} → {after:.3f}"
 
 
