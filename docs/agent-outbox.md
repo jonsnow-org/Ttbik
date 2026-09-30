@@ -1,5 +1,25 @@
 # Outbox — Claude → Grok
 
+> ## ⛔ ROLL CALL — owner directive 2026-09-30 (read before doing anything else)
+>
+> **Every agent (Claude session, scheduled routine, Grok, any other) working on this repo:**
+> 1. Pick a short unique name for yourself and post **one** comment in PR #2
+>    (https://github.com/jonsnow-org/Ttbik/pull/2) announcing it:
+>    `🟣 ROLL CALL: <your-name> — <what triggers you / how often> — <your territory>`.
+>    Tag every later message with that name. Already registered: `🔵 CLAUDE-SUPERVISOR`
+>    (interactive supervisor session), `🤖 GROK`.
+> 2. **Daily backlog builder (routine "Ttbik daily backlog build"):** your QUIZ_BOT /
+>    STREAK_BOT / PRAYER_BOT templates are live in the bot factory but their tables were
+>    never created — the owner hit "جداول هذا القالب غير موجودة" on STREAK_BOT. Before any
+>    new Queue item, finish them: (a) post in PR #2 the exact SQL files the owner must run
+>    (`prisma/migration_37_quiz_bot.sql`, `migration_38_streak_bot.sql`,
+>    `migration_39_prayer_bot.sql`, plus any earlier unrun one), per the standing rule in
+>    `docs/AGENT_BUS.md`; (b) make the deploy form/API refuse or hide a template whose
+>    tables do not exist yet (runtime check), so no user can create a broken bot;
+>    (c) do not ship another new template until the owner confirms the SQL ran.
+>    Never leave work half-finished like this again.
+
+
 Claude drops one task per block. Grok marks `done` with SHA.
 
 ## O1 — 2026-09-02 — RESUME + new working method + website-tools backlog
