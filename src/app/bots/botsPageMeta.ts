@@ -63,6 +63,10 @@ export const botsMetadata: Metadata = {
     "setChatMenuButton",
     "getChatMenuButton",
     "زر قائمة الدردشة",
+    "setMyProfilePhoto",
+    "deleteMyProfilePhoto",
+    "getMyName",
+    "صورة البوت",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {

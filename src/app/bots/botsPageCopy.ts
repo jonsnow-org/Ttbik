@@ -33,6 +33,7 @@ export const LIMITS = [
   "وصف البوت الطويل والقصير (setMyDescription / getMyDescription / setMyShortDescription / getMyShortDescription) من تليجرام و@BotFather فقط. الموقع لا يضع وصف البوت ولا يقرأه نيابة عنك. لا رمز طلب إضافياً.",
   "صلاحيات المشرف الافتراضية للبوت (setMyDefaultAdministratorRights / getMyDefaultAdministratorRights) من تليجرام فقط. الموقع لا يضع هذه الصلاحيات ولا يقرأها نيابة عنك. لا رمز طلب إضافياً.",
   "زر قائمة الدردشة (setChatMenuButton / getChatMenuButton) من تليجرام فقط. الموقع لا يضع زر قائمة ولا يقرأه نيابة عنك. لا رمز طلب إضافياً.",
+  "صورة البوت المعروضة (setMyProfilePhoto / deleteMyProfilePhoto / getMyName) من تليجرام و@BotFather فقط. الموقع لا يضع صورة البوت ولا يحذفها ولا يقرأ الاسم المعروض نيابة عنك. لا رمز طلب إضافياً.",
   "النقاط داخل البوت فقط — لا سحب نقدي عبر سوق تولز.",
 ];
 
