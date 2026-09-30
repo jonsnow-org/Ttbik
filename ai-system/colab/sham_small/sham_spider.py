@@ -11,11 +11,11 @@ network of many free sources that keeps finding NEW material:
          sends its key words to Arabic Wikipedia search so the background
          article joins the frontier (news → knowledge)
   image  images WITH captions: the lead image of each Arabic Wikipedia
-         article (Arabic caption), Wikimedia Commons, NASA, Art Institute
-         of Chicago (public domain), The Met (public domain), Openverse
-         (CC, commercial-use licences)
+         article (Arabic caption), the photo of every Arabic news item
+         (its headline as the caption), Wikimedia Commons, NASA, Art
+         Institute of Chicago, The Met, Openverse
   audio  Lingua Libre Arabic word recordings (the word is the transcript),
-         plus the licensed Arabic speech sets already used by the stages
+         plus the Arabic speech sets already used by the stages
          (Common Voice, FLEURS, ClArTTS, ArVoice) through sham_data_sources
   video  Wikimedia Commons videos (smallest transcode), NASA videos
          (mobile/small mp4), Kinetics CC clips through sham_data_sources
@@ -49,7 +49,7 @@ from pathlib import Path
 
 UA = "ShamResearchBot/1.0 (+https://github.com/jonsnow-org/Ttbik; research, polite)"
 MAX_MEDIA_BYTES = 25 * 1024 * 1024
-NEWS_IMAGES = False  # news photos are usually copyrighted — off unless the owner decides otherwise
+NEWS_IMAGES = True  # each news item's photo with its headline as the caption (owner decision)
 
 # ---------------------------------------------------------------- item
 
@@ -315,8 +315,8 @@ def src_rss(rng):
                                                    "srsearch": " ".join(words), "srlimit": 2})
             FRONTIER.push(s["title"] for s in (j or {}).get("query", {}).get("search", []))
         if NEWS_IMAGES:
-            thumb = next((c.attrib.get("url") for c in it if c.tag.split("}")[-1] in ("thumbnail", "content")
-                          and c.attrib.get("url")), None)
+            thumb = next((c.attrib.get("url") for c in it if c.tag.split("}")[-1] in ("thumbnail", "content", "enclosure")
+                          and c.attrib.get("url") and "image" in (c.attrib.get("type") or "image")), None)
             img = http_get(thumb, max_bytes=MAX_MEDIA_BYTES) if thumb else None
             if img:
                 out.append(Item("image", title, f"rss_image:{name}", img, "news photo"))
