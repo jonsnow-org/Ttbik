@@ -33,7 +33,7 @@ that mechanism actually works, not just that it doesn't crash:
 
 import torch
 
-from dataset import ContentSafetyFilter, MultimodalCollator
+from dataset import MultimodalCollator
 from image_tokenizer import ImageTokenizer, ImageTokenizerConfig
 from model import ShamSmall, ShamSmallConfig, SpecialTokens
 from text_tokenizer import train_text_tokenizer

@@ -1,6 +1,6 @@
 """
 Sham — the real, single autonomous loop: real web search+fetch
-(web_access.py) -> crawl_and_learn's real safety + MinHash dedup +
+(web_access.py) -> crawl_and_learn's real MinHash dedup +
 perplexity filtering (autonomous_knowledge_crawler.py) -> fused
 streaming training (train_from_stream.py). Running this script IS
 "automatic training with smart internet access and filtering," end to
@@ -13,8 +13,8 @@ the web, then filtering it).
 
 One cycle, concretely:
   1. crawl_and_learn() runs real_search()/real_fetch() (web_access.py)
-     against a real topic list, keeping only text that passes safety
-     filtering, MinHash-accelerated near-duplicate detection, and
+     against a real topic list, keeping every new text (credential-shaped
+     text aside), with MinHash-accelerated near-duplicate detection, and
      (optionally) this model's own perplexity-based "is this genuinely
      learnable right now" check -- exactly the multi-stage filtering
      autonomous_knowledge_crawler.py already implements and tests.
@@ -80,7 +80,6 @@ def format_cycle_report(
     result through telegram_report.send_telegram_message()."""
     total_added = sum(r.crawl_stats.added for r in cycle_results)
     total_rejected_duplicate = sum(r.crawl_stats.duplicate + r.crawl_stats.near_duplicate for r in cycle_results)
-    total_unsafe = sum(r.crawl_stats.unsafe for r in cycle_results)
     total_credential_risk = sum(r.crawl_stats.credential_risk for r in cycle_results)
     total_training_steps = sum(len(r.train_losses) for r in cycle_results)
     last_loss = next((r.train_losses[-1] for r in reversed(cycle_results) if r.train_losses), None)
@@ -89,7 +88,7 @@ def format_cycle_report(
         f"🧠 تقرير جلسة شام — {track_name}",
         f"عدد الدورات: {len(cycle_results)}",
         f"مستندات جديدة مقبولة: {total_added}",
-        f"مرفوض (مكرر/شبه مكرر: {total_rejected_duplicate}، غير آمن: {total_unsafe}، بيانات اعتماد: {total_credential_risk})",
+        f"مستبعد (مكرر/شبه مكرر: {total_rejected_duplicate}، أسرار وكلمات مرور: {total_credential_risk})",
         f"خطوات تدريب حقيقية هذه الجلسة: {total_training_steps} (الخطوة النهائية: {final_step:,})",
     ]
     if last_loss is not None:
@@ -128,10 +127,10 @@ def run_autonomous_cycle(
         max_pages_per_topic=max_pages_per_topic,
     )
     logger.info(
-        "autonomous cycle: crawl done -- added=%d duplicate=%d near_duplicate=%d unsafe=%d "
+        "autonomous cycle: crawl done -- added=%d duplicate=%d near_duplicate=%d "
         "not_learnable=%d fetch_failed=%d",
         crawl_stats.added, crawl_stats.duplicate, crawl_stats.near_duplicate,
-        crawl_stats.unsafe, crawl_stats.not_learnable, crawl_stats.fetch_failed,
+        crawl_stats.not_learnable, crawl_stats.fetch_failed,
     )
 
     all_paths = corpus.file_paths()
@@ -335,7 +334,7 @@ if __name__ == "__main__":
               "all appear in the generated report text.")
 
     print("\nAll autonomous_pipeline checks passed: real (fake-injected, real-shaped) web content genuinely "
-          "flows through crawl_and_learn's real safety/dedup filtering into train_from_stream's real "
+          "flows through crawl_and_learn's real dedup into train_from_stream's real "
           "training loop, checkpoints are genuinely written, persistence/dedup holds across repeated "
           "cycles, and run_forever() genuinely repeats the cycle -- swap search_fn/fetch_fn for "
           "web_access.real_search/real_fetch (the defaults) to run this for real on Kaggle/GitHub Actions.")

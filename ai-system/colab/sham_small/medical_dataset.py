@@ -39,7 +39,6 @@ from pathlib import Path
 import torch
 from PIL import Image
 
-from dataset import ContentSafetyFilter
 from image_tokenizer import ImageTokenizer
 from model import SpecialTokens
 from text_tokenizer import ShamTextTokenizer
@@ -102,15 +101,12 @@ class MedicalVideoDataset(torch.utils.data.Dataset):
         manifest_path: str,
         image_size: int,
         num_frames: int,
-        safety_filter: ContentSafetyFilter | None = None,
     ):
-        safety_filter = safety_filter or ContentSafetyFilter()
         manifest_dir = Path(manifest_path).parent
         self.image_size = image_size
         self.num_frames = num_frames
         self.entries: list[tuple[Path, str]] = []
         self.skipped_provenance = 0
-        self.skipped_unsafe = 0
         self.rejection_log: list[tuple[str, str]] = []  # (frames_dir, reason) — a real audit trail, not silent dropping
 
         with open(manifest_path, encoding="utf-8") as f:
@@ -124,12 +120,6 @@ class MedicalVideoDataset(torch.utils.data.Dataset):
                 if not provenance.is_valid:
                     self.skipped_provenance += 1
                     self.rejection_log.append((record.get("frames_dir", "?"), f"provenance: {provenance.reason}"))
-                    continue
-
-                verdict = safety_filter.check_text(record["description"])
-                if not verdict.is_safe:
-                    self.skipped_unsafe += 1
-                    self.rejection_log.append((record["frames_dir"], f"safety filter: {verdict.reason}"))
                     continue
 
                 self.entries.append((manifest_dir / record["frames_dir"], record["description"]))
@@ -222,7 +212,7 @@ if __name__ == "__main__":
         clip_valid = make_clip("clip_valid", (120, 80, 60))
         clip_no_consent = make_clip("clip_no_consent", (60, 120, 80))
         clip_no_license = make_clip("clip_no_license", (80, 60, 120))
-        clip_unsafe_text = make_clip("clip_unsafe_text", (100, 100, 100))
+        clip_second = make_clip("clip_second", (100, 100, 100))
 
         manifest_path = tmp / "manifest.jsonl"
         with open(manifest_path, "w", encoding="utf-8") as f:
@@ -240,7 +230,7 @@ if __name__ == "__main__":
                 "source": "Example Hospital", "license": "unknown", "consent_obtained": True,
             }) + "\n")
             f.write(json.dumps({
-                "frames_dir": clip_unsafe_text, "description": "nsfw content here",
+                "frames_dir": clip_second, "description": "a second clinical clip",
                 "source": "Example Hospital", "license": "CC-BY-4.0", "consent_obtained": True,
             }) + "\n")
 
@@ -248,11 +238,10 @@ if __name__ == "__main__":
         dataset = MedicalVideoDataset(str(manifest_path), image_size=image_size, num_frames=num_frames)
 
         assert dataset.skipped_provenance == 2, f"expected 2 provenance rejections, got {dataset.skipped_provenance}"
-        assert dataset.skipped_unsafe == 1, f"expected 1 safety-filter rejection, got {dataset.skipped_unsafe}"
-        assert len(dataset) == 1, f"expected exactly 1 valid entry, got {len(dataset)}"
+        assert len(dataset) == 2, f"expected 2 valid entries, got {len(dataset)}"
         print(f"MedicalVideoDataset OK: {dataset.skipped_provenance} rejected for missing/invalid provenance "
-              f"(no consent, no real license), {dataset.skipped_unsafe} rejected by the content safety filter, "
-              f"{len(dataset)} genuinely valid entry kept.")
+              f"(no consent, no real license), "
+              f"{len(dataset)} valid entries kept.")
         for frames_dir, reason in dataset.rejection_log:
             print(f"  rejected {Path(frames_dir).name}: {reason}")
 

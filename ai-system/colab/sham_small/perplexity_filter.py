@@ -13,12 +13,16 @@ perplexity, tells us where the document falls:
     perfectly — likely near-boilerplate, a repeated pattern, or something
     close to what it has already memorized. Spending a gradient step on
     it teaches almost nothing new.
-  - VERY HIGH perplexity: the text is close to unpredictable noise for
-    this model right now (wrong language, corrupted extraction, an
-    encoding artifact) — also a poor use of a training step, and a real
-    risk if it is actually garbage rather than merely hard.
-  - IN BETWEEN: the "learnable" band — genuinely informative for the
-    model's CURRENT state.
+  - HIGH perplexity: text the model does not know yet. It is ALWAYS KEPT
+    (owner decision, 2026-09-30): for a model still learning, unfamiliar
+    text is exactly the new knowledge it needs — rejecting it would throw
+    away everything outside what it already knows.
+  - The only text skipped is text the model already knows almost by
+    heart: below the low percentile AND far below the typical (median)
+    perplexity of the recent stream — memorised repeats and boilerplate.
+    A plain percentile cut would drop a fixed 10–20% of every stream even
+    when all of it is new; this rule drops nothing unless something is
+    genuinely already known.
 
 Deliberately NOT a fixed perplexity number: perplexity is only meaningful
 relative to how far along training already is (everything looks "hard" on
@@ -72,6 +76,7 @@ class PerplexityFilter:
         high_percentile: float = 0.90,
         min_window: int = 30,
         device: str = "cpu",
+        known_ratio: float = 0.25,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -80,6 +85,7 @@ class PerplexityFilter:
         self.low_percentile = low_percentile
         self.high_percentile = high_percentile
         self.min_window = min_window
+        self.known_ratio = known_ratio  # "already known" = under this fraction of the median
 
     @torch.no_grad()
     def _perplexity(self, text: str) -> float | None:
@@ -116,7 +122,7 @@ class PerplexityFilter:
         n = len(ordered)
         lo = ordered[int(self.low_percentile * (n - 1))]
         hi = ordered[int(self.high_percentile * (n - 1))]
-        return lo, hi
+        return lo, hi, ordered[n // 2]
 
     def evaluate(self, text: str) -> FilterDecision:
         """Always records the real perplexity into the calibration
@@ -125,8 +131,8 @@ class PerplexityFilter:
         filter that only calibrates on its own accepted subset would
         drift toward a narrower and narrower band over time."""
         ppl = self._perplexity(text)
-        if ppl is None:
-            return FilterDecision(keep=False, perplexity=None, reason="too short or non-finite loss")
+        if ppl is None:  # too short to measure: kept, never lost
+            return FilterDecision(keep=True, perplexity=None, reason="too short to measure — kept")
 
         band = self._band()
         self.window.append(ppl)
@@ -134,11 +140,12 @@ class PerplexityFilter:
         if band is None:
             return FilterDecision(keep=True, perplexity=ppl, reason=f"cold start ({len(self.window)}/{self.min_window} samples)")
 
-        lo, hi = band
-        if ppl < lo:
-            return FilterDecision(keep=False, perplexity=ppl, reason=f"too easy (ppl={ppl:.1f} < band low {lo:.1f})")
+        lo, hi, median = band
+        if ppl < lo and ppl < median * self.known_ratio:
+            return FilterDecision(keep=False, perplexity=ppl,
+                                  reason=f"already known (ppl={ppl:.1f} < {self.known_ratio:.2f} × median {median:.1f})")
         if ppl > hi:
-            return FilterDecision(keep=False, perplexity=ppl, reason=f"too hard (ppl={ppl:.1f} > band high {hi:.1f})")
+            return FilterDecision(keep=True, perplexity=ppl, reason=f"new to the model — kept (ppl={ppl:.1f})")
         return FilterDecision(keep=True, perplexity=ppl, reason=f"learnable (band {lo:.1f}-{hi:.1f})")
 
 
@@ -254,10 +261,7 @@ if __name__ == "__main__":
         f"memorized/repeated text should be filtered out MORE than normal diverse text, got "
         f"repeated={repeated_keep_rate:.2f} vs normal={normal_keep_rate:.2f}"
     )
-    assert garbage_keep_rate < normal_keep_rate, (
-        f"garbage text should be filtered out MORE than normal diverse text, got "
-        f"garbage={garbage_keep_rate:.2f} vs normal={normal_keep_rate:.2f}"
-    )
-    print("\nconfirmed: perplexity filter keeps normal, genuinely learnable text at a higher rate than "
-          "both memorized/repeated text (too easy) and garbage text (too hard) -- a real difficulty "
-          "gradient measured on a real trained model, not asserted.")
+    assert normal_keep_rate == 1.0, f"normal new text must never be dropped, keep rate {normal_keep_rate:.2f}"
+    assert garbage_keep_rate == 1.0, f"unfamiliar text must never be dropped, keep rate {garbage_keep_rate:.2f}"
+    print("\nconfirmed: every new or unfamiliar text is kept; only text the model already knows by heart "
+          "(far below the stream's typical perplexity) is skipped.")

@@ -3,7 +3,7 @@ Text <-> image / sound linking, measured and protected — used by stage 2 and
 the chat stage so every later change lands here, not in notebook cells.
 
 1. Honest data accounting: how many pairs were collected, how many were lost
-   and why (duplicate, broken, unlicensed, filtered in the Dataset), with a
+   and why (duplicate, broken), with a
    loud warning when most of the data disappears.
 2. Tokenizer identity: a fingerprint of each image/audio tokenizer, compared
    with the files saved next to the checkpoint — the model must keep speaking
@@ -37,19 +37,15 @@ FIXED_PAIRS = 32
 
 def data_report(kind: str, stats, dataset=None) -> str:
     """One clear block per modality. `stats` is sham_data_sources.CollectStats."""
-    seen = stats.written + stats.duplicates + stats.dropped + getattr(stats, "unlicensed", 0)
+    seen = stats.written + stats.duplicates + stats.dropped
     kept = len(dataset) if dataset is not None else stats.written
-    skipped = getattr(dataset, "skipped_entries", 0) if dataset is not None else 0
     lines = [
         f"📦 بيانات {kind}: فُحص {seen:,} → جُمع {stats.written:,} → دخل التدريب {kept:,}",
-        f"   مستبعد: مكرر {stats.duplicates:,} | تالف/فارغ {stats.dropped:,} | غير مرخّص {getattr(stats, 'unlicensed', 0):,}"
-        f" | فلتر الـDataset {skipped:,}",
+        f"   مكرر {stats.duplicates:,} | تالف/فارغ {stats.dropped:,}",
     ]
     lost = seen - kept
     if seen and lost / seen > 0.5:
         lines.append(f"   ⚠ ضاع أكثر من نصف ما فُحص ({lost:,} من {seen:,}) — راجعي السبب أعلاه.")
-    if stats.written and skipped / max(stats.written, 1) > 0.2:
-        lines.append(f"   ⚠ فلتر الـDataset حذف {skipped:,} من {stats.written:,} — أكثر من 20%.")
     text = "\n".join(lines)
     print(text)
     return text

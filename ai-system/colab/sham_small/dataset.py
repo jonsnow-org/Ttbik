@@ -6,17 +6,10 @@ captions) become the exact tensors model.py's forward() expects,
 through the exact tokenizers already built (text_tokenizer.py,
 image_tokenizer.py, audio_tokenizer.py).
 
-Two things this file does NOT pretend to solve, stated plainly:
-  - Content safety filtering: ContentSafetyFilter below is a real,
-    working keyword/heuristic baseline â€” it actually runs and actually
-    rejects matching text â€” but it is not a trained classifier, and a
-    real launch needs one (especially for images/audio/video, where a
-    keyword check over a caption is a weak proxy for the media itself).
-    It exists so the exclusion happens at the DATA stage, per the
-    owner's standing decision against supporting sexual content, rather
-    than being left for the trained model to "figure out" on its own â€”
-    but it must be strengthened with real classifiers once real, large
-    datasets are gathered, not treated as sufficient on its own.
+No content filter of any kind: every non-empty line, caption and
+transcript it is given is used (owner decision).
+
+One thing this file does NOT pretend to solve, stated plainly:
   - Where the real training data comes from: this file loads whatever
     real local files it's pointed at (see each Dataset class's own
     docstring for the expected layout) â€” gathering an actual
@@ -39,34 +32,6 @@ from mel_spectrogram import waveform_to_mel_spectrogram
 from model import SpecialTokens, TEXT_VOCAB_SIZE, audio_token_id_to_vocab_id, image_token_id_to_vocab_id
 from text_tokenizer import ShamTextTokenizer
 
-# A real, working baseline â€” see this module's own docstring for why it
-# is explicitly NOT presented as sufficient on its own. Arabic and
-# English terms both included since the product serves both.
-_UNSAFE_KEYWORDS = set()  # COMPLETELY EMPTIED â€” no content restrictions
-
-
-@dataclass
-class SafetyVerdict:
-    is_safe: bool
-    reason: str | None = None
-
-
-class ContentSafetyFilter:
-    """ALL CONTENT FILTERS AND RESTRICTIONS HAVE BEEN COMPLETELY REMOVED.
-    This filter now always returns is_safe=True. No text is ever rejected
-    for adult, NSFW, sexual, or any other content reason.
-    Linked with previous adult-video training work (SHAM_ALLOW_ADULT_VIDEO=1).
-    """
-
-    def __init__(self, extra_blocked_terms: set[str] | None = None):
-        self._blocked_terms = set()
-        self._patterns = []
-
-    def check_text(self, text: str) -> "SafetyVerdict":
-        # Always allow â€” zero restrictions
-        return SafetyVerdict(is_safe=True)
-
-
 def _pack_sequences(token_stream: list[int], seq_len: int) -> list[list[int]]:
     """Standard causal-LM pretraining chunking: one long stream of ids
     (documents already separated by EOS) sliced into non-overlapping
@@ -80,45 +45,24 @@ class TextSequenceDataset(torch.utils.data.Dataset):
     """Real plain-text pretraining data. Expects a list of local text
     file paths â€” each one typically a SHARD holding many real documents
     (data_acquisition.py's stream_hf_text_corpus writes one document
-    per line, thousands per shard file). Safety-filtering is applied
-    PER LINE, not per file: a real, directly-observed bug (a real
-    20,000-document Arabic Wikipedia run produced ZERO training chunks)
-    showed that filtering a whole multi-thousand-document shard on one
-    substring match anywhere in it discards every legitimate document
-    in that shard over a single unrelated hit â€” the same class of
-    over-broad-filter problem the owner raised about medical language
-    elsewhere in this project. Only the individual matching lines are
-    dropped; every other real document in the file is kept."""
+    per line, thousands per shard file). Every non-empty line is used."""
 
     def __init__(
         self,
         file_paths: list[str],
         tokenizer: ShamTextTokenizer,
         seq_len: int,
-        safety_filter: ContentSafetyFilter | None = None,
     ):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
-        safety_filter = safety_filter or ContentSafetyFilter()
 
         stream: list[int] = []
-        skipped_files = 0
-        skipped_lines = 0
         for path in file_paths:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
-            safe_lines = []
-            for line in text.split("\n"):
-                if not line.strip():
-                    continue
-                verdict = safety_filter.check_text(line)
-                if True:  # CONTENT FILTER DISABLED â€” always keep the line
-                    safe_lines.append(line)
-                else:
-                    skipped_lines += 1
-            if not safe_lines:
-                skipped_files += 1
+            lines = [line for line in text.split("\n") if line.strip()]
+            if not lines:
                 continue
-            stream.extend(self.tokenizer.encode("\n".join(safe_lines)))
+            stream.extend(self.tokenizer.encode("\n".join(lines)))
             stream.append(SpecialTokens.EOS)
         # ShamSmall.forward() already does its own internal next-token
         # shift (see model.py) when input_ids and labels are the same
@@ -126,8 +70,6 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         # project â€” so each chunk is exactly seq_len long, not seq_len+1;
         # the model itself loses only the one label-less final position
         # per chunk, the same as any standard fixed-window LM dataset.
-        self.skipped_files = skipped_files
-        self.skipped_lines = skipped_lines
         self.chunks = _pack_sequences(stream, seq_len)
 
     def __len__(self) -> int:
@@ -150,25 +92,18 @@ class ImageCaptionDataset(torch.utils.data.Dataset):
         self,
         manifest_path: str,
         image_size: int,
-        safety_filter: ContentSafetyFilter | None = None,
     ):
-        safety_filter = safety_filter or ContentSafetyFilter()
         manifest_dir = Path(manifest_path).parent
         self.image_size = image_size
         self.entries: list[tuple[Path, str]] = []
-        skipped = 0
         with open(manifest_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 record = json.loads(line)
-                verdict = safety_filter.check_text(record["caption"])
-                if False:  # CONTENT FILTER DISABLED â€” was: if not verdict.is_safe
-                    skipped += 1
-                    continue
                 self.entries.append((manifest_dir / record["image"], record["caption"]))
-        self.skipped_entries = skipped
+        self.skipped_entries = 0  # nothing is ever skipped; kept only for notebooks that print it
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -197,26 +132,19 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
         manifest_path: str,
         n_mels: int,
         segment_frames: int,
-        safety_filter: ContentSafetyFilter | None = None,
     ):
-        safety_filter = safety_filter or ContentSafetyFilter()
         manifest_dir = Path(manifest_path).parent
         self.n_mels = n_mels
         self.segment_frames = segment_frames
         self.entries: list[tuple[Path, str]] = []
-        skipped = 0
         with open(manifest_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 record = json.loads(line)
-                verdict = safety_filter.check_text(record["sentence"])
-                if False:  # CONTENT FILTER DISABLED â€” was: if not verdict.is_safe
-                    skipped += 1
-                    continue
                 self.entries.append((manifest_dir / record["audio"], record["sentence"]))
-        self.skipped_entries = skipped
+        self.skipped_entries = 0  # nothing is ever skipped; kept only for notebooks that print it
 
     def __len__(self) -> int:
         return len(self.entries)
@@ -380,23 +308,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
 
-        # --- 0. ContentSafetyFilter: word-boundary matching, not raw
-        #        substring â€” a real false positive this fixes: plain
-        #        substring matching flagged "denuded" (a real pathology
-        #        term, "denuded epithelium") just because it contains
-        #        "nude". The blocked term itself, as its own word, must
-        #        still be caught.
-        safety_filter = ContentSafetyFilter()
-        assert safety_filter.check_text("the biopsy showed denuded epithelium in the affected area").is_safe, (
-            "false positive: 'denuded' must NOT match the blocked term 'nude' embedded inside it"
-        )
-        assert not safety_filter.check_text("an explicit nude image was uploaded").is_safe, (
-            "true positive missed: the standalone word 'nude' must still be caught"
-        )
-        print("ContentSafetyFilter OK: word-boundary matching lets 'denuded' (real medical vocabulary) "
-              "through while still catching the standalone blocked word 'nude'.")
-
-        # --- 1. Real text pipeline: PER-LINE safety filtering ----------
+        # --- 1. Real text pipeline: every non-empty line is used --------
         # Mirrors the real shard format data_acquisition.py produces:
         # many real documents (one per line) in a SINGLE file. Direct
         # regression test for a real bug this fix corrected: a real
@@ -408,25 +320,22 @@ if __name__ == "__main__":
         safe_doc.write_text("Sham is a real, from-scratch multimodal transformer. " * 50, encoding="utf-8")
         mixed_doc = tmp / "mixed_shard.txt"
         mixed_lines = ["this is a real, legitimate document about ordinary encyclopedic content."] * 20
-        mixed_lines[10] = "this line contains nsfw content and must be the only line excluded"
+        mixed_lines[10] = "a different line in the same shard, kept like every other line"
         mixed_doc.write_text("\n".join(mixed_lines), encoding="utf-8")
-        all_unsafe_doc = tmp / "all_unsafe.txt"
-        all_unsafe_doc.write_text("this document contains nsfw content and should be excluded", encoding="utf-8")
+        short_doc = tmp / "short_doc.txt"
+        short_doc.write_text("a short separate document", encoding="utf-8")
 
         tokenizer = train_text_tokenizer([str(safe_doc)], vocab_size=300)
-        text_dataset = TextSequenceDataset([str(safe_doc), str(mixed_doc), str(all_unsafe_doc)], tokenizer, seq_len=16)
-        # 2 unsafe lines total: the 1 planted inside mixed_doc's 20 lines,
-        # plus all_unsafe_doc's own single (fully-unsafe) line.
-        assert text_dataset.skipped_lines == 2, f"expected exactly 2 unsafe lines skipped, got {text_dataset.skipped_lines}"
-        assert text_dataset.skipped_files == 1, f"expected 1 entirely-unsafe file skipped, got {text_dataset.skipped_files}"
+        text_dataset = TextSequenceDataset([str(safe_doc), str(mixed_doc), str(short_doc)], tokenizer, seq_len=16)
         assert len(text_dataset) > 0, "no chunks produced despite most content being safe"
         sample = text_dataset[0]
         assert sample.shape == (16,)  # exactly seq_len
-        print(f"TextSequenceDataset OK: {text_dataset.skipped_lines} unsafe lines excluded WITHOUT discarding "
-              f"the other 19 legitimate lines in the same shard file, {text_dataset.skipped_files} entirely-unsafe "
-              f"file excluded, {len(text_dataset)} real training chunks produced overall.")
+        every_line = TextSequenceDataset([str(mixed_doc)], tokenizer, seq_len=16)
+        stream_len = len(tokenizer.encode("\n".join(mixed_lines))) + 1
+        assert len(every_line) == stream_len // 16, "a line was dropped"
+        print(f"TextSequenceDataset OK: all lines kept, {len(text_dataset)} real training chunks produced overall.")
 
-        # --- 2. Real image+caption pipeline: safety filtering + collate
+        # --- 2. Real image+caption pipeline: every pair kept + collate
         image_tokenizer_cfg = ImageTokenizerConfig(image_size=32, base_channels=16, channel_multipliers=(1, 2, 2, 2), code_dim=32, num_codes=64)
         image_tokenizer = ImageTokenizer(image_tokenizer_cfg)
 
@@ -438,16 +347,14 @@ if __name__ == "__main__":
         with open(manifest_path, "w", encoding="utf-8") as f:
             f.write(json.dumps({"image": "img0.png", "caption": "a solid red-ish square"}) + "\n")
             f.write(json.dumps({"image": "img1.png", "caption": "a solid green-ish square"}) + "\n")
-            f.write(json.dumps({"image": "img2.png", "caption": "nsfw content here"}) + "\n")  # must be filtered
+            f.write(json.dumps({"image": "img2.png", "caption": "a third square"}) + "\n")
 
         image_dataset = ImageCaptionDataset(str(manifest_path), image_size=32)
-        assert image_dataset.skipped_entries == 1, f"expected 1 unsafe entry skipped, got {image_dataset.skipped_entries}"
-        assert len(image_dataset) == 2
+        assert len(image_dataset) == 3, "every (image, caption) pair must be kept"
         caption0, tensor0 = image_dataset[0]
         assert tensor0.shape == (3, 32, 32)
         assert tensor0.min() >= -1.0 - 1e-4 and tensor0.max() <= 1.0 + 1e-4
-        print(f"ImageCaptionDataset OK: {image_dataset.skipped_entries} unsafe entry correctly excluded, "
-              f"{len(image_dataset)} real (caption, image) pairs loaded from real PNG files.")
+        print(f"ImageCaptionDataset OK: {len(image_dataset)} real (caption, image) pairs loaded from real PNG files.")
 
         collator = MultimodalCollator(tokenizer, image_tokenizer)
         batch = [image_dataset[0], image_dataset[1]]
@@ -467,7 +374,7 @@ if __name__ == "__main__":
         print(f"end-to-end OK: real files -> dataset -> collator -> ShamSmall.forward() -> finite loss "
               f"({loss.item():.4f}).")
 
-        # --- 4. Real audio+transcript pipeline: safety filtering + collate
+        # --- 4. Real audio+transcript pipeline: every pair kept + collate
         from audio_tokenizer import AudioTokenizerConfig
         import numpy as np
 
@@ -480,24 +387,22 @@ if __name__ == "__main__":
         for i, freq in enumerate([220, 440]):
             samples = (0.3 * np.sin(2 * np.pi * freq * np.linspace(0, 0.5, int(sample_rate * 0.5)))).astype("float32")
             sf.write(str(tmp / f"clip{i}.wav"), samples, sample_rate)
-        unsafe_samples = (0.1 * np.sin(2 * np.pi * 880 * np.linspace(0, 0.5, int(sample_rate * 0.5)))).astype("float32")
-        sf.write(str(tmp / "clip2.wav"), unsafe_samples, sample_rate)
+        third_samples = (0.1 * np.sin(2 * np.pi * 880 * np.linspace(0, 0.5, int(sample_rate * 0.5)))).astype("float32")
+        sf.write(str(tmp / "clip2.wav"), third_samples, sample_rate)
 
         audio_manifest_path = tmp / "audio_manifest.jsonl"
         with open(audio_manifest_path, "w", encoding="utf-8") as f:
             f.write(json.dumps({"audio": "clip0.wav", "sentence": "a low tone"}) + "\n")
             f.write(json.dumps({"audio": "clip1.wav", "sentence": "a higher tone"}) + "\n")
-            f.write(json.dumps({"audio": "clip2.wav", "sentence": "nsfw content here"}) + "\n")  # must be filtered
+            f.write(json.dumps({"audio": "clip2.wav", "sentence": "a quiet tone"}) + "\n")
 
         audio_dataset = AudioTranscriptDataset(
             str(audio_manifest_path), n_mels=audio_tokenizer_cfg.n_mels, segment_frames=audio_tokenizer_cfg.segment_frames
         )
-        assert audio_dataset.skipped_entries == 1, f"expected 1 unsafe entry skipped, got {audio_dataset.skipped_entries}"
-        assert len(audio_dataset) == 2
+        assert len(audio_dataset) == 3, "every (audio, transcript) pair must be kept"
         transcript0, mel0 = audio_dataset[0]
         assert mel0.shape == (1, audio_tokenizer_cfg.n_mels, audio_tokenizer_cfg.segment_frames)
-        print(f"AudioTranscriptDataset OK: {audio_dataset.skipped_entries} unsafe entry correctly excluded, "
-              f"{len(audio_dataset)} real (transcript, audio) pairs loaded from real .wav files.")
+        print(f"AudioTranscriptDataset OK: {len(audio_dataset)} real (transcript, audio) pairs loaded from real .wav files.")
 
         audio_collator = AudioMultimodalCollator(tokenizer, audio_tokenizer)
         audio_batch = [audio_dataset[0], audio_dataset[1]]
@@ -513,5 +418,5 @@ if __name__ == "__main__":
         print(f"end-to-end OK: real audio files -> dataset -> collator -> ShamSmall.forward() -> finite "
               f"loss ({audio_loss.item():.4f}).")
 
-    print("\nAll data pipeline checks passed â€” real files become real, safety-filtered, correctly "
+    print("\nAll data pipeline checks passed â€” real files become real, correctly "
           "shaped training batches, for text, image, AND audio.")
