@@ -4,7 +4,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
-import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
  * CONFESSION_BOT template (docs/claude-feature-backlog.md item 2) — every
@@ -578,7 +578,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
   }
 
   if (text === "💰 رصيدي وإيداع") {
-    await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, depositChoicesText(user.balance, depositLink(tgUserId), false), { reply_markup: mainMenu() });
     await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("cstars") });
     return;
   }

@@ -35,7 +35,10 @@ export async function GET(req: NextRequest) {
     daily_limit_share: 20,
     features: { party: true, clone: true, feed: true },
   };
-  let stats = { posts: 0, hidden: 0, clones: 0, publishers: 0, views: 0, likes: 0 };
+  let stats = {
+    posts: 0, hidden: 0, clones: 0, publishers: 0, views: 0, likes: 0,
+    users: 0, online_15m: 0, active_24h: 0, new_24h: 0, users_ready: false,
+  };
 
   if (db) {
     const { data: rows } = await db.from("bot_settings").select("key,value");
@@ -50,6 +53,24 @@ export async function GET(req: NextRequest) {
       stats.views = feed.reduce((a: number, b: any) => a + Number(b.views || 0), 0);
       stats.likes = feed.reduce((a: number, b: any) => a + Number(b.likes || 0), 0);
       stats.publishers = new Set(feed.map((x: any) => x.sharer_id)).size;
+    }
+  }
+
+  // Real mini-app user counts (table: supabase/migration_mini_app_users.sql).
+  if (db) {
+    try {
+      const { data: mu, error } = await db.from("mini_app_users").select("id,first_seen,last_seen").limit(100000);
+      if (!error && mu) {
+        const now = Date.now();
+        const age = (v: string | null) => (v ? now - new Date(v).getTime() : Infinity);
+        stats.users_ready = true;
+        stats.users = mu.length;
+        stats.online_15m = mu.filter((r: any) => age(r.last_seen) < 15 * 60000).length;
+        stats.active_24h = mu.filter((r: any) => age(r.last_seen) < 86400000).length;
+        stats.new_24h = mu.filter((r: any) => age(r.first_seen) < 86400000).length;
+      }
+    } catch {
+      /* table missing -> users_ready stays false, the panel says so */
     }
   }
 

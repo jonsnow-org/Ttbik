@@ -90,3 +90,19 @@ export async function creditStarsPayment(
 ): Promise<"ok" | "duplicate" | "retry"> {
   return creditOnce(label, record, apply);
 }
+
+/**
+ * One wording for every Arabic bot's "رصيدي وإيداع" screen, so users see the
+ * same clear choices everywhere. Text only -- each bot still passes its own
+ * deposit link (own invoice route/ledger) and its own Stars keyboard prefix.
+ */
+export function depositChoicesText(balance: number, link: string, hasNativeTon: boolean): string {
+  return (
+    `💰 رصيدك الحالي: $${balance.toFixed(2)}\n\n` +
+    `اختر طريقة الإيداع:\n` +
+    `1️⃣ عملة رقمية (USDT, TON, TRX, LTC...) — افتح الرابط واتبع الخطوات:\n${link}\n\n` +
+    `2️⃣ ⭐ نجوم تيليجرام — اضغط أحد الأزرار في الرسالة التالية (${STARS_PER_USD} نجمة = $1)\n` +
+    (hasNativeTon ? `3️⃣ 🔷 TON / USDT مباشر — من زر «🔷 إيداع TON / USDT مباشر» في القائمة\n` : "") +
+    `\n✅ في كل الطرق يُضاف الرصيد تلقائياً ولا حاجة لإرسال إثبات دفع.`
+  );
+}

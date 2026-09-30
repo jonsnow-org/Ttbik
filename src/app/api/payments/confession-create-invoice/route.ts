@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const uid = String(body.uid || "").trim();
   const amount = Math.max(1, Math.min(100000, Number(body.amount) || 0));
-  if (!uid || !amount) return NextResponse.json({ error: "أكمل المبلغ ومعرف المستخدم" }, { status: 400 });
+  // Telegram ids are digits only: rejects junk that would create stray
+  // accounts or break the success/cancel URLs below.
+  if (!/^\d{3,20}$/.test(uid) || !amount) return NextResponse.json({ error: "رابط الإيداع غير صالح — افتحه من زر «إيداع» داخل البوت." }, { status: 400 });
 
   const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
   const result = await createInvoice({

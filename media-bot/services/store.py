@@ -185,22 +185,24 @@ class Store:
     def get_user_squad(self, user_id: int) -> str | None:
         return self.user_squad.get(str(user_id))
 
-    def bot_stats(self) -> dict:
+    def bot_stats(self, exclude_id: int | None = None) -> dict:
+        """Bot-joiner stats. exclude_id (the owner) never counts as a user."""
         now = int(time.time())
+        skip = str(exclude_id) if exclude_id is not None else None
         day = 86400
         today = self._today()
-        new_24h = sum(1 for ts in self.user_joined.values() if now - int(ts) < day)
-        active_24h = sum(1 for ts in self.user_last_seen.values() if now - int(ts) < day)
-        online_15m = sum(1 for ts in self.user_last_seen.values() if now - int(ts) < 15 * 60)
+        new_24h = sum(1 for k, ts in self.user_joined.items() if k != skip and now - int(ts) < day)
+        active_24h = sum(1 for k, ts in self.user_last_seen.items() if k != skip and now - int(ts) < day)
+        online_15m = sum(1 for k, ts in self.user_last_seen.items() if k != skip and now - int(ts) < 15 * 60)
         active_today_dl = sum(
             1
-            for row in self.daily_usage.values()
-            if row.get("date") == today and int(row.get("count") or 0) > 0
+            for k, row in self.daily_usage.items()
+            if k != skip and row.get("date") == today and int(row.get("count") or 0) > 0
         )
         pub = sum(1 for v in self.user_share.values() if v)
         room = sum(1 for v in self.user_share_room.values() if v)
         return {
-            "users": len(self.known_users),
+            "users": len([u for u in self.known_users if str(u) != skip]),
             "new_24h": new_24h,
             "active_24h": active_24h,
             "online_15m": online_15m,

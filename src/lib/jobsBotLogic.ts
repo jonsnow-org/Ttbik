@@ -7,7 +7,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
-import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
+import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
   TENDER_MENU_LABEL, isTenderMenuText, isTenderPending, handleTenderMenu, handleTenderPending,
   handleTenderCallback, tenderStatsLine, type TenderPending,
@@ -1803,7 +1803,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
   if (text === "💰 رصيدي وإيداع") {
-    await bot.api.sendMessage(chatId, `💰 رصيدك الحالي: $${user.balance.toFixed(2)}\n\nللإيداع، افتح الرابط:\n${depositLink(tgUserId)}`, { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, depositChoicesText(user.balance, depositLink(tgUserId), isNativeTonConfigured()), { reply_markup: mainMenu() });
     await bot.api.sendMessage(chatId, "⭐ أو اشحن رصيدك مباشرة بنجوم تيليجرام:", { reply_markup: starsDepositKeyboard("jstars") });
     return;
   }

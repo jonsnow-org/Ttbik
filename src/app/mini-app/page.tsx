@@ -233,7 +233,7 @@ export default function MiniAppPage() {
   const [replyTo, setReplyTo] = useState<CommentRow | null>(null);
   const [broadcastText, setBroadcastText] = useState("");
   const [forceChans, setForceChans] = useState("");
-  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number; views: number; likes: number } | null>(null);
+  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number; views: number; likes: number; users?: number; online_15m?: number; active_24h?: number; new_24h?: number; users_ready?: boolean } | null>(null);
   const [adminBusy, setAdminBusy] = useState(false);
   const isOwner = !!userId && OWNER_IDS.includes(userId);
 
@@ -1068,6 +1068,13 @@ export default function MiniAppPage() {
             <div className="rounded-3xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
               <div className="flex items-center justify-between"><p className="text-sm font-black text-amber-700">👑 لوحة المالك</p><LiveDot online={botOnline} label /></div>
               <div className="mt-3 grid grid-cols-4 gap-2">
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-violet-600">{adminStats?.users_ready ? adminStats.users : "—"}</p><p className="text-[9px] text-slate-500">مستخدمو التطبيق</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-emerald-600">{adminStats?.users_ready ? adminStats.online_15m : "—"}</p><p className="text-[9px] text-slate-500">متصلون الآن</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-sky-600">{adminStats?.users_ready ? adminStats.active_24h : "—"}</p><p className="text-[9px] text-slate-500">نشطون 24س</p></div>
+                <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-amber-600">{adminStats?.users_ready ? adminStats.new_24h : "—"}</p><p className="text-[9px] text-slate-500">جدد 24س</p></div>
+              </div>
+              {adminStats && adminStats.users_ready === false && <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">⚠️ أعداد المستخدمين تحتاج تشغيل ملف supabase/migration_mini_app_users.sql في Supabase مرة واحدة.</p>}
+              <div className="mt-2 grid grid-cols-4 gap-2">
                 <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-sky-600">{adminStats?.posts ?? items.length}</p><p className="text-[9px] text-slate-500">منشورات</p></div>
                 <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-emerald-600">{adminStats?.clones ?? items.reduce((a, b) => a + (b.clones || 0), 0)}</p><p className="text-[9px] text-slate-500">استنساخ</p></div>
                 <div className="rounded-2xl bg-white p-2.5 text-center"><p className="text-xl font-black text-indigo-600">{adminStats?.views ?? items.reduce((a, b) => a + (b.views || 0), 0)}</p><p className="text-[9px] text-slate-500">مشاهدات</p></div>

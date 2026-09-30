@@ -36,15 +36,15 @@ export async function POST(req: NextRequest) {
   const db = await sb();
   if (db) {
     try {
-      await db.from("mini_app_users").upsert(
-        {
-          id,
-          name,
-          last_seen: new Date(now * 1000).toISOString(),
-          first_seen: new Date(now * 1000).toISOString(),
-        },
-        { onConflict: "id" }
-      );
+      // first_seen is written once (on insert) and never overwritten, so
+      // "new in 24h" is real; last_seen is refreshed on every open.
+      const iso = new Date(now * 1000).toISOString();
+      const { data: existing } = await db.from("mini_app_users").select("id").eq("id", id).maybeSingle();
+      if (existing) {
+        await db.from("mini_app_users").update({ name, last_seen: iso }).eq("id", id);
+      } else {
+        await db.from("mini_app_users").insert({ id, name, first_seen: iso, last_seen: iso });
+      }
     } catch {
       /* table optional */
     }
@@ -79,8 +79,12 @@ export async function GET(req: NextRequest) {
       }
       // Prefer DB user counts if table exists
       try {
-        const { data: mu } = await db.from("mini_app_users").select("id,last_seen");
+        const { data: mu } = await db.from("mini_app_users").select("id,last_seen,first_seen").limit(100000);
         if (mu && mu.length) {
+          const newDb = mu.filter((r: any) => {
+            const ts = r.first_seen ? Math.floor(new Date(r.first_seen).getTime() / 1000) : 0;
+            return now - ts < 86400;
+          }).length;
           const onlineDb = mu.filter((r: any) => {
             const ts = r.last_seen ? Math.floor(new Date(r.last_seen).getTime() / 1000) : 0;
             return now - ts < 15 * 60;
@@ -94,7 +98,7 @@ export async function GET(req: NextRequest) {
             mini_app_users: mu.length,
             online_15m: onlineDb,
             active_24h: activeDb,
-            new_24h: activeDb,
+            new_24h: newDb,
             public_posts: posts,
             publishers,
             total_clones: clones,
