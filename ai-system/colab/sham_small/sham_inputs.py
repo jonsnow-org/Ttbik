@@ -111,6 +111,14 @@ REQUIRED_FILE = {
     "sham-chat-checkpoint": "final_chat.pt",
 }
 WALK_BACK_VERSIONS = 15
+# Where a foreign publication found on top of one of our datasets is moved to
+# when the dataset is repaired (see _repair). sham-crawl-checkpoint is the
+# engineer's Wikipedia/news crawl notebook, which is merged from there by the
+# guarded merge (sham_merge.KNOWN_SOURCES).
+FOREIGN_HOME = {
+    "sham-multimodal-checkpoint": "sham-crawl-checkpoint",
+    "sham-chat-checkpoint": "sham-chat-checkpoint-incoming",
+}
 
 
 def _split_name(name: str) -> tuple[str, str | None]:
@@ -183,6 +191,27 @@ def _walk_back(ref: str, need: str, dest_root: Path) -> Path | None:
     return None
 
 
+def _repair(base: str, foreign: Path, good: Path) -> bool:
+    """The damaged latest version is repaired, not skipped: its files (a
+    complete, self-consistent set from another notebook) are published to
+    their own dataset FOREIGN_HOME[base], and only once that succeeded a new
+    version of `base` is published that restores this stage's files from
+    `good`. Both results stay on Kaggle, each in its own place; if either
+    publish fails nothing is changed and the next run tries again."""
+    home = FOREIGN_HOME.get(base, f"{base}-incoming")
+    stage = FETCH_ROOT / f"_repair_{base}"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(foreign, stage / "foreign")
+    shutil.copytree(good, stage / "restored")
+    print(f"  🔧 إصلاح {base}: نقل ما نشره الدفتر الآخر إلى {home}، ثم إعادة ملفات هذه المرحلة كآخر نسخة.")
+    ok = bool(publish_dataset(stage / "foreign", home, f"moved here from {base} (published there by another notebook)"))
+    if ok:
+        ok = bool(publish_dataset(stage / "restored", base, f"repair: restored this stage's files; the other notebook's files moved to {home}"))
+    print(f"  {'✅ تم الإصلاح' if ok else '⚠ لم يكتمل الإصلاح — لم يتغير شيء، ويُعاد المحاولة في التشغيل القادم'}: {base}")
+    shutil.rmtree(stage, ignore_errors=True)
+    return ok
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -231,6 +260,7 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
         print(f"  ⚠ آخر نسخة من {base} لا تحتوي {need} — نشر فوقها دفتر آخر. البحث في النسخ السابقة…")
         older = _walk_back(ref, need, dest)
         if older is not None:
+            _repair(base, dest, older)
             return older
         return None if name != base else dest
     return dest

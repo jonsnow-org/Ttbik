@@ -44,11 +44,11 @@ KNOWN_SOURCES = [
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
-    # The engineer's crawl notebook (Wikipedia + news feeds) published its final.pt
-    # INTO sham-multimodal-checkpoint; "#final.pt" fetches the newest version that
-    # has it. Its future home, if it gets its own dataset: sham-crawl-checkpoint.
-    ("sham-multimodal-checkpoint#final.pt", "final.pt", MEDIA_ROWS),
-    ("sham-crawl-checkpoint", "final.pt", MEDIA_ROWS),
+    # The engineer's crawl notebook (Wikipedia + news feeds). It once published its
+    # final.pt INTO sham-multimodal-checkpoint; sham_inputs repairs that dataset by
+    # moving such files here (FOREIGN_HOME), so it is merged only through the gate.
+    ("sham-crawl-checkpoint", "final*.pt", MEDIA_ROWS),
+    ("sham-chat-checkpoint-incoming", "final*.pt", MEDIA_ROWS),
 ]
 _ARCH_KEYS = ("vocab_size", "d_model", "n_layers", "n_heads", "n_kv_heads", "mlp_hidden")
 
