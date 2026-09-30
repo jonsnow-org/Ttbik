@@ -60,6 +60,9 @@ export const botsMetadata: Metadata = {
     "setMyDefaultAdministratorRights",
     "getMyDefaultAdministratorRights",
     "صلاحيات المشرف الافتراضية",
+    "setChatMenuButton",
+    "getChatMenuButton",
+    "زر قائمة الدردشة",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
