@@ -53,6 +53,8 @@ export default function ArticlesHubPage() {
             meta={`${a.readMinutes} د`}
             badge={a.category}
             badgeTone="emerald"
+            imageUrl={a.imageUrl}
+            imageAlt={a.title}
           />
         ))}
       </ul>

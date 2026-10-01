@@ -13,6 +13,7 @@ export type ArticleItem = {
   paragraphs: string[];
   takeaways: string[];
   sources?: ArticleSource[];
+  imageUrl?: string;
 };
 
 export const ARTICLE_ITEMS: ArticleItem[] = [
@@ -22,6 +23,8 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
     dateIso: "2026-09-26",
     dateLabel: "26 سبتمبر 2026",
     category: "أمن رقمي",
+    imageUrl:
+      "https://images.unsplash.com/photo-1633265486064-086b219458ec?auto=format&fit=crop&w=1200&q=80",
     description:
       "شرح عملي بالعربية لبناء عادة كلمات مرور قوية واستخدام مدير كلمات مرور، دون ترهيب تقني.",
     readMinutes: 5,
@@ -45,6 +48,8 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
     dateIso: "2026-09-26",
     dateLabel: "26 سبتمبر 2026",
     category: "محو الأمية الرقمية",
+    imageUrl:
+      "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
     description:
       "دليل عملي بالعربية للتحقق من الأخبار قبل إعادة النشر: المصدر، التاريخ، الصور، والتحقق العكسي.",
     readMinutes: 6,
@@ -69,6 +74,8 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
     dateIso: "2026-09-25",
     dateLabel: "25 سبتمبر 2026",
     category: "محو الأمية الإعلامية",
+    imageUrl:
+      "https://images.unsplash.com/photo-1586339949916-3e9457bef6d3?auto=format&fit=crop&w=1200&q=80",
     description:
       "تعريف عملي يساعدك على قراءة العناوين بوعي: متى تكون أمام خبر، ومتى أمام رأي أو تحليل.",
     readMinutes: 5,
@@ -92,6 +99,8 @@ export const ARTICLE_ITEMS: ArticleItem[] = [
     dateIso: "2026-09-25",
     dateLabel: "25 سبتمبر 2026",
     category: "ثقافة مالية",
+    imageUrl:
+      "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=1200&q=80",
     description:
       "شرح غير تقني لمعنى التضخم ورفع الفائدة، ولماذا تهمّ هذه المفاهيم من يتابع الأخبار الاقتصادية.",
     readMinutes: 7,
