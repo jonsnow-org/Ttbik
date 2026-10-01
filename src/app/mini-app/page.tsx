@@ -150,6 +150,7 @@ function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: num
 
 export default function MiniAppPage() {
   const [tab, setTab] = useState<Tab>("trending");
+  const [trendKind, setTrendKind] = useState<"video" | "audio">("video");
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
   const [userId, setUserId] = useState("");
@@ -403,7 +404,13 @@ export default function MiniAppPage() {
   const showProfile = tab === "me" || !!viewUserId;
 
   const buildQuery = useCallback((offset: number) => {
-    const qs = new URLSearchParams({ sort: tab === "trending" ? "trending" : "latest", type: tab === "audio" ? "audio" : "all", offset: String(offset), limit: tab === "admin" ? "80" : "30" });
+    const feedType =
+      tab === "audio" || (tab === "trending" && trendKind === "audio")
+        ? "audio"
+        : tab === "trending" && trendKind === "video"
+          ? "video"
+          : "all";
+    const qs = new URLSearchParams({ sort: tab === "trending" ? "trending" : "latest", type: feedType, offset: String(offset), limit: tab === "admin" ? "80" : "30" });
     if (search.trim()) qs.set("q", search.trim());
     const initData = tgInitData();
     if (initData) qs.set("init_data", initData);
@@ -412,7 +419,7 @@ export default function MiniAppPage() {
     if (tab === "admin") qs.set("admin", "1");
     return qs;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search, showProfile, profileTargetId]);
+  }, [tab, trendKind, search, showProfile, profileTargetId]);
 
   function mergeLiked(list: FeedItem[]) {
     const fromServer = list.filter((i) => typeof i.liked === "boolean");
@@ -722,10 +729,14 @@ export default function MiniAppPage() {
       if (profileSection === "video") list = list.filter((i) => i.media_type === "video");
       if (profileSection === "audio") list = list.filter((i) => i.media_type === "audio" || i.media_type === "voice");
       if (profileSection === "photo") list = list.filter((i) => i.media_type === "photo");
-    } else if (tab === "audio") list = list.filter((i) => i.media_type === "audio" || i.media_type === "voice");
+    } else if (tab === "audio" || (tab === "trending" && trendKind === "audio")) {
+      list = list.filter((i) => i.media_type === "audio" || i.media_type === "voice");
+    } else if (tab === "trending" && trendKind === "video") {
+      list = list.filter((i) => i.media_type !== "audio" && i.media_type !== "voice");
+    }
     if (search.trim()) { const q = search.trim().toLowerCase(); list = list.filter((i) => displayTitle(i).toLowerCase().includes(q) || (i.sharer_name || "").toLowerCase().includes(q)); }
     return list;
-  }, [items, tab, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
+  }, [items, tab, trendKind, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
   // Picks the one video card most in view (≥60% visible) for the muted
   // autoplay preview — only one at a time — and stops the full player
@@ -1062,7 +1073,25 @@ export default function MiniAppPage() {
             <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
         </div>
-        <nav className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
+        <nav className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
+        {tab === "trending" && !viewUserId && (
+          <div className="mt-1.5 flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => { if (trendKind === "video") return; haptic(); setTrendKind("video"); setPlayingId(null); setAutoId(null); }}
+              className={`flex-1 rounded-xl py-1.5 text-[11px] font-black transition ${trendKind === "video" ? "bg-gradient-to-l from-rose-500 to-orange-500 text-white shadow shadow-rose-200" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+            >
+              🎬 رائج فيديو
+            </button>
+            <button
+              type="button"
+              onClick={() => { if (trendKind === "audio") return; haptic(); setTrendKind("audio"); setPlayingId(null); setAutoId(null); }}
+              className={`flex-1 rounded-xl py-1.5 text-[11px] font-black transition ${trendKind === "audio" ? "bg-gradient-to-l from-indigo-500 to-blue-500 text-white shadow shadow-indigo-200" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}
+            >
+              🎧 رائج صوت
+            </button>
+          </div>
+        )}
       </header>
 
       {newCount > 0 && !overlayOpen && !showProfile && (
