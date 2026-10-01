@@ -458,14 +458,21 @@ export async function PATCH(req: NextRequest) {
     if (!viewer || !db) return NextResponse.json({ ok: true, counted: false });
     try {
       if (action === "view") {
-        const { data: post } = await db.from("media_feed").select("sharer_id").eq("id", id).maybeSingle();
-        if (!post || String((post as any).sharer_id) === viewer.id) return NextResponse.json({ ok: true, counted: false });
+        const { data: post } = await db.from("media_feed").select("sharer_id,views").eq("id", id).maybeSingle();
+        if (!post || String((post as any).sharer_id) === viewer.id) {
+          return NextResponse.json({ ok: true, counted: false, views: Number((post as any)?.views || 0) });
+        }
         const { error } = await db.from("media_views").insert({ post_id: id, viewer_id: viewer.id });
         if (error) {
-          if (error.code === "23505") return NextResponse.json({ ok: true, counted: false });
+          // unique violation = already counted for this viewer
+          if (error.code === "23505") {
+            return NextResponse.json({ ok: true, counted: false, views: Number((post as any).views || 0) });
+          }
           throw error;
         }
         await bump(1);
+        const nextViews = Number((post as any).views || 0) + 1;
+        return NextResponse.json({ ok: true, counted: true, views: nextViews });
       } else if (action === "like") {
         const { error } = await db.from("media_likes").insert({ post_id: id, user_id: viewer.id });
         if (error) {
