@@ -1126,7 +1126,7 @@ export default function MiniAppPage() {
       {searchOpen && <div className="px-3 pt-2"><input autoFocus value={search} onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} placeholder="🔍 ابحث بالعنوان أو اسم المستخدم..." className="w-full rounded-2xl border border-sky-200 bg-white px-4 py-2.5 text-sm shadow-sm outline-none placeholder:text-slate-400 focus:border-sky-400" /></div>}
 
       <MonetagBannerSlot className="mx-3 mt-2 overflow-hidden rounded-2xl" />
-      {!overlayOpen && tab !== "admin" && <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} reloadKey={adNonce} /></div>}
+      {!overlayOpen && tab !== "admin" && <TopBannerAd reloadKey={adNonce} />}
 
       {showInbox && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-violet-200 bg-white shadow-xl">
@@ -1398,7 +1398,7 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="animate-pulse overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/16] max-h-[75vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
+        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="animate-pulse overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <div className="space-y-4">{visible.map((item, idx) => {
@@ -1409,7 +1409,7 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
-                <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/16] max-h-[85vh]"}`}>
+                <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
                     : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />)
@@ -1554,9 +1554,26 @@ function FeedAdBefore({ index, children }: { index: number; children: React.Reac
     </>
   );
 }
+function TopBannerAd({ reloadKey }: { reloadKey: number }) {
+  const [empty, setEmpty] = useState(false);
+  useEffect(() => { setEmpty(false); }, [reloadKey]);
+  if (empty) return null;
+  return (
+    <div className="mx-3 mt-2 flex justify-center overflow-hidden rounded-2xl bg-white/70 py-1 ring-1 ring-sky-100">
+      <AdsterraBanner
+        adKey="560a1eb1632771185b888243a7d36a07"
+        width={320}
+        height={50}
+        reloadKey={reloadKey}
+        onEmpty={() => setEmpty(true)}
+      />
+    </div>
+  );
+}
 function LazyFeedAd() {
   const ref = useRef<HTMLDivElement>(null);
   const [show, setShow] = useState(false);
+  const [empty, setEmpty] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") { setShow(true); return; }
@@ -1564,10 +1581,23 @@ function LazyFeedAd() {
     o.observe(el);
     return () => o.disconnect();
   }, []);
+  // Hide the whole slot when the network returns no fill — avoids a black box with a play icon.
+  if (empty) return null;
   return (
-    <div ref={ref} className="overflow-hidden rounded-3xl bg-white p-2 shadow-sm ring-1 ring-sky-100">
+    <div ref={ref} className="overflow-hidden rounded-3xl bg-slate-50 p-2 shadow-sm ring-1 ring-sky-100">
       <p className="mb-1 px-1 text-[10px] font-bold text-slate-400">إعلان</p>
-      <div className="flex min-h-[250px] justify-center">{show && <AdsterraBanner adKey="3ee970813986977775e962f26938d143" width={300} height={250} />}</div>
+      <div className="flex min-h-[50px] items-center justify-center">
+        {show ? (
+          <AdsterraBanner
+            adKey="3ee970813986977775e962f26938d143"
+            width={300}
+            height={250}
+            onEmpty={() => setEmpty(true)}
+          />
+        ) : (
+          <div className="h-12 w-full animate-pulse rounded-xl bg-slate-100" />
+        )}
+      </div>
     </div>
   );
 }
