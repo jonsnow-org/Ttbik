@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mediaDb, MEDIA_OWNER_ID, isMediaPremium } from "@/lib/mediaSocial";
-import { getRenderUrl, hookPath, hookSecret, miniAppKeyboard, safeEqual, tg, MINI_APP_URL } from "@/lib/mediaFrontDoor";
+import {
+  getRenderUrl,
+  hookPath,
+  hookSecret,
+  miniAppKeyboard,
+  safeEqual,
+  tg,
+  MINI_APP_URL,
+} from "@/lib/mediaFrontDoor";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const FORWARD_TIMEOUT_MS = 50_000;
+const FORWARD_TIMEOUT_MS = 55_000;
 const URL_RE = /https?:\/\/\S+/i;
 
 const PREMIUM_DAILY_LIMIT = 50;
@@ -19,15 +27,8 @@ const INFO_TEXT =
   "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n" +
   "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n" +
   "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n" +
-  "🎁 المشاركة (اختر وضعاً)\n" +
-  "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n" +
-  "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n" +
-  "• إيقاف: لا يُنشر في التطبيق\n" +
-  "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n" +
-  "👥 الغرف الخاصة\n" +
-  "أنشئ غرفة → يُفعَّل نشر الغرفة تلقائياً.\n" +
-  "شارك الرمز مع أصدقائك.\n\n" +
-  "📱 Mini-App: الزر المربع بجانب حقل الرسالة.";
+  "📱 التطبيق المصغر: الزر المربع بجانب حقل الرسالة (يعمل دائماً على الموقع).\n" +
+  "⚙️ الأوامر الكاملة للتحميل تعمل عبر محرك Render — إن تأخر الرد انتظر ~ دقيقة بعد أول رسالة.";
 
 function userKeyboard() {
   return {
@@ -63,13 +64,21 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
   try {
     const r = await fetch(`${base}${hookPath()}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": secret,
+      },
       body: raw,
       signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
     });
+    // 503 while Python is still starting — treat as timeout so we don't
+    // replace the real bot UI with the mini-app-only fallback.
+    if (r.status === 503) return "timeout";
     return r.ok ? "delivered" : "down";
   } catch (e) {
-    return (e as Error)?.name === "TimeoutError" ? "timeout" : "down";
+    return (e as Error)?.name === "TimeoutError" || (e as Error)?.name === "AbortError"
+      ? "timeout"
+      : "down";
   }
 }
 
@@ -83,7 +92,11 @@ async function enqueue(update: any): Promise<boolean> {
 async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
   const db = await mediaDb();
   if (!db) return false;
-  const { data } = await db.from("media_feed").select("id,file_id,media_type,title,clones").eq("id", itemId).maybeSingle();
+  const { data } = await db
+    .from("media_feed")
+    .select("id,file_id,media_type,title,clones")
+    .eq("id", itemId)
+    .maybeSingle();
   const item = data as any;
   if (!item?.file_id) return false;
   const type = String(item.media_type || "video");
@@ -95,7 +108,10 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
         ? await tg("sendVoice", { chat_id: chatId, voice: item.file_id })
         : await tg("sendVideo", { chat_id: chatId, video: item.file_id, supports_streaming: true });
   if (!res?.ok) return false;
-  await db.from("media_feed").update({ clones: Number(item.clones || 0) + 1 }).eq("id", item.id);
+  await db
+    .from("media_feed")
+    .update({ clones: Number(item.clones || 0) + 1 })
+    .eq("id", item.id);
   return true;
 }
 
@@ -108,11 +124,10 @@ async function premiumInfoText(userId: string): Promise<string> {
     "💎 الترقية المدفوعة\n\n" +
     `• حد يومي أعلى (${PREMIUM_DAILY_LIMIT} تحميل بدل ${FREE_DAILY_LIMIT})\n` +
     "• أولوية أعلى في المعالجة\n\n" +
-    `⭐ ادفع مباشرة بنجوم تيليجرام (${PREMIUM_STARS_PRICE} نجمة) من الزر أدناه — تفعيل فوري.\n\n` +
+    `⭐ ادفع مباشرة بنجوم تيليجرام (${PREMIUM_STARS_PRICE} نجمة) من الزر أدناه — تفعيل فوري.\n\n" +
     "— أو —\n" +
     `1) اطلب الخدمة من: ${SITE_URL}/service/media-bot-premium\n` +
-    "2) بعد موافقة الإدارة على طلبك، أرسل هنا: /premium ثم رمز طلبك\n" +
-    "مثال: /premium ABC123"
+    "2) بعد موافقة الإدارة أرسل: /premium ثم رمز طلبك"
   );
 }
 
@@ -156,7 +171,11 @@ async function handleCallback(update: any): Promise<void> {
   if (data === "premium_stars_buy" && chatId) {
     const isPrem = await isMediaPremium(userId);
     if (isPrem) {
-      await tg("answerCallbackQuery", { callback_query_id: cbq.id, text: "الترقية مفعّلة بالفعل.", show_alert: true });
+      await tg("answerCallbackQuery", {
+        callback_query_id: cbq.id,
+        text: "الترقية مفعّلة بالفعل.",
+        show_alert: true,
+      });
       return;
     }
     await tg("answerCallbackQuery", { callback_query_id: cbq.id });
@@ -171,32 +190,33 @@ async function handleCallback(update: any): Promise<void> {
     return;
   }
 
-  if (data === "perk_info" && chatId) {
+  if (data === "check_sub" && chatId) {
     await tg("answerCallbackQuery", { callback_query_id: cbq.id });
     await tg("editMessageText", {
       chat_id: chatId,
       message_id: cbq.message.message_id,
-      text: "🎁 نظام التحفيز:\n• بدون مشاركة: حد أساسي\n• موجز عام: للجميع + حد أعلى\n• غرفة خاصة: لأعضاء غرفتك + حد أعلى\n• يمكن تفعيل الاثنين معاً",
+      text: "✅ تم التحقق. أرسل الرابط الآن.",
     });
     return;
   }
 
-  if (data === "check_sub" && chatId) {
-    await tg("answerCallbackQuery", { callback_query_id: cbq.id });
-    await tg("editMessageText", { chat_id: chatId, message_id: cbq.message.message_id, text: "✅ تم التحقق. أرسل الرابط الآن." });
-    return;
-  }
-
-  await tg("answerCallbackQuery", { callback_query_id: cbq.id });
+  // Other callbacks (quality, share, squad) need the Python bot — acknowledge only.
+  await tg("answerCallbackQuery", {
+    callback_query_id: cbq.id,
+    text: "⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ",
+    show_alert: false,
+  });
 }
 
-async function handleMessage(update: any): Promise<void> {
+/** Fallback only when Render did not accept the update. */
+async function handleMessage(update: any, outcome: Outcome): Promise<void> {
   const msg = update.message;
   if (!msg?.chat?.id || !msg.from) return;
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
   const text = String(msg.text || "").trim();
   const isOwner = userId === MEDIA_OWNER_ID;
+  const waking = outcome === "timeout";
 
   if (msg.successful_payment) {
     await handleSuccessfulPayment(update);
@@ -206,23 +226,30 @@ async function handleMessage(update: any): Promise<void> {
   if (text.startsWith("/start clone_")) {
     const itemId = text.slice("/start clone_".length).trim();
     const ok = await sendCloned(chatId, itemId);
-    if (!ok) await tg("sendMessage", { chat_id: chatId, text: "انتهت صلاحية هذا الملف أو غير موجود.", reply_markup: miniAppKeyboard() });
+    if (!ok) {
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "انتهت صلاحية هذا الملف أو غير موجود.",
+        reply_markup: miniAppKeyboard(),
+      });
+    }
     return;
   }
 
   if (text.startsWith("/start msg_")) return;
 
   if (text === "/start" || text.startsWith("/start ")) {
+    const wakeNote = waking ? "\n\n⏳ المحرك يستيقظ — أرسل الرابط بعد بضع ثوانٍ." : "";
     if (isOwner) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.",
+        text: "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة." + wakeNote,
         reply_markup: ownerKeyboard(),
       });
     } else {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...",
+        text: "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام..." + wakeNote,
         reply_markup: userKeyboard(),
       });
     }
@@ -232,14 +259,16 @@ async function handleMessage(update: any): Promise<void> {
   if (text.startsWith("/premium")) {
     const isPrem = await isMediaPremium(userId);
     if (isPrem) {
-      await tg("sendMessage", { chat_id: chatId, text: `💎 الترقية مُفعّلة بالفعل على حسابك.\nحدك اليومي: ${PREMIUM_DAILY_LIMIT} تحميل.` });
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: `💎 الترقية مُفعّلة بالفعل.\nحدك اليومي: ${PREMIUM_DAILY_LIMIT} تحميل.`,
+      });
     } else {
-      const args = text.split(/\s+/).slice(1);
-      if (!args.length) {
-        await tg("sendMessage", { chat_id: chatId, text: "استخدم: /premium ثم رمز طلبك، مثال:\n/premium ABC123" });
-      } else {
-        await tg("sendMessage", { chat_id: chatId, text: "تعذّر التحقق حالياً، حاول لاحقاً." });
-      }
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "استخدم: /premium ثم رمز طلبك\nأو ادفع بنجوم تيليجرام من زر الترقية.",
+        reply_markup: premiumStarsButton(),
+      });
     }
     return;
   }
@@ -252,7 +281,12 @@ async function handleMessage(update: any): Promise<void> {
   }
 
   if (text === "📥 تحميل وسائط") {
-    await tg("sendMessage", { chat_id: chatId, text: "أرسل الرابط مباشرة وسأعرض الخيارات." });
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: waking
+        ? "⏳ المحرك يستيقظ... أرسل الرابط خلال دقيقة وسأعرض خيارات الجودة."
+        : "أرسل الرابط مباشرة وسأعرض الخيارات.",
+    });
     return;
   }
 
@@ -277,20 +311,43 @@ async function handleMessage(update: any): Promise<void> {
     return;
   }
 
-  if (text === "⚙️ إعداداتي") {
+  // Owner panel — real text, not mini-app-only (fixes screenshot issue)
+  if (isOwner && text === "⚙️ إعدادات البوت") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "⚙️ إعداداتك\n\nاضغط الزر لفتح الإعدادات:",
-      reply_markup: miniAppKeyboard(),
+      text:
+        "⚙️ إعدادات البوت\n\n" +
+        (waking
+          ? "⏳ المحرك يستيقظ الآن. أعد الضغط بعد 30–60 ثانية لإعدادات الأرشيف والاشتراك الكاملة.\n\n"
+          : "المحرك غير متصل مؤقتاً. تأكد أن خدمة media-bot على Render تعمل، ثم أعد /start.\n\n") +
+        "يمكنك إرسال رابط للتحميل مباشرة عند عودة المحرك.",
+      reply_markup: ownerKeyboard(),
     });
     return;
   }
 
-  if (text === "👥 غرفتي") {
+  if (isOwner && text === "👥 إدارة المستخدمين") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "👥 الغرف الخاصة\n\nاضغط الزر لإدارة غرفتك:",
-      reply_markup: miniAppKeyboard(),
+      text:
+        "👥 إدارة المستخدمين\n\n" +
+        (waking
+          ? "⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ للإحصائيات الحية."
+          : "المحرك غير متصل. شغّل خدمة Render ثم أعد المحاولة."),
+      reply_markup: ownerKeyboard(),
+    });
+    return;
+  }
+
+  if (isOwner && (text === "📢 قنوات الاشتراك" || text === "📢 قناة الاشتراك الإجباري")) {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text:
+        "📢 قنوات الاشتراك\n\n" +
+        (waking
+          ? "⏳ المحرك يستيقظ — أعد الضغط بعد دقيقة لإضافة/حذف القنوات."
+          : "المحرك غير متصل. بعد عودته استخدم هذا الزر لإدارة القنوات."),
+      reply_markup: ownerKeyboard(),
     });
     return;
   }
@@ -307,17 +364,37 @@ async function handleMessage(update: any): Promise<void> {
     }
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `📊 إحصائيات سريعة\n\n📁 الموجز: ${feedCount} عنصر\n💎 المشتركون: ${premCount}\n\nللإحصائيات الكاملة استخدم التطبيق المصغر:`,
-      reply_markup: miniAppKeyboard(),
+      text:
+        `📊 إحصائيات سريعة (من الموقع)\n\n📁 الموجز: ${feedCount}\n💎 المشتركون: ${premCount}\n\n` +
+        (waking
+          ? "⏳ المحرك يستيقظ — الإحصائيات الكاملة من البوت بعد ثوانٍ."
+          : "للإحصائيات الكاملة من المحرك: تأكد أن Render يعمل ثم أعد الضغط."),
+      reply_markup: ownerKeyboard(),
     });
     return;
   }
 
-  if (isOwner && (text === "📢 قنوات الاشتراك" || text === "⚙️ إعدادات البوت" || text === "👥 إدارة المستخدمين")) {
+  if (text === "⚙️ إعداداتي") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text: `${text}\n\nاضغط الزر لفتح لوحة التحكم:`,
-      reply_markup: miniAppKeyboard(),
+      text:
+        "⚙️ إعداداتك\n\n" +
+        (waking
+          ? "⏳ المحرك يستيقظ — أعد الضغط بعد ثوانٍ لتبديل الموجز/الغرفة."
+          : "المحرك غير متصل مؤقتاً. يمكنك فتح التطبيق المصغر لتصفح المحتوى:") +
+        (waking ? "" : ""),
+      reply_markup: waking ? userKeyboard() : miniAppKeyboard(),
+    });
+    return;
+  }
+
+  if (text === "👥 غرفتي") {
+    await tg("sendMessage", {
+      chat_id: chatId,
+      text: waking
+        ? "👥 الغرف\n\n⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ لإنشاء/الانضمام."
+        : "👥 الغرف\n\nالمحرك غير متصل. أعد المحاولة بعد عودته.",
+      reply_markup: userKeyboard(),
     });
     return;
   }
@@ -326,8 +403,9 @@ async function handleMessage(update: any): Promise<void> {
     await enqueue(update);
     await tg("sendMessage", {
       chat_id: chatId,
-      text: "📥 تم حفظ الرابط! سيتم معالجته وإرسال الملف لك قريباً.",
-      reply_markup: miniAppKeyboard(),
+      text: waking
+        ? "⏳ المحرك يستيقظ...\nتم حفظ الرابط وسيُعرض عليك أزرار الجودة فور جهوزية المحرك (عادة أقل من دقيقة)."
+        : "📥 تم حفظ الرابط.\nالمحرك غير متصل الآن — سيُعالج تلقائياً عند عودته. لا ترسل نفس الرابط مرات كثيرة.",
     });
     return;
   }
@@ -365,13 +443,14 @@ export async function POST(req: NextRequest) {
   }
 
   const outcome = await forward(raw, secret);
+  // Real bot handled it — do not send mini-app-only replies.
   if (outcome === "delivered") return NextResponse.json({ ok: true });
 
   try {
     if (update.callback_query) {
       await handleCallback(update);
     } else if (update.message) {
-      await handleMessage(update);
+      await handleMessage(update, outcome);
     }
   } catch (e) {
     console.error("[media-front-door] handler error", e);
