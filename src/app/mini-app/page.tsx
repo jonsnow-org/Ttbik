@@ -216,6 +216,8 @@ export default function MiniAppPage() {
   const [adminConv, setAdminConv] = useState<{ a: string; b: string; a_name: string; b_name: string; messages: { id: string; from_id: string; from_name: string; body: string; created_at: number }[] } | null>(null);
   // Posts this viewer has already had on screen — Trending shows unseen ones first on each refresh.
   const seenRef = useRef<Set<string>>(new Set());
+  const itemsRef = useRef<FeedItem[]>([]);
+  itemsRef.current = items;
   const openThreadRef = useRef<(id: string, name: string) => Promise<void>>(async () => {});
   const onPlayError = (id: string) => {
     if (!viaVercel[id]) { setViaVercel((v) => ({ ...v, [id]: true })); return; }
@@ -707,6 +709,44 @@ export default function MiniAppPage() {
   }, [autoplay, visible, playingId]);
   useEffect(() => { if (playingId) setAutoId(null); }, [playingId]);
 
+  // Fallback view counter: card ≥55% visible for ~1.8s (photos + when autoplay timeupdate is quiet)
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return;
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const id = (e.target as HTMLElement).dataset.feedId;
+          if (!id) continue;
+          if (e.isIntersecting && e.intersectionRatio >= 0.55) {
+            if (timers.has(id) || viewedRef.current.has(id) || viewPendingRef.current.has(id)) continue;
+            timers.set(
+              id,
+              setTimeout(() => {
+                timers.delete(id);
+                const item = itemsRef.current.find((it) => it.id === id);
+                if (item) markViewed(item, 1.8, true);
+              }, 1800)
+            );
+          } else {
+            const t = timers.get(id);
+            if (t) {
+              clearTimeout(t);
+              timers.delete(id);
+            }
+          }
+        }
+      },
+      { threshold: [0.55, 0.75] }
+    );
+    document.querySelectorAll<HTMLElement>("article[data-feed-id]").forEach((el) => obs.observe(el));
+    return () => {
+      obs.disconnect();
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, [visible, tab, loading]);
+
   const profileStats = useMemo(() => {
     const mine = profileTargetId ? items.filter((i) => i.sharer_id === profileTargetId) : [];
     return {
@@ -736,18 +776,49 @@ export default function MiniAppPage() {
       void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), to_id: item.sharer_id, from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
   };
-  // A view counts once someone has actually watched ≥3 seconds (autoplay
-  // included), once per person per post — the server dedupes per verified
-  // Telegram user and ignores the post's own sharer.
+  // View counting:
+  // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
+  // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
+  // Server dedupes once per verified Telegram user and ignores the sharer's own views.
+  // Client only locks an id after the server confirms counted:true so a failed request can retry.
   const viewedRef = useRef<Set<string>>(new Set());
-  const markViewed = (item: FeedItem, seconds: number) => {
-    if (seconds < 3 || viewedRef.current.has(item.id)) return;
-    viewedRef.current.add(item.id);
-    if (item.sharer_id && item.sharer_id === userId) return;
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
-      .then((r) => r.json())
-      .then((j) => { if (j?.counted) setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, views: (it.views || 0) + 1 } : it))); })
-      .catch(() => {});
+  const viewPendingRef = useRef<Set<string>>(new Set());
+  const markViewed = (item: FeedItem, seconds: number, force = false) => {
+    if (!item?.id) return;
+    if (viewedRef.current.has(item.id) || viewPendingRef.current.has(item.id)) return;
+    if (!force && seconds < 1.5) return;
+    if (item.sharer_id && userId && item.sharer_id === userId) {
+      viewedRef.current.add(item.id);
+      return;
+    }
+    viewPendingRef.current.add(item.id);
+    const init = tgInitData();
+    fetch("/api/media-feed", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: item.id, action: "view", init_data: init }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        viewPendingRef.current.delete(item.id);
+        if (j?.counted) {
+          viewedRef.current.add(item.id);
+          setItems((prev) =>
+            prev.map((it) =>
+              it.id === item.id
+                ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 }
+                : it
+            )
+          );
+        } else if (j?.counted === false) {
+          // Already counted on server (or own post) — do not retry
+          viewedRef.current.add(item.id);
+        }
+        // else: network/auth glitch — leave unlocked for a later retry
+      })
+      .catch(() => {
+        viewPendingRef.current.delete(item.id);
+      });
   };
   const playItem = (item: FeedItem) => {
     setPlayError(null);
@@ -1166,12 +1237,12 @@ export default function MiniAppPage() {
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/16] max-h-[85vh]"}`}>
                   {playingId === item.id ? (
-                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} /></div>)
-                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
+                    isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
+                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
+                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (
