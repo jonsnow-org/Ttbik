@@ -90,8 +90,21 @@ async function tablesReady(template: string): Promise<boolean | null> {
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
+type AdminBotRow = {
+  id: string;
+  token: string;
+  ownerId: string;
+  template: string;
+  totalRevenue: number | null;
+  ownerBalance: number | null;
+  pendingBalance: number | null;
+  isActive: boolean;
+  requiredChannel: string | null;
+  created_at: Date;
+};
+
 export async function GET() {
-  const bots = await prisma.bot.findMany({
+  const bots = (await prisma.bot.findMany({
     orderBy: { created_at: "desc" },
     select: {
       id: true,
@@ -105,15 +118,20 @@ export async function GET() {
       requiredChannel: true,
       created_at: true,
     },
-  });
+  })) as AdminBotRow[];
 
   // Real per-bot reach, from BotVisit -- not User.count({ where: { botId
   // } }): that undercounts any bot a person didn't happen to start FIRST
   // on the platform (see migration_31_bot_visit_tracking.sql). This is
   // what actually answers "is this specific bot's promotion working" --
   // the one place the owner asked to see it across every bot at once.
-  const visitCounts = await prisma.botVisit.groupBy({ by: ["botId"], _count: { _all: true } });
-  const usersByBotId = new Map(visitCounts.map((v) => [v.botId, v._count._all]));
+  const visitCountsRaw = await prisma.botVisit.groupBy({ by: ["botId"], _count: { _all: true } });
+  const usersByBotId = new Map(
+    (visitCountsRaw as unknown as { botId: string; _count: { _all: number } }[]).map((v) => [
+      v.botId,
+      v._count._all,
+    ]),
+  );
 
   // A broken webhook silently produces the exact same symptom the owner
   // is chasing ("no growth despite promotion") -- Telegram just stops
