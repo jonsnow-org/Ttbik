@@ -78,7 +78,6 @@ def normalize_url(url: str) -> str:
     m = re.search(r"[?&]v=([\w-]{6,})", u, re.I)
     if m and "youtu" in u.lower():
         return f"https://www.youtube.com/watch?v={m.group(1)}"
-    # X.com → twitter.com (yt-dlp extractor id is still "twitter")
     u = re.sub(r"https?://(www\.)?x\.com/", "https://twitter.com/", u, flags=re.I)
     u = re.sub(r"https?://(mobile\.)?twitter\.com/", "https://twitter.com/", u, flags=re.I)
     m = re.search(r"twitter\.com/[^/]+/status/(\d+)", u, re.I)
@@ -297,16 +296,6 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                 fmt = {"360": "best[height<=360]/best", "480": "best[height<=480]/best", "720": "best[height<=720]/best"}.get(quality, "best[height<=720]/best")
                 o["format"] = fmt
                 o["merge_output_format"] = "mp4"
-                # merge_output_format only applies when yt-dlp actually merges
-                # separate video+audio streams. Sources like Twitter/X are
-                # commonly served as HLS and yt-dlp downloads/concats those
-                # segments without going through that merge step, so the
-                # result can be a container with its moov atom at the end
-                # (or otherwise not "faststart") -- browsers then refuse to
-                # start playback until the whole file is fetched, unlike a
-                # direct progressive mp4 (e.g. TikTok, Facebook), which
-                # already streams fine. Force a fast remux (no re-encode) to
-                # mp4 so this is fixed unconditionally, whatever the source.
                 o.setdefault("postprocessors", []).append(
                     {"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}
                 )
@@ -328,35 +317,43 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
             attempts.append(_opts(tmp))
         for opts in attempts:
             try:
-                def _run_dl(o=opts) -> str | None:
+                def _run_dl(o=opts) -> tuple[str | None, str, str | None]:
                     with yt_dlp.YoutubeDL(o) as ydl:
                         info = ydl.extract_info(url, download=True)
                         if not info:
-                            return None
+                            return None, "", None
+                        if info.get("_type") == "playlist" and info.get("entries"):
+                            entry = next((e for e in info["entries"] if e), None)
+                            if entry:
+                                info = entry
+                        title = (info.get("title") or info.get("fulltitle") or "")[:120]
+                        thumb = info.get("thumbnail") or (
+                            (info.get("thumbnails") or [{}])[-1].get("url") if info.get("thumbnails") else None
+                        )
                         if "requested_downloads" in info and info["requested_downloads"]:
-                            return info["requested_downloads"][0].get("filepath")
-                        return ydl.prepare_filename(info)
-                path_s = await asyncio.wait_for(asyncio.to_thread(_run_dl), timeout=DOWNLOAD_TIMEOUT)
+                            path = info["requested_downloads"][0].get("filepath")
+                        else:
+                            path = ydl.prepare_filename(info)
+                        return path, title, thumb
+                path_s, dl_title, dl_thumb = await asyncio.wait_for(asyncio.to_thread(_run_dl), timeout=DOWNLOAD_TIMEOUT)
                 if path_s and Path(path_s).exists():
                     p = Path(path_s)
-                    # postprocessor may change extension
                     if audio_only and not p.exists():
                         for alt in p.parent.glob(p.stem + ".*"):
                             p = alt
                             break
                     if p.exists() and p.stat().st_size > 1000:
-                        return DownloadResult(path=p, title=p.stem[:120], media_type=media_type if media_type in ("audio", "voice") else "video", filesize=p.stat().st_size), ""
+                        nice_title = (dl_title or "").strip() or p.stem[:120]
+                        return DownloadResult(
+                            path=p,
+                            title=nice_title[:120],
+                            media_type=media_type if media_type in ("audio", "voice") else "video",
+                            filesize=p.stat().st_size,
+                            thumbnail=dl_thumb,
+                        ), ""
             except Exception as e:
                 errors.append(f"yt-dlp: {type(e).__name__}: {e}")
                 continue
-    # Cobalt fallback. Real regression (fixed): this used to post directly
-    # to the single official api.cobalt.tools endpoint -- but that one is
-    # bot-protected and unreliable from datacenter IPs (Render included),
-    # which is exactly why services/cobalt.py exists with 5 community
-    # instances and real, already-verified COBALT_API_KEY support (see its
-    # own comment for the confirmed error.api.auth.jwt.missing fix). That
-    # module had become dead code, imported nowhere, while this function
-    # quietly fell back to the one endpoint least likely to work.
     try:
         from services.cobalt import cobalt_download_to_file
         cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
