@@ -60,7 +60,7 @@ export default function ArticlesHubPage() {
       </ul>
 
       <div className="mt-8">
-        <AdSlot position="footer" label="أسفل المقالات" />
+        <AdSlot position="footer-banner" label="أسفل المقالات" />
       </div>
     </main>
   );

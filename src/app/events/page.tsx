@@ -99,7 +99,7 @@ export default function EventsHubPage() {
       </ul>
 
       <div className="mt-8">
-        <AdSlot position="footer" label="أسفل الأحداث" />
+        <AdSlot position="footer-banner" label="أسفل الأحداث" />
       </div>
     </main>
   );
