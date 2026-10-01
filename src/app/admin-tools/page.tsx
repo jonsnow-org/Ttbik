@@ -45,11 +45,22 @@ export default function AdminToolsPage() {
           </span>
         </Link>
 
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-slate-400">
-          <span className="text-3xl">🧪</span>
-          <h2 className="mt-3 text-lg font-extrabold">قوالب تجريبية قادمة</h2>
-          <p className="mt-2 text-sm">سيتم إضافة قوالب جديدة هنا تدريجياً.</p>
-        </div>
+        <Link
+          href="/admin-tools/fadaa-bot"
+          className="group relative overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-900 to-zinc-800 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+        >
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-violet-500 to-fuchsia-400" />
+          <span className="text-3xl">🌌</span>
+          <h2 className="mt-3 text-lg font-extrabold text-white group-hover:text-violet-200">
+            منشئ بوت فضاء
+          </h2>
+          <p className="mt-2 text-sm text-zinc-300">
+            جلسات مؤقتة (معرفة · تجربة · قرار) مع تطبيق مصغر على Vercel — بدون Render.
+          </p>
+          <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-violet-300">
+            فتح المنشئ ←
+          </span>
+        </Link>
       </div>
 
       <div className="mt-12 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
