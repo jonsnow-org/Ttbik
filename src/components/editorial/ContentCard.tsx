@@ -8,6 +8,8 @@ export default function ContentCard({
   meta,
   badge,
   badgeTone = "sky",
+  imageUrl,
+  imageAlt,
 }: {
   href: string;
   title: string;
@@ -16,6 +18,9 @@ export default function ContentCard({
   meta?: string;
   badge?: string;
   badgeTone?: "sky" | "indigo" | "emerald" | "rose";
+  /** Optional cover image (Unsplash or same-origin). */
+  imageUrl?: string;
+  imageAlt?: string;
 }) {
   const tones: Record<string, string> = {
     sky: "bg-sky-50 text-sky-800 ring-sky-100",
@@ -26,7 +31,21 @@ export default function ContentCard({
   return (
     <li className="group relative list-none">
       <div className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm transition [@media(hover:hover)]:hover:border-sky-200 [@media(hover:hover)]:hover:shadow-md">
-        <div className="h-1.5 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500 opacity-80 transition group-hover:opacity-100" />
+        {imageUrl ? (
+          <div className="relative aspect-[16/9] w-full overflow-hidden bg-sky-50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={imageAlt || title}
+              className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+              loading="lazy"
+              decoding="async"
+            />
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-900/25 to-transparent" />
+          </div>
+        ) : (
+          <div className="h-1.5 bg-gradient-to-l from-sky-400 via-sky-500 to-indigo-500 opacity-80 transition group-hover:opacity-100" />
+        )}
         <div className="p-4 sm:p-5">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] font-bold">
             {badge && (
@@ -35,7 +54,6 @@ export default function ContentCard({
             {dateLabel && <span className="text-slate-500">{dateLabel}</span>}
             {meta && <span className="text-slate-400">· {meta}</span>}
           </div>
-          {/* the ::after overlay stretches this link over the whole card, so any tap opens it */}
           <Link
             href={href}
             className="text-lg font-extrabold leading-8 text-slate-900 after:absolute after:inset-0 after:rounded-3xl after:content-[''] group-hover:text-sky-800"

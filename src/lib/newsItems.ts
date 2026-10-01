@@ -8,15 +8,44 @@ export type NewsItem = {
   description: string;
   paragraphs: string[];
   sources: NewsSource[];
+  imageUrl?: string;
 };
 
 /** Authored news only. Newest first. Ticker RSS stays out. */
 export const NEWS_ITEMS: NewsItem[] = [
   {
+    slug: "spacex-crew-13-iss-2026",
+    title: "إطلاق Crew-13 إلى محطة الفضاء الدولية: ماذا نعرف؟",
+    dateIso: "2026-10-01",
+    dateLabel: "1 أكتوبر 2026",
+    imageUrl:
+      "https://images.unsplash.com/photo-1446776811953-b23d57bd21aa?auto=format&fit=crop&w=1200&q=80",
+    description:
+      "ملخص عن مهمة SpaceX Crew-13 إلى محطة الفضاء الدولية وفق تقارير إعلامية عن الإطلاق من كيب كانافيرال، بمصادر قابلة للتحقق.",
+    paragraphs: [
+      "أفادت تقارير إخبارية في 1 أكتوبر 2026 بإطلاق مهمة SpaceX Crew-13 إلى محطة الفضاء الدولية من قاعدة كيب كانافيرال في فلوريدا، بطاقم يضم رائدي فضاء من ناسا ورائداً من روسكوزموس وآخر من وكالة الفضاء الكندية وفق ما نقلته وسائل إعلام عن الجداول المعلنة للرحلة.",
+      "مهام Crew dragon جزء من برنامج النقل التجاري للطاقم مع ناسا. الهدف المعتاد: نقل رواد فضاء وإمدادات ودعم التجارب على المحطة، ثم العودة وفق جدول المهمة.",
+      "لا نعيد هنا تفاصيل تقنية غير مؤكدة من مصادر غير رسمية. للاطلاع على أرقام الإطلاق والجدول الزمني راجع بيانات ناسا أو SpaceX أو التقارير الإخبارية المدرجة أدناه عند توفرها.",
+      "هذا ملخص تعريفي للقارئ العربي المهتم بالفضاء؛ ليس بثاً مباشراً ولا تغطية لحظة بلحظة.",
+    ],
+    sources: [
+      {
+        href: "https://en.wikipedia.org/wiki/Portal:Current_events/2026_October_1",
+        label: "ويكيبيديا — أحداث جارية 1 أكتوبر 2026 (Crew-13)",
+      },
+      {
+        href: "https://www.nasa.gov/",
+        label: "ناسا — الموقع الرسمي",
+      },
+    ],
+  },
+  {
     slug: "european-day-of-languages-coverage-2026",
     title: "اليوم الأوروبي للغات 2026: ماذا تعني المناسبة للقارئ العربي؟",
     dateIso: "2026-09-26",
     dateLabel: "26 سبتمبر 2026",
+    imageUrl:
+      "https://images.unsplash.com/photo-1456513080080-7e00c33a4e58?auto=format&fit=crop&w=1200&q=80",
     description:
       "تغطية تعريفية بمناسبة 26 سبتمبر من مصادر رسمية أوروبية ومرجع عربي، دون خلط بالسياسة المحلية.",
     paragraphs: [
@@ -32,7 +61,7 @@ export const NEWS_ITEMS: NewsItem[] = [
       },
       {
         href: "https://ar.wikipedia.org/wiki/%D8%A7%D9%84%D9%8A%D9%88%D9%85_%D8%A7%D9%84%D8%A3%D9%88%D8%B1%D9%88%D8%A8%D9%8A_%D9%84%D9%84%D8%BA%D8%A7%D8%AA",
-        label: "ويكيبيديا العربية — اليوم الأوروبي للغات",
+        label: "وييبيديا العربية — اليوم الأوروبي للغات",
       },
     ],
   },
@@ -41,6 +70,8 @@ export const NEWS_ITEMS: NewsItem[] = [
     title: "القمة المقبلة بين ترمب وشي في واشنطن: اللقاء مقرر الخميس",
     dateIso: "2026-09-24",
     dateLabel: "24 سبتمبر 2026",
+    imageUrl:
+      "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=80",
     description:
       "ما تقوله بي بي سي عربي والجزيرة نت عن القمة المقررة بين ترمب وشي في واشنطن. ملخص بمصدرين ودون نسخ المقالات.",
     paragraphs: [

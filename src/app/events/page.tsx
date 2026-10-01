@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type lim Metadata from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
@@ -42,17 +42,37 @@ export default function EventsHubPage() {
 
       {featured && (
         <section className="mb-8 overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-l from-indigo-50 via-white to-sky-50 shadow-sm">
+          {featured.imageUrl && (
+            <div className="relative aspect-[21/9] w-full overflow-hidden bg-indigo-50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={featured.imageUrl}
+                alt={featured.title}
+                className="h-full w-full object-cover"
+                loading="eager"
+                decoding="async"
+              />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-white via-white/40 to-transparent" />
+            </div>
+          )}
           <div className="p-5 sm:p-6">
             <p className="text-[11px] font-black tracking-wide text-indigo-600">حدث اليوم</p>
             <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
-              <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">{featured.title}</Link>
+              <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">
+                {featured.title}
+              </Link>
             </h2>
             <p className="mt-2 text-sm leading-7 text-slate-600">{featured.blurb}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link href={`/events/${featured.slug}`} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-sky-600">
+              <Link
+                href={`/events/${featured.slug}`}
+                className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-sky-600"
+              >
                 اقرأ التغطية كاملة
               </Link>
-              <span className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-100">{featured.dateLabel}</span>
+              <span className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-100">
+                {featured.dateLabel}
+              </span>
             </div>
           </div>
         </section>
@@ -72,6 +92,8 @@ export default function EventsHubPage() {
             dateLabel={e.dateLabel}
             badge={e.category || "حدث"}
             badgeTone="indigo"
+            imageUrl={e.imageUrl}
+            imageAlt={e.title}
           />
         ))}
       </ul>
