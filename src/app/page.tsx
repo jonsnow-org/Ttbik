@@ -1,8 +1,4 @@
 import Link from "next/link";
-import { readCatalog } from "@/lib/supabase";
-import type { Category, Service } from "@/types";
-import StorefrontBrowser from "@/components/StorefrontBrowser";
-import SectionBackdrop from "@/components/SectionBackdrop";
 import AdSlot from "@/components/AdSlot";
 import { FREE_TOOLS } from "@/lib/freeTools";
 
@@ -19,27 +15,14 @@ const TOOL_GRADIENTS = [
 ];
 import BotCards from "@/components/BotCards";
 import TodayStrip from "@/components/TodayStrip";
+import SectionBackdrop from "@/components/SectionBackdrop";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { latestNewsItem } from "@/lib/newsItems";
 
 export const revalidate = 30;
 
-async function getStorefront() {
-  // readCatalog never throws — an unavailable DB just renders no storefront.
-  const [categories, services] = await Promise.all([
-    readCatalog((db) => db.from("categories").select("*").order("sort_order")),
-    readCatalog((db) => db.from("services").select("*").eq("is_active", true).order("sort_order")),
-  ]);
-  return {
-    categories: (categories ?? []) as Category[],
-    services: (services ?? []) as Service[],
-  };
-}
-
 export default async function HomePage() {
-  const { categories, services } = await getStorefront();
   const news = latestNewsItem();
-  const visible = categories.filter((c) => ["telegram-bots"].includes(c.slug));
 
   return (
     <div>
@@ -114,8 +97,6 @@ export default async function HomePage() {
           ))}
         </div>
 
-        {/* Moved here from the retired /free-tools index page (2026-09-23) so
-            this promo isn't lost with it. */}
         <a
           href="https://literium.ai.studio"
           target="_blank"
@@ -158,8 +139,6 @@ export default async function HomePage() {
         </div>
         <BotCards />
       </section>
-
-      {visible.length > 0 && <StorefrontBrowser categories={visible} services={services} />}
     </div>
   );
 }
