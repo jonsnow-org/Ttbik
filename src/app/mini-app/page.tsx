@@ -269,7 +269,7 @@ export default function MiniAppPage() {
   const [replyTo, setReplyTo] = useState<CommentRow | null>(null);
   const [broadcastText, setBroadcastText] = useState("");
   const [forceChans, setForceChans] = useState("");
-  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number; views: number; likes: number; users?: number; online_15m?: number; active_24h?: number; new_24h?: number; users_ready?: boolean } | null>(null);
+  const [adminStats, setAdminStats] = useState<{ posts: number; hidden: number; clones: number; publishers: number; views: number; likes: number; users?: number; online_15m?: number; active_24h?: number; new_24h?: number; users_ready?: boolean; behavior_24h?: Record<string, number>; events_24h?: number; recent_events?: { event: string; name: string; at: number; meta?: Record<string, string> }[] } | null>(null);
   const [adminBusy, setAdminBusy] = useState(false);
   const isOwner = !!userId && OWNER_IDS.includes(userId);
 
@@ -279,6 +279,32 @@ export default function MiniAppPage() {
   // src/lib/verifyTelegramOwner.ts.
   function tgInitData(): string {
     return tg()?.initData || "";
+  }
+  /** Lightweight behavior ping — identity from Telegram initData only */
+  function goTab(t: Tab) {
+    setTab(t);
+    track("tab", { tab: t });
+  }
+  function track(event: string, meta?: Record<string, string | number | undefined>) {
+    try {
+      const init_data = tgInitData();
+      if (!init_data) return;
+      const clean: Record<string, string> = {};
+      if (meta) {
+        for (const [k, v] of Object.entries(meta)) {
+          if (v === undefined || v === null || v === "") continue;
+          clean[String(k).slice(0, 32)] = String(v).slice(0, 120);
+        }
+      }
+      void fetch("/api/media-stats", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ init_data, event, meta: clean }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
   }
 
   useEffect(() => {
@@ -295,7 +321,7 @@ export default function MiniAppPage() {
       if (u?.username) setUsername(u.username);
       if (u?.id) setUserId(String(u.id));
       if (u?.photo_url) setPhotoUrl(u.photo_url);
-      try { if (u?.id) void fetch("/api/media-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }); } catch {}
+      try { if (u?.id) track("open"); } catch {}
     }
     setLiked(loadJSON(LS.liked, {}));
     seenRef.current = new Set(loadJSON<string[]>(LS.seen, []));
@@ -306,7 +332,7 @@ export default function MiniAppPage() {
     // Deep link from the bot's "new share" notification: ?u=<user id> opens that profile.
     try {
       const u = new URLSearchParams(window.location.search).get("u") || t?.initDataUnsafe?.start_param?.replace(/^u_/, "") || "";
-      if (/^\d{3,}$/.test(u)) { setViewUserId(u); setTab("me"); }
+      if (/^\d{3,}$/.test(u)) { setViewUserId(u); goTab("me"); }
       const dm = new URLSearchParams(window.location.search).get("dm") || "";
       if (/^\d{3,}$/.test(dm)) setTimeout(() => void openThreadRef.current(dm, "مستخدم"), 600);
     } catch {}
@@ -462,7 +488,26 @@ export default function MiniAppPage() {
     try {
       const r = await fetch("/api/media-admin", { cache: "no-store" });
       const j = await r.json();
-      if (j.stats) setAdminStats(j.stats);
+      let stats = j.stats || {};
+      try {
+        const s = await (
+          await fetch(`/api/media-stats?init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" })
+        ).json();
+        stats = {
+          ...stats,
+          users: s.mini_app_users,
+          online_15m: s.online_15m,
+          active_24h: s.active_24h,
+          new_24h: s.new_24h,
+          users_ready: s.source === "supabase" || (s.mini_app_users || 0) > 0,
+          behavior_24h: s.behavior_24h || {},
+          events_24h: s.events_24h || 0,
+          recent_events: Array.isArray(s.recent_events) ? s.recent_events : [],
+        };
+      } catch {
+        /* optional */
+      }
+      setAdminStats(stats);
       if (Array.isArray(j.settings?.force_sub_channels)) setForceChans(j.settings.force_sub_channels.join(", "));
     } catch {}
   }
@@ -763,7 +808,7 @@ export default function MiniAppPage() {
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
   const shareLink = (id: string) => `${SITE}/m/${id}`;
 
-  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewAvatar(""); setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); setTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
+  const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewAvatar(""); setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); goTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
   const closeOtherProfile = () => { setViewAvatar(""); setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
   const toggleLike = (item: FeedItem) => {
     const id = item.id;
@@ -772,6 +817,7 @@ export default function MiniAppPage() {
     setLiked((p) => { const next = { ...p, [id]: !was }; saveJSON(LS.liked, next); return next; });
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
     fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like", init_data: tgInitData() }) }).catch(() => {});
+    track(was ? "unlike" : "like", { post_id: id });
     if (!was && item.sharer_id && item.sharer_id !== userId) {
       void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), to_id: item.sharer_id, from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
     }
@@ -810,6 +856,7 @@ export default function MiniAppPage() {
                 : it
             )
           );
+          track("view", { post_id: item.id, type: item.media_type });
         } else if (j?.counted === false) {
           // Already counted on server (or own post) — do not retry
           viewedRef.current.add(item.id);
@@ -823,6 +870,7 @@ export default function MiniAppPage() {
   const playItem = (item: FeedItem) => {
     setPlayError(null);
     setPlayingId(item.id);
+    track("play", { post_id: item.id, type: item.media_type });
   };
 
   function relationError(e: any) {
@@ -955,7 +1003,7 @@ export default function MiniAppPage() {
             <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
             <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
-            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
+            <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
         </div>
         <nav className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
@@ -1217,6 +1265,27 @@ export default function MiniAppPage() {
                 <input value={forceChans} onChange={(e) => setForceChans(e.target.value)} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs outline-none" placeholder="@channel1, @channel2" />
                 <button type="button" disabled={adminBusy} onClick={() => void saveForceSub()} className="w-full rounded-xl bg-sky-100 py-2 text-xs font-bold disabled:opacity-50">حفظ القنوات</button>
                 {adminStats && <p className="text-[10px] text-slate-500">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
+              {(adminStats?.events_24h || 0) > 0 && (
+                <div className="mt-3 rounded-2xl border border-violet-100 bg-white p-3">
+                  <p className="text-xs font-black text-violet-800">📊 سلوك المستخدمين (24 ساعة)</p>
+                  <p className="mt-1 text-[10px] text-slate-500">{adminStats.events_24h} حدث مسجّل</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {Object.entries(adminStats.behavior_24h || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                      <span key={k} className="rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-700 ring-1 ring-violet-100">{k}: {v}</span>
+                    ))}
+                  </div>
+                  {!!adminStats.recent_events?.length && (
+                    <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                      {adminStats.recent_events.slice(0, 20).map((e, i) => (
+                        <li key={`${e.at}-${i}`} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1 text-[10px]">
+                          <span className="font-bold text-slate-700">{e.event} · {e.name}</span>
+                          <span className="text-slate-400">{timeAgo(e.at)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
                 {socialReady === false && <p className="rounded-xl bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700">⚠️ المتابعة والكتم والحظر والبلاغات تحتاج تشغيل ملف supabase/migration_media_social.sql في Supabase مرة واحدة.</p>}
               </div>
             </div>
@@ -1341,7 +1410,7 @@ export default function MiniAppPage() {
               : peopleSheet.people.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">{socialReady === false ? "الميزة بانتظار تفعيلها من المالك" : "لا أحد بعد"}</p>
               : <ul className="space-y-1.5">{peopleSheet.people.map((pp) => (
                 <li key={pp.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2">
-                  <button type="button" onClick={() => { setPeopleSheet(null); if (pp.id === userId) { closeOtherProfile(); setTab("me"); } else openProfile(pp.id, pp.name); }} className="flex min-w-0 flex-1 items-center gap-3 text-right">
+                  <button type="button" onClick={() => { setPeopleSheet(null); if (pp.id === userId) { closeOtherProfile(); goTab("me"); } else openProfile(pp.id, pp.name); }} className="flex min-w-0 flex-1 items-center gap-3 text-right">
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400 text-sm font-black text-white">{(pp.name || "U").slice(0, 1)}</span>
                     <span className="truncate text-sm font-bold">{pp.name}{pp.id === userId ? " (أنت)" : ""}</span>
                   </button>
