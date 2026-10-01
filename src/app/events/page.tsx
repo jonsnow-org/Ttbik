@@ -1,4 +1,4 @@
-import type lim Metadata from "next";
+import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
