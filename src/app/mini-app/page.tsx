@@ -205,6 +205,7 @@ export default function MiniAppPage() {
   const [notifyOff, setNotifyOff] = useState<string[]>([]);
   const [peopleSheet, setPeopleSheet] = useState<{ kind: "followers" | "following"; of: string; people: { id: string; name: string }[] | null } | null>(null);
   const [autoplay, setAutoplay] = useState(true);
+  const [showTopBtn, setShowTopBtn] = useState(false);
   const [autoId, setAutoId] = useState<string | null>(null);
   const [autoFailed, setAutoFailed] = useState<Record<string, boolean>>({});
   // Ids whose Cloudflare stream failed once — retried through Vercel's /api/media-stream.
@@ -309,6 +310,13 @@ export default function MiniAppPage() {
       /* ignore */
     }
   }
+
+  useEffect(() => {
+    const onScroll = () => setShowTopBtn(window.scrollY > 280);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     const t = tg();
@@ -1061,6 +1069,18 @@ export default function MiniAppPage() {
 
   return (
     <div className="min-h-screen bg-[#eaf6ff] text-slate-800">
+      
+      {showTopBtn && (
+        <button
+          type="button"
+          aria-label="العودة للأعلى"
+          onClick={() => { haptic(); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          className="fixed bottom-5 left-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/40 text-lg text-white shadow-md backdrop-blur-md ring-1 ring-white/50 transition active:scale-95"
+        >
+          ↑
+        </button>
+      )}
+
       <MonetagSdkLoader />
       <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/95 px-4 pb-1.5 pt-1.5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
@@ -1350,7 +1370,7 @@ export default function MiniAppPage() {
                 <input value={forceChans} onChange={(e) => setForceChans(e.target.value)} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs outline-none" placeholder="@channel1, @channel2" />
                 <button type="button" disabled={adminBusy} onClick={() => void saveForceSub()} className="w-full rounded-xl bg-sky-100 py-2 text-xs font-bold disabled:opacity-50">حفظ القنوات</button>
                 {adminStats && <p className="text-[10px] text-slate-500">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
-              {(adminStats?.events_24h || 0) > 0 && (
+              {adminStats && (adminStats.events_24h || 0) > 0 && (
                 <div className="mt-3 rounded-2xl border border-violet-100 bg-white p-3">
                   <p className="text-xs font-black text-violet-800">📊 سلوك المستخدمين (24 ساعة)</p>
                   <p className="mt-1 text-[10px] text-slate-500">{adminStats.events_24h} حدث مسجّل</p>
@@ -1361,7 +1381,7 @@ export default function MiniAppPage() {
                   </div>
                   {!!adminStats.recent_events?.length && (
                     <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-                      {adminStats.recent_events.slice(0, 20).map((e, i) => (
+                      {(adminStats.recent_events || []).slice(0, 20).map((e, i) => (
                         <li key={`${e.at}-${i}`} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1 text-[10px]">
                           <span className="font-bold text-slate-700">{e.event} · {e.name}</span>
                           <span className="text-slate-400">{timeAgo(e.at)}</span>
