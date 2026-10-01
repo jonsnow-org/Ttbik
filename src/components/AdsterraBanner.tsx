@@ -33,14 +33,19 @@ export default function AdsterraBanner({ adKey, width, height, reloadKey = 0, on
       try {
         const body = ref.current?.contentDocument?.body;
         if (!body) return;
-        const filled = !!body.querySelector("iframe, img, ins, a, canvas, object");
+        const nodes = Array.from(body.querySelectorAll("iframe, img, ins, a, canvas, object, video"));
+        const filled = nodes.some((n) => {
+          if (n.tagName !== "VIDEO") return true;
+          const v = n as HTMLVideoElement;
+          return !!(v.currentSrc || v.getAttribute("src") || v.querySelector("source"));
+        });
         if (filled) return;
-        if (attempt < 3) setAttempt((a) => a + 1);
+        if (attempt < 2) setAttempt((a) => a + 1);
         else onEmpty?.();
       } catch {
         /* cross-origin: cannot inspect, leave as is */
       }
-    }, 7000 + attempt * 1500);
+    }, 4000 + attempt * 1200);
     return () => clearTimeout(t);
   }, [attempt, reloadKey, onEmpty]);
 
