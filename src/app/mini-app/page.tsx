@@ -136,7 +136,7 @@ function Thumb({ item, onRatio }: { item: FeedItem; onRatio?: (w: number, h: num
       <div className="relative h-full w-full overflow-hidden bg-slate-900">
         {/* blurred copy fills the frame behind a vertical/odd-sized image */}
         <img src={item.thumbnail} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl" />
-        <img src={item.thumbnail} alt="" loading="lazy" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-contain" />
+        <img src={item.thumbnail} alt="" loading="lazy" onLoad={(e) => onRatio?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)} onError={() => setFailed(true)} className="relative h-full w-full object-cover" />
       </div>
     );
   }
@@ -1164,14 +1164,14 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
-                <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : p.vertical ? "aspect-[9/16] max-h-[75vh]" : "aspect-video max-h-[75vh]"}`}>
+                <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/16] max-h-[85vh]"}`}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} /></div>)
-                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-contain" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
+                    : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />)
                   ) : autoplay && autoId === item.id && !isAudio && !autoFailed[item.id] ? (
                     // Muted preview while the card is on screen; a tap switches to the full player with sound.
                     <button type="button" onClick={() => playItem(item)} className="relative block h-full w-full">
-                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-contain" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
+                      <video src={mediaStreamUrl(item.id)} poster={item.thumbnail || undefined} muted autoPlay loop playsInline preload="auto" onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => setAutoFailed((f) => ({ ...f, [item.id]: true }))} onTimeUpdate={(e) => markViewed(item, e.currentTarget.currentTime)} />
                       <span className="absolute bottom-2 right-2 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-bold text-white backdrop-blur">🔇 اضغط للصوت</span>
                     </button>
                   ) : (
