@@ -7,7 +7,6 @@ import {
   miniAppKeyboard,
   safeEqual,
   tg,
-  MINI_APP_URL,
 } from "@/lib/mediaFrontDoor";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +21,13 @@ const PREMIUM_STARS_PRICE = 500;
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
 const INFO_TEXT =
-  "ℹ️ طريقة الاستخدام\n\n" +
-  "1) أرسل رابط يوتيوب / تيك توك / إنستغرام / تويتر.\n" +
-  "2) اختر الجودة أو الصوت أو الرسالة الصوتية.\n" +
-  "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n" +
-  "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n" +
-  "📱 التطبيق المصغر: الزر المربع بجانب حقل الرسالة (يعمل دائماً على الموقع).\n" +
-  "⚙️ الأوامر الكاملة للتحميل تعمل عبر محرك Render — إن تأخر الرد انتظر ~ دقيقة بعد أول رسالة.";
+  "طريقة الاستخدام\n\n" +
+  "1) ارسل رابط يوتيوب / تيك توك / انستغرام / تويتر.\n" +
+  "2) اختر الجودة او الصوت او الرسالة الصوتية.\n" +
+  "3) على يوتيوب: زر ملخص ذكي يعرض 3 نقاط من الترجمة قبل التحميل.\n" +
+  "4) الملف يحفظ في الارشيف ويمكن استنساخه فورا من التطبيق المصغر.\n\n" +
+  "التطبيق المصغر: الزر المربع بجانب حقل الرسالة (يعمل دائما على الموقع).\n" +
+  "الاوامر الكاملة للتحميل تعمل عبر محرك Render - ان تاخر الرد انتظر دقيقة بعد اول رسالة.";
 
 function userKeyboard() {
   return {
@@ -53,7 +52,9 @@ function ownerKeyboard() {
 }
 
 function premiumStarsButton() {
-  return { inline_keyboard: [[{ text: "⭐ ادفع بنجوم تيليجرام", callback_data: "premium_stars_buy" }]] };
+  return {
+    inline_keyboard: [[{ text: "⭐ ادفع بنجوم تيليجرام", callback_data: "premium_stars_buy" }]],
+  };
 }
 
 type Outcome = "delivered" | "timeout" | "down";
@@ -62,7 +63,7 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
   const base = await getRenderUrl().catch(() => "");
   if (!base) return "down";
   try {
-    const r = await fetch(`${base}${hookPath()}`, {
+    const r = await fetch(base + hookPath(), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -71,21 +72,21 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
       body: raw,
       signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
     });
-    // 503 while Python is still starting — treat as timeout so we don't
-    // replace the real bot UI with the mini-app-only fallback.
     if (r.status === 503) return "timeout";
     return r.ok ? "delivered" : "down";
   } catch (e) {
-    return (e as Error)?.name === "TimeoutError" || (e as Error)?.name === "AbortError"
-      ? "timeout"
-      : "down";
+    const name = (e as Error)?.name || "";
+    return name === "TimeoutError" || name === "AbortError" ? "timeout" : "down";
   }
 }
 
 async function enqueue(update: any): Promise<boolean> {
   const db = await mediaDb();
   if (!db || typeof update?.update_id !== "number") return false;
-  const { error } = await db.from("media_bot_queue").upsert({ update_id: update.update_id, payload: update });
+  const { error } = await db.from("media_bot_queue").upsert({
+    update_id: update.update_id,
+    payload: update,
+  });
   return !error;
 }
 
@@ -101,12 +102,14 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
   if (!item?.file_id) return false;
   const type = String(item.media_type || "video");
   const title = String(item.title || "media").slice(0, 64);
-  const res =
-    type === "audio"
-      ? await tg("sendAudio", { chat_id: chatId, audio: item.file_id, title })
-      : type === "voice"
-        ? await tg("sendVoice", { chat_id: chatId, voice: item.file_id })
-        : await tg("sendVideo", { chat_id: chatId, video: item.file_id, supports_streaming: true });
+  let res;
+  if (type === "audio") {
+    res = await tg("sendAudio", { chat_id: chatId, audio: item.file_id, title });
+  } else if (type === "voice") {
+    res = await tg("sendVoice", { chat_id: chatId, voice: item.file_id });
+  } else {
+    res = await tg("sendVideo", { chat_id: chatId, video: item.file_id, supports_streaming: true });
+  }
   if (!res?.ok) return false;
   await db
     .from("media_feed")
@@ -118,16 +121,29 @@ async function sendCloned(chatId: number, itemId: string): Promise<boolean> {
 async function premiumInfoText(userId: string): Promise<string> {
   const isPrem = await isMediaPremium(userId);
   if (isPrem) {
-    return `💎 الترقية المدفوعة مُفعّلة على حسابك.\nحدك اليومي الحالي: ${PREMIUM_DAILY_LIMIT} تحميل.`;
+    return (
+      "الترقية المدفوعة مفعلة على حسابك.\n" +
+      "حدك اليومي الحالي: " +
+      PREMIUM_DAILY_LIMIT +
+      " تحميل."
+    );
   }
   return (
-    "💎 الترقية المدفوعة\n\n" +
-    `• حد يومي أعلى (${PREMIUM_DAILY_LIMIT} تحميل بدل ${FREE_DAILY_LIMIT})\n` +
-    "• أولوية أعلى في المعالجة\n\n" +
-    `⭐ ادفع مباشرة بنجوم تيليجرام (${PREMIUM_STARS_PRICE} نجمة) من الزر أدناه — تفعيل فوري.\n\n" +
-    "— أو —\n" +
-    `1) اطلب الخدمة من: ${SITE_URL}/service/media-bot-premium\n` +
-    "2) بعد موافقة الإدارة أرسل: /premium ثم رمز طلبك"
+    "الترقية المدفوعة\n\n" +
+    "• حد يومي اعلى (" +
+    PREMIUM_DAILY_LIMIT +
+    " تحميل بدل " +
+    FREE_DAILY_LIMIT +
+    ")\n" +
+    "• اولوية اعلى في المعالجة\n\n" +
+    "ادفع مباشرة بنجوم تيليجرام (" +
+    PREMIUM_STARS_PRICE +
+    " نجمة) من الزر ادناه - تفعيل فوري.\n\n" +
+    "او:\n" +
+    "1) اطلب الخدمة من: " +
+    SITE_URL +
+    "/service/media-bot-premium\n" +
+    "2) بعد موافقة الادارة ارسل: /premium ثم رمز طلبك"
   );
 }
 
@@ -151,7 +167,8 @@ async function handleSuccessfulPayment(update: any): Promise<void> {
   await grantPremiumViaStars(userId);
   await tg("sendMessage", {
     chat_id: msg.chat.id,
-    text: `✅ تم الدفع بنجاح! الترقية مفعّلة الآن.\nحدك اليومي: ${PREMIUM_DAILY_LIMIT} تحميل.`,
+    text:
+      "تم الدفع بنجاح! الترقية مفعلة الآن.\nحدك اليومي: " + PREMIUM_DAILY_LIMIT + " تحميل.",
   });
 }
 
@@ -164,7 +181,11 @@ async function handleCallback(update: any): Promise<void> {
 
   if (data === "close_msg" && chatId) {
     await tg("answerCallbackQuery", { callback_query_id: cbq.id });
-    await tg("editMessageText", { chat_id: chatId, message_id: cbq.message.message_id, text: "تم." });
+    await tg("editMessageText", {
+      chat_id: chatId,
+      message_id: cbq.message.message_id,
+      text: "تم.",
+    });
     return;
   }
 
@@ -173,7 +194,7 @@ async function handleCallback(update: any): Promise<void> {
     if (isPrem) {
       await tg("answerCallbackQuery", {
         callback_query_id: cbq.id,
-        text: "الترقية مفعّلة بالفعل.",
+        text: "الترقية مفعلة بالفعل.",
         show_alert: true,
       });
       return;
@@ -181,8 +202,9 @@ async function handleCallback(update: any): Promise<void> {
     await tg("answerCallbackQuery", { callback_query_id: cbq.id });
     await tg("sendInvoice", {
       chat_id: chatId,
-      title: "💎 ترقية بوت الوسائط",
-      description: `رفع حدك اليومي إلى ${PREMIUM_DAILY_LIMIT} تحميل وأولوية أعلى في المعالجة.`,
+      title: "ترقية بوت الوسائط",
+      description:
+        "رفع حدك اليومي الى " + PREMIUM_DAILY_LIMIT + " تحميل واولوية اعلى في المعالجة.",
       payload: "media_premium_stars",
       currency: "XTR",
       prices: [{ label: "ترقية بريميوم", amount: PREMIUM_STARS_PRICE }],
@@ -195,20 +217,18 @@ async function handleCallback(update: any): Promise<void> {
     await tg("editMessageText", {
       chat_id: chatId,
       message_id: cbq.message.message_id,
-      text: "✅ تم التحقق. أرسل الرابط الآن.",
+      text: "تم التحقق. ارسل الرابط الآن.",
     });
     return;
   }
 
-  // Other callbacks (quality, share, squad) need the Python bot — acknowledge only.
   await tg("answerCallbackQuery", {
     callback_query_id: cbq.id,
-    text: "⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ",
+    text: "المحرك يستيقظ - اعد المحاولة بعد ثوان",
     show_alert: false,
   });
 }
 
-/** Fallback only when Render did not accept the update. */
 async function handleMessage(update: any, outcome: Outcome): Promise<void> {
   const msg = update.message;
   if (!msg?.chat?.id || !msg.from) return;
@@ -229,7 +249,7 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     if (!ok) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "انتهت صلاحية هذا الملف أو غير موجود.",
+        text: "انتهت صلاحية هذا الملف او غير موجود.",
         reply_markup: miniAppKeyboard(),
       });
     }
@@ -239,17 +259,17 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
   if (text.startsWith("/start msg_")) return;
 
   if (text === "/start" || text.startsWith("/start ")) {
-    const wakeNote = waking ? "\n\n⏳ المحرك يستيقظ — أرسل الرابط بعد بضع ثوانٍ." : "";
+    const wakeNote = waking ? "\n\nالمحرك يستيقظ - ارسل الرابط بعد بضع ثوان." : "";
     if (isOwner) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة." + wakeNote,
+        text: "لوحة مالك البوت\n\nارسل اي رابط للتحميل مباشرة." + wakeNote,
         reply_markup: ownerKeyboard(),
       });
     } else {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام..." + wakeNote,
+        text: "مرحبا\nارسل رابط يوتيوب / تيك توك / انستغرام..." + wakeNote,
         reply_markup: userKeyboard(),
       });
     }
@@ -261,12 +281,12 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     if (isPrem) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: `💎 الترقية مُفعّلة بالفعل.\nحدك اليومي: ${PREMIUM_DAILY_LIMIT} تحميل.`,
+        text: "الترقية مفعلة بالفعل.\nحدك اليومي: " + PREMIUM_DAILY_LIMIT + " تحميل.",
       });
     } else {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "استخدم: /premium ثم رمز طلبك\nأو ادفع بنجوم تيليجرام من زر الترقية.",
+        text: "استخدم: /premium ثم رمز طلبك\nاو ادفع بنجوم تيليجرام من زر الترقية.",
         reply_markup: premiumStarsButton(),
       });
     }
@@ -284,8 +304,8 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text: waking
-        ? "⏳ المحرك يستيقظ... أرسل الرابط خلال دقيقة وسأعرض خيارات الجودة."
-        : "أرسل الرابط مباشرة وسأعرض الخيارات.",
+        ? "المحرك يستيقظ... ارسل الرابط خلال دقيقة وساعرض خيارات الجودة."
+        : "ارسل الرابط مباشرة وسأعرض الخيارات.",
     });
     return;
   }
@@ -295,10 +315,15 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
       const db = await mediaDb();
       let count = 0;
       if (db) {
-        const { count: c } = await db.from("media_premium_users").select("*", { count: "exact", head: true });
+        const { count: c } = await db
+          .from("media_premium_users")
+          .select("*", { count: "exact", head: true });
         count = c || 0;
       }
-      await tg("sendMessage", { chat_id: chatId, text: `💎 عدد المشتركين في الترقية المدفوعة: ${count}` });
+      await tg("sendMessage", {
+        chat_id: chatId,
+        text: "عدد المشتركين في الترقية المدفوعة: " + count,
+      });
       return;
     }
     const premText = await premiumInfoText(userId);
@@ -311,16 +336,15 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     return;
   }
 
-  // Owner panel — real text, not mini-app-only (fixes screenshot issue)
   if (isOwner && text === "⚙️ إعدادات البوت") {
     await tg("sendMessage", {
       chat_id: chatId,
       text:
-        "⚙️ إعدادات البوت\n\n" +
+        "اعدادات البوت\n\n" +
         (waking
-          ? "⏳ المحرك يستيقظ الآن. أعد الضغط بعد 30–60 ثانية لإعدادات الأرشيف والاشتراك الكاملة.\n\n"
-          : "المحرك غير متصل مؤقتاً. تأكد أن خدمة media-bot على Render تعمل، ثم أعد /start.\n\n") +
-        "يمكنك إرسال رابط للتحميل مباشرة عند عودة المحرك.",
+          ? "المحرك يستيقظ الآن. اعد الضغط بعد 30-60 ثانية لاعدادات الارشيف والاشتراك الكاملة.\n\n"
+          : "المحرك غير متصل مؤقتا. تاكد ان خدمة media-bot على Render تعمل، ثم اعد /start.\n\n") +
+        "يمكنك ارسال رابط للتحميل مباشرة عند عودة المحرك.",
       reply_markup: ownerKeyboard(),
     });
     return;
@@ -330,10 +354,10 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text:
-        "👥 إدارة المستخدمين\n\n" +
+        "ادارة المستخدمين\n\n" +
         (waking
-          ? "⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ للإحصائيات الحية."
-          : "المحرك غير متصل. شغّل خدمة Render ثم أعد المحاولة."),
+          ? "المحرك يستيقظ - اعد المحاولة بعد ثوان للاحصائيات الحية."
+          : "المحرك غير متصل. شغل خدمة Render ثم اعد المحاولة."),
       reply_markup: ownerKeyboard(),
     });
     return;
@@ -343,10 +367,10 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text:
-        "📢 قنوات الاشتراك\n\n" +
+        "قنوات الاشتراك\n\n" +
         (waking
-          ? "⏳ المحرك يستيقظ — أعد الضغط بعد دقيقة لإضافة/حذف القنوات."
-          : "المحرك غير متصل. بعد عودته استخدم هذا الزر لإدارة القنوات."),
+          ? "المحرك يستيقظ - اعد الضغط بعد دقيقة لاضافة/حذف القنوات."
+          : "المحرك غير متصل. بعد عودته استخدم هذا الزر لادارة القنوات."),
       reply_markup: ownerKeyboard(),
     });
     return;
@@ -357,7 +381,9 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     let premCount = 0;
     let feedCount = 0;
     if (db) {
-      const { count: pc } = await db.from("media_premium_users").select("*", { count: "exact", head: true });
+      const { count: pc } = await db
+        .from("media_premium_users")
+        .select("*", { count: "exact", head: true });
       premCount = pc || 0;
       const { count: fc } = await db.from("media_feed").select("*", { count: "exact", head: true });
       feedCount = fc || 0;
@@ -365,10 +391,14 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text:
-        `📊 إحصائيات سريعة (من الموقع)\n\n📁 الموجز: ${feedCount}\n💎 المشتركون: ${premCount}\n\n` +
+        "احصائيات سريعة (من الموقع)\n\nالموجز: " +
+        feedCount +
+        "\nالمشتركون: " +
+        premCount +
+        "\n\n" +
         (waking
-          ? "⏳ المحرك يستيقظ — الإحصائيات الكاملة من البوت بعد ثوانٍ."
-          : "للإحصائيات الكاملة من المحرك: تأكد أن Render يعمل ثم أعد الضغط."),
+          ? "المحرك يستيقظ - الاحصائيات الكاملة من البوت بعد ثوان."
+          : "للاحصائيات الكاملة من المحرك: تاكد ان Render يعمل ثم اعد الضغط."),
       reply_markup: ownerKeyboard(),
     });
     return;
@@ -377,12 +407,9 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
   if (text === "⚙️ إعداداتي") {
     await tg("sendMessage", {
       chat_id: chatId,
-      text:
-        "⚙️ إعداداتك\n\n" +
-        (waking
-          ? "⏳ المحرك يستيقظ — أعد الضغط بعد ثوانٍ لتبديل الموجز/الغرفة."
-          : "المحرك غير متصل مؤقتاً. يمكنك فتح التطبيق المصغر لتصفح المحتوى:") +
-        (waking ? "" : ""),
+      text: waking
+        ? "اعداداتك\n\nالمحرك يستيقظ - اعد الضغط بعد ثوان لتبديل الموجز/الغرفة."
+        : "اعداداتك\n\nالمحرك غير متصل مؤقتا. يمكنك فتح التطبيق المصغر لتصفح المحتوى.",
       reply_markup: waking ? userKeyboard() : miniAppKeyboard(),
     });
     return;
@@ -392,8 +419,8 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text: waking
-        ? "👥 الغرف\n\n⏳ المحرك يستيقظ — أعد المحاولة بعد ثوانٍ لإنشاء/الانضمام."
-        : "👥 الغرف\n\nالمحرك غير متصل. أعد المحاولة بعد عودته.",
+        ? "الغرف\n\nالمحرك يستيقظ - اعد المحاولة بعد ثوان لانشاء/الانضمام."
+        : "الغرف\n\nالمحرك غير متصل. اعد المحاولة بعد عودته.",
       reply_markup: userKeyboard(),
     });
     return;
@@ -404,15 +431,15 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     await tg("sendMessage", {
       chat_id: chatId,
       text: waking
-        ? "⏳ المحرك يستيقظ...\nتم حفظ الرابط وسيُعرض عليك أزرار الجودة فور جهوزية المحرك (عادة أقل من دقيقة)."
-        : "📥 تم حفظ الرابط.\nالمحرك غير متصل الآن — سيُعالج تلقائياً عند عودته. لا ترسل نفس الرابط مرات كثيرة.",
+        ? "المحرك يستيقظ...\nتم حفظ الرابط وسيعرض عليك ازرار الجودة فور جهوزية المحرك (عادة اقل من دقيقة)."
+        : "تم حفظ الرابط.\nالمحرك غير متصل الآن - سيعالج تلقائيا عند عودته. لا ترسل نفس الرابط مرات كثيرة.",
     });
     return;
   }
 
   await tg("sendMessage", {
     chat_id: chatId,
-    text: "أرسل رابطاً أو استخدم الأزرار.",
+    text: "ارسل رابطا او استخدم الازرار.",
     reply_markup: isOwner ? ownerKeyboard() : userKeyboard(),
   });
 }
@@ -443,7 +470,6 @@ export async function POST(req: NextRequest) {
   }
 
   const outcome = await forward(raw, secret);
-  // Real bot handled it — do not send mini-app-only replies.
   if (outcome === "delivered") return NextResponse.json({ ok: true });
 
   try {
