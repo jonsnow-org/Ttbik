@@ -283,6 +283,8 @@ export default function MiniAppPage() {
   /** Lightweight behavior ping — identity from Telegram initData only */
   function goTab(t: Tab) {
     setTab(t);
+    setPlayingId(null);
+    setAutoId(null);
     track("tab", { tab: t });
   }
   function track(event: string, meta?: Record<string, string | number | undefined>) {
@@ -726,33 +728,87 @@ export default function MiniAppPage() {
   }, [items, tab, showProfile, isOwnProfile, profileTargetId, profileSection, search, hiddenUsers, relations]);
 
   // Picks the one video card most in view (≥60% visible) for the muted
-  // autoplay preview — only one at a time, to keep data use sane — and
-  // records which posts this viewer has had on screen (Trending rotation).
+  // autoplay preview — only one at a time — and stops the full player
+  // (with sound) when the user scrolls it off-screen so audio never stacks.
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return;
     const ratios = new Map<string, number>();
+    const autoRatios = new Map<string, number>();
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
     const obs = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        const id = (e.target as HTMLElement).dataset.feedId;
+        const el = e.target as HTMLElement;
+        const id = el.dataset.feedId;
         if (!id) continue;
-        ratios.set(id, (e.target as HTMLElement).dataset.autoId ? e.intersectionRatio : 0);
+        ratios.set(id, e.intersectionRatio);
+        autoRatios.set(id, el.dataset.autoId ? e.intersectionRatio : 0);
         if (e.intersectionRatio >= 0.6 && !seenRef.current.has(id)) {
           seenRef.current.add(id);
           if (saveTimer) clearTimeout(saveTimer);
           saveTimer = setTimeout(() => saveJSON(LS.seen, Array.from(seenRef.current).slice(-600)), 1500);
         }
       }
-      if (!autoplay) return;
+      // Full player with sound: stop when less than ~35% visible
+      setPlayingId((cur) => {
+        if (!cur) return cur;
+        const r = ratios.get(cur);
+        if (r === undefined) return cur;
+        return r < 0.35 ? null : cur;
+      });
+      if (!autoplay) {
+        setAutoId(null);
+        return;
+      }
       let best: string | null = null;
       let bestR = 0.6;
-      ratios.forEach((r, id) => { if (r >= bestR) { best = id; bestR = r; } });
-      setAutoId(best);
-    }, { threshold: [0, 0.3, 0.6, 0.8, 1] });
+      autoRatios.forEach((r, id) => {
+        if (r >= bestR) {
+          best = id;
+          bestR = r;
+        }
+      });
+      setAutoId((prev) => (prev === best ? prev : best));
+    }, { threshold: [0, 0.15, 0.35, 0.5, 0.6, 0.8, 1] });
     document.querySelectorAll<HTMLElement>("article[data-feed-id]").forEach((el) => obs.observe(el));
-    return () => { obs.disconnect(); if (saveTimer) clearTimeout(saveTimer); };
-  }, [autoplay, visible, playingId]);
-  useEffect(() => { if (playingId) setAutoId(null); }, [playingId]);
+    return () => {
+      obs.disconnect();
+      if (saveTimer) clearTimeout(saveTimer);
+    };
+  }, [autoplay, visible, tab]);
+  useEffect(() => {
+    if (playingId) setAutoId(null);
+  }, [playingId]);
+
+  // Hard-stop every media element that is not the active full player or the
+  // single muted autoplay card — prevents stacked audio after React unmount lag.
+  useEffect(() => {
+    const pauseOthers = () => {
+      document.querySelectorAll<HTMLVideoElement | HTMLAudioElement>("video, audio").forEach((media) => {
+        const card = media.closest("article[data-feed-id]") as HTMLElement | null;
+        const id = card?.dataset.feedId;
+        if (!id) {
+          try {
+            media.pause();
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        const keep = id === playingId || (!playingId && id === autoId);
+        if (!keep) {
+          try {
+            media.pause();
+            media.muted = true;
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+    };
+    pauseOthers();
+    const t = window.setTimeout(pauseOthers, 120);
+    return () => clearTimeout(t);
+  }, [playingId, autoId, visible]);
 
   // Fallback view counter: card ≥55% visible for ~1.8s (photos + when autoplay timeupdate is quiet)
   useEffect(() => {
