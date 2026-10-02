@@ -5,6 +5,8 @@ export type RssItem = {
   publishedAt: string | null;
   /** Parsed publishedAt (ms), 0 when missing — used for sorting. */
   ts: number;
+  /** Optional image from enclosure / media:content / media:thumbnail when the feed provides one. */
+  imageUrl?: string | null;
 };
 
 // Checked 2026-09-24 from the server: the old Al Jazeera URL (/aljazeera/arabic/rss)
@@ -39,6 +41,32 @@ function decode(s: string) {
     .trim();
 }
 
+
+function extractImage(block: string): string | null {
+  // media:content url="..."
+  let m = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
+  if (m && /^https?:\/\//i.test(m[1])) return m[1];
+  // media:thumbnail url="..."
+  m = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
+  if (m && /^https?:\/\//i.test(m[1])) return m[1];
+  // enclosure url="..." type="image/..."
+  m = block.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*>/i);
+  if (m && /^https?:\/\//i.test(m[1])) {
+    const typeM = m[0].match(/type=["']([^"']+)["']/i);
+    if (!typeM || /image\//i.test(typeM[1]) || /\.(jpe?g|png|webp|gif)(\?|$)/i.test(m[1])) return m[1];
+  }
+  // <image><url>...</url>
+  m = block.match(/<image>[\s\S]*?<url>([\s\S]*?)<\/url>/i);
+  if (m) {
+    const u = decode(m[1]);
+    if (/^https?:\/\//i.test(u)) return u;
+  }
+  // og-style description sometimes embeds img in content:encoded
+  m = block.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (m && /^https?:\/\//i.test(m[1]) && !/pixel|1x1|spacer/i.test(m[1])) return m[1];
+  return null;
+}
+
 function firstTag(block: string, tag: string) {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const m = block.match(re);
@@ -54,7 +82,8 @@ export function parseFeed(xml: string, source: string): RssItem[] {
     if (!title || !link || !/^https?:\/\//i.test(link)) continue;
     const publishedAt = firstTag(raw, "pubDate") || firstTag(raw, "published") || null;
     const ts = publishedAt ? Date.parse(publishedAt) || 0 : 0;
-    out.push({ title, link, source, publishedAt, ts });
+    const imageUrl = extractImage(raw);
+    out.push({ title, link, source, publishedAt, ts, imageUrl });
   }
   return out;
 }

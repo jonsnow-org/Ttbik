@@ -11,7 +11,7 @@ const PATH = "/news";
 export const revalidate = 600;
 
 export const metadata: Metadata = {
-  title: "أخبار وأحداث | سوق تولز",
+  title: "مركز الأخبار العاجلة من مصادر عربية موثوقة | سوق تولز",
   description:
     "شريط عاجل من مصادر عربية موثوقة، وخبر اليوم بمصدرين على الأقل. لا نسخ للمقالات، وكل رابط يفتح المصدر الأصلي.",
   keywords: ["أخبار عربية", "خبر اليوم", "سوق تولز", "شريط عاجل"],
@@ -148,19 +148,36 @@ export default async function NewsHubPage() {
           ) : (
             <ul className="space-y-3">
               {ticker.map((item) => (
-                <li key={item.link} className="text-sm leading-6">
+                <li key={item.link}>
                   <a
                     href={item.link}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-bold text-slate-900 hover:underline"
+                    className="flex gap-3 overflow-hidden rounded-2xl border border-amber-100 bg-white p-2.5 shadow-sm transition hover:border-amber-300 hover:shadow-md"
                   >
-                    {item.title}
+                    {item.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.imageUrl}
+                        alt=""
+                        className="h-20 w-24 shrink-0 rounded-xl object-cover bg-slate-100"
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <span className="flex h-20 w-24 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-100 to-orange-50 text-2xl" aria-hidden>
+                        📰
+                      </span>
+                    )}
+                    <span className="min-w-0 flex-1 text-sm leading-6">
+                      <span className="font-bold text-slate-900 line-clamp-3">{item.title}</span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        {item.source}
+                        {item.ts ? ` · ${ago(item.ts, now)}` : ""}
+                      </span>
+                    </span>
                   </a>
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {item.source}
-                    {item.ts ? ` · ${ago(item.ts, now)}` : ""}
-                  </span>
                 </li>
               ))}
             </ul>
