@@ -1,5 +1,5 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
+import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 
 export const metadata: Metadata = {
   title: "فضاء | جلسات مؤقتة",
@@ -7,6 +7,25 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#0f172a",
+};
+
 export default function FadaaLayout({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">فضاء...</div>}>{children}</Suspense>;
+  return (
+    <>
+      <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
+      <link rel="preconnect" href="https://fonts.googleapis.com" />
+      <link
+        href="https://fonts.googleapis.com/css2?family=Amiri:wght@700&family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap"
+        rel="stylesheet"
+      />
+      {children}
+    </>
+  );
 }
