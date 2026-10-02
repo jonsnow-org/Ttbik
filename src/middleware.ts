@@ -27,5 +27,13 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*", "/mini-app", "/mini-app/:path*", "/embed/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/api/admin/:path*",
+    "/mini-app",
+    "/mini-app/:path*",
+    "/fadaa",
+    "/fadaa/:path*",
+    "/embed/:path*",
+  ],
 };
