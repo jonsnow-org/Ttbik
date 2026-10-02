@@ -24,6 +24,7 @@ type Contribution = {
   kind: string;
   text: string;
   createdAt: number;
+  hidden?: boolean;
 };
 
 const KINDS = [
