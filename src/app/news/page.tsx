@@ -100,7 +100,7 @@ export default async function NewsHubPage() {
         <p className="mb-6 text-sm leading-7 text-slate-600" id="news-feed">
           الشريط أدناه يُحدَّث من الخادم كل عشر دقائق من موجزات رسمية. العناوين من المصدر،
           والرابط يفتح الموقع الأصلي. لا نسخ للمقالات.
-
+        </p>
 
         {stories.length > 0 && (
           <section className="mb-8" aria-labelledby="top-stories">
