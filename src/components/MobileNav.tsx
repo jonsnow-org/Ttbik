@@ -33,22 +33,19 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       label: "الرئيسية",
       links: [
         { href: "/", label: "🏠 الصفحة الرئيسية" },
-        { href: "/bashar", label: "💬 بَشَر — يجيبك إنسان لا ذكاء اصطناعي" },
-        { href: "/guess-word", label: "🔤 خمّن الكلمة — لغز يومي" },
       ],
     },
     {
       label: "الأدوات",
       links: [
         { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
+        { href: "/free-tools", label: "📂 كل الأدوات" },
       ],
     },
     {
-      label: "اليوم",
+      label: "المدونة والأخبار",
       links: [
-        { href: "/prayer-times", label: "🕌 مواقيت الصلاة" },
-        { href: "/news", label: "📰 الأخبار" },
-        { href: "/events", label: "🗓️ أحداث ومقالات" },
+        { href: "/news", label: "📰 مركز المدونة والأخبار" },
       ],
     },
     {
@@ -56,8 +53,6 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       links: [
         { href: "/bots", label: "🤖 منشئ البوتات" },
         { href: "/watch-and-earn", label: "💰 اربح من مشاهدة الإعلانات" },
-        { href: "/bots/health-check", label: "🔍 فاحص صحة البوتات" },
-        { href: "/bots/earnings-calculator", label: "📊 حاسبة أرباح تليجرام" },
         { href: "/#categories", label: "الأقسام والخدمات" },
       ],
     },
