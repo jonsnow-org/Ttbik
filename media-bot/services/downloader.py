@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import os
 import re
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 EXTRACT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 180
+# Render free ~512MB RAM — keep files small and avoid parallel fragment buffers
+MAX_FILE_BYTES = int(os.environ.get("MAX_FILE_BYTES", str(48 * 1024 * 1024)))
 
 _YT_CLIENT_GROUPS = [
     ["android_vr"],
@@ -198,6 +202,12 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
         size = path.stat().st_size
         if size < 1000:
             return None, f"tikwm: file too small ({size})"
+        if size > MAX_FILE_BYTES:
+            try:
+                __import__("shutil").rmtree(tmp, ignore_errors=True)
+            except Exception:
+                pass
+            return None, f"tikwm: file too large ({size // (1024*1024)}MB)"
         return DownloadResult(path=path, title=meta["title"], media_type="audio" if audio_only else "video", filesize=size, thumbnail=meta.get("thumbnail")), ""
     except Exception as e:
         return None, f"tikwm: {e}"
@@ -282,7 +292,21 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
         yt_dlp = None  # type: ignore
     if yt_dlp is not None:
         def _opts(outdir: str) -> dict[str, Any]:
-            o: dict[str, Any] = {"quiet": True, "no_warnings": True, "noprogress": True, "restrictfilenames": True, "noplaylist": True, "socket_timeout": 30, "retries": 2, "force_ipv4": True, "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s")}
+            o: dict[str, Any] = {
+                "quiet": True,
+                "no_warnings": True,
+                "noprogress": True,
+                "restrictfilenames": True,
+                "noplaylist": True,
+                "socket_timeout": 30,
+                "retries": 2,
+                "force_ipv4": True,
+                "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s"),
+                "concurrent_fragment_downloads": 1,
+                "buffersize": 16 * 1024,
+                "http_chunk_size": 1_048_576,
+                "max_filesize": MAX_FILE_BYTES,
+            }
             ck = _write_cookies_file()
             if ck:
                 o["cookiefile"] = ck
@@ -343,12 +367,20 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                             p = alt
                             break
                     if p.exists() and p.stat().st_size > 1000:
+                        size = p.stat().st_size
+                        if size > MAX_FILE_BYTES:
+                            try:
+                                shutil_rm = __import__("shutil")
+                                shutil_rm.rmtree(tmp, ignore_errors=True)
+                            except Exception:
+                                pass
+                            return None, f"file too large ({size // (1024*1024)}MB > limit {MAX_FILE_BYTES // (1024*1024)}MB) — جرّب جودة أقل"
                         nice_title = (dl_title or "").strip() or p.stem[:120]
                         return DownloadResult(
                             path=p,
                             title=nice_title[:120],
                             media_type=media_type if media_type in ("audio", "voice") else "video",
-                            filesize=p.stat().st_size,
+                            filesize=size,
                             thumbnail=dl_thumb,
                         ), ""
             except Exception as e:
@@ -362,5 +394,10 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
         errors.append(cobalt_err or "cobalt failed")
     except Exception as e:
         errors.append(f"cobalt: {e}")
+    try:
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception:
+        pass
+    gc.collect()
     joined = " | ".join(errors[-4:]) if errors else "download failed"
     return None, joined

@@ -76,6 +76,8 @@ def _squad_kb(user_id: int):
 
 
 cfg = Config.from_env()
+# Render free tier OOM guard: one active download at a time
+_dl_lock = asyncio.Lock()
 _pending_url: dict[int, str] = {}
 _pending_meta: dict[int, dict] = {}
 _waiting_channel: set[int] = set()
@@ -691,34 +693,49 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await query.edit_message_text(f"✅ تم · {limit_msg}")
             return
 
-    await query.edit_message_text("⬇️ جاري التحميل...")
-    try:
-        result, dl_err = await download_media(url, quality=quality, media_type=media_type)
-    except Exception as e:
-        result, dl_err = None, str(e)
-    if not result:
-        detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
-        await query.edit_message_text("❌ فشل التحميل." + detail)
+    if _dl_lock.locked():
+        await query.edit_message_text("⏳ يوجد تحميل آخر قيد المعالجة على الخادم المجاني.\nانتظر قليلاً ثم أعد المحاولة.")
         return
 
-    file_id = await archive_and_get_file_id(
-        context.bot, cfg.archive_channel_id, str(result.path), url, media_type, quality, result.title,
-        downloader_name=dname, downloader_id=user_id,
-    )
-    ok, sent_id = await send_from_cache_or_file(context.bot, query.message.chat_id, file_id, str(result.path), media_type, result.title)
+    await query.edit_message_text("⬇️ جاري التحميل...")
+    result, dl_err = None, ""
     try:
-        parent = result.path.parent
-        if parent.exists() and str(parent).startswith("/tmp"):
-            shutil.rmtree(parent, ignore_errors=True)
-    except Exception:
-        pass
-    if ok:
-        store.record_download(user_id)
-        await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user)
-        await _save(context.bot)
-        await query.edit_message_text(f"✅ تم · {limit_msg}")
-    else:
-        await query.edit_message_text("❌ تعذر إرسال الملف.")
+        async with _dl_lock:
+            try:
+                result, dl_err = await download_media(url, quality=quality, media_type=media_type)
+            except Exception as e:
+                result, dl_err = None, str(e)
+            if not result:
+                detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
+                await query.edit_message_text("❌ فشل التحميل." + detail)
+                return
+
+            file_id = await archive_and_get_file_id(
+                context.bot, cfg.archive_channel_id, str(result.path), url, media_type, quality, result.title,
+                downloader_name=dname, downloader_id=user_id,
+            )
+            ok, sent_id = await send_from_cache_or_file(context.bot, query.message.chat_id, file_id, str(result.path), media_type, result.title)
+            try:
+                parent = result.path.parent
+                if parent.exists() and (str(parent).startswith("/tmp") or "mediabot_" in str(parent) or "tikwm_" in str(parent)):
+                    shutil.rmtree(parent, ignore_errors=True)
+            except Exception:
+                pass
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
+            if ok:
+                store.record_download(user_id)
+                await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user)
+                await _save(context.bot)
+                await query.edit_message_text(f"✅ تم · {limit_msg}")
+            else:
+                await query.edit_message_text("❌ تعذر إرسال الملف.")
+    except Exception as e:
+        logger.exception("download pipeline failed: %s", e)
+        await query.edit_message_text("❌ تعذر إكمال التحميل.")
 
 
 async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user) -> None:
