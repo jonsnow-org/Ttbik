@@ -37,7 +37,7 @@ const BREADCRUMB = {
   "@type": "BreadcrumbList",
   itemListElement: [
     { "@type": "ListItem", position: 1, name: "الرئيسة", item: SITE },
-    { "@type": "ListItem", position: 2, name: "أخبار", item: `${SITE}${PATH}` },
+    { "@type": "ListItem", position: 2, name: "مركز المدونة والأخبار", item: `${SITE}${PATH}` },
   ],
 };
 
@@ -70,15 +70,37 @@ export default async function NewsHubPage() {
               </Link>
             </li>
             <li aria-hidden="true">/</li>
-            <li className="font-semibold text-slate-800">أخبار</li>
+            <li className="font-semibold text-slate-800">مركز المدونة والأخبار</li>
           </ol>
         </nav>
 
-        <h1 className="mb-2 text-2xl font-extrabold text-slate-900">مركز الأخبار والأحداث</h1>
-        <p className="mb-6 text-sm leading-7 text-slate-600">
+
+        <h1 className="mb-2 text-2xl font-extrabold text-slate-900">مركز المدونة والأخبار</h1>
+        <p className="mb-4 text-sm leading-7 text-slate-600">
+          اختر القسم: أخبار عاجلة من مصادر موثوقة، أو أحداث ومقالات تحريرية هادفة.
+        </p>
+        <div className="mb-8 grid gap-3 sm:grid-cols-2">
+          <a
+            href="#news-feed"
+            className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <span className="text-2xl">📰</span>
+            <h2 className="mt-2 text-base font-extrabold text-slate-900">قسم الأخبار</h2>
+            <p className="mt-1 text-xs leading-6 text-slate-600">شريط عاجل وخبر اليوم من مصادر عربية موثوقة — الرابط يفتح المصدر الأصلي.</p>
+          </a>
+          <Link
+            href="/events"
+            className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
+            <span className="text-2xl">🗓️</span>
+            <h2 className="mt-2 text-base font-extrabold text-slate-900">أحداث ومقالات</h2>
+            <p className="mt-1 text-xs leading-6 text-slate-600">تقويم أحداث ومقالات تحريرية تقدم فائدة حقيقية للقارئ.</p>
+          </Link>
+        </div>
+        <p className="mb-6 text-sm leading-7 text-slate-600" id="news-feed">
           الشريط أدناه يُحدَّث من الخادم كل عشر دقائق من موجزات رسمية. العناوين من المصدر،
           والرابط يفتح الموقع الأصلي. لا نسخ للمقالات.
-        </p>
+
 
         {stories.length > 0 && (
           <section className="mb-8" aria-labelledby="top-stories">
