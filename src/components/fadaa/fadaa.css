@@ -1,37 +1,13 @@
-
-
-:root {
-  --font-sans: "IBM Plex Sans Arabic", system-ui, sans-serif;
-  --font-display: "Amiri", "IBM Plex Sans Arabic", serif;
-
-  --color-bg: #f1f5f9;
-  --color-surface: #ffffff;
-  --color-surface-2: #f8fafc;
-  --color-ink: #0f172a;
-  --color-ink-muted: #475569;
-  --color-ink-soft: #64748b;
-  --color-border: #cbd5e1;
-  --color-border-strong: #94a3b8;
-  --color-primary: #0d9488;
-  --color-primary-hover: #0f766e;
-  --color-primary-soft: #ccfbf1;
-  --color-primary-ink: #115e59;
-  --color-accent: #2563eb;
-  --color-warn: #d97706;
-  --color-danger: #dc2626;
-  --color-success: #16a34a;
-  --color-countdown: #b45309;
-}
-
-html.dark {
+/* فضاء TMA — ألوان الهوية من الملف الأصلي (الوضع الداكن) */
+:root, html.dark, html.fadaa-tma {
   --color-bg: #0f172a;
   --color-surface: #1e293b;
   --color-surface-2: #334155;
   --color-ink: #f1f5f9;
   --color-ink-muted: #cbd5e1;
   --color-ink-soft: #94a3b8;
-  --color-border: #475569;
-  --color-border-strong: #64748b;
+  --color-border: #334155;
+  --color-border-strong: #475569;
   --color-primary: #2dd4bf;
   --color-primary-hover: #5eead4;
   --color-primary-soft: #134e4a;
@@ -41,36 +17,74 @@ html.dark {
   --color-danger: #f87171;
   --color-success: #4ade80;
   --color-countdown: #fbbf24;
+  --font-sans: "IBM Plex Sans Arabic", system-ui, sans-serif;
+  --font-display: "Amiri", "IBM Plex Sans Arabic", serif;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html {
-  -webkit-tap-highlight-color: transparent;
-  scroll-behavior: smooth;
-}
-
-body {
+html.fadaa-tma, html.fadaa-tma body {
+  height: 100%;
   margin: 0;
-  font-family: var(--font-sans);
-  background: var(--color-bg);
+  overflow: hidden;
+  background: var(--color-bg) !important;
   color: var(--color-ink);
-  min-height: 100dvh;
-  overscroll-behavior-y: contain;
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
 }
 
-#root {
-  min-height: 100dvh;
+html.fadaa-tma body {
+  position: fixed;
+  inset: 0;
+  width: 100%;
 }
 
-button, input, textarea, select {
-  font: inherit;
+.fadaa-root {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  background: var(--color-bg);
 }
 
-/* High-contrast action buttons */
+.fadaa-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.fadaa-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  padding-top: max(0.65rem, env(safe-area-inset-top, 0px));
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fadaa-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem 1rem 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.fadaa-bottom-nav {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -78,165 +92,42 @@ button, input, textarea, select {
   gap: 0.5rem;
   min-height: 3rem;
   padding: 0.75rem 1.25rem;
-  border-radius: 0.875rem;
-  font-weight: 600;
-  font-size: 0.95rem;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-  text-align: center;
-  line-height: 1.3;
-  user-select: none;
-}
-.btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.btn:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: var(--color-primary);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
-}
-.btn-primary:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-}
-
-html.dark .btn-primary {
-  color: #042f2e;
+  border-radius: 1rem;
   font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s;
 }
-
+.btn:active { transform: scale(0.98); }
+.btn-primary {
+  background: linear-gradient(135deg, #0d9488, #2dd4bf);
+  color: #042f2e;
+}
 .btn-secondary {
   background: var(--color-surface);
   color: var(--color-ink);
-  border-color: var(--color-border-strong);
+  border: 1px solid var(--color-border-strong);
 }
-.btn-secondary:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary-ink);
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--color-ink-muted);
-  border-color: transparent;
-}
-.btn-ghost:hover:not(:disabled) {
-  background: var(--color-surface-2);
-  color: var(--color-ink);
-}
-
-.btn-danger {
-  background: #fef2f2;
-  color: var(--color-danger);
-  border-color: #fecaca;
-}
-html.dark .btn-danger {
-  background: #450a0a;
-  border-color: #7f1d1d;
-}
-
 .card {
+  border-radius: 1.1rem;
   background: var(--color-surface);
-  border: 1.5px solid var(--color-border);
-  border-radius: 1rem;
+  border: 1px solid var(--color-border);
   padding: 1rem 1.1rem;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
-
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.55rem;
   border-radius: 999px;
+  padding: 0.2rem 0.65rem;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   background: var(--color-primary-soft);
   color: var(--color-primary-ink);
 }
-
-.input {
-  width: 100%;
-  min-height: 3rem;
-  padding: 0.7rem 0.9rem;
-  border-radius: 0.75rem;
-  border: 1.5px solid var(--color-border-strong);
-  background: var(--color-surface);
-  color: var(--color-ink);
-  outline: none;
-}
-.input:focus {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
-}
-
-.textarea {
-  composes: input;
-  min-height: 6rem;
-  resize: vertical;
-}
-
-.label {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--color-ink-muted);
-  margin-bottom: 0.35rem;
-}
-
 .section-title {
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--color-ink);
-  margin: 0 0 0.75rem;
-}
-
-.countdown {
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-  color: var(--color-countdown);
-  background: #fff7ed;
-  border: 1.5px solid #fdba74;
-  border-radius: 0.65rem;
-  padding: 0.35rem 0.65rem;
-  font-size: 0.9rem;
-}
-html.dark .countdown {
-  background: #451a03;
-  border-color: #9a3412;
-}
-
-.empty {
-  text-align: center;
-  padding: 2rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 800;
   color: var(--color-ink-soft);
-  font-size: 0.95rem;
-}
-
-.safe-bottom {
-  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
-}
-
-
-/* Telegram Mini App fullscreen */
-html.fadaa-tma, html.fadaa-tma body {
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  background: var(--color-bg);
-}
-html.fadaa-tma body {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-}
-.fadaa-root {
-  height: 100dvh;
-  max-height: 100dvh;
-  overflow: hidden;
+  margin: 0 0 0.75rem;
+  letter-spacing: 0.02em;
 }

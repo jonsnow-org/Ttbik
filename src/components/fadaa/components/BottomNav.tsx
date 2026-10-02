@@ -18,30 +18,27 @@ export function BottomNav() {
   const go = useFadaa((s) => s.go)
 
   return (
-    <nav
-      className="fixed bottom-0 inset-x-0 z-40 border-t-2 bg-[var(--color-surface)]"
-      style={{ borderColor: 'var(--color-border)', paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
-    >
-      <div className="mx-auto flex max-w-lg items-stretch justify-between gap-0.5 px-1 pt-1.5 pb-1.5">
-        {items.map(({ id, icon: Icon, label }) => {
-          const active = screen === id || (id === 'sessions' && (screen === 'join' || screen === 'room' || screen === 'create' || screen === 'summary'))
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => go(id)}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded-xl px-1 py-1.5 text-[0.65rem] font-semibold transition"
-              style={{
-                color: active ? 'var(--color-primary-ink)' : 'var(--color-ink-soft)',
-                background: active ? 'var(--color-primary-soft)' : 'transparent',
-              }}
-            >
-              <Icon size={20} strokeWidth={active ? 2.5 : 2} />
-              <span className="leading-tight text-center">{t(locale, label)}</span>
-            </button>
-          )
-        })}
-      </div>
+    <nav className="mx-auto flex max-w-lg items-stretch justify-between gap-0.5 px-1.5 pt-2 pb-1.5" aria-label="التنقل">
+      {items.map(({ id, icon: Icon, label }) => {
+        const active =
+          screen === id ||
+          (id === 'sessions' && (screen === 'join' || screen === 'room' || screen === 'create' || screen === 'summary'))
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => go(id)}
+            className="flex flex-1 flex-col items-center gap-0.5 rounded-2xl px-0.5 py-1.5 text-[0.62rem] font-bold transition"
+            style={{
+              color: active ? 'var(--color-primary)' : 'var(--color-ink-soft)',
+              background: active ? 'var(--color-primary-soft)' : 'transparent',
+            }}
+          >
+            <Icon size={20} strokeWidth={active ? 2.5 : 1.8} />
+            <span className="max-w-full truncate leading-tight">{t(locale, label)}</span>
+          </button>
+        )
+      })}
     </nav>
   )
 }

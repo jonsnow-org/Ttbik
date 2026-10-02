@@ -7,8 +7,10 @@ import "./fadaa-client.css";
 const FadaaApp = dynamic(() => import("@/components/fadaa/App"), {
   ssr: false,
   loading: () => (
-    <div className="grid h-[100dvh] place-items-center bg-slate-900 text-white">
-      <div className="text-3xl font-bold">فضاء</div>
+    <div className="grid h-[100dvh] place-items-center bg-[#0f172a] text-[#f1f5f9]">
+      <div className="text-3xl font-bold" style={{ fontFamily: "Amiri, serif" }}>
+        فضاء
+      </div>
     </div>
   ),
 });
@@ -19,12 +21,13 @@ declare global {
       WebApp?: {
         ready: () => void;
         expand: () => void;
+        close?: () => void;
         requestFullscreen?: () => void;
         disableVerticalSwipes?: () => void;
         setHeaderColor?: (c: string) => void;
         setBackgroundColor?: (c: string) => void;
+        setBottomBarColor?: (c: string) => void;
         isExpanded?: boolean;
-        platform?: string;
       };
     };
   }
@@ -32,15 +35,15 @@ declare global {
 
 export default function FadaaPage() {
   useEffect(() => {
-    document.documentElement.classList.add("fadaa-tma");
+    document.documentElement.classList.add("fadaa-tma", "dark");
     const tg = window.Telegram?.WebApp;
     try {
       tg?.ready();
       tg?.expand();
-      tg?.setHeaderColor?.("#0f172a");
+      tg?.setHeaderColor?.("#1e293b");
       tg?.setBackgroundColor?.("#0f172a");
+      tg?.setBottomBarColor?.("#1e293b");
       tg?.disableVerticalSwipes?.();
-      // Fullscreen when supported (Bot API 8+)
       try {
         tg?.requestFullscreen?.();
       } catch {
