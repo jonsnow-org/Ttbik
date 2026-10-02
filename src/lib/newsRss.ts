@@ -5,6 +5,8 @@ export type RssItem = {
   publishedAt: string | null;
   /** Parsed publishedAt (ms), 0 when missing — used for sorting. */
   ts: number;
+  /** Cover from the feed (media/enclosure/img). Absent on many Arabic feeds. */
+  image?: string;
 };
 
 // Checked 2026-09-24 from the server: the old Al Jazeera URL (/aljazeera/arabic/rss)
@@ -39,10 +41,34 @@ function decode(s: string) {
     .trim();
 }
 
+function unescapeUrl(s: string) {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
 function firstTag(block: string, tag: string) {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const m = block.match(re);
   return m ? decode(m[1]) : "";
+}
+
+function imageFrom(raw: string): string | undefined {
+  const candidates = [
+    raw.match(/<media:content\b[^>]*\burl=["']([^"']+)["']/i)?.[1],
+    raw.match(/<media:thumbnail\b[^>]*\burl=["']([^"']+)["']/i)?.[1],
+    raw.match(/<enclosure\b[^>]*\btype=["']image\/[^"']+["'][^>]*\burl=["']([^"']+)["']/i)?.[1],
+    raw.match(/<enclosure\b[^>]*\burl=["']([^"']+)["'][^>]*\btype=["']image\//i)?.[1],
+    raw.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i)?.[1],
+  ];
+  for (const c of candidates) {
+    if (!c) continue;
+    const url = unescapeUrl(c);
+    if (/^https?:\/\//i.test(url)) return url;
+  }
+  return undefined;
 }
 
 export function parseFeed(xml: string, source: string): RssItem[] {
@@ -54,7 +80,8 @@ export function parseFeed(xml: string, source: string): RssItem[] {
     if (!title || !link || !/^https?:\/\//i.test(link)) continue;
     const publishedAt = firstTag(raw, "pubDate") || firstTag(raw, "published") || null;
     const ts = publishedAt ? Date.parse(publishedAt) || 0 : 0;
-    out.push({ title, link, source, publishedAt, ts });
+    const image = imageFrom(raw);
+    out.push({ title, link, source, publishedAt, ts, image });
   }
   return out;
 }
@@ -105,11 +132,6 @@ export function interleaveNews(items: RssItem[], limit: number): RssItem[] {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// «أكثر القصص تغطية»: headlines about the same event from different outlets,
-// grouped by shared significant words. We only show each outlet's own headline
-// and link — no text is written or summarised by us, so nothing is invented.
-
 const STOP = new Set(
   (
     "في من على الى إلى عن مع بعد قبل حتى هذا هذه ذلك تلك التي الذي الذين ما ماذا لماذا كيف هل لا لم لن قد " +
@@ -121,19 +143,16 @@ const STOP = new Set(
 
 function normWord(w: string) {
   let s = w
-    .replace(/[ً-ْـ]/g, "") // harakat + tatweel
+    .replace(/[ً-ْـ]/g, "")
     .replace(/[أإآٱ]/g, "ا")
     .replace(/ى/g, "ي")
     .replace(/ة/g, "ه")
     .replace(/ؤ/g, "و")
     .replace(/ئ/g, "ي");
-  // strip common one-letter proclitics and the article
   s = s.replace(/^(و|ف|ب|ل|ك)?ال/, "").replace(/^(و|ف)(?=\S{3,})/, "");
   return s;
 }
 
-// Two-word names that are one concept: without this, «الذكاء الاصطناعي» or
-// «البيت الأبيض» alone counted as two shared words and merged unrelated stories.
 const PHRASES = [
   "الذكاء الاصطناعي",
   "البيت الأبيض",
@@ -155,7 +174,6 @@ const PHRASES = [
 
 function keywords(title: string): Set<string> {
   let t = title;
-  // also catches a joined prefix: «بالذكاء الاصطناعي», «والولايات المتحدة»
   for (const p of PHRASES) t = t.replace(new RegExp(`[وفبلك]?${p}`, "g"), p.replace(" ", "_"));
   const words = t
     .replace(/[^\u0600-\u06FFA-Za-z0-9_\s]/g, " ")
@@ -172,7 +190,6 @@ function keywords(title: string): Set<string> {
 }
 
 export type NewsCluster = {
-  /** Headlines about one story, one per outlet, newest first. */
   items: RssItem[];
   sources: number;
   latest: number;
@@ -188,8 +205,6 @@ export function clusterHeadlines(items: RssItem[], minSources = 2): NewsCluster[
       let shared = 0;
       for (const w of kw[a]) if (kw[b].has(w)) shared++;
       const smaller = Math.min(kw[a].size, kw[b].size);
-      // Two distinct significant words in common, covering a good part of the
-      // shorter headline — tuned on real feeds to avoid "same country" merges.
       if (shared >= 2 && shared / Math.max(1, smaller) >= 0.34) parent[find(a)] = find(b);
     }
   }
@@ -211,4 +226,21 @@ export function clusterHeadlines(items: RssItem[], minSources = 2): NewsCluster[
 
 export async function fetchTopStories(limit = 6): Promise<NewsCluster[]> {
   return clusterHeadlines(await fetchAllNews()).slice(0, limit);
+}
+
+/** Same-topic cover: first real feed image, else a stable news photo so every card has one. */
+const COVERS = [
+  "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1523995462485-3d171b5c8fa9?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1475721027785-f74eccf877e2?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=70",
+];
+
+export function coverFor(title: string, image?: string) {
+  if (image && /^https?:\/\//i.test(image)) return image;
+  let h = 0;
+  for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0;
+  return COVERS[h % COVERS.length];
 }
