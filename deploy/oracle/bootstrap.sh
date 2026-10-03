@@ -50,6 +50,13 @@ cd "$DIR/deploy/oracle"
 log "6/7 settings files"
 [ -f .env ] || $SUDO cp .env.example .env
 [ -f media.env ] || $SUDO cp media.env.example media.env
+# A media.env exported from Render (Environment -> Export) and left at /root/media.env is used as is.
+if [ -f /root/media.env ]; then
+  $SUDO cp /root/media.env media.env
+  $SUDO chmod 600 media.env
+  $SUDO rm -f /root/media.env
+  echo "media.env taken from /root/media.env"
+fi
 set_kv() { # set_kv KEY VALUE  -> writes KEY=VALUE into media.env (only when VALUE is given)
   local k="$1" v="${2:-}"
   [ -z "$v" ] && return 0
