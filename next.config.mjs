@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
+  // Self-hosting (Oracle, see deploy/oracle): NEXT_OUTPUT=standalone builds a
+  // small self-contained server. Unset on Vercel, so nothing changes there.
+  ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" } : {}),
   // Owner report, 2026-09-09 ("القص لا يعمل اصلاً"): a real, well-
   // documented Vercel/Next.js gotcha — sharp ships a platform-specific
   // native binary, and without this, Next's default webpack bundling

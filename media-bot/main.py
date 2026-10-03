@@ -77,8 +77,16 @@ def _squad_kb(user_id: int):
 
 
 cfg = Config.from_env()
-# Render free tier OOM guard: one active download at a time
-_dl_lock = asyncio.Lock()
+# "primary" = the always-on engine (Oracle); anything else = the sleeping backup (Render).
+# The Vercel front door sends updates to the primary and only falls back to the backup.
+ENGINE_ROLE = "primary" if os.environ.get("MEDIA_ENGINE_ROLE", "").strip().lower() == "primary" else "backup"
+ALWAYS_ON = os.environ.get("MEDIA_ENGINE_ALWAYS_ON", "").strip().lower() in ("1", "true", "yes") or ENGINE_ROLE == "primary"
+# Render free tier OOM guard: one active download at a time. A bigger host (Oracle) can raise it.
+try:
+    _MAX_PARALLEL = max(1, int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "1")))
+except ValueError:
+    _MAX_PARALLEL = 1
+_dl_lock = asyncio.Semaphore(_MAX_PARALLEL)
 _pending_url: dict[int, str] = {}
 _pending_meta: dict[int, dict] = {}
 _waiting_channel: set[int] = set()
@@ -202,6 +210,9 @@ async def _force_menu_button(bot) -> None:
 
 async def _cold_start_notice(update: Update) -> None:
     now = time.time()
+    if ALWAYS_ON:  # nothing ever sleeps here, so there is no "waking up" to announce
+        store.last_wakeup = now
+        return
     if now - store.last_wakeup > 12 * 60:
         if update.message:
             await update.message.reply_text("⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀")
@@ -695,7 +706,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
     if _dl_lock.locked():
-        await query.edit_message_text("⏳ يوجد تحميل آخر قيد المعالجة على الخادم المجاني.\nانتظر قليلاً ثم أعد المحاولة.")
+        await query.edit_message_text("⏳ يوجد تحميل آخر قيد المعالجة.\nانتظر قليلاً ثم أعد المحاولة.")
         return
 
     await query.edit_message_text("⬇️ جاري التحميل...")
@@ -868,7 +879,7 @@ async def _register_front_door() -> str:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
                 f"{base}/api/media-bot/front-door",
-                json={"render_url": WEBHOOK_BASE},
+                json={"render_url": WEBHOOK_BASE, "role": ENGINE_ROLE},
                 headers={"x-media-bot-key": _HOOK_SECRET},
             )
         if r.status_code == 200:

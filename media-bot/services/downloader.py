@@ -167,17 +167,18 @@ async def _resolve_tiktok_via_site(url: str) -> tuple[dict | None, str]:
         return None, str(e)[:120]
 
 
-def _pick_tikwm_variant(d: dict) -> str | None:
-    """Best tikwm file that fits Telegram's limit: HD, then standard, then watermarked."""
+def _tikwm_candidates(d: dict) -> list[str]:
+    """tikwm file links to try, best first: HD, standard, watermarked.
+    Variants whose declared size is already over the limit go last (sizes are not always sent)."""
+    fits: list[str] = []
+    big: list[str] = []
     for url_key, size_key in (("hdplay", "hd_size"), ("play", "size"), ("wmplay", "wm_size")):
         link = d.get(url_key)
-        if not link:
+        if not link or link in fits or link in big:
             continue
         size = int(d.get(size_key) or 0)
-        if size and size > MAX_FILE_BYTES:
-            continue
-        return link
-    return d.get("play") or d.get("hdplay") or d.get("wmplay")
+        (big if size and size > MAX_FILE_BYTES else fits).append(link)
+    return fits + big
 
 
 def friendly_reason(err: str) -> str:
@@ -227,13 +228,14 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
                             last_status = f"code={js.get('code')} msg={js.get('msg')}"
                             continue
                         d = js.get("data") or {}
-                        play = _pick_tikwm_variant(d)
+                        cands = _tikwm_candidates(d)
                         music = d.get("music")
-                        media = music if audio_only and music else play
+                        media = music if audio_only and music else (cands[0] if cands else None)
                         if not media:
                             last_status = "no media url"
                             continue
-                        meta = {"media": media, "title": (d.get("title") or "TikTok")[:120], "thumbnail": d.get("cover") or d.get("origin_cover")}
+                        alts = [] if (audio_only and music) else cands[1:]
+                        meta = {"media": media, "alts": alts, "title": (d.get("title") or "TikTok")[:120], "thumbnail": d.get("cover") or d.get("origin_cover")}
                         break
                     except Exception as e:
                         last_status = str(e)
@@ -253,35 +255,39 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
     suffix = ".mp3" if audio_only else ".mp4"
     tmp = tempfile.mkdtemp(prefix="tikwm_")
     path = Path(tmp) / f"media{suffix}"
+    links = [meta["media"]] + [a for a in (meta.get("alts") or []) if a != meta["media"]]
+    too_large = ""
     try:
         async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
-            async with client.stream("GET", meta["media"], headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"}) as r:
-                if r.status_code >= 400:
-                    return None, f"tikwm: download HTTP {r.status_code}"
-                declared = int(r.headers.get("content-length") or 0)
-                if declared > MAX_FILE_BYTES:
-                    return None, f"tikwm: file too large ({declared // (1024*1024)}MB)"
-                written = 0
-                with open(path, "wb") as f:
-                    async for chunk in r.aiter_bytes(64 * 1024):
-                        written += len(chunk)
-                        if written > MAX_FILE_BYTES:
-                            break
-                        f.write(chunk)
-                if written > MAX_FILE_BYTES:
-                    __import__("shutil").rmtree(tmp, ignore_errors=True)
-                    return None, f"tikwm: file too large (>{MAX_FILE_BYTES // (1024*1024)}MB)"
-        size = path.stat().st_size
-        if size < 1000:
-            return None, f"tikwm: file too small ({size})"
-        if size > MAX_FILE_BYTES:
-            try:
-                __import__("shutil").rmtree(tmp, ignore_errors=True)
-            except Exception:
-                pass
-            return None, f"tikwm: file too large ({size // (1024*1024)}MB)"
-        return DownloadResult(path=path, title=meta["title"], media_type="audio" if audio_only else "video", filesize=size, thumbnail=meta.get("thumbnail")), ""
+            for link in links:
+                async with client.stream("GET", link, headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"}) as r:
+                    if r.status_code >= 400:
+                        too_large = too_large or f"tikwm: download HTTP {r.status_code}"
+                        continue
+                    declared = int(r.headers.get("content-length") or 0)
+                    if declared > MAX_FILE_BYTES:
+                        too_large = f"tikwm: file too large ({declared // (1024*1024)}MB)"
+                        continue  # try the next, usually smaller, variant
+                    written = 0
+                    with open(path, "wb") as f:
+                        async for chunk in r.aiter_bytes(64 * 1024):
+                            written += len(chunk)
+                            if written > MAX_FILE_BYTES:
+                                break
+                            f.write(chunk)
+                    if written > MAX_FILE_BYTES:
+                        too_large = f"tikwm: file too large (>{MAX_FILE_BYTES // (1024*1024)}MB)"
+                        path.unlink(missing_ok=True)
+                        continue
+                size = path.stat().st_size
+                if size < 1000:
+                    too_large = f"tikwm: file too small ({size})"
+                    continue
+                return DownloadResult(path=path, title=meta["title"], media_type="audio" if audio_only else "video", filesize=size, thumbnail=meta.get("thumbnail")), ""
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None, too_large or "tikwm: download failed"
     except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
         return None, f"tikwm: {e}"
 
 

@@ -2,12 +2,16 @@ import crypto from "crypto";
 import { mediaBotToken, mediaDb } from "@/lib/mediaSocial";
 
 /**
- * Media bot front door: Telegram webhook → Vercel → forward to Render Python bot.
- * Fallback only when Render is unreachable (not as primary UX).
+ * Media bot front door: Telegram webhook → Vercel → forward to the Python engine.
+ * Two engines can be registered: "primary" (Oracle, always on) and "backup"
+ * (Render, sleeps when idle). Updates go to the primary; only when it is
+ * unreachable are they handed to the backup. The Vercel replies themselves are
+ * the last resort (not primary UX).
  */
 
 export const MINI_APP_URL = "https://ttbik.vercel.app/mini-app";
-const RENDER_URL_KEY = "media_bot_render_url";
+const RENDER_URL_KEY = "media_bot_render_url"; // the backup engine (kept for compatibility)
+const PRIMARY_URL_KEY = "media_bot_primary_url";
 
 export function hookSecret(): string {
   const token = mediaBotToken();
@@ -54,6 +58,38 @@ export async function setRenderUrl(url: string): Promise<boolean> {
     .upsert({ key: RENDER_URL_KEY, value: clean, updated_at: new Date().toISOString() });
   if (!error) cachedUrl = { url: clean, at: Date.now() };
   return !error;
+}
+
+let cachedPrimary: { url: string; at: number } | null = null;
+
+/** The always-on engine (Oracle), registered by the Python bot with MEDIA_ENGINE_ROLE=primary. */
+export async function getPrimaryUrl(): Promise<string> {
+  if (cachedPrimary && Date.now() - cachedPrimary.at < 30_000) return cachedPrimary.url;
+  let url = "";
+  const db = await mediaDb();
+  if (db) {
+    const { data } = await db.from("bot_settings").select("value").eq("key", PRIMARY_URL_KEY).maybeSingle();
+    url = typeof (data as any)?.value === "string" ? String((data as any).value).replace(/\/$/, "") : "";
+  }
+  cachedPrimary = { url, at: Date.now() };
+  return url;
+}
+
+export async function setPrimaryUrl(url: string): Promise<boolean> {
+  const db = await mediaDb();
+  if (!db) return false;
+  const clean = url.trim().replace(/\/$/, "");
+  const { error } = await db
+    .from("bot_settings")
+    .upsert({ key: PRIMARY_URL_KEY, value: clean, updated_at: new Date().toISOString() });
+  if (!error) cachedPrimary = { url: clean, at: Date.now() };
+  return !error;
+}
+
+/** Engines in the order updates should be tried: primary first, then the backup. */
+export async function getEngineUrls(): Promise<string[]> {
+  const [primary, backup] = await Promise.all([getPrimaryUrl().catch(() => ""), getRenderUrl().catch(() => "")]);
+  return [primary, backup].filter((u, i, a) => !!u && a.indexOf(u) === i);
 }
 
 export async function tg(method: string, body: Record<string, unknown>): Promise<any> {

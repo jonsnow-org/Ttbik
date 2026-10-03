@@ -1,0 +1,49 @@
+# Self-hosted Next.js (arm64 or amd64). Build context = repo root.
+FROM node:20-bookworm-slim AS deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci
+
+FROM node:20-bookworm-slim AS build
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# NEXT_PUBLIC_* values are baked into the browser bundle at build time.
+ARG NEXT_PUBLIC_SITE_URL=https://ttbik.vercel.app
+ARG NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder
+ARG NEXT_PUBLIC_OWNER_ID=
+ARG NEXT_PUBLIC_MEDIA_BOT_USERNAME=
+ARG NEXT_PUBLIC_MEDIA_STREAM_BASE=
+ARG NEXT_PUBLIC_BASHAR_TG_APP=
+ARG NEXT_PUBLIC_MONETAG_ZONE_ID=
+ARG NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL=
+ARG NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID=
+ENV NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL \
+    NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY \
+    NEXT_PUBLIC_OWNER_ID=$NEXT_PUBLIC_OWNER_ID \
+    NEXT_PUBLIC_MEDIA_BOT_USERNAME=$NEXT_PUBLIC_MEDIA_BOT_USERNAME \
+    NEXT_PUBLIC_MEDIA_STREAM_BASE=$NEXT_PUBLIC_MEDIA_STREAM_BASE \
+    NEXT_PUBLIC_BASHAR_TG_APP=$NEXT_PUBLIC_BASHAR_TG_APP \
+    NEXT_PUBLIC_MONETAG_ZONE_ID=$NEXT_PUBLIC_MONETAG_ZONE_ID \
+    NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL=$NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL \
+    NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID=$NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID \
+    SUPABASE_SERVICE_ROLE_KEY=placeholder \
+    NEXT_OUTPUT=standalone \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NODE_OPTIONS=--max-old-space-size=3072
+RUN npm run build
+
+FROM node:20-bookworm-slim AS run
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
+EXPOSE 3000
+CMD ["node", "server.js"]

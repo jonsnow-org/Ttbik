@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# One-shot, re-runnable setup for an Oracle Ubuntu (arm64/amd64) VM.
+#   curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | bash
+set -euo pipefail
+
+REPO="https://github.com/jonsnow-org/Ttbik.git"
+BRANCH="${BRANCH:-claude/free-services-marketplace-h6rwk2}"
+DIR="${DIR:-/opt/ttbik}"
+log() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
+if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+
+log "1/7 system packages"
+$SUDO apt-get update -y
+$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates iptables-persistent
+
+log "2/7 Docker"
+if ! command -v docker >/dev/null 2>&1; then
+  curl -fsSL https://get.docker.com | $SUDO sh
+fi
+$SUDO systemctl enable --now docker
+$SUDO usermod -aG docker "${SUDO_USER:-$USER}" || true
+
+log "3/7 swap (4GB safety net, skipped if swap already exists)"
+if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
+  $SUDO fallocate -l 4G /swapfile && $SUDO chmod 600 /swapfile && $SUDO mkswap /swapfile && $SUDO swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null
+fi
+
+log "4/7 open ports 80/443 in the VM firewall (also open them in the Oracle console security list)"
+for p in 80 443; do
+  $SUDO iptables -C INPUT -p tcp --dport "$p" -j ACCEPT 2>/dev/null || $SUDO iptables -I INPUT 1 -p tcp --dport "$p" -j ACCEPT
+done
+$SUDO netfilter-persistent save >/dev/null 2>&1 || true
+
+log "5/7 code ($BRANCH -> $DIR)"
+if [ -d "$DIR/.git" ]; then
+  $SUDO git -C "$DIR" fetch --depth 1 origin "$BRANCH"
+  $SUDO git -C "$DIR" reset --hard "origin/$BRANCH"
+else
+  $SUDO git clone --depth 1 --branch "$BRANCH" "$REPO" "$DIR"
+fi
+cd "$DIR/deploy/oracle"
+
+log "6/7 settings files"
+[ -f .env ] || $SUDO cp .env.example .env
+[ -f media.env ] || $SUDO cp media.env.example media.env
+if ! grep -qE '^PUBLIC_HOST=.+' .env; then
+  IP="$(curl -fsS https://api.ipify.org || true)"
+  if [ -z "$IP" ]; then echo "Could not detect the public IP; set PUBLIC_HOST in $DIR/deploy/oracle/.env by hand."; exit 1; fi
+  HOST="${IP//./-}.sslip.io"
+  $SUDO sed -i "s|^PUBLIC_HOST=.*|PUBLIC_HOST=$HOST|" .env
+  echo "PUBLIC_HOST set to $HOST (free wildcard DNS, no registration needed)"
+fi
+if ! grep -qE '^BOT_TOKEN=.+' media.env || ! grep -qE '^OWNER_ID=.+' media.env; then
+  cat <<MSG
+
+Fill in the media bot settings, then run this script again:
+    sudo nano $DIR/deploy/oracle/media.env      (BOT_TOKEN, OWNER_ID, ARCHIVE_CHANNEL_ID, FEED_SECRET ...)
+MSG
+  exit 0
+fi
+
+log "7/7 build and start (media engine + HTTPS)"
+$SUDO docker compose up -d --build
+$SUDO docker compose ps
+echo
+echo "Done. Status any time:  sudo bash $DIR/deploy/oracle/status.sh"

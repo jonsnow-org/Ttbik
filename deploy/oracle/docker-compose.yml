@@ -1,0 +1,83 @@
+# Oracle host: always-on media-bot engine (primary) + optional full site.
+#   Phase 1 (engine only):   docker compose up -d --build
+#   Phase 2 (+ site mirror): docker compose --profile site up -d --build
+#   Cutover only (+ cron):   docker compose --profile site --profile cron up -d
+# Vercel keeps the Telegram front door; Render stays the sleeping backup engine.
+name: ttbik
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env (run bootstrap.sh)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  media-engine:
+    build: ../../media-bot
+    restart: unless-stopped
+    env_file:
+      - ./media.env
+    environment:
+      PORT: "10000"
+      MEDIA_ENGINE_ROLE: primary          # the Vercel front door sends updates here first
+      MEDIA_ENGINE_ALWAYS_ON: "1"         # never announce "waking up"
+      WEBHOOK_BASE_URL: https://${PUBLIC_HOST}
+      MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  site:
+    profiles: ["site"]
+    build:
+      context: ../..
+      dockerfile: deploy/oracle/Dockerfile.site
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ttbik.vercel.app}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder}
+        NEXT_PUBLIC_OWNER_ID: ${NEXT_PUBLIC_OWNER_ID:-}
+        NEXT_PUBLIC_MEDIA_BOT_USERNAME: ${NEXT_PUBLIC_MEDIA_BOT_USERNAME:-}
+        NEXT_PUBLIC_MEDIA_STREAM_BASE: ${NEXT_PUBLIC_MEDIA_STREAM_BASE:-}
+        NEXT_PUBLIC_BASHAR_TG_APP: ${NEXT_PUBLIC_BASHAR_TG_APP:-}
+        NEXT_PUBLIC_MONETAG_ZONE_ID: ${NEXT_PUBLIC_MONETAG_ZONE_ID:-}
+        NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL: ${NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL:-}
+        NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID: ${NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID:-}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Replaces Vercel Cron: reads ../../vercel.json and calls each route on the same schedule (UTC).
+  # START IT ONLY AT CUTOVER, after Vercel's crons are off — otherwise every job runs twice
+  # (duplicate channel posts, double TON deposit checks).
+  cron:
+    profiles: ["cron"]
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on: [site]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?CRON_SECRET must be set in .env for the site profile}
+    volumes:
+      - ../../vercel.json:/app/vercel.json:ro
+      - ./cron/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+volumes:
+  caddy_data:
+  caddy_config:
