@@ -30,6 +30,8 @@ services:
       MEDIA_ENGINE_ALWAYS_ON: "1"         # never announce "waking up"
       WEBHOOK_BASE_URL: https://${PUBLIC_HOST}
       MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
+    volumes:
+      - /var/lib/ttbik:/state   # owner flags written by the bot (/restore_cancel)
     mem_limit: 4g
     logging:
       driver: json-file

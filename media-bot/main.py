@@ -296,6 +296,29 @@ async def pending_message_relay_handler(update: Update, context: ContextTypes.DE
     raise ApplicationHandlerStop
 
 
+async def restore_flag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only: /restore_cancel stops the Oracle auto-restore, /restore_resume allows it again.
+    The flag lives on the Oracle host (/state), never in Supabase, so it works while Supabase is down."""
+    user = update.effective_user
+    if not user or not update.message or user.id != cfg.owner_id:
+        return
+    cmd = (update.message.text or "").split()[0].lstrip("/").split("@")[0]
+    flag = "/state/restore_cancel"
+    if not os.path.isdir("/state"):
+        await update.message.reply_text("هذه الميزة تعمل على خادم Oracle فقط.")
+        return
+    try:
+        if cmd == "restore_cancel":
+            open(flag, "w").close()
+            await update.message.reply_text("⛔ أُوقف الاسترجاع الآلي. أرسل /restore_resume لإعادته.")
+        else:
+            if os.path.exists(flag):
+                os.remove(flag)
+            await update.message.reply_text("✅ أُعيد تفعيل الاسترجاع الآلي (بشروطه).")
+    except Exception as e:
+        await update.message.reply_text(f"تعذّر التنفيذ: {e}")
+
+
 async def _mini_app_stats() -> dict | None:
     """Mini-app user counts from the site (Supabase-backed), or None if unreachable."""
     import httpx
@@ -832,6 +855,7 @@ def _build_app() -> Application:
     )
     app.add_error_handler(_error_handler)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler(["restore_cancel", "restore_resume"], restore_flag_cmd))
     app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("premium", premium_cmd))
