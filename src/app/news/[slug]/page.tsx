@@ -16,7 +16,7 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   if (!item) return { title: "خبر" };
   const url = `${SITE}/news/${item.slug}`;
   return {
-    title: `${item.title} | سوق تولز`,
+    title: `${item.title} | شام AI`,
     description: item.description,
     alternates: { canonical: url },
     openGraph: {
@@ -51,8 +51,8 @@ export default function NewsArticlePage({ params }: { params: { slug: string } }
     datePublished: item.dateIso,
     inLanguage: "ar",
     url,
-    author: { "@type": "Organization", name: "سوق تولز" },
-    publisher: { "@type": "Organization", name: "سوق تولز" },
+    author: { "@type": "Organization", name: "شام AI" },
+    publisher: { "@type": "Organization", name: "شام AI" },
     citation: item.sources.map((s) => s.href),
   };
 

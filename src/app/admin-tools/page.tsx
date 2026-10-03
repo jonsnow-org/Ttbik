@@ -4,7 +4,7 @@ import { isOwnerServer } from "@/lib/isOwner";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "أدوات الأدمن | سوق تولز",
+  title: "أدوات الأدمن | شام AI",
   description: "أدوات وإدارة خاصة بمالك المنصة — منشئ بوتات الوسائط المتقدم وأكثر.",
   robots: { index: false, follow: false },
 };

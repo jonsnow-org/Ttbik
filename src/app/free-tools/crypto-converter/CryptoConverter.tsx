@@ -247,7 +247,7 @@ export default function CryptoConverter() {
           <p className="text-[11px] text-slate-400 text-center">
             الأسعار من CoinGecko (مجانية) — تقريبية وقد تتأخر ثوانٍ. ليست نصيحة استثمارية.
             <br />
-            محفظة TON مدمجة في بوتات الإعلانات على سوق تولز.
+            محفظة TON مدمجة في بوتات الإعلانات على شام AI.
           </p>
 
           <button

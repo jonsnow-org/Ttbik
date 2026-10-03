@@ -239,7 +239,7 @@ export default function StoreCatalog({ products }: { products: StoreProduct[] })
     const url = window.location.href;
     try {
       if (typeof navigator.share === "function") {
-        await navigator.share({ title: "متجر سوق تولز", url });
+        await navigator.share({ title: "متجر شام AI", url });
         setShared(true);
         window.setTimeout(() => setShared(false), 1800);
         return;

@@ -77,7 +77,7 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       >
         <div className="mb-4 flex items-center justify-between">
           <span className="flex items-center gap-2 text-base font-extrabold text-brand-800">
-            <Logo className="h-6 w-6" /> سوق تولز
+            <Logo className="h-6 w-6" /> شام AI
           </span>
           <button
             onClick={() => setOpen(false)}

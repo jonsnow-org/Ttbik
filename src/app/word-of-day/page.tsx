@@ -10,7 +10,7 @@ const PATH = "/word-of-day";
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: "كلمة اليوم | سوق تولز",
+  title: "كلمة اليوم | شام AI",
   description: "كلمة عربية يومية بمعنى قصير ومثال استعمال. تتبدّل حسب تاريخ UTC.",
   alternates: { canonical: `${SITE}${PATH}` },
 };

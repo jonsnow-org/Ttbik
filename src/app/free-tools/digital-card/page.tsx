@@ -7,7 +7,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 const PATH = "/free-tools/digital-card";
 
 export const metadata: Metadata = {
-  title: "بطاقة أعمال رقمية مجانية (بديل Linktree) | سوق تولز",
+  title: "بطاقة أعمال رقمية مجانية (بديل Linktree) | شام AI",
   description:
     "أنشئ صفحة روابط واحدة مجاناً مثل Linktree: اسم، نبذة، صورة وأزرار روابط مع عداد مشاهدات — بلا اشتراك وبلا تسجيل.",
   keywords: [
@@ -15,11 +15,11 @@ export const metadata: Metadata = {
     "بديل Linktree",
     "صفحة روابط",
     "بطاقة أعمال مجانية",
-    "سوق تولز",
+    "شام AI",
   ],
   alternates: { canonical: `${SITE_URL}${PATH}` },
   openGraph: {
-    title: "بطاقة أعمال رقمية مجانية | سوق تولز",
+    title: "بطاقة أعمال رقمية مجانية | شام AI",
     description: "صفحة روابط احترافية بعداد مشاهدات — بديل مجاني لـ Linktree.",
     url: `${SITE_URL}${PATH}`,
     locale: "ar_AR",

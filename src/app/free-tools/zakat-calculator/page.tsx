@@ -3,7 +3,7 @@ import ZakatCalculator from "./ZakatCalculator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "حاسبة الزكاة الذكية | أدوات مجانية | سوق تولز",
+  title: "حاسبة الزكاة الذكية | أدوات مجانية | شام AI",
   description:
     "احسب زكاة المال والذهب والفضة والأسهم وعروض التجارة فوراً — نصاب قابل للتعديل، 2.5%. أداة عربية مجانية بلا تسجيل.",
 };

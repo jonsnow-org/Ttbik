@@ -4,7 +4,7 @@ import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "مولّد شعارات نصية عربية مجاني | سوق تولز",
+  title: "مولّد شعارات نصية عربية مجاني | شام AI",
   description:
     "أنشئ شعاراً نصياً (wordmark) عربياً لمشروعك خلال ثوانٍ — خطوط عربية حقيقية وتنسيقات ألوان جاهزة، تنزيل PNG فوري، بلا تسجيل.",
   alternates: { canonical: `${SITE_URL}/free-tools/logo-generator` },

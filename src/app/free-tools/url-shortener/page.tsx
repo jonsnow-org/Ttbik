@@ -5,10 +5,10 @@ import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "اختصار روابط مجاني مع عداد نقرات حقيقي | سوق تولز",
+  title: "اختصار روابط مجاني مع عداد نقرات حقيقي | شام AI",
   description:
     "قصّر الروابط الطويلة مجاناً واحصل على عداد نقرات حقيقي — مثالي للسوشيال والإعلانات والمتاجر. بلا تسجيل.",
-  keywords: ["اختصار روابط", "مصغر روابط", "عداد نقرات", "رابط قصير مجاني", "سوق تولز"],
+  keywords: ["اختصار روابط", "مصغر روابط", "عداد نقرات", "رابط قصير مجاني", "شام AI"],
   alternates: {
     canonical: `${SITE_URL}/free-tools/url-shortener`,
     languages: {

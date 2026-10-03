@@ -3,7 +3,7 @@ import VatCalculator from "./VatCalculator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "حاسبة ضريبة القيمة المضافة VAT | أدوات مجانية | سوق تولز",
+  title: "حاسبة ضريبة القيمة المضافة VAT | أدوات مجانية | شام AI",
   description:
     "احسب ضريبة القيمة المضافة فوراً للدول العربية: السعودية 15%، الإمارات 5%، مصر 14%، الأردن 16% — مبلغ قبل أو شامل الضريبة. أداة عربية مجانية بلا تسجيل.",
 };

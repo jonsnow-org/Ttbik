@@ -3,7 +3,7 @@ import TextAnalyzer from "./TextAnalyzer";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "محلل النصوص الذكي مجاناً | سوق تولز",
+  title: "محلل النصوص الذكي مجاناً | شام AI",
   description: "لخّص تقاريرك الطويلة، أو حلّل آراء عملائك بالجملة مع رد مقترح جاهز لكل واحد — بالذكاء الاصطناعي، مجاناً.",
 };
 

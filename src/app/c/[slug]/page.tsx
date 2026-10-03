@@ -17,7 +17,7 @@ export async function generateMetadata({
   });
   if (!card) return { title: "بطاقة غير موجودة" };
   return {
-    title: `${card.title} | سوق تولز`,
+    title: `${card.title} | شام AI`,
     description: card.bio || `بطاقة أعمال رقمية لـ ${card.title}`,
   };
 }
@@ -109,7 +109,7 @@ export default async function DigitalCardPublicPage({
         <p className="mt-6 text-center text-xs opacity-60">
           أنشئ بطاقتك المجانية على{" "}
           <Link href="/free-tools/digital-card" className="font-semibold underline">
-            سوق تولز
+            شام AI
           </Link>
         </p>
 

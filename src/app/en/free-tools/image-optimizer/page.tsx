@@ -7,8 +7,8 @@ import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 
 export const metadata: Metadata = {
   // title.absolute opts out of the root layout's Arabic title template
-  // ("%s | سوق تولز") — see qr-generator's English page for the same fix.
-  title: { absolute: "Free Image Compressor — WebP/JPEG/PNG | SouqTools" },
+  // ("%s | شام AI") — see qr-generator's English page for the same fix.
+  title: { absolute: "Free Image Compressor — WebP/JPEG/PNG | Sham AI" },
   description:
     "Compress and convert your images to WebP, JPEG, or PNG right in your browser — free, no upload to any server, full privacy, instant results.",
   alternates: {
@@ -22,11 +22,11 @@ export const metadata: Metadata = {
   openGraph: {
     locale: "en_US",
     url: `${SITE_URL}/en/free-tools/image-optimizer`,
-    title: "Free Image Compressor — WebP/JPEG/PNG | SouqTools",
+    title: "Free Image Compressor — WebP/JPEG/PNG | Sham AI",
     description: "Compress and convert images to WebP, JPEG, or PNG in your browser — free, no upload to any server.",
   },
   twitter: {
-    title: "Free Image Compressor — WebP/JPEG/PNG | SouqTools",
+    title: "Free Image Compressor — WebP/JPEG/PNG | Sham AI",
     description: "Compress and convert images to WebP, JPEG, or PNG in your browser — free, no upload to any server.",
   },
 };

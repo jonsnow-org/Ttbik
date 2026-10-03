@@ -11,13 +11,13 @@ const PATH = "/news";
 export const revalidate = 600;
 
 export const metadata: Metadata = {
-  title: "مركز الأخبار العاجلة من مصادر عربية موثوقة | سوق تولز",
+  title: "مركز الأخبار العاجلة من مصادر عربية موثوقة | شام AI",
   description:
     "شريط عاجل من مصادر عربية موثوقة، وخبر اليوم بمصدرين على الأقل. لا نسخ للمقالات، وكل رابط يفتح المصدر الأصلي.",
-  keywords: ["أخبار عربية", "خبر اليوم", "سوق تولز", "شريط عاجل"],
+  keywords: ["أخبار عربية", "خبر اليوم", "شام AI", "شريط عاجل"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل من مصادر موثوقة وخبر اليوم بمصدرين.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
@@ -26,7 +26,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل من مصادر موثوقة.",
     images: [`${SITE}/og/news.jpg`],
   },

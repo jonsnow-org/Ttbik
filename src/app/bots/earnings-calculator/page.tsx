@@ -8,7 +8,7 @@ const SITE = SITE_URL;
 const PATH = "/bots/earnings-calculator";
 
 export const metadata: Metadata = {
-  title: "حاسبة أرباح قناة أو بوت تليجرام | سوق تولز",
+  title: "حاسبة أرباح قناة أو بوت تليجرام | شام AI",
   description:
     "قدّر أرباحك الشهرية التقريبية من الإعلانات على قناة أو بوت تليجرام حسب المشاهدات وCPM ونسبة بيع المساحات. بلا توكن BotFather وبلا سحب نقدي.",
   keywords: [
@@ -17,11 +17,11 @@ export const metadata: Metadata = {
     "حاسبة CPM تليجرام",
     "ربح من بوت تليجرام",
     "حاسبة أرباح بدون توكن",
-    "سوق تولز",
+    "شام AI",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "حاسبة أرباح قناة أو بوت تليجرام | سوق تولز",
+    title: "حاسبة أرباح قناة أو بوت تليجرام | شام AI",
     description:
       "تقدير تقريبي للأرباح من مشاهدات القناة أو البوت. بلا توكن BotFather، للتخطيط فقط، بلا سحب نقدي.",
     url: `${SITE}${PATH}`,
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "حاسبة أرباح قناة أو بوت تليجرام | سوق تولز",
+    title: "حاسبة أرباح قناة أو بوت تليجرام | شام AI",
     description: "تقدير تقريبي حسب المشاهدات وCPM. بلا توكن وبلا وعد بربح.",
     images: [`${SITE}/og/cover.jpg`],
   },
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
 
 const TERMS = [
   "الأرقام تخطيط تقريبي — ليست وعداً بربح وليست رصيداً.",
-  "لا سحب نقدي عبر سوق تولز من هذه الصفحة ولا من البوت.",
+  "لا سحب نقدي عبر شام AI من هذه الصفحة ولا من البوت.",
   "الحاسبة لا تستهلك رمز الطلب. طلب معتمد واحد = بوت واحد على /bots.",
   "الحاسبة لا تطلب توكن BotFather ولا تحفظ أي سر.",
 ];
@@ -59,7 +59,7 @@ const FAQ = [
   },
   {
     q: "هل يمكن سحب المبلغ نقداً من هنا؟",
-    a: "لا يوجد سحب نقدي عبر سوق تولز. النتيجة تقدير وليست رصيداً قابلاً للسحب.",
+    a: "لا يوجد سحب نقدي عبر شام AI. النتيجة تقدير وليست رصيداً قابلاً للسحب.",
   },
   {
     q: "على ماذا يعتمد التقدير؟",
@@ -128,7 +128,7 @@ const HOWTO_JSON_LD = {
 const WEBPAGE_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebPage",
-  name: "حاسبة أرباح قناة أو بوت تليجرام — سوق تولز",
+  name: "حاسبة أرباح قناة أو بوت تليجرام — شام AI",
   url: `${SITE}${PATH}`,
   inLanguage: "ar",
   description:
@@ -243,7 +243,7 @@ export default function EarningsCalculatorPage() {
             </li>
             <li>
               <Link href="/news" className="hover:underline">
-                أخبار سوق تولز
+                أخبار شام AI
               </Link>
             </li>
           </ul>

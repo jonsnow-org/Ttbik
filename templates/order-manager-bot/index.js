@@ -5,7 +5,7 @@
 //
 // This is a trimmed-down, standalone version of the same
 // request -> Telegram alert -> [approve/reject] -> auto-delivery pattern
-// used by the main SouqTools marketplace, for anyone who wants it as its own
+// used by the main Sham AI platform, for anyone who wants it as its own
 // small service without the full Next.js/Supabase stack.
 
 const http = require("http");

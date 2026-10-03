@@ -7,7 +7,7 @@ import path from "node:path";
 // fetching it over HTTP (the file isn't online yet during the build).
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/jpeg";
-export const alt = "سوق تولز — سوق الخدمات والأدوات الرقمية المصغّرة";
+export const alt = "شام AI — Sham AI | الذكاء الاصطناعي • التقنية • الخدمات الرقمية المتكاملة";
 
 export default async function OpengraphImage() {
   const data = await readFile(path.join(process.cwd(), "public", "og", "cover.jpg"));

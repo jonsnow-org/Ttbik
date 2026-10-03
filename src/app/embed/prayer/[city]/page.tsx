@@ -49,7 +49,7 @@ export default function PrayerEmbed({ params, searchParams }: { params: { city: 
         rel="noopener"
         className={`mt-2 block text-center text-[11px] font-bold ${dark ? "text-indigo-300" : "text-indigo-700"} hover:underline`}
       >
-        المواقيت كاملة من سوق تولز ←
+        المواقيت كاملة من شام AI ←
       </a>
       <div className="mt-2 flex justify-center">
         <AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} />

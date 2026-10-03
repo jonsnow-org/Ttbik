@@ -7,9 +7,9 @@ import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 
 export const metadata: Metadata = {
   // title.absolute (not a plain string) opts out of the root layout's
-  // Arabic title template ("%s | سوق تولز") — an English SEO page must
+  // Arabic title template ("%s | شام AI") — an English SEO page must
   // not end in an Arabic brand suffix in search results.
-  title: { absolute: "Free QR Code Generator — No Signup | SouqTools" },
+  title: { absolute: "Free QR Code Generator — No Signup | Sham AI" },
   description:
     "Generate a QR code for any link or text in seconds — customizable size and colors, instant PNG download, runs entirely in your browser, free, no signup required.",
   alternates: {
@@ -23,11 +23,11 @@ export const metadata: Metadata = {
   openGraph: {
     locale: "en_US",
     url: `${SITE_URL}/en/free-tools/qr-generator`,
-    title: "Free QR Code Generator — No Signup | SouqTools",
+    title: "Free QR Code Generator — No Signup | Sham AI",
     description: "Generate a QR code for any link or text in seconds — free, no signup, runs in your browser.",
   },
   twitter: {
-    title: "Free QR Code Generator — No Signup | SouqTools",
+    title: "Free QR Code Generator — No Signup | Sham AI",
     description: "Generate a QR code for any link or text in seconds — free, no signup, runs in your browser.",
   },
 };

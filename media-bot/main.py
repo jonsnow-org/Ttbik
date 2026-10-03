@@ -41,7 +41,7 @@ from keyboards import (
 )
 from services.force_sub import require_subscription
 from services.rewards import refresh_bonus
-from services.downloader import extract_info, download_media, normalize_url, EXTRACT_TIMEOUT
+from services.downloader import extract_info, download_media, normalize_url, friendly_reason, EXTRACT_TIMEOUT
 from services.archive import (
     get_cached_file_id,
     archive_and_get_file_id,
@@ -708,7 +708,8 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 result, dl_err = None, str(e)
             if not result:
                 detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
-                await query.edit_message_text("❌ فشل التحميل." + detail)
+                logger.warning("download failed url=%s err=%s", url, dl_err)
+                await query.edit_message_text("❌ فشل التحميل.\n" + friendly_reason(dl_err) + detail)
                 return
 
             file_id = await archive_and_get_file_id(

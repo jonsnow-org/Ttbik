@@ -24,7 +24,7 @@ export function GET() {
           `    <loc>${xmlEscape(`${SITE_URL}${item.path}`)}</loc>\n` +
           `    <news:news>\n` +
           `      <news:publication>\n` +
-          `        <news:name>سوق تولز</news:name>\n` +
+          `        <news:name>شام AI</news:name>\n` +
           `        <news:language>ar</news:language>\n` +
           `      </news:publication>\n` +
           `      <news:publication_date>${item.dateIso}</news:publication_date>\n` +

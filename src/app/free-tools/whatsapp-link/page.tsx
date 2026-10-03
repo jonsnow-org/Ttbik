@@ -7,7 +7,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 const PATH = "/free-tools/whatsapp-link";
 
 export const metadata: Metadata = {
-  title: "مولد رابط واتساب للطلب والشراء مجاناً | سوق تولز",
+  title: "مولد رابط واتساب للطلب والشراء مجاناً | شام AI",
   description:
     "أنشئ رابط طلب واتساب احترافياً برسالة جاهزة لعملائك — مجاناً بلا تسجيل. مثالي للمتاجر الإلكترونية والتسويق عبر واتساب.",
   keywords: [
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     "رابط طلب واتساب",
     "واتساب للأعمال",
     "تسويق واتساب",
-    "سوق تولز",
+    "شام AI",
   ],
   alternates: { canonical: `${SITE_URL}${PATH}` },
   openGraph: {

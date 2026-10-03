@@ -167,6 +167,31 @@ async def _resolve_tiktok_via_site(url: str) -> tuple[dict | None, str]:
         return None, str(e)[:120]
 
 
+def _pick_tikwm_variant(d: dict) -> str | None:
+    """Best tikwm file that fits Telegram's limit: HD, then standard, then watermarked."""
+    for url_key, size_key in (("hdplay", "hd_size"), ("play", "size"), ("wmplay", "wm_size")):
+        link = d.get(url_key)
+        if not link:
+            continue
+        size = int(d.get(size_key) or 0)
+        if size and size > MAX_FILE_BYTES:
+            continue
+        return link
+    return d.get("play") or d.get("hdplay") or d.get("wmplay")
+
+
+def friendly_reason(err: str) -> str:
+    """Short Arabic reason for users; the raw error stays in the logs / owner view."""
+    e = (err or "").lower()
+    if "too large" in e or "max_filesize" in e or "larger than" in e:
+        return "حجم الملف أكبر من حدّ تليجرام (50MB). جرّب جودة أقل أو الصوت فقط."
+    if "private" in e or "login" in e or "sign in" in e:
+        return "هذا المحتوى خاص أو يحتاج تسجيل دخول."
+    if "unavailable" in e or "not found" in e or "404" in e or "removed" in e:
+        return "المحتوى غير متاح أو حُذف."
+    return "تعذّر جلب هذا الرابط الآن. جرّب رابطاً آخر أو أعد المحاولة بعد قليل."
+
+
 async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
     try:
         import httpx
@@ -202,7 +227,7 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
                             last_status = f"code={js.get('code')} msg={js.get('msg')}"
                             continue
                         d = js.get("data") or {}
-                        play = d.get("hdplay") or d.get("play") or d.get("wmplay")
+                        play = _pick_tikwm_variant(d)
                         music = d.get("music")
                         media = music if audio_only and music else play
                         if not media:
@@ -233,9 +258,19 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
             async with client.stream("GET", meta["media"], headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"}) as r:
                 if r.status_code >= 400:
                     return None, f"tikwm: download HTTP {r.status_code}"
+                declared = int(r.headers.get("content-length") or 0)
+                if declared > MAX_FILE_BYTES:
+                    return None, f"tikwm: file too large ({declared // (1024*1024)}MB)"
+                written = 0
                 with open(path, "wb") as f:
                     async for chunk in r.aiter_bytes(64 * 1024):
+                        written += len(chunk)
+                        if written > MAX_FILE_BYTES:
+                            break
                         f.write(chunk)
+                if written > MAX_FILE_BYTES:
+                    __import__("shutil").rmtree(tmp, ignore_errors=True)
+                    return None, f"tikwm: file too large (>{MAX_FILE_BYTES // (1024*1024)}MB)"
         size = path.stat().st_size
         if size < 1000:
             return None, f"tikwm: file too small ({size})"
@@ -423,14 +458,18 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
             except Exception as e:
                 errors.append(f"yt-dlp: {type(e).__name__}: {e}")
                 continue
-    try:
-        from services.cobalt import cobalt_download_to_file
-        cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
-        if cobalt_path:
-            return DownloadResult(path=cobalt_path, title=cobalt_title or "media", media_type="audio" if audio_only else "video", filesize=cobalt_path.stat().st_size), ""
-        errors.append(cobalt_err or "cobalt failed")
-    except Exception as e:
-        errors.append(f"cobalt: {e}")
+    # Cobalt's public API rejects every request without an API key (confirmed
+    # in Render logs: error.api.auth.jwt.missing), so without COBALT_API_KEY it
+    # only burns time and adds noise to the error. Try it only when keyed.
+    if (os.environ.get("COBALT_API_KEY") or "").strip():
+        try:
+            from services.cobalt import cobalt_download_to_file
+            cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
+            if cobalt_path:
+                return DownloadResult(path=cobalt_path, title=cobalt_title or "media", media_type="audio" if audio_only else "video", filesize=cobalt_path.stat().st_size), ""
+            errors.append(cobalt_err or "cobalt failed")
+        except Exception as e:
+            errors.append(f"cobalt: {e}")
     try:
         shutil.rmtree(tmp, ignore_errors=True)
     except Exception:

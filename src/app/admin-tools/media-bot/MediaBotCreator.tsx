@@ -60,7 +60,7 @@ export default function MediaBotCreator() {
           `2. (اختياري) أنشئ قناة اشتراك إجباري.\n` +
           `3. انشر خدمة media-bot على Render Free.\n` +
           `4. بعد الربط أرسل /start داخل البوت لرؤية لوحة المالك.\n\n` +
-          `التوكن لن يُحفظ أبداً في موقع سوق تولز.`
+          `التوكن لن يُحفظ أبداً في موقع شام AI.`
       );
     } catch (err: any) {
       setStatus(`❌ خطأ: ${err.message}`);

@@ -115,7 +115,7 @@ export default async function HomePage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8">
-        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">لماذا سوق تولز؟</h2>
+        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">لماذا شام AI؟</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           {[
             { img: "/img/community.jpg", alt: "أصدقاء يعملون معاً", t: "مجاني وبلا تسجيل", d: "أدوات حسابية وتصميمية تعمل فوراً داخل المتصفح، بدون حساب وبدون حدود استخدام." },

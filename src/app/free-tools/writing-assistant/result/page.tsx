@@ -5,7 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import ResultView from "./ResultView";
 
 export const metadata: Metadata = {
-  title: "نتيجة مساعد الكتابة | سوق تولز",
+  title: "نتيجة مساعد الكتابة | شام AI",
 };
 
 export default function WritingAssistantResultPage() {

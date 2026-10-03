@@ -9,7 +9,7 @@ export const FAQ = [
   },
   {
     q: "هل يوجد سحب نقدي من البوت؟",
-    a: "لا. أي نقاط داخل البوت تبقى داخله فقط. لا سحب نقدي عبر سوق تولز.",
+    a: "لا. أي نقاط داخل البوت تبقى داخله فقط. لا سحب نقدي عبر شام AI.",
   },
   {
     q: "كيف أفعّل بوتاً؟",
@@ -46,7 +46,7 @@ export const FAQ_JSON_LD = {
 export const HOWTO_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "HowTo",
-  name: "تفعيل بوت تليجرام على سوق تولز",
+  name: "تفعيل بوت تليجرام على شام AI",
   description: "طلب معتمد واحد لكل بوت، ثم توكن BotFather في النموذج. لا كود للبيع ولا سحب نقدي.",
   inLanguage: "ar",
   step: STEPS.map((s, i) => ({
@@ -60,7 +60,7 @@ export const HOWTO_JSON_LD = {
 export const LIVE_BOTS_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "ItemList",
-  name: "بوتات سوق تولز العاملة على تليجرام",
+  name: "بوتات شام AI العاملة على تليجرام",
   numberOfItems: LIVE_BOTS.length,
   itemListElement: LIVE_BOTS.map((bot, i) => ({
     "@type": "ListItem",
@@ -89,7 +89,7 @@ export const BREADCRUMB_JSON_LD = {
 export const WEBPAGE_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebPage",
-  name: "تفعيل بوت تليجرام — سوق تولز",
+  name: "تفعيل بوت تليجرام — شام AI",
   url: `${SITE}${PATH}`,
   inLanguage: "ar",
   description: "تفعيل بوت على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
@@ -98,7 +98,7 @@ export const WEBPAGE_JSON_LD = {
 export const APP_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "تفعيل بوت تليجرام — سوق تولز",
+  name: "تفعيل بوت تليجرام — شام AI",
   applicationCategory: "BusinessApplication",
   operatingSystem: "Telegram",
   url: `${SITE}${PATH}`,

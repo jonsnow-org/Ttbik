@@ -8,7 +8,7 @@ const SITE = SITE_URL;
 const PATH = "/bots/health-check";
 
 export const metadata: Metadata = {
-  title: "فاحص صحة بوت تليجرام | سوق تولز",
+  title: "فاحص صحة بوت تليجرام | شام AI",
   description:
     "افحص مجاناً هل بوت تليجرام ما زال يعمل: التوكن، الويبهوك، شهادة HTTPS، ووجود التوكن داخل رابط الويبهوك. تقرير فوري بدون حفظ التوكن.",
   keywords: [
@@ -21,11 +21,11 @@ export const metadata: Metadata = {
     "getUpdates",
     "تعارض الويبهوك",
     "حذف الويبهوك",
-    "سوق تولز",
+    "شام AI",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "فاحص صحة بوت تليجرام | سوق تولز",
+    title: "فاحص صحة بوت تليجرام | شام AI",
     description:
       "تحقق فوري من توكن البوت والويبهوك وشهادة HTTPS. مجاني وللتخطيط الفني فقط.",
     url: `${SITE}${PATH}`,
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "فاحص صحة بوت تليجرام | سوق تولز",
+    title: "فاحص صحة بوت تليجرام | شام AI",
     description: "فحص توكن وويبهوك تليجرام مجاناً. لا نحفظ التوكن.",
     images: [`${SITE}/og/cover.jpg`],
   },
@@ -123,14 +123,14 @@ const BREADCRUMB_JSON_LD = {
 
 const TERMS = [
   "الفحص جلسة واحدة — لا نحفظ التوكن ولا ننشئ بوتاً من هذه الصفحة.",
-  "لا سحب نقدي عبر سوق تولز. هذه أداة فحص فني فقط.",
+  "لا سحب نقدي عبر شام AI. هذه أداة فحص فني فقط.",
   "طلب معتمد واحد = بوت واحد على /bots. الفاحص لا يستهلك رمز الطلب.",
 ];
 
 const WEBPAGE_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebPage",
-  name: "فاحص صحة بوت تليجرام — سوق تولز",
+  name: "فاحص صحة بوت تليجرام — شام AI",
   url: `${SITE}${PATH}`,
   inLanguage: "ar",
   description:
@@ -251,7 +251,7 @@ export default function BotHealthCheckPage() {
             </li>
             <li>
               <Link href="/news" className="hover:underline">
-                أخبار سوق تولز
+                أخبار شام AI
               </Link>
             </li>
             <li>

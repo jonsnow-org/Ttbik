@@ -5,7 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import ResultView from "./ResultView";
 
 export const metadata: Metadata = {
-  title: "أسماء مشروعك جاهزة | سوق تولز",
+  title: "أسماء مشروعك جاهزة | شام AI",
 };
 
 export default function BusinessNameResultPage() {

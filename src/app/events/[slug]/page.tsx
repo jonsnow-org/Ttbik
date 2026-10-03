@@ -15,7 +15,7 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   const e = getEvent(params.slug);
   if (!e) return { title: "حدث" };
   return {
-    title: `${e.title} | سوق تولز`,
+    title: `${e.title} | شام AI`,
     description: e.description,
     alternates: { canonical: `${SITE}/events/${e.slug}` },
     openGraph: {
@@ -41,8 +41,8 @@ export default function EventArticlePage({ params }: { params: { slug: string } 
     dateModified: e.dateIso,
     inLanguage: "ar",
     description: e.description,
-    author: { "@type": "Organization", name: "سوق تولز" },
-    publisher: { "@type": "Organization", name: "سوق تولز" },
+    author: { "@type": "Organization", name: "شام AI" },
+    publisher: { "@type": "Organization", name: "شام AI" },
     citation: e.sources.map((s) => s.href),
     url: `${SITE}/events/${e.slug}`,
   };

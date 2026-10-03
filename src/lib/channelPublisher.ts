@@ -55,7 +55,11 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /\b[A-Z][A-Z0-9_]*_(TOKEN|SECRET|KEY|PASSWORD|ID)\b/, // env var names
   /(password|passwd|secret|api[_ ]?key|service[_ ]?role|supabase|prisma|render\.com|webhook|cron)/i,
   /(كلمة ?السر|كلمة ?المرور|كود ?التفعيل|أكواد ?التفعيل|لوحة ?(التحكم|المالك|الأدمن)|سوبر ?أدمن|(حظر|كتم|إدارة) المستخدمين|للمالك فقط|خاص بالمالك)/,
-  /\b(nova|sham)\b|نوفا|(^|[^\u0600-\u06FF])شام([^\u0600-\u06FF]|$)/i, // never promoted publicly (owner directive 2026-09-21)
+  /\bnova\b|نوفا/i, // Nova stays unpromoted (owner directive 2026-09-21)
+  // "Sham" alone stays blocked; the site brand itself is allowed (owner renamed the site 2026-10-03):
+  // "Sham AI" / "شام AI" / "شام للذكاء الاصطناعي".
+  /\bsham\b(?!\s*ai\b)/i,
+  /(^|[^\u0600-\u06FF])شام(?![\u0600-\u06FF])(?!\s*(ai\b|للذكاء))/i,
   /\/(admin|api|owner|pay)\b/i, // internal site paths
   /8452320/,
 ];
@@ -228,7 +232,7 @@ async function newsDigest(): Promise<{ text: string; html: string; previewUrl: s
       .join("\n\n");
     return {
       text: `📰 أبرز الأخبار الآن\n\n${text}\n\n🔎 التغطية من مصادر متعددة — بدون نسخ للمقالات\n${newsUrl}`,
-      html: `📰 <b>أبرز الأخبار الآن</b>\n\n${html}\n\n🔎 <a href="${escapeHtml(newsUrl)}">اقرأ العناوين وروابط المصادر على سوق تولز</a>`,
+      html: `📰 <b>أبرز الأخبار الآن</b>\n\n${html}\n\n🔎 <a href="${escapeHtml(newsUrl)}">اقرأ العناوين وروابط المصادر على شام AI</a>`,
       previewUrl: newsUrl,
     };
   } catch {

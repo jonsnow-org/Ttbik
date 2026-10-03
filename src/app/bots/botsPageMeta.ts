@@ -2,21 +2,21 @@ import type { Metadata } from "next";
 import { SITE, PATH } from "./botsPageCopy";
 
 export const botsMetadata: Metadata = {
-  title: "تفعيل بوت تليجرام — سوق تولز",
+  title: "تفعيل بوت تليجرام — شام AI",
   description:
     "فعّل بوت تليجرام يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
   keywords: [
     "بوت تليجرام",
     "تفعيل بوت تليجرام",
     "بوت مستضاف",
-    "سوق تولز",
+    "شام AI",
     "توكن BotFather",
     "منشئ بوتات",
     "بوت تليجرام جاهز",
   ],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "تفعيل بوت تليجرام — سوق تولز",
+    title: "تفعيل بوت تليجرام — شام AI",
     description: "بوت يعمل على توكنك. طلب واحد = بوت واحد. لا سحب نقدي ولا كود للتحميل.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
@@ -25,7 +25,7 @@ export const botsMetadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "تفعيل بوت تليجرام — سوق تولز",
+    title: "تفعيل بوت تليجرام — شام AI",
     description: "منتج جاهز على توكنك. طلب واحد = بوت واحد. لا سحب نقدي.",
     images: [`${SITE}/og/cover.jpg`],
   },
