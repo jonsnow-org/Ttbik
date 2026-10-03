@@ -10,7 +10,14 @@ wd() { echo "$(now) $1" > "$STATE/watchdog_note"; }
 FP=$(db_fingerprint) || { wd "database unreachable (outage: no action)"; exit 0; }
 set -- $FP; T=$1; R=$2; set -- $(cat "$STATE/good_fingerprint"); GT=$1; GR=$2
 if ! { [ "$GR" -ge 50 ] && { [ $((R*100)) -lt $((GR*20)) ] || [ $((T*100)) -lt $((GT*50)) ]; }; }; then
-  rm -f "$STATE/loss_since" "$STATE/loss_n12" "$STATE/loss_n23"; wd "healthy ($T tables, $R rows)"; exit 0
+  rm -f "$STATE/loss_since" "$STATE/loss_n12" "$STATE/loss_n23"; wd "healthy ($T tables, $R rows)"
+  # daily read-only rehearsal of the restore path (changes nothing)
+  if [ -s "$BK/latest.dump" ] && [ -z "$(find "$STATE/restore_selftest" -mmin -1440 2>/dev/null)" ]; then
+    if out=$(bash "$OR/agent/restore.sh" --dry-run 2>&1); then echo "$(now) dry-run OK: $(echo "$out" | head -1 | cut -c1-120)" > "$STATE/restore_selftest"
+    else echo "$(now) dry-run FAILED: $(echo "$out" | tail -1 | mask | cut -c1-140)" > "$STATE/restore_selftest"; tg_notify "فشل الاختبار الذاتي للاسترجاع. راجع التقرير."; fi
+    report
+  fi
+  exit 0
 fi
 [ -f "$STATE/loss_since" ] || { epoch > "$STATE/loss_since"
   tg_notify "⚠️ اشتباه بفقدان بيانات Supabase (الصفوف $GR ← $R). سأنتظر 24 ساعة قبل أي استرجاع. للإيقاف أرسل /restore_cancel لبوت الوسائط."; }

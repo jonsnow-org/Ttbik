@@ -16,6 +16,8 @@ SITE_URL="$(getkv "$OR/media.env" FEED_API_URL | sed -E 's#(https?://[^/]+).*#\1
 SITE_URL="${SITE_URL:-https://ttbik.vercel.app}"
 DATABASE_URL="$(getkv "$OR/backup.env" DATABASE_URL)"
 AUTO_RESTORE="$(getkv "$OR/backup.env" AUTO_RESTORE)"
+# Owner enabled guarded auto-restore (2026-10-03). Delete agent/AUTO_RESTORE_ON to go back to backup.env control.
+[ -f "$OR/agent/AUTO_RESTORE_ON" ] && AUTO_RESTORE=on
 # Prisma URLs carry pgbouncer params and often the transaction-pooler port; pg_dump needs neither.
 PGURL="${DATABASE_URL%%\?*}"; PGURL="${PGURL/:6543\//:5432/}"
 
@@ -70,6 +72,8 @@ out={
  "backup": {"exists": os.path.exists(bk), "age_h": round((time.time()-os.path.getmtime(bk))/3600,1) if os.path.exists(bk) else None,
             "size_mb": round(os.path.getsize(bk)/1048576,1) if os.path.exists(bk) else None, "note": rd(f"{STATE}/backup_note").strip()},
  "watchdog": rd(f"{STATE}/watchdog_note").strip(),
+ "restore_selftest": rd(f"{STATE}/restore_selftest").strip(),
+ "auto_restore": os.path.exists(f"{OR}/agent/AUTO_RESTORE_ON"),
  "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
 }
 print(json.dumps(out))

@@ -95,3 +95,5 @@ sudo bash /opt/ttbik/deploy/oracle/status.sh
 - **المراقب (كل 5 دقائق):** يميّز الانقطاع (لا إجراء) من فقدان البيانات. الاسترجاع الآلي بعد 24 ساعة متواصلة من الفقدان، ولا يستبدل جدولاً فيه بيانات، ويحفظ لقطة `pre-restore.dump` قبله، وحدّه مرة كل 7 أيام، ويوقفه `/restore_cancel` لبوت الوسائط. معطّل افتراضياً (`AUTO_RESTORE=off` في `backup.env`).
 - ملف `backup.env` فيه `DATABASE_URL` (انسخه من Vercel، اكتبه بـ nano ولا ترسله في المحادثة).
 - تجربة الاسترجاع بلا تغيير: `sudo bash /opt/ttbik/deploy/oracle/agent/restore.sh --dry-run`.
+
+**الاسترجاع الآلي مفعّل** (قرار المالك 2026-10-03) عبر الملف `agent/AUTO_RESTORE_ON` في المستودع، بالشروط المذكورة أعلاه. للإيقاف: `/restore_cancel` لبوت الوسائط (مؤقت)، أو حذف ذلك الملف ودفع التعديل (دائم). يجري المراقب يومياً تجربة غير مدمّرة لمسار الاسترجاع (`restore.sh --dry-run`) وتظهر نتيجتها في تقرير `/api/ops/oracle-status` باسم `restore_selftest`.
