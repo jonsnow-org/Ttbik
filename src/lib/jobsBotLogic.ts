@@ -155,7 +155,7 @@ function backLabel(): string {
   return "◀️ رجوع";
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 const SKIP_LABEL = "⏭ تخطّي";
 function isSkip(text: string): boolean {

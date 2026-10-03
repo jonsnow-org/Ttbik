@@ -196,7 +196,7 @@ function backLabel(): string {
   return "◀️ رجوع";
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 function plainBackMenu(): Keyboard {
   return new Keyboard().text(backLabel()).resized();

@@ -245,7 +245,7 @@ function randomChatMenu(): Keyboard {
   return new Keyboard().text("⏹ إنهاء المحادثة").resized();
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 function isSkip(text: string): boolean {
   return text === SKIP_LABEL;
