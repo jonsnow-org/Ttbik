@@ -59,7 +59,9 @@ class Store:
         self.user_share[str(user_id)] = value
 
     def get_share_public(self, user_id: int) -> bool:
-        # New users publish to the public feed by default; they can switch it off in settings.
+        # Public publishing is on for everyone; only paid users can switch it off.
+        if not self.is_premium(user_id):
+            return True
         return bool(self.user_share.get(str(user_id), True))
 
     def set_share_room(self, user_id: int, value: bool) -> None:
@@ -69,8 +71,8 @@ class Store:
         return bool(self.user_share_room.get(str(user_id), False))
 
     def get_share(self, user_id: int) -> bool:
-        """Perk / higher limit: active if public OR room share is on."""
-        return self.get_share_public(user_id) or self.get_share_room(user_id)
+        """Perk / higher limit: only for an explicit share choice (default publishing earns no perk)."""
+        return bool(self.user_share.get(str(user_id), False)) or self.get_share_room(user_id)
 
     def _today(self) -> str:
         return time.strftime("%Y-%m-%d", time.gmtime())
@@ -114,8 +116,7 @@ class Store:
             return (
                 False,
                 f"وصلت للحد المجاني ({limit}/يوم).\n"
-                f"فعّل المشاركة (عام أو غرفة) لرفع الحد إلى {SHARE_DAILY_LIMIT}، "
-                f"أو فعّل الترقية المدفوعة لرفعه إلى {PREMIUM_DAILY_LIMIT}." + ad_hint,
+                f"فعّل الترقية المدفوعة لرفع الحد إلى {PREMIUM_DAILY_LIMIT}." + ad_hint,
             )
         return True, f"{used + 1}/{limit}"
 

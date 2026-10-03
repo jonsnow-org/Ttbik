@@ -426,6 +426,9 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = (update.message.text or "").strip()
     if user.id in _waiting_squad_join:
         _waiting_squad_join.discard(user.id)
+        if not (store.is_premium(user.id) or user.id == cfg.owner_id):
+            await update.message.reply_text("💎 الغرف ميزة مدفوعة.", reply_markup=_squad_kb(user.id))
+            return
         msg = store.join_squad(user.id, text)
         await _save(context.bot)
         await update.message.reply_text(msg, reply_markup=_squad_kb(user.id))
@@ -464,7 +467,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             body = (
                 "👥 الغرف الخاصة\n\nلست في غرفة.\n\n"
                 "• 💎 إنشاء غرفة (للمشتركين المدفوعين) → رمز دعوة + نشر الغرفة تلقائياً\n"
-                "• الانضمام برمز → تدخل غرفة صديقك\n"
+                "• الانضمام برمز (مدفوع) → تدخل غرفة صديقك\n"
                 "• تنزيلات الغرفة لا تظهر في الموجز العام"
             )
         await update.message.reply_text(body, parse_mode="Markdown", reply_markup=_squad_kb(user.id))
@@ -589,6 +592,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if data in ("toggle_share_feed", "share_public_toggle"):
+        if store.get_share_public(user_id) and not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 إيقاف النشر في الموجز العام ميزة مدفوعة.\nفعّل الترقية المدفوعة (💎 الترقية المدفوعة) لتتحكم بما يُنشر.",
+                reply_markup=user_settings_keyboard(True, store.get_share_room(user_id), has_squad=bool(store.get_user_squad(user_id))),
+            )
+            return
         new_val = not store.get_share_public(user_id)
         store.set_share(user_id, new_val)
         await _save(context.bot)
@@ -612,6 +621,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text(note, reply_markup=user_settings_keyboard(store.get_share_public(user_id), store.get_share_room(user_id), has_squad=True))
         return
     if data == "share_off":
+        if not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 إيقاف النشر العام ميزة مدفوعة.",
+                reply_markup=user_settings_keyboard(True, store.get_share_room(user_id), has_squad=bool(store.get_user_squad(user_id))),
+            )
+            return
         store.set_share(user_id, False)
         store.set_share_room(user_id, False)
         await _save(context.bot)
@@ -652,6 +667,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if data == "squad_join":
+        if not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 الغرف الخاصة (إنشاءً وانضماماً) ميزة مدفوعة.\nفعّل الترقية المدفوعة (💎 الترقية المدفوعة) لاستخدامها.",
+                reply_markup=_squad_kb(user_id),
+            )
+            return
         _waiting_squad_join.add(user_id)
         await query.edit_message_text("🔑 أرسل رمز الغرفة الآن\nمثال: `8A038B`", parse_mode="Markdown")
         return
