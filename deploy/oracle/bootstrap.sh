@@ -20,7 +20,7 @@ if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
 log "1/7 system packages"
 $SUDO apt-get update -y
-$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates iptables-persistent
+$SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y git curl ca-certificates iptables-persistent
 
 log "2/7 Docker"
 if ! command -v docker >/dev/null 2>&1; then
