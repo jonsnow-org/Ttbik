@@ -137,6 +137,36 @@ def _proxy() -> str | None:
     return p
 
 
+async def _resolve_tiktok_via_site(url: str) -> tuple[dict | None, str]:
+    """Resolve a TikTok link through the site's /api/media-bot/tiktok-resolve."""
+    import hashlib
+
+    try:
+        import httpx
+    except Exception as e:
+        return None, f"httpx missing ({e})"
+    token = (os.getenv("BOT_TOKEN") or "").strip()
+    if not token:
+        return None, "no BOT_TOKEN"
+    key = hashlib.sha256(token.encode()).hexdigest()[:48]
+    from services.feed import _api_url
+    from urllib.parse import urlsplit
+
+    u = urlsplit(_api_url())
+    base = f"{u.scheme}://{u.netloc}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(f"{base}/api/media-bot/tiktok-resolve", params={"url": url}, headers={"x-media-bot-key": key})
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}"
+        d = r.json()
+        if not d.get("media"):
+            return None, "no media"
+        return {"media": d["media"], "music": d.get("music"), "title": d.get("title") or "TikTok", "thumbnail": d.get("thumbnail")}, ""
+    except Exception as e:
+        return None, str(e)[:120]
+
+
 async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
     try:
         import httpx
@@ -187,7 +217,14 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
         if meta:
             break
     if not meta:
-        return None, f"tikwm: resolve failed ({last_status})"
+        # tikwm often refuses Render's datacenter IP (HTTP 403). Ask the site
+        # (Vercel, different IP) to resolve the link, then download the CDN
+        # file ourselves.
+        meta, via_err = await _resolve_tiktok_via_site(url)
+        if not meta:
+            return None, f"tikwm: resolve failed ({last_status}) | site: {via_err}"
+        if audio_only and meta.get("music"):
+            meta["media"] = meta["music"]
     suffix = ".mp3" if audio_only else ".mp4"
     tmp = tempfile.mkdtemp(prefix="tikwm_")
     path = Path(tmp) / f"media{suffix}"

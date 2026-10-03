@@ -58,6 +58,15 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
+      // These bots only work in private chats. Messages from groups, supergroups
+      // and channels (the bot is often added to them as an admin) used to run
+      // the normal handlers, which then failed with errors such as "phone number
+      // can be requested in private chats only" and spammed the owner. Ignore
+      // them here, for every template at once.
+      const chatType = body.message?.chat?.type ?? body.callback_query?.message?.chat?.type;
+      if (chatType && chatType !== "private") {
+        return NextResponse.json({ status: "ignored", reason: "non-private chat" });
+      }
       if (botRow.template === "AD_BOT") {
         await handleAdBotUpdate(bot, botRow, body);
       } else if (botRow.template === "MARRIAGE_BOT") {
