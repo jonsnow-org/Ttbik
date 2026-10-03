@@ -19,7 +19,7 @@ INFO_TEXT = (
     "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n"
     "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n"
     "🎁 المشاركة (اختر وضعاً)\n"
-    "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n"
+    "• موجز عام (الافتراضي): يظهر للجميع في رائج/فيديو/صوت\n"
     "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n"
     "• إيقاف: لا يُنشر في التطبيق\n"
     "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n"
@@ -86,7 +86,7 @@ def user_settings_keyboard(
         rows.append([InlineKeyboardButton(room_label, callback_data="share_room_toggle")])
     else:
         rows.append(
-            [InlineKeyboardButton("🏠 أنشئ غرفة أولاً لنشر خاص", callback_data="squad_create")]
+            [InlineKeyboardButton("💎 الغرف للمشتركين المدفوعين", callback_data="squad_create")]
         )
     if share_public or share_room:
         rows.append([InlineKeyboardButton("⏹ إيقاف كل النشر", callback_data="share_off")])

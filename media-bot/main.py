@@ -463,7 +463,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             body = (
                 "👥 الغرف الخاصة\n\nلست في غرفة.\n\n"
-                "• إنشاء غرفة → رمز دعوة + تفعيل نشر الغرفة تلقائياً\n"
+                "• 💎 إنشاء غرفة (للمشتركين المدفوعين) → رمز دعوة + نشر الغرفة تلقائياً\n"
                 "• الانضمام برمز → تدخل غرفة صديقك\n"
                 "• تنزيلات الغرفة لا تظهر في الموجز العام"
             )
@@ -622,6 +622,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if data == "squad_create":
         if store.get_user_squad(user_id):
             await query.edit_message_text("أنت بالفعل في غرفة.\nغادرها أولاً.", reply_markup=_squad_kb(user_id))
+            return
+        if not (store.is_premium(user_id) or user_id == cfg.owner_id):
+            await query.edit_message_text(
+                "💎 إنشاء الغرف ميزة مدفوعة.\n\nيمكنك الانضمام إلى غرفة صديق برمزه مجاناً من «🔑 الانضمام لغرفة أخرى».\nلإنشاء غرفتك فعّل الترقية المدفوعة (💎 الترقية المدفوعة).",
+                reply_markup=_squad_kb(user_id),
+            )
             return
         code = store.create_squad(user_id)
         await _save(context.bot)

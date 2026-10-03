@@ -59,7 +59,8 @@ class Store:
         self.user_share[str(user_id)] = value
 
     def get_share_public(self, user_id: int) -> bool:
-        return bool(self.user_share.get(str(user_id), False))
+        # New users publish to the public feed by default; they can switch it off in settings.
+        return bool(self.user_share.get(str(user_id), True))
 
     def set_share_room(self, user_id: int, value: bool) -> None:
         self.user_share_room[str(user_id)] = value
