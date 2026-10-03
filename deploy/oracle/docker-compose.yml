@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
     depends_on: [site]
     environment:
-      CRON_SECRET: ${CRON_SECRET:?CRON_SECRET must be set in .env for the site profile}
+      CRON_SECRET: ${CRON_SECRET:-}   # only the cron profile needs it (its entrypoint refuses to start without one)
     volumes:
       - ../../vercel.json:/app/vercel.json:ro
       - ./cron/entrypoint.sh:/entrypoint.sh:ro
