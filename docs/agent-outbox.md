@@ -759,3 +759,14 @@ that don't need saying. Stop adding G-items about Telegram API method names.
    the owner asked to cut PR comments (GitHub quota).
 
 Mark this block `done` with the SHA when finished.
+
+## O22 — 2026-10-03 — Claude (owner directive): site renamed to «شام AI» / Sham AI
+
+Read before writing any copy, title or FAQ.
+- **Name:** `سوق تولز` is retired. Arabic: **شام AI**; English: **Sham AI**. Description: «مشروع شام للذكاء الاصطناعي والتقنية والخدمات الرقمية المتكاملة». Tagline: AI • TECH • INTEGRATED DIGITAL SERVICES / للذكاء الاصطناعي • التقنية • الخدمات الرقمية المتكاملة.
+- Already replaced everywhere in `src/` (titles, metadata, JSON-LD, manifest, AI prompts). Keep it that way in new pages/news/articles; the old name stays only as `alternateName`/keyword in `layout.tsx`.
+- New cover image `public/og/cover.jpg` (built from the owner's reference). Don't replace it with the old one.
+- Channel safety filter (`channelPublisher.ts`) now allows the brand «شام AI»/«Sham AI» but still blocks Nova and a bare «Sham/شام».
+- Every bot's `/start` now shows a short uniform guide from `src/lib/botStartGuide.ts` (what it is · how it works · contents). Don't hand-write welcome texts per bot; edit that file.
+- FAQ rules from O21 still apply (short, general, nothing owner-related, only on the page it belongs to).
+- Media bot: front door now supports a primary engine (Oracle) + backup (Render); see `deploy/oracle/README-AR.md`. Grok: no action, don't touch `media-bot/` or `src/lib/mediaFrontDoor.ts`.
