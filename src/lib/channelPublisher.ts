@@ -227,8 +227,8 @@ async function newsDigest(): Promise<{ text: string; html: string; previewUrl: s
       })
       .join("\n\n");
     return {
-      text: `📰 أبرز أخبار اليوم\n\n${text}\n\n${newsUrl}`,
-      html: `📰 <b>أبرز أخبار اليوم</b>\n\n${html}\n\n🔎 <a href="${escapeHtml(newsUrl)}">كل التفاصيل والتغطية من عدة مصادر</a>`,
+      text: `📰 أبرز الأخبار الآن\n\n${text}\n\n🔎 التغطية من مصادر متعددة — بدون نسخ للمقالات\n${newsUrl}`,
+      html: `📰 <b>أبرز الأخبار الآن</b>\n\n${html}\n\n🔎 <a href="${escapeHtml(newsUrl)}">اقرأ العناوين وروابط المصادر على سوق تولز</a>`,
       previewUrl: newsUrl,
     };
   } catch {

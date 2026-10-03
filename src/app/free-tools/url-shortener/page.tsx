@@ -5,9 +5,10 @@ import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "مصغّر روابط مجاني + عداد نقرات | سوق تولز",
+  title: "اختصار روابط مجاني مع عداد نقرات حقيقي | سوق تولز",
   description:
-    "اختصر أي رابط واحصل على رابط قصير مع عداد نقرات — مجاناً، بلا تسجيل، بلا حدود يومية معقولة.",
+    "قصّر الروابط الطويلة مجاناً واحصل على عداد نقرات حقيقي — مثالي للسوشيال والإعلانات والمتاجر. بلا تسجيل.",
+  keywords: ["اختصار روابط", "مصغر روابط", "عداد نقرات", "رابط قصير مجاني", "سوق تولز"],
   alternates: {
     canonical: `${SITE_URL}/free-tools/url-shortener`,
     languages: {
@@ -29,7 +30,7 @@ export default function UrlShortenerPage() {
           🇬🇧 English
         </Link>
       </div>
-      <h1 className="mt-3 text-2xl font-extrabold text-slate-900">مصغّر الروابط</h1>
+      <h1 className="mt-3 text-2xl font-extrabold text-slate-900">اختصار روابط مجاني مع عداد نقرات</h1>
       <p className="mt-2 text-slate-600">
         الصق رابطاً طويلاً واحصل فوراً على رابط قصير يعمل على نطاق الموقع مع عداد نقرات حقيقي.
         لا تسجيل، لا تكلفة مستمرة.
@@ -37,6 +38,20 @@ export default function UrlShortenerPage() {
       <div className="mt-6">
         <UrlShortener />
       </div>
+      <p className="mt-6 text-sm text-slate-600">
+        أدوات مكملة:{" "}
+        <Link href="/free-tools/whatsapp-link" className="font-bold text-sky-700 hover:underline">
+          رابط واتساب
+        </Link>
+        {" · "}
+        <Link href="/free-tools/digital-card" className="font-bold text-sky-700 hover:underline">
+          بطاقة أعمال رقمية
+        </Link>
+        {" · "}
+        <Link href="/free-tools/qr-generator" className="font-bold text-sky-700 hover:underline">
+          QR
+        </Link>
+      </p>
       <div className="mt-8">
         <AdSlot position="in-content" label="أسفل مصغّر الروابط" />
       </div>
