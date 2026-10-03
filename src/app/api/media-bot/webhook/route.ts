@@ -8,6 +8,7 @@ import {
   safeEqual,
   tg,
 } from "@/lib/mediaFrontDoor";
+import { startGuide } from "@/lib/botStartGuide";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -263,13 +264,13 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     if (isOwner) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "لوحة مالك البوت\n\nارسل اي رابط للتحميل مباشرة." + wakeNote,
+        text: "👑 لوحة مالك البوت\n\n" + startGuide("MEDIA") + wakeNote,
         reply_markup: ownerKeyboard(),
       });
     } else {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "مرحبا\nارسل رابط يوتيوب / تيك توك / انستغرام..." + wakeNote,
+        text: startGuide("MEDIA") + wakeNote,
         reply_markup: userKeyboard(),
       });
     }

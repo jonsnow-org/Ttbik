@@ -1,6 +1,7 @@
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 
 /**
  * FADAA_BOT — «فضاء»: جلسات مؤقتة لغرض واضح ثم تُغلق.
@@ -82,9 +83,7 @@ export async function handleFadaaBotUpdate(
   }
 
   if (text.startsWith("/start") || text === "🌌 فضاء" || text === "فتح فضاء") {
-    const greet = isOwner
-      ? "أهلاً بك يا مالك بوت فضاء 🌌\n\nجلسات مؤقتة لغرض واضح… ثم تُغلق.\nاستخدم الزر لفتح التطبيق المصغر (معرفة · تجربة · قرار)."
-      : "أهلاً بك في فضاء 🌌\n\nجلسة مؤقتة لغرض واضح، بإسهامات محددة، ثم تُغلق في وقتها.\nاضغط الزر لفتح التطبيق المصغر.";
+    const greet = (isOwner ? "👑 مالك البوت\n\n" : "") + startGuide("FADAA");
     await bot.api.sendMessage(chatId, greet, {
       reply_markup: isOwner ? ownerMenu(botRow.id) : userMenu(botRow.id),
     });

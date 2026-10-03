@@ -2,6 +2,7 @@ import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -399,7 +400,7 @@ export async function handleQuizBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await setPending(tgUserId, null);
     await bot.api.sendMessage(
       chatId,
-      "👋 أهلاً بك في بوت الاختبارات الشخصية!\n\nاختر اختباراً من القائمة وأجب عن أسئلته البسيطة لتكتشف نتيجتك — بطاقة نتيجة جاهزة للمشاركة مع أصدقائك.",
+      startGuide("QUIZ"),
       { reply_markup: mainMenu() }
     );
     return;

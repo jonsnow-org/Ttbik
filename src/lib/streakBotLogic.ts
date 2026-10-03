@@ -2,6 +2,7 @@ import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -285,7 +286,7 @@ export async function handleStreakBotUpdate(bot: TelegramBot, botRow: BotRow, up
     await setPending(tgUserId, null);
     await bot.api.sendMessage(
       chatId,
-      "👋 أهلاً بك في بوت السلاسل اليومية!\n\nاختر تصنيفاً من القائمة وابدأ تسجيل عادتك اليومية — كل يوم متتالٍ يزيد سلسلتك، وكل انقطاع يعيدها من جديد. حافظ عليها وشاركها مع أصدقائك!",
+      startGuide("STREAK"),
       { reply_markup: mainMenu() }
     );
     return;

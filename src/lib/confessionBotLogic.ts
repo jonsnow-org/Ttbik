@@ -2,6 +2,7 @@ import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
@@ -399,17 +400,8 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     const stats = await getUserStats(tgUserId);
     await bot.api.sendMessage(
       chatId,
-      `🎭 مرحباً بك في بوت الاعترافات المجهولة!\n\n` +
-      `هذا صندوقك الخاص والآمن للاعترافات والأسئلة.\n\n` +
-      `✨ كيف يعمل:\n` +
-      `• شارك رابط صندوقك مع من تثق بهم\n` +
-      `• يرسلون لك اعترافات بدون الكشف عن الهوية\n` +
-      `• أنت ترد عليها بحرية\n` +
-      `• اختياري: كشف الهوية (3$) أو ردود غير محدودة (3$)\n\n` +
-      `📊 إحصائياتك:\n` +
-      `📤 أرسلت: ${stats.sent} اعتراف\n` +
-      `📥 استقبلت: ${stats.received} اعتراف\n` +
-      `↩️ ردود: ${stats.replies}/${stats.received}`,
+      startGuide("CONFESSION") +
+      `\n\n📊 أرسلت: ${stats.sent} · استقبلت: ${stats.received} · ردود: ${stats.replies}/${stats.received}`,
       { reply_markup: mainMenu() }
     );
     return;

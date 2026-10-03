@@ -28,6 +28,7 @@ from telegram.ext import (
 
 from config import Config
 from keyboards import (
+    START_GUIDE,
     owner_main_keyboard,
     user_main_keyboard,
     quality_keyboard,
@@ -251,13 +252,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
-        await update.message.reply_text("👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.", reply_markup=owner_main_keyboard())
+        await update.message.reply_text("👑 لوحة مالك البوت\n\n" + START_GUIDE, reply_markup=owner_main_keyboard())
         return
     ok = await require_subscription(context.bot, user.id, store.force_sub_channels, update.effective_chat.id)
     if not ok:
         return
     await update.message.reply_text(
-        f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{store.perk_label(user.id)}",
+        f"{START_GUIDE}\n\n{store.perk_label(user.id)}",
         reply_markup=user_main_keyboard(),
     )
 

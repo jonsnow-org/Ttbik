@@ -6,6 +6,7 @@ import { getOrCreateJobsTonMemo } from "@/services/jobsTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 import {
@@ -1650,9 +1651,10 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     await setPending(tgUserId, null);
     const profile = await prisma.jobsProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
+      await bot.api.sendMessage(chatId, startGuide("JOBS"));
       await startProfileWizard(bot, chatId, tgUserId);
     } else {
-      await bot.api.sendMessage(chatId, `أهلاً بك مجدداً، ${profile.name} 👋`, { reply_markup: mainMenu() });
+      await bot.api.sendMessage(chatId, `${startGuide("JOBS")}\n\n👤 ${profile.name}`, { reply_markup: mainMenu() });
     }
     return;
   }
