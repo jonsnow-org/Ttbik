@@ -9,6 +9,9 @@ export DEBIAN_FRONTEND=noninteractive
 # Optional one-shot setup: pass the media bot settings as environment variables, e.g.
 #   curl -fsSL <this script> | BOT_TOKEN=... OWNER_ID=... ARCHIVE_CHANNEL_ID=... FEED_SECRET=... bash
 
+# Everything lives in main() so bash has read the whole script before running any of it
+# (a command that reads stdin can otherwise swallow the rest of a `curl | bash`).
+main() {
 REPO="https://github.com/jonsnow-org/Ttbik.git"
 BRANCH="${BRANCH:-claude/free-services-marketplace-h6rwk2}"
 DIR="${DIR:-/opt/ttbik}"
@@ -87,3 +90,5 @@ $SUDO docker compose up -d --build
 $SUDO docker compose ps
 echo
 echo "Done. Status any time:  sudo bash $DIR/deploy/oracle/status.sh"
+}
+main "$@"
