@@ -2,6 +2,12 @@
 # One-shot, re-runnable setup for an Oracle Ubuntu (arm64/amd64) VM.
 #   curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | bash
 set -euo pipefail
+# Works both from an SSH session and from Oracle's "Run command" (no HOME/USER there).
+export HOME="${HOME:-/root}"
+export DEBIAN_FRONTEND=noninteractive
+
+# Optional one-shot setup: pass the media bot settings as environment variables, e.g.
+#   curl -fsSL <this script> | BOT_TOKEN=... OWNER_ID=... ARCHIVE_CHANNEL_ID=... FEED_SECRET=... bash
 
 REPO="https://github.com/jonsnow-org/Ttbik.git"
 BRANCH="${BRANCH:-claude/free-services-marketplace-h6rwk2}"
@@ -18,7 +24,7 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | $SUDO sh
 fi
 $SUDO systemctl enable --now docker
-$SUDO usermod -aG docker "${SUDO_USER:-$USER}" || true
+$SUDO usermod -aG docker "${SUDO_USER:-${USER:-ubuntu}}" || true
 
 log "3/7 swap (4GB safety net, skipped if swap already exists)"
 if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
@@ -44,6 +50,15 @@ cd "$DIR/deploy/oracle"
 log "6/7 settings files"
 [ -f .env ] || $SUDO cp .env.example .env
 [ -f media.env ] || $SUDO cp media.env.example media.env
+set_kv() { # set_kv KEY VALUE  -> writes KEY=VALUE into media.env (only when VALUE is given)
+  local k="$1" v="${2:-}"
+  [ -z "$v" ] && return 0
+  $SUDO sed -i "/^$k=/d" media.env
+  printf '%s=%s\n' "$k" "$v" | $SUDO tee -a media.env >/dev/null
+}
+for k in BOT_TOKEN OWNER_ID ARCHIVE_CHANNEL_ID FORCE_SUB_CHANNEL FEED_SECRET YTDLP_COOKIES PROXY_URL COBALT_API_KEY; do
+  set_kv "$k" "${!k:-}"
+done
 if ! grep -qE '^PUBLIC_HOST=.+' .env; then
   IP="$(curl -fsS https://api.ipify.org || true)"
   if [ -z "$IP" ]; then echo "Could not detect the public IP; set PUBLIC_HOST in $DIR/deploy/oracle/.env by hand."; exit 1; fi

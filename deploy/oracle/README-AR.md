@@ -30,7 +30,14 @@ Networking ← Virtual Cloud Networks ← شبكتك ← Subnet ← Security Lis
 - Source `0.0.0.0/0` ، Protocol `TCP` ، Destination Port **80**
 - المثل للمنفذ **443**
 
-### 3) الاتصال وتشغيل الإعداد
+### 3) تشغيل الإعداد — الطريقة الأسهل: Run command (بلا SSH وبلا تطبيقات)
+من صفحة الجهاز في Oracle: **Run command** (غالباً ضمن تبويب Management أو Oracle Cloud Agent) ← **Create command**، والصق في خانة النص:
+```bash
+curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | BOT_TOKEN='...' OWNER_ID='...' ARCHIVE_CHANNEL_ID='...' FEED_SECRET='...' bash
+```
+(ضع القيم من لوحة Render بين علامتي الاقتباس.) يستغرق عدة دقائق، ونتيجته تظهر في صفحة التنفيذ.
+
+### 3-ب) البديل: الاتصال بـ SSH
 من جوالك (Termux أو Termius) أو حاسوبك:
 ```bash
 ssh -i ملف_المفتاح.key ubuntu@عنوان_IP
