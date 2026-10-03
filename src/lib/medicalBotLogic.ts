@@ -423,6 +423,11 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     return;
   }
 
+  if (pending?.mode === "role_pick") {
+    await bot.api.sendMessage(chatId, "اختر نوع حسابك من الأزرار أعلاه 👆 أو أرسل /start لإعادة العرض.");
+    return;
+  }
+
   // No active wizard — route by role's main-menu text.
   await routeMainMenuText(bot, botRow, chatId, tgUserId, user, text);
 }
