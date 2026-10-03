@@ -8,6 +8,7 @@ import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
@@ -2188,7 +2189,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
 
   if (text === "/start") {
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "أهلاً بك 👋", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, startGuide("MATCH"), { reply_markup: mainMenu() });
     return;
   }
 
