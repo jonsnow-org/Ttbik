@@ -72,6 +72,7 @@ out={
  "backup": {"exists": os.path.exists(bk), "age_h": round((time.time()-os.path.getmtime(bk))/3600,1) if os.path.exists(bk) else None,
             "size_mb": round(os.path.getsize(bk)/1048576,1) if os.path.exists(bk) else None, "note": rd(f"{STATE}/backup_note").strip()},
  "watchdog": rd(f"{STATE}/watchdog_note").strip(),
+ "sweeper": rd(f"{STATE}/sweeper_note").strip(),
  "restore_selftest": rd(f"{STATE}/restore_selftest").strip(),
  "auto_restore": os.path.exists(f"{OR}/agent/AUTO_RESTORE_ON"),
  "sent_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),

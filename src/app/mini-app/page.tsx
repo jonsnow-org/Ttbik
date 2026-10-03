@@ -585,7 +585,7 @@ export default function MiniAppPage() {
       setInboxUnread(Number(j.unread || 0));
     } catch {}
   }, [userId]);
-  useEffect(() => { void loadInbox(); const t = setInterval(() => void loadInbox(), 15000); return () => clearInterval(t); }, [loadInbox]);
+  useEffect(() => { void loadInbox(); const t = setInterval(() => { if (!document.hidden) void loadInbox(); }, 30000); return () => clearInterval(t); }, [loadInbox]);
 
   const loadNotifs = useCallback(async () => {
     if (!userId) return;
@@ -595,7 +595,7 @@ export default function MiniAppPage() {
       if (Array.isArray(j.notifications)) setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read, postId: n.postId })));
     } catch {}
   }, [userId]);
-  useEffect(() => { void loadNotifs(); const t = setInterval(() => void loadNotifs(), 15000); return () => clearInterval(t); }, [loadNotifs]);
+  useEffect(() => { void loadNotifs(); const t = setInterval(() => { if (!document.hidden) void loadNotifs(); }, 30000); return () => clearInterval(t); }, [loadNotifs]);
 
   // Real live-status pulse -- Telegram's own chat header can't be touched
   // by us (no Bot API for that), so this is a real, polled check against
@@ -611,7 +611,7 @@ export default function MiniAppPage() {
       } catch { if (!cancelled) setBotOnline(false); }
     }
     void check();
-    const t = setInterval(check, 25000);
+    const t = setInterval(() => { if (!document.hidden) void check(); }, 25000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
 
@@ -696,7 +696,7 @@ export default function MiniAppPage() {
   }
   useEffect(() => {
     if (!chatPeer || !showInbox) return;
-    const t = setInterval(() => { void loadThreadMessages(chatPeer.id); }, 4000);
+    const t = setInterval(() => { if (!document.hidden) void loadThreadMessages(chatPeer.id); }, 4000);
     return () => clearInterval(t);
   }, [chatPeer, showInbox, loadThreadMessages]);
 
@@ -722,7 +722,7 @@ export default function MiniAppPage() {
   }
   useEffect(() => {
     if (!showComments || !commentsPost) return;
-    const t = setInterval(() => { void loadComments(commentsPost.id); }, 5000);
+    const t = setInterval(() => { if (!document.hidden) void loadComments(commentsPost.id); }, 5000);
     return () => clearInterval(t);
   }, [showComments, commentsPost, loadComments]);
 

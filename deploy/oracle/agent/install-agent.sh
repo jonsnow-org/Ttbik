@@ -31,6 +31,7 @@ unit ttbik-updater updater.sh;   timer ttbik-updater  $'OnBootSec=1min\nOnUnitAc
 unit ttbik-backup backup.sh;     timer ttbik-backup   'OnCalendar=*-*-* 03:30:00 UTC'
 unit ttbik-watchdog watchdog.sh; timer ttbik-watchdog $'OnBootSec=5min\nOnUnitActiveSec=5min'
 systemctl daemon-reload
+bash $OR/agent/ensure-sweeper.sh
 systemctl enable --now ttbik-updater.timer ttbik-backup.timer ttbik-watchdog.timer
 touch /var/lib/ttbik/force-update   # first run rebuilds so the compose changes take effect
 systemctl start --no-block ttbik-updater.service || true

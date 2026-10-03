@@ -15,6 +15,7 @@ case "$PROFILES" in *site*) PATHS='^(media-bot/|deploy/oracle/|src/|public/|pris
 if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"
+  bash "$OR/agent/ensure-sweeper.sh" >/dev/null 2>&1 || true
   if [ -n "$CHANGED" ] || [ -f "$STATE/force-update" ]; then
     rm -f "$STATE/force-update"
     cd "$OR"
