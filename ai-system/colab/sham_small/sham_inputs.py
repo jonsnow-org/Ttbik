@@ -548,3 +548,11 @@ try:
     _sham_link_contrast.install()
 except Exception as _exc:
     print(f"sham_link_contrast not installed: {_exc}")
+
+# The session-level pieces every plain-text training notebook gets without a cell change:
+# the held-out yardstick that tells learning from memorising (sham_train_eval.py).
+try:
+    import sham_train_eval as _sham_train_eval
+    _sham_train_eval.install()
+except Exception as _exc:
+    print(f"sham_train_eval not installed: {_exc}")
