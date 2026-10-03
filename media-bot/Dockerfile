@@ -4,6 +4,9 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# JavaScript runtime: YouTube's player challenge can only be solved with one (yt-dlp-ejs + deno).
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 WORKDIR /app
 
 COPY requirements.txt .
