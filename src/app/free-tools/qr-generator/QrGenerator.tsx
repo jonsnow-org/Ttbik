@@ -100,7 +100,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
     if (!dataUrl) return;
     const a = document.createElement("a");
     a.href = dataUrl;
-    a.download = "qr-souqtools.png";
+    a.download = "qr-sham-ai.png";
     a.click();
   };
 
