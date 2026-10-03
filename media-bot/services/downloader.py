@@ -395,7 +395,10 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                 o["format"] = "bestaudio/best"
                 o["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3" if media_type == "audio" else "opus", "preferredquality": "192"}]
             else:
-                fmt = {"360": "best[height<=360]/best", "480": "best[height<=480]/best", "720": "best[height<=720]/best"}.get(quality, "best[height<=720]/best")
+                # Single-file first (cheapest), then separate video+audio merged by ffmpeg
+                # (YouTube serves most heights only that way), then anything that fits.
+                h = {"360": 360, "480": 480, "720": 720}.get(quality, 720)
+                fmt = f"best[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/best"
                 o["format"] = fmt
                 o["merge_output_format"] = "mp4"
                 o.setdefault("postprocessors", []).append(
