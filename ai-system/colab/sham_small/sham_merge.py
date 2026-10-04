@@ -80,7 +80,7 @@ class _WithDiscovered(list):
                 extra = [n for n in model_dataset_candidates(names) if n not in have and n != "nova-small-checkpoint"]
                 if extra:
                     print("🔎 مجموعات بيانات أخرى في حسابك تُفحص كمصادر دمج: " + ", ".join(extra))
-                self.extend((n, "final*.pt|step_*.pt", MEDIA_ROWS) for n in extra)
+                self.extend((n, "*.pt", MEDIA_ROWS) for n in extra)
                 print(dataset_inventory(names))
             except Exception as exc:
                 print(f"⚠ تعذّر اكتشاف مصادر الجمع تلقائياً: {exc}")
@@ -100,7 +100,7 @@ def _step_of(p: Path) -> int:
 
 def latest_checkpoint(root: Path, pattern: str) -> Path | None:
     """pattern may list alternatives: "final*.pt|step_*.pt"."""
-    found = sorted({f for pat in pattern.split("|") for f in root.rglob(pat)}, key=_step_of)
+    found = sorted({f for pat in pattern.split("|") for f in root.rglob(pat) if "tokenizer" not in f.name}, key=_step_of)
     return found[-1] if found else None
 
 
