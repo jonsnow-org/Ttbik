@@ -7,6 +7,7 @@ import { auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealM
 import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
 import { compressPhoto } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
+import { renderSpecialGold } from "@/lib/specialRender";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
@@ -59,6 +60,31 @@ export default function AdminPanel() {
       const pj = await pr.json(); if (pr.ok) setSpSvg(pj.svg); else toast(pj.error || "فشلت المعاينة");
     } catch { toast("تعذّر تجهيز الصورة"); } finally { setSpBusy(false); }
   };
+  const spGen = async () => {
+    setSpBusy(true); setSpSvg("");
+    try {
+      const gold = await renderSpecialGold(spIdx);
+      if (!gold) { toast("تعذّر رسم الصورة"); return; }
+      setSpPhoto(gold);
+      const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: gold, preview: true }) });
+      const pj = await pr.json(); if (pr.ok) setSpSvg(pj.svg); else toast(pj.error || "فشلت المعاينة");
+    } catch { toast("تعذّر رسم الصورة"); } finally { setSpBusy(false); }
+  };
+  // every special date at once: draw, store for good, then send the long auctions in batches
+  const spAll = () => run(async () => {
+    const msgs = [];
+    for (const x of SEASON_1.specials) {
+      const i = specialIndex(x);
+      const info = await (await fetch(`/api/date/${i}`, { cache: "no-store" })).json().catch(() => null);
+      if (info?.taken || info?.auction?.live || (info?.auction && info.auction.highBid > 0)) continue;       // already sold or running
+      const gold = await renderSpecialGold(i);
+      if (!gold) continue;
+      const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: i, photo: gold }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
+      msgs.push(specialAuctionMsg(st!.minter, SEASON_1, i, BigInt(j.ref), spReserve, Number(spDays)));
+    }
+    for (const g of chunk(msgs, maxMsgs)) await ui.sendTransaction(tx(g));
+  });
   const spStart = () => run(async () => {
     const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: spPhoto }) });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
@@ -220,13 +246,15 @@ export default function AdminPanel() {
                 <select value={spIdx} onChange={(e) => { setSpIdx(Number(e.target.value)); setSpPhoto(null); setSpSvg(""); }}>
                   {SEASON_1.specials.map((x) => { const i = specialIndex(x); const q = ymd(i); return <option key={i} value={i}>{q.d}/{q.m}/{q.y} · {x.note}</option>; })}
                 </select>
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} />
+                <button className="btn ghost" disabled={spBusy} onClick={spGen}>ارسم الصورة تلقائياً (ذهبي شمعي)</button>
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} title="أو اختر صورة بنفسك" />
                 {spSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(spSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <div className="row" style={{ gap: 8 }}>
                   <input type="number" step="1" min="1" value={spReserve} onChange={(e) => setSpReserve(e.target.value)} title="سعر البداية TON" />
                   <input type="number" step="1" min="1" max="365" value={spDays} onChange={(e) => setSpDays(e.target.value)} title="المدة بالأيام" />
                 </div>
                 <button className="btn gold" disabled={running || spBusy || !spPhoto} onClick={spStart}>خزّن الصورة وابدأ المزاد</button>
+                <button className="btn" disabled={running || spBusy} onClick={spAll}>جهّز وابدأ كل التواريخ الخاصة ({SEASON_1.specials.length})</button>
               </div>
             </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(st.minter, st.status === 1)])); })}>{st.status === 1 ? "أوقف البيع مؤقتاً" : "استأنف البيع"}</button>
