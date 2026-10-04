@@ -60,14 +60,18 @@ function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body
     const [R, q] = PAIRS[(h + k * 5) % PAIRS.length];
     const reach = 188 - k * 40;
     const dRatio = 0.55 + r() * 0.42;
-    const col = k === 1 ? ink : accent;
-    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0)}" fill="none" stroke="${col}" stroke-width="${(k === 2 ? 1.5 : 1.1) + (dim ? 0.9 : 0)}" stroke-linejoin="round"/>`;
+    const col = dim ? (k === 1 ? "#ffffff" : "#c4d7ff") : k === 1 ? ink : accent;
+    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0)}" fill="none" stroke="${col}" stroke-width="${(k === 2 ? 1.5 : 1.1) + (dim ? 1.9 : 0)}" stroke-linejoin="round"/>`;
     for (let c = 0; c < copies; c++) {
       body += `<use href="#sp${k}" xlink:href="#sp${k}" transform="rotate(${((c / copies) * (360 / (R - q)) + k * 7).toFixed(2)} 400 400)" opacity="${(dim ? 0.97 - k * 0.07 : 0.7 - k * 0.12).toFixed(2)}"/>`;
     }
   }
   const c = 13 + a.tier * 5;
   body += `<circle cx="400" cy="400" r="${c + 14}" fill="#050914" stroke="${accent}" stroke-width="1.4" opacity="0.9"/><path d="M400 ${400 - c}L${400 + c * 0.7} 400L400 ${400 + c}L${400 - c * 0.7} 400Z" fill="${accent}"/><circle cx="400" cy="400" r="${c + 24}" fill="none" stroke="${ink}" stroke-width="1" opacity="0.55"/>`;
+  if (dim) {   // soft glow so the fine lines read on a dark disc
+    defs += `<filter id="lg" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+    body = `<g filter="url(#lg)">${body}</g>`;
+  }
   return { defs, body };
 }
 
@@ -104,7 +108,7 @@ function shell(a: ArtInput, centre: string, defs: string): string {
 ${defs}</defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
 <g class="ar-rings">${rings}</g><g class="ar-rim">${rim}</g><g class="ar-dots">${dots}</g><g class="ar-glow">${glow}</g>
-<circle cx="400" cy="400" r="${PR}" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
+<circle cx="400" cy="400" r="${PR}" fill="${a.tier === 0 ? "#0a1633" : "#050914"}" stroke="${accent}" stroke-width="${stroke}"/>
 ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
 <text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${dayText}</text>
@@ -120,7 +124,7 @@ export function renderArt(a: ArtInput): string {
   const occ = occasionById(a.occasion ?? 0);
   const accent = a.tier === 2 || occ?.gold ? GOLD : pal.accent;
   const ro = rosette(a, accent, pal.ink);
-  const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.34 : a.tier === 1 ? 0.26 : 0.38}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
+  const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.34 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}><g class="ar-ro">${ro.body}</g></g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
