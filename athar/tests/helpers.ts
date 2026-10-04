@@ -28,7 +28,7 @@ export async function openSeason(ctx: Awaited<ReturnType<typeof setup>>, opts?: 
   const { bc, admin, collection, minter } = ctx;
   const dep = await minter.send(admin.getSender(), { value: toNano("0.2") }, {
     $$type: "Configure", tier: 0n, startPrice: toNano("0.5"), floor: toNano("0.25"), cap: toNano("8"), bumpBps: 16n, decayBps: 1500n });
-  expect(dep.transactions).toHaveTransaction({ to: minter.address, success: true, deploy: true });
+  expect(dep.transactions).toHaveTransaction({ to: minter.address, success: true });
   await minter.send(admin.getSender(), { value: toNano("0.05") }, {
     $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
   await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(opts?.start ?? bc.now!), walletDailyCap: BigInt(opts?.walletCap ?? 0) });

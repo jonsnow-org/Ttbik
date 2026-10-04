@@ -85,7 +85,7 @@ describe("Athar season sale", () => {
   it("unauthorised minters and the closed collection cannot mint", async () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, collection } = ctx;
-    const r = await collection.send(alice.getSender(), { value: toNano("1") }, { $$type: "MintItem", index: 5n, newOwner: alice.address, season: 1n, tier: 0n, paid: 0n });
+    const r = await collection.send(alice.getSender(), { value: toNano("1") }, { $$type: "MintItem", index: 5n, newOwner: alice.address, season: 1n, tier: 0n, paid: 0n, remit: 0n });
     expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });
   });
 
@@ -173,5 +173,165 @@ describe("timelocks", () => {
       const r = await collection.send(alice.getSender(), { value: toNano("0.05") }, m);
       expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });
     }
+  });
+});
+
+import { MockSuccessor } from "./mock/build/mock_MockSuccessor";
+import { SandboxContract } from "@ton/sandbox";
+
+describe("mythic auction", () => {
+  const mythic = indexOf(2000, 11, 11);
+  async function live() {
+    const ctx = await setup(); await openSeason(ctx);
+    await ctx.minter.send(ctx.admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("10"), duration: 3600n });
+    return ctx;
+  }
+  it("highest bidder wins, outbid money is returned, winner gets the token, owner gets the price", async () => {
+    const ctx = await live(); const { minter, alice, bob, bc, payout, collection } = ctx;
+    const fees = BUY_FEES;
+    let r = await minter.send(alice.getSender(), { value: toNano("9") + fees }, { $$type: "Bid", index: BigInt(mythic) });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });            // below the reserve
+    await minter.send(alice.getSender(), { value: toNano("10") + fees }, { $$type: "Bid", index: BigInt(mythic) });
+    r = await minter.send(bob.getSender(), { value: toNano("10.2") + fees }, { $$type: "Bid", index: BigInt(mythic) });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });            // needs +5%
+    const aliceBefore = await alice.getBalance();
+    await minter.send(bob.getSender(), { value: toNano("11") + fees }, { $$type: "Bid", index: BigInt(mythic) });
+    expect((await alice.getBalance()) - aliceBefore).toBeGreaterThan(toNano("10"));              // alice got her bid back
+    r = await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });            // too early
+    bc.now = bc.now! + 3700;
+    const before = await payout.getBalance();
+    await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
+    const item = await itemOf(ctx, mythic);
+    expect((await item.getGetNftData()).ownerAddress.equals(bob.address)).toBe(true);
+    const st = await item.getAthar();
+    expect(st.tier).toBe(2n); expect(st.paid).toBe(toNano("11"));
+    expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("10.99"));
+    expect(await minter.getSoldCount()).toBe(1n);
+    r = await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });            // cannot settle twice
+    expect(await collection.getTotalMinted()).toBe(1n);
+  });
+  it("a last-minute bid extends the auction (anti-sniping)", async () => {
+    const ctx = await live(); const { minter, alice, bob, bc } = ctx;
+    await minter.send(alice.getSender(), { value: toNano("10") + BUY_FEES }, { $$type: "Bid", index: BigInt(mythic) });
+    bc.now = bc.now! + 3600 - 60;                                                                // one minute left
+    await minter.send(bob.getSender(), { value: toNano("11") + BUY_FEES }, { $$type: "Bid", index: BigInt(mythic) });
+    const a = await minter.getAuctionOf(BigInt(mythic));
+    expect(Number(a!.endAt)).toBeGreaterThanOrEqual(bc.now! + 299);
+  });
+  it("no bids: the auction is void and can be restarted", async () => {
+    const ctx = await live(); const { minter, admin, alice, bc } = ctx;
+    bc.now = bc.now! + 3700;
+    await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
+    expect(await minter.getIsTaken(BigInt(mythic))).toBe(false);
+    const r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("5"), duration: 3600n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+  });
+});
+
+describe("upgrade to a higher edition (burn + re-issue)", () => {
+  async function withMock(price: bigint, setSuccessor = true) {
+    const ctx = await setup(); await openSeason(ctx);
+    const idx = find(S1_START, TIER.COMMON);
+    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null });
+    const mock: SandboxContract<MockSuccessor> = ctx.bc.openContract(await MockSuccessor.fromInit());
+    await mock.send(ctx.admin.getSender(), { value: toNano("0.2") }, { $$type: "SetPrice", price });
+    if (setSuccessor) await ctx.collection.send(ctx.admin.getSender(), { value: toNano("0.05") }, { $$type: "SetSuccessor", successor: mock.address });
+    return { ctx, idx, item: await itemOf(ctx, idx), mock };
+  }
+  it("pays, the old token is burned, the next edition is told", async () => {
+    const { ctx, item, mock } = await withMock(toNano("0.7"));
+    const r = await item.send(ctx.alice.getSender(), { value: toNano("1.5") }, { $$type: "UpgradeStart", queryId: 1n });
+    expect(r.transactions).toHaveTransaction({ from: ctx.collection.address, to: mock.address, success: true });
+    expect(r.transactions).toHaveTransaction({ from: mock.address, to: ctx.collection.address, success: true });
+    const acc = await ctx.bc.getContract(item.address);
+    expect(acc.accountState?.type === "active").toBe(false);                                     // burned
+  });
+  it("too little money: the token is untouched and usable again", async () => {
+    const { ctx, item } = await withMock(toNano("5"));
+    await item.send(ctx.alice.getSender(), { value: toNano("1.5") }, { $$type: "UpgradeStart", queryId: 1n });
+    const st = await item.getAthar();
+    expect(st.locked).toBe(false);
+    expect((await item.getGetNftData()).ownerAddress.equals(ctx.alice.address)).toBe(true);
+    const r = await item.send(ctx.alice.getSender(), { value: toNano("0.1") }, { $$type: "Transfer", queryId: 2n, newOwner: ctx.bob.address, responseDestination: ctx.alice.address, customPayload: null, forwardAmount: 0n, forwardPayload: beginCell().endCell().asSlice() });
+    expect(r.transactions).toHaveTransaction({ to: item.address, success: true });
+  });
+  it("no next edition yet: nothing happens to the token", async () => {
+    const { ctx, item } = await withMock(0n, false);
+    await item.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "UpgradeStart", queryId: 1n });
+    expect((await item.getAthar()).locked).toBe(false);
+    expect((await item.getGetNftData()).ownerAddress.equals(ctx.alice.address)).toBe(true);
+  });
+  it("selling is closed once the next edition is set, and only the owner can start an upgrade", async () => {
+    const { ctx, item } = await withMock(toNano("0.7"));
+    let r = await item.send(ctx.bob.getSender(), { value: toNano("1") }, { $$type: "UpgradeStart", queryId: 1n });
+    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });
+    const idx2 = find(S1_START + 100, TIER.COMMON);
+    r = await ctx.minter.send(ctx.bob.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx2), recipient: null });
+    expect(await ctx.minter.getIsTaken(BigInt(idx2))).toBe(false);                               // minting closed, buyer refunded
+  });
+});
+
+import { createHash } from "crypto";
+import { Dictionary } from "@ton/core";
+
+describe("mystery boxes (fair reveal)", () => {
+  async function box() {
+    const ctx = await setup();
+    const { admin, minter, collection, bc } = ctx;
+    const dates: number[] = []; let i = S1_START + 40;
+    while (dates.length < 20) { if (ruleTier(i) === TIER.COMMON) dates.push(i); i++; }
+    for (let k = S1_START; dates.length < 22; k++) if (ruleTier(k) === TIER.RARE && !dates.includes(k)) dates.push(k);
+    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    dates.forEach((d, pos) => items.set(pos, d));
+    const secret = 0x1234567890abcdefn * 0xfedcba0987654321n;
+    const buf = Buffer.alloc(32); buf.writeBigUInt64BE(secret >> 64n, 16); buf.writeBigUInt64BE(secret & 0xffffffffffffffffn, 24);
+    const commit = BigInt("0x" + createHash("sha256").update(buf).digest("hex"));
+    const revealAt = bc.now! + 7 * 86400;
+    let r = await minter.send(admin.getSender(), { value: toNano("0.5") }, { $$type: "LoadPool", items });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: commit, revealAt: BigInt(revealAt), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n });
+    await openSeason(ctx);
+    return { ctx, dates, secret, revealAt };
+  }
+  it("tickets sell out, nothing is known before the reveal, then every ticket gets a distinct pool date", async () => {
+    const { ctx, dates, secret, revealAt } = await box();
+    const { minter, alice, bob, admin, bc, collection, payout } = ctx;
+    const before = await payout.getBalance();
+    for (let k = 0; k < 22; k++) {
+      const who = k % 2 ? bob : alice;
+      const r = await minter.send(who.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
+      expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+    }
+    expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("20"));                    // ticket money reached the owner
+    let r = await minter.send(alice.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // all tickets sold
+    r = await minter.send(alice.getSender(), { value: toNano("2") }, { $$type: "Buy", index: BigInt(dates[0]), recipient: null });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // pool dates cannot be bought directly
+    expect(await minter.getTicketDate(0n)).toBeNull();                                             // unknown before the reveal
+    r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "Reveal", secret });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // too early
+    bc.now = revealAt + 1;
+    r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "Reveal", secret: secret + 1n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // wrong secret
+    r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "Reveal", secret });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+    const seen = new Set<number>();
+    for (let k = 0; k < 22; k++) {
+      const d = Number(await minter.getTicketDate(BigInt(k)));
+      expect(dates).toContain(d); seen.add(d);
+    }
+    expect(seen.size).toBe(22);                                                                    // a true permutation: no date twice
+    for (let k = 0; k < 22; k++) await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ClaimTicket", ticket: BigInt(k) });
+    expect(await collection.getTotalMinted()).toBe(22n);
+    for (let k = 0; k < 22; k++) {
+      const d = Number(await minter.getTicketDate(BigInt(k)));
+      const item = await itemOf(ctx, d);
+      const owner = (await item.getGetNftData()).ownerAddress;
+      expect(owner.equals(k % 2 ? bob.address : alice.address)).toBe(true);
+    }
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ClaimTicket", ticket: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // cannot claim twice
   });
 });

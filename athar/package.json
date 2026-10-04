@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "build": "tact --config tact.config.json",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "test:full": "FULL=1 jest --runInBand"
   },
   "devDependencies": {
     "@tact-lang/compiler": "^1.6.13",

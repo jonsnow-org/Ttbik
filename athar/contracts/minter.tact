@@ -14,7 +14,8 @@ struct TierState {
     sold: Int as uint32;
 }
 struct WalletCount { day: Int as uint32; count: Int as uint16; }
-struct PendingMint { buyer: Address; amount: Int as coins; auction: Bool; }
+struct PendingMint { buyer: Address; amount: Int as coins; kind: Int as uint8; ticket: Int as uint16; }   // kind: 0 buy, 1 auction, 2 ticket claim
+struct Ticket { owner: Address; price: Int as coins; claimed: Bool; }
 struct Auction {
     started: Bool;
     endAt: Int as uint32;
@@ -39,6 +40,12 @@ message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; 
 message(0x41540046) Bid { index: Int as uint64; }
 message(0x41540047) Settle { index: Int as uint64; }
 message(0x41540048) Sweep { }
+message(0x41540050) LoadPool { items: map<Int as uint16, Int as uint16>; }
+message(0x41540051) SetMystery { commitHash: Int as uint256; revealAt: Int as uint32; startPrice: Int as coins; floor: Int as coins; cap: Int as coins; bumpBps: Int as uint16; decayBps: Int as uint16; }
+message(0x41540052) BuyTicket { recipient: Address?; }
+message(0x41540053) Reveal { secret: Int as uint256; }
+message(0x41540054) ClaimTicket { ticket: Int as uint16; }
+message(0x41540055) TransferTicket { ticket: Int as uint16; newOwner: Address; }
 
 contract AtharMinter {
     collection: Address;
@@ -57,6 +64,16 @@ contract AtharMinter {
     special: map<Int as uint16, Int as uint8>;     // historic dates etc.: index -> tier override
     sold: map<Int as uint16, Bool>;
     pending: map<Int as uint16, PendingMint>;
+    reserved: map<Int as uint16, Bool>;            // dates held back for mystery boxes
+    pool: map<Int as uint16, Int as uint16>;       // position -> date index (the published composition)
+    tickets: map<Int as uint16, Ticket>;
+    poolSize: Int as uint16 = 0;
+    ticketsSold: Int as uint16 = 0;
+    commitHash: Int as uint256 = 0;                // sha256(secret), published before the first ticket is sold
+    revealAt: Int as uint32 = 0;
+    revealed: Bool = false;
+    permA: Int as uint32 = 1;
+    permB: Int as uint32 = 0;
     auctions: map<Int as uint16, Auction>;
     wallets: map<Address, WalletCount>;
     status: Int as uint8 = 0;                      // 0 draft, 1 open, 2 paused
@@ -141,6 +158,7 @@ contract AtharMinter {
         require(msg.index >= 0 && msg.index <= MAX_INDEX && self.inSeason(msg.index), "date not in this season");
         require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
         require(self.auctions.get(msg.index) == null, "this date is sold by auction");
+        require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
         let tier: Int = self.tierOfIndex(msg.index);
         require(tier != TIER_MYTHIC, "mythic dates are sold by auction");
         let t: TierState = self.tiers.get(tier)!!;
@@ -172,10 +190,10 @@ contract AtharMinter {
         t.sold = t.sold + 1;
         self.tiers.set(tier, t);
 
-        self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + MINT_FEES, auction: false });
+        self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + MINT_FEES, kind: 0, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: price + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price }.toCell()
+            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price, remit: price }.toCell()
         });
         let refund: Int = ctx.value - price - BUY_FEES;
         if (refund > 10000000) {
@@ -195,11 +213,15 @@ contract AtharMinter {
         let p: PendingMint? = self.pending.get(msg.index);
         if (p == null) { return; }
         self.pending.set(msg.index, null);
-        if (p!!.auction) {
+        if (p!!.kind == 1) {
             // settlement failed: the auction stays open to settle again once the cause is fixed
             let a: Auction = self.auctions.get(msg.index)!!;
-            a.started = true;
-            self.auctions.set(msg.index, a);
+            let a2: Auction = Auction{ started: true, endAt: a.endAt, reserve: a.reserve, highBid: a.highBid, highBidder: a.highBidder };
+            self.auctions.set(msg.index, a2);
+        } else if (p!!.kind == 2) {
+            // claim failed: the ticket can be claimed again
+            let tk: Ticket = self.tickets.get(p!!.ticket)!!;
+            self.tickets.set(p!!.ticket, Ticket{ owner: tk.owner, price: tk.price, claimed: false });
         } else {
             send(SendParameters{ to: p!!.buyer, value: p!!.amount, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar refund".asComment() });
         }
@@ -211,6 +233,7 @@ contract AtharMinter {
         require(self.isOpenNow(), "sale is not open");
         require(self.inSeason(msg.index), "date not in this season");
         require(self.tierOfIndex(msg.index) == TIER_MYTHIC, "only mythic dates");
+        require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
         require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
         require(msg.reserve > 0 && msg.duration >= 3600 && msg.duration <= 7 * DAY, "bad auction");
         let cur: Auction? = self.auctions.get(msg.index);
@@ -248,10 +271,10 @@ contract AtharMinter {
         }
         au.started = false;                         // blocks a second settle until MintOk / bounce
         self.auctions.set(msg.index, au);
-        self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, auction: true });
+        self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, kind: 1, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: au.highBid + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid }.toCell()
+            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid, remit: au.highBid }.toCell()
         });
     }
 
@@ -262,8 +285,104 @@ contract AtharMinter {
         send(SendParameters{ to: self.admin, value: 0, mode: SendRemainingBalance | SendIgnoreErrors, bounce: false, body: "athar sweep".asComment() });
     }
 
+
+    // ---------- mystery boxes (fair reveal) ----------
+    // 1) before selling, the admin publishes the pool (which dates, hence the exact odds) and sha256(secret)
+    // 2) tickets are sold along the same rising/falling price curve
+    // 3) after revealAt the admin reveals `secret`; it is mixed with the chain's own random seed at that moment,
+    //    so nobody (including the admin) can know or steer which ticket gets which date
+    // 4) a ticket maps to pool[(a*ticket + b) mod size]; anyone may trigger the claim, the token goes to the ticket owner
+    receive(msg: LoadPool) {
+        require(sender() == self.admin, "only admin");
+        require(self.status == 0, "already open");
+        foreach (pos, date in msg.items) {
+            require(pos < 4000 && date <= MAX_INDEX && self.inSeason(date), "bad pool entry");
+            require(self.pool.get(pos) == null, "position already loaded");
+            self.pool.set(pos, date);
+            self.reserved.set(date, true);
+            if (pos + 1 > self.poolSize) { self.poolSize = pos + 1; }
+        }
+    }
+    receive(msg: SetMystery) {
+        require(sender() == self.admin, "only admin");
+        require(self.status == 0, "already open");
+        require(msg.floor > 0 && msg.floor <= msg.startPrice && msg.startPrice <= msg.cap, "bad price bounds");
+        self.commitHash = msg.commitHash;
+        self.revealAt = msg.revealAt;
+        self.tiers.set(3, TierState{ price: msg.startPrice, floor: msg.floor, cap: msg.cap, bumpBps: msg.bumpBps, decayBps: msg.decayBps, lastDecayAt: 0, sold: 0 });
+    }
+    receive(msg: BuyTicket) {
+        let ctx: Context = context();
+        require(self.isOpenNow(), "sale is not open");
+        require(self.tiers.get(3) != null && self.poolSize > 0, "mystery boxes not configured");
+        require(now() < self.revealAt && !self.revealed, "ticket sale is over");
+        require(self.ticketsSold < self.poolSize, "all tickets sold");
+        let t: TierState = self.tiers.get(3)!!;
+        let price: Int = self.priceNow(t);
+        require(ctx.value >= price + BUY_FEES, "send price + fees");
+        let owner: Address = ctx.sender;
+        if (msg.recipient != null) { owner = msg.recipient!!; }
+        let days: Int = 0;
+        if (t.lastDecayAt > 0 && now() > t.lastDecayAt) { days = (now() - t.lastDecayAt) / DAY; }
+        let np: Int = price * (10000 + t.bumpBps) / 10000;
+        let capped: Int = np;
+        if (capped > t.cap) { capped = t.cap; }
+        self.tiers.set(3, TierState{ price: capped, floor: t.floor, cap: t.cap, bumpBps: t.bumpBps, decayBps: t.decayBps, lastDecayAt: t.lastDecayAt + days * DAY, sold: t.sold + 1 });
+        self.tickets.set(self.ticketsSold, Ticket{ owner: owner, price: price, claimed: false });
+        self.ticketsSold = self.ticketsSold + 1;
+        // the price goes to the owner's wallet through the collection; the mint fees stay here until the claim
+        send(SendParameters{ to: self.collection, value: price, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
+        let refund: Int = ctx.value - price - BUY_FEES;
+        if (refund > 10000000) {
+            send(SendParameters{ to: ctx.sender, value: refund, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar change".asComment() });
+        }
+    }
+    receive(msg: TransferTicket) {
+        let tk: Ticket? = self.tickets.get(msg.ticket);
+        require(tk != null && tk!!.owner == sender() && !tk!!.claimed, "not your open ticket");
+        self.tickets.set(msg.ticket, Ticket{ owner: msg.newOwner, price: tk!!.price, claimed: false });
+    }
+    receive(msg: Reveal) {
+        require(sender() == self.admin, "only admin");
+        require(!self.revealed, "already revealed");
+        require(now() >= self.revealAt && self.commitHash != 0, "too early");
+        require(sha256(beginCell().storeUint(msg.secret, 256).endCell().asSlice()) == self.commitHash, "wrong secret");
+        nativeRandomizeLt();
+        let r: Int = randomInt();
+        let seed: Int = sha256(beginCell().storeUint(msg.secret, 256).storeUint(r, 256).endCell().asSlice());
+        let n: Int = self.poolSize;
+        let a: Int = 1 + seed % (n - 1 + 1);
+        if (n > 1) { a = 1 + seed % (n - 1); } else { a = 1; }
+        let guard: Int = 0;
+        while (gcd(a, n) != 1 && guard < n + 2) { a = a % n + 1; guard = guard + 1; }
+        self.permA = a;
+        self.permB = (seed / 18446744073709551616) % n;
+        self.revealed = true;
+    }
+    receive(msg: ClaimTicket) {
+        require(self.revealed, "not revealed yet");
+        let tk: Ticket? = self.tickets.get(msg.ticket);
+        require(tk != null && !tk!!.claimed, "no open ticket");
+        let pos: Int = (self.permA * msg.ticket + self.permB) % self.poolSize;
+        let date: Int = self.pool.get(pos)!!;
+        require(self.pending.get(date) == null && self.sold.get(date) == null, "already issued");
+        self.tickets.set(msg.ticket, Ticket{ owner: tk!!.owner, price: tk!!.price, claimed: true });
+        self.pending.set(date, PendingMint{ buyer: tk!!.owner, amount: MINT_FEES, kind: 2, ticket: msg.ticket });
+        send(SendParameters{
+            to: self.collection, value: MINT_FEES, mode: SendPayGasSeparately, bounce: true,
+            body: MintItem{ index: date, newOwner: tk!!.owner, season: self.seasonId, tier: self.tierOfIndex(date), paid: tk!!.price, remit: 0 }.toCell()
+        });
+    }
+
     // ---------- getters ----------
     get fun status(): Int { return self.status; }
+    get fun mystery_info(): MysteryInfo { return MysteryInfo{ poolSize: self.poolSize, ticketsSold: self.ticketsSold, revealed: self.revealed, revealAt: self.revealAt, commitHash: self.commitHash, a: self.permA, b: self.permB }; }
+    get fun pool_at(pos: Int): Int? { return self.pool.get(pos); }
+    get fun ticket_of(ticket: Int): Ticket? { return self.tickets.get(ticket); }
+    get fun ticket_date(ticket: Int): Int? {
+        if (!self.revealed || self.poolSize == 0) { return null; }
+        return self.pool.get((self.permA * ticket + self.permB) % self.poolSize);
+    }
     get fun sold_count(): Int { return self.soldCount; }
     get fun tier_of(index: Int): Int { return self.tierOfIndex(index); }
     get fun is_taken(index: Int): Bool { return self.sold.get(index) != null || self.pending.get(index) != null; }
@@ -274,4 +393,17 @@ contract AtharMinter {
         return self.priceNow(t!!);
     }
     get fun auction_of(index: Int): Auction? { return self.auctions.get(index); }
+}
+
+struct MysteryInfo { poolSize: Int; ticketsSold: Int; revealed: Bool; revealAt: Int; commitHash: Int; a: Int; b: Int; }
+
+fun gcd(a: Int, b: Int): Int {
+    let x: Int = a;
+    let y: Int = b;
+    while (y != 0) {
+        let t: Int = x % y;
+        x = y;
+        y = t;
+    }
+    return x;
 }

@@ -76,16 +76,16 @@ contract AtharCollection {
         require(from != null && now() >= from!!, "minter not authorised");
         require(msg.index >= 0 && msg.index <= MAX_INDEX, "date out of range");
         require(self.payout != null, "payout not set");
-        require(ctx.value >= msg.paid + MINT_FEES, "not enough value");
+        require(ctx.value >= msg.remit + MINT_FEES, "not enough value");
         let init: StateInit = initOf AtharItem(myAddress(), msg.index);
         self.minted = self.minted + 1;
         // the sale money goes to the owner's wallet in the same transaction
-        if (msg.paid > 0) {
-            send(SendParameters{ to: self.payout!!, value: msg.paid, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar sale".asComment() });
+        if (msg.remit > 0) {
+            send(SendParameters{ to: self.payout!!, value: msg.remit, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar sale".asComment() });
         }
         send(SendParameters{ to: ctx.sender, value: OK_VALUE, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: MintOk{ index: msg.index }.toCell() });
         send(SendParameters{
-            to: contractAddress(init), value: ctx.value - msg.paid - OK_VALUE - COLL_GAS, mode: SendPayGasSeparately, bounce: true,
+            to: contractAddress(init), value: ctx.value - msg.remit - OK_VALUE - COLL_GAS, mode: SendPayGasSeparately, bounce: true,
             body: ItemInit{ owner: msg.newOwner, season: msg.season, tier: msg.tier, paid: msg.paid, mintedAt: now() }.toCell(),
             code: init.code, data: init.data
         });

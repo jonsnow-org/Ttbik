@@ -1159,6 +1159,7 @@ export type MintItem = {
     season: bigint;
     tier: bigint;
     paid: bigint;
+    remit: bigint;
 }
 
 export function storeMintItem(src: MintItem) {
@@ -1170,6 +1171,7 @@ export function storeMintItem(src: MintItem) {
         b_0.storeUint(src.season, 16);
         b_0.storeUint(src.tier, 8);
         b_0.storeCoins(src.paid);
+        b_0.storeCoins(src.remit);
     };
 }
 
@@ -1181,7 +1183,8 @@ export function loadMintItem(slice: Slice) {
     const _season = sc_0.loadUintBig(16);
     const _tier = sc_0.loadUintBig(8);
     const _paid = sc_0.loadCoins();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid };
+    const _remit = sc_0.loadCoins();
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
 }
 
 export function loadTupleMintItem(source: TupleReader) {
@@ -1190,7 +1193,8 @@ export function loadTupleMintItem(source: TupleReader) {
     const _season = source.readBigNumber();
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid };
+    const _remit = source.readBigNumber();
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
 }
 
 export function loadGetterTupleMintItem(source: TupleReader) {
@@ -1199,7 +1203,8 @@ export function loadGetterTupleMintItem(source: TupleReader) {
     const _season = source.readBigNumber();
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid };
+    const _remit = source.readBigNumber();
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
 }
 
 export function storeTupleMintItem(source: MintItem) {
@@ -1209,6 +1214,7 @@ export function storeTupleMintItem(source: MintItem) {
     builder.writeNumber(source.season);
     builder.writeNumber(source.tier);
     builder.writeNumber(source.paid);
+    builder.writeNumber(source.remit);
     return builder.build();
 }
 
@@ -2590,7 +2596,8 @@ export type PendingMint = {
     $$type: 'PendingMint';
     buyer: Address;
     amount: bigint;
-    auction: boolean;
+    kind: bigint;
+    ticket: bigint;
 }
 
 export function storePendingMint(src: PendingMint) {
@@ -2598,7 +2605,8 @@ export function storePendingMint(src: PendingMint) {
         const b_0 = builder;
         b_0.storeAddress(src.buyer);
         b_0.storeCoins(src.amount);
-        b_0.storeBit(src.auction);
+        b_0.storeUint(src.kind, 8);
+        b_0.storeUint(src.ticket, 16);
     };
 }
 
@@ -2606,29 +2614,33 @@ export function loadPendingMint(slice: Slice) {
     const sc_0 = slice;
     const _buyer = sc_0.loadAddress();
     const _amount = sc_0.loadCoins();
-    const _auction = sc_0.loadBit();
-    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, auction: _auction };
+    const _kind = sc_0.loadUintBig(8);
+    const _ticket = sc_0.loadUintBig(16);
+    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, kind: _kind, ticket: _ticket };
 }
 
 export function loadTuplePendingMint(source: TupleReader) {
     const _buyer = source.readAddress();
     const _amount = source.readBigNumber();
-    const _auction = source.readBoolean();
-    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, auction: _auction };
+    const _kind = source.readBigNumber();
+    const _ticket = source.readBigNumber();
+    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, kind: _kind, ticket: _ticket };
 }
 
 export function loadGetterTuplePendingMint(source: TupleReader) {
     const _buyer = source.readAddress();
     const _amount = source.readBigNumber();
-    const _auction = source.readBoolean();
-    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, auction: _auction };
+    const _kind = source.readBigNumber();
+    const _ticket = source.readBigNumber();
+    return { $$type: 'PendingMint' as const, buyer: _buyer, amount: _amount, kind: _kind, ticket: _ticket };
 }
 
 export function storeTuplePendingMint(source: PendingMint) {
     const builder = new TupleBuilder();
     builder.writeAddress(source.buyer);
     builder.writeNumber(source.amount);
-    builder.writeBoolean(source.auction);
+    builder.writeNumber(source.kind);
+    builder.writeNumber(source.ticket);
     return builder.build();
 }
 
@@ -2639,6 +2651,63 @@ export function dictValueParserPendingMint(): DictionaryValue<PendingMint> {
         },
         parse: (src) => {
             return loadPendingMint(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type Ticket = {
+    $$type: 'Ticket';
+    owner: Address;
+    price: bigint;
+    claimed: boolean;
+}
+
+export function storeTicket(src: Ticket) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeAddress(src.owner);
+        b_0.storeCoins(src.price);
+        b_0.storeBit(src.claimed);
+    };
+}
+
+export function loadTicket(slice: Slice) {
+    const sc_0 = slice;
+    const _owner = sc_0.loadAddress();
+    const _price = sc_0.loadCoins();
+    const _claimed = sc_0.loadBit();
+    return { $$type: 'Ticket' as const, owner: _owner, price: _price, claimed: _claimed };
+}
+
+export function loadTupleTicket(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _price = source.readBigNumber();
+    const _claimed = source.readBoolean();
+    return { $$type: 'Ticket' as const, owner: _owner, price: _price, claimed: _claimed };
+}
+
+export function loadGetterTupleTicket(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _price = source.readBigNumber();
+    const _claimed = source.readBoolean();
+    return { $$type: 'Ticket' as const, owner: _owner, price: _price, claimed: _claimed };
+}
+
+export function storeTupleTicket(source: Ticket) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.owner);
+    builder.writeNumber(source.price);
+    builder.writeBoolean(source.claimed);
+    return builder.build();
+}
+
+export function dictValueParserTicket(): DictionaryValue<Ticket> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeTicket(src)).endCell());
+        },
+        parse: (src) => {
+            return loadTicket(src.loadRef().beginParse());
         }
     }
 }
@@ -3183,6 +3252,330 @@ export function dictValueParserSweep(): DictionaryValue<Sweep> {
     }
 }
 
+export type LoadPool = {
+    $$type: 'LoadPool';
+    items: Dictionary<number, number>;
+}
+
+export function storeLoadPool(src: LoadPool) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024144, 32);
+        b_0.storeDict(src.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    };
+}
+
+export function loadLoadPool(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024144) { throw Error('Invalid prefix'); }
+    const _items = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), sc_0);
+    return { $$type: 'LoadPool' as const, items: _items };
+}
+
+export function loadTupleLoadPool(source: TupleReader) {
+    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    return { $$type: 'LoadPool' as const, items: _items };
+}
+
+export function loadGetterTupleLoadPool(source: TupleReader) {
+    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    return { $$type: 'LoadPool' as const, items: _items };
+}
+
+export function storeTupleLoadPool(source: LoadPool) {
+    const builder = new TupleBuilder();
+    builder.writeCell(source.items.size > 0 ? beginCell().storeDictDirect(source.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)).endCell() : null);
+    return builder.build();
+}
+
+export function dictValueParserLoadPool(): DictionaryValue<LoadPool> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeLoadPool(src)).endCell());
+        },
+        parse: (src) => {
+            return loadLoadPool(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetMystery = {
+    $$type: 'SetMystery';
+    commitHash: bigint;
+    revealAt: bigint;
+    startPrice: bigint;
+    floor: bigint;
+    cap: bigint;
+    bumpBps: bigint;
+    decayBps: bigint;
+}
+
+export function storeSetMystery(src: SetMystery) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024145, 32);
+        b_0.storeUint(src.commitHash, 256);
+        b_0.storeUint(src.revealAt, 32);
+        b_0.storeCoins(src.startPrice);
+        b_0.storeCoins(src.floor);
+        b_0.storeCoins(src.cap);
+        b_0.storeUint(src.bumpBps, 16);
+        b_0.storeUint(src.decayBps, 16);
+    };
+}
+
+export function loadSetMystery(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024145) { throw Error('Invalid prefix'); }
+    const _commitHash = sc_0.loadUintBig(256);
+    const _revealAt = sc_0.loadUintBig(32);
+    const _startPrice = sc_0.loadCoins();
+    const _floor = sc_0.loadCoins();
+    const _cap = sc_0.loadCoins();
+    const _bumpBps = sc_0.loadUintBig(16);
+    const _decayBps = sc_0.loadUintBig(16);
+    return { $$type: 'SetMystery' as const, commitHash: _commitHash, revealAt: _revealAt, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+}
+
+export function loadTupleSetMystery(source: TupleReader) {
+    const _commitHash = source.readBigNumber();
+    const _revealAt = source.readBigNumber();
+    const _startPrice = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    const _bumpBps = source.readBigNumber();
+    const _decayBps = source.readBigNumber();
+    return { $$type: 'SetMystery' as const, commitHash: _commitHash, revealAt: _revealAt, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+}
+
+export function loadGetterTupleSetMystery(source: TupleReader) {
+    const _commitHash = source.readBigNumber();
+    const _revealAt = source.readBigNumber();
+    const _startPrice = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    const _bumpBps = source.readBigNumber();
+    const _decayBps = source.readBigNumber();
+    return { $$type: 'SetMystery' as const, commitHash: _commitHash, revealAt: _revealAt, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+}
+
+export function storeTupleSetMystery(source: SetMystery) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.commitHash);
+    builder.writeNumber(source.revealAt);
+    builder.writeNumber(source.startPrice);
+    builder.writeNumber(source.floor);
+    builder.writeNumber(source.cap);
+    builder.writeNumber(source.bumpBps);
+    builder.writeNumber(source.decayBps);
+    return builder.build();
+}
+
+export function dictValueParserSetMystery(): DictionaryValue<SetMystery> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMystery(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMystery(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type BuyTicket = {
+    $$type: 'BuyTicket';
+    recipient: Address | null;
+}
+
+export function storeBuyTicket(src: BuyTicket) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024146, 32);
+        b_0.storeAddress(src.recipient);
+    };
+}
+
+export function loadBuyTicket(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024146) { throw Error('Invalid prefix'); }
+    const _recipient = sc_0.loadMaybeAddress();
+    return { $$type: 'BuyTicket' as const, recipient: _recipient };
+}
+
+export function loadTupleBuyTicket(source: TupleReader) {
+    const _recipient = source.readAddressOpt();
+    return { $$type: 'BuyTicket' as const, recipient: _recipient };
+}
+
+export function loadGetterTupleBuyTicket(source: TupleReader) {
+    const _recipient = source.readAddressOpt();
+    return { $$type: 'BuyTicket' as const, recipient: _recipient };
+}
+
+export function storeTupleBuyTicket(source: BuyTicket) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.recipient);
+    return builder.build();
+}
+
+export function dictValueParserBuyTicket(): DictionaryValue<BuyTicket> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeBuyTicket(src)).endCell());
+        },
+        parse: (src) => {
+            return loadBuyTicket(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type Reveal = {
+    $$type: 'Reveal';
+    secret: bigint;
+}
+
+export function storeReveal(src: Reveal) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024147, 32);
+        b_0.storeUint(src.secret, 256);
+    };
+}
+
+export function loadReveal(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024147) { throw Error('Invalid prefix'); }
+    const _secret = sc_0.loadUintBig(256);
+    return { $$type: 'Reveal' as const, secret: _secret };
+}
+
+export function loadTupleReveal(source: TupleReader) {
+    const _secret = source.readBigNumber();
+    return { $$type: 'Reveal' as const, secret: _secret };
+}
+
+export function loadGetterTupleReveal(source: TupleReader) {
+    const _secret = source.readBigNumber();
+    return { $$type: 'Reveal' as const, secret: _secret };
+}
+
+export function storeTupleReveal(source: Reveal) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.secret);
+    return builder.build();
+}
+
+export function dictValueParserReveal(): DictionaryValue<Reveal> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeReveal(src)).endCell());
+        },
+        parse: (src) => {
+            return loadReveal(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type ClaimTicket = {
+    $$type: 'ClaimTicket';
+    ticket: bigint;
+}
+
+export function storeClaimTicket(src: ClaimTicket) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024148, 32);
+        b_0.storeUint(src.ticket, 16);
+    };
+}
+
+export function loadClaimTicket(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024148) { throw Error('Invalid prefix'); }
+    const _ticket = sc_0.loadUintBig(16);
+    return { $$type: 'ClaimTicket' as const, ticket: _ticket };
+}
+
+export function loadTupleClaimTicket(source: TupleReader) {
+    const _ticket = source.readBigNumber();
+    return { $$type: 'ClaimTicket' as const, ticket: _ticket };
+}
+
+export function loadGetterTupleClaimTicket(source: TupleReader) {
+    const _ticket = source.readBigNumber();
+    return { $$type: 'ClaimTicket' as const, ticket: _ticket };
+}
+
+export function storeTupleClaimTicket(source: ClaimTicket) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.ticket);
+    return builder.build();
+}
+
+export function dictValueParserClaimTicket(): DictionaryValue<ClaimTicket> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeClaimTicket(src)).endCell());
+        },
+        parse: (src) => {
+            return loadClaimTicket(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type TransferTicket = {
+    $$type: 'TransferTicket';
+    ticket: bigint;
+    newOwner: Address;
+}
+
+export function storeTransferTicket(src: TransferTicket) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024149, 32);
+        b_0.storeUint(src.ticket, 16);
+        b_0.storeAddress(src.newOwner);
+    };
+}
+
+export function loadTransferTicket(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024149) { throw Error('Invalid prefix'); }
+    const _ticket = sc_0.loadUintBig(16);
+    const _newOwner = sc_0.loadAddress();
+    return { $$type: 'TransferTicket' as const, ticket: _ticket, newOwner: _newOwner };
+}
+
+export function loadTupleTransferTicket(source: TupleReader) {
+    const _ticket = source.readBigNumber();
+    const _newOwner = source.readAddress();
+    return { $$type: 'TransferTicket' as const, ticket: _ticket, newOwner: _newOwner };
+}
+
+export function loadGetterTupleTransferTicket(source: TupleReader) {
+    const _ticket = source.readBigNumber();
+    const _newOwner = source.readAddress();
+    return { $$type: 'TransferTicket' as const, ticket: _ticket, newOwner: _newOwner };
+}
+
+export function storeTupleTransferTicket(source: TransferTicket) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.ticket);
+    builder.writeAddress(source.newOwner);
+    return builder.build();
+}
+
+export function dictValueParserTransferTicket(): DictionaryValue<TransferTicket> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeTransferTicket(src)).endCell());
+        },
+        parse: (src) => {
+            return loadTransferTicket(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type AtharMinter$Data = {
     $$type: 'AtharMinter$Data';
     collection: Address;
@@ -3194,6 +3587,16 @@ export type AtharMinter$Data = {
     special: Dictionary<number, number>;
     sold: Dictionary<number, boolean>;
     pending: Dictionary<number, PendingMint>;
+    reserved: Dictionary<number, boolean>;
+    pool: Dictionary<number, number>;
+    tickets: Dictionary<number, Ticket>;
+    poolSize: bigint;
+    ticketsSold: bigint;
+    commitHash: bigint;
+    revealAt: bigint;
+    revealed: boolean;
+    permA: bigint;
+    permB: bigint;
     auctions: Dictionary<number, Auction>;
     wallets: Dictionary<Address, WalletCount>;
     status: bigint;
@@ -3215,12 +3618,24 @@ export function storeAtharMinter$Data(src: AtharMinter$Data) {
         const b_1 = new Builder();
         b_1.storeDict(src.sold, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
         b_1.storeDict(src.pending, Dictionary.Keys.Uint(16), dictValueParserPendingMint());
-        b_1.storeDict(src.auctions, Dictionary.Keys.Uint(16), dictValueParserAuction());
-        b_1.storeDict(src.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount());
-        b_1.storeUint(src.status, 8);
-        b_1.storeUint(src.startAt, 32);
-        b_1.storeUint(src.walletDailyCap, 16);
-        b_1.storeUint(src.soldCount, 32);
+        b_1.storeDict(src.reserved, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
+        const b_2 = new Builder();
+        b_2.storeDict(src.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+        b_2.storeDict(src.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket());
+        b_2.storeUint(src.poolSize, 16);
+        b_2.storeUint(src.ticketsSold, 16);
+        b_2.storeUint(src.commitHash, 256);
+        b_2.storeUint(src.revealAt, 32);
+        b_2.storeBit(src.revealed);
+        b_2.storeUint(src.permA, 32);
+        b_2.storeUint(src.permB, 32);
+        b_2.storeDict(src.auctions, Dictionary.Keys.Uint(16), dictValueParserAuction());
+        b_2.storeDict(src.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount());
+        b_2.storeUint(src.status, 8);
+        b_2.storeUint(src.startAt, 32);
+        b_2.storeUint(src.walletDailyCap, 16);
+        b_2.storeUint(src.soldCount, 32);
+        b_1.storeRef(b_2.endCell());
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -3237,13 +3652,24 @@ export function loadAtharMinter$Data(slice: Slice) {
     const sc_1 = sc_0.loadRef().beginParse();
     const _sold = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
     const _pending = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), sc_1);
-    const _auctions = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserAuction(), sc_1);
-    const _wallets = Dictionary.load(Dictionary.Keys.Address(), dictValueParserWalletCount(), sc_1);
-    const _status = sc_1.loadUintBig(8);
-    const _startAt = sc_1.loadUintBig(32);
-    const _walletDailyCap = sc_1.loadUintBig(16);
-    const _soldCount = sc_1.loadUintBig(32);
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    const _reserved = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
+    const sc_2 = sc_1.loadRef().beginParse();
+    const _pool = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), sc_2);
+    const _tickets = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserTicket(), sc_2);
+    const _poolSize = sc_2.loadUintBig(16);
+    const _ticketsSold = sc_2.loadUintBig(16);
+    const _commitHash = sc_2.loadUintBig(256);
+    const _revealAt = sc_2.loadUintBig(32);
+    const _revealed = sc_2.loadBit();
+    const _permA = sc_2.loadUintBig(32);
+    const _permB = sc_2.loadUintBig(32);
+    const _auctions = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserAuction(), sc_2);
+    const _wallets = Dictionary.load(Dictionary.Keys.Address(), dictValueParserWalletCount(), sc_2);
+    const _status = sc_2.loadUintBig(8);
+    const _startAt = sc_2.loadUintBig(32);
+    const _walletDailyCap = sc_2.loadUintBig(16);
+    const _soldCount = sc_2.loadUintBig(32);
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function loadTupleAtharMinter$Data(source: TupleReader) {
@@ -3256,13 +3682,24 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _special = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8), source.readCellOpt());
     const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
     const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), source.readCellOpt());
+    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
+    const _poolSize = source.readBigNumber();
+    const _ticketsSold = source.readBigNumber();
+    source = source.readTuple();
+    const _commitHash = source.readBigNumber();
+    const _revealAt = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _permA = source.readBigNumber();
+    const _permB = source.readBigNumber();
     const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserAuction(), source.readCellOpt());
     const _wallets = Dictionary.loadDirect(Dictionary.Keys.Address(), dictValueParserWalletCount(), source.readCellOpt());
     const _status = source.readBigNumber();
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
@@ -3275,13 +3712,23 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _special = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8), source.readCellOpt());
     const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
     const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), source.readCellOpt());
+    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
+    const _poolSize = source.readBigNumber();
+    const _ticketsSold = source.readBigNumber();
+    const _commitHash = source.readBigNumber();
+    const _revealAt = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _permA = source.readBigNumber();
+    const _permB = source.readBigNumber();
     const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserAuction(), source.readCellOpt());
     const _wallets = Dictionary.loadDirect(Dictionary.Keys.Address(), dictValueParserWalletCount(), source.readCellOpt());
     const _status = source.readBigNumber();
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
@@ -3295,6 +3742,16 @@ export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
     builder.writeCell(source.special.size > 0 ? beginCell().storeDictDirect(source.special, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8)).endCell() : null);
     builder.writeCell(source.sold.size > 0 ? beginCell().storeDictDirect(source.sold, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
     builder.writeCell(source.pending.size > 0 ? beginCell().storeDictDirect(source.pending, Dictionary.Keys.Uint(16), dictValueParserPendingMint()).endCell() : null);
+    builder.writeCell(source.reserved.size > 0 ? beginCell().storeDictDirect(source.reserved, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
+    builder.writeCell(source.pool.size > 0 ? beginCell().storeDictDirect(source.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)).endCell() : null);
+    builder.writeCell(source.tickets.size > 0 ? beginCell().storeDictDirect(source.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket()).endCell() : null);
+    builder.writeNumber(source.poolSize);
+    builder.writeNumber(source.ticketsSold);
+    builder.writeNumber(source.commitHash);
+    builder.writeNumber(source.revealAt);
+    builder.writeBoolean(source.revealed);
+    builder.writeNumber(source.permA);
+    builder.writeNumber(source.permB);
     builder.writeCell(source.auctions.size > 0 ? beginCell().storeDictDirect(source.auctions, Dictionary.Keys.Uint(16), dictValueParserAuction()).endCell() : null);
     builder.writeCell(source.wallets.size > 0 ? beginCell().storeDictDirect(source.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount()).endCell() : null);
     builder.writeNumber(source.status);
@@ -3311,6 +3768,90 @@ export function dictValueParserAtharMinter$Data(): DictionaryValue<AtharMinter$D
         },
         parse: (src) => {
             return loadAtharMinter$Data(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type MysteryInfo = {
+    $$type: 'MysteryInfo';
+    poolSize: bigint;
+    ticketsSold: bigint;
+    revealed: boolean;
+    revealAt: bigint;
+    commitHash: bigint;
+    a: bigint;
+    b: bigint;
+}
+
+export function storeMysteryInfo(src: MysteryInfo) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.poolSize, 257);
+        b_0.storeInt(src.ticketsSold, 257);
+        b_0.storeBit(src.revealed);
+        b_0.storeInt(src.revealAt, 257);
+        const b_1 = new Builder();
+        b_1.storeInt(src.commitHash, 257);
+        b_1.storeInt(src.a, 257);
+        b_1.storeInt(src.b, 257);
+        b_0.storeRef(b_1.endCell());
+    };
+}
+
+export function loadMysteryInfo(slice: Slice) {
+    const sc_0 = slice;
+    const _poolSize = sc_0.loadIntBig(257);
+    const _ticketsSold = sc_0.loadIntBig(257);
+    const _revealed = sc_0.loadBit();
+    const _revealAt = sc_0.loadIntBig(257);
+    const sc_1 = sc_0.loadRef().beginParse();
+    const _commitHash = sc_1.loadIntBig(257);
+    const _a = sc_1.loadIntBig(257);
+    const _b = sc_1.loadIntBig(257);
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+}
+
+export function loadTupleMysteryInfo(source: TupleReader) {
+    const _poolSize = source.readBigNumber();
+    const _ticketsSold = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _revealAt = source.readBigNumber();
+    const _commitHash = source.readBigNumber();
+    const _a = source.readBigNumber();
+    const _b = source.readBigNumber();
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+}
+
+export function loadGetterTupleMysteryInfo(source: TupleReader) {
+    const _poolSize = source.readBigNumber();
+    const _ticketsSold = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _revealAt = source.readBigNumber();
+    const _commitHash = source.readBigNumber();
+    const _a = source.readBigNumber();
+    const _b = source.readBigNumber();
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+}
+
+export function storeTupleMysteryInfo(source: MysteryInfo) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.poolSize);
+    builder.writeNumber(source.ticketsSold);
+    builder.writeBoolean(source.revealed);
+    builder.writeNumber(source.revealAt);
+    builder.writeNumber(source.commitHash);
+    builder.writeNumber(source.a);
+    builder.writeNumber(source.b);
+    return builder.build();
+}
+
+export function dictValueParserMysteryInfo(): DictionaryValue<MysteryInfo> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeMysteryInfo(src)).endCell());
+        },
+        parse: (src) => {
+            return loadMysteryInfo(src.loadRef().beginParse());
         }
     }
 }
@@ -3382,6 +3923,7 @@ export const AtharItem_errors = {
     9254: { message: "only a real item" },
     10060: { message: "daily limit reached for this wallet" },
     10517: { message: "only the next edition" },
+    12078: { message: "not revealed yet" },
     12683: { message: "not minted" },
     13448: { message: "auction already exists" },
     14245: { message: "notice period not over" },
@@ -3390,25 +3932,34 @@ export const AtharItem_errors = {
     14617: { message: "upgrade in progress" },
     14653: { message: "already minted" },
     15521: { message: "no live auction" },
+    15525: { message: "already issued" },
     20232: { message: "text must be 1..32 bytes" },
+    20798: { message: "ticket sale is over" },
     21885: { message: "only admin" },
     22100: { message: "minting closed" },
     23197: { message: "no upgrade pending" },
+    23696: { message: "already revealed" },
     23975: { message: "date already taken" },
     24098: { message: "only mythic dates" },
     24241: { message: "not open yet" },
+    25177: { message: "wrong secret" },
     28276: { message: "sale is not open" },
     28433: { message: "payout not set" },
+    30320: { message: "all tickets sold" },
     30788: { message: "bad special" },
     30889: { message: "bad price bounds" },
     31027: { message: "date out of range" },
+    39703: { message: "too early" },
     40897: { message: "already settled" },
     43610: { message: "only collection" },
     44990: { message: "bid too low" },
     46897: { message: "already open" },
     47192: { message: "date not in this season" },
+    47518: { message: "not your open ticket" },
+    47787: { message: "this date is inside the mystery boxes" },
     48010: { message: "send price + fees" },
     49280: { message: "not owner" },
+    50514: { message: "no open ticket" },
     50563: { message: "bad rates" },
     51269: { message: "mythic dates are sold by auction" },
     53050: { message: "nothing proposed" },
@@ -3416,6 +3967,9 @@ export const AtharItem_errors = {
     55815: { message: "already set" },
     56586: { message: "configure common and rare first" },
     57218: { message: "not enough value" },
+    57326: { message: "position already loaded" },
+    57676: { message: "mystery boxes not configured" },
+    59420: { message: "bad pool entry" },
     60482: { message: "minter not authorised" },
 } as const
 
@@ -3463,6 +4017,7 @@ export const AtharItem_errors_backward = {
     "only a real item": 9254,
     "daily limit reached for this wallet": 10060,
     "only the next edition": 10517,
+    "not revealed yet": 12078,
     "not minted": 12683,
     "auction already exists": 13448,
     "notice period not over": 14245,
@@ -3471,25 +4026,34 @@ export const AtharItem_errors_backward = {
     "upgrade in progress": 14617,
     "already minted": 14653,
     "no live auction": 15521,
+    "already issued": 15525,
     "text must be 1..32 bytes": 20232,
+    "ticket sale is over": 20798,
     "only admin": 21885,
     "minting closed": 22100,
     "no upgrade pending": 23197,
+    "already revealed": 23696,
     "date already taken": 23975,
     "only mythic dates": 24098,
     "not open yet": 24241,
+    "wrong secret": 25177,
     "sale is not open": 28276,
     "payout not set": 28433,
+    "all tickets sold": 30320,
     "bad special": 30788,
     "bad price bounds": 30889,
     "date out of range": 31027,
+    "too early": 39703,
     "already settled": 40897,
     "only collection": 43610,
     "bid too low": 44990,
     "already open": 46897,
     "date not in this season": 47192,
+    "not your open ticket": 47518,
+    "this date is inside the mystery boxes": 47787,
     "send price + fees": 48010,
     "not owner": 49280,
+    "no open ticket": 50514,
     "bad rates": 50563,
     "mythic dates are sold by auction": 51269,
     "nothing proposed": 53050,
@@ -3497,6 +4061,9 @@ export const AtharItem_errors_backward = {
     "already set": 55815,
     "configure common and rare first": 56586,
     "not enough value": 57218,
+    "position already loaded": 57326,
+    "mystery boxes not configured": 57676,
+    "bad pool entry": 59420,
     "minter not authorised": 60482,
 } as const
 
@@ -3520,7 +4087,7 @@ const AtharItem_types: ABIType[] = [
     {"name":"CollectionData","header":null,"fields":[{"name":"nextItemIndex","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"collectionContent","type":{"kind":"simple","type":"cell","optional":false}},{"name":"ownerAddress","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"RoyaltyParams","header":null,"fields":[{"name":"numerator","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"denominator","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"destination","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"ItemInit","header":1096024065,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
-    {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"remit","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Proceeds","header":1096024067,"fields":[]},
     {"name":"MintOk","header":1096024069,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Engrave","header":1096024068,"fields":[{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
@@ -3544,7 +4111,8 @@ const AtharItem_types: ABIType[] = [
     {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
-    {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"auction","type":{"kind":"simple","type":"bool","optional":false}}]},
+    {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"Ticket","header":null,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"claimed","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"Auction","header":null,"fields":[{"name":"started","type":{"kind":"simple","type":"bool","optional":false}},{"name":"endAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBidder","type":{"kind":"simple","type":"address","optional":true}}]},
     {"name":"Configure","header":1096024128,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"AddSpecial","header":1096024129,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}}]},
@@ -3555,7 +4123,14 @@ const AtharItem_types: ABIType[] = [
     {"name":"Bid","header":1096024134,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Settle","header":1096024135,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Sweep","header":1096024136,"fields":[]},
-    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"LoadPool","header":1096024144,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}}]},
+    {"name":"SetMystery","header":1096024145,"fields":[{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"BuyTicket","header":1096024146,"fields":[{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}}]},
+    {"name":"Reveal","header":1096024147,"fields":[{"name":"secret","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
+    {"name":"ClaimTicket","header":1096024148,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
+    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"MysteryInfo","header":null,"fields":[{"name":"poolSize","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticketsSold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"commitHash","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"a","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"b","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
 ]
 
 const AtharItem_opcodes = {
@@ -3592,6 +4167,12 @@ const AtharItem_opcodes = {
     "Bid": 1096024134,
     "Settle": 1096024135,
     "Sweep": 1096024136,
+    "LoadPool": 1096024144,
+    "SetMystery": 1096024145,
+    "BuyTicket": 1096024146,
+    "Reveal": 1096024147,
+    "ClaimTicket": 1096024148,
+    "TransferTicket": 1096024149,
 }
 
 const AtharItem_getters: ABIGetter[] = [

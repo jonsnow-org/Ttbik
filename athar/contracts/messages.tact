@@ -69,7 +69,8 @@ message(0x41540002) MintItem {
     newOwner: Address;
     season: Int as uint16;
     tier: Int as uint8;
-    paid: Int as coins;
+    paid: Int as coins;       // what the buyer paid, recorded in the token
+    remit: Int as coins;      // money forwarded to the payout wallet now (0 when the money was taken earlier, e.g. mystery tickets)
 }
 message(0x41540003) Proceeds { }                         // item -> collection: engraving fee, forwarded to payout at once
 message(0x41540005) MintOk { index: Int as uint64; }     // collection -> minter: the token exists
