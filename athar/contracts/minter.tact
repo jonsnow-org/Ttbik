@@ -1,0 +1,277 @@
+import "./messages";
+import "./tier";
+
+// A season "minter": the sale logic of one season (price curve, wallet limits, mythic auctions).
+// The collection never changes: a new season is a new minter that the admin authorises with a public delay.
+
+struct TierState {
+    price: Int as coins;       // price right now (before time decay)
+    floor: Int as coins;       // never below
+    cap: Int as coins;         // never above
+    bumpBps: Int as uint16;    // price goes up by this many basis points with every sale
+    decayBps: Int as uint16;   // and falls by this many for every full day (24h) without enough sales
+    lastDecayAt: Int as uint32;
+    sold: Int as uint32;
+}
+struct WalletCount { day: Int as uint32; count: Int as uint16; }
+struct PendingMint { buyer: Address; amount: Int as coins; auction: Bool; }
+struct Auction {
+    started: Bool;
+    endAt: Int as uint32;
+    reserve: Int as coins;
+    highBid: Int as coins;
+    highBidder: Address?;
+}
+
+message(0x41540040) Configure {
+    tier: Int as uint8;
+    startPrice: Int as coins;
+    floor: Int as coins;
+    cap: Int as coins;
+    bumpBps: Int as uint16;
+    decayBps: Int as uint16;
+}
+message(0x41540041) AddSpecial { items: map<Int as uint16, Int as uint8>; }
+message(0x41540042) Open { startAt: Int as uint32; walletDailyCap: Int as uint16; }
+message(0x41540043) SetPaused { paused: Bool; }
+message(0x41540044) Buy { index: Int as uint64; recipient: Address?; }
+message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; duration: Int as uint32; }
+message(0x41540046) Bid { index: Int as uint64; }
+message(0x41540047) Settle { index: Int as uint64; }
+message(0x41540048) Sweep { }
+
+contract AtharMinter {
+    collection: Address;
+    admin: Address;
+    seasonId: Int as uint16;
+    rangeStart: Int as uint64;
+    rangeEnd: Int as uint64;
+    init(collection: Address, admin: Address, seasonId: Int, rangeStart: Int, rangeEnd: Int) {
+        self.collection = collection;
+        self.admin = admin;
+        self.seasonId = seasonId;
+        self.rangeStart = rangeStart;
+        self.rangeEnd = rangeEnd;
+    }
+    tiers: map<Int as uint8, TierState>;
+    special: map<Int as uint16, Int as uint8>;     // historic dates etc.: index -> tier override
+    sold: map<Int as uint16, Bool>;
+    pending: map<Int as uint16, PendingMint>;
+    auctions: map<Int as uint16, Auction>;
+    wallets: map<Address, WalletCount>;
+    status: Int as uint8 = 0;                      // 0 draft, 1 open, 2 paused
+    startAt: Int as uint32 = 0;
+    walletDailyCap: Int as uint16 = 0;
+    soldCount: Int as uint32 = 0;
+
+    receive() { }
+
+    // ---------- set-up (admin, before opening) ----------
+    receive(msg: Configure) {
+        require(sender() == self.admin, "only admin");
+        require(self.status == 0, "already open");
+        require(msg.tier == TIER_COMMON || msg.tier == TIER_RARE, "tier is priced by curve: common or rare");
+        require(msg.floor > 0 && msg.floor <= msg.startPrice && msg.startPrice <= msg.cap, "bad price bounds");
+        require(msg.bumpBps <= 2000 && msg.decayBps <= 5000, "bad rates");
+        self.tiers.set(msg.tier, TierState{ price: msg.startPrice, floor: msg.floor, cap: msg.cap, bumpBps: msg.bumpBps, decayBps: msg.decayBps, lastDecayAt: 0, sold: 0 });
+    }
+    receive(msg: AddSpecial) {
+        require(sender() == self.admin, "only admin");
+        require(self.status == 0, "already open");
+        foreach (k, v in msg.items) {
+            require(k >= 0 && k <= MAX_INDEX && v >= 0 && v <= TIER_MYTHIC, "bad special");
+            self.special.set(k, v);
+        }
+    }
+    receive(msg: Open) {
+        require(sender() == self.admin, "only admin");
+        require(self.status == 0, "already open");
+        require(self.tiers.get(TIER_COMMON) != null && self.tiers.get(TIER_RARE) != null, "configure common and rare first");
+        self.status = 1;
+        self.startAt = msg.startAt;
+        self.walletDailyCap = msg.walletDailyCap;
+        let c: TierState = self.tiers.get(TIER_COMMON)!!;
+        c.lastDecayAt = msg.startAt;
+        self.tiers.set(TIER_COMMON, c);
+        let r: TierState = self.tiers.get(TIER_RARE)!!;
+        r.lastDecayAt = msg.startAt;
+        self.tiers.set(TIER_RARE, r);
+    }
+    receive(msg: SetPaused) {
+        require(sender() == self.admin, "only admin");
+        require(self.status != 0, "not open yet");
+        if (msg.paused) { self.status = 2; } else { self.status = 1; }
+    }
+
+    // ---------- price curve ----------
+    // Price rises with every sale and falls every full day: it settles where demand matches the target pace.
+    fun priceNow(t: TierState): Int {
+        let p: Int = t.price;
+        if (now() > t.lastDecayAt && t.lastDecayAt > 0) {
+            let days: Int = (now() - t.lastDecayAt) / DAY;
+            if (days > 120) { days = 120; }
+            repeat (days) {
+                p = p * (10000 - t.decayBps) / 10000;
+                if (p < t.floor) { p = t.floor; }
+            }
+        }
+        if (p < t.floor) { p = t.floor; }
+        return p;
+    }
+
+    fun tierOfIndex(index: Int): Int {
+        let s: Int? = self.special.get(index);
+        if (s != null) { return s!!; }
+        return ruleTier(index);
+    }
+
+    fun inSeason(index: Int): Bool {
+        if (index >= self.rangeStart && index <= self.rangeEnd) { return true; }
+        return self.special.get(index) != null;
+    }
+
+    fun isOpenNow(): Bool {
+        return self.status == 1 && now() >= self.startAt;
+    }
+
+    // ---------- direct purchase (common and rare) ----------
+    receive(msg: Buy) {
+        let ctx: Context = context();
+        require(self.isOpenNow(), "sale is not open");
+        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.inSeason(msg.index), "date not in this season");
+        require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
+        require(self.auctions.get(msg.index) == null, "this date is sold by auction");
+        let tier: Int = self.tierOfIndex(msg.index);
+        require(tier != TIER_MYTHIC, "mythic dates are sold by auction");
+        let t: TierState = self.tiers.get(tier)!!;
+        let price: Int = self.priceNow(t);
+        require(ctx.value >= price + BUY_FEES, "send price + fees");
+
+        let buyer: Address = ctx.sender;
+        let recipient: Address = buyer;
+        if (msg.recipient != null) { recipient = msg.recipient!!; }
+
+        // per-wallet daily limit (anti-bot, first days)
+        if (self.walletDailyCap > 0) {
+            let today: Int = now() / DAY;
+            let w: WalletCount = WalletCount{ day: today, count: 0 };
+            let cur: WalletCount? = self.wallets.get(buyer);
+            if (cur != null && cur!!.day == today) { w = cur!!; }
+            require(w.count < self.walletDailyCap, "daily limit reached for this wallet");
+            w.count = w.count + 1;
+            self.wallets.set(buyer, w);
+        }
+
+        // move the price: decay is applied for whole days elapsed, then this sale bumps it
+        let days: Int = 0;
+        if (t.lastDecayAt > 0 && now() > t.lastDecayAt) { days = (now() - t.lastDecayAt) / DAY; }
+        let np: Int = price * (10000 + t.bumpBps) / 10000;
+        if (np > t.cap) { np = t.cap; }
+        t.price = np;
+        t.lastDecayAt = t.lastDecayAt + days * DAY;
+        t.sold = t.sold + 1;
+        self.tiers.set(tier, t);
+
+        self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + MINT_FEES, auction: false });
+        send(SendParameters{
+            to: self.collection, value: price + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
+            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price }.toCell()
+        });
+        let refund: Int = ctx.value - price - BUY_FEES;
+        if (refund > 10000000) {
+            send(SendParameters{ to: buyer, value: refund, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar change".asComment() });
+        }
+    }
+
+    receive(msg: MintOk) {
+        require(sender() == self.collection, "only collection");
+        self.pending.set(msg.index, null);
+        self.sold.set(msg.index, true);
+        self.soldCount = self.soldCount + 1;
+    }
+
+    // the collection refused the mint: give the money back and free the date
+    bounced(msg: bounced<MintItem>) {
+        let p: PendingMint? = self.pending.get(msg.index);
+        if (p == null) { return; }
+        self.pending.set(msg.index, null);
+        if (p!!.auction) {
+            // settlement failed: the auction stays open to settle again once the cause is fixed
+            let a: Auction = self.auctions.get(msg.index)!!;
+            a.started = true;
+            self.auctions.set(msg.index, a);
+        } else {
+            send(SendParameters{ to: p!!.buyer, value: p!!.amount, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar refund".asComment() });
+        }
+    }
+
+    // ---------- mythic dates: English auction with anti-sniping ----------
+    receive(msg: StartAuction) {
+        require(sender() == self.admin, "only admin");
+        require(self.isOpenNow(), "sale is not open");
+        require(self.inSeason(msg.index), "date not in this season");
+        require(self.tierOfIndex(msg.index) == TIER_MYTHIC, "only mythic dates");
+        require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
+        require(msg.reserve > 0 && msg.duration >= 3600 && msg.duration <= 7 * DAY, "bad auction");
+        let cur: Auction? = self.auctions.get(msg.index);
+        require(cur == null || (cur!!.highBidder == null && now() >= cur!!.endAt), "auction already exists");
+        self.auctions.set(msg.index, Auction{ started: true, endAt: now() + msg.duration, reserve: msg.reserve, highBid: 0, highBidder: null });
+    }
+
+    receive(msg: Bid) {
+        let ctx: Context = context();
+        let a: Auction? = self.auctions.get(msg.index);
+        require(a != null && a!!.started && now() < a!!.endAt, "no live auction");
+        let au: Auction = a!!;
+        let bid: Int = ctx.value - BUY_FEES;
+        let minBid: Int = au.reserve;
+        if (au.highBidder != null) { minBid = au.highBid + au.highBid / 20 + 1; }   // +5%
+        require(bid >= minBid, "bid too low");
+        if (au.highBidder != null) {
+            send(SendParameters{ to: au.highBidder!!, value: au.highBid + BUY_FEES, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar outbid".asComment() });
+        }
+        au.highBid = bid;
+        au.highBidder = ctx.sender;
+        if (au.endAt - now() < 300) { au.endAt = now() + 300; }       // anti-sniping extension
+        self.auctions.set(msg.index, au);
+    }
+
+    receive(msg: Settle) {
+        let a: Auction? = self.auctions.get(msg.index);
+        require(a != null && a!!.started && now() >= a!!.endAt, "auction not finished");
+        let au: Auction = a!!;
+        require(self.pending.get(msg.index) == null && self.sold.get(msg.index) == null, "already settled");
+        if (au.highBidder == null) {                // nobody bid: auction is void, can be restarted
+            au.started = false;
+            self.auctions.set(msg.index, au);
+            return;
+        }
+        au.started = false;                         // blocks a second settle until MintOk / bounce
+        self.auctions.set(msg.index, au);
+        self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, auction: true });
+        send(SendParameters{
+            to: self.collection, value: au.highBid + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
+            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid }.toCell()
+        });
+    }
+
+    // dust left by gas margins goes to the admin
+    receive(msg: Sweep) {
+        require(sender() == self.admin, "only admin");
+        nativeReserve(MIN_STORAGE + self.soldCount * 0, 0);
+        send(SendParameters{ to: self.admin, value: 0, mode: SendRemainingBalance | SendIgnoreErrors, bounce: false, body: "athar sweep".asComment() });
+    }
+
+    // ---------- getters ----------
+    get fun status(): Int { return self.status; }
+    get fun sold_count(): Int { return self.soldCount; }
+    get fun tier_of(index: Int): Int { return self.tierOfIndex(index); }
+    get fun is_taken(index: Int): Bool { return self.sold.get(index) != null || self.pending.get(index) != null; }
+    get fun in_season(index: Int): Bool { return self.inSeason(index); }
+    get fun price(tier: Int): Int {
+        let t: TierState? = self.tiers.get(tier);
+        if (t == null) { return 0; }
+        return self.priceNow(t!!);
+    }
+    get fun auction_of(index: Int): Auction? { return self.auctions.get(index); }
+}

@@ -1,0 +1,5 @@
+{
+  "projects": [
+    { "name": "athar", "path": "./contracts/athar.tact", "output": "./build", "options": { "debug": false } }
+  ]
+}

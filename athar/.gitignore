@@ -1,0 +1,6 @@
+node_modules
+dist
+build/*.fc
+build/*.fif
+build/*.md
+build/*.pkg.bak
