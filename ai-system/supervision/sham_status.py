@@ -68,6 +68,66 @@ def kaggle_datasets(run=subprocess.run) -> list[dict]:
     return rows
 
 
+AUDIO_EXT = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus")
+IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+VIDEO_EXT = (".mp4", ".webm", ".mkv", ".avi", ".mov")
+TEXT_EXT = (".txt", ".jsonl", ".csv", ".json", ".parquet", ".md", ".tsv")
+
+
+def classify_files(names: list[str]) -> dict[str, int]:
+    """How many files of each kind a dataset holds, by extension: audio / image / video / text / model / other."""
+    out: dict[str, int] = {}
+    for n in names:
+        low = n.lower()
+        if low.endswith(AUDIO_EXT):
+            k = "audio"
+        elif low.endswith(IMAGE_EXT):
+            k = "image"
+        elif low.endswith(VIDEO_EXT):
+            k = "video"
+        elif low.endswith((".pt", ".pth", ".ckpt", ".safetensors")):
+            k = "model"
+        elif low.endswith(TEXT_EXT):
+            k = "text"
+        else:
+            k = "other"
+        out[k] = out.get(k, 0) + 1
+    return out
+
+
+def dataset_status(ref: str, run=subprocess.run) -> str:
+    """Kaggle's own word for the latest version: ready / pending / error ... ('' if unknown)."""
+    r = run(["kaggle", "datasets", "status", ref], capture_output=True, text=True)
+    return ((r.stdout or "") + (r.stderr if r.returncode else "")).strip().splitlines()[0].strip().lower() if (r.stdout or r.stderr) else ""
+
+
+def dataset_files(ref: str, run=subprocess.run, limit: int = 200) -> list[dict]:
+    r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
+    return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO(r.stdout or "")) if g.get("name")]
+
+
+def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subprocess.run) -> dict:
+    """Why a dataset might not be usable (not ready / no files) and what the undocumented ones hold (by file kind)."""
+    import fnmatch
+    out: dict = {}
+    known = set(contract["datasets"])
+    for d in datasets:
+        n = d["name"]
+        if not n.startswith(("sham", "nova")):
+            continue
+        in_contract = n in known or any(fnmatch.fnmatch(n, p) for p in contract.get("dynamic_dataset_patterns", []))
+        zero = d.get("size", "") in ("", "0", "0B", "0 B")
+        if n in MAIN_LINE or zero or not in_contract:
+            try:
+                files = dataset_files(f"{user}/{n}", run)
+                out[n] = {"status": dataset_status(f"{user}/{n}", run) if (n in MAIN_LINE or zero) else "",
+                          "files": len(files), "kinds": classify_files([f["name"] for f in files]),
+                          "sample": [f["name"] for f in files[:4]], "documented": in_contract}
+            except Exception as exc:
+                out[n] = {"error": f"{type(exc).__name__}: {str(exc)[:100]}", "documented": in_contract}
+    return out
+
+
 def github_runs(get_json) -> dict[str, list[dict]]:
     j = get_json(f"https://api.github.com/repos/{REPO}/actions/runs?per_page=100") or {}
     out: dict[str, list[dict]] = {}
@@ -172,6 +232,14 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
         t = _parse(d["updated"])
         if t and (now - t).total_seconds() / 3600 > STALE_HOURS:
             alerts.append(f"⚠ {ds} لم تُحدَّث منذ {int((now - t).total_seconds() / 86400)} أيام")
+    for name, dg in (data.get("dataset_diag") or {}).items():
+        if dg.get("error"):
+            continue
+        if name in MAIN_LINE or dg.get("status"):
+            if dg.get("status") and dg["status"] not in ("ready", "complete"):
+                alerts.append(f"⚠ {name}: حالة Kaggle «{dg['status']}» (النشر لم يكتمل أو فشل؟)")
+            if dg.get("files", 1) == 0:
+                alerts.append(f"❌ {name}: آخر نسخة بلا أي ملف (النشر فارغ) — الجلسة القادمة ستبدأ من نقطة أقدم أو من الصفر")
     known = set(contract["datasets"])
     import fnmatch
     for d in data.get("datasets", []):
@@ -208,6 +276,11 @@ def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: d
     except Exception as exc:
         data["errors"].append(f"قائمة المجموعات: {type(exc).__name__}: {str(exc)[:160]}")
         data["datasets"] = []
+    try:
+        data["dataset_diag"] = diagnose_datasets(data["datasets"], contract, os.environ.get("KAGGLE_USERNAME", "jonsnowjonsnow"), run)
+    except Exception as exc:
+        data["errors"].append(f"تشخيص المجموعات: {type(exc).__name__}: {str(exc)[:160]}")
+        data["dataset_diag"] = {}
     try:
         if get_json is None:
             import requests
@@ -274,6 +347,16 @@ def render_md(data: dict, contract: dict) -> str:
         writer = "زاحف مكتشف تلقائياً" if covered else "❓ غير معرّف"
         role = "(نمط ديناميكي في العقد)" if covered else "(ليست في العقد)"
         L.append(f"| {d['name']} | {d['size']} | {d['updated'][:10]} | {writer} | {role} |")
+    diag = data.get("dataset_diag") or {}
+    bad = {n: g for n, g in diag.items() if g.get("documented") and (g.get("files") == 0 or (g.get("status") and g["status"] not in ("ready", "complete")))}
+    if bad:
+        L += ["", "## مجموعات غير جاهزة أو فارغة"] + [f"- {n}: الحالة «{g.get('status') or '—'}»، الملفات {g.get('files', '؟')}" for n, g in bad.items()]
+    undoc = {n: g for n, g in diag.items() if not g.get("documented") and not g.get("error")}
+    if undoc:
+        L += ["", "## ما في المجموعات غير الموثّقة (بحسب نوع الملفات — تُدمج وفق نظامنا بحسب نوعها)"]
+        for n, g in undoc.items():
+            kinds = "، ".join(f"{k} {v}" for k, v in sorted(g["kinds"].items(), key=lambda kv: -kv[1])) or "فارغة"
+            L.append(f"- {n}: {g['files']} ملف ({kinds}) — مثال: " + " | ".join(g["sample"][:3]))
     L += ["", "## آخر تقارير الجلسات (الأحدث أولاً)"]
     for r in data.get("reports", [])[:6]:
         L += [f"### {r['time']} — {r['source'][:80]}", "```", r["text"][:1800], "```"]
@@ -326,9 +409,22 @@ if __name__ == "__main__":
                       "me/other-stuff,x,1MB,2026-10-01 12:00:00,1,0,0\n")
         calls = {"n": 0}
 
+        class R2:
+            def __init__(self, out, code=0): self.stdout, self.stderr, self.returncode = out, "", code
+
         def fake_run(cmd, **kw):
             calls["n"] += 1
-            return FakeRun() if calls["n"] == 1 else type("R", (), {"stdout": ""})()
+            if cmd[:3] == ["kaggle", "datasets", "status"]:
+                return R2("pending" if cmd[3].endswith("sham-checkpoint") else "ready")
+            if cmd[:3] == ["kaggle", "datasets", "files"]:
+                if cmd[3].endswith("sham-checkpoint"):
+                    return R2("name,size,creationDate\n")
+                if cmd[3].endswith("sham-mystery-data"):
+                    return R2("name,size,creationDate\na/b.wav,1,x\na/c.wav,1,x\nlabels.csv,1,x\n")
+                return R2("name,size,creationDate\nfinal_chat.pt,1,x\n")
+            if cmd[:3] == ["kaggle", "datasets", "list"]:
+                return FakeRun() if "-p" in cmd and cmd[cmd.index("-p") + 1] == "1" else R2("")
+            return R2("")
 
         class NS(dict):
             __getattr__ = dict.get
@@ -362,6 +458,10 @@ if __name__ == "__main__":
         assert "registry_private" not in (out / "status.json").read_text(encoding="utf-8")
         assert (out / "sham-registry.json").exists()
         assert "آخر أخطاء مصنع GitHub" in md
+        # a main-line dataset that is pending / empty is flagged, and an undocumented one is described by its file kinds
+        assert "حالة Kaggle «pending»" in alerts and "بلا أي ملف" in alerts, alerts
+        assert "مجموعات غير جاهزة أو فارغة" in md and "audio 2" in md and "text 1" in md, md
+        assert classify_files(["a.wav", "b.PNG", "c.mp4", "d.pt", "e.txt", "f.bin"]) == {"audio": 1, "image": 1, "video": 1, "model": 1, "text": 1, "other": 1}
         md_dyn = render_md({
             "generated_at": "t", "alerts": [], "kernels": [], "workflows": {}, "failures": [], "reports": [],
             "datasets": [
