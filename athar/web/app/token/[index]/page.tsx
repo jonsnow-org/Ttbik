@@ -7,6 +7,8 @@ import { NETWORK } from "@/lib/config";
 import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
+import Features from "@/components/Features";
+import { eventOf, tierSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { persistPicture } from "@/lib/mediaFlow";
 import { useToast } from "@/components/ui";
@@ -114,6 +116,7 @@ export default function Token({ params }: { params: { index: string } }) {
       )}
       <Born index={index} />
       {previewNode}
+      <Features supply={tierSupply(t.season)[t.tier]} event={eventOf(index, t.season)} />
     </>
   );
 }

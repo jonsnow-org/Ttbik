@@ -2,6 +2,7 @@
 // date -> shape, tier -> frame and halo, season -> palette, age stage -> rings, hands -> orbiting dots.
 import { MONTHS_AR, MONTHS_EN, ymd } from "./dates";
 import { emblem, occasionById } from "./occasions";
+import { tierSupply } from "./meta";
 
 const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: string }> = {
   1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#9dbbff" },
@@ -116,6 +117,7 @@ ${centre}
 ${occ ? `<g transform="translate(166 604) scale(0.6)">${emblem(occ.id, accent)}</g>` : ""}
 <text x="400" y="86" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
 <text x="400" y="736" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}${a.engravings ? ` · ✎${a.engravings}` : ""}</text>
+<text x="400" y="764" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="4" fill="${accent}" opacity="0.7">ONE OF ${tierSupply(a.season)[a.tier]}</text>
 </svg>`;
 }
 

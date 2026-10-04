@@ -10,6 +10,8 @@ import { arweaveId } from "@/lib/ids";
 import { persistPicture } from "@/lib/mediaFlow";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
+import Features from "@/components/Features";
+import { eventOf, tierSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
 
@@ -127,6 +129,7 @@ export default function DatePage() {
           </div>
         )}
       </div>
+      <Features supply={info?.tier != null ? tierSupply(1)[info.tier] : undefined} event={eventOf(index)} />
       <Born index={index} />
       {previewNode}
       <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/mystery" style={{ color: "var(--gold)" }}>{t("home.mbtn")}</Link>.</p>

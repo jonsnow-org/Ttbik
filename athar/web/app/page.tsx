@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { Bar, Top, ton, useApi } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
+import Features from "@/components/Features";
 
 type Season = { configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; prices?: { common: number; rare: number; ticket: number } };
 
@@ -20,6 +21,8 @@ export default function Home() {
         <p className="muted">{t("home.sub")}</p>
         <Link href="/date" className="btn gold">{t("home.cta")}</Link>
       </div>
+
+      <Features />
 
       <div className="card">
         <div className="row between"><h3>{t("home.season")}</h3><span className={`badge ${live ? "t1" : "t0"}`}>{live ? t("home.open") : t("home.soon")}</span></div>
