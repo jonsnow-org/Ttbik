@@ -1,15 +1,11 @@
 name: Sham CI (contract + self-tests, read-only)
 
-# فحص طلبات الدمج على مسار النموذج (ai-system/**، سير عمل sham-*، docs/sham-*): صياغة، عقد المدخلات/المخارج، لا تنفيذ نصوص ولا أسرار،
+# فحص كل طلب دمج (الأهم: ai-system/** وسير عمل sham-* وdocs): صياغة، عقد المدخلات/المخارج، لا تنفيذ نصوص ولا أسرار،
 # الاختبارات الذاتية للوحدات المتغيّرة، وجدول مزامنة الخلايا. بصلاحية قراءة فقط ودون أي سر (لا يستعمل أسرار المستودع).
 # هذا فحص عادي للكود المدفوع في فرع (مثل ci.yml)، لا ينفّذ نصاً من issue ولا يدمج شيئاً.
 
 on:
-  pull_request:
-    paths:
-      - "ai-system/**"
-      - ".github/workflows/sham-*.yml"
-      - "docs/sham-*.md"
+  pull_request:          # بلا مرشّح مسارات: كان يتخطّى ملفات docs/grok-* و docs/agent-* (وجدناه في تمرين Grok 1)
   workflow_dispatch: {}
 
 concurrency:
