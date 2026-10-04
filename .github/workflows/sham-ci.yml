@@ -1,0 +1,47 @@
+name: Sham CI (contract + self-tests, read-only)
+
+# فحص طلبات الدمج على مسار النموذج (ai-system/**، سير عمل sham-*، docs/sham-*): صياغة، عقد المدخلات/المخارج، لا تنفيذ نصوص ولا أسرار،
+# الاختبارات الذاتية للوحدات المتغيّرة، وجدول مزامنة الخلايا. بصلاحية قراءة فقط ودون أي سر (لا يستعمل أسرار المستودع).
+# هذا فحص عادي للكود المدفوع في فرع (مثل ci.yml)، لا ينفّذ نصاً من issue ولا يدمج شيئاً.
+
+on:
+  pull_request:
+    paths:
+      - "ai-system/**"
+      - ".github/workflows/sham-*.yml"
+      - "docs/sham-*.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (CPU only)
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers numpy pillow requests beautifulsoup4 soundfile datasets ipython kaggle
+
+      - name: Fetch the base branch
+        run: git fetch --no-tags origin "${{ github.base_ref || github.event.repository.default_branch }}:refs/remotes/origin/${{ github.base_ref || github.event.repository.default_branch }}"
+
+      - name: Contract, safety scan and self-tests of the changed files
+        run: python ai-system/supervision/sham_ci_check.py --base "origin/${{ github.base_ref || github.event.repository.default_branch }}"

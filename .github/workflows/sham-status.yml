@@ -17,9 +17,12 @@ concurrency:
 permissions:
   contents: write
   actions: read
+  issues: write      # تنبيه sham-alert (issue واحد يعكس التنبيهات الحالية)
 
 jobs:
   status:
+    # مفتاح إيقاف طارئ: متغير مستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_STATUS = 1 يتخطّى المهمة
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_STATUS != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -41,6 +44,7 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHAM_POST_ALERTS: "1"
         run: python ai-system/supervision/sham_status.py /tmp/sham_status_out
 
       - name: Publish to the sham-status branch
