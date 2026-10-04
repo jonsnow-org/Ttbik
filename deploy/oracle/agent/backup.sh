@@ -5,6 +5,11 @@ set -uo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 exec 9>/var/lock/ttbik-backup.lock; flock -n 9 || exit 0
 note() { echo "$(now) $1" > "$STATE/backup_note"; }
+# Athar's own files (the copies of every picture and the takedown list): one tarball each, replaced only by a good one
+for d in athar athar-test; do
+  [ -d "/var/lib/ttbik/$d" ] && tar -czf "$BK/$d-data.tgz.tmp" -C "/var/lib/ttbik/$d" . 2>/dev/null && [ -s "$BK/$d-data.tgz.tmp" ] && mv -f "$BK/$d-data.tgz.tmp" "$BK/$d-data.tgz"
+  rm -f "$BK/$d-data.tgz.tmp"
+done
 [ -n "$PGURL" ] || { note "not configured (backup.env missing DATABASE_URL)"; report; exit 0; }
 FP=$(db_fingerprint) || { note "database unreachable, kept previous backup"; report; exit 0; }
 set -- $FP; T=$1; R=$2

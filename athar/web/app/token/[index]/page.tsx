@@ -8,9 +8,18 @@ import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
+import { persistPicture } from "@/lib/mediaFlow";
 import { useToast } from "@/components/ui";
 
 type Tok = { pictureHidden?: boolean; occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
+
+/** A token may carry the id of a picture that is still on its way to the permanent network: say so, and it fixes itself. */
+function PendingNote({ id }: { id: string }) {
+  const { t } = useI18n();
+  const { data } = useApi<{ readable: boolean }>(`/api/media/status?id=${id}`, 20000);
+  if (!data || data.readable) return null;
+  return <p className="note" style={{ marginTop: 10 }}>⏳ {t("media.pending")}</p>;
+}
 
 export default function Token({ params }: { params: { index: string } }) {
   const index = Number(params.index);
@@ -40,10 +49,10 @@ export default function Token({ params }: { params: { index: string } }) {
       const pj = await pr.json();
       if (!pr.ok) { toast(pj.error || tr("media.fail")); return; }
       if (!(await confirm(pj.svg, pj.notes || []))) return;                      // the user must approve the exact final picture
-      const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) { toast(j.error || tr("media.fail")); return; }
-      if (await send([mediaMsg(tokAddr, media.occasion, BigInt(j.ref))], tr("media.sent"))) reload();
+      const p = await persistPicture(pj.svg);
+      if (p.state === "failed") { toast(tr("media.fail")); return; }
+      if (p.state === "queued") toast(tr("media.queued"));
+      if (await send([mediaMsg(tokAddr, media.occasion, p.ref)], tr("media.sent"))) reload();
     } catch { toast(tr("media.fail")); } finally { setStoring(false); }
   }
   const share = () => {
@@ -56,11 +65,12 @@ export default function Token({ params }: { params: { index: string } }) {
     <>
       <Top />
       <div className="card" style={{ textAlign: "center" }}>
-        <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} />
+        <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = "1"; el.src = `/api/img/${index}.svg${q}`; } }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, d)}</h2>
         <TierBadge tier={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
         <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
         {t.mediaRef && <p className="muted" style={{ marginTop: 10 }}>🔒 {tr("media.permBadge")}</p>}
+        {t.mediaRef && <PendingNote id={t.mediaRef} />}
       </div>
       <div className="card">
         <div className="kv"><span>{tr("tok.owner")}</span><span className="mono">{short(t.owner)}</span></div>

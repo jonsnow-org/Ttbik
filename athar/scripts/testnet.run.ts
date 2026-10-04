@@ -201,7 +201,8 @@ describe("testnet rehearsal", () => {
       const au = await retry(() => auctionOf(Address.parse(st.minter), idx));
       log("auction", JSON.stringify({ endAt: Number(au!.endAt), highBid: String(au!.highBid) }), "now", Math.floor(Date.now() / 1000));
       const before = Number(await retry(() => client.getBalance(payout))) / 1e9;
-      await sendGroup([settleMsg(st.minter, idx)]);
+      const alice2 = await actor("alice");      // anyone may settle a finished auction
+      await alice2.send([settleMsg(st.minter, idx)]);
       await ok("G: the special date is taken after Settle", () => Mn.getIsTaken(BigInt(idx)));
       const item = client.open(AtharItem.fromAddress(await retry(() => Co.getGetNftAddressByIndex(BigInt(idx)))));
       await ok("G: the winner (bob) owns it", async () => (await item.getGetNftData()).ownerAddress.equals(bob.address));

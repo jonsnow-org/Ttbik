@@ -4,7 +4,8 @@ import path from "path";
 import { renderArt, renderPhotoArt } from "@/lib/art";
 import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
-import { idToUint256, uploadPermanent } from "@/lib/arweave";
+import { storeNow } from "@/lib/storage";
+import { enqueue } from "@/lib/mediaQueue";
 import { OCCASIONS } from "@/lib/occasions";
 import { imageSize } from "@/lib/imgsize";
 import { tokenState } from "@/lib/chain";
@@ -75,10 +76,11 @@ export async function POST(req: Request) {
   }
   if (preview) return NextResponse.json({ svg, notes });
   try {
-    const up = await uploadPermanent(Buffer.from(svg, "utf8"), "image/svg+xml", { "Athar-Date": String(index), "Athar-Kind": kind });
-    return NextResponse.json({ id: up.id, url: up.url, ref: idToUint256(up.id).toString(), bytes: Buffer.byteLength(svg) });
+    const st2 = await storeNow(svg);
+    if (!st2.readable) await enqueue(svg).catch(() => undefined);       // keep it and keep trying: its id is already final
+    return NextResponse.json({ id: st2.id, url: `https://turbo-gateway.com/${st2.id}`, ref: st2.ref.toString(), bytes: Buffer.byteLength(svg), readable: st2.readable, queued: !st2.readable });
   } catch (e) {
-    console.error("[media/compose] upload failed", e);
+    console.error("[media/compose] store failed", e);
     return NextResponse.json({ error: "permanent storage is not reachable right now, try again" }, { status: 502 });
   }
 }

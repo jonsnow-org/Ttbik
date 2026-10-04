@@ -7,6 +7,7 @@ import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { buyMsg, short } from "@/lib/tx";
 import { arweaveId } from "@/lib/ids";
+import { persistPicture } from "@/lib/mediaFlow";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
@@ -47,8 +48,11 @@ export default function DatePage() {
 
   async function buy() {
     if (!season?.minter || info?.price == null) return;
-    // the picture is stored permanently BEFORE the purchase so the token is born holding it
-    let ref = 0n;
+    // The picture is made safe BEFORE the purchase, so the token is born holding its final id (see lib/mediaFlow).
+    //   stored  -> normal purchase
+    //   queued  -> purchase as usual, fees included: the token shows its default picture until the file is confirmed, by itself
+    //   failed  -> only if even our server is unreachable: no picture is bound, no picture fee is taken
+    let ref = 0n, buyStyle = style, buyExtra = extra;
     if (perm) {
       setStoring(true);
       try {
@@ -59,13 +63,13 @@ export default function DatePage() {
         if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
         if (!(await confirm(pj.svg, pj.notes || []))) { setStoring(false); return; }      // the user must approve the exact final picture
         toast(t("media.saving"));
-        const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-        const j = await r.json();
-        if (r.ok) ref = BigInt(j.ref); else { toast(j.error || t("media.fail")); setStoring(false); return; }
+        const p = await persistPicture(pj.svg);
+        if (p.state === "failed") { toast(t("media.failedFree")); buyStyle = 0; buyExtra = 0; }
+        else { ref = p.ref; if (p.state === "queued") toast(t("media.queued")); }
       } catch { toast(t("media.fail")); setStoring(false); return; }
       setStoring(false);
     }
-    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, style, extra)], t("date.sent"))) reload();
+    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, buyStyle, buyExtra)], t("date.sent"))) reload();
   }
 
   return (

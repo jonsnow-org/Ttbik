@@ -10,3 +10,12 @@ echo "$(now) $out" > "$STATE/sweeper_note"
 if [ $(( $(date +%-M) % 5 )) -eq 0 ]; then
   curl -s -m 55 "$SITE_URL/api/ops/bots-health" -H "x-ops-key: $key" > "$STATE/bots_health.json" 2>/dev/null || true
 fi
+# Athar: every 5th minute (offset by 2) work through the pictures that are waiting for the permanent network.
+# A token that was minted while its picture was still on its way shows its default picture until the file is confirmed, then switches by itself.
+if [ -f "$OR/agent/ATHAR_ON" ] && [ -s "$STATE/athar_admin_path" ] && [ $(( $(date +%-M) % 5 )) -eq 2 ]; then
+  H=$(getkv "$OR/.env" PUBLIC_HOST); P=$(cat "$STATE/athar_admin_path")
+  for h in athar athar-test; do
+    [ "$h" = athar-test ] && [ ! -s "$OR/agent/ATHAR_TEST_ADMIN" ] && continue
+    curl -s -m 100 -X POST "https://$h.$H/api/media/retry" -H "x-athar-adm: $P" > "$STATE/athar_retry_$h" 2>/dev/null || true
+  done
+fi

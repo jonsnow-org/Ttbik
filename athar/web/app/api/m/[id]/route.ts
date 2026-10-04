@@ -4,6 +4,7 @@ import { dateLabelAr, MONTHS_EN, stageOf, STAGE_NAME_AR, TIER_NAME_AR, TIER_NAME
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { SITE_URL } from "@/lib/config";
 import { isHiddenRef, isHiddenToken } from "@/lib/hidden";
+import { available } from "@/lib/mediaQueue";
 export const dynamic = "force-dynamic";
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const index = Number(params.id.replace(/\.json$/, ""));
@@ -19,7 +20,9 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   ];
   if (st) attrs.push({ trait_type: "Season", value: st.season }, { trait_type: "Age stage", value: STAGE_NAME_AR[stage] }, { trait_type: "Hands", value: st.hands }, { trait_type: "Engravings", value: st.engravings.length }, { trait_type: "Edition", value: 1 });
   const hidden = isHiddenToken(index) || isHiddenRef(st?.mediaRef);
-  const permanent = st?.mediaRef && !hidden ? `https://turbo-gateway.com/${st.mediaRef}` : null;
+  // a token may carry the id of a picture that is still on its way to the permanent network: until a gateway really serves it,
+  // the token shows its default picture (and switches to the real one by itself)
+  const permanent = st?.mediaRef && !hidden && (await available(st.mediaRef)) ? `https://turbo-gateway.com/${st.mediaRef}` : null;
   if (st) attrs.push({ trait_type: "Occasion", value: st.occasion });
   const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}` : `?t=${tier}`;
   return NextResponse.json({
