@@ -571,3 +571,10 @@ try:
     _sham_amp.install()
 except Exception as _exc:
     print(f"sham_amp not installed: {_exc}")
+
+# Cell fixes reach already-imported notebooks without re-importing them (sham_cell_sync.py).
+try:
+    import sham_cell_sync as _sham_cell_sync
+    _sham_cell_sync.install()
+except Exception as _exc:
+    print(f"sham_cell_sync not installed: {_exc}")
