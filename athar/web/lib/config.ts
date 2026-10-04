@@ -5,7 +5,16 @@ import { Address } from "@ton/core";
 export const NETWORK = process.env.NEXT_PUBLIC_TON_NETWORK === "testnet" ? "testnet" : "mainnet";
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 // Public address of the management wallet. Read at run time on the server (ATHAR_ADMIN), so setting it needs only a restart.
-export const ADMIN = process.env.ATHAR_ADMIN || process.env.NEXT_PUBLIC_ATHAR_ADMIN || "";
+// The panel can also fix it once, from the connected wallet (write-once file in the data folder), so the owner never has to hand an address over.
+function adminFromFile(): string {
+  if (typeof window !== "undefined") return "";
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("fs"), path = require("path");
+    return String(fs.readFileSync(path.join(process.env.ATHAR_DATA_DIR || path.join(process.cwd(), "data"), "admin.txt"), "utf8")).trim();
+  } catch { return ""; }
+}
+export const getAdmin = (): string => process.env.ATHAR_ADMIN || process.env.NEXT_PUBLIC_ATHAR_ADMIN || adminFromFile();
 export const DELAY_SEC = Number(process.env.NEXT_PUBLIC_ATHAR_DELAY_SEC || 172800);   // 48h public notice period
 export const TONCENTER_RPC = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v2/jsonRPC" : "https://toncenter.com/api/v2/jsonRPC";
 export const TONCENTER_V3 = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v3" : "https://toncenter.com/api/v3";
@@ -22,5 +31,5 @@ export const viewerUrl = (p: { i: number; t: number; s: number; g: number; h: nu
 export const BASE_URI = `${META_BASE}/m/`;
 
 export function adminAddress(): Address | null {
-  try { return ADMIN ? Address.parse(ADMIN) : null; } catch { return null; }
+  try { const a = getAdmin(); return a ? Address.parse(a) : null; } catch { return null; }
 }

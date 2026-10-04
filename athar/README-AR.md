@@ -53,3 +53,7 @@ cd web && npm i --legacy-peer-deps && NEXT_PUBLIC_SITE_URL=http://localhost:3100
 
 _آخر تحديث للنشر: 2026-10-04._
 
+
+## الإطلاق والطبقات الاحتياطية
+- خطوات الإطلاق المختصرة: `athar/LAUNCH-AR.md`.
+- بقاء الرموز حيّة إن سقط أحد الخوادم: `docs/ATHAR_REDUNDANCY.md` (العارض الحي الدائم، مرآة Vercel، مفتاح الطوارئ، فحص الصحة).

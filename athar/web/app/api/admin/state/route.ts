@@ -3,7 +3,7 @@ import { Address } from "@ton/core";
 import { makeClient } from "@/lib/chain";
 import { AtharCollection } from "../../../../../build/athar_AtharCollection";
 import { AtharMinter } from "../../../../../build/athar_AtharMinter";
-import { COLLECTION_URI, DELAY_SEC, SITE_URL, ADMIN } from "@/lib/config";
+import { COLLECTION_URI, DELAY_SEC, SITE_URL, getAdmin } from "@/lib/config";
 import { SEASON_1 } from "@/lib/seasons";
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const collection = await AtharCollection.fromInit(admin, COLLECTION_URI, BigInt(DELAY_SEC));
   const minter = await AtharMinter.fromInit(collection.address, admin, BigInt(SEASON_1.id), BigInt(SEASON_1.rangeStart), BigInt(SEASON_1.rangeEnd));
   const out: Record<string, unknown> = {
-    siteUrl: SITE_URL, envAdmin: ADMIN, collection: collection.address.toString({ bounceable: true }), minter: minter.address.toString({ bounceable: true }),
+    siteUrl: SITE_URL, envAdmin: getAdmin(), collection: collection.address.toString({ bounceable: true }), minter: minter.address.toString({ bounceable: true }),
     collectionActive: false, minterActive: false,
   };
   try { out.balance = Number(await client.getBalance(admin)) / 1e9; } catch { out.balance = null; }

@@ -102,6 +102,13 @@ export default function AdminPanel() {
   }, [address]);
   useEffect(() => { refresh(); const t = setInterval(refresh, 20000); return () => clearInterval(t); }, [refresh]);
 
+  // the wallet says how many messages it can sign at once: use it, so a modern wallet needs only a few confirmations
+  useEffect(() => {
+    const f: any = (ui.wallet as any)?.device?.features?.find?.((x: any) => x?.name === "SendTransaction");
+    const n = Number(f?.maxMessages);
+    if (n > 0) setMaxMsgs(Math.min(255, n));
+  }, [ui.wallet]);
+
   const payoutOk = useMemo(() => { try { Address.parse(payout.trim()); return true; } catch { return false; } }, [payout]);
   const size = seasonSize(SEASON_1);
   const pool = useMemo(() => buildPool(SEASON_1), []);
@@ -127,6 +134,11 @@ export default function AdminPanel() {
   async function launch() {
     setRunning(true); setLog([]);
     try {
+      // the first launch fixes this wallet as the management wallet (its public address only), so the app can find the contracts afterwards
+      if (!st?.envAdmin) {
+        const cr = await fetch("/api/admin/claim", { method: "POST", headers: adm(), body: JSON.stringify({ address }) });
+        if (!cr.ok) { push("⚠️ " + ((await cr.json().catch(() => ({}))).error || "تعذّر اعتماد محفظة الإدارة")); return; }
+      }
       let secretHex = localStorage.getItem(KEY);
       let secret: bigint;
       if (secretHex) secret = BigInt("0x" + secretHex);
@@ -192,6 +204,7 @@ export default function AdminPanel() {
           <div className="gap">
             <label className="muted">عنوان استلام الأرباح (عام، ولا تضع أي كلمات سرية هنا)</label>
             <input type="text" dir="ltr" placeholder="UQ…" value={payout} onChange={(e) => setPayout(e.target.value)} />
+            {!!address && !payout && <button className="btn ghost" onClick={() => setPayout(address)}>استخدم محفظتي هذه مؤقتاً (يمكن تغييرها لاحقاً بإشعار 48 ساعة)</button>}
             <label className="muted">موعد فتح البيع</label>
             <input type="datetime-local" dir="ltr" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
             <label className="muted">أقصى عدد رسائل في تأكيد واحد (4 للمحافظ القديمة، 255 للحديثة)</label>
