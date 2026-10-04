@@ -1,8 +1,8 @@
 // Turns a season definition into the wallet requests that publish it. Nothing here signs anything:
 // every request is shown to the owner inside their own wallet, who pays and confirms.
 import { Address, beginCell, Cell, Dictionary, storeStateInit, toNano } from "@ton/core";
-import { AtharCollection, storeProposePayout, storeProposeBaseUri, storeApplyBaseUri, storeProposeMinter } from "../../build/athar_AtharCollection";
-import { AtharMinter, storeConfigure, storeAddSpecial, storeLoadPool, storeSetMystery, storeSetFees, storeOpen, storeStartAuction, storeSetPaused, storeReveal, storeSweep } from "../../build/athar_AtharMinter";
+import { AtharCollection, storeProposePayout, storeProposeBaseUri, storeApplyBaseUri, storeSetItemFees, storeProposeMinter } from "../../build/athar_AtharCollection";
+import { AtharMinter, storeConfigure, storeAddSpecial, storeLoadPool, storeSetMystery, storeSetFees, storeOpen, storeStartAuction, storeSetPaused, storeReveal, storeSweep, storeReprice } from "../../build/athar_AtharMinter";
 import { BASE_URI, COLLECTION_URI, DELAY_SEC } from "./config";
 import { buildPool, SeasonDef, specialIndex, seasonTier } from "./seasons";
 import { ruleTier, TIER } from "./dates";
@@ -87,5 +87,11 @@ export const revealMsg = (minter: string, secret: bigint): Msg => ({ address: mi
 /** Moves the address the token metadata is read from (the failover switch). The first one is immediate; every later one waits out the public notice period, then must be applied. */
 export const proposeBaseUriMsg = (collection: string, uri: string): Msg => ({ address: collection, amount: nano("0.06").toString(), payload: body(storeProposeBaseUri({ $$type: "ProposeBaseUri", uri })) });
 export const applyBaseUriMsg = (collection: string): Msg => ({ address: collection, amount: nano("0.05").toString(), payload: body(storeApplyBaseUri({ $$type: "ApplyBaseUri" })) });
+/** The fees of engraving / first picture / picture change (TON), changeable any time: prices follow the market. */
+export const setItemFeesMsg = (collection: string, engrave: string, media: string, change: string): Msg => ({ address: collection, amount: nano("0.05").toString(), payload: body(storeSetItemFees({ $$type: "SetItemFees", engraveFee: nano(engrave), mediaFee: nano(media), changeFee: nano(change) })) });
+/** Fees of putting an own photo / the waxed-silver treatment on a token at purchase (TON), changeable any time. */
+export const setPhotoFeesMsg = (minter: string, photo: string, silver: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSetFees({ $$type: "SetFees", photoFee: nano(photo), silverFee: nano(silver) })) });
+/** Moves the price band (floor and cap, TON) of a tier after opening: 0 common, 1 rare, 3 mystery tickets. */
+export const repriceMsg = (minter: string, tier: number, floor: string, cap: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeReprice({ $$type: "Reprice", tier: BigInt(tier), floor: nano(floor), cap: nano(cap) })) });
 export const sweepMsg = (minter: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSweep({ $$type: "Sweep" })) });
 export const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));

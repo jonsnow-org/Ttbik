@@ -26,6 +26,7 @@ function PendingNote({ id }: { id: string }) {
 export default function Token({ params }: { params: { index: string } }) {
   const index = Number(params.index);
   const { data: t, reload } = useApi<Tok & { error?: string }>(`/api/token/${index}`, 15000);
+  const { data: season } = useApi<{ collection?: string; itemFees?: { engrave: number; media: number; change: number } }>("/api/season", 30000);
   const { t: tr, dateLabel, lang } = useI18n();
   const { send, busy, address } = useSend();
   const toast = useToast();
@@ -44,6 +45,9 @@ export default function Token({ params }: { params: { index: string } }) {
   const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}&live=1${anniv ? "&ann=1" : ""}`;
   const shown = t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
   const tokAddr = t.address;
+  const fees = season?.itemFees ?? { engrave: 0.1, media: 0.1, change: 0.5 };
+  const collectionAddr = season?.collection ?? "";
+  const mediaFee = t.mediaRef ? fees.change : fees.media;
   async function storeAndSet(kind: "photo" | "snapshot") {
     setStoring(true); toast(tr("media.saving"));
     try {
@@ -55,7 +59,7 @@ export default function Token({ params }: { params: { index: string } }) {
       const p = await persistPicture(pj.svg);
       if (p.state === "failed") { toast(tr("media.fail")); return; }
       if (p.state === "queued") toast(tr("media.queued"));
-      if (await send([mediaMsg(tokAddr, media.occasion, p.ref)], tr("media.sent"))) reload();
+      if (await send([mediaMsg(collectionAddr, index, media.occasion, p.ref, mediaFee)], tr("media.sent"))) reload();
     } catch { toast(tr("media.fail")); } finally { setStoring(false); }
   }
   const share = () => {
@@ -96,18 +100,18 @@ export default function Token({ params }: { params: { index: string } }) {
           <div className="gap" style={{ marginTop: 10 }}>
             <input type="text" placeholder={tr("tok.engrPh")} value={text} onChange={(e) => setText(e.target.value)} />
             <span className={new TextEncoder().encode(text).length > 32 ? "bad" : "muted"} dir="ltr">{new TextEncoder().encode(text).length} / 32 bytes</span>
-            <button className="btn" disabled={busy || !text.trim() || new TextEncoder().encode(text).length > 32} onClick={async () => { if (await send([engraveMsg(t.address, text.trim())], tr("tok.engrSent"))) { setText(""); reload(); } }}>{tr("tok.engrBtn")}</button>
+            <button className="btn" disabled={busy || !text.trim() || new TextEncoder().encode(text).length > 32} onClick={async () => { if (await send([engraveMsg(collectionAddr, index, text.trim(), fees.engrave)], tr("tok.engrSent"))) { setText(""); reload(); } }}>{tr("tok.engrBtn", { p: fees.engrave })}</button>
             <p className="muted">{tr("tok.engrHelp")}</p>
           </div>
         )}
       </div>
-      {mine && !t.mediaRef && (
+      {mine && (
         <div className="card">
-          <h3>{tr("media.title")}</h3>
+          <h3>{t.mediaRef ? tr("media.changeTitle") : tr("media.title")}</h3>
           <MediaPicker index={index} tier={t.tier} season={t.season} value={media} onChange={setMedia} stage={stage} hands={t.hands} engravings={t.engravings.length} />
-          <p className="muted">{tr("media.permNote")}</p>
+          <p className="muted">{t.mediaRef ? tr("media.changeNote") : tr("media.permNote")}</p>
           <div className="gap">
-            <button className="btn gold" disabled={busy || storing} onClick={() => storeAndSet(media.photo ? "photo" : "snapshot")}>{media.photo ? tr("media.save") : tr("media.freeze")}</button>
+            <button className="btn gold" disabled={busy || storing} onClick={() => storeAndSet(media.photo ? "photo" : "snapshot")}>{t.mediaRef ? tr("media.change", { p: mediaFee }) : media.photo ? tr("media.save", { p: mediaFee }) : tr("media.freeze", { p: mediaFee })}</button>
           </div>
         </div>
       )}

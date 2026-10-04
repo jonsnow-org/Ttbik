@@ -25,6 +25,10 @@ contract AtharCollection {
     successor: Address? = null;                // next edition, set once; closes minting
     minted: Int as uint32 = 0;
     firstMinterDone: Bool = false;
+    engraveFee: Int as coins = 100000000;      // 0.1 TON; adjustable by the admin (SetItemFees), never above 5 TON
+    mediaFee: Int as coins = 100000000;        // first picture / occasion
+    changeFee: Int as coins = 500000000;       // replacing a picture that is already there (both the old and the new one stay in the token's history)
+    issued: map<Int as uint16, Bool>;          // which dates have a token (so a request for a missing token is refused at once)
 
     receive() { }                                // plain TON (not expected): forwarded by Withdraw
 
@@ -87,6 +91,7 @@ contract AtharCollection {
         require(ctx.value >= msg.remit + MINT_FEES, "not enough value");
         let init: StateInit = initOf AtharItem(myAddress(), msg.index);
         self.minted = self.minted + 1;
+        self.issued.set(msg.index, true);
         // the sale money goes to the owner's wallet in the same transaction
         if (msg.remit > 0) {
             send(SendParameters{ to: self.payout!!, value: msg.remit, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar sale".asComment() });
@@ -97,6 +102,29 @@ contract AtharCollection {
             body: ItemInit{ owner: msg.newOwner, season: msg.season, tier: msg.tier, paid: msg.paid, mintedAt: now(), occasion: msg.occasion, mediaRef: msg.mediaRef }.toCell(),
             code: init.code, data: init.data
         });
+    }
+
+    // ---- adjustable item fees ----
+    receive(msg: SetItemFees) {
+        require(sender() == self.admin, "only admin");
+        require(msg.engraveFee >= 20000000 && msg.mediaFee >= 20000000 && msg.engraveFee <= 5000000000 && msg.mediaFee <= 5000000000 && msg.changeFee <= 5000000000, "fee out of range");
+        require(msg.changeFee >= msg.mediaFee, "a change costs at least a first picture");
+        self.engraveFee = msg.engraveFee;
+        self.mediaFee = msg.mediaFee;
+        self.changeFee = msg.changeFee;
+    }
+    // the owner asks HERE (the collection knows the current fees); the item checks ownership and applies it
+    receive(msg: EngraveReq) {
+        let ctx: Context = context();
+        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.issued.get(msg.index) != null, "no such token");
+        require(ctx.value >= self.engraveFee + MIN_STORAGE + REQ_GAS, "not enough value");
+        send(SendParameters{ to: self.itemAddress(msg.index), value: 0, mode: SendRemainingValue, bounce: true, body: EngraveFrom{ owner: ctx.sender, text: msg.text, fee: self.engraveFee }.toCell() });
+    }
+    receive(msg: SetMediaReq) {
+        let ctx: Context = context();
+        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.issued.get(msg.index) != null, "no such token");
+        require(ctx.value >= self.mediaFee + MIN_STORAGE + REQ_GAS, "not enough value");
+        send(SendParameters{ to: self.itemAddress(msg.index), value: 0, mode: SendRemainingValue, bounce: true, body: SetMediaFrom{ owner: ctx.sender, occasion: msg.occasion, mediaRef: msg.mediaRef, firstFee: self.mediaFee, changeFee: self.changeFee }.toCell() });
     }
 
     // sale money and engraving fees come here and leave at once
@@ -165,6 +193,7 @@ contract AtharCollection {
         if (self.payout != null) { dest = self.payout!!; }
         return RoyaltyParams{ numerator: self.royaltyNum, denominator: self.royaltyDen, destination: dest };
     }
+    get fun item_fees(): ItemFees { return ItemFees{ engrave: self.engraveFee, media: self.mediaFee, change: self.changeFee }; }
     get fun payout_address(): Address? { return self.payout; }
     get fun successor_address(): Address? { return self.successor; }
     get fun minter_active_at(minter: Address): Int? { return self.minters.get(minter); }

@@ -79,8 +79,6 @@ message(0x41540002) MintItem {
 }
 message(0x41540003) Proceeds { }                         // item -> collection: engraving fee, forwarded to payout at once
 message(0x41540005) MintOk { index: Int as uint64; }     // collection -> minter: the token exists
-message(0x41540004) Engrave { text: String; }            // owner -> item (value >= ENGRAVE_FEE)
-message(0x41540007) SetMedia { occasion: Int as uint8; mediaRef: Int as uint256; }   // owner -> item (value >= MEDIA_FEE); every earlier picture stays in the on-chain history
 
 // ---- upgrade (burn to a higher edition). Two phases so a token is never lost ----
 message(0x41540010) UpgradeStart { queryId: Int as uint64; }          // owner -> item (carries the upgrade price + gas)
@@ -123,3 +121,12 @@ message(0x41540024) ProposeBaseUri { uri: String; }
 message(0x41540025) ApplyBaseUri { }
 message(0x41540026) SetSuccessor { successor: Address; }
 message(0x41540027) Withdraw { }
+
+// ---- engraving and picture changes go through the collection, which holds the (adjustable) fees ----
+message(0x41540070) EngraveReq { index: Int as uint64; text: String; }                                    // owner -> collection (value >= engraveFee + gas)
+message(0x41540071) EngraveFrom { owner: Address; text: String; fee: Int as coins; }                      // collection -> item
+message(0x41540072) SetMediaReq { index: Int as uint64; occasion: Int as uint8; mediaRef: Int as uint256; }   // owner -> collection
+message(0x41540073) SetMediaFrom { owner: Address; occasion: Int as uint8; mediaRef: Int as uint256; firstFee: Int as coins; changeFee: Int as coins; }   // collection -> item: replacing an existing picture costs changeFee
+message(0x41540074) SetItemFees { engraveFee: Int as coins; mediaFee: Int as coins; changeFee: Int as coins; }   // admin -> collection (each at most 5 TON)
+struct ItemFees { engrave: Int; media: Int; change: Int; }
+const REQ_GAS: Int = 60000000;          // 0.06 TON: gas of the two hops of an engraving / picture change (the rest comes back)
