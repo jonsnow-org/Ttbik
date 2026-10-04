@@ -189,7 +189,8 @@ def train(
         model = torch.compile(model)
 
     use_amp = cfg.mixed_precision and device.startswith("cuda")
-    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.is_bf16_supported()) else torch.float16
+    # bf16 only where the hardware really has it: on a T4 is_bf16_supported() answers True through slow emulation
+    amp_dtype = torch.bfloat16 if (use_amp and torch.cuda.get_device_capability()[0] >= 8) else torch.float16
     use_scaler = use_amp and amp_dtype == torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
 

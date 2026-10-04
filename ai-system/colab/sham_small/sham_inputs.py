@@ -556,3 +556,18 @@ try:
     _sham_train_eval.install()
 except Exception as _exc:
     print(f"sham_train_eval not installed: {_exc}")
+
+# Sham is a general model: its text is spelled with the general tokenizer (many languages, code, math)
+# and older checkpoints are moved to it on load — no cell change (sham_general_text.py).
+try:
+    import sham_general_text as _sham_general_text
+    _sham_general_text.install()
+except Exception as _exc:
+    print(f"sham_general_text not installed: {_exc}")
+
+# Mixed precision on GPU sessions (sham_amp.py): fp16 + loss scaling on a T4, CPU untouched.
+try:
+    import sham_amp as _sham_amp
+    _sham_amp.install()
+except Exception as _exc:
+    print(f"sham_amp not installed: {_exc}")
