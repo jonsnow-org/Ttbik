@@ -113,8 +113,8 @@ const MOTIFS: Record<string, Motif> = {
   syria1: () => stars(40, 41) + lowered(path("M-200 640Q400 600 1000 640V900H-200Z", M) + omari(660, 640) + olive(200, 640)),
   syria2: () => stars(40, 43) + lowered(path("M-200 640Q400 610 1000 640V900H-200Z", M) + clocktower(660, 640) + oliveBranch(200, 560)),
 };
-// the Syrian scenes sit low and small so the flag above them stays whole and large
-const lowered = (inner: string) => `<g transform="translate(400 735) scale(0.72) translate(-400 -640)">${inner}</g>`;
+// the Syrian scenes fill the picture; the revolution flag is only a small mark above them
+const lowered = (inner: string) => `<g transform="translate(400 705) scale(0.95) translate(-400 -640)">${inner}</g>`;
 function olive(cx: number, base: number): string {
   let s = path(`M${cx - 18} ${base}C${cx - 28} ${base - 90} ${cx - 50} ${base - 130} ${cx - 70} ${base - 190}L${cx - 40} ${base - 200}C${cx - 25} ${base - 160} ${cx - 8} ${base - 130} ${cx} ${base - 110}C${cx + 8} ${base - 150} ${cx + 30} ${base - 190} ${cx + 60} ${base - 210}L${cx + 76} ${base - 190}C${cx + 40} ${base - 150} ${cx + 28} ${base - 70} ${cx + 22} ${base}Z`, L);
   const blobs: [number, number, number][] = [[-70, -230, 62], [0, -270, 78], [74, -240, 66], [-120, -190, 48], [128, -190, 50], [10, -200, 58]];
@@ -154,7 +154,7 @@ export function revolutionFlag(x: number, y: number, w = 300): string {
   const wavePath = (y0: number, y1: number) => `M${x} ${y + y0}` + Array.from({ length: 31 }, (_, i) => { const t = i / 30; return `L${P(x + t * w)} ${P(y + y0 + Math.sin(t * Math.PI * 2) * 9 * t)}`; }).join("") + Array.from({ length: 31 }, (_, i) => { const t = 1 - i / 30; return `L${P(x + t * w)} ${P(y + y1 + Math.sin(t * Math.PI * 2) * 9 * t)}`; }).join("") + "Z";
   const st = (cx: number, cy: number, R: number) => { let d = ""; for (let i = 0; i < 10; i++) { const a = ((-90 + i * 36) * Math.PI) / 180, r = i % 2 ? R * 0.382 : R; d += `${i ? "L" : "M"}${P(cx + Math.cos(a) * r)} ${P(cy + Math.sin(a) * r)}`; } return `<path d="${d}Z" fill="#ce1126"/>`; };
   const midY = (cx: number) => y + h / 2 + Math.sin(((cx - x) / w) * Math.PI * 2) * 9 * ((cx - x) / w);
-  return `<g>${rect(x - 14, y - 20, 12, h + 190, "#d8d2c4", 6)}${circ(x - 8, y - 26, 12, "#d8d2c4")}` +
+  return `<g>${rect(x - 8, y - 14, 6, h + 130, "#d8d2c4", 3)}${circ(x - 5, y - 18, 6, "#d8d2c4")}` +
     `<path d="${wavePath(0, h / 3)}" fill="#007a3d"/><path d="${wavePath(h / 3, (2 * h) / 3)}" fill="#ffffff"/><path d="${wavePath((2 * h) / 3, h)}" fill="#000000"/>` +
     [0.3, 0.5, 0.7].map((t) => st(x + t * w, midY(x + t * w), h * 0.11)).join("") + `</g>`;
 }
@@ -192,6 +192,6 @@ export function specialScene(index: number): { scene: string; overlay?: string }
   const inner = big ? MOTIFS[motif]() : `<g transform="translate(400 400) scale(1.28) translate(-400 -400)">${MOTIFS[motif]()}</g>`;
   const scene = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${SCENE_BG()}${inner}</svg>`;
   if (!SYRIA.has(k)) return { scene };
-  const overlay = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${revolutionFlag(170, 128, 380)}</svg>`;
+  const overlay = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${revolutionFlag(150, 150, 120)}</svg>`;
   return { scene, overlay };
 }
