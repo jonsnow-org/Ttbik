@@ -23,7 +23,10 @@ export default function AdminPanel() {
   const toast = useToast();
   useEffect(() => { document.body.dataset.admin = "1"; return () => { delete document.body.dataset.admin; }; }, []);
   const [st, setSt] = useState<St | null>(null);
-  const [payout, setPayout] = useState("");
+  const [payout, setPayout] = useState(() => { try { return localStorage.getItem("athar_payout") || ""; } catch { return ""; } });   // survives a reload or a reconnect
+  useEffect(() => { try { localStorage.setItem("athar_payout", payout); } catch { /* private mode */ } }, [payout]);
+  type Ov = { deployed?: boolean; minted?: number; size?: number; byTier?: number[]; holders?: number; top?: { owner: string; tokens: number }[]; revenue?: number; salesToday?: number; recent?: { at: number; ton: number }[]; revenueNote?: string; payout?: string; mine?: number[] };
+  const [ov, setOv] = useState<Ov | null>(null);
   const [startAt, setStartAt] = useState(() => { const d = new Date(Date.now() + 20 * 60000); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
   const [maxMsgs, setMaxMsgs] = useState(4);
   const [log, setLog] = useState<string[]>([]);
@@ -175,6 +178,11 @@ export default function AdminPanel() {
   }
 
   const launched = st?.status === 1 || st?.status === 2;
+  useEffect(() => {
+    if (!launched) return;
+    const load = () => fetch("/api/admin/overview", { cache: "no-store", headers: { "x-athar-adm": window.location.pathname.slice(1) } }).then((r) => r.ok ? r.json() : null).then((j) => j && setOv(j)).catch(() => undefined);
+    load(); const t = setInterval(load, 60000); return () => clearInterval(t);
+  }, [launched]);
   const secretLocal = typeof window !== "undefined" ? localStorage.getItem(KEY) : null;
   async function run(fn: () => Promise<void>) { setRunning(true); try { await fn(); toast("تم الإرسال"); } catch { toast("لم تكتمل العملية"); } finally { setRunning(false); setTimeout(refresh, 8000); } }
 
@@ -249,6 +257,20 @@ export default function AdminPanel() {
         ))}
       </div>
 
+      {launched && ov?.deployed && (
+        <div className="card">
+          <h3>نظرة عامة</h3>
+          <div className="kv"><span>المُصكوك</span><span>{ov.minted} / {ov.size}</span></div>
+          <div className="kv"><span>عادي · نادر · أسطوري</span><span>{ov.byTier?.join(" · ")}</span></div>
+          <div className="kv"><span>عدد الحاملين</span><span>{ov.holders}</span></div>
+          <div className="kv"><span>وصل إلى محفظة الأرباح</span><span>{ov.revenue != null ? `${ov.revenue.toFixed(2)} TON` : "..."}</span></div>
+          <div className="kv"><span>عمليات اليوم</span><span>{ov.salesToday ?? "..."}</span></div>
+          {ov.revenueNote && <p className="muted">{ov.revenueNote}</p>}
+          {!!ov.recent?.length && <><b>آخر العمليات</b>{ov.recent.map((x, i) => <div className="kv" key={i}><span>{new Date(x.at * 1000).toLocaleString("ar")}</span><span>{x.ton.toFixed(2)} TON</span></div>)}</>}
+          {!!ov.top?.length && <><b>أكبر الحاملين</b>{ov.top.map((x) => <div className="kv" key={x.owner}><span className="mono">{x.owner.slice(0, 6)}…{x.owner.slice(-4)}</span><span>{x.tokens}</span></div>)}</>}
+          {!!ov.mine?.length && <><b>رموزك أنت</b><div className="row" style={{ flexWrap: "wrap", gap: 8 }}>{ov.mine.map((i) => <a key={i} className="btn sm ghost" href={`/token/${i}`}>{i}</a>)}</div></>}
+        </div>
+      )}
       {launched && st && (
         <div className="card">
           <h3>أدوات ما بعد الإطلاق</h3>
