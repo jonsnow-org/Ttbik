@@ -44,6 +44,7 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
       </div>
       <div className="muted">{t("media.photo")}</div>
       <div className="note">{t("media.warn")}</div>
+      <div className="note">{t("media.legal")}</div>
       <label className="muted"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> {t("media.consent")}</label>
       <div className="row" style={{ gap: 8 }}>
         <button type="button" className="btn ghost" disabled={busy || !ok} onClick={() => file.current?.click()}>{busy ? t("media.busy") : t("media.choose")}</button>
