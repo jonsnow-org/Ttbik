@@ -171,3 +171,13 @@
 - **مُرمِّز عام** (`sham_general_tokenizer.json`، 32,000 كالسابق فتبقى نطاقات الصورة/الصوت): `sham_general_text.py` ينقل صفوف نقاط الحفظ القديمة إلى مفرداته عند التحميل (قطع مشتركة تنسخ، والباقي متوسط القطع القديمة)، ويوسم ما يحفظه كي لا يُنقل مرتين؛ مرحلة الإصلاح/الدمج ترى المُرمِّزات القديمة كما هي.
 - **دقة مختلطة** (`sham_amp.py`): fp16 + GradScaler على GPU (T4 بلا bf16 حقيقي)، CPU بلا تغيير؛ `SHAM_FP32=1` يوقفها. لم يُجرَّب على CUDA هنا.
 - **مزامنة الخلايا** (`sham_cell_sync.py` + `sham_cell_updates.json`): خلية نسخة قديمة منشورة سابقاً تُستبدل وقت التشغيل بنسخة المستودع الحالية؛ تُبنى الجدول بـ `python sham_cell_sync.py --build` بعد كل تعديل خلية.
+
+## 2026-10-04 (مساءً) — مصنع GitHub المجاني (المستودع عام ⇒ دقائق Actions غير محدودة)
+- **ثلاثة workflows** (`.github/workflows/`، كلٌّ 5.3 ساعة ثم يعاد بالجدولة، بقفل تزامن):
+  `sham-collector.yml` (زاحف عام بلا تدريب → `sham-crawl-gh-collect-corpus`)، `sham-merge-eval.yml` (إصلاح + دمج محروس + تقييم على CPU → `sham-merged-checkpoint`)،
+  `sham-cpu-trainer.yml` (المدرّب الحي على CPU بمصادر GitHub → `sham-crawl-gh` و`sham-crawl-gh-corpus`).
+- **مصادر جديدة** `sham_sources_gh.py` لا تتكرر مع مصادر Kaggle (لا ويكي ولا أخبار): Gutenberg، كتب Internet Archive قبل 1929، arXiv، Europe PMC، Crossref، Hacker News، Stack Exchange (26 موقعاً بلغات)، GitHub (كود + README بتراخيص متساهلة)، LoC، Cleveland، صور IA، LibriVox، صوت IA، فيديو IA.
+- التنويع: لا مصدر يتجاوز 20% من الحروف المجموعة (`balance`).
+- النصوص المنشورة تدخل خط النص الرئيسي كمصدر إضافي (`crawl-corpora`) وتُقرأ في مرحلة المحادثة، فلا يضيع شيء.
+- يحتاج: سر `KAGGLE_API_TOKEN` (موجود). اختياري: `TELEGRAM_BOT_TOKEN` و`TELEGRAM_CHAT_ID` كأسرار مستودع لتصل التقارير.
+- سرعة CPU ≈ 3% من جلسة GPU: الأهمية في البيانات والدمج لا في التدريب.
