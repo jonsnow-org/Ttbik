@@ -48,3 +48,4 @@ cd web && npm i --legacy-peer-deps && NEXT_PUBLIC_SITE_URL=http://localhost:3100
 - طبقة مزايا البوتات.
 
 _آخر تحديث للنشر: 2026-10-04._
+
