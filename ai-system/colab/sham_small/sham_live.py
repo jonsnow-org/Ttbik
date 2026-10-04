@@ -49,6 +49,8 @@ from pathlib import Path
 
 import torch
 
+import sham_amp
+
 WORK = Path("/kaggle/working")
 MODEL_DATASET = "sham-crawl-checkpoint"
 CORPUS_DATASET = "sham-crawl-corpus"
@@ -442,6 +444,11 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
 
     optimizer = build_optimizer(model, lr=LR, weight_decay=0.1)
+    use_amp = sham_amp.enabled(device)
+    use_scaler = use_amp and sham_amp.amp_dtype() == torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    if use_amp:
+        print(f"⚡ دقة مختلطة ({'fp16' if use_scaler else 'bf16'}) في المدرّب الحي")
     detach_link = attach(model)
     ema = EMA(model, EMA_DECAY)
     guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
@@ -515,19 +522,26 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             for g in optimizer.param_groups:
                 g["lr"] = lr_at(step - start_step, time.time() - t_train, budget - (t_train - t_start)) * guard.lr_scale
             try:
-                _, loss = model(ids.to(device), labels=labels.to(device))
+                with torch.autocast("cuda", dtype=sham_amp.amp_dtype(), enabled=use_amp):
+                    _, loss = model(ids.to(device), labels=labels.to(device))
                 if not torch.isfinite(loss):
                     optimizer.zero_grad(set_to_none=True)
                     continue
-                loss.backward()
+                (scaler.scale(loss) if use_scaler else loss).backward()
             except torch.cuda.OutOfMemoryError:
                 optimizer.zero_grad(set_to_none=True)
                 torch.cuda.empty_cache()
                 token_budget = max(1024, token_budget // 2)
                 print(f"⚠ الذاكرة لا تكفي — ميزانية الدفعة أصبحت {token_budget} رمزاً")
                 break
+            if use_scaler:
+                scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            if use_scaler:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             ema.update(model)
             step += 1
