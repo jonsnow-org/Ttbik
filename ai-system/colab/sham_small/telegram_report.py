@@ -40,6 +40,11 @@ def send_telegram_message(token: str, chat_id: str, text: str, post_fn: PostFn =
     """Real Telegram Bot API sendMessage call. Never raises -- a failed
     report must not fail (or even slow down retrying) an otherwise-
     successful training session; it just prints why and returns False."""
+    try:  # mirror every report into the supervision dataset (best effort, silent; see sham_reports.py)
+        from sham_reports import log_report
+        log_report(text)
+    except Exception:
+        pass
     if not token or not chat_id:
         print("telegram_report: no token/chat_id configured -- skipping report (not an error).")
         return False

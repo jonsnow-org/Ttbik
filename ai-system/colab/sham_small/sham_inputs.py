@@ -438,7 +438,7 @@ def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
     repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
     names = account_dataset_names() if names is None else names
-    return [n for n in names if n.startswith(("sham", "nova-small")) and "tokenizer" not in n and "corpus" not in n]
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in ("tokenizer", "corpus", "reports"))]
 
 
 def repo_dataset_names() -> set[str]:

@@ -67,6 +67,14 @@ TRACKS: list[dict[str, Any]] = [
         "kind": "tool",
     },
     {
+        "id": "live_trainer",
+        "name": "المدرّب الحي — زحف وترميز وتدريب في دفتر واحد",
+        "markers": ["sham_live.run(", "المدرّب الحي"],
+        "dataset": "sham-crawl-checkpoint",
+        "key_files": ["final.pt"],
+        "kind": "train",
+    },
+    {
         # After bot_test (whose source also names final_chat.pt), before stage2.
         "id": "chat_stage",
         "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
