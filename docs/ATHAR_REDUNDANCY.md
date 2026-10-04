@@ -20,6 +20,12 @@
 (الصور تعمل بلا أي إعداد؛ البيانات `/m/` تحتاج هذه لتجيب وحدها حين يغيب Oracle.)
 وفي Oracle: السطر `ATHAR_META_BASE=https://<موقع-vercel>/api/athar` في ملف `.env`.
 
+## القيم المعتمدة على Vercel (وُضعت في 2026-10-04)
+- `ATHAR_PRIMARY` = `https://athar.89-168-89-15.sslip.io`
+- `NEXT_PUBLIC_ATHAR_META_BASE` = `https://ttbik.vercel.app/api/athar`
+- `ATHAR_ADMIN` = عنوان محفظة الإدارة العام (يجب أن يطابق المحفظة التي تضغط «أطلق» منها)
+أي تغيير فيها يحتاج إعادة نشر (Redeploy) لأن بعضها يُدمج وقت البناء. العلامة أن المرآة تعمل: `/api/ops/athar-health` يظهر فيه `primaryImg.ok = true`.
+
 ## الفحص
 `/api/ops/athar-health` على الموقع الرئيسي: يفحص الخادم والمرآة والعارض على بوابتي Arweave، ويقول `alive` إن بقيت الطبقات كافية.
 
