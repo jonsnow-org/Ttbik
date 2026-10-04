@@ -34,7 +34,8 @@ BAD_ADDED = [
     (re.compile(r"\beval\s*\("), "eval( — تنفيذ نص مرفوض"),
     (re.compile(r"os\.system\s*\("), "os.system"),
     (re.compile(r"shell\s*=\s*True"), "shell=True"),
-    (re.compile(r"print\([^)]*(TOKEN|SECRET|API_KEY|KAGGLE_KEY|PASSWORD)", re.I), "طباعة قيمة سرّ"),
+    (re.compile(r"print\(\s*(os\.environ|os\.getenv|[A-Za-z_]*(TOKEN|SECRET|API_KEY|KAGGLE_KEY|PASSWORD)\w*\s*[,)])", re.I), "طباعة قيمة سرّ"),
+    (re.compile(r"print\(\s*f[\"'][^\"']*\{[^}]*(TOKEN|SECRET|API_KEY|KAGGLE_KEY|PASSWORD)", re.I), "طباعة قيمة سرّ داخل f-string"),
     (re.compile(r"(ghp_|github_pat_|KGAT_|xox[bp]-|AKIA)[A-Za-z0-9_\-]{12,}"), "ما يشبه مفتاحاً سرياً"),
 ]
 
@@ -50,10 +51,13 @@ def added_lines(diff: str) -> list[tuple[str, str]]:
     return out
 
 
+SELF = "ai-system/supervision/sham_ci_check.py"   # defines the patterns, so it cannot be scanned by them (a change to it is flagged for the owner)
+
+
 def scan_added(diff: str) -> list[str]:
     found = []
     for path, line in added_lines(diff):
-        if not path.endswith((".py", ".ipynb", ".sh", ".yml", ".yaml", ".json")):
+        if path == SELF or not path.endswith((".py", ".ipynb", ".sh", ".yml", ".yaml", ".json")):
             continue
         for rx, why in BAD_ADDED:
             if rx.search(line):
@@ -107,6 +111,8 @@ def run(base: str, selftest_timeout: int = 900) -> tuple[list[tuple[str, bool, s
     wf = [c for c in changed if c.startswith(".github/")]
     if wf:
         notes.append("⚠ يغيّر ملفات سير عمل (" + ", ".join(wf) + "): لا يُدمج إلا بعد أن تراه المالكة بنفسها.")
+    if SELF in changed:
+        notes.append("⚠ يغيّر الفاحص الأمني نفسه (sham_ci_check.py): لا يُدمج إلا بعين المالكة — هو الذي يحرس بقية التعديلات.")
     if any(c.startswith("ai-system/supervision/CONTRACT") for c in changed):
         notes.append("⚠ يغيّر عقد المدخلات/المخارج: يحتاج موافقة المالكة الصريحة.")
     return results, notes + [f"تنبيه عقد: {w}" for w in warn]
@@ -128,6 +134,8 @@ if __name__ == "__main__":
         got = scan_added(d)
         assert len(got) == 2 and "eval(" in got[0] and "سرّ" in got[1], got
         assert scan_added("+++ b/a.py\n+token = 'ghp_" + "a" * 20 + "'\n")
+        assert scan_added("+++ b/a.py\n+print(f\"key {my_TOKEN}\")\n") and scan_added("+++ b/a.py\n+print(GITHUB_TOKEN)\n")
+        assert not scan_added("+++ b/a.py\n+print(\"ok\", post(os.environ.get(\"GITHUB_TOKEN\")))\n")
         assert added_lines("+++ b/a.py\n+x\n--- b\n+++ b/c.py\n+y\n") == [("a.py", "x"), ("c.py", "y")]
         assert render([("a", True, ""), ("b", False, "why")], ["note"]).startswith("## ❌")
         print("sham_ci_check self-test OK")
