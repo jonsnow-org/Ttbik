@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Top, TierBadge, useApi, useSend } from "@/components/ui";
 import { stageOf, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
+import { NETWORK } from "@/lib/config";
 import { engraveMsg, eq, short } from "@/lib/tx";
 
 type Tok = { index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
@@ -32,7 +33,7 @@ export default function Token({ params }: { params: { index: string } }) {
         <img src={`/api/img/${index}.svg${q}`} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, d)}</h2>
         <TierBadge tier={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
-        <div className="row" style={{ marginTop: 14 }}><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
+        <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
       </div>
       <div className="card">
         <div className="kv"><span>{tr("tok.owner")}</span><span className="mono">{short(t.owner)}</span></div>

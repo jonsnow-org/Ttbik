@@ -83,6 +83,7 @@ export const DICT = {
   "gift.ph": r("عنوان محفظة المستلم (UQ… أو EQ…)", "Recipient wallet address (UQ… or EQ…)", "Адрес кошелька получателя (UQ… или EQ…)", "Alıcının cüzdan adresi (UQ… veya EQ…)", "نشانی کیف پول گیرنده (UQ… یا EQ…)"),
   "gift.buy": r("اشترِ وأهدِ", "Buy and gift", "Купить и подарить", "Satın al ve hediye et", "بخرید و هدیه دهید"),
   "gift.bad": r("العنوان غير صحيح", "Invalid address", "Неверный адрес", "Geçersiz adres", "نشانی نامعتبر"),
+  "tok.market": r("اعرضه أو بِعه على Getgems", "View or sell it on Getgems", "Открыть или продать на Getgems", "Getgems'te görüntüle veya sat", "در Getgems ببینید یا بفروشید"),
   "tok.notMinted": r("هذا الرمز لم يُصكّ بعد.", "This token has not been minted yet.", "Этот токен ещё не выпущен.", "Bu token henüz basılmadı.", "این توکن هنوز ضرب نشده است."),
   "tok.share": r("شارك", "Share", "Поделиться", "Paylaş", "اشتراک‌گذاری"),
   "tok.shareText": r("أثري: {d}", "My Athar: {d}", "Мой Athar: {d}", "Athar'ım: {d}", "اثر من: {d}"),
