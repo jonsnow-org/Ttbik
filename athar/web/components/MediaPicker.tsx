@@ -4,11 +4,12 @@ import { renderArt, renderPhotoArt } from "@/lib/art";
 import { OCCASIONS } from "@/lib/occasions";
 import { emblem } from "@/lib/occasions";
 import { compressPhoto } from "@/lib/photo";
+import { waxPhoto } from "@/lib/wax";
 import { useI18n } from "@/lib/i18n";
 
 const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number };
+export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number; raw?: string | null; style?: "plain" | "silver" };
 
 /** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
 export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0 }: {
@@ -27,7 +28,16 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
     setBusy(true); setErr("");
     try {
       const r = await compressPhoto(f);
-      if (!r) setErr(t("media.tooBig")); else onChange({ ...value, photo: r.uri, w: r.w, h: r.h });
+      if (!r) setErr(t("media.tooBig")); else onChange({ ...value, photo: r.uri, raw: r.uri, style: "plain", w: r.w, h: r.h });
+    } catch { setErr(t("media.tooBig")); }
+    finally { setBusy(false); }
+  }
+  async function setStyle(style: "plain" | "silver") {
+    if (!value.raw || busy) return;
+    setBusy(true); setErr("");
+    try {
+      const uri = style === "plain" ? value.raw : await waxPhoto(value.raw, "silver");
+      if (!uri) setErr(t("media.tooBig")); else onChange({ ...value, photo: uri, style });
     } catch { setErr(t("media.tooBig")); }
     finally { setBusy(false); }
   }
@@ -51,6 +61,12 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
         {value.photo && <button type="button" className="btn ghost" onClick={() => onChange({ ...value, photo: null })}>{t("media.remove")}</button>}
         <input ref={file} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(e.target.files?.[0])} />
       </div>
+      {value.photo && value.raw && (
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className={`btn sm ${value.style === "silver" ? "ghost" : ""}`} disabled={busy} onClick={() => setStyle("plain")}>{t("media.stylePlain")}</button>
+          <button type="button" className={`btn sm ${value.style === "silver" ? "" : "ghost"}`} disabled={busy} onClick={() => setStyle("silver")}>{t("media.styleSilver")}</button>
+        </div>
+      )}
       {err && <div className="bad">{err}</div>}
       <img src={svgUri(preview)} alt="" style={{ width: "100%", maxWidth: 340, margin: "0 auto", display: "block", borderRadius: 22 }} />
     </div>

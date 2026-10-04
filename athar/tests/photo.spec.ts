@@ -55,3 +55,17 @@ describe("legal takedown list", () => {
     expect(h.isHiddenRef(ref)).toBe(true);
   });
 });
+
+describe("waxed silver", () => {
+  it("keeps the picture's structure (bright stays brighter than dark) and returns opaque pixels", async () => {
+    const { waxPixels } = await import("../web/lib/wax");
+    const W = 40, H = 40, d = new Uint8ClampedArray(W * H * 4);
+    for (let i = 0; i < W * H; i++) { const v = (i % W) < W / 2 ? 30 : 220; d.set([v, v, v, 255], i * 4); }
+    for (const mode of ["silver", "gold"] as const) {
+      const o = waxPixels(d, W, H, mode);
+      const at = (x: number, y: number) => (o[(y * W + x) * 4] + o[(y * W + x) * 4 + 1] + o[(y * W + x) * 4 + 2]) / 3;
+      expect(at(30, 20)).toBeGreaterThan(at(10, 20));
+      expect(o[3]).toBe(255);
+    }
+  });
+});
