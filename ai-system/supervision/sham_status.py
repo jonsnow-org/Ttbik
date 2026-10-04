@@ -266,9 +266,14 @@ def render_md(data: dict, contract: dict) -> str:
     for name, meta in contract["datasets"].items():
         d = by.get(name)
         L.append(f"| {name} | {d['size'] if d else '—'} | {d['updated'][:10] if d else 'غير موجودة'} | {meta['writer'] or '—'} | {meta['role']} |")
+    import fnmatch
     extra = [d for n, d in by.items() if n.startswith(("sham", "nova")) and n not in contract["datasets"]]
     for d in extra:
-        L.append(f"| {d['name']} | {d['size']} | {d['updated'][:10]} | ❓ غير معرّف | (ليست في العقد) |")
+        # same rule as sham_contract.known(): dynamic patterns (sham-crawl-*) are known collectors
+        covered = any(fnmatch.fnmatch(d["name"], pat) for pat in contract.get("dynamic_dataset_patterns", []))
+        writer = "زاحف مكتشف تلقائياً" if covered else "❓ غير معرّف"
+        role = "(نمط ديناميكي في العقد)" if covered else "(ليست في العقد)"
+        L.append(f"| {d['name']} | {d['size']} | {d['updated'][:10]} | {writer} | {role} |")
     L += ["", "## آخر تقارير الجلسات (الأحدث أولاً)"]
     for r in data.get("reports", [])[:6]:
         L += [f"### {r['time']} — {r['source'][:80]}", "```", r["text"][:1800], "```"]
@@ -357,6 +362,17 @@ if __name__ == "__main__":
         assert "registry_private" not in (out / "status.json").read_text(encoding="utf-8")
         assert (out / "sham-registry.json").exists()
         assert "آخر أخطاء مصنع GitHub" in md
+        md_dyn = render_md({
+            "generated_at": "t", "alerts": [], "kernels": [], "workflows": {}, "failures": [], "reports": [],
+            "datasets": [
+                {"name": "sham-crawl-xlive", "size": "1MB", "updated": "2026-10-04 12:00:00"},
+                {"name": "sham-crawl-agent", "size": "1MB", "updated": "2026-10-04 12:00:00"},
+                {"name": "sham-crawl-agent-corpus", "size": "2MB", "updated": "2026-10-04 12:00:00"},
+                {"name": "sham-mystery-data", "size": "1MB", "updated": "2026-10-01 12:00:00"},
+            ],
+        }, contract)
+        assert md_dyn.count("زاحف مكتشف تلقائياً") == 3, md_dyn
+        assert "❓ غير معرّف" in md_dyn and md_dyn.count("❓ غير معرّف") == 1
         # the failing run is reported with the step that failed
         jobs = {"jobs": [{"name": "merge", "steps": [{"name": "setup", "conclusion": "success"}, {"name": "Repair, merge", "conclusion": "failure"}]}]}
         runs2 = github_runs(lambda url: dict(runs, workflow_runs=[dict(r, id=7 + i, html_url=f"https://x/{i}") for i, r in enumerate(runs["workflow_runs"])]))
