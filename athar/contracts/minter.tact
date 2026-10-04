@@ -87,6 +87,8 @@ contract AtharMinter {
     soldCount: Int as uint32 = 0;
     photoFee: Int as coins = 0;                    // extra price of putting your own photo on the token
     silverFee: Int as coins = 0;                   // extra price of the waxed-silver treatment of that photo
+    lockedBids: Int as coins = 0;                  // money of live auction bids that Sweep must never touch (high bid + fee margin of every unsettled auction)
+    ticketsOpen: Int as uint16 = 0;                // sold tickets not yet claimed: each needs MINT_FEES kept here for its claim
 
     receive() { }
 
@@ -177,6 +179,7 @@ contract AtharMinter {
         let tier: Int = self.tierOfIndex(msg.index);
         require(tier != TIER_MYTHIC && self.special.get(msg.index) == null, "mythic and special dates are sold by auction");
         require(msg.style <= 2, "bad style");
+        require(msg.occasion <= 9, "bad occasion");
         let t: TierState = self.tiers.get(tier)!!;
         let price: Int = self.priceNow(t);
         let extra: Int = 0;
@@ -237,10 +240,12 @@ contract AtharMinter {
             let a: Auction = self.auctions.get(msg.index)!!;
             let a2: Auction = Auction{ started: true, endAt: a.endAt, reserve: a.reserve, highBid: a.highBid, highBidder: a.highBidder, mediaRef: a.mediaRef };
             self.auctions.set(msg.index, a2);
+            self.lockedBids = self.lockedBids + a.highBid + BUY_FEES;   // the money came back with the bounce: protect it again
         } else if (p!!.kind == 2) {
             // claim failed: the ticket can be claimed again
             let tk: Ticket = self.tickets.get(p!!.ticket)!!;
             self.tickets.set(p!!.ticket, Ticket{ owner: tk.owner, price: tk.price, claimed: false });
+            self.ticketsOpen = self.ticketsOpen + 1;
         } else {
             send(SendParameters{ to: p!!.buyer, value: p!!.amount, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar refund".asComment() });
         }
@@ -272,6 +277,9 @@ contract AtharMinter {
         if (au.highBidder != null) {
             send(SendParameters{ to: au.highBidder!!, value: au.highBid + BUY_FEES, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar outbid".asComment() });
         }
+        let prevLocked: Int = 0;
+        if (au.highBidder != null) { prevLocked = au.highBid + BUY_FEES; }
+        self.lockedBids = self.lockedBids + ctx.value - prevLocked;
         au.highBid = bid;
         au.highBidder = ctx.sender;
         if (au.endAt - now() < 300) { au.endAt = now() + 300; }       // anti-sniping extension
@@ -290,6 +298,7 @@ contract AtharMinter {
         }
         au.started = false;                         // blocks a second settle until MintOk / bounce
         self.auctions.set(msg.index, au);
+        self.lockedBids = self.lockedBids - (au.highBid + BUY_FEES);
         self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, kind: 1, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: au.highBid + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
@@ -300,7 +309,8 @@ contract AtharMinter {
     // dust left by gas margins goes to the admin
     receive(msg: Sweep) {
         require(sender() == self.admin, "only admin");
-        nativeReserve(MIN_STORAGE + self.soldCount * 0, 0);
+        // keep what is owed: every live bid (so outbid refunds and the winner's mint still work) and the mint fee of every unclaimed ticket
+        nativeReserve(MIN_STORAGE + self.lockedBids + self.ticketsOpen * MINT_FEES, 2);
         send(SendParameters{ to: self.admin, value: 0, mode: SendRemainingBalance | SendIgnoreErrors, bounce: false, body: "athar sweep".asComment() });
     }
 
@@ -352,6 +362,7 @@ contract AtharMinter {
         self.tiers.set(3, TierState{ price: capped, floor: t.floor, cap: t.cap, bumpBps: t.bumpBps, decayBps: t.decayBps, lastDecayAt: t.lastDecayAt + days * DAY, sold: t.sold + 1 });
         self.tickets.set(self.ticketsSold, Ticket{ owner: owner, price: price, claimed: false });
         self.ticketsSold = self.ticketsSold + 1;
+        self.ticketsOpen = self.ticketsOpen + 1;
         // the price goes to the owner's wallet through the collection; the mint fees stay here until the claim
         send(SendParameters{ to: self.collection, value: price, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
         let refund: Int = ctx.value - price - BUY_FEES;
@@ -399,6 +410,7 @@ contract AtharMinter {
         let date: Int = self.pool.get(pos)!!;
         require(self.pending.get(date) == null && self.sold.get(date) == null, "already issued");
         self.tickets.set(msg.ticket, Ticket{ owner: tk!!.owner, price: tk!!.price, claimed: true });
+        self.ticketsOpen = self.ticketsOpen - 1;
         self.pending.set(date, PendingMint{ buyer: tk!!.owner, amount: MINT_FEES, kind: 2, ticket: msg.ticket });
         send(SendParameters{
             to: self.collection, value: MINT_FEES, mode: SendPayGasSeparately, bounce: true,

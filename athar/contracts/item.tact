@@ -101,6 +101,7 @@ contract AtharItem {
         require(self.owner != null && ctx.sender == self.owner!!, "not owner");
         require(!self.locked, "upgrade in progress");
         require(ctx.value >= MEDIA_FEE + MIN_STORAGE, "not enough value");
+        require(msg.occasion <= 9, "bad occasion");
         self.occasion = msg.occasion;
         if (msg.mediaRef != 0 && msg.mediaRef != self.mediaRef) {
             self.mediaRef = msg.mediaRef;
