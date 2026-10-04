@@ -324,7 +324,7 @@ def make_batches(examples: list, token_budget: int):
 # ---------------------------------------------------------------- run
 
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
-        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None) -> dict:
+        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None, source_set: str = "default") -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
     (used by the offline test)."""
     from checkpoint import load_checkpoint, save_checkpoint
@@ -378,7 +378,12 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     # — the spider network and the encoders
     raw_q, enc_q = queue.Queue(maxsize=256), queue.Queue(maxsize=512)
     ledgers = {}
-    spider = Spider(default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video),
+    if source_set == "gh":   # the GitHub-hosted trainer reads different sources than the Kaggle one (sham_sources_gh.py)
+        from sham_sources_gh import gh_sources
+        _sources = [x for x in gh_sources() if video or x.kind != "video"]
+    else:
+        _sources = default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video)
+    spider = Spider(_sources,
                     seen, raw_q, TARGETS if video else {k: v for k, v in TARGETS.items() if k != "video"},
                     workers=workers, seed=step).start()
     encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device)

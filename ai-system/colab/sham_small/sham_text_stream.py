@@ -25,6 +25,7 @@ that sham_text_mix.stream_mix returns and behaves as an (endless) dataset whose 
 from __future__ import annotations
 
 import json
+import os
 import queue
 import random
 import threading
@@ -38,6 +39,41 @@ EOS = 42241          # model.SpecialTokens.EOS (the text tokenizer itself never 
 VIRTUAL_LEN = 10_000_000  # "endless": enough windows that no epoch ever completes
 
 
+class CrawlCorpusDocs:
+    """The text the collection notebooks published (every sham-crawl-*-corpus dataset of the account: the Kaggle live
+    trainer's, the GitHub collector's, an engineer's...), as documents. Looks like a streaming dataset to Stream."""
+
+    def __init__(self, names=None):
+        self.names = names
+
+    def _files(self):
+        try:
+            from sham_inputs import crawl_dataset_names, fetch_dataset
+            names = self.names if self.names is not None else crawl_dataset_names()["corpora"]
+            files = []
+            for n in names:
+                root = fetch_dataset(n)
+                if root:
+                    files += sorted(Path(root).rglob("text/**/*.txt"))
+            return files
+        except Exception:
+            return []
+
+    def shuffle(self, seed: int, buffer_size: int = 0):
+        rng = random.Random(seed)
+        files = self._files()
+        rng.shuffle(files)
+        for f in files:
+            try:
+                raw = f.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            docs = [d for d in raw.split("\n\n") if d.strip()] if "\n\n" in raw else [d for d in raw.split("\n") if d.strip()]
+            rng.shuffle(docs)
+            for d in docs:
+                yield {"text": d}
+
+
 class Stream:
     """Endless, bounded, multi-source window stream. One per session."""
 
@@ -47,6 +83,9 @@ class Stream:
 
         self.tok, self.seq_len = tokenizer, seq_len
         self.sources = list(sources or mix.SOURCES)
+        if sources is None and not os.environ.get("SHAM_NO_CRAWL_CORPORA"):
+            # what the collection notebooks published must not be lost: it joins the mixture as one more source
+            self.sources.append(("crawl-corpora", "@crawl", None, "text", 5, 6000))
         self.seed = int(time.time()) % 1_000_000 if seed is None else seed
         self.make_stream = make_stream
         self.stop = threading.Event()
@@ -61,6 +100,8 @@ class Stream:
     # -------------------------------------------------------------- producers
     def _open(self, src, round_no):
         label, name, config, field, _w, cap = src
+        if name == "@crawl":
+            return CrawlCorpusDocs()
         if self.make_stream is not None:
             ds = self.make_stream(src)
         else:
@@ -99,7 +140,7 @@ class Stream:
             self.stats["restarts"] += 1
             quiet = 0 if got else quiet + 1
             # a source that yields nothing is retried with growing pauses, never abandoned or fatal
-            self.stop.wait(min(300, 2 ** min(quiet, 8)) if not got else 0.1)
+            self.stop.wait(min(300, 2 ** min(quiet, 8)) if not got else (30 if src[1] == "@crawl" else 0.1))
 
     # ------------------------------------------------------------------ mixer
     def _next_docs(self, n):
@@ -259,6 +300,22 @@ if __name__ == "__main__":
     assert s.per_source.get("ko", 0) == 0 and s.stats["failed"] > 0  # a down source never stops the others
     print(s.report()[:160])
     s.close()
+
+    # the published collection corpora join as one more source
+    import tempfile
+    d = Path(tempfile.mkdtemp()) / "text"
+    d.mkdir(parents=True)
+    (d / "a.txt").write_text("\n\n".join(f"collected doc {i} " + "alpha beta gamma " * 40 for i in range(30)), encoding="utf-8")
+    docs = list(CrawlCorpusDocs([]).shuffle(1))
+    assert docs == []
+    import sham_inputs
+    orig_fetch = sham_inputs.fetch_dataset
+    sham_inputs.fetch_dataset = lambda n: d.parent
+    try:
+        docs = list(CrawlCorpusDocs(["sham-crawl-x-corpus"]).shuffle(1))
+    finally:
+        sham_inputs.fetch_dataset = orig_fetch
+    assert len(docs) == 30 and docs[0]["text"].startswith("collected doc")
 
     # as a dataset object to the notebook cells
     _ACTIVE["stream"] = Stream(tok, 64, seed=5, queue_windows=32, make_stream=fake_stream).start()
