@@ -76,9 +76,13 @@ ${occ ? `<g transform="translate(400 188) scale(0.8)">${emblem(occ.id, accent)}<
  * The result is ONE self-contained SVG (the photo is embedded), small enough to be stored permanently for free (< 100 KiB).
  */
 export function photoBox(w: number, h: number, r: number): { iw: number; ih: number } {
-  // the largest rectangle with the photo's own aspect whose corners still lie inside the circle of radius r
-  const s = (2 * r) / Math.sqrt(w * w + h * h);
-  return { iw: Math.floor(w * s), ih: Math.floor(h * s) };
+  // The photo keeps its own aspect ratio and is enlarged to fill the circle: a clearly tall or wide photo gets its long side
+  // equal to the circle's diameter (only the far corners of that long edge touch the rim); a near-square photo is
+  // enlarged less so its corners are not lost. The space the photo does not reach is painted by a blurred copy of itself.
+  const asp = w / h, tall = Math.min(1, Math.abs(Math.log(asp)) / Math.log(2));
+  const L = 2 * r * (0.86 + 0.14 * tall);
+  const k = L / Math.max(w, h);
+  return { iw: Math.floor(w * k), ih: Math.floor(h * k) };
 }
 
 export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: number; h: number }): string {
@@ -90,7 +94,7 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
   const W = 800;
   const stroke = mythic ? 9 : rare ? 6 : 4;
   const PR = 240;                                   // photo circle radius
-  const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 6);
+  const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 3);
   const ix = Math.round(400 - iw / 2), iy = Math.round(400 - ih / 2);
   let rings = "";
   for (let i = 0; i <= a.stage; i++) rings += `<circle cx="400" cy="400" r="${PR + 14 + i * 14}" fill="none" stroke="${accent}" stroke-width="${i === a.stage ? 2.5 : 1.1}" opacity="${(0.25 + i * 0.12).toFixed(2)}"/>`;
@@ -109,11 +113,17 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
 <clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
+<filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="22"/></filter>
+<image id="ph" href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
 </defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
 ${rings}${rim}${dots}
 <circle cx="400" cy="400" r="${PR}" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
-<image href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet" clip-path="url(#win)"/>
+<g clip-path="url(#win)">
+<g filter="url(#soft)"><use href="#ph" xlink:href="#ph" transform="translate(400 400) scale(${(Math.max(1, (2 * PR) / Math.min(iw, ih)) * 1.15).toFixed(3)}) translate(-400 -400)"/></g>
+<rect x="${400 - PR}" y="${400 - PR}" width="${2 * PR}" height="${2 * PR}" fill="#050914" opacity="0.28"/>
+<use href="#ph" xlink:href="#ph"/>
+</g>
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
 <text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${String(d).padStart(2, "0")}</text>
 <text y="34" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="1" fill="${accent}">${MONTHS_EN[m - 1]} ${y}</text></g>
