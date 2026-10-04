@@ -149,6 +149,7 @@ export const DICT = {
   "special.title": r("تاريخ خاص", "A special date", "Особая дата", "Özel bir tarih", "تاریخ ویژه"),
   "tok.notMinted": r("هذا الرمز لم يُصكّ بعد.", "This token has not been minted yet.", "Этот токен ещё не выпущен.", "Bu token henüz basılmadı.", "این توکن هنوز ضرب نشده است."),
   "tok.share": r("شارك", "Share", "Поделиться", "Paylaş", "اشتراک‌گذاری"),
+  "tok.live": r("عرض حي دائم", "Permanent live view", "Живой просмотр", "Kalıcı canlı görünüm", "نمای زندهٔ دائمی"),
   "tok.shareText": r("أثري: {d}", "My Athar: {d}", "Мой Athar: {d}", "Athar'ım: {d}", "اثر من: {d}"),
   "tok.yours": r("هذا رمزك", "Your token", "Ваш токен", "Senin token'ın", "توکن شماست"),
   "tok.owner": r("المالك الحالي", "Current owner", "Текущий владелец", "Mevcut sahip", "مالک فعلی"),

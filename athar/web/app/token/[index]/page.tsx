@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Top, TierBadge, useApi, useSend } from "@/components/ui";
 import { stageOf, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
-import { NETWORK } from "@/lib/config";
+import { NETWORK, viewerUrl } from "@/lib/config";
 import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
@@ -71,7 +71,7 @@ export default function Token({ params }: { params: { index: string } }) {
         <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = "1"; el.src = `/api/img/${index}.svg${q}`; } }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, d)}</h2>
         <TierBadge tier={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
-        <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
+        <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{!t.mediaRef && !t.pictureHidden && <a className="btn ghost" target="_blank" rel="noreferrer" href={viewerUrl({ i: index, t: t.tier, s: t.season, g: stage, h: t.hands, e: t.engravings.length, o: t.occasion })}>{tr("tok.live")}</a>}{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
         {t.mediaRef && <p className="muted" style={{ marginTop: 10 }}>🔒 {tr("media.permBadge")}</p>}
         {t.mediaRef && <PendingNote id={t.mediaRef} />}
       </div>

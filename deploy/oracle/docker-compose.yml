@@ -74,6 +74,7 @@ services:
       dockerfile: web/Dockerfile
       args:
         NEXT_PUBLIC_SITE_URL: https://athar.${PUBLIC_HOST}
+        NEXT_PUBLIC_ATHAR_META_BASE: ${ATHAR_META_BASE:-}   # e.g. https://ttbik.vercel.app/api/athar (the mirror in front of this server)
         NEXT_PUBLIC_ATHAR_ADMIN: ${ATHAR_ADMIN:-}
         NEXT_PUBLIC_TON_NETWORK: ${ATHAR_NETWORK:-mainnet}
     restart: unless-stopped

@@ -9,8 +9,17 @@ export const ADMIN = process.env.ATHAR_ADMIN || process.env.NEXT_PUBLIC_ATHAR_AD
 export const DELAY_SEC = Number(process.env.NEXT_PUBLIC_ATHAR_DELAY_SEC || 172800);   // 48h public notice period
 export const TONCENTER_RPC = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v2/jsonRPC" : "https://toncenter.com/api/v2/jsonRPC";
 export const TONCENTER_V3 = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v3" : "https://toncenter.com/api/v3";
-export const COLLECTION_URI = `${SITE_URL}/api/collection`;
-export const BASE_URI = `${SITE_URL}/api/m/`;
+// Where the token metadata and pictures are asked for (the address written into the contract, so it is chosen once, at launch).
+// Default: our own server. Better: the Vercel mirror (https://<vercel host>/api/athar), which asks our server first and answers by
+// itself when the server does not, so tokens keep their pictures even if the server is gone, with no contract change needed.
+export const META_BASE = (process.env.NEXT_PUBLIC_ATHAR_META_BASE || (SITE_URL ? `${SITE_URL}/api` : "")).replace(/\/$/, "");
+export const COLLECTION_URI = `${META_BASE}/collection`;
+// The standalone living viewer (one HTML file stored permanently, rebuilt only by ../scripts/build-viewer.sh + store-viewer.ts):
+// it draws a token's moving picture from the token's own numbers, so it works even if every server of ours is gone.
+export const VIEWER_ID = "OLetZ3Dc82VnoqYZEFWs2fL9RO37NUfglvkKPh2gl_c";
+export const viewerUrl = (p: { i: number; t: number; s: number; g: number; h: number; e: number; o: number }) =>
+  `https://turbo-gateway.com/${VIEWER_ID}#i=${p.i}&t=${p.t}&s=${p.s}&g=${p.g}&h=${p.h}&e=${p.e}&o=${p.o}`;
+export const BASE_URI = `${META_BASE}/m/`;
 
 export function adminAddress(): Address | null {
   try { return ADMIN ? Address.parse(ADMIN) : null; } catch { return null; }
