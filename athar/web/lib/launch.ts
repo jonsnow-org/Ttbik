@@ -1,7 +1,7 @@
 // Turns a season definition into the wallet requests that publish it. Nothing here signs anything:
 // every request is shown to the owner inside their own wallet, who pays and confirms.
 import { Address, beginCell, Cell, Dictionary, storeStateInit, toNano } from "@ton/core";
-import { AtharCollection, storeProposePayout, storeProposeBaseUri, storeProposeMinter } from "../../build/athar_AtharCollection";
+import { AtharCollection, storeProposePayout, storeProposeBaseUri, storeApplyBaseUri, storeProposeMinter } from "../../build/athar_AtharCollection";
 import { AtharMinter, storeConfigure, storeAddSpecial, storeLoadPool, storeSetMystery, storeSetFees, storeOpen, storeStartAuction, storeSetPaused, storeReveal, storeSweep } from "../../build/athar_AtharMinter";
 import { BASE_URI, COLLECTION_URI, DELAY_SEC } from "./config";
 import { buildPool, SeasonDef, specialIndex, seasonTier } from "./seasons";
@@ -84,5 +84,8 @@ export function specialAuctionMsg(minter: string, def: SeasonDef, index: number,
 }
 export const pauseMsg = (minter: string, paused: boolean): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSetPaused({ $$type: "SetPaused", paused })) });
 export const revealMsg = (minter: string, secret: bigint): Msg => ({ address: minter, amount: nano("0.1").toString(), payload: body(storeReveal({ $$type: "Reveal", secret })) });
+/** Moves the address the token metadata is read from (the failover switch). The first one is immediate; every later one waits out the public notice period, then must be applied. */
+export const proposeBaseUriMsg = (collection: string, uri: string): Msg => ({ address: collection, amount: nano("0.06").toString(), payload: body(storeProposeBaseUri({ $$type: "ProposeBaseUri", uri })) });
+export const applyBaseUriMsg = (collection: string): Msg => ({ address: collection, amount: nano("0.05").toString(), payload: body(storeApplyBaseUri({ $$type: "ApplyBaseUri" })) });
 export const sweepMsg = (minter: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSweep({ $$type: "Sweep" })) });
 export const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));

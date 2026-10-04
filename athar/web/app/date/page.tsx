@@ -11,7 +11,7 @@ import { persistPicture } from "@/lib/mediaFlow";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import Features from "@/components/Features";
-import { eventOf, tierSupply } from "@/lib/meta";
+import { eventOf, hijriLabel, tierSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
 
@@ -21,7 +21,7 @@ type Season = { configured: boolean; minter?: string; deployed?: boolean; status
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 export default function DatePage() {
-  const { t, dateLabel, monthNames } = useI18n();
+  const { t, dateLabel, monthNames, lang } = useI18n();
   const [y, setY] = useState(2003), [m, setM] = useState(3), [d, setD] = useState(14);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("i");
@@ -89,6 +89,7 @@ export default function DatePage() {
       <div className="card" style={{ textAlign: "center" }}>
         <img src={`/api/img/${index}.svg?live=1${fresh ? `&t=${info!.tier}` : ""}`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, dd)}</h2>
+        <div className="muted" style={{ marginBottom: 6 }}>🌙 {t("tok.hijri", { h: hijriLabel(index, lang) })}</div>
         {fresh && <TierBadge tier={info!.tier} />}
         {!fresh && <p className="muted">…</p>}
         {fresh && (

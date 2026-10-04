@@ -39,6 +39,12 @@ export function rarityReason(index: number, tier: number, seasonId = 1): { ar: s
   return { ar: "تاريخ عادي", en: "an everyday date" };
 }
 
+/** The same day in the Islamic (Umm al-Qura) calendar; the printed day can differ by one from a local sighting. */
+export function hijriLabel(index: number, locale = "ar"): string {
+  const { y, m, d } = ymd(index);
+  try { return new Intl.DateTimeFormat(`${locale}-u-ca-islamic-umalqura`, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d))); } catch { return ""; }
+}
+
 export type TokenFacts = { season: number; tier: number; hands: number; engravings: number; lastTransferAt: number; mintedAt: number; mediaRef?: string | null; occasion: number; lastEngraving?: string };
 
 /** Everything worth saying about a token, as market attributes plus a two-language description. */
@@ -54,6 +60,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     { trait_type: "Date", value: `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}` },
     { trait_type: "Year", value: y }, { trait_type: "Month", value: MONTHS_EN[m - 1] }, { trait_type: "Weekday", value: WEEK_EN[wd] },
     { trait_type: "Years since the date", value: yearsAgo },
+    { trait_type: "Hijri date", value: hijriLabel(index, "en") },
     { trait_type: "Rarity", value: TIER_NAME_EN[tier] }, { trait_type: "الندرة", value: TIER_NAME_AR[tier] },
     { trait_type: "Supply in rarity", value: supply }, { trait_type: "Season", value: season },
     { trait_type: "Living picture", value: "Flashes, turns and shines; livelier with age" },
@@ -71,7 +78,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
   const dateAr = `${d} ${["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"][m - 1]} ${y}`;
   const dateEn = `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1]} ${d}, ${y}`;
   const ar = [
-    `رمز يوم ${dateAr} (${WEEK_AR[wd]}) — ${TIER_NAME_AR[tier]}، واحد من ${supply} فقط في هذه الفئة.`,
+    `رمز يوم ${dateAr} (${hijriLabel(index, "ar")}، ${WEEK_AR[wd]}) — ${TIER_NAME_AR[tier]}، واحد من ${supply} فقط في هذه الفئة.`,
     `سبب ندرته: ${why.ar}. الندرة محسوبة من التاريخ بقواعد معلنة وليست حظاً.`,
     event ? `في هذا اليوم: ${event}.` : "",
     "رمز حيّ: صورته تومض وتدور وتلمع، وتزداد حياةً وهالةً كلما طال بقاؤه، وفي ذكرى يومه تتوهّج بهالة ذهبية.",
@@ -82,7 +89,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     f?.lastEngraving ? `آخر نقش: ${f.lastEngraving}` : "",
   ].filter(Boolean).join("\n");
   const en = [
-    `The token of ${dateEn} (${WEEK_EN[wd]}) — ${TIER_NAME_EN[tier]}, one of only ${supply} in its rarity.`,
+    `The token of ${dateEn} (${hijriLabel(index, "en")}, ${WEEK_EN[wd]}) — ${TIER_NAME_EN[tier]}, one of only ${supply} in its rarity.`,
     `Why this rarity: ${why.en}. Rarity is computed from the date by public rules, never luck.`,
     event ? `On this day: ${event}.` : "",
     "A living token: its picture flashes, turns and shines, livelier the longer it is held, and glows gold on the date's own anniversary.",
