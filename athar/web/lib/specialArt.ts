@@ -110,9 +110,10 @@ const MOTIFS: Record<string, Motif> = {
   falcon: () => path("M150 380C250 300 340 330 400 400C460 330 550 300 650 380C600 410 520 400 470 450L400 600L330 450C280 400 200 410 150 380Z", W) + path("M400 400L440 330L500 340L450 410Z", L) + circ(420, 400, 10, K) + path("M400 600L370 690L400 650L430 690Z", M),
   heartpulse: () => MOTIFS.heart(),
   // The two Syrian dates (scene only; the flag overlay is added in colour after the gold step)
-  syria1: () => stars(40, 41) + lowered(path("M-200 640Q400 600 1000 640V900H-200Z", M) + omari(660, 640) + olive(200, 640)),
-  syria2: () => stars(40, 43) + lowered(path("M-200 640Q400 610 1000 640V900H-200Z", M) + clocktower(660, 640) + oliveBranch(200, 560)),
+  syria1: () => startScene(),
+  syria2: () => victoryScene(),
 };
+// (Syrian scenes: start = warplane, cannon, prison, blood; victory = olive tree, broken statue, dawn)
 // the Syrian scenes fill the picture; the revolution flag is only a small mark above them
 const lowered = (inner: string) => `<g transform="translate(400 705) scale(0.95) translate(-400 -640)">${inner}</g>`;
 function olive(cx: number, base: number): string {
@@ -146,6 +147,68 @@ function clocktower(cx: number, base: number): string {
   for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2; s += circ(P(cx + Math.cos(a) * 40) as unknown as number, P(base - 240 + Math.sin(a) * 40) as unknown as number, 2, K); }
   s += rect(cx - 40, base - 150, 80, 60, K, 4) + path(`M${cx - 70} ${base - 340}L${cx} ${base - 440}L${cx + 70} ${base - 340}Z`, W) + ln(cx, base - 440, cx, base - 480, 5) + circ(cx, base - 486, 8, W);
   return s;
+}
+
+
+const at = (x: number, y: number, sc: number, inner: string, rot = 0) => `<g transform="translate(${x} ${y}) rotate(${rot}) scale(${sc})">${inner}</g>`;
+// an artillery piece: wheel, carriage, shield and a long barrel (drawn around its own origin, barrel to the right)
+function cannon(): string {
+  let wheel = circ(0, 0, 62, M) + ring(0, 0, 62, 10, W) + circ(0, 0, 14, W);
+  for (let i = 0; i < 8; i++) wheel += ln(0, 0, Math.cos(i * 0.7854) * 60, Math.sin(i * 0.7854) * 60, 5, L);
+  return wheel + path("M-10 -10H150L170 30H-10Z", L) + path("M-30 -80L40 -80L56 20L-30 20Z", W) + `<g transform="rotate(-22 20 -30)">${rect(20, -48, 270, 34, W, 8)}${rect(268, -56, 40, 50, L, 6)}${rect(20, -38, 270, 6, M)}</g>`;
+}
+// a warplane seen from above, nose to the right
+function warplane(): string {
+  return path("M-150 -10L120 -10Q170 0 120 10L-150 10Z", W) + path("M-10 -8L-95 -120L-60 -120L50 -8Z", L) + path("M-10 8L-95 120L-60 120L50 8Z", L) + path("M-150 -8L-185 -52L-165 -52L-120 -8Z", W) + path("M-150 8L-185 52L-165 52L-120 8Z", W) + circ(70, 0, 7, K) + path("M-36 -120L-26 -120L18 -8L8 -8Z", M);
+}
+// a barred prison window set in a stone wall
+function prison(): string {
+  let s = rect(-110, -150, 220, 300, L, 6) + rect(-70, -100, 140, 190, K, 4);
+  for (let i = 0; i < 5; i++) s += rect(-58 + i * 28, -104, 9, 198, W, 4);
+  s += rect(-80, -108, 160, 10, W, 3) + rect(-80, 86, 160, 10, W, 3);
+  return s + bricks(-110, -150, 220, 40, 55, 20) + bricks(-110, 100, 220, 50, 55, 20);
+}
+const drop = (x: number, y: number, r: number, c: string) => `<path d="M${x} ${y - r * 1.8}Q${x + r * 1.1} ${y - r * 0.2} ${x + r} ${y}A${r} ${r} 0 1 1 ${x - r} ${y}Q${x - r * 1.1} ${y - r * 0.2} ${x} ${y - r * 1.8}Z" fill="${c}"/>`;
+// blood: drops and a stain, drawn in colour AFTER the gold step
+export function bloodOverlay(): string {
+  const c = "#a60f1a";
+  let s = path("M300 628Q330 612 360 622T430 618Q470 624 480 640Q440 652 400 646T310 646Q290 640 300 628Z", c);
+  for (const [x, y, r] of [[352, 562, 9], [392, 590, 7], [438, 548, 8], [372, 610, 6], [420, 600, 5]] as const) s += drop(x, y, r, c);
+  s += path("M345 520Q350 545 346 566", "none", `stroke="${c}" stroke-width="5" stroke-linecap="round"`) + path("M434 500Q439 520 436 545", "none", `stroke="${c}" stroke-width="5" stroke-linecap="round"`);
+  return s;
+}
+function sunrays(cx: number, cy: number): string {
+  let s = "";
+  for (let i = 0; i < 24; i++) { const a = Math.PI + (i / 23) * Math.PI; s += `<path d="M${cx} ${cy}L${P(cx + Math.cos(a - 0.05) * 520)} ${P(cy + Math.sin(a - 0.05) * 520)}L${P(cx + Math.cos(a + 0.05) * 520)} ${P(cy + Math.sin(a + 0.05) * 520)}Z" fill="${i % 2 ? L : M}" opacity="0.28"/>`; }
+  return s + circ(cx, cy, 120, L, 'opacity="0.55"') + circ(cx, cy, 80, W, 'opacity="0.7"');
+}
+// a generic statue (no likeness) on a pedestal, broken: the legs still stand, the torso and head lie shattered beside it
+function brokenStatue(): string {
+  let s = rect(-130, 90, 260, 36, L, 4) + rect(-105, 52, 210, 42, W, 4) + rect(-80, 12, 160, 44, L, 4);
+  // standing boots and shins, cut off ragged
+  s += rect(-54, -70, 34, 86, M, 6) + rect(20, -70, 34, 86, M, 6) + rect(-60, 4, 46, 14, W, 4) + rect(14, 4, 46, 14, W, 4);
+  s += path("M-54 -70L-44 -90L-34 -72L-24 -96L-20 -70Z", M) + path("M20 -70L30 -88L40 -70L48 -94L54 -70Z", M);
+  // fallen torso and head, lying on the ground to the right
+  s += `<g transform="translate(205 70) rotate(-78)">${path("M-34 -80L34 -80L44 60L-44 60Z", L)}${rect(-70, -70, 36, 120, W, 12)}${rect(34, -64, 30, 110, W, 12)}${path("M-34 -80L-20 -92L-6 -78L8 -96L22 -80L34 -80Z", M)}</g>`;
+  s += circ(300, 112, 30, W) + circ(300, 112, 30, "none", `stroke="${K}" stroke-width="4"`) + path("M270 118L282 102L292 118Z", K);
+  for (const [x, y, w] of [[130, 120, 14], [160, 126, 10], [95, 128, 12], [250, 130, 9]] as const) s += path(`M${x} ${y}l${w} ${-w * 0.6}l${w * 0.4} ${w}Z`, M);
+  return s;
+}
+function startScene(): string {
+  const ground = path("M-100 660Q400 640 900 660V900H-100Z", M);
+  return stars(30, 41) + ground
+    + at(235, 250, 0.9, warplane(), -12) + ln(290, 285, 290, 340, 3, M) + ln(330, 296, 334, 350, 3, M)
+    + at(615, 660, 0.8, omari(0, 0))
+    + at(125, 590, 0.9, cannon())
+    + at(400, 545, 0.78, prison())
+    + at(430, 330, 0.7, oliveBranch(0, 0), -8);
+}
+function victoryScene(): string {
+  const ground = path("M-100 660Q400 645 900 660V900H-100Z", M);
+  return stars(24, 43) + sunrays(400, 660) + ground
+    + at(175, 660, 0.88, olive(0, 0))
+    + at(655, 660, 0.78, clocktower(0, 0))
+    + at(400, 545, 1.12, brokenStatue());
 }
 
 // The revolution flag (green, white, black; three red stars) drawn in its true colours, waving a little.
@@ -192,6 +255,7 @@ export function specialScene(index: number): { scene: string; overlay?: string }
   const inner = big ? MOTIFS[motif]() : `<g transform="translate(400 400) scale(1.28) translate(-400 -400)">${MOTIFS[motif]()}</g>`;
   const scene = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${SCENE_BG()}${inner}</svg>`;
   if (!SYRIA.has(k)) return { scene };
-  const overlay = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${revolutionFlag(150, 150, 120)}</svg>`;
+  const flag = k === "2011-03-15" ? revolutionFlag(560, 100, 110) + bloodOverlay() : revolutionFlag(405, 330, 120);
+  const overlay = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800">${flag}</svg>`;
   return { scene, overlay };
 }
