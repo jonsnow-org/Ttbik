@@ -43,7 +43,7 @@ function Admin() {
     { ok: SITE_URL.startsWith("https://"), t: "عنوان الموقع مضبوط وبـHTTPS" },
     { ok: !!st && (!st.envAdmin || st.envAdmin === address || (() => { try { return Address.parse(st.envAdmin).equals(Address.parse(address)); } catch { return false; } })()), t: "محفظة الإدارة تطابق إعداد الموقع" },
     { ok: payoutOk, t: "عنوان استلام الأرباح صحيح" },
-    { ok: !!st && (st.balance ?? 0) >= 2.5 || !!st?.collectionActive, t: "رصيد الإدارة 2.5 TON على الأقل للنشر" },
+    { ok: !!st && (st.balance ?? 0) >= 3.5 || !!st?.collectionActive, t: "رصيد محفظة الإدارة 3.5 TON على الأقل (يعود منه نحو 2 TON)" },
   ];
   const ready = checks.every((c) => c.ok);
 
@@ -98,6 +98,13 @@ function Admin() {
   const secretLocal = typeof window !== "undefined" ? localStorage.getItem(KEY) : null;
   async function run(fn: () => Promise<void>) { setRunning(true); try { await fn(); toast("تم الإرسال"); } catch { toast("لم تكتمل العملية"); } finally { setRunning(false); setTimeout(refresh, 8000); } }
 
+  const stranger = !!address && !!st?.envAdmin && !checks[2].ok;
+  if (stranger) return (
+    <>
+      <div className="top"><span className="logo">أثر<b>.</b></span><TonConnectButton /></div>
+      <div className="card"><p className="muted">هذه الصفحة لمحفظة الإدارة فقط.</p></div>
+    </>
+  );
   return (
     <>
       <div className="top"><span className="logo">أثر<b>.</b> إدارة</span><TonConnectButton /></div>
@@ -124,7 +131,7 @@ function Admin() {
           </div>
           <div className="steps" style={{ marginTop: 12 }}>{checks.map((c, i) => <div key={i} className={`step ${c.ok ? "done" : ""}`}><i>{c.ok ? "✓" : "•"}</i><span>{c.t}</span></div>)}</div>
           <button className="btn gold" style={{ marginTop: 14 }} disabled={!ready || running} onClick={launch}>{st?.collectionActive ? "تابع الإطلاق" : "أطلق الموسم الأول"}</button>
-          <p className="muted">سيطلب منك المحفظة الدفع والتأكيد بضع مرات (حسب أقصى عدد رسائل). التكلفة التقريبية 2–3 TON، أغلبها يعود. لا يُحفظ أي مفتاح هنا.</p>
+          <p className="muted">سيطلب منك المحفظة الدفع والتأكيد بضع مرات (حسب أقصى عدد رسائل). يلزم نحو 3.5 TON في المحفظة، يعود منها نحو 2 TON، فالتكلفة الفعلية قرابة 1 TON. لا يُحفظ أي مفتاح هنا.</p>
           {log.map((l, i) => <div className="note" key={i}>{l}</div>)}
           {secretShown && <div className="note">سرّ الكشف (احفظه). حُمّل ملف نسخة احتياطية:<div className="mono">{secretShown}</div></div>}
         </div>

@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { Address } from "@ton/core";
 import { Top, TierBadge, ton, useApi, useSend } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
@@ -24,12 +25,15 @@ export default function DatePage() {
   const { data: info, reload } = useApi<Info>(`/api/date/${index}`, 12000);
   const { data: season } = useApi<Season>("/api/season", 20000);
   const { send, busy } = useSend();
+  const [gift, setGift] = useState(false);
+  const [to, setTo] = useState("");
+  const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
   const years = useMemo(() => Array.from({ length: 100 }, (_, i) => 2049 - i), []);
   const fresh = info && info.index === index;
 
   async function buy() {
     if (!season?.minter || info?.price == null) return;
-    if (await send([buyMsg(season.minter, index, info.price)], t("date.sent"))) reload();
+    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined)], t("date.sent"))) reload();
   }
 
   return (
@@ -64,7 +68,12 @@ export default function DatePage() {
               <>
                 <div className="big">{ton(info!.price)}</div>
                 <p className="muted">{t("date.fees")}</p>
-                <button className="btn gold" disabled={busy || !season?.deployed || season.status !== 1} onClick={buy}>{season?.status === 1 ? t("date.buy") : t("date.notStarted")}</button>
+                <div className="gap" style={{ textAlign: "start" }}>
+                  <label className="muted"><input type="checkbox" checked={gift} onChange={(e) => setGift(e.target.checked)} /> {t("gift.toggle")}</label>
+                  {gift && <input type="text" dir="ltr" placeholder={t("gift.ph")} value={to} onChange={(e) => setTo(e.target.value)} />}
+                  {gift && to && !toOk && <span className="bad">{t("gift.bad")}</span>}
+                  <button className="btn gold" disabled={busy || !season?.deployed || season.status !== 1 || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : gift ? t("gift.buy") : t("date.buy")}</button>
+                </div>
               </>
             )}
             {info!.inSeason && !info!.taken && !info!.reserved && info!.tier === 2 && (

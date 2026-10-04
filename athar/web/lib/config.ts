@@ -4,7 +4,8 @@ import { Address } from "@ton/core";
 
 export const NETWORK = process.env.NEXT_PUBLIC_TON_NETWORK === "testnet" ? "testnet" : "mainnet";
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
-export const ADMIN = process.env.NEXT_PUBLIC_ATHAR_ADMIN || "";            // public address of the management wallet
+// Public address of the management wallet. Read at run time on the server (ATHAR_ADMIN), so setting it needs only a restart.
+export const ADMIN = process.env.ATHAR_ADMIN || process.env.NEXT_PUBLIC_ATHAR_ADMIN || "";
 export const DELAY_SEC = Number(process.env.NEXT_PUBLIC_ATHAR_DELAY_SEC || 172800);   // 48h public notice period
 export const TONCENTER_RPC = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v2/jsonRPC" : "https://toncenter.com/api/v2/jsonRPC";
 export const TONCENTER_V3 = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v3" : "https://toncenter.com/api/v3";

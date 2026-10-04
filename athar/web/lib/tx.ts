@@ -8,9 +8,9 @@ const b64 = (c: Cell) => c.toBoc().toString("base64");
 export const BUY_FEES = toNano("0.15");          // paid on top of the price; the unused part is refunded
 export const SAFETY = toNano("0.08");
 
-export function buyMsg(minter: string, index: number, priceTon: number): Msg {
+export function buyMsg(minter: string, index: number, priceTon: number, recipient?: string): Msg {
   const amount = toNano(priceTon.toFixed(9)) + BUY_FEES + SAFETY + toNano(priceTon * 0.12 + 0.02);   // headroom for a price that moved; change comes back
-  return { address: minter, amount: amount.toString(), payload: b64(beginCell().store(storeBuy({ $$type: "Buy", index: BigInt(index), recipient: null })).endCell()) };
+  return { address: minter, amount: amount.toString(), payload: b64(beginCell().store(storeBuy({ $$type: "Buy", index: BigInt(index), recipient: recipient ? Address.parse(recipient) : null })).endCell()) };
 }
 export function bidMsg(minter: string, index: number, bidTon: number): Msg {
   const amount = toNano(bidTon.toFixed(9)) + BUY_FEES + SAFETY;

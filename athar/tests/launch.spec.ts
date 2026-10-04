@@ -23,6 +23,7 @@ describe("launch rehearsal (what the admin button does)", () => {
     const { steps, collection, minter, poolDates } = await launchSteps(admin.address, payout.address, SEASON_1, { startAt, commit, revealAt });
     expect(poolDates.length).toBe(500);
 
+    const before = await admin.getBalance();
     let msgCount = 0;
     for (const step of steps) {
       for (const m of step.messages) {                                      // one message at a time = the most conservative wallet
@@ -34,7 +35,14 @@ describe("launch rehearsal (what the admin button does)", () => {
         if (bad.length) throw new Error(`step "${step.title}" message ${msgCount} failed: exit ${(bad[0].description as any).computePhase.exitCode}`);
       }
     }
-    console.log(`launch used ${msgCount} wallet messages in ${steps.length} steps`);
+    const sent = steps.flatMap((x) => x.messages).reduce((a, m) => a + BigInt(m.amount), 0n);
+    const cBal = (await bc.getContract(Address.parse(collection))).balance, mBal = (await bc.getContract(Address.parse(minter))).balance;
+    // what comes back: anyone can push the collection's surplus to the payout wallet, the admin sweeps the minter
+    await bc.openContract(AtharCollection.fromAddress(Address.parse(collection))).send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Withdraw" });
+    await bc.openContract(AtharMinter.fromAddress(Address.parse(minter))).send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Sweep" });
+    const after = await admin.getBalance();
+    const back = (await bc.getContract(Address.parse(collection))).balance;
+    console.log(`LAUNCH COST: attached ${Number(sent) / 1e9} TON in ${msgCount} messages; admin net spend after sweeping ${(Number(before - after) / 1e9).toFixed(3)} TON; left in collection ${Number(back) / 1e9}, in minter ${Number((await bc.getContract(Address.parse(minter))).balance) / 1e9}; (before sweep: collection ${Number(cBal) / 1e9}, minter ${Number(mBal) / 1e9})`);
 
     const col = bc.openContract(AtharCollection.fromAddress(Address.parse(collection)));
     const min = bc.openContract(AtharMinter.fromAddress(Address.parse(minter)));

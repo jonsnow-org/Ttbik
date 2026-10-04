@@ -79,6 +79,10 @@ export const DICT = {
   "date.sent": r("تم إرسال الطلب. إن كان التاريخ متاحاً سيصلك الرمز خلال لحظات.", "Request sent. If the date is still free, your token arrives in moments.", "Запрос отправлен. Если дата свободна, токен придёт через несколько секунд.", "İstek gönderildi. Tarih hâlâ boşsa token birkaç saniye içinde gelir.", "درخواست ارسال شد. اگر تاریخ آزاد باشد، توکن تا لحظاتی دیگر می‌رسد."),
   "date.cant": r("لا تجد تاريخك؟ ربما لم يُفتح موسمه بعد. جرّب", "Can't find your date? Its season may not be open yet. Try the", "Не нашли дату? Возможно, её сезон ещё не открыт. Попробуйте", "Tarihini bulamadın mı? Sezonu henüz açılmamış olabilir. Şunu dene:", "تاریخ خود را پیدا نکردید؟ شاید فصلش هنوز باز نشده. این را امتحان کنید:"),
 
+  "gift.toggle": r("اهدِ هذا التاريخ لشخص آخر", "Gift this date to someone", "Подарить эту дату другому человеку", "Bu tarihi birine hediye et", "این تاریخ را به کسی هدیه دهید"),
+  "gift.ph": r("عنوان محفظة المستلم (UQ… أو EQ…)", "Recipient wallet address (UQ… or EQ…)", "Адрес кошелька получателя (UQ… или EQ…)", "Alıcının cüzdan adresi (UQ… veya EQ…)", "نشانی کیف پول گیرنده (UQ… یا EQ…)"),
+  "gift.buy": r("اشترِ وأهدِ", "Buy and gift", "Купить и подарить", "Satın al ve hediye et", "بخرید و هدیه دهید"),
+  "gift.bad": r("العنوان غير صحيح", "Invalid address", "Неверный адрес", "Geçersiz adres", "نشانی نامعتبر"),
   "tok.notMinted": r("هذا الرمز لم يُصكّ بعد.", "This token has not been minted yet.", "Этот токен ещё не выпущен.", "Bu token henüz basılmadı.", "این توکن هنوز ضرب نشده است."),
   "tok.share": r("شارك", "Share", "Поделиться", "Paylaş", "اشتراک‌گذاری"),
   "tok.shareText": r("أثري: {d}", "My Athar: {d}", "Мой Athar: {d}", "Athar'ım: {d}", "اثر من: {d}"),

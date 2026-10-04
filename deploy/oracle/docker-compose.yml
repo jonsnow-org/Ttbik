@@ -79,6 +79,7 @@ services:
     restart: unless-stopped
     environment:
       TONCENTER_API_KEY: ${TONCENTER_API_KEY:-}
+      ATHAR_ADMIN: ${ATHAR_ADMIN:-}        # read at run time: set it in .env and restart, no rebuild
     mem_limit: 1g
     logging:
       driver: json-file
