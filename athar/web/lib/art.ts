@@ -4,7 +4,7 @@ import { MONTHS_AR, MONTHS_EN, ymd } from "./dates";
 import { emblem, occasionById } from "./occasions";
 
 const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: string }> = {
-  1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#7aa2ff" },
+  1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#9dbbff" },
   2: { bg1: "#1a0b26", bg2: "#4a1b6b", ink: "#f6eaff", accent: "#c78bff" },
   3: { bg1: "#0b2620", bg2: "#145a4a", ink: "#eafff6", accent: "#6af0c0" },
 };
@@ -39,12 +39,13 @@ function spiro(R: number, r: number, dRatio: number, reach: number, rot: number)
 function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body: string } {
   const r = rng(a.index * 7919 + 13);
   const layers = 3, copies = [2, 3, 4][a.tier];
+  const dim = a.tier === 0; // plain dates read dark on the navy: draw their lines thicker and brighter
   let body = `<circle cx="400" cy="400" r="236" fill="url(#core)"/>`;
   // a ring of beads and, for rarer dates, fine rays: the "banknote" border of the picture
   const beads = 90;
   for (let i = 0; i < beads; i++) {
     const an = (i / beads) * Math.PI * 2;
-    body += `<circle cx="${(400 + Math.cos(an) * 222).toFixed(1)}" cy="${(400 + Math.sin(an) * 222).toFixed(1)}" r="${i % 5 === 0 ? 2.4 : 1.3}" fill="${accent}" opacity="${i % 5 === 0 ? 0.95 : 0.55}"/>`;
+    body += `<circle cx="${(400 + Math.cos(an) * 222).toFixed(1)}" cy="${(400 + Math.sin(an) * 222).toFixed(1)}" r="${i % 5 === 0 ? 2.8 : 1.6}" fill="${accent}" opacity="${i % 5 === 0 ? 1 : dim ? 0.8 : 0.55}"/>`;
   }
   if (a.tier >= 1) {
     const n = a.tier === 2 ? 96 : 60;
@@ -60,9 +61,9 @@ function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body
     const reach = 188 - k * 40;
     const dRatio = 0.55 + r() * 0.42;
     const col = k === 1 ? ink : accent;
-    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0)}" fill="none" stroke="${col}" stroke-width="${k === 2 ? 1.5 : 1.1}" stroke-linejoin="round"/>`;
+    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0)}" fill="none" stroke="${col}" stroke-width="${(k === 2 ? 1.5 : 1.1) + (dim ? 0.9 : 0)}" stroke-linejoin="round"/>`;
     for (let c = 0; c < copies; c++) {
-      body += `<use href="#sp${k}" xlink:href="#sp${k}" transform="rotate(${((c / copies) * (360 / (R - q)) + k * 7).toFixed(2)} 400 400)" opacity="${(0.7 - k * 0.12).toFixed(2)}"/>`;
+      body += `<use href="#sp${k}" xlink:href="#sp${k}" transform="rotate(${((c / copies) * (360 / (R - q)) + k * 7).toFixed(2)} 400 400)" opacity="${(dim ? 0.97 - k * 0.07 : 0.7 - k * 0.12).toFixed(2)}"/>`;
     }
   }
   const c = 13 + a.tier * 5;
@@ -119,7 +120,7 @@ export function renderArt(a: ArtInput): string {
   const occ = occasionById(a.occasion ?? 0);
   const accent = a.tier === 2 || occ?.gold ? GOLD : pal.accent;
   const ro = rosette(a, accent, pal.ink);
-  const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.34 : 0.22}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
+  const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.34 : a.tier === 1 ? 0.26 : 0.38}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${ro.body}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
