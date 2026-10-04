@@ -408,6 +408,57 @@ def crawl_dataset_names(prefix: str = CRAWL_PREFIX) -> dict:
     return found
 
 
+def account_dataset_names() -> list[str]:
+    """Every dataset of the account (names only), via the Kaggle API; [] if unreachable."""
+    user = _ensure_credentials()
+    if not user:
+        return []
+    if not shutil.which("kaggle"):
+        subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
+    names: list[str] = []
+    for page in range(1, 11):
+        r = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)],
+                           capture_output=True, text=True)
+        rows = [l.split(",", 1)[0] for l in (r.stdout or "").splitlines()[1:] if "/" in l.split(",", 1)[0]]
+        if not rows:
+            break
+        names += [ref.split("/", 1)[1] for ref in rows if ref.split("/", 1)[0] == user]
+    return sorted(set(names))
+
+
+def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
+    """Account datasets that may hold a Sham model checkpoint to merge: a name with "checkpoint"
+    that is not a tokenizer-only or corpus dataset. Whether one really is a model is decided by the
+    repair stage + the gate, so a wrong guess costs one log line, never a bad merge."""
+    names = account_dataset_names() if names is None else names
+    return [n for n in names if "checkpoint" in n and "tokenizer" not in n and "corpus" not in n]
+
+
+def repo_dataset_names() -> set[str]:
+    """Dataset names the repository's notebooks/modules mention (what the project knowingly uses)."""
+    import re
+    root = Path(__file__).parent
+    used: set[str] = set()
+    for f in [*root.glob("*.py"), *(root / "kaggle_notebooks").glob("*.ipynb")]:
+        try:
+            used |= set(re.findall(r"\b(?:sham|nova)-[a-z0-9]+(?:-[a-z0-9]+)*\b", f.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return used
+
+
+def dataset_inventory(names: list[str] | None = None) -> str:
+    """Which of the account's datasets the project uses, and which nobody reads (lost/forgotten)."""
+    names = account_dataset_names() if names is None else names
+    if not names:
+        return "📦 تعذّر قراءة قائمة مجموعات البيانات."
+    used = repo_dataset_names()
+    mine = [n for n in names if n.startswith(("sham", "nova"))]
+    unused = [n for n in mine if n not in used and not n.startswith(CRAWL_PREFIX)]
+    return (f"📦 مجموعات بيانات شام في حسابك: {len(mine)} | يقرؤها المشروع: {len(mine) - len(unused)}"
+            + (f" | لا أحد يقرؤها: {', '.join(unused)}" if unused else ""))
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
