@@ -18,6 +18,8 @@ permissions:
 
 jobs:
   merge:
+    # مفتاح إيقاف طارئ: متغير مستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_MERGE_EVAL = 1 يتخطّى المهمة
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MERGE_EVAL != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:

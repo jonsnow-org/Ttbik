@@ -22,6 +22,8 @@ permissions:
 
 jobs:
   collect:
+    # مفتاح إيقاف طارئ: متغير مستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_COLLECTOR = 1 يتخطّى المهمة
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_COLLECTOR != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 345
     steps:

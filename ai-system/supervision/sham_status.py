@@ -75,10 +75,65 @@ def github_runs(get_json) -> dict[str, list[dict]]:
         if r.get("name") in FACTORY or str(r.get("name", "")).startswith(("Sham ", "Grok")):
             start, end = _parse(r.get("run_started_at") or ""), _parse(r.get("updated_at") or "")
             out.setdefault(r["name"], []).append({
+                "id": r.get("id"), "url": r.get("html_url", ""),
                 "status": r.get("status"), "conclusion": r.get("conclusion"), "started": (r.get("run_started_at") or "")[:16],
                 "minutes": round((end - start).total_seconds() / 60) if start and end and r.get("status") == "completed" else None,
                 "event": r.get("event")})
     return {k: v[:4] for k, v in out.items()}
+
+
+def recent_failures(runs: dict[str, list[dict]], get_json, limit: int = 3) -> list[dict]:
+    """The latest failed runs across the factory, each with the job/step that failed (so a supervisor sees WHERE, not just that)."""
+    failed = [dict(r, workflow=name) for name, rs in runs.items() for r in rs if r.get("conclusion") == "failure"]
+    failed.sort(key=lambda r: r.get("started", ""), reverse=True)
+    out = []
+    for r in failed[:limit]:
+        steps: list[str] = []
+        try:
+            jobs = (get_json(f"https://api.github.com/repos/{REPO}/actions/runs/{r['id']}/jobs") or {}).get("jobs", [])
+            for j in jobs:
+                for st in j.get("steps", []):
+                    if st.get("conclusion") == "failure":
+                        steps.append(f"{j.get('name')} ← {st.get('name')}")
+        except Exception:
+            pass
+        out.append({"workflow": r["workflow"], "started": r["started"], "url": r.get("url", ""), "failed_steps": steps[:4]})
+    return out
+
+
+def post_alerts(alerts: list[str], token: str | None, request=None, repo: str = REPO) -> str:
+    """One open issue labelled `sham-alert` mirrors the CURRENT alerts (a supervisor with no push channel finds it by that
+    stable title/label): created when alerts appear, edited when they change, closed when they are gone. Our own text only."""
+    import hashlib
+    if not token:
+        return "لا توكن — لم يُنشر تنبيه"
+    if request is None:
+        import requests
+        request = requests.request
+    hdr = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+    api = f"https://api.github.com/repos/{repo}"
+    real = [a for a in alerts if not a.startswith("ℹ")]
+    r = request("GET", f"{api}/issues", headers=hdr, params={"labels": "sham-alert", "state": "open", "per_page": 5}, timeout=60)
+    open_issues = [i for i in (r.json() if r.status_code == 200 else []) if "pull_request" not in i]
+    marker = hashlib.sha1("\n".join(real).encode()).hexdigest()[:12]
+    if not real:
+        for i in open_issues:
+            request("POST", f"{api}/issues/{i['number']}/comments", headers=hdr, timeout=60, json={"body": "✅ لا تنبيهات الآن — أُغلق تلقائياً."})
+            request("PATCH", f"{api}/issues/{i['number']}", headers=hdr, timeout=60, json={"state": "closed", "state_reason": "completed"})
+        return f"أُغلق {len(open_issues)} تنبيه" if open_issues else "لا تنبيهات"
+    body = ("تنبيهات حالة شام (تتحدث تلقائياً كل 3 ساعات من `sham-status`):\n\n" + "\n".join(f"- {a}" for a in real)
+            + "\n\nالمشرف: @jonsnowx1r-lab — الحالة الكاملة: https://raw.githubusercontent.com/jonsnow-org/Ttbik/sham-status/STATUS.md"
+            + f"\n\n<!-- alerts:{marker} -->")
+    title = f"sham-alert: {len(real)} تنبيه"
+    if open_issues:
+        cur = open_issues[0]
+        if f"alerts:{marker}" in (cur.get("body") or ""):
+            return "التنبيهات لم تتغير"
+        request("PATCH", f"{api}/issues/{cur['number']}", headers=hdr, timeout=60, json={"title": title, "body": body})
+        return f"حُدِّث التنبيه #{cur['number']}"
+    request("POST", f"{api}/labels", headers=hdr, timeout=60, json={"name": "sham-alert", "color": "d93f0b", "description": "تنبيه حالة نموذج شام"})
+    c = request("POST", f"{api}/issues", headers=hdr, timeout=60, json={"title": title, "body": body, "labels": ["sham-alert"]})
+    return f"أُنشئ تنبيه #{c.json().get('number')}" if c.status_code in (200, 201) else f"فشل إنشاء التنبيه ({c.status_code})"
 
 
 def last_reports(fetch, n: int = 10) -> list[dict]:
@@ -161,6 +216,7 @@ def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: d
                 hdr["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
             get_json = lambda url: requests.get(url, headers=hdr, timeout=60).json()
         data["workflows"] = github_runs(get_json)
+        data["failures"] = recent_failures(data["workflows"], get_json)
     except Exception as exc:
         data["errors"].append(f"تشغيلات GitHub: {type(exc).__name__}: {str(exc)[:160]}")
         data["workflows"] = {}
@@ -200,6 +256,11 @@ def render_md(data: dict, contract: dict) -> str:
         L.append(f"- {name}: " + " ، ".join(f"{r['started'] or '—'} {r['conclusion'] or r['status']}" + (f" ({r['minutes']}د)" if r["minutes"] else "") for r in runs))
     if not data.get("workflows"):
         L.append("- لا بيانات")
+    L += ["", "## آخر أخطاء مصنع GitHub (أين فشل بالضبط)"]
+    for f in data.get("failures", []):
+        L.append(f"- {f['started']} «{f['workflow']}» — الخطوة: " + (" | ".join(f["failed_steps"]) or "غير معروفة") + f" — {f['url']}")
+    if not data.get("failures"):
+        L.append("- لا أخطاء حديثة ✅")
     L += ["", "## المجموعات (ما كُتب أم لا، ومن يكتبها)", "| المجموعة | الحجم | آخر تحديث | الكاتب المعلن | الدور |", "|---|---|---|---|---|"]
     by = {d["name"]: d for d in data.get("datasets", [])}
     for name, meta in contract["datasets"].items():
@@ -233,6 +294,11 @@ def main():
     out = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/sham_status_out")
     write_outputs(data, out, contract)
     print((out / "STATUS.md").read_text(encoding="utf-8")[:3000])
+    if os.environ.get("SHAM_POST_ALERTS") == "1":
+        try:
+            print("🔔", post_alerts(data["alerts"], os.environ.get("GITHUB_TOKEN")))
+        except Exception as exc:
+            print(f"🔔 تعذّر نشر التنبيه: {type(exc).__name__}: {str(exc)[:120]}")
 
 
 if __name__ == "__main__":
@@ -290,7 +356,32 @@ if __name__ == "__main__":
         assert "التنبيهات" in md and "| sham-checkpoint |" in md and "mystery" in md and "me/" not in md and "nb1" not in md
         assert "registry_private" not in (out / "status.json").read_text(encoding="utf-8")
         assert (out / "sham-registry.json").exists()
-        print(md[:900])
+        assert "آخر أخطاء مصنع GitHub" in md
+        # the failing run is reported with the step that failed
+        jobs = {"jobs": [{"name": "merge", "steps": [{"name": "setup", "conclusion": "success"}, {"name": "Repair, merge", "conclusion": "failure"}]}]}
+        runs2 = github_runs(lambda url: dict(runs, workflow_runs=[dict(r, id=7 + i, html_url=f"https://x/{i}") for i, r in enumerate(runs["workflow_runs"])]))
+        fails = recent_failures(runs2, lambda url: jobs)
+        assert fails and fails[0]["failed_steps"] == ["merge ← Repair, merge"] and fails[0]["url"].startswith("https://x/"), fails
+        # alert issue: create → unchanged → update → close, against a fake GitHub
+        class R:
+            def __init__(self, code, js): self.status_code, self._j = code, js
+            def json(self): return self._j
+        store = {"issues": [], "log": []}
+        def fake_request(method, url, **kw):
+            store["log"].append((method, url.split("/repos/")[1]))
+            if method == "GET": return R(200, [i for i in store["issues"] if i["state"] == "open"])
+            if method == "POST" and url.endswith("/issues"):
+                store["issues"].append({"number": 5, "state": "open", **{k: kw["json"][k] for k in ("title", "body")}}); return R(201, {"number": 5})
+            if method == "PATCH":
+                store["issues"][0].update({k: v for k, v in kw["json"].items() if k in ("title", "body", "state")}); return R(200, {})
+            return R(201, {})
+        A = ["❌ سير العمل فشل", "ℹ لا تقارير"]
+        assert "أُنشئ" in post_alerts(A, "t", fake_request, "o/r") and len(store["issues"]) == 1 and "ℹ" not in store["issues"][0]["body"]
+        assert post_alerts(A, "t", fake_request, "o/r") == "التنبيهات لم تتغير"
+        assert "حُدِّث" in post_alerts(A + ["⚠ جديد"], "t", fake_request, "o/r")
+        assert "أُغلق" in post_alerts(["ℹ فقط"], "t", fake_request, "o/r") and store["issues"][0]["state"] == "closed"
+        assert post_alerts(A, None, fake_request, "o/r").startswith("لا توكن")
+        print(md[:600])
         print("sham_status self-test OK")
     else:
         main()

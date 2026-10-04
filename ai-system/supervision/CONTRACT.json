@@ -292,6 +292,14 @@
         "sham-chat-checkpoint"
       ],
       "writes": []
+    },
+    "ci_check": {
+      "file": ".github/workflows/sham-ci.yml",
+      "title": "فحص طلبات الدمج لمسار النموذج (عقد + اختبارات ذاتية، قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
@@ -314,5 +322,15 @@
     "credential",
     "sham_small_api_keys.db",
     "api_keys.py"
-  ]
+  ],
+  "kill_switches": {
+    "about": "متغيرات مستودع (Settings ← Secrets and variables ← Actions ← Variables). قيمتها 1 توقف السير فوراً (تُتخطّى المهمة).",
+    "variables": {
+      "SHAM_PAUSE_ALL": "يوقف كل مصنع GitHub",
+      "SHAM_PAUSE_COLLECTOR": "الزاحف العام",
+      "SHAM_PAUSE_CPU_TRAINER": "مدرّب CPU",
+      "SHAM_PAUSE_MERGE_EVAL": "الدمج والتقييم",
+      "SHAM_PAUSE_STATUS": "حالة المشروع"
+    }
+  }
 }
