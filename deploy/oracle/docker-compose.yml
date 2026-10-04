@@ -65,6 +65,25 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # Athar (NFT mini-app + admin launch panel). Served at https://athar.<PUBLIC_HOST>, no extra domain needed.
+  #   enable:  echo "--profile athar" >> /opt/ttbik/deploy/oracle/profiles   (the update agent then builds and runs it)
+  athar-web:
+    profiles: ["athar"]
+    build:
+      context: ../../athar
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: https://athar.${PUBLIC_HOST}
+        NEXT_PUBLIC_ATHAR_ADMIN: ${ATHAR_ADMIN:-}
+        NEXT_PUBLIC_TON_NETWORK: ${ATHAR_NETWORK:-mainnet}
+    restart: unless-stopped
+    environment:
+      TONCENTER_API_KEY: ${TONCENTER_API_KEY:-}
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
   # Replaces Vercel Cron: reads ../../vercel.json and calls each route on the same schedule (UTC).
   # START IT ONLY AT CUTOVER, after Vercel's crons are off — otherwise every job runs twice
   # (duplicate channel posts, double TON deposit checks).

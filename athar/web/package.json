@@ -1,0 +1,25 @@
+{
+  "name": "athar-web",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100"
+  },
+  "dependencies": {
+    "@ton/core": "^0.63.0",
+    "@ton/ton": "^16.0.0",
+    "@tonconnect/ui-react": "^2.0.9",
+    "buffer": "^6.0.3",
+    "next": "14.2.35",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "typescript": "5.6.3"
+  }
+}

@@ -33,7 +33,7 @@ export async function openSeason(ctx: Awaited<ReturnType<typeof setup>>, opts?: 
     $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
   await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(opts?.start ?? bc.now!), walletDailyCap: BigInt(opts?.walletCap ?? 0) });
   await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: minter.address });
-  bc.now = bc.now! + DELAY + 1;
+  bc.now = bc.now! + 1;     // the first minter needs no waiting
 }
 
 export async function itemOf(ctx: Awaited<ReturnType<typeof setup>>, index: number): Promise<SandboxContract<AtharItem>> {

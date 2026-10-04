@@ -2350,6 +2350,7 @@ export type AtharCollection$Data = {
     pendingBaseUriAt: bigint;
     successor: Address | null;
     minted: bigint;
+    firstMinterDone: boolean;
 }
 
 export function storeAtharCollection$Data(src: AtharCollection$Data) {
@@ -2370,6 +2371,7 @@ export function storeAtharCollection$Data(src: AtharCollection$Data) {
         b_1.storeUint(src.pendingBaseUriAt, 32);
         b_1.storeAddress(src.successor);
         b_1.storeUint(src.minted, 32);
+        b_1.storeBit(src.firstMinterDone);
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -2391,7 +2393,8 @@ export function loadAtharCollection$Data(slice: Slice) {
     const _pendingBaseUriAt = sc_1.loadUintBig(32);
     const _successor = sc_1.loadMaybeAddress();
     const _minted = sc_1.loadUintBig(32);
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted };
+    const _firstMinterDone = sc_1.loadBit();
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
 }
 
 export function loadTupleAtharCollection$Data(source: TupleReader) {
@@ -2409,7 +2412,8 @@ export function loadTupleAtharCollection$Data(source: TupleReader) {
     const _pendingBaseUriAt = source.readBigNumber();
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted };
+    const _firstMinterDone = source.readBoolean();
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
 }
 
 export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
@@ -2427,7 +2431,8 @@ export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
     const _pendingBaseUriAt = source.readBigNumber();
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted };
+    const _firstMinterDone = source.readBoolean();
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
 }
 
 export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
@@ -2446,6 +2451,7 @@ export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
     builder.writeNumber(source.pendingBaseUriAt);
     builder.writeAddress(source.successor);
     builder.writeNumber(source.minted);
+    builder.writeBoolean(source.firstMinterDone);
     return builder.build();
 }
 
@@ -3523,6 +3529,47 @@ export function dictValueParserClaimTicket(): DictionaryValue<ClaimTicket> {
     }
 }
 
+export type RevealPublic = {
+    $$type: 'RevealPublic';
+}
+
+export function storeRevealPublic(src: RevealPublic) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024150, 32);
+    };
+}
+
+export function loadRevealPublic(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024150) { throw Error('Invalid prefix'); }
+    return { $$type: 'RevealPublic' as const };
+}
+
+export function loadTupleRevealPublic(source: TupleReader) {
+    return { $$type: 'RevealPublic' as const };
+}
+
+export function loadGetterTupleRevealPublic(source: TupleReader) {
+    return { $$type: 'RevealPublic' as const };
+}
+
+export function storeTupleRevealPublic(source: RevealPublic) {
+    const builder = new TupleBuilder();
+    return builder.build();
+}
+
+export function dictValueParserRevealPublic(): DictionaryValue<RevealPublic> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeRevealPublic(src)).endCell());
+        },
+        parse: (src) => {
+            return loadRevealPublic(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type TransferTicket = {
     $$type: 'TransferTicket';
     ticket: bigint;
@@ -3591,6 +3638,7 @@ export type AtharMinter$Data = {
     pool: Dictionary<number, number>;
     tickets: Dictionary<number, Ticket>;
     poolSize: bigint;
+    poolLoaded: bigint;
     ticketsSold: bigint;
     commitHash: bigint;
     revealAt: bigint;
@@ -3623,6 +3671,7 @@ export function storeAtharMinter$Data(src: AtharMinter$Data) {
         b_2.storeDict(src.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
         b_2.storeDict(src.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket());
         b_2.storeUint(src.poolSize, 16);
+        b_2.storeUint(src.poolLoaded, 16);
         b_2.storeUint(src.ticketsSold, 16);
         b_2.storeUint(src.commitHash, 256);
         b_2.storeUint(src.revealAt, 32);
@@ -3657,6 +3706,7 @@ export function loadAtharMinter$Data(slice: Slice) {
     const _pool = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), sc_2);
     const _tickets = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserTicket(), sc_2);
     const _poolSize = sc_2.loadUintBig(16);
+    const _poolLoaded = sc_2.loadUintBig(16);
     const _ticketsSold = sc_2.loadUintBig(16);
     const _commitHash = sc_2.loadUintBig(256);
     const _revealAt = sc_2.loadUintBig(32);
@@ -3669,7 +3719,7 @@ export function loadAtharMinter$Data(slice: Slice) {
     const _startAt = sc_2.loadUintBig(32);
     const _walletDailyCap = sc_2.loadUintBig(16);
     const _soldCount = sc_2.loadUintBig(32);
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function loadTupleAtharMinter$Data(source: TupleReader) {
@@ -3686,8 +3736,9 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
     const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
     const _poolSize = source.readBigNumber();
-    const _ticketsSold = source.readBigNumber();
+    const _poolLoaded = source.readBigNumber();
     source = source.readTuple();
+    const _ticketsSold = source.readBigNumber();
     const _commitHash = source.readBigNumber();
     const _revealAt = source.readBigNumber();
     const _revealed = source.readBoolean();
@@ -3699,7 +3750,7 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
@@ -3716,6 +3767,7 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
     const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
     const _poolSize = source.readBigNumber();
+    const _poolLoaded = source.readBigNumber();
     const _ticketsSold = source.readBigNumber();
     const _commitHash = source.readBigNumber();
     const _revealAt = source.readBigNumber();
@@ -3728,7 +3780,7 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
 }
 
 export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
@@ -3746,6 +3798,7 @@ export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
     builder.writeCell(source.pool.size > 0 ? beginCell().storeDictDirect(source.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)).endCell() : null);
     builder.writeCell(source.tickets.size > 0 ? beginCell().storeDictDirect(source.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket()).endCell() : null);
     builder.writeNumber(source.poolSize);
+    builder.writeNumber(source.poolLoaded);
     builder.writeNumber(source.ticketsSold);
     builder.writeNumber(source.commitHash);
     builder.writeNumber(source.revealAt);
@@ -3775,6 +3828,7 @@ export function dictValueParserAtharMinter$Data(): DictionaryValue<AtharMinter$D
 export type MysteryInfo = {
     $$type: 'MysteryInfo';
     poolSize: bigint;
+    loaded: bigint;
     ticketsSold: bigint;
     revealed: boolean;
     revealAt: bigint;
@@ -3787,13 +3841,16 @@ export function storeMysteryInfo(src: MysteryInfo) {
     return (builder: Builder) => {
         const b_0 = builder;
         b_0.storeInt(src.poolSize, 257);
+        b_0.storeInt(src.loaded, 257);
         b_0.storeInt(src.ticketsSold, 257);
         b_0.storeBit(src.revealed);
-        b_0.storeInt(src.revealAt, 257);
         const b_1 = new Builder();
+        b_1.storeInt(src.revealAt, 257);
         b_1.storeInt(src.commitHash, 257);
         b_1.storeInt(src.a, 257);
-        b_1.storeInt(src.b, 257);
+        const b_2 = new Builder();
+        b_2.storeInt(src.b, 257);
+        b_1.storeRef(b_2.endCell());
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -3801,41 +3858,46 @@ export function storeMysteryInfo(src: MysteryInfo) {
 export function loadMysteryInfo(slice: Slice) {
     const sc_0 = slice;
     const _poolSize = sc_0.loadIntBig(257);
+    const _loaded = sc_0.loadIntBig(257);
     const _ticketsSold = sc_0.loadIntBig(257);
     const _revealed = sc_0.loadBit();
-    const _revealAt = sc_0.loadIntBig(257);
     const sc_1 = sc_0.loadRef().beginParse();
+    const _revealAt = sc_1.loadIntBig(257);
     const _commitHash = sc_1.loadIntBig(257);
     const _a = sc_1.loadIntBig(257);
-    const _b = sc_1.loadIntBig(257);
-    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+    const sc_2 = sc_1.loadRef().beginParse();
+    const _b = sc_2.loadIntBig(257);
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, loaded: _loaded, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
 }
 
 export function loadTupleMysteryInfo(source: TupleReader) {
     const _poolSize = source.readBigNumber();
+    const _loaded = source.readBigNumber();
     const _ticketsSold = source.readBigNumber();
     const _revealed = source.readBoolean();
     const _revealAt = source.readBigNumber();
     const _commitHash = source.readBigNumber();
     const _a = source.readBigNumber();
     const _b = source.readBigNumber();
-    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, loaded: _loaded, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
 }
 
 export function loadGetterTupleMysteryInfo(source: TupleReader) {
     const _poolSize = source.readBigNumber();
+    const _loaded = source.readBigNumber();
     const _ticketsSold = source.readBigNumber();
     const _revealed = source.readBoolean();
     const _revealAt = source.readBigNumber();
     const _commitHash = source.readBigNumber();
     const _a = source.readBigNumber();
     const _b = source.readBigNumber();
-    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
+    return { $$type: 'MysteryInfo' as const, poolSize: _poolSize, loaded: _loaded, ticketsSold: _ticketsSold, revealed: _revealed, revealAt: _revealAt, commitHash: _commitHash, a: _a, b: _b };
 }
 
 export function storeTupleMysteryInfo(source: MysteryInfo) {
     const builder = new TupleBuilder();
     builder.writeNumber(source.poolSize);
+    builder.writeNumber(source.loaded);
     builder.writeNumber(source.ticketsSold);
     builder.writeBoolean(source.revealed);
     builder.writeNumber(source.revealAt);
@@ -3924,6 +3986,7 @@ export const AtharItem_errors = {
     10060: { message: "daily limit reached for this wallet" },
     10517: { message: "only the next edition" },
     12078: { message: "not revealed yet" },
+    12332: { message: "mystery pool incomplete" },
     12683: { message: "not minted" },
     13448: { message: "auction already exists" },
     14245: { message: "notice period not over" },
@@ -3949,6 +4012,7 @@ export const AtharItem_errors = {
     30788: { message: "bad special" },
     30889: { message: "bad price bounds" },
     31027: { message: "date out of range" },
+    34249: { message: "too early for the public reveal" },
     39703: { message: "too early" },
     40897: { message: "already settled" },
     43610: { message: "only collection" },
@@ -4018,6 +4082,7 @@ export const AtharItem_errors_backward = {
     "daily limit reached for this wallet": 10060,
     "only the next edition": 10517,
     "not revealed yet": 12078,
+    "mystery pool incomplete": 12332,
     "not minted": 12683,
     "auction already exists": 13448,
     "notice period not over": 14245,
@@ -4043,6 +4108,7 @@ export const AtharItem_errors_backward = {
     "bad special": 30788,
     "bad price bounds": 30889,
     "date out of range": 31027,
+    "too early for the public reveal": 34249,
     "too early": 39703,
     "already settled": 40897,
     "only collection": 43610,
@@ -4108,7 +4174,7 @@ const AtharItem_types: ABIType[] = [
     {"name":"Ymd","header":null,"fields":[{"name":"y","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"m","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"d","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"AtharItem$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":true}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"lastTransferAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"AtharState","header":null,"fields":[{"name":"season","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tier","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"paid","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mintedAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"lastTransferAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"hands","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
-    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
@@ -4128,9 +4194,10 @@ const AtharItem_types: ABIType[] = [
     {"name":"BuyTicket","header":1096024146,"fields":[{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}}]},
     {"name":"Reveal","header":1096024147,"fields":[{"name":"secret","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"ClaimTicket","header":1096024148,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"RevealPublic","header":1096024150,"fields":[]},
     {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
-    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
-    {"name":"MysteryInfo","header":null,"fields":[{"name":"poolSize","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticketsSold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"commitHash","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"a","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"b","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
+    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"MysteryInfo","header":null,"fields":[{"name":"poolSize","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"loaded","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticketsSold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"commitHash","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"a","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"b","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
 ]
 
 const AtharItem_opcodes = {
@@ -4172,6 +4239,7 @@ const AtharItem_opcodes = {
     "BuyTicket": 1096024146,
     "Reveal": 1096024147,
     "ClaimTicket": 1096024148,
+    "RevealPublic": 1096024150,
     "TransferTicket": 1096024149,
 }
 

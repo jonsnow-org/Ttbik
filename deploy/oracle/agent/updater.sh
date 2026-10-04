@@ -12,6 +12,7 @@ NEW=$(git rev-parse FETCH_HEAD); CUR=$(git rev-parse HEAD)
 PROFILES=$(cat "$OR/profiles" 2>/dev/null || true)   # e.g. "--profile site"
 PATHS='^(media-bot/|deploy/oracle/)'
 case "$PROFILES" in *site*) PATHS='^(media-bot/|deploy/oracle/|src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json)';; esac
+case "$PROFILES" in *athar*) PATHS="$PATHS|^athar/";; esac
 if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"

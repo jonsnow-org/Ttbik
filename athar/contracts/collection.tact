@@ -24,6 +24,7 @@ contract AtharCollection {
     pendingBaseUriAt: Int as uint32 = 0;
     successor: Address? = null;                // next edition, set once; closes minting
     minted: Int as uint32 = 0;
+    firstMinterDone: Bool = false;
 
     receive() { }                                // plain TON (not expected): forwarded by Withdraw
 
@@ -61,7 +62,14 @@ contract AtharCollection {
     receive(msg: ProposeMinter) {
         require(sender() == self.admin, "only admin");
         require(self.successor == null, "closed");
-        self.minters.set(msg.minter, now() + self.delaySec);
+        // the very first minter is active at once (nothing is sold yet, so there is nobody to warn);
+        // every later one waits out the public notice period
+        if (!self.firstMinterDone) {
+            self.firstMinterDone = true;
+            self.minters.set(msg.minter, now());
+        } else {
+            self.minters.set(msg.minter, now() + self.delaySec);
+        }
     }
     receive(msg: RemoveMinter) {
         require(sender() == self.admin, "only admin");

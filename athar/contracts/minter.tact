@@ -45,6 +45,7 @@ message(0x41540051) SetMystery { commitHash: Int as uint256; revealAt: Int as ui
 message(0x41540052) BuyTicket { recipient: Address?; }
 message(0x41540053) Reveal { secret: Int as uint256; }
 message(0x41540054) ClaimTicket { ticket: Int as uint16; }
+message(0x41540056) RevealPublic { }
 message(0x41540055) TransferTicket { ticket: Int as uint16; newOwner: Address; }
 
 contract AtharMinter {
@@ -68,6 +69,7 @@ contract AtharMinter {
     pool: map<Int as uint16, Int as uint16>;       // position -> date index (the published composition)
     tickets: map<Int as uint16, Ticket>;
     poolSize: Int as uint16 = 0;
+    poolLoaded: Int as uint16 = 0;                 // how many pool entries really arrived (must equal poolSize before opening)
     ticketsSold: Int as uint16 = 0;
     commitHash: Int as uint256 = 0;                // sha256(secret), published before the first ticket is sold
     revealAt: Int as uint32 = 0;
@@ -104,6 +106,7 @@ contract AtharMinter {
         require(sender() == self.admin, "only admin");
         require(self.status == 0, "already open");
         require(self.tiers.get(TIER_COMMON) != null && self.tiers.get(TIER_RARE) != null, "configure common and rare first");
+        require(self.poolLoaded == self.poolSize, "mystery pool incomplete");
         self.status = 1;
         self.startAt = msg.startAt;
         self.walletDailyCap = msg.walletDailyCap;
@@ -299,6 +302,7 @@ contract AtharMinter {
             require(pos < 4000 && date <= MAX_INDEX && self.inSeason(date), "bad pool entry");
             require(self.pool.get(pos) == null, "position already loaded");
             self.pool.set(pos, date);
+            self.poolLoaded = self.poolLoaded + 1;
             self.reserved.set(date, true);
             if (pos + 1 > self.poolSize) { self.poolSize = pos + 1; }
         }
@@ -347,12 +351,22 @@ contract AtharMinter {
         require(!self.revealed, "already revealed");
         require(now() >= self.revealAt && self.commitHash != 0, "too early");
         require(sha256(beginCell().storeUint(msg.secret, 256).endCell().asSlice()) == self.commitHash, "wrong secret");
+        self.doReveal(msg.secret);
+    }
+    // Safety net: if the admin never reveals (lost secret, absent), after 3 days ANYONE can trigger the reveal.
+    // It then uses only the chain's own random seed: still fair, and the boxes can never be stuck.
+    receive(msg: RevealPublic) {
+        require(!self.revealed, "already revealed");
+        require(self.poolSize > 0 && now() >= self.revealAt + 3 * DAY, "too early for the public reveal");
+        self.doReveal(0);
+    }
+    fun doReveal(secret: Int) {
         nativeRandomizeLt();
         let r: Int = randomInt();
-        let seed: Int = sha256(beginCell().storeUint(msg.secret, 256).storeUint(r, 256).endCell().asSlice());
+        let seed: Int = sha256(beginCell().storeUint(secret, 256).storeUint(r, 256).endCell().asSlice());
         let n: Int = self.poolSize;
-        let a: Int = 1 + seed % (n - 1 + 1);
-        if (n > 1) { a = 1 + seed % (n - 1); } else { a = 1; }
+        let a: Int = 1;
+        if (n > 1) { a = 1 + seed % (n - 1); }
         let guard: Int = 0;
         while (gcd(a, n) != 1 && guard < n + 2) { a = a % n + 1; guard = guard + 1; }
         self.permA = a;
@@ -376,7 +390,7 @@ contract AtharMinter {
 
     // ---------- getters ----------
     get fun status(): Int { return self.status; }
-    get fun mystery_info(): MysteryInfo { return MysteryInfo{ poolSize: self.poolSize, ticketsSold: self.ticketsSold, revealed: self.revealed, revealAt: self.revealAt, commitHash: self.commitHash, a: self.permA, b: self.permB }; }
+    get fun mystery_info(): MysteryInfo { return MysteryInfo{ poolSize: self.poolSize, loaded: self.poolLoaded, ticketsSold: self.ticketsSold, revealed: self.revealed, revealAt: self.revealAt, commitHash: self.commitHash, a: self.permA, b: self.permB }; }
     get fun pool_at(pos: Int): Int? { return self.pool.get(pos); }
     get fun ticket_of(ticket: Int): Ticket? { return self.tickets.get(ticket); }
     get fun ticket_date(ticket: Int): Int? {
@@ -395,7 +409,7 @@ contract AtharMinter {
     get fun auction_of(index: Int): Auction? { return self.auctions.get(index); }
 }
 
-struct MysteryInfo { poolSize: Int; ticketsSold: Int; revealed: Bool; revealAt: Int; commitHash: Int; a: Int; b: Int; }
+struct MysteryInfo { poolSize: Int; loaded: Int; ticketsSold: Int; revealed: Bool; revealAt: Int; commitHash: Int; a: Int; b: Int; }
 
 fun gcd(a: Int, b: Int): Int {
     let x: Int = a;
