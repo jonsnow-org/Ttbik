@@ -8,8 +8,6 @@ import { SEASON_1, seasonTier } from "./seasons";
 import { tokenState } from "./chain";
 import { tokenStory } from "./meta";
 import { occasionById } from "./occasions";
-import { isHiddenRef, isHiddenToken } from "./hidden";
-import { available } from "./mediaQueue";
 import { META_BASE, SITE_URL, viewerUrl } from "./config";
 
 const SVG = { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" };
@@ -30,7 +28,12 @@ export function imgResponse(idParam: string, reqUrl: string): Response {
   return new Response(svg, { headers: SVG });
 }
 
-export async function metaResponse(idParam: string, origin = SITE_URL, imgBase = `${META_BASE}/img`): Promise<Response> {
+/** Hooks only our own server has (its takedown list and its picture queue); the mirror has neither and uses the defaults. */
+export type MetaHooks = { isHiddenToken?: (index: number) => boolean; isHiddenRef?: (ref: string | null | undefined) => boolean; available?: (ref: string) => Promise<boolean> };
+const gatewayHas = async (ref: string) => { try { const r = await fetch(`https://turbo-gateway.com/${ref}`, { method: "HEAD", signal: AbortSignal.timeout(4000) }); return r.ok; } catch { return false; } };
+
+export async function metaResponse(idParam: string, origin = SITE_URL, imgBase = `${META_BASE}/img`, hooks: MetaHooks = {}): Promise<Response> {
+  const isHiddenToken = hooks.isHiddenToken ?? (() => false), isHiddenRef = hooks.isHiddenRef ?? (() => false), available = hooks.available ?? gatewayHas;
   const index = Number(idParam.replace(/\.json$/, ""));
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return Response.json({ error: "bad id" }, { status: 400 });
   const { y, m, d } = ymd(index);
