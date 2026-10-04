@@ -292,7 +292,7 @@ describe("mystery boxes: nobody can block the reveal", () => {
     let i = S1_START + 40, n = 0; while (n < 10) { if (ruleTier(i) === TIER.COMMON) items.set(n++, i); i++; }
     await minter.send(admin.getSender(), { value: toNano("0.5") }, { $$type: "LoadPool", items });
     const revealAt = bc.now! + 86400;
-    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: 12345n, revealAt: BigInt(revealAt), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n });
+    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: 12345n, revealAt: BigInt(revealAt), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n, poolExpected: 10n });
     await openSeason(ctx);
     await minter.send(alice.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
     bc.now = revealAt + 2 * 86400;
@@ -321,7 +321,7 @@ describe("mystery boxes (fair reveal)", () => {
     const revealAt = bc.now! + 7 * 86400;
     let r = await minter.send(admin.getSender(), { value: toNano("0.5") }, { $$type: "LoadPool", items });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
-    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: commit, revealAt: BigInt(revealAt), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n });
+    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: commit, revealAt: BigInt(revealAt), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n, poolExpected: BigInt(dates.length) });
     await openSeason(ctx);
     return { ctx, dates, secret, revealAt };
   }

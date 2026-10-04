@@ -43,7 +43,7 @@ message(0x41540046) Bid { index: Int as uint64; }
 message(0x41540047) Settle { index: Int as uint64; }
 message(0x41540048) Sweep { }
 message(0x41540050) LoadPool { items: map<Int as uint16, Int as uint16>; }
-message(0x41540051) SetMystery { commitHash: Int as uint256; revealAt: Int as uint32; startPrice: Int as coins; floor: Int as coins; cap: Int as coins; bumpBps: Int as uint16; decayBps: Int as uint16; }
+message(0x41540051) SetMystery { commitHash: Int as uint256; revealAt: Int as uint32; startPrice: Int as coins; floor: Int as coins; cap: Int as coins; bumpBps: Int as uint16; decayBps: Int as uint16; poolExpected: Int as uint16; }   // poolExpected: how many pool entries MUST arrive before the sale may open
 message(0x41540052) BuyTicket { recipient: Address?; }
 message(0x41540053) Reveal { secret: Int as uint256; }
 message(0x41540054) ClaimTicket { ticket: Int as uint16; }
@@ -71,6 +71,7 @@ contract AtharMinter {
     pool: map<Int as uint16, Int as uint16>;       // position -> date index (the published composition)
     tickets: map<Int as uint16, Ticket>;
     poolSize: Int as uint16 = 0;
+    poolExpected: Int as uint16 = 0;               // declared by the admin with the commitment; Open refuses a smaller (partly loaded) pool
     poolLoaded: Int as uint16 = 0;                 // how many pool entries really arrived (must equal poolSize before opening)
     ticketsSold: Int as uint16 = 0;
     commitHash: Int as uint256 = 0;                // sha256(secret), published before the first ticket is sold
@@ -117,7 +118,7 @@ contract AtharMinter {
         require(sender() == self.admin, "only admin");
         require(self.status == 0, "already open");
         require(self.tiers.get(TIER_COMMON) != null && self.tiers.get(TIER_RARE) != null, "configure common and rare first");
-        require(self.poolLoaded == self.poolSize, "mystery pool incomplete");
+        require(self.poolLoaded == self.poolSize && self.poolLoaded == self.poolExpected, "mystery pool incomplete");
         self.status = 1;
         self.startAt = msg.startAt;
         self.walletDailyCap = msg.walletDailyCap;
@@ -326,8 +327,10 @@ contract AtharMinter {
         require(sender() == self.admin, "only admin");
         require(self.status == 0, "already open");
         require(msg.floor > 0 && msg.floor <= msg.startPrice && msg.startPrice <= msg.cap, "bad price bounds");
+        require(msg.poolExpected > 0 && msg.poolExpected <= 4000, "bad pool size");
         self.commitHash = msg.commitHash;
         self.revealAt = msg.revealAt;
+        self.poolExpected = msg.poolExpected;
         self.tiers.set(3, TierState{ price: msg.startPrice, floor: msg.floor, cap: msg.cap, bumpBps: msg.bumpBps, decayBps: msg.decayBps, lastDecayAt: 0, sold: 0 });
     }
     receive(msg: BuyTicket) {

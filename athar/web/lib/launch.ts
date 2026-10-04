@@ -59,7 +59,7 @@ export async function launchSteps(admin: Address, payout: Address, def: SeasonDe
       { address: M, amount: nano("0.06").toString(), payload: cfg(TIER.RARE, def.rare) },
       { address: M, amount: nano("0.05").toString(), payload: body(storeSetFees({ $$type: "SetFees", photoFee: nano(def.fees.photo), silverFee: nano(def.fees.silver) })) },
       { address: M, amount: nano("0.3").toString(), payload: body(storeAddSpecial({ $$type: "AddSpecial", items: specials })) },
-      { address: M, amount: nano("0.1").toString(), payload: body(storeSetMystery({ $$type: "SetMystery", commitHash: opts.commit, revealAt: BigInt(opts.revealAt), startPrice: nano(def.ticket.start), floor: nano(def.ticket.floor), cap: nano(def.ticket.cap), bumpBps: BigInt(def.ticket.bumpBps), decayBps: BigInt(def.ticket.decayBps) })) },
+      { address: M, amount: nano("0.1").toString(), payload: body(storeSetMystery({ $$type: "SetMystery", commitHash: opts.commit, revealAt: BigInt(opts.revealAt), startPrice: nano(def.ticket.start), floor: nano(def.ticket.floor), cap: nano(def.ticket.cap), bumpBps: BigInt(def.ticket.bumpBps), decayBps: BigInt(def.ticket.decayBps), poolExpected: BigInt(pool.length) })) },
     ] },
     { title: `تحميل قائمة الصناديق (${pool.length} تاريخاً)`, messages: poolMsgs },
     { title: "اعتماد البائع وجدولة فتح البيع", messages: [

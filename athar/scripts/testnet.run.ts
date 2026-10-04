@@ -56,20 +56,29 @@ describe("testnet rehearsal", () => {
       throw new Error("timed out waiting for: " + what);
     };
 
+    if (process.env.STAGE === "sweep") {            // take back what an old (abandoned) test minter still holds
+      const { sweepMsg } = await import("../web/lib/launch");
+      const before = await bal();
+      await sendGroup([sweepMsg(state.minter)]);
+      await sleep(25000);
+      log("swept", state.minter, "balance", before, "->", await bal());
+      fs.renameSync(stateFile, stateFile.replace("state.json", `state_old_${Date.now()}.json`));
+      return;
+    }
     if ((process.env.STAGE || "launch") === "launch") {
       if (!state.secret) { state.secret = newSecret().toString(16).padStart(64, "0"); }
       const startAt = state.startAt ?? Math.floor(Date.now() / 1000) + 240;
       const revealAt = state.revealAt ?? startAt + 1200;
       state.startAt = startAt; state.revealAt = revealAt; save();
       const commit = await commitOf(BigInt("0x" + state.secret));
-      const { steps, collection, minter } = await launchSteps(wallet.address, payout, SEASON_1, { startAt, commit, revealAt });
+      const { steps, collection, minter, poolDates } = await launchSteps(wallet.address, payout, SEASON_1, { startAt, commit, revealAt });
       state.collection = collection; state.minter = minter; save();
       log("collection", collection); log("minter", minter);
       const M = client.open(AtharMinter.fromAddress(Address.parse(minter)));
       const done = [
         async () => (await client.isContractDeployed(Address.parse(collection))) && (await client.isContractDeployed(Address.parse(minter))),
         async () => (await M.getPrice(1n)) > 0n && (await M.getMysteryInfo()).commitHash !== 0n,
-        async () => { const i = await M.getMysteryInfo(); return i.poolSize > 0n && i.loaded === i.poolSize; },
+        async () => { const i = await M.getMysteryInfo(); return Number(i.poolSize) >= poolDates.length && i.loaded === i.poolSize; },
         async () => (await M.getStatus()) === 1n,
       ];
       for (let i = 0; i < steps.length; i++) {
@@ -89,9 +98,12 @@ describe("testnet rehearsal", () => {
         await waitFor(steps[i].title, done[i]);
         log("  balance now", await bal());
       }
-      const C = client.open(AtharCollection.fromAddress(Address.parse(collection)));
-      log("minter status", String(await M.getStatus()), "fees", JSON.stringify(Object.fromEntries(Object.entries(await M.getFees()).map(([k, v]) => [k, String(v)]))));
-      log("price common/rare", String(await M.getPrice(0n)), String(await M.getPrice(1n)));
+      await sleep(3000);
+      const f = await retry(() => M.getFees());
+      log("minter status", String(await retry(() => M.getStatus())), "fees photo/silver", String(f.photo), String(f.silver));
+      log("price common/rare", String(await retry(() => M.getPrice(0n))), String(await retry(() => M.getPrice(1n))));
+      const mi = await retry(() => M.getMysteryInfo());
+      log("mystery pool", String(mi.loaded), "/", String(mi.poolSize));
       log("LAUNCH DONE, final balance", await bal());
     }
   }, 3_600_000);

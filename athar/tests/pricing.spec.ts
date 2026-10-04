@@ -99,3 +99,24 @@ describe("special (gold) dates", () => {
     expect(st.tier).toBe(1n);                          // keeps its own tier
   });
 });
+
+describe("a half-loaded mystery pool can never open the sale", () => {
+  it("Open refuses until every declared pool entry has arrived", async () => {
+    const ctx = await setup();
+    const { admin, minter, collection, bc } = ctx;
+    await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "Configure", tier: 0n, startPrice: toNano("0.5"), floor: toNano("0.25"), cap: toNano("8"), bumpBps: 16n, decayBps: 1500n });
+    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
+    const dates: number[] = []; for (let i = S1_START + 100; dates.length < 10; i++) if (ruleTier(i) === TIER.COMMON) dates.push(i);
+    const load = (from: number, to: number) => { const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)); for (let k = from; k < to; k++) items.set(k, dates[k]); return minter.send(admin.getSender(), { value: toNano("0.3") }, { $$type: "LoadPool", items }); };
+    await load(0, 3);
+    await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "SetMystery", commitHash: 1n, revealAt: BigInt(bc.now! + 86400), startPrice: toNano("1.1"), floor: toNano("0.6"), cap: toNano("20"), bumpBps: 60n, decayBps: 1500n, poolExpected: 10n });
+    let r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(bc.now!), walletDailyCap: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });           // 3 of 10 loaded: the pool is contiguous but incomplete
+    expect(await minter.getStatus()).toBe(0n);
+    await load(3, 10);
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(bc.now!), walletDailyCap: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+    expect(await minter.getStatus()).toBe(1n);
+    void collection;
+  });
+});
