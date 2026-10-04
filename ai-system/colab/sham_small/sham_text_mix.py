@@ -19,6 +19,7 @@ working unchanged.
 from __future__ import annotations
 
 import json
+import os
 import random
 import threading
 import time
@@ -121,6 +122,10 @@ def stream_mix(output_dir: str, max_documents: int = 50_000, documents_per_file:
     ok = sum(1 for v in report.values() if not v.endswith(")"))
     print(f"🌍 المزيج العام: {len(docs):,} وثيقة من {ok}/{len(chosen)} مصدراً (بذرة {seed}) في {len(files)} ملف")
     print("   " + " | ".join(f"{k}: {v}" for k, v in report.items()))
+    if os.environ.get("SHAM_PIPELINE", "1") != "0" and make_stream is None:
+        import sham_text_stream
+        files.append(sham_text_stream.write_spec(output_dir))
+        print("🌊 وُضع ملف خط النص المتدفق: التدريب يسحب نوافذه من الخط، والملفات أعلاه نسخة صغيرة للأدوات الأخرى")
     if progress_path:
         Path(progress_path).parent.mkdir(parents=True, exist_ok=True)
         Path(progress_path).write_text(json.dumps({

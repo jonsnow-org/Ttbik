@@ -92,6 +92,14 @@ def report_lines() -> list[str]:
         if RESULT["after"] - tail > 1.0:
             lines.append("⚠ الخسارة على بيانات التدريب أقل بكثير من غير المرئية: الجلسة أعادت قراءة نفس النص "
                          "مراراً فحفظته ولم تتعلم منه — راجعي حجم البيانات الجديدة في هذه الجلسة.")
+    try:
+        import sham_text_stream
+        st = sham_text_stream._ACTIVE["stream"]
+        if st is not None:
+            lines.append(f"🌊 خط النص المتدفق: {st.stats['windows']:,} نافذة جديدة (كل نافذة مرة واحدة) من "
+                         f"{sum(1 for v in st.per_source.values() if v)} مصدراً | انتظار التدريب للبيانات {st.stats['waited']:.0f}ث")
+    except Exception:
+        pass
     return lines
 
 
