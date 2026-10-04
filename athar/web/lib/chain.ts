@@ -179,6 +179,24 @@ export async function tokensOf(owner: string) {
   });
 }
 
+/** Every token of the collection with its owner (for the calendar board and the perks), cached for a minute. */
+export async function allTokens(): Promise<{ index: number; owner: string }[]> {
+  const a = await addresses(1);
+  if (!a) return [];
+  return cached("all-tokens", 60000, async () => {
+    const out: { index: number; owner: string }[] = [];
+    for (let offset = 0; offset < 40000; offset += 1000) {
+      const url = `${TONCENTER_V3}/nft/items?collection_address=${encodeURIComponent(a.collection.address.toString())}&limit=1000&offset=${offset}`;
+      const r = await fetch(url, { headers: process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {}, cache: "no-store" });
+      if (!r.ok) break;
+      const items = ((await r.json()).nft_items || []) as { index: string; owner_address?: string }[];
+      for (const x of items) { const n = Number(x.index); if (Number.isFinite(n)) out.push({ index: n, owner: String(x.owner_address || "") }); }
+      if (items.length < 1000) break;
+    }
+    return out;
+  });
+}
+
 export async function ticketsOf(owner: string) {
   const a = await addresses(1);
   if (!a) return [];

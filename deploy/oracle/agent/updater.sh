@@ -39,6 +39,8 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
       # throw-away key that only signs free (under 100 KiB) permanent uploads; it holds nothing
       [ -s "$STATE/athar_turbo_key" ] || { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$STATE/athar_turbo_key"; chmod 600 "$STATE/athar_turbo_key"; }
       export ATHAR_TURBO_KEY="$(cat "$STATE/athar_turbo_key")"
+      # where token metadata/pictures are asked for (written into the contract at launch): the Vercel mirror in front of this server
+      [ -s "$OR/agent/ATHAR_META_BASE" ] && export ATHAR_META_BASE="$(tr -d ' \r\n' < "$OR/agent/ATHAR_META_BASE")"
       [ -f "$OR/agent/ATHAR_ADMIN" ] && export ATHAR_ADMIN="$(tr -d ' \r\n' < "$OR/agent/ATHAR_ADMIN")"
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
