@@ -114,11 +114,15 @@ def convert_payload(payload: dict, old_tok, new_tok) -> dict:
 
 
 def _sibling_tokenizer(path: Path):
-    for p in sorted(path.parent.glob("*tokenizer*.json")):
-        try:
-            return _STATE["orig"]["tok_load"](str(p))
-        except Exception:
-            continue
+    """The tokenizer file that travels with a checkpoint: next to it, else in the folders above it
+    (a dataset keeps checkpoints/step_N.pt under the same root as sham_small_tokenizer.json)."""
+    path = Path(path).resolve()
+    for folder in [path.parent, *list(path.parents)[1:4]]:
+        for p in sorted(folder.glob("*tokenizer*.json")):
+            try:
+                return _STATE["orig"]["tok_load"](str(p))
+            except Exception:
+                continue
     return None
 
 
@@ -258,6 +262,12 @@ if __name__ == "__main__":
         _ck.save_checkpoint(sub / "again.pt", m2, 8)
         m3, _, ex = _ck.load_checkpoint(sub / "again.pt")
         assert ex.get("text_tokenizer") == MARK and torch.equal(m3.state_dict()["token_embedding.weight"], e1)
+        # a checkpoint kept one folder below its tokenizer is found too
+        (sub / "checkpoints").mkdir()
+        import shutil
+        shutil.copy(sub / "final.pt", sub / "checkpoints" / "step_7.pt")
+        m4, _, _ = _ck.load_checkpoint(sub / "checkpoints" / "step_7.pt")
+        assert torch.equal(m4.state_dict()["token_embedding.weight"], e1)
         # a first-ever run gets the general tokenizer
         import text_tokenizer as tt
         assert _vocab(tt.train_text_tokenizer([str(d / "t.txt")], vocab_size=TEXT_VOCAB_SIZE)) == _vocab(_general())
