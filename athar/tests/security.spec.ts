@@ -60,3 +60,24 @@ describe("input limits", () => {
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
   });
 });
+
+describe("prices can follow the market after opening", () => {
+  it("only the admin can move a tier's band; the price is pulled inside it; bad bounds are refused", async () => {
+    const ctx = await setup(); await openSeason(ctx);
+    const { minter, admin, alice } = ctx;
+    expect(await minter.getPrice(0n)).toBe(toNano("0.5"));
+    let r = await minter.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("1"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("4"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // floor above cap
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("0.01"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // floor under 0.05 TON
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 2n, floor: toNano("1"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // mythic dates have no band: they are auctioned
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("1"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
+    expect(await minter.getPrice(0n)).toBe(toNano("1"));                                        // 0.5 was under the new floor
+    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("0.05"), cap: toNano("0.3") });
+    expect(await minter.getPrice(0n)).toBe(toNano("0.3"));                                      // pulled under the new cap
+  });
+});

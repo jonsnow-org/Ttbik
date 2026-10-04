@@ -1,7 +1,7 @@
 // Builds the wallet requests (TON Connect). The user always confirms and pays inside their own wallet.
 import { Address, beginCell, Cell, toNano } from "@ton/core";
 import { storeBuy, storeBid, storeBuyTicket, storeClaimTicket, storeSettle, storeUpgradeStart } from "../../build/athar_AtharMinter";
-import { storeEngrave, storeSetMedia } from "../../build/athar_AtharItem";
+import { storeEngraveReq, storeSetMediaReq } from "../../build/athar_AtharCollection";
 
 export type Msg = { address: string; amount: string; payload?: string; stateInit?: string };
 const b64 = (c: Cell) => c.toBoc().toString("base64");
@@ -27,8 +27,9 @@ export function claimMsg(minter: string, ticket: number): Msg {
 export function settleMsg(minter: string, index: number): Msg {
   return { address: minter, amount: toNano("0.1").toString(), payload: b64(beginCell().store(storeSettle({ $$type: "Settle", index: BigInt(index) })).endCell()) };
 }
-export function engraveMsg(item: string, text: string): Msg {
-  return { address: item, amount: toNano("0.25").toString(), payload: b64(beginCell().store(storeEngrave({ $$type: "Engrave", text })).endCell()) };
+/** Engraving is asked at the collection (it holds the current fee). feeTon is read from the contract; the change comes back. */
+export function engraveMsg(collection: string, index: number, text: string, feeTon: number): Msg {
+  return { address: collection, amount: (toNano(feeTon.toFixed(9)) + toNano("0.05") + toNano("0.06") + toNano("0.1")).toString(), payload: b64(beginCell().store(storeEngraveReq({ $$type: "EngraveReq", index: BigInt(index), text })).endCell()) };
 }
 export function upgradeMsg(item: string, valueTon: number): Msg {
   return { address: item, amount: toNano(valueTon.toFixed(9)).toString(), payload: b64(beginCell().store(storeUpgradeStart({ $$type: "UpgradeStart", queryId: 0n })).endCell()) };
@@ -37,6 +38,6 @@ export const tx = (messages: Msg[]) => ({ validUntil: Math.floor(Date.now() / 10
 export const short = (a: string) => (a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a);
 export const eq = (a: string, b: string) => { try { return Address.parse(a).equals(Address.parse(b)); } catch { return false; } };
 
-export function mediaMsg(item: string, occasion: number, mediaRef: bigint): Msg {
-  return { address: item, amount: toNano("0.25").toString(), payload: b64(beginCell().store(storeSetMedia({ $$type: "SetMedia", occasion: BigInt(occasion), mediaRef })).endCell()) };
+export function mediaMsg(collection: string, index: number, occasion: number, mediaRef: bigint, feeTon: number): Msg {
+  return { address: collection, amount: (toNano(feeTon.toFixed(9)) + toNano("0.05") + toNano("0.06") + toNano("0.1")).toString(), payload: b64(beginCell().store(storeSetMediaReq({ $$type: "SetMediaReq", index: BigInt(index), occasion: BigInt(occasion), mediaRef })).endCell()) };
 }

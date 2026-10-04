@@ -40,6 +40,7 @@ message(0x41540044) Buy { index: Int as uint64; recipient: Address?; occasion: I
 message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; duration: Int as uint32; mediaRef: Int as uint256; }
 message(0x41540049) SetFees { photoFee: Int as coins; silverFee: Int as coins; }
 message(0x41540046) Bid { index: Int as uint64; }
+message(0x41540065) Reprice { tier: Int as uint8; floor: Int as coins; cap: Int as coins; }   // admin, any time after opening: move the price band of a tier (TON price changed, inflation...)
 message(0x41540047) Settle { index: Int as uint64; }
 message(0x41540048) Sweep { }
 message(0x41540050) LoadPool { items: map<Int as uint16, Int as uint16>; }
@@ -107,6 +108,22 @@ contract AtharMinter {
         require(msg.silverFee >= msg.photoFee, "silver includes the photo");
         self.photoFee = msg.photoFee;
         self.silverFee = msg.silverFee;
+    }
+    // The price band can follow the market after opening: new floor and cap (never below 0.05 TON or above 2000 TON); the current
+    // price is pulled inside the new band. Tiers: 0 common, 1 rare, 3 mystery tickets.
+    receive(msg: Reprice) {
+        require(sender() == self.admin, "only admin");
+        require(self.status != 0, "set the prices before opening with Configure");
+        require(msg.tier == TIER_COMMON || msg.tier == TIER_RARE || msg.tier == 3, "bad tier");
+        require(msg.floor >= 50000000 && msg.floor <= msg.cap && msg.cap <= 2000000000000, "bad price bounds");
+        let t: TierState? = self.tiers.get(msg.tier);
+        require(t != null, "tier not set");
+        let u: TierState = t!!;
+        u.floor = msg.floor;
+        u.cap = msg.cap;
+        if (u.price < u.floor) { u.price = u.floor; }
+        if (u.price > u.cap) { u.price = u.cap; }
+        self.tiers.set(msg.tier, u);
     }
     receive(msg: AddSpecial) {
         require(sender() == self.admin, "only admin");

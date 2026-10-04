@@ -89,10 +89,13 @@ export async function seasonStatus(season = 1) {
     try {
       const status = Number(await m.getStatus());
       const [sold, pc, pr, myst, pt, fe] = [await m.getSoldCount(), await m.getPrice(0n), await m.getPrice(1n), await m.getMysteryInfo(), await m.getPrice(3n), await m.getFees()];
+      let itemFees = { engrave: 0.1, media: 0.1, change: 0.5 };
+      try { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); itemFees = { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; } catch { /* keep the defaults */ }
       return {
         configured: true as const, deployed: true, status, sold: Number(sold),
         prices: { common: nano(pc), rare: nano(pr), ticket: nano(pt) },
         fees: { photo: nano(fe.photo), silver: nano(fe.silver) },
+        itemFees,
         mystery: { poolSize: Number(myst.poolSize), ticketsSold: Number(myst.ticketsSold), revealed: myst.revealed, revealAt: Number(myst.revealAt) },
         minter: a.minter.address.toString({ bounceable: true }), collection: a.collection.address.toString({ bounceable: true }),
       };

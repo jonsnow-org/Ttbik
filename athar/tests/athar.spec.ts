@@ -126,19 +126,41 @@ describe("token features", () => {
   });
 
   it("engraving: owner only, pays a fee that reaches the payout wallet, text kept with the token", async () => {
-    const { ctx, item } = await minted();
-    const { alice, bob, payout } = ctx;
-    let r = await item.send(bob.getSender(), { value: toNano("0.3") }, { $$type: "Engrave", text: "not mine" });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });
+    const { ctx, idx, item } = await minted();
+    const { alice, bob, payout, collection } = ctx;
+    const eng = (who: any, text: string, value = "0.3") => collection.send(who.getSender(), { value: toNano(value) }, { $$type: "EngraveReq", index: BigInt(idx), text });
+    const bobBefore = await bob.getBalance();
+    let r = await eng(bob, "not mine");
+    expect(r.transactions).toHaveTransaction({ to: item.address, success: true });          // refused by the item, not failed: the money comes back
+    expect((await item.getAthar()).engravings).toBeNull();
+    expect(bobBefore - (await bob.getBalance())).toBeLessThan(toNano("0.05"));            // only network gas lost
     const before = await payout.getBalance();
-    r = await item.send(alice.getSender(), { value: toNano("0.3") }, { $$type: "Engrave", text: "Majd was born today" });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: true });
+    await eng(alice, "Majd was born today");
     expect((await item.getAthar()).engravings).not.toBeNull();
     expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("0.09"));
-    r = await item.send(alice.getSender(), { value: toNano("0.3") }, { $$type: "Engrave", text: "x".repeat(40) });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });          // longer than 32 bytes
-    r = await item.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "Engrave", text: "cheap" });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });          // fee not attached
+    const aliceBefore = await alice.getBalance();
+    await eng(alice, "x".repeat(40));
+    expect(bobBefore).toBeGreaterThan(0n);
+    expect(aliceBefore - (await alice.getBalance())).toBeLessThan(toNano("0.05"));        // longer than 32 bytes: refunded
+    r = await eng(alice, "cheap", "0.05");
+    expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });  // fee not attached: refused at the door
+  });
+
+  it("the engraving fee follows what the admin sets", async () => {
+    const { ctx, idx } = await minted();
+    const { alice, admin, collection, payout } = ctx;
+    let r = await collection.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "SetItemFees", engraveFee: toNano("0.4"), mediaFee: toNano("0.4"), changeFee: toNano("1") });
+    expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });  // only the admin
+    r = await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "SetItemFees", engraveFee: toNano("6"), mediaFee: toNano("0.4"), changeFee: toNano("1") });
+    expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });  // above 5 TON
+    await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "SetItemFees", engraveFee: toNano("0.4"), mediaFee: toNano("0.4"), changeFee: toNano("1") });
+    const f = await collection.getItemFees();
+    expect(f.engrave).toBe(toNano("0.4")); expect(f.change).toBe(toNano("1"));
+    r = await collection.send(alice.getSender(), { value: toNano("0.3") }, { $$type: "EngraveReq", index: BigInt(idx), text: "old price" });
+    expect(r.transactions).toHaveTransaction({ to: collection.address, success: false });  // 0.3 is no longer enough
+    const before = await payout.getBalance();
+    await collection.send(alice.getSender(), { value: toNano("0.6") }, { $$type: "EngraveReq", index: BigInt(idx), text: "new price" });
+    expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("0.39"));
   });
 
   it("metadata follows TEP-62/64 and royalty is 5% to the payout wallet", async () => {
@@ -392,15 +414,18 @@ describe("occasion and permanent picture", () => {
     const item = await itemOf(ctx, idx);
     let st = await item.getAthar();
     expect(st.occasion).toBe(3n); expect(st.mediaRef).toBe(REF); expect(st.mediaLog).not.toBeNull();
-    // only the owner can change it, and it costs the fee
-    let r = await item.send(bob.getSender(), { value: toNano("0.3") }, { $$type: "SetMedia", occasion: 1n, mediaRef: REF2 });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });
-    r = await item.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "SetMedia", occasion: 1n, mediaRef: REF2 });
-    expect(r.transactions).toHaveTransaction({ to: item.address, success: false });
-    r = await item.send(alice.getSender(), { value: toNano("0.3") }, { $$type: "SetMedia", occasion: 2n, mediaRef: REF2 });
+    // only the owner can change it; a first picture/occasion costs mediaFee, replacing a picture costs changeFee (more)
+    const { collection, payout } = ctx;
+    const req = (who: any, occasion: bigint, ref: bigint, value: string) => collection.send(who.getSender(), { value: toNano(value) }, { $$type: "SetMediaReq", index: BigInt(idx), occasion, mediaRef: ref });
+    await req(bob, 1n, REF2, "1");
+    expect((await item.getAthar()).mediaRef).toBe(REF);                                         // not the owner: refused
+    let r = await req(alice, 1n, REF2, "0.3");                                                  // enough for a first picture, not for a change
     expect(r.transactions).toHaveTransaction({ to: item.address, success: true });
+    expect((await item.getAthar()).mediaRef).toBe(REF);
+    const before = await payout.getBalance();
+    await req(alice, 2n, REF2, "1");
     st = await item.getAthar();
-    expect(st.occasion).toBe(2n); expect(st.mediaRef).toBe(REF2);
+    expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("0.49"));              // the change fee (0.5) reached the payout wallet
     // history: newest first, previous picture still reachable
     const s = st.mediaLog!.beginParse();
     s.loadAddress(); s.loadUint(32);

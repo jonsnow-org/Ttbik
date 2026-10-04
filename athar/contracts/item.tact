@@ -72,43 +72,61 @@ contract AtharItem {
         });
     }
 
-    // The owner leaves a short note (<= 32 bytes) that stays with the token for good.
-    receive(msg: Engrave) {
+    // The owner leaves a short note (<= 32 bytes) that stays with the token for good. Arrives from the collection (which holds the
+    // current fee). Any refusal sends the whole value back to the owner instead of failing: the money already left their wallet.
+    receive(msg: EngraveFrom) {
         let ctx: Context = context();
-        require(self.owner != null && ctx.sender == self.owner!!, "not owner");
-        require(!self.locked, "upgrade in progress");
-        require(ctx.value >= ENGRAVE_FEE + MIN_STORAGE, "not enough value");
+        require(ctx.sender == self.collection, "only collection");
+        let ok: Bool = false;
+        if (self.owner != null) {
+            if (msg.owner == self.owner!! && !self.locked && ctx.value >= msg.fee + MIN_STORAGE) {
+                let s0: Slice = msg.text.asSlice();
+                if (s0.bits() > 0 && s0.bits() <= 256 && s0.refs() == 0) { ok = true; }
+            }
+        }
+        if (!ok) {
+            send(SendParameters{ to: msg.owner, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: "athar refund".asComment() });
+            return;
+        }
         let s: Slice = msg.text.asSlice();
-        require(s.bits() > 0 && s.bits() <= 256 && s.refs() == 0, "text must be 1..32 bytes");
         self.engravings = beginCell()
-            .storeAddress(ctx.sender)
+            .storeAddress(msg.owner)
             .storeUint(now(), 32)
             .storeUint(s.bits(), 9)
             .storeSlice(s)
             .storeMaybeRef(self.engravings)
             .endCell();
-        send(SendParameters{ to: self.collection, value: ENGRAVE_FEE, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
-        send(SendParameters{ to: ctx.sender, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
+        send(SendParameters{ to: self.collection, value: msg.fee, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
+        send(SendParameters{ to: msg.owner, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
     }
 
     fun logMedia(owner: Address, ref: Int, at: Int): Cell {
         return beginCell().storeAddress(owner).storeUint(at, 32).storeUint(ref, 256).storeMaybeRef(self.mediaLog).endCell();
     }
 
-    // The owner sets the occasion and/or a permanent picture (an Arweave id). Every earlier picture stays in the history.
-    receive(msg: SetMedia) {
+    // The owner sets the occasion and/or a picture (an Arweave id). Every earlier picture stays in the history. A first picture or an
+    // occasion costs firstFee; replacing a picture that is already there costs changeFee (the old and the new one are both kept).
+    receive(msg: SetMediaFrom) {
         let ctx: Context = context();
-        require(self.owner != null && ctx.sender == self.owner!!, "not owner");
-        require(!self.locked, "upgrade in progress");
-        require(ctx.value >= MEDIA_FEE + MIN_STORAGE, "not enough value");
-        require(msg.occasion <= 9, "bad occasion");
+        require(ctx.sender == self.collection, "only collection");
+        let isChange: Bool = self.mediaRef != 0 && msg.mediaRef != 0 && msg.mediaRef != self.mediaRef;
+        let fee: Int = msg.firstFee;
+        if (isChange) { fee = msg.changeFee; }
+        let ok: Bool = false;
+        if (self.owner != null) {
+            if (msg.owner == self.owner!! && !self.locked && msg.occasion <= 9 && ctx.value >= fee + MIN_STORAGE) { ok = true; }
+        }
+        if (!ok) {
+            send(SendParameters{ to: msg.owner, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: "athar refund".asComment() });
+            return;
+        }
         self.occasion = msg.occasion;
         if (msg.mediaRef != 0 && msg.mediaRef != self.mediaRef) {
             self.mediaRef = msg.mediaRef;
-            self.mediaLog = self.logMedia(ctx.sender, msg.mediaRef, now());
+            self.mediaLog = self.logMedia(msg.owner, msg.mediaRef, now());
         }
-        send(SendParameters{ to: self.collection, value: MEDIA_FEE, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
-        send(SendParameters{ to: ctx.sender, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
+        send(SendParameters{ to: self.collection, value: fee, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
+        send(SendParameters{ to: msg.owner, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
     }
 
     // ---- upgrade: phase 1 (lock, ask the collection). Nothing is destroyed yet. ----

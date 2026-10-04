@@ -1341,106 +1341,6 @@ export function dictValueParserMintOk(): DictionaryValue<MintOk> {
     }
 }
 
-export type Engrave = {
-    $$type: 'Engrave';
-    text: string;
-}
-
-export function storeEngrave(src: Engrave) {
-    return (builder: Builder) => {
-        const b_0 = builder;
-        b_0.storeUint(1096024068, 32);
-        b_0.storeStringRefTail(src.text);
-    };
-}
-
-export function loadEngrave(slice: Slice) {
-    const sc_0 = slice;
-    if (sc_0.loadUint(32) !== 1096024068) { throw Error('Invalid prefix'); }
-    const _text = sc_0.loadStringRefTail();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function loadTupleEngrave(source: TupleReader) {
-    const _text = source.readString();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function loadGetterTupleEngrave(source: TupleReader) {
-    const _text = source.readString();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function storeTupleEngrave(source: Engrave) {
-    const builder = new TupleBuilder();
-    builder.writeString(source.text);
-    return builder.build();
-}
-
-export function dictValueParserEngrave(): DictionaryValue<Engrave> {
-    return {
-        serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeEngrave(src)).endCell());
-        },
-        parse: (src) => {
-            return loadEngrave(src.loadRef().beginParse());
-        }
-    }
-}
-
-export type SetMedia = {
-    $$type: 'SetMedia';
-    occasion: bigint;
-    mediaRef: bigint;
-}
-
-export function storeSetMedia(src: SetMedia) {
-    return (builder: Builder) => {
-        const b_0 = builder;
-        b_0.storeUint(1096024071, 32);
-        b_0.storeUint(src.occasion, 8);
-        b_0.storeUint(src.mediaRef, 256);
-    };
-}
-
-export function loadSetMedia(slice: Slice) {
-    const sc_0 = slice;
-    if (sc_0.loadUint(32) !== 1096024071) { throw Error('Invalid prefix'); }
-    const _occasion = sc_0.loadUintBig(8);
-    const _mediaRef = sc_0.loadUintBig(256);
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function loadTupleSetMedia(source: TupleReader) {
-    const _occasion = source.readBigNumber();
-    const _mediaRef = source.readBigNumber();
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function loadGetterTupleSetMedia(source: TupleReader) {
-    const _occasion = source.readBigNumber();
-    const _mediaRef = source.readBigNumber();
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function storeTupleSetMedia(source: SetMedia) {
-    const builder = new TupleBuilder();
-    builder.writeNumber(source.occasion);
-    builder.writeNumber(source.mediaRef);
-    return builder.build();
-}
-
-export function dictValueParserSetMedia(): DictionaryValue<SetMedia> {
-    return {
-        serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeSetMedia(src)).endCell());
-        },
-        parse: (src) => {
-            return loadSetMedia(src.loadRef().beginParse());
-        }
-    }
-}
-
 export type UpgradeStart = {
     $$type: 'UpgradeStart';
     queryId: bigint;
@@ -2195,6 +2095,364 @@ export function dictValueParserWithdraw(): DictionaryValue<Withdraw> {
     }
 }
 
+export type EngraveReq = {
+    $$type: 'EngraveReq';
+    index: bigint;
+    text: string;
+}
+
+export function storeEngraveReq(src: EngraveReq) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024176, 32);
+        b_0.storeUint(src.index, 64);
+        b_0.storeStringRefTail(src.text);
+    };
+}
+
+export function loadEngraveReq(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024176) { throw Error('Invalid prefix'); }
+    const _index = sc_0.loadUintBig(64);
+    const _text = sc_0.loadStringRefTail();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function loadTupleEngraveReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _text = source.readString();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function loadGetterTupleEngraveReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _text = source.readString();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function storeTupleEngraveReq(source: EngraveReq) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.index);
+    builder.writeString(source.text);
+    return builder.build();
+}
+
+export function dictValueParserEngraveReq(): DictionaryValue<EngraveReq> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeEngraveReq(src)).endCell());
+        },
+        parse: (src) => {
+            return loadEngraveReq(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type EngraveFrom = {
+    $$type: 'EngraveFrom';
+    owner: Address;
+    text: string;
+    fee: bigint;
+}
+
+export function storeEngraveFrom(src: EngraveFrom) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024177, 32);
+        b_0.storeAddress(src.owner);
+        b_0.storeStringRefTail(src.text);
+        b_0.storeCoins(src.fee);
+    };
+}
+
+export function loadEngraveFrom(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024177) { throw Error('Invalid prefix'); }
+    const _owner = sc_0.loadAddress();
+    const _text = sc_0.loadStringRefTail();
+    const _fee = sc_0.loadCoins();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function loadTupleEngraveFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _text = source.readString();
+    const _fee = source.readBigNumber();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function loadGetterTupleEngraveFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _text = source.readString();
+    const _fee = source.readBigNumber();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function storeTupleEngraveFrom(source: EngraveFrom) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.owner);
+    builder.writeString(source.text);
+    builder.writeNumber(source.fee);
+    return builder.build();
+}
+
+export function dictValueParserEngraveFrom(): DictionaryValue<EngraveFrom> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeEngraveFrom(src)).endCell());
+        },
+        parse: (src) => {
+            return loadEngraveFrom(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetMediaReq = {
+    $$type: 'SetMediaReq';
+    index: bigint;
+    occasion: bigint;
+    mediaRef: bigint;
+}
+
+export function storeSetMediaReq(src: SetMediaReq) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024178, 32);
+        b_0.storeUint(src.index, 64);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+    };
+}
+
+export function loadSetMediaReq(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024178) { throw Error('Invalid prefix'); }
+    const _index = sc_0.loadUintBig(64);
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadTupleSetMediaReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadGetterTupleSetMediaReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function storeTupleSetMediaReq(source: SetMediaReq) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.index);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    return builder.build();
+}
+
+export function dictValueParserSetMediaReq(): DictionaryValue<SetMediaReq> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMediaReq(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMediaReq(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetMediaFrom = {
+    $$type: 'SetMediaFrom';
+    owner: Address;
+    occasion: bigint;
+    mediaRef: bigint;
+    firstFee: bigint;
+    changeFee: bigint;
+}
+
+export function storeSetMediaFrom(src: SetMediaFrom) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024179, 32);
+        b_0.storeAddress(src.owner);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+        b_0.storeCoins(src.firstFee);
+        b_0.storeCoins(src.changeFee);
+    };
+}
+
+export function loadSetMediaFrom(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024179) { throw Error('Invalid prefix'); }
+    const _owner = sc_0.loadAddress();
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    const _firstFee = sc_0.loadCoins();
+    const _changeFee = sc_0.loadCoins();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function loadTupleSetMediaFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _firstFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function loadGetterTupleSetMediaFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _firstFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function storeTupleSetMediaFrom(source: SetMediaFrom) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.owner);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    builder.writeNumber(source.firstFee);
+    builder.writeNumber(source.changeFee);
+    return builder.build();
+}
+
+export function dictValueParserSetMediaFrom(): DictionaryValue<SetMediaFrom> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMediaFrom(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMediaFrom(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetItemFees = {
+    $$type: 'SetItemFees';
+    engraveFee: bigint;
+    mediaFee: bigint;
+    changeFee: bigint;
+}
+
+export function storeSetItemFees(src: SetItemFees) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024180, 32);
+        b_0.storeCoins(src.engraveFee);
+        b_0.storeCoins(src.mediaFee);
+        b_0.storeCoins(src.changeFee);
+    };
+}
+
+export function loadSetItemFees(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024180) { throw Error('Invalid prefix'); }
+    const _engraveFee = sc_0.loadCoins();
+    const _mediaFee = sc_0.loadCoins();
+    const _changeFee = sc_0.loadCoins();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function loadTupleSetItemFees(source: TupleReader) {
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function loadGetterTupleSetItemFees(source: TupleReader) {
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function storeTupleSetItemFees(source: SetItemFees) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.engraveFee);
+    builder.writeNumber(source.mediaFee);
+    builder.writeNumber(source.changeFee);
+    return builder.build();
+}
+
+export function dictValueParserSetItemFees(): DictionaryValue<SetItemFees> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetItemFees(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetItemFees(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type ItemFees = {
+    $$type: 'ItemFees';
+    engrave: bigint;
+    media: bigint;
+    change: bigint;
+}
+
+export function storeItemFees(src: ItemFees) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.engrave, 257);
+        b_0.storeInt(src.media, 257);
+        b_0.storeInt(src.change, 257);
+    };
+}
+
+export function loadItemFees(slice: Slice) {
+    const sc_0 = slice;
+    const _engrave = sc_0.loadIntBig(257);
+    const _media = sc_0.loadIntBig(257);
+    const _change = sc_0.loadIntBig(257);
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function loadTupleItemFees(source: TupleReader) {
+    const _engrave = source.readBigNumber();
+    const _media = source.readBigNumber();
+    const _change = source.readBigNumber();
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function loadGetterTupleItemFees(source: TupleReader) {
+    const _engrave = source.readBigNumber();
+    const _media = source.readBigNumber();
+    const _change = source.readBigNumber();
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function storeTupleItemFees(source: ItemFees) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.engrave);
+    builder.writeNumber(source.media);
+    builder.writeNumber(source.change);
+    return builder.build();
+}
+
+export function dictValueParserItemFees(): DictionaryValue<ItemFees> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeItemFees(src)).endCell());
+        },
+        parse: (src) => {
+            return loadItemFees(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type Ymd = {
     $$type: 'Ymd';
     y: bigint;
@@ -2506,6 +2764,10 @@ export type AtharCollection$Data = {
     successor: Address | null;
     minted: bigint;
     firstMinterDone: boolean;
+    engraveFee: bigint;
+    mediaFee: bigint;
+    changeFee: bigint;
+    issued: Dictionary<number, boolean>;
 }
 
 export function storeAtharCollection$Data(src: AtharCollection$Data) {
@@ -2527,6 +2789,10 @@ export function storeAtharCollection$Data(src: AtharCollection$Data) {
         b_1.storeAddress(src.successor);
         b_1.storeUint(src.minted, 32);
         b_1.storeBit(src.firstMinterDone);
+        b_1.storeCoins(src.engraveFee);
+        b_1.storeCoins(src.mediaFee);
+        b_1.storeCoins(src.changeFee);
+        b_1.storeDict(src.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -2549,7 +2815,11 @@ export function loadAtharCollection$Data(slice: Slice) {
     const _successor = sc_1.loadMaybeAddress();
     const _minted = sc_1.loadUintBig(32);
     const _firstMinterDone = sc_1.loadBit();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = sc_1.loadCoins();
+    const _mediaFee = sc_1.loadCoins();
+    const _changeFee = sc_1.loadCoins();
+    const _issued = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function loadTupleAtharCollection$Data(source: TupleReader) {
@@ -2567,8 +2837,13 @@ export function loadTupleAtharCollection$Data(source: TupleReader) {
     const _pendingBaseUriAt = source.readBigNumber();
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
+    source = source.readTuple();
     const _firstMinterDone = source.readBoolean();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
@@ -2587,7 +2862,11 @@ export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
     const _firstMinterDone = source.readBoolean();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
@@ -2607,6 +2886,10 @@ export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
     builder.writeAddress(source.successor);
     builder.writeNumber(source.minted);
     builder.writeBoolean(source.firstMinterDone);
+    builder.writeNumber(source.engraveFee);
+    builder.writeNumber(source.mediaFee);
+    builder.writeNumber(source.changeFee);
+    builder.writeCell(source.issued.size > 0 ? beginCell().storeDictDirect(source.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
     return builder.build();
 }
 
@@ -3404,6 +3687,65 @@ export function dictValueParserBid(): DictionaryValue<Bid> {
         },
         parse: (src) => {
             return loadBid(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type Reprice = {
+    $$type: 'Reprice';
+    tier: bigint;
+    floor: bigint;
+    cap: bigint;
+}
+
+export function storeReprice(src: Reprice) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024165, 32);
+        b_0.storeUint(src.tier, 8);
+        b_0.storeCoins(src.floor);
+        b_0.storeCoins(src.cap);
+    };
+}
+
+export function loadReprice(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024165) { throw Error('Invalid prefix'); }
+    const _tier = sc_0.loadUintBig(8);
+    const _floor = sc_0.loadCoins();
+    const _cap = sc_0.loadCoins();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function loadTupleReprice(source: TupleReader) {
+    const _tier = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function loadGetterTupleReprice(source: TupleReader) {
+    const _tier = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function storeTupleReprice(source: Reprice) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.tier);
+    builder.writeNumber(source.floor);
+    builder.writeNumber(source.cap);
+    return builder.build();
+}
+
+export function dictValueParserReprice(): DictionaryValue<Reprice> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeReprice(src)).endCell());
+        },
+        parse: (src) => {
+            return loadReprice(src.loadRef().beginParse());
         }
     }
 }
@@ -4259,7 +4601,7 @@ function initAtharItem_init_args(src: AtharItem_init_args) {
 }
 
 async function AtharItem_init(collection: Address, index: bigint) {
-    const __code = Cell.fromHex('b5ee9c7241021e01000a3f000228ff008e88f4a413f4bcf2c80bed5320e303ed43d90107020271020401d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc030016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c0502c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102060600b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f0803fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae302090a0d02d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366151d01fa313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a001a09131e2018200df8202bef2f40d206ef2d08023f82309a423c2000b02f68e5a71702802111215c85520821005138d915004cb1f12cb3fcecec910461036021110021610246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0093353e5be2206eb3923031e30d10bd10ac109b108a107910681057103644350c1d00a8206ef2d0807080427005c8018210d53276db58cb1fcb3fc9103441301510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0003f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540004bae302211d0e1201ee31d430d0f8416f2430328200c0802d6eb39a2d206ef2d0805220c7059170e2f2f48139195611b3f2f48200df8202821008f0d180be12f2f401814f0821d749c2009621d7498307bb9170e29521d74ac0009170e2f2f4c822cf16f82301cb1f21d74901cb0801cf1614f400c9821005f5e10071706f00c80f02fe013082104154000301cb1fc95610553010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc9104710246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a1011001a58cf8680cf8480f400f400cf81008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54044a821041540007bae3023020821041540010bae30220821041540015bae302821041540014ba13181b1c02fe316c12d307d3ff30f8416f2430328200c0802d6eb39a2d206ef2d0805220c7059170e2f2f48139195611b3f2f48200df8202821008f0d180be12f2f481192223c10af2f421c300935313bd9170e29131e30d821005f5e10071706f00c8013082104154000301cb1fc95610553010246d50436d03c8cf8580ca00cf8440ce01141601643320f82310ef10de10cd10bc10ab109a10891078106710561035140211100221111101db3c3250de1c1b1a1918171615141315001ec85003cf1612cb1fcbff5220f400c901fefa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd10ac109b108a107910681057104617008010354143c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd191a0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430121d01fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c0821d0078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54ff8745a0');
+    const __code = Cell.fromHex('b5ee9c7241022101000b03000228ff008e88f4a413f4bcf2c80bed5320e303ed43d90107020271020401d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc030016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c0502c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102060600b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f0803fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae302090a0d02d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366172001fa313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a001a09131e2018200df8202bef2f40d206ef2d08023f82309a423c2000b02f68e5a71702802111215c85520821005138d915004cb1f12cb3fcecec910461036021110021610246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0093353e5be2206eb3923031e30d10bd10ac109b108a107910681057103644350c2000a8206ef2d0807080427005c8018210d53276db58cb1fcb3fc9103441301510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0003f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540071bae30221200e1202fc31fa40d401d001fa0030f8416f2430328200aa5a015611c705f2f4702e6eb38e3f2e206ef2d0805250c705935612b39170e29922820afaf080a012be923170e28e1d5322d749c2009620d7498307bb9170e294d74ac000923070e292307fdede9131e2e30301c823cf16f82301cb1f21d74901cb0801cf1615f400c971700f1001fa5b708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed541503fe6f00c8013082104154000301cb1fc956100408552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a8a11191a00065bcf81044a821041540073bae3023020821041540010bae30220821041540015bae302821041540014ba131b1e1f03fa31fa40d307d3fffa00fa0030f8416f2430328200aa5a015613c705f2f426c3009323c3009170e2935336bd9170e2926c129131e2702f6eb38e2a2f206ef2d0805260c705935613b39170e29324c10a9170e29922820afaf080a012be923170e292307fde9131e2e3033520c300935303bd9170e29130e30d71706f00c814161801fc5f03708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5415002000000000617468617220726566756e64012e3322f82345400311100302111102561059db3c320f50e317001ec85003cf1612cb1fcbff5220f400c902fe013082104154000301cb1fc956100407552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a191a001a58cf8680cf8480f400f400cf81008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd1c1d0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430122001fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c082200078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54f509d63f');
     const builder = beginCell();
     builder.storeUint(0, 1);
     initAtharItem_init_args({ $$type: 'AtharItem_init_args', collection, index })(builder);
@@ -4306,6 +4648,7 @@ export const AtharItem_errors = {
     138: { message: "Not a basechain address" },
     1609: { message: "this date is sold by auction" },
     1714: { message: "tier is priced by curve: common or rare" },
+    2664: { message: "no such token" },
     5268: { message: "auction not finished" },
     6032: { message: "closed" },
     6434: { message: "bad occasion" },
@@ -4326,14 +4669,16 @@ export const AtharItem_errors = {
     14653: { message: "already minted" },
     15521: { message: "no live auction" },
     15525: { message: "already issued" },
+    16679: { message: "fee out of range" },
     17529: { message: "bad pool size" },
-    20232: { message: "text must be 1..32 bytes" },
     20798: { message: "ticket sale is over" },
     21885: { message: "only admin" },
     22100: { message: "minting closed" },
+    22947: { message: "bad tier" },
     23197: { message: "no upgrade pending" },
     23696: { message: "already revealed" },
     23975: { message: "date already taken" },
+    24217: { message: "a change costs at least a first picture" },
     24241: { message: "not open yet" },
     24505: { message: "mythic and special dates are sold by auction" },
     25177: { message: "wrong secret" },
@@ -4343,6 +4688,7 @@ export const AtharItem_errors = {
     30788: { message: "bad special" },
     30889: { message: "bad price bounds" },
     31027: { message: "date out of range" },
+    32956: { message: "set the prices before opening with Configure" },
     34249: { message: "too early for the public reveal" },
     39703: { message: "too early" },
     40897: { message: "already settled" },
@@ -4353,6 +4699,7 @@ export const AtharItem_errors = {
     47518: { message: "not your open ticket" },
     47787: { message: "this date is inside the mystery boxes" },
     48010: { message: "send price + fees" },
+    48786: { message: "tier not set" },
     49280: { message: "not owner" },
     50514: { message: "no open ticket" },
     50563: { message: "bad rates" },
@@ -4407,6 +4754,7 @@ export const AtharItem_errors_backward = {
     "Not a basechain address": 138,
     "this date is sold by auction": 1609,
     "tier is priced by curve: common or rare": 1714,
+    "no such token": 2664,
     "auction not finished": 5268,
     "closed": 6032,
     "bad occasion": 6434,
@@ -4427,14 +4775,16 @@ export const AtharItem_errors_backward = {
     "already minted": 14653,
     "no live auction": 15521,
     "already issued": 15525,
+    "fee out of range": 16679,
     "bad pool size": 17529,
-    "text must be 1..32 bytes": 20232,
     "ticket sale is over": 20798,
     "only admin": 21885,
     "minting closed": 22100,
+    "bad tier": 22947,
     "no upgrade pending": 23197,
     "already revealed": 23696,
     "date already taken": 23975,
+    "a change costs at least a first picture": 24217,
     "not open yet": 24241,
     "mythic and special dates are sold by auction": 24505,
     "wrong secret": 25177,
@@ -4444,6 +4794,7 @@ export const AtharItem_errors_backward = {
     "bad special": 30788,
     "bad price bounds": 30889,
     "date out of range": 31027,
+    "set the prices before opening with Configure": 32956,
     "too early for the public reveal": 34249,
     "too early": 39703,
     "already settled": 40897,
@@ -4454,6 +4805,7 @@ export const AtharItem_errors_backward = {
     "not your open ticket": 47518,
     "this date is inside the mystery boxes": 47787,
     "send price + fees": 48010,
+    "tier not set": 48786,
     "not owner": 49280,
     "no open ticket": 50514,
     "bad rates": 50563,
@@ -4492,8 +4844,6 @@ const AtharItem_types: ABIType[] = [
     {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"remit","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Proceeds","header":1096024067,"fields":[]},
     {"name":"MintOk","header":1096024069,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
-    {"name":"Engrave","header":1096024068,"fields":[{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
-    {"name":"SetMedia","header":1096024071,"fields":[{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"UpgradeStart","header":1096024080,"fields":[{"name":"queryId","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"UpgradeRequest","header":1096024081,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"UpgradeAccept","header":1096024082,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
@@ -4508,10 +4858,16 @@ const AtharItem_types: ABIType[] = [
     {"name":"ApplyBaseUri","header":1096024101,"fields":[]},
     {"name":"SetSuccessor","header":1096024102,"fields":[{"name":"successor","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"Withdraw","header":1096024103,"fields":[]},
+    {"name":"EngraveReq","header":1096024176,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
+    {"name":"EngraveFrom","header":1096024177,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}},{"name":"fee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetMediaReq","header":1096024178,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
+    {"name":"SetMediaFrom","header":1096024179,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"firstFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetItemFees","header":1096024180,"fields":[{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"ItemFees","header":null,"fields":[{"name":"engrave","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"media","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"change","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"Ymd","header":null,"fields":[{"name":"y","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"m","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"d","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"AtharItem$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":true}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"lastTransferAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"AtharState","header":null,"fields":[{"name":"season","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tier","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"paid","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mintedAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"lastTransferAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"hands","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaRef","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
-    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}}]},
+    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
@@ -4525,6 +4881,7 @@ const AtharItem_types: ABIType[] = [
     {"name":"StartAuction","header":1096024133,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"duration","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"SetFees","header":1096024137,"fields":[{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Bid","header":1096024134,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
+    {"name":"Reprice","header":1096024165,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Settle","header":1096024135,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Sweep","header":1096024136,"fields":[]},
     {"name":"LoadPool","header":1096024144,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}}]},
@@ -4549,8 +4906,6 @@ const AtharItem_opcodes = {
     "MintItem": 1096024066,
     "Proceeds": 1096024067,
     "MintOk": 1096024069,
-    "Engrave": 1096024068,
-    "SetMedia": 1096024071,
     "UpgradeStart": 1096024080,
     "UpgradeRequest": 1096024081,
     "UpgradeAccept": 1096024082,
@@ -4565,6 +4920,11 @@ const AtharItem_opcodes = {
     "ApplyBaseUri": 1096024101,
     "SetSuccessor": 1096024102,
     "Withdraw": 1096024103,
+    "EngraveReq": 1096024176,
+    "EngraveFrom": 1096024177,
+    "SetMediaReq": 1096024178,
+    "SetMediaFrom": 1096024179,
+    "SetItemFees": 1096024180,
     "Configure": 1096024128,
     "AddSpecial": 1096024129,
     "Open": 1096024130,
@@ -4573,6 +4933,7 @@ const AtharItem_opcodes = {
     "StartAuction": 1096024133,
     "SetFees": 1096024137,
     "Bid": 1096024134,
+    "Reprice": 1096024165,
     "Settle": 1096024135,
     "Sweep": 1096024136,
     "LoadPool": 1096024144,
@@ -4598,8 +4959,8 @@ const AtharItem_receivers: ABIReceiver[] = [
     {"receiver":"internal","message":{"kind":"typed","type":"ItemInit"}},
     {"receiver":"internal","message":{"kind":"typed","type":"Transfer"}},
     {"receiver":"internal","message":{"kind":"typed","type":"GetStaticData"}},
-    {"receiver":"internal","message":{"kind":"typed","type":"Engrave"}},
-    {"receiver":"internal","message":{"kind":"typed","type":"SetMedia"}},
+    {"receiver":"internal","message":{"kind":"typed","type":"EngraveFrom"}},
+    {"receiver":"internal","message":{"kind":"typed","type":"SetMediaFrom"}},
     {"receiver":"internal","message":{"kind":"typed","type":"UpgradeStart"}},
     {"receiver":"internal","message":{"kind":"typed","type":"UpgradeAbort"}},
     {"receiver":"internal","message":{"kind":"typed","type":"BurnConfirm"}},
@@ -4619,6 +4980,7 @@ export const ENGRAVE_FEE = 100000000n;
 export const MEDIA_FEE = 100000000n;
 export const MIN_STORAGE = 50000000n;
 export const DAY = 86400n;
+export const REQ_GAS = 60000000n;
 
 export class AtharItem implements Contract {
     
@@ -4654,7 +5016,7 @@ export class AtharItem implements Contract {
         this.init = init;
     }
     
-    async send(provider: ContractProvider, via: Sender, args: { value: bigint, bounce?: boolean| null | undefined }, message: ItemInit | Transfer | GetStaticData | Engrave | SetMedia | UpgradeStart | UpgradeAbort | BurnConfirm) {
+    async send(provider: ContractProvider, via: Sender, args: { value: bigint, bounce?: boolean| null | undefined }, message: ItemInit | Transfer | GetStaticData | EngraveFrom | SetMediaFrom | UpgradeStart | UpgradeAbort | BurnConfirm) {
         
         let body: Cell | null = null;
         if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'ItemInit') {
@@ -4666,11 +5028,11 @@ export class AtharItem implements Contract {
         if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'GetStaticData') {
             body = beginCell().store(storeGetStaticData(message)).endCell();
         }
-        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'Engrave') {
-            body = beginCell().store(storeEngrave(message)).endCell();
+        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'EngraveFrom') {
+            body = beginCell().store(storeEngraveFrom(message)).endCell();
         }
-        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'SetMedia') {
-            body = beginCell().store(storeSetMedia(message)).endCell();
+        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'SetMediaFrom') {
+            body = beginCell().store(storeSetMediaFrom(message)).endCell();
         }
         if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'UpgradeStart') {
             body = beginCell().store(storeUpgradeStart(message)).endCell();

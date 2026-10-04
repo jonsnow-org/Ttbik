@@ -3,7 +3,7 @@ Contract: MockSuccessor
 BoC Size: 223 bytes
 
 ## Structures (Structs and Messages)
-Total structures: 40
+Total structures: 44
 
 ### DataSize
 TL-B: `_ cells:int257 bits:int257 refs:int257 = DataSize`
@@ -93,14 +93,6 @@ Signature: `Proceeds{}`
 TL-B: `mint_ok#41540005 index:uint64 = MintOk`
 Signature: `MintOk{index:uint64}`
 
-### Engrave
-TL-B: `engrave#41540004 text:^string = Engrave`
-Signature: `Engrave{text:^string}`
-
-### SetMedia
-TL-B: `set_media#41540007 occasion:uint8 mediaRef:uint256 = SetMedia`
-Signature: `SetMedia{occasion:uint8,mediaRef:uint256}`
-
 ### UpgradeStart
 TL-B: `upgrade_start#41540010 queryId:uint64 = UpgradeStart`
 Signature: `UpgradeStart{queryId:uint64}`
@@ -156,6 +148,30 @@ Signature: `SetSuccessor{successor:address}`
 ### Withdraw
 TL-B: `withdraw#41540027  = Withdraw`
 Signature: `Withdraw{}`
+
+### EngraveReq
+TL-B: `engrave_req#41540070 index:uint64 text:^string = EngraveReq`
+Signature: `EngraveReq{index:uint64,text:^string}`
+
+### EngraveFrom
+TL-B: `engrave_from#41540071 owner:address text:^string fee:coins = EngraveFrom`
+Signature: `EngraveFrom{owner:address,text:^string,fee:coins}`
+
+### SetMediaReq
+TL-B: `set_media_req#41540072 index:uint64 occasion:uint8 mediaRef:uint256 = SetMediaReq`
+Signature: `SetMediaReq{index:uint64,occasion:uint8,mediaRef:uint256}`
+
+### SetMediaFrom
+TL-B: `set_media_from#41540073 owner:address occasion:uint8 mediaRef:uint256 firstFee:coins changeFee:coins = SetMediaFrom`
+Signature: `SetMediaFrom{owner:address,occasion:uint8,mediaRef:uint256,firstFee:coins,changeFee:coins}`
+
+### SetItemFees
+TL-B: `set_item_fees#41540074 engraveFee:coins mediaFee:coins changeFee:coins = SetItemFees`
+Signature: `SetItemFees{engraveFee:coins,mediaFee:coins,changeFee:coins}`
+
+### ItemFees
+TL-B: `_ engrave:int257 media:int257 change:int257 = ItemFees`
+Signature: `ItemFees{engrave:int257,media:int257,change:int257}`
 
 ### SetPrice
 TL-B: `set_price#41540090 price:coins = SetPrice`

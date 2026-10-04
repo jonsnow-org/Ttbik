@@ -3,7 +3,7 @@ import { Address } from "@ton/core";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastHost, useToast } from "@/components/ui";
-import { applyBaseUriMsg, proposeBaseUriMsg, auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, specialAuctionMsg, sweepMsg } from "@/lib/launch";
+import { applyBaseUriMsg, proposeBaseUriMsg, repriceMsg, setItemFeesMsg, setPhotoFeesMsg, auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, specialAuctionMsg, sweepMsg } from "@/lib/launch";
 import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
 import { compressPhoto } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
@@ -46,6 +46,11 @@ export default function AdminPanel() {
   // special (gold) dates: the admin picks the picture, it gets the waxed-gold treatment, is shown for approval, stored for good,
   // and only then is the long auction started with that picture attached
   const [newBase, setNewBase] = useState("");
+  const [feeE, setFeeE] = useState("0.1"), [feeM, setFeeM] = useState("0.1"), [feeC, setFeeC] = useState("0.5");
+  const [feeP, setFeeP] = useState("0.15"), [feeS, setFeeS] = useState("0.3");
+  const [bandTier, setBandTier] = useState(0), [bandFloor, setBandFloor] = useState("0.25"), [bandCap, setBandCap] = useState("8");
+  const [feeSeen, setFeeSeen] = useState<{ itemFees?: { engrave: number; media: number; change: number }; fees?: { photo: number; silver: number }; prices?: { common: number; rare: number; ticket: number } } | null>(null);
+  useEffect(() => { fetch("/api/season", { cache: "no-store" }).then((r) => r.json()).then((j) => { setFeeSeen(j); if (j?.fees) { setFeeP(String(j.fees.photo)); setFeeS(String(j.fees.silver)); } if (j?.itemFees) { setFeeE(String(j.itemFees.engrave)); setFeeM(String(j.itemFees.media)); setFeeC(String(j.itemFees.change)); } }).catch(() => undefined); }, []);
   const [spIdx, setSpIdx] = useState(() => specialIndex(SEASON_1.specials[0]));
   const [spPhoto, setSpPhoto] = useState<string | null>(null);
   const [spSvg, setSpSvg] = useState("");
@@ -297,6 +302,32 @@ export default function AdminPanel() {
             <button className="btn gold" disabled={running || !secretLocal || (st.revealAt ?? 0) * 1000 > Date.now() || !!st.revealed} onClick={() => run(async () => { await ui.sendTransaction(tx([revealMsg(st.minter, BigInt("0x" + secretLocal!))])); })}>
               {st.revealed ? "تم كشف الصناديق" : (st.revealAt ?? 0) * 1000 > Date.now() ? `كشف الصناديق (يُتاح ${new Date((st.revealAt ?? 0) * 1000).toLocaleString("ar")})` : "اكشف الصناديق الآن"}
             </button>
+            <div className="card" style={{ margin: 0 }}>
+              <b>الأسعار تتبع السوق: رسوم النقش والصورة</b>
+              <p className="muted">الحالي: نقش {feeSeen?.itemFees?.engrave ?? "…"} · أول صورة {feeSeen?.itemFees?.media ?? "…"} · تغيير الصورة {feeSeen?.itemFees?.change ?? "…"} TON. عدّلها عندما يتغيّر سعر TON أو التضخم. الحد الأعلى 5 TON لكل رسم، وتغيير الصورة لا ينقص عن الأولى.</p>
+              <div className="row" style={{ gap: 8 }}>
+                <input type="number" step="0.01" min="0.02" value={feeE} onChange={(e) => setFeeE(e.target.value)} title="نقش" />
+                <input type="number" step="0.01" min="0.02" value={feeM} onChange={(e) => setFeeM(e.target.value)} title="أول صورة" />
+                <input type="number" step="0.01" min="0.02" value={feeC} onChange={(e) => setFeeC(e.target.value)} title="تغيير الصورة" />
+              </div>
+              <button className="btn ghost" disabled={running || Number(feeC) < Number(feeM)} onClick={() => run(async () => { await ui.sendTransaction(tx([setItemFeesMsg(st.collection, feeE, feeM, feeC)])); })}>حدّث رسوم النقش والصورة</button>
+              <p className="muted">عند الشراء: صورة شخصية {feeSeen?.fees?.photo ?? "…"} · فضية {feeSeen?.fees?.silver ?? "…"} TON (الفضية تشمل الصورة، فلا تقلّ عنها، وكلاهما حتى 2 TON).</p>
+              <div className="row" style={{ gap: 8 }}>
+                <input type="number" step="0.01" min="0" value={feeP} onChange={(e) => setFeeP(e.target.value)} title="صورة شخصية" />
+                <input type="number" step="0.01" min="0" value={feeS} onChange={(e) => setFeeS(e.target.value)} title="فضية" />
+              </div>
+              <button className="btn ghost" disabled={running || Number(feeS) < Number(feeP) || Number(feeS) > 2} onClick={() => run(async () => { await ui.sendTransaction(tx([setPhotoFeesMsg(st.minter, feeP, feeS)])); })}>حدّث رسوم الصورة عند الشراء</button>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <b>تحريك نطاق سعر فئة</b>
+              <p className="muted">الأسعار الحالية: عادي {feeSeen?.prices?.common ?? "…"} · نادر {feeSeen?.prices?.rare ?? "…"} · تذكرة {feeSeen?.prices?.ticket ?? "…"} TON. الأرضية والسقف الجديدان يسحبان السعر الحالي إلى داخلهما (الحدود 0.05 – 2000 TON).</p>
+              <select value={bandTier} onChange={(e) => setBandTier(Number(e.target.value))}><option value={0}>عادي</option><option value={1}>نادر</option><option value={3}>تذاكر الغموض</option></select>
+              <div className="row" style={{ gap: 8 }}>
+                <input type="number" step="0.05" min="0.05" value={bandFloor} onChange={(e) => setBandFloor(e.target.value)} title="الأرضية" />
+                <input type="number" step="0.05" min="0.05" value={bandCap} onChange={(e) => setBandCap(e.target.value)} title="السقف" />
+              </div>
+              <button className="btn ghost" disabled={running || Number(bandFloor) < 0.05 || Number(bandFloor) > Number(bandCap)} onClick={() => run(async () => { await ui.sendTransaction(tx([repriceMsg(st.minter, bandTier, bandFloor, bandCap)])); })}>طبّق النطاق</button>
+            </div>
             <div className="card" style={{ margin: 0 }}>
               <b>مفتاح الطوارئ: نقل عنوان البيانات إلى استضافة أخرى</b>
               <p className="muted">إن سقطت الاستضافة الحالية: اكتب عنوان البديل (ينتهي بـ /api/m/) ثم «اقترح». بعد مهلة الإشعار المعلنة (48 ساعة) اضغط «طبّق».</p>

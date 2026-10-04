@@ -1341,106 +1341,6 @@ export function dictValueParserMintOk(): DictionaryValue<MintOk> {
     }
 }
 
-export type Engrave = {
-    $$type: 'Engrave';
-    text: string;
-}
-
-export function storeEngrave(src: Engrave) {
-    return (builder: Builder) => {
-        const b_0 = builder;
-        b_0.storeUint(1096024068, 32);
-        b_0.storeStringRefTail(src.text);
-    };
-}
-
-export function loadEngrave(slice: Slice) {
-    const sc_0 = slice;
-    if (sc_0.loadUint(32) !== 1096024068) { throw Error('Invalid prefix'); }
-    const _text = sc_0.loadStringRefTail();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function loadTupleEngrave(source: TupleReader) {
-    const _text = source.readString();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function loadGetterTupleEngrave(source: TupleReader) {
-    const _text = source.readString();
-    return { $$type: 'Engrave' as const, text: _text };
-}
-
-export function storeTupleEngrave(source: Engrave) {
-    const builder = new TupleBuilder();
-    builder.writeString(source.text);
-    return builder.build();
-}
-
-export function dictValueParserEngrave(): DictionaryValue<Engrave> {
-    return {
-        serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeEngrave(src)).endCell());
-        },
-        parse: (src) => {
-            return loadEngrave(src.loadRef().beginParse());
-        }
-    }
-}
-
-export type SetMedia = {
-    $$type: 'SetMedia';
-    occasion: bigint;
-    mediaRef: bigint;
-}
-
-export function storeSetMedia(src: SetMedia) {
-    return (builder: Builder) => {
-        const b_0 = builder;
-        b_0.storeUint(1096024071, 32);
-        b_0.storeUint(src.occasion, 8);
-        b_0.storeUint(src.mediaRef, 256);
-    };
-}
-
-export function loadSetMedia(slice: Slice) {
-    const sc_0 = slice;
-    if (sc_0.loadUint(32) !== 1096024071) { throw Error('Invalid prefix'); }
-    const _occasion = sc_0.loadUintBig(8);
-    const _mediaRef = sc_0.loadUintBig(256);
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function loadTupleSetMedia(source: TupleReader) {
-    const _occasion = source.readBigNumber();
-    const _mediaRef = source.readBigNumber();
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function loadGetterTupleSetMedia(source: TupleReader) {
-    const _occasion = source.readBigNumber();
-    const _mediaRef = source.readBigNumber();
-    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
-}
-
-export function storeTupleSetMedia(source: SetMedia) {
-    const builder = new TupleBuilder();
-    builder.writeNumber(source.occasion);
-    builder.writeNumber(source.mediaRef);
-    return builder.build();
-}
-
-export function dictValueParserSetMedia(): DictionaryValue<SetMedia> {
-    return {
-        serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeSetMedia(src)).endCell());
-        },
-        parse: (src) => {
-            return loadSetMedia(src.loadRef().beginParse());
-        }
-    }
-}
-
 export type UpgradeStart = {
     $$type: 'UpgradeStart';
     queryId: bigint;
@@ -2195,6 +2095,364 @@ export function dictValueParserWithdraw(): DictionaryValue<Withdraw> {
     }
 }
 
+export type EngraveReq = {
+    $$type: 'EngraveReq';
+    index: bigint;
+    text: string;
+}
+
+export function storeEngraveReq(src: EngraveReq) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024176, 32);
+        b_0.storeUint(src.index, 64);
+        b_0.storeStringRefTail(src.text);
+    };
+}
+
+export function loadEngraveReq(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024176) { throw Error('Invalid prefix'); }
+    const _index = sc_0.loadUintBig(64);
+    const _text = sc_0.loadStringRefTail();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function loadTupleEngraveReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _text = source.readString();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function loadGetterTupleEngraveReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _text = source.readString();
+    return { $$type: 'EngraveReq' as const, index: _index, text: _text };
+}
+
+export function storeTupleEngraveReq(source: EngraveReq) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.index);
+    builder.writeString(source.text);
+    return builder.build();
+}
+
+export function dictValueParserEngraveReq(): DictionaryValue<EngraveReq> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeEngraveReq(src)).endCell());
+        },
+        parse: (src) => {
+            return loadEngraveReq(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type EngraveFrom = {
+    $$type: 'EngraveFrom';
+    owner: Address;
+    text: string;
+    fee: bigint;
+}
+
+export function storeEngraveFrom(src: EngraveFrom) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024177, 32);
+        b_0.storeAddress(src.owner);
+        b_0.storeStringRefTail(src.text);
+        b_0.storeCoins(src.fee);
+    };
+}
+
+export function loadEngraveFrom(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024177) { throw Error('Invalid prefix'); }
+    const _owner = sc_0.loadAddress();
+    const _text = sc_0.loadStringRefTail();
+    const _fee = sc_0.loadCoins();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function loadTupleEngraveFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _text = source.readString();
+    const _fee = source.readBigNumber();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function loadGetterTupleEngraveFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _text = source.readString();
+    const _fee = source.readBigNumber();
+    return { $$type: 'EngraveFrom' as const, owner: _owner, text: _text, fee: _fee };
+}
+
+export function storeTupleEngraveFrom(source: EngraveFrom) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.owner);
+    builder.writeString(source.text);
+    builder.writeNumber(source.fee);
+    return builder.build();
+}
+
+export function dictValueParserEngraveFrom(): DictionaryValue<EngraveFrom> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeEngraveFrom(src)).endCell());
+        },
+        parse: (src) => {
+            return loadEngraveFrom(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetMediaReq = {
+    $$type: 'SetMediaReq';
+    index: bigint;
+    occasion: bigint;
+    mediaRef: bigint;
+}
+
+export function storeSetMediaReq(src: SetMediaReq) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024178, 32);
+        b_0.storeUint(src.index, 64);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+    };
+}
+
+export function loadSetMediaReq(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024178) { throw Error('Invalid prefix'); }
+    const _index = sc_0.loadUintBig(64);
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadTupleSetMediaReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadGetterTupleSetMediaReq(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMediaReq' as const, index: _index, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function storeTupleSetMediaReq(source: SetMediaReq) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.index);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    return builder.build();
+}
+
+export function dictValueParserSetMediaReq(): DictionaryValue<SetMediaReq> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMediaReq(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMediaReq(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetMediaFrom = {
+    $$type: 'SetMediaFrom';
+    owner: Address;
+    occasion: bigint;
+    mediaRef: bigint;
+    firstFee: bigint;
+    changeFee: bigint;
+}
+
+export function storeSetMediaFrom(src: SetMediaFrom) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024179, 32);
+        b_0.storeAddress(src.owner);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+        b_0.storeCoins(src.firstFee);
+        b_0.storeCoins(src.changeFee);
+    };
+}
+
+export function loadSetMediaFrom(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024179) { throw Error('Invalid prefix'); }
+    const _owner = sc_0.loadAddress();
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    const _firstFee = sc_0.loadCoins();
+    const _changeFee = sc_0.loadCoins();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function loadTupleSetMediaFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _firstFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function loadGetterTupleSetMediaFrom(source: TupleReader) {
+    const _owner = source.readAddress();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _firstFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetMediaFrom' as const, owner: _owner, occasion: _occasion, mediaRef: _mediaRef, firstFee: _firstFee, changeFee: _changeFee };
+}
+
+export function storeTupleSetMediaFrom(source: SetMediaFrom) {
+    const builder = new TupleBuilder();
+    builder.writeAddress(source.owner);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    builder.writeNumber(source.firstFee);
+    builder.writeNumber(source.changeFee);
+    return builder.build();
+}
+
+export function dictValueParserSetMediaFrom(): DictionaryValue<SetMediaFrom> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMediaFrom(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMediaFrom(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetItemFees = {
+    $$type: 'SetItemFees';
+    engraveFee: bigint;
+    mediaFee: bigint;
+    changeFee: bigint;
+}
+
+export function storeSetItemFees(src: SetItemFees) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024180, 32);
+        b_0.storeCoins(src.engraveFee);
+        b_0.storeCoins(src.mediaFee);
+        b_0.storeCoins(src.changeFee);
+    };
+}
+
+export function loadSetItemFees(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024180) { throw Error('Invalid prefix'); }
+    const _engraveFee = sc_0.loadCoins();
+    const _mediaFee = sc_0.loadCoins();
+    const _changeFee = sc_0.loadCoins();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function loadTupleSetItemFees(source: TupleReader) {
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function loadGetterTupleSetItemFees(source: TupleReader) {
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    return { $$type: 'SetItemFees' as const, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee };
+}
+
+export function storeTupleSetItemFees(source: SetItemFees) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.engraveFee);
+    builder.writeNumber(source.mediaFee);
+    builder.writeNumber(source.changeFee);
+    return builder.build();
+}
+
+export function dictValueParserSetItemFees(): DictionaryValue<SetItemFees> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetItemFees(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetItemFees(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type ItemFees = {
+    $$type: 'ItemFees';
+    engrave: bigint;
+    media: bigint;
+    change: bigint;
+}
+
+export function storeItemFees(src: ItemFees) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.engrave, 257);
+        b_0.storeInt(src.media, 257);
+        b_0.storeInt(src.change, 257);
+    };
+}
+
+export function loadItemFees(slice: Slice) {
+    const sc_0 = slice;
+    const _engrave = sc_0.loadIntBig(257);
+    const _media = sc_0.loadIntBig(257);
+    const _change = sc_0.loadIntBig(257);
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function loadTupleItemFees(source: TupleReader) {
+    const _engrave = source.readBigNumber();
+    const _media = source.readBigNumber();
+    const _change = source.readBigNumber();
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function loadGetterTupleItemFees(source: TupleReader) {
+    const _engrave = source.readBigNumber();
+    const _media = source.readBigNumber();
+    const _change = source.readBigNumber();
+    return { $$type: 'ItemFees' as const, engrave: _engrave, media: _media, change: _change };
+}
+
+export function storeTupleItemFees(source: ItemFees) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.engrave);
+    builder.writeNumber(source.media);
+    builder.writeNumber(source.change);
+    return builder.build();
+}
+
+export function dictValueParserItemFees(): DictionaryValue<ItemFees> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeItemFees(src)).endCell());
+        },
+        parse: (src) => {
+            return loadItemFees(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type Ymd = {
     $$type: 'Ymd';
     y: bigint;
@@ -2506,6 +2764,10 @@ export type AtharCollection$Data = {
     successor: Address | null;
     minted: bigint;
     firstMinterDone: boolean;
+    engraveFee: bigint;
+    mediaFee: bigint;
+    changeFee: bigint;
+    issued: Dictionary<number, boolean>;
 }
 
 export function storeAtharCollection$Data(src: AtharCollection$Data) {
@@ -2527,6 +2789,10 @@ export function storeAtharCollection$Data(src: AtharCollection$Data) {
         b_1.storeAddress(src.successor);
         b_1.storeUint(src.minted, 32);
         b_1.storeBit(src.firstMinterDone);
+        b_1.storeCoins(src.engraveFee);
+        b_1.storeCoins(src.mediaFee);
+        b_1.storeCoins(src.changeFee);
+        b_1.storeDict(src.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -2549,7 +2815,11 @@ export function loadAtharCollection$Data(slice: Slice) {
     const _successor = sc_1.loadMaybeAddress();
     const _minted = sc_1.loadUintBig(32);
     const _firstMinterDone = sc_1.loadBit();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = sc_1.loadCoins();
+    const _mediaFee = sc_1.loadCoins();
+    const _changeFee = sc_1.loadCoins();
+    const _issued = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function loadTupleAtharCollection$Data(source: TupleReader) {
@@ -2567,8 +2837,13 @@ export function loadTupleAtharCollection$Data(source: TupleReader) {
     const _pendingBaseUriAt = source.readBigNumber();
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
+    source = source.readTuple();
     const _firstMinterDone = source.readBoolean();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
@@ -2587,7 +2862,11 @@ export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
     const _successor = source.readAddressOpt();
     const _minted = source.readBigNumber();
     const _firstMinterDone = source.readBoolean();
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone };
+    const _engraveFee = source.readBigNumber();
+    const _mediaFee = source.readBigNumber();
+    const _changeFee = source.readBigNumber();
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
 }
 
 export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
@@ -2607,6 +2886,10 @@ export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
     builder.writeAddress(source.successor);
     builder.writeNumber(source.minted);
     builder.writeBoolean(source.firstMinterDone);
+    builder.writeNumber(source.engraveFee);
+    builder.writeNumber(source.mediaFee);
+    builder.writeNumber(source.changeFee);
+    builder.writeCell(source.issued.size > 0 ? beginCell().storeDictDirect(source.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
     return builder.build();
 }
 
@@ -3404,6 +3687,65 @@ export function dictValueParserBid(): DictionaryValue<Bid> {
         },
         parse: (src) => {
             return loadBid(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type Reprice = {
+    $$type: 'Reprice';
+    tier: bigint;
+    floor: bigint;
+    cap: bigint;
+}
+
+export function storeReprice(src: Reprice) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024165, 32);
+        b_0.storeUint(src.tier, 8);
+        b_0.storeCoins(src.floor);
+        b_0.storeCoins(src.cap);
+    };
+}
+
+export function loadReprice(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024165) { throw Error('Invalid prefix'); }
+    const _tier = sc_0.loadUintBig(8);
+    const _floor = sc_0.loadCoins();
+    const _cap = sc_0.loadCoins();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function loadTupleReprice(source: TupleReader) {
+    const _tier = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function loadGetterTupleReprice(source: TupleReader) {
+    const _tier = source.readBigNumber();
+    const _floor = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+}
+
+export function storeTupleReprice(source: Reprice) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.tier);
+    builder.writeNumber(source.floor);
+    builder.writeNumber(source.cap);
+    return builder.build();
+}
+
+export function dictValueParserReprice(): DictionaryValue<Reprice> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeReprice(src)).endCell());
+        },
+        parse: (src) => {
+            return loadReprice(src.loadRef().beginParse());
         }
     }
 }
@@ -4261,7 +4603,7 @@ function initAtharCollection_init_args(src: AtharCollection_init_args) {
 }
 
 async function AtharCollection_init(admin: Address, collectionUri: string, delaySec: bigint) {
-    const __code = Cell.fromHex('b5ee9c724102530100173e000228ff008e88f4a413f4bcf2c80bed5320e303ed43d90118020271020a02012003050273b8b5ded44d0d200018e21fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170e30d0e11100e10df551cdb3c6cf181904001631c87101cb072dcf16ccc902012006080263b5dafda89a1a400031c43f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e1c61bb678d9e701907002053ea6eb397302a206ef2d080de546aa00267b4f47da89a1a400031c43f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e1c61aaa1db678d9e3019090104db3c310201200b130201200c110201200d0f0263b36bbb513434800063887e903500740060404075c0154800f45622c21b60407d2049c41b5b5c1b485b485c38c376cf1b3c60190e00022a0263b016fb513434800063887e903500740060404075c0154800f45622c21b60407d2049c41b5b5c1b485b485c38c376cf1b3ce01910001ac87101cb072ecf16c9522056100267b593dda89a1a400031c43f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e1c61aaa1db678d9e301912002c81010b290280204133f40a6fa19401d70130925b6de202012014160263b79cfda89a1a400031c43f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e1c61bb678d9e3019150002220263b6cfbda89a1a400031c43f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e1c61bb678d9e30191700022103f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e21fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170e30d11108e9d0e8020d7217021d749c21f9430d31f01de821041540012bae3025f0f30e0702fd74920c21f96310fd31f1110de21821041540022ba191a1b00a4fa40d401d001d31fd401d0d401d001d72c01916d93fa4001e201d30fd30ff404d72c01916d93fa4001e201d31fd2000193d401d0916de201d31fd72c01916d93fa4001e201d31fd2003010cf10ce10cd6c1f02e8d33f013110de10cd10bc10ab109a108910781067105610451034413f2fdb3c708040701113c80182104154001558cb1fcb3fc9103441300111130110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00550d315104aae30221821041540023ba8eb65b393d81557df8422dc705f2f48200cf3a246eb3f2f48137a5f82324bef2f410bd10ac109b108a10391068105710466d061035440302e021821041540024bae30221821041540025ba1c511e2001fe5b0efa403081557df8422fc705f2f4296e8e6a3910ce551bc87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed54e0341d00fe34f8232aa010ce10bd10ac109b108a1079106810571036445503c87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed5401fe5b0ed430d081557df8422fc705f2f42ad7498e6a3a10ce551bc87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed54e11f01386c22f8232aa010ce10bd10ac109b108a1079106810571046035055045104b48ebb5b3a3d81557df8422dc705f2f48200cf3a226eb3f2f48137a5f82322bef2f401206ef2d08010bd10ac109b0a1079106810571046103510246d4134e021821041540020bae30221821041540021bae30221821041540002ba5121222301e45b0efa403081557df8422fc705f2f4811790226ef2f42f8e1e81010bf8232da01038128020216e955b59f4593098c801cf014133f441e28e223f7f81010bf823103812011111018020216e955b59f4593098c801cf014133f441e2e210ce10bd10ac109b108a10791068071046103544030251017e5b0efa403081557df8422fc705f2f41681010b016d8020216e955b59f4593098c801cf014133f441e210ce10bd10ac109b108a1079106807104610354403025103f6e30221821041540003ba8eed5b3e10ce551bdb3cc87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed54e021242a2902fc5b0ed33ffa40d30fd307fa00d307d3fffa0030f8416f2430328156542b6ef2f42f81010b2280204133f40a6fa19401d70130925b6de28200ec42216eb39af82302206ef2d08012be923170e2f2f48179332a82008eacbbf2f4816f1156136eb3f2f48200df8223821007bfa480a05230bef2f4f8282adb3c1119a424c200322502fe8ec45614206ef2d08073708828552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de820898968073700ec80182104154000558cb1fcb3fc9104541301e10246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016e2627001c0000000061746861722073616c6501d0b0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00205618705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d05023a18208989680a18209312d00a1717ff823106b105a10491038407bc82801bc55608210415400015008cb1f16ce14cb0f12cb0701fa02cb1fcb07cbffc9104640150411141310465522c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ce551b5102fe821041540027ba8eed5b3e10ce551bdb3cc87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed54e021821041540026ba2a2c01a6816f112b6eb3f2f4820afaf08070fb022a206ef2d08070810082708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb002b001200000000617468617204788e9c5b0efa403081557df8422fc705f2f48200da07026e12f2f410ce551be021821041540011bae30221821041540013bae3025710c0000fc1211fb0512d305202fa5b0ed33ffa40d30fd307fa00d31fd31ff404d307d3fff40430812426f8420e11190e0d11180d0c11170c0b11160b0a11150a0911140908111308071112070611110605111005104f031119030211180201111a01111b5617db3c01111c01c70501111a01f2f48200d118216eb3f2f420206ef2d0800711160706111506312e02f605111405041113040311120302111102011110010f700f8040111a7f111ac855a0db3cc910481037021111020111100110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0050ed103c102b103a10291038102710365e2243002f510048821041540012500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff40002fe5b0ed33f30812915226eb39af84223206ef2d080c7059170e2f2f410df10ce10bd10ac109b108a107910681057104610354430db3c708040706f00c8013082104154001401cb1fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0031510164f82801db3c705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d032011e88c87001ca005a02ce810101cf00c9330228ff008e88f4a413f4bcf2c80bed5320e303ed43d9343a020271353701d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc360016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c3802c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102393900b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f3b03fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae3023c3d4002d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366485001fa313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a001a09131e2018200df8202bef2f40d206ef2d08023f82309a423c2003e02f68e5a71702802111215c85520821005138d915004cb1f12cb3fcecec910461036021110021610246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0093353e5be2206eb3923031e30d10bd10ac109b108a107910681057103644353f5000a8206ef2d0807080427005c8018210d53276db58cb1fcb3fc9103441301510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0003f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540004bae3022150414501ee31d430d0f8416f2430328200c0802d6eb39a2d206ef2d0805220c7059170e2f2f48139195611b3f2f48200df8202821008f0d180be12f2f401814f0821d749c2009621d7498307bb9170e29521d74ac0009170e2f2f4c822cf16f82301cb1f21d74901cb0801cf1614f400c9821005f5e10071706f00c84202fe013082104154000301cb1fc95610553010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc9104710246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a4344001a58cf8680cf8480f400f400cf81008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54044a821041540007bae3023020821041540010bae30220821041540015bae302821041540014ba464b4e4f02fe316c12d307d3ff30f8416f2430328200c0802d6eb39a2d206ef2d0805220c7059170e2f2f48139195611b3f2f48200df8202821008f0d180be12f2f481192223c10af2f421c300935313bd9170e29131e30d821005f5e10071706f00c8013082104154000301cb1fc95610553010246d50436d03c8cf8580ca00cf8440ce01474901643320f82310ef10de10cd10bc10ab109a10891078106710561035140211100221111101db3c3250de1c1b1a1918171615141348001ec85003cf1612cb1fcbff5220f400c901fefa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd10ac109b108a10791068105710464a008010354143c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd4c4d0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430125001fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c082500078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5400cac87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed5400e28e6910ce551bc87f01ca0055e050efce0cc8ce1ccd1acb1fc809c8ce19cd5007206e9430cf84809201cee215cb0f13cb0ff40001206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e212cb1f58206e9430cf84809201cee212cb1f12ca00cdc9ed54e05f0ff2c08296bea33c');
+    const __code = Cell.fromHex('b5ee9c7241026501001b31000228ff008e88f4a413f4bcf2c80bed5320e303ed43d9011b020271020a020120030502c3b8b5ded44d0d200018e2ffa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006de30d1112111411121111111311111110111211100f11110f0e11100e10df551cdb3c57105f0f6c3181c04001831c87101cb075611cf16ccc902012006080283b5dafda89a1a400031c5ff481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dbc61bb678d9e6d88701c07002256122f6eb397302e206ef2d080de546ee002b7b4f47da89a1a400031c5ff481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dbc61a2224222622242222222422222220222222201e22201eaa1db678ae20be1ed86301c090104db3c3e0201200b160201200c140201200d0f0287b36bbb5134348000638bfe903500740060404075c0154800f45622c21b60407d2049c41b5b5c1b485b485c2084017d7840082084077359401b78c376cf15c417c3db0c601c0e00022e02012010120283ac2df6a268690000c717fd206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036f186ed9e3679b621c01c11001cc87101cb075612cf16c9526056140283ad2776a268690000c717fd206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036f186ed9e3679b621c01c13000654732102b7b593dda89a1a400031c5ff481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dbc61a2224222622242222222422222220222222201e22201eaa1db678ae20be1ed86301c15002c81010b2d0280204133f40a6fa19401d70130925b6de202012017190287b79cfda89a1a400031c5ff481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dbc61bb678ae20be1ed86301c180002260287b6cfbda89a1a400031c5ff481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dbc61bb678ae20be1ed86301c1a00022503f63001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e2ffa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006de30d11148e9f11128020d7217021d749c21f9430d31f01de821041540012bae3025f0f5f05e0705613d749201c1d1f00f6fa40d401d001d31fd401d0d401d001d72c01916d93fa4001e201d30fd30ff404d72c01916d93fa4001e201d31fd2000193d401d0916de201d31fd72c01916d93fa4001e201d31fd200d430d0fa00fa00fa00f4043011101113111011101112111011101111111057131111111211111110111111100f11100f550e03f4d33f01311111111211111110111111100f11100f10ef10de10cd10bc10ab109a108910781067105610451034111341305613db3c708040701117c80182104154001558cb1fcb3fc9103441300111170110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818ae2f400c901fb003e601e01281111111211111110111111100f11100f550edb3c6304fcc21f97311113d31f1114de21821041540022ba8f565b1112fa403081557df8425613c705f2f42d6e8e933d1110111211100f11110f0e11100e551ddb3ce03838f8232ea01110111211100f11110f0e11100e10df10ce10bd10ac109b107a0910681057104610354403db3ce021821041540023bae30221821041540024ba63632021018c5b3d571181557df8425611c705f2f48200cf3a286eb3f2f48137a5f82328bef2f40f11110f0e11100e10df10ce107d10ac109b108a6d0a10791068105710461035440302db3c6304d88f575b1112d430d081557df8425613c705f2f42ed7498e933e1110111211100f11110f0e11100e551ddb3ce13636f8232ea01110111211100f11110f0e11100e10df10ce10bd10ac109b108a1079105807104610354403db3ce021821041540025bae30221821041540020ba6363222301965b3e571181557df8425611c705f2f48200cf3a266eb3f2f48137a5f82326bef2f405206ef2d0800f11110f0e11100e10df0e10bd10ac109b108a107910686d08105710461035414013db3c6304e4e30221821041540021ba8ed35b1112fa403081557df8425613c705f2f41a81010b016d8020216e955b59f4593098c801cf014133f441e21110111211100f11110f0e11100e10df10ce10bd10ac0b108a10791068105710461035440302db3ce021821041540002bae30221821041540074ba2463262c01fe5b1112fa403081557df8425613c705f2f4811790266ef2f4238e1f81010bf8235611a0103c128020216e955b59f4593098c801cf014133f441e28e1f337f81010bf823103c41508020216e955b59f4593098c801cf014133f441e2e21110111211100f11110f0e11100e10df10ce10bd10ac0b108a1079106810571046103525010a440302db3c6302fc5b1112d33ffa40d30fd307fa00d307d3fffa0030f8416f2430328156542f6ef2f4561381010b2280204133f40a6fa19401d70130925b6de28200ec42216eb39af82302206ef2d08012be923170e2f2f48179332a82008eacbbf2f4816f1156176eb3f2f48200df8223821007bfa480a05230bef2f4f8282adb3c0fa4111e3f2702f880102c7f71216e955b59f45b3098c801cf004133f443e224c2008ec45618206ef2d08073708828552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de820898968073700ec80182104154000558cb1fcb3fc9104541301e2829001c0000000061746861722073616c6501fe10246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00530d705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d05023a18208989680a18209312d00a1717ff823106b105a10492a01fc1038407bc855608210415400015008cb1f16ce14cb0f12cb0701fa02cb1fcb07cbffc91046401504503a10465522c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001110111211100f11110f0e11100e10df10ce10bd10ac109b108a1079106810572b0110104610455512db3c63043ce30221821041540070bae30221821041540072bae30221821041540003ba2d2f313401fc5f050ffa00fa00fa003081557df8425612c705f2f4814127238209312d00be97228209312d00be9170e2982382112a05f200bb9170e2982282112a05f200bb9170e2982182112a05f200bb9170e2f2f4815e995312bef2f41110111211100f11110f0e11100e10df10ce10bd10ac109b108a1079106810571046103555032e0104db3c6302fa5b1112d33fd430d0f8416f243032810a682482008eacbb8e175617801026714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8226820afaf080a0820b938700a013be12f2f402111402011115011114db3c70804011167f111827c855208210415400715004cb1f12ce01c8cecd01fa02c94430021116023e30019a0111170110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001110111211100f11110f0e11100e551ddb3c6301fa5b1112d33fd307d3ff30f8416f243032810a682582008eacbb8e175618801027714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8226820afaf080a0820b938700a013be12f2f41113111411131112111411121111111411111110111411100f11140f0e11140e0d11140d0c11140c0b11140b0a11140a3203fe0911140908111408071114070611140605111405041114040311140302111502011116011114db3c701115804011177f11195365c855408210415400735006cb1f14ce12cb07cbff01fa0201fa02c91403111503021116020111170110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a3e6033015ae2f400c901fb000f11120f0e11110e0d11100d10cf10be10ad109c108b107a106910581047103645135042db3c6304588f175b57121110111211100f11110f0e11100e551ddb3cdb3ce021821041540027bae30221821041540026ba36633538022e5b57121110111211100f11110f0e11100e551ddb3cdb3c366301a6816f112f6eb3f2f4820afaf08070fb022e206ef2d08070810082708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0037001200000000617468617204a08eac5b1112fa403081557df8425613c705f2f48200da07066e16f2f41110111211100f11110f0e11100e551ddb3ce021821041540011bae30221821041540013bae3025714c0001113c12101111301b063393d6202fe5b1112d33ffa40d30fd307fa00d31fd31ff404d307d3fff40430812426f8421112111d11121111111c11111110111b11100f111a0f0e11190e0d11180d0c11170c0b11160b0a11150a091114090811130807111d0706111c0605111b0504111a04031119030211180201111e01111f5617db3c01112001c70501111e01f2f43e3a02fc8200d118256eb3f2f424206ef2d080071116070611150605111405041113040311120302111c0201111b01111a70111a8040111a7f111ac855a0db3cc90411130403111203021111020111100110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e23b3c0048821041540012500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff4000140f400c901fb000511120504111104031110034f1d0b0950e750c51a181614db3c6304fc5b1112d33f30812915266eb39af84227206ef2d080c7059170e2f2f41111111311111110111211100f11110f0e11100e10df10ce10bd10ac109b108a107910681057104610354430db3c708040706f00c8013082104154001401cb1fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a8ae23e5f60610164f82801db3c705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d03f011e88c87001ca005a02ce810101cf00c9400228ff008e88f4a413f4bcf2c80bed5320e303ed43d94147020271424401d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc430016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c4502c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102464600b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f4803fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae302494a4d02d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366565e01fa313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a001a09131e2018200df8202bef2f40d206ef2d08023f82309a423c2004b02f68e5a71702802111215c85520821005138d915004cb1f12cb3fcecec910461036021110021610246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0093353e5be2206eb3923031e30d10bd10ac109b108a107910681057103644354c5e00a8206ef2d0807080427005c8018210d53276db58cb1fcb3fc9103441301510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0003f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540071bae302215e4e5102fc31fa40d401d001fa0030f8416f2430328200aa5a015611c705f2f4702e6eb38e3f2e206ef2d0805250c705935612b39170e29922820afaf080a012be923170e28e1d5322d749c2009620d7498307bb9170e294d74ac000923070e292307fdede9131e2e30301c823cf16f82301cb1f21d74901cb0801cf1615f400c971704f5001fa5b708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed545403fe6f00c8013082104154000301cb1fc956100408552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a8a5f6058044a821041540073bae3023020821041540010bae30220821041540015bae302821041540014ba52595c5d03fa31fa40d307d3fffa00fa0030f8416f2430328200aa5a015613c705f2f426c3009323c3009170e2935336bd9170e2926c129131e2702f6eb38e2a2f206ef2d0805260c705935613b39170e29324c10a9170e29922820afaf080a012be923170e292307fde9131e2e3033520c300935303bd9170e29130e30d71706f00c853555701fc5f03708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5454002000000000617468617220726566756e64012e3322f82345400311100302111102561059db3c320f50e356001ec85003cf1612cb1fcbff5220f400c902fe013082104154000301cb1fc956100407552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a6058008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd5a5b0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430125e01fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c0825e0078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5400065bcf81001a58cf8680cf8480f400f400cf810110f400c901fb00db3c6301388e921110111211100f11110f0e11100e551ddb3ce05f0f5f04f2c08263011ec87f01ca00111311121111111055e06400ec011112011113ce1110c8ce01111001cd1ecb1fc80dc8ce1dcd500b206e9430cf84809201cee219cb0f17cb0f15f4005003206e9430cf84809201cee2cb1f216eb39701c8cec901f400947032ca00e2cb1f01206e9430cf84809201cee2cb1fca00c85003fa025003fa025003fa0213f400cdcdc9ed54fe3ee996');
     const builder = beginCell();
     builder.storeUint(0, 1);
     initAtharCollection_init_args({ $$type: 'AtharCollection_init_args', admin, collectionUri, delaySec })(builder);
@@ -4308,6 +4650,7 @@ export const AtharCollection_errors = {
     138: { message: "Not a basechain address" },
     1609: { message: "this date is sold by auction" },
     1714: { message: "tier is priced by curve: common or rare" },
+    2664: { message: "no such token" },
     5268: { message: "auction not finished" },
     6032: { message: "closed" },
     6434: { message: "bad occasion" },
@@ -4328,14 +4671,16 @@ export const AtharCollection_errors = {
     14653: { message: "already minted" },
     15521: { message: "no live auction" },
     15525: { message: "already issued" },
+    16679: { message: "fee out of range" },
     17529: { message: "bad pool size" },
-    20232: { message: "text must be 1..32 bytes" },
     20798: { message: "ticket sale is over" },
     21885: { message: "only admin" },
     22100: { message: "minting closed" },
+    22947: { message: "bad tier" },
     23197: { message: "no upgrade pending" },
     23696: { message: "already revealed" },
     23975: { message: "date already taken" },
+    24217: { message: "a change costs at least a first picture" },
     24241: { message: "not open yet" },
     24505: { message: "mythic and special dates are sold by auction" },
     25177: { message: "wrong secret" },
@@ -4345,6 +4690,7 @@ export const AtharCollection_errors = {
     30788: { message: "bad special" },
     30889: { message: "bad price bounds" },
     31027: { message: "date out of range" },
+    32956: { message: "set the prices before opening with Configure" },
     34249: { message: "too early for the public reveal" },
     39703: { message: "too early" },
     40897: { message: "already settled" },
@@ -4355,6 +4701,7 @@ export const AtharCollection_errors = {
     47518: { message: "not your open ticket" },
     47787: { message: "this date is inside the mystery boxes" },
     48010: { message: "send price + fees" },
+    48786: { message: "tier not set" },
     49280: { message: "not owner" },
     50514: { message: "no open ticket" },
     50563: { message: "bad rates" },
@@ -4409,6 +4756,7 @@ export const AtharCollection_errors_backward = {
     "Not a basechain address": 138,
     "this date is sold by auction": 1609,
     "tier is priced by curve: common or rare": 1714,
+    "no such token": 2664,
     "auction not finished": 5268,
     "closed": 6032,
     "bad occasion": 6434,
@@ -4429,14 +4777,16 @@ export const AtharCollection_errors_backward = {
     "already minted": 14653,
     "no live auction": 15521,
     "already issued": 15525,
+    "fee out of range": 16679,
     "bad pool size": 17529,
-    "text must be 1..32 bytes": 20232,
     "ticket sale is over": 20798,
     "only admin": 21885,
     "minting closed": 22100,
+    "bad tier": 22947,
     "no upgrade pending": 23197,
     "already revealed": 23696,
     "date already taken": 23975,
+    "a change costs at least a first picture": 24217,
     "not open yet": 24241,
     "mythic and special dates are sold by auction": 24505,
     "wrong secret": 25177,
@@ -4446,6 +4796,7 @@ export const AtharCollection_errors_backward = {
     "bad special": 30788,
     "bad price bounds": 30889,
     "date out of range": 31027,
+    "set the prices before opening with Configure": 32956,
     "too early for the public reveal": 34249,
     "too early": 39703,
     "already settled": 40897,
@@ -4456,6 +4807,7 @@ export const AtharCollection_errors_backward = {
     "not your open ticket": 47518,
     "this date is inside the mystery boxes": 47787,
     "send price + fees": 48010,
+    "tier not set": 48786,
     "not owner": 49280,
     "no open ticket": 50514,
     "bad rates": 50563,
@@ -4494,8 +4846,6 @@ const AtharCollection_types: ABIType[] = [
     {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"remit","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Proceeds","header":1096024067,"fields":[]},
     {"name":"MintOk","header":1096024069,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
-    {"name":"Engrave","header":1096024068,"fields":[{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
-    {"name":"SetMedia","header":1096024071,"fields":[{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"UpgradeStart","header":1096024080,"fields":[{"name":"queryId","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"UpgradeRequest","header":1096024081,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"UpgradeAccept","header":1096024082,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
@@ -4510,10 +4860,16 @@ const AtharCollection_types: ABIType[] = [
     {"name":"ApplyBaseUri","header":1096024101,"fields":[]},
     {"name":"SetSuccessor","header":1096024102,"fields":[{"name":"successor","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"Withdraw","header":1096024103,"fields":[]},
+    {"name":"EngraveReq","header":1096024176,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
+    {"name":"EngraveFrom","header":1096024177,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}},{"name":"fee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetMediaReq","header":1096024178,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
+    {"name":"SetMediaFrom","header":1096024179,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"firstFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetItemFees","header":1096024180,"fields":[{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"ItemFees","header":null,"fields":[{"name":"engrave","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"media","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"change","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"Ymd","header":null,"fields":[{"name":"y","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"m","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"d","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"AtharItem$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":true}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"lastTransferAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"AtharState","header":null,"fields":[{"name":"season","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tier","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"paid","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mintedAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"lastTransferAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"hands","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaRef","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
-    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}}]},
+    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
@@ -4527,6 +4883,7 @@ const AtharCollection_types: ABIType[] = [
     {"name":"StartAuction","header":1096024133,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"duration","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"SetFees","header":1096024137,"fields":[{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Bid","header":1096024134,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
+    {"name":"Reprice","header":1096024165,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Settle","header":1096024135,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Sweep","header":1096024136,"fields":[]},
     {"name":"LoadPool","header":1096024144,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}}]},
@@ -4551,8 +4908,6 @@ const AtharCollection_opcodes = {
     "MintItem": 1096024066,
     "Proceeds": 1096024067,
     "MintOk": 1096024069,
-    "Engrave": 1096024068,
-    "SetMedia": 1096024071,
     "UpgradeStart": 1096024080,
     "UpgradeRequest": 1096024081,
     "UpgradeAccept": 1096024082,
@@ -4567,6 +4922,11 @@ const AtharCollection_opcodes = {
     "ApplyBaseUri": 1096024101,
     "SetSuccessor": 1096024102,
     "Withdraw": 1096024103,
+    "EngraveReq": 1096024176,
+    "EngraveFrom": 1096024177,
+    "SetMediaReq": 1096024178,
+    "SetMediaFrom": 1096024179,
+    "SetItemFees": 1096024180,
     "Configure": 1096024128,
     "AddSpecial": 1096024129,
     "Open": 1096024130,
@@ -4575,6 +4935,7 @@ const AtharCollection_opcodes = {
     "StartAuction": 1096024133,
     "SetFees": 1096024137,
     "Bid": 1096024134,
+    "Reprice": 1096024165,
     "Settle": 1096024135,
     "Sweep": 1096024136,
     "LoadPool": 1096024144,
@@ -4591,6 +4952,7 @@ const AtharCollection_getters: ABIGetter[] = [
     {"name":"get_nft_address_by_index","methodId":92067,"arguments":[{"name":"index","type":{"kind":"simple","type":"int","optional":false,"format":257}}],"returnType":{"kind":"simple","type":"address","optional":false}},
     {"name":"get_nft_content","methodId":68445,"arguments":[{"name":"index","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"individualContent","type":{"kind":"simple","type":"cell","optional":false}}],"returnType":{"kind":"simple","type":"cell","optional":false}},
     {"name":"royalty_params","methodId":85719,"arguments":[],"returnType":{"kind":"simple","type":"RoyaltyParams","optional":false}},
+    {"name":"item_fees","methodId":105038,"arguments":[],"returnType":{"kind":"simple","type":"ItemFees","optional":false}},
     {"name":"payout_address","methodId":101806,"arguments":[],"returnType":{"kind":"simple","type":"address","optional":true}},
     {"name":"successor_address","methodId":122087,"arguments":[],"returnType":{"kind":"simple","type":"address","optional":true}},
     {"name":"minter_active_at","methodId":109726,"arguments":[{"name":"minter","type":{"kind":"simple","type":"address","optional":false}}],"returnType":{"kind":"simple","type":"int","optional":true,"format":257}},
@@ -4602,6 +4964,7 @@ export const AtharCollection_getterMapping: { [key: string]: string } = {
     'get_nft_address_by_index': 'getGetNftAddressByIndex',
     'get_nft_content': 'getGetNftContent',
     'royalty_params': 'getRoyaltyParams',
+    'item_fees': 'getItemFees',
     'payout_address': 'getPayoutAddress',
     'successor_address': 'getSuccessorAddress',
     'minter_active_at': 'getMinterActiveAt',
@@ -4617,6 +4980,9 @@ const AtharCollection_receivers: ABIReceiver[] = [
     {"receiver":"internal","message":{"kind":"typed","type":"ProposeMinter"}},
     {"receiver":"internal","message":{"kind":"typed","type":"RemoveMinter"}},
     {"receiver":"internal","message":{"kind":"typed","type":"MintItem"}},
+    {"receiver":"internal","message":{"kind":"typed","type":"SetItemFees"}},
+    {"receiver":"internal","message":{"kind":"typed","type":"EngraveReq"}},
+    {"receiver":"internal","message":{"kind":"typed","type":"SetMediaReq"}},
     {"receiver":"internal","message":{"kind":"typed","type":"Proceeds"}},
     {"receiver":"internal","message":{"kind":"typed","type":"Withdraw"}},
     {"receiver":"internal","message":{"kind":"typed","type":"SetSuccessor"}},
@@ -4638,6 +5004,7 @@ export const ENGRAVE_FEE = 100000000n;
 export const MEDIA_FEE = 100000000n;
 export const MIN_STORAGE = 50000000n;
 export const DAY = 86400n;
+export const REQ_GAS = 60000000n;
 
 export class AtharCollection implements Contract {
     
@@ -4673,7 +5040,7 @@ export class AtharCollection implements Contract {
         this.init = init;
     }
     
-    async send(provider: ContractProvider, via: Sender, args: { value: bigint, bounce?: boolean| null | undefined }, message: null | ProposePayout | ApplyPayout | ProposeBaseUri | ApplyBaseUri | ProposeMinter | RemoveMinter | MintItem | Proceeds | Withdraw | SetSuccessor | UpgradeRequest | UpgradeDone) {
+    async send(provider: ContractProvider, via: Sender, args: { value: bigint, bounce?: boolean| null | undefined }, message: null | ProposePayout | ApplyPayout | ProposeBaseUri | ApplyBaseUri | ProposeMinter | RemoveMinter | MintItem | SetItemFees | EngraveReq | SetMediaReq | Proceeds | Withdraw | SetSuccessor | UpgradeRequest | UpgradeDone) {
         
         let body: Cell | null = null;
         if (message === null) {
@@ -4699,6 +5066,15 @@ export class AtharCollection implements Contract {
         }
         if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'MintItem') {
             body = beginCell().store(storeMintItem(message)).endCell();
+        }
+        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'SetItemFees') {
+            body = beginCell().store(storeSetItemFees(message)).endCell();
+        }
+        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'EngraveReq') {
+            body = beginCell().store(storeEngraveReq(message)).endCell();
+        }
+        if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'SetMediaReq') {
+            body = beginCell().store(storeSetMediaReq(message)).endCell();
         }
         if (message && typeof message === 'object' && !(message instanceof Slice) && message.$$type === 'Proceeds') {
             body = beginCell().store(storeProceeds(message)).endCell();
@@ -4749,6 +5125,13 @@ export class AtharCollection implements Contract {
         const builder = new TupleBuilder();
         const source = (await provider.get('royalty_params', builder.build())).stack;
         const result = loadGetterTupleRoyaltyParams(source);
+        return result;
+    }
+    
+    async getItemFees(provider: ContractProvider) {
+        const builder = new TupleBuilder();
+        const source = (await provider.get('item_fees', builder.build())).stack;
+        const result = loadGetterTupleItemFees(source);
         return result;
     }
     

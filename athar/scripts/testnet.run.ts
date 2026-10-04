@@ -142,7 +142,7 @@ describe("testnet rehearsal", () => {
       state.photoDate = b; state.photoId = upB.id; state.plainDate = a; save();
 
       // C. engrave and transfer: hands counter goes up
-      await alice.send([engraveMsg((await itemOf(a)).address.toString(), "اختبار")]);
+      await alice.send([engraveMsg(st.collection, a, "اختبار", 0.1)]);
       await ok("C: engraving recorded", async () => (await ia.getAthar()).engravings != null);
       const { storeTransfer } = await import("../build/athar_AtharItem");
       const { beginCell } = await import("@ton/core");
