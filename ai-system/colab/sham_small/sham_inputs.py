@@ -427,11 +427,12 @@ def account_dataset_names() -> list[str]:
 
 
 def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
-    """Account datasets that may hold a Sham model checkpoint to merge: a name with "checkpoint"
-    that is not a tokenizer-only or corpus dataset. Whether one really is a model is decided by the
-    repair stage + the gate, so a wrong guess costs one log line, never a bad merge."""
+    """Account datasets that may hold a Sham model to merge: every dataset starting with "sham"
+    (or the old "nova-small") that is not a tokenizer-only or text-corpus dataset — the name need
+    not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
+    repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
     names = account_dataset_names() if names is None else names
-    return [n for n in names if "checkpoint" in n and "tokenizer" not in n and "corpus" not in n]
+    return [n for n in names if n.startswith(("sham", "nova-small")) and "tokenizer" not in n and "corpus" not in n]
 
 
 def repo_dataset_names() -> set[str]:
