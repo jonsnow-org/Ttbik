@@ -75,7 +75,7 @@ export default function BmiCalculator() {
       result.ideal
         ? `الوزن المثالي التقريبي: ${result.ideal.min} – ${result.ideal.max} كغ`
         : "",
-      "حاسبة سوق تولز — مجانية بلا تسجيل",
+      "حاسبة شام AI — مجانية بلا تسجيل",
     ].filter(Boolean);
     try {
       await navigator.clipboard.writeText(lines.join("\n"));

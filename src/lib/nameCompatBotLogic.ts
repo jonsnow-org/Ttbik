@@ -3,6 +3,7 @@ import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -37,7 +38,7 @@ function backLabel(): string {
   return "◀️ رجوع";
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 function mainMenu(): Keyboard {
   return new Keyboard()
@@ -255,7 +256,7 @@ export async function handleNameCompatBotUpdate(bot: TelegramBot, botRow: BotRow
     await setPending(tgUserId, null);
     await bot.api.sendMessage(
       chatId,
-      "👋 أهلاً بك في بوت نسبة التوافق!\n\nأرسل اسمين واحصل فوراً على نسبة توافق بينهما — بطاقة نتيجة جاهزة للمشاركة مع أصدقائك.",
+      startGuide("NAME_COMPAT"),
       { reply_markup: mainMenu() }
     );
     return;

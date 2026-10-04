@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import os
 import re
+import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 EXTRACT_TIMEOUT = 45
 DOWNLOAD_TIMEOUT = 180
+# Render free ~512MB RAM — keep files small and avoid parallel fragment buffers
+MAX_FILE_BYTES = int(os.environ.get("MAX_FILE_BYTES", str(48 * 1024 * 1024)))
 
 _YT_CLIENT_GROUPS = [
     ["android_vr"],
@@ -133,6 +137,62 @@ def _proxy() -> str | None:
     return p
 
 
+async def _resolve_tiktok_via_site(url: str) -> tuple[dict | None, str]:
+    """Resolve a TikTok link through the site's /api/media-bot/tiktok-resolve."""
+    import hashlib
+
+    try:
+        import httpx
+    except Exception as e:
+        return None, f"httpx missing ({e})"
+    token = (os.getenv("BOT_TOKEN") or "").strip()
+    if not token:
+        return None, "no BOT_TOKEN"
+    key = hashlib.sha256(token.encode()).hexdigest()[:48]
+    from services.feed import _api_url
+    from urllib.parse import urlsplit
+
+    u = urlsplit(_api_url())
+    base = f"{u.scheme}://{u.netloc}"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(f"{base}/api/media-bot/tiktok-resolve", params={"url": url}, headers={"x-media-bot-key": key})
+        if r.status_code != 200:
+            return None, f"HTTP {r.status_code}"
+        d = r.json()
+        if not d.get("media"):
+            return None, "no media"
+        return {"media": d["media"], "music": d.get("music"), "title": d.get("title") or "TikTok", "thumbnail": d.get("thumbnail")}, ""
+    except Exception as e:
+        return None, str(e)[:120]
+
+
+def _tikwm_candidates(d: dict) -> list[str]:
+    """tikwm file links to try, best first: HD, standard, watermarked.
+    Variants whose declared size is already over the limit go last (sizes are not always sent)."""
+    fits: list[str] = []
+    big: list[str] = []
+    for url_key, size_key in (("hdplay", "hd_size"), ("play", "size"), ("wmplay", "wm_size")):
+        link = d.get(url_key)
+        if not link or link in fits or link in big:
+            continue
+        size = int(d.get(size_key) or 0)
+        (big if size and size > MAX_FILE_BYTES else fits).append(link)
+    return fits + big
+
+
+def friendly_reason(err: str) -> str:
+    """Short Arabic reason for users; the raw error stays in the logs / owner view."""
+    e = (err or "").lower()
+    if "too large" in e or "max_filesize" in e or "larger than" in e:
+        return "حجم الملف أكبر من حدّ تليجرام (50MB). جرّب جودة أقل أو الصوت فقط."
+    if "private" in e or "login" in e or "sign in" in e:
+        return "هذا المحتوى خاص أو يحتاج تسجيل دخول."
+    if "unavailable" in e or "not found" in e or "404" in e or "removed" in e:
+        return "المحتوى غير متاح أو حُذف."
+    return "تعذّر جلب هذا الرابط الآن. جرّب رابطاً آخر أو أعد المحاولة بعد قليل."
+
+
 async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadResult | None, str]:
     try:
         import httpx
@@ -168,13 +228,14 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
                             last_status = f"code={js.get('code')} msg={js.get('msg')}"
                             continue
                         d = js.get("data") or {}
-                        play = d.get("hdplay") or d.get("play") or d.get("wmplay")
+                        cands = _tikwm_candidates(d)
                         music = d.get("music")
-                        media = music if audio_only and music else play
+                        media = music if audio_only and music else (cands[0] if cands else None)
                         if not media:
                             last_status = "no media url"
                             continue
-                        meta = {"media": media, "title": (d.get("title") or "TikTok")[:120], "thumbnail": d.get("cover") or d.get("origin_cover")}
+                        alts = [] if (audio_only and music) else cands[1:]
+                        meta = {"media": media, "alts": alts, "title": (d.get("title") or "TikTok")[:120], "thumbnail": d.get("cover") or d.get("origin_cover")}
                         break
                     except Exception as e:
                         last_status = str(e)
@@ -183,23 +244,50 @@ async def _tikwm_download(url: str, audio_only: bool = False) -> tuple[DownloadR
         if meta:
             break
     if not meta:
-        return None, f"tikwm: resolve failed ({last_status})"
+        # tikwm often refuses Render's datacenter IP (HTTP 403). Ask the site
+        # (Vercel, different IP) to resolve the link, then download the CDN
+        # file ourselves.
+        meta, via_err = await _resolve_tiktok_via_site(url)
+        if not meta:
+            return None, f"tikwm: resolve failed ({last_status}) | site: {via_err}"
+        if audio_only and meta.get("music"):
+            meta["media"] = meta["music"]
     suffix = ".mp3" if audio_only else ".mp4"
     tmp = tempfile.mkdtemp(prefix="tikwm_")
     path = Path(tmp) / f"media{suffix}"
+    links = [meta["media"]] + [a for a in (meta.get("alts") or []) if a != meta["media"]]
+    too_large = ""
     try:
         async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
-            async with client.stream("GET", meta["media"], headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"}) as r:
-                if r.status_code >= 400:
-                    return None, f"tikwm: download HTTP {r.status_code}"
-                with open(path, "wb") as f:
-                    async for chunk in r.aiter_bytes(64 * 1024):
-                        f.write(chunk)
-        size = path.stat().st_size
-        if size < 1000:
-            return None, f"tikwm: file too small ({size})"
-        return DownloadResult(path=path, title=meta["title"], media_type="audio" if audio_only else "video", filesize=size, thumbnail=meta.get("thumbnail")), ""
+            for link in links:
+                async with client.stream("GET", link, headers={"User-Agent": _UA_MOBILE, "Referer": "https://www.tiktok.com/"}) as r:
+                    if r.status_code >= 400:
+                        too_large = too_large or f"tikwm: download HTTP {r.status_code}"
+                        continue
+                    declared = int(r.headers.get("content-length") or 0)
+                    if declared > MAX_FILE_BYTES:
+                        too_large = f"tikwm: file too large ({declared // (1024*1024)}MB)"
+                        continue  # try the next, usually smaller, variant
+                    written = 0
+                    with open(path, "wb") as f:
+                        async for chunk in r.aiter_bytes(64 * 1024):
+                            written += len(chunk)
+                            if written > MAX_FILE_BYTES:
+                                break
+                            f.write(chunk)
+                    if written > MAX_FILE_BYTES:
+                        too_large = f"tikwm: file too large (>{MAX_FILE_BYTES // (1024*1024)}MB)"
+                        path.unlink(missing_ok=True)
+                        continue
+                size = path.stat().st_size
+                if size < 1000:
+                    too_large = f"tikwm: file too small ({size})"
+                    continue
+                return DownloadResult(path=path, title=meta["title"], media_type="audio" if audio_only else "video", filesize=size, thumbnail=meta.get("thumbnail")), ""
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None, too_large or "tikwm: download failed"
     except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
         return None, f"tikwm: {e}"
 
 
@@ -282,7 +370,21 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
         yt_dlp = None  # type: ignore
     if yt_dlp is not None:
         def _opts(outdir: str) -> dict[str, Any]:
-            o: dict[str, Any] = {"quiet": True, "no_warnings": True, "noprogress": True, "restrictfilenames": True, "noplaylist": True, "socket_timeout": 30, "retries": 2, "force_ipv4": True, "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s")}
+            o: dict[str, Any] = {
+                "quiet": True,
+                "no_warnings": True,
+                "noprogress": True,
+                "restrictfilenames": True,
+                "noplaylist": True,
+                "socket_timeout": 30,
+                "retries": 2,
+                "force_ipv4": True,
+                "outtmpl": os.path.join(outdir, "%(id)s.%(ext)s"),
+                "concurrent_fragment_downloads": 1,
+                "buffersize": 16 * 1024,
+                "http_chunk_size": 1_048_576,
+                "max_filesize": MAX_FILE_BYTES,
+            }
             ck = _write_cookies_file()
             if ck:
                 o["cookiefile"] = ck
@@ -293,7 +395,10 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                 o["format"] = "bestaudio/best"
                 o["postprocessors"] = [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3" if media_type == "audio" else "opus", "preferredquality": "192"}]
             else:
-                fmt = {"360": "best[height<=360]/best", "480": "best[height<=480]/best", "720": "best[height<=720]/best"}.get(quality, "best[height<=720]/best")
+                # Single-file first (cheapest), then separate video+audio merged by ffmpeg
+                # (YouTube serves most heights only that way), then anything that fits.
+                h = {"360": 360, "480": 480, "720": 720}.get(quality, 720)
+                fmt = f"best[height<={h}]/bv*[height<={h}]+ba/b[height<={h}]/bv*+ba/best"
                 o["format"] = fmt
                 o["merge_output_format"] = "mp4"
                 o.setdefault("postprocessors", []).append(
@@ -343,24 +448,41 @@ async def download_media(url: str, quality: str = "720", media_type: str = "vide
                             p = alt
                             break
                     if p.exists() and p.stat().st_size > 1000:
+                        size = p.stat().st_size
+                        if size > MAX_FILE_BYTES:
+                            try:
+                                shutil_rm = __import__("shutil")
+                                shutil_rm.rmtree(tmp, ignore_errors=True)
+                            except Exception:
+                                pass
+                            return None, f"file too large ({size // (1024*1024)}MB > limit {MAX_FILE_BYTES // (1024*1024)}MB) — جرّب جودة أقل"
                         nice_title = (dl_title or "").strip() or p.stem[:120]
                         return DownloadResult(
                             path=p,
                             title=nice_title[:120],
                             media_type=media_type if media_type in ("audio", "voice") else "video",
-                            filesize=p.stat().st_size,
+                            filesize=size,
                             thumbnail=dl_thumb,
                         ), ""
             except Exception as e:
                 errors.append(f"yt-dlp: {type(e).__name__}: {e}")
                 continue
+    # Cobalt's public API rejects every request without an API key (confirmed
+    # in Render logs: error.api.auth.jwt.missing), so without COBALT_API_KEY it
+    # only burns time and adds noise to the error. Try it only when keyed.
+    if (os.environ.get("COBALT_API_KEY") or "").strip():
+        try:
+            from services.cobalt import cobalt_download_to_file
+            cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
+            if cobalt_path:
+                return DownloadResult(path=cobalt_path, title=cobalt_title or "media", media_type="audio" if audio_only else "video", filesize=cobalt_path.stat().st_size), ""
+            errors.append(cobalt_err or "cobalt failed")
+        except Exception as e:
+            errors.append(f"cobalt: {e}")
     try:
-        from services.cobalt import cobalt_download_to_file
-        cobalt_path, cobalt_title, cobalt_err = await cobalt_download_to_file(url, quality=quality, audio_only=audio_only)
-        if cobalt_path:
-            return DownloadResult(path=cobalt_path, title=cobalt_title or "media", media_type="audio" if audio_only else "video", filesize=cobalt_path.stat().st_size), ""
-        errors.append(cobalt_err or "cobalt failed")
-    except Exception as e:
-        errors.append(f"cobalt: {e}")
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception:
+        pass
+    gc.collect()
     joined = " | ".join(errors[-4:]) if errors else "download failed"
     return None, joined

@@ -15,7 +15,7 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   const a = getArticle(params.slug);
   if (!a) return { title: "مقال" };
   return {
-    title: `${a.title} | سوق تولز`,
+    title: `${a.title} | شام AI`,
     description: a.description,
     alternates: { canonical: `${SITE}/articles/${a.slug}` },
     openGraph: {
@@ -41,8 +41,8 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
     dateModified: a.dateIso,
     inLanguage: "ar",
     description: a.description,
-    author: { "@type": "Organization", name: "سوق تولز" },
-    publisher: { "@type": "Organization", name: "سوق تولز" },
+    author: { "@type": "Organization", name: "شام AI" },
+    publisher: { "@type": "Organization", name: "شام AI" },
     url: `${SITE}/articles/${a.slug}`,
   };
 

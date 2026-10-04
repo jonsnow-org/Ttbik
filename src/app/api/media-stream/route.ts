@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
   try {
     const { createClient } = await import("@supabase/supabase-js");
     const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data } = await db.from("media_feed").select("file_id,media_type").eq("id", id).maybeSingle();
-    if (data) {
+    const { data } = await db.from("media_feed").select("file_id,media_type,hidden").eq("id", id).maybeSingle();
+    if (data && !(data as any).hidden) {   // a post the owner hid must not stay playable by its id
       fileId = String((data as any).file_id || "") || null;
       mediaType = String((data as any).media_type || "video");
     }

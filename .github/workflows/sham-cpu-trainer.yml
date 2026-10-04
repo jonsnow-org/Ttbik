@@ -1,0 +1,66 @@
+name: Sham CPU Trainer (free CPU runner, slow and continuous)
+
+# مدرّب بطيء مستمر على معالج GitHub المجاني: يجمع من مصادر sham_sources_gh.py (نص وصور وأصوات وفيديو، غير مقيّد
+# بلغة) ويدرّب النموذج الحي عليها 5.3 ساعة ثم يعاد تلقائياً. سرعته جزء صغير من GPU (≈ 3%)، لكنه بلا كلفة
+# ولا يتوقف. ينشر في sham-crawl-gh (نقطة حفظ خاصة به) و sham-crawl-gh-corpus (نصوصه)، فتدخل الدمج المحروس
+# كأي مصدر آخر عبر الاكتشاف التلقائي لـ sham-crawl-*.
+
+on:
+  schedule:
+    - cron: "5 */6 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-cpu-trainer
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    # مفتاح إيقاف طارئ: متغير مستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_CPU_TRAINER = 1 يتخطّى المهمة
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_CPU_TRAINER != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk and prepare the working folder
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+          df -h / | tail -1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (CPU only)
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle datasets soundfile imageio-ffmpeg av
+
+      - name: Train for 5.3 hours and publish
+        working-directory: ai-system/colab/sham_small
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'PY'
+          import os, sham_live
+          res = sham_live.run(hours=5.3, name="gh", source_set="gh", video=True, workers=8)
+          print(res)
+          try:
+              from telegram_report import send_telegram_message
+              msg = ("🤖 مدرّب CPU على GitHub: " + f"{res.get('steps', 0):,} خطوة | نُشر: {res.get('published')} | نصوص: {res.get('corpus')}"
+                     + (f" | مؤشر الحارس {res['guard_score']:.3f}" if res.get("guard_score") is not None else ""))
+              send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), msg)
+          except Exception as exc:
+              print("telegram:", exc)
+          PY

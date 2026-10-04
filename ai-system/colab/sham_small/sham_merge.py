@@ -72,6 +72,16 @@ class _WithDiscovered(list):
                 if new:
                     print("🔎 مصادر جمع مكتشفة تلقائياً: " + ", ".join(new))
                 self.extend((n, "final*.pt", MEDIA_ROWS) for n in new)
+                # any other checkpoint-like dataset of the account: merged only if the repair stage
+                # and the gate accept it (so a forgotten dataset is used, a non-model one is skipped)
+                from sham_inputs import account_dataset_names, model_dataset_candidates, dataset_inventory
+                names = account_dataset_names()
+                have = {n for n, _, _ in list.__iter__(self)}
+                extra = [n for n in model_dataset_candidates(names) if n not in have and n != "nova-small-checkpoint"]
+                if extra:
+                    print("🔎 مجموعات بيانات أخرى في حسابك تُفحص كمصادر دمج: " + ", ".join(extra))
+                self.extend((n, "*.pt", MEDIA_ROWS) for n in extra)
+                print(dataset_inventory(names))
             except Exception as exc:
                 print(f"⚠ تعذّر اكتشاف مصادر الجمع تلقائياً: {exc}")
         return list.__iter__(self)
@@ -89,7 +99,8 @@ def _step_of(p: Path) -> int:
 
 
 def latest_checkpoint(root: Path, pattern: str) -> Path | None:
-    found = sorted(root.rglob(pattern), key=_step_of)
+    """pattern may list alternatives: "final*.pt|step_*.pt"."""
+    found = sorted({f for pat in pattern.split("|") for f in root.rglob(pat) if "tokenizer" not in f.name}, key=_step_of)
     return found[-1] if found else None
 
 

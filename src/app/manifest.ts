@@ -10,8 +10,8 @@ import type { MetadataRoute } from "next";
 // enough for installability, no separate service worker needed here.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "سوق تولز — سوق الخدمات الرقمية المصغّرة",
-    short_name: "سوق تولز",
+    name: "شام AI — Sham AI",
+    short_name: "شام AI",
     description: "أدوات مجانية تعمل فعلياً داخل متصفحك، وبوتات تليجرام حقيقية — بلا تسجيل وبلا حدود استخدام.",
     start_url: "/",
     display: "standalone",

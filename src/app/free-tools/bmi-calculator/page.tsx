@@ -3,7 +3,7 @@ import BmiCalculator from "./BmiCalculator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي | أدوات مجانية | سوق تولز",
+  title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي | أدوات مجانية | شام AI",
   description:
     "احسب مؤشر كتلة الجسم (BMI) والوزن المثالي التقريبي فوراً — نحافة، طبيعي، زيادة وزن أو سمنة. أداة عربية مجانية بلا تسجيل مع نصائح عملية.",
   keywords: [

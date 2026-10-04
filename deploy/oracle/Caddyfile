@@ -1,0 +1,27 @@
+# One public hostname, automatic HTTPS (Let's Encrypt).
+#   /tg/*  -> media-bot engine (Telegram updates forwarded by the Vercel front door)
+#   rest   -> the site (only when the "site" profile is running)
+{$PUBLIC_HOST} {
+	encode zstd gzip
+
+	@engine path /tg/*
+	handle @engine {
+		reverse_proxy media-engine:10000
+	}
+
+	handle {
+		reverse_proxy site:3000
+	}
+}
+
+# Athar: its own hostname (sslip.io style names need no registration), only answers while the athar profile runs
+athar.{$PUBLIC_HOST} {
+	encode zstd gzip
+	reverse_proxy athar-web:3100
+}
+
+# Test-network twin of Athar (rehearsal, test tokens only)
+athar-test.{$PUBLIC_HOST} {
+	encode zstd gzip
+	reverse_proxy athar-web-test:3100
+}

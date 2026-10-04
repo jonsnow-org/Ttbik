@@ -1,4 +1,5 @@
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
@@ -195,7 +196,7 @@ function backLabel(): string {
   return "◀️ رجوع";
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 function plainBackMenu(): Keyboard {
   return new Keyboard().text(backLabel()).resized();
@@ -353,7 +354,7 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     // the user sends next.
     await recordBotVisit(botRow.id, tgUserId);
     await setPending(tgUserId, null);
-    await routeStart(bot, botRow, chatId, tgUserId, user);
+    await routeStart(bot, botRow, chatId, tgUserId, user, text.startsWith("/start"));
     const startArg = text.startsWith("/start ") ? text.slice(7).trim() : "";
     if (startArg.startsWith("bld_")) {
       await showSharedRequest(bloodCtx(bot, chatId, tgUserId, user.role), startArg.slice(4));
@@ -422,6 +423,11 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
     return;
   }
 
+  if (pending?.mode === "role_pick") {
+    await bot.api.sendMessage(chatId, "اختر نوع حسابك من الأزرار أعلاه 👆 أو أرسل /start لإعادة العرض.");
+    return;
+  }
+
   // No active wizard — route by role's main-menu text.
   await routeMainMenuText(bot, botRow, chatId, tgUserId, user, text);
 }
@@ -429,7 +435,7 @@ export async function handleMedicalBotUpdate(bot: TelegramBot, botRow: BotRow, u
 // ---------------------------------------------------------------------
 // /start routing
 // ---------------------------------------------------------------------
-async function routeStart(bot: TelegramBot, botRow: BotRow, chatId: number, tgUserId: string, user: { role: string }) {
+async function routeStart(bot: TelegramBot, botRow: BotRow, chatId: number, tgUserId: string, user: { role: string }, withGuide = false) {
   const role = user.role as MedRoleStr;
 
   if (role === "PATIENT") {
@@ -446,12 +452,12 @@ async function routeStart(bot: TelegramBot, botRow: BotRow, chatId: number, tgUs
         .text("💊 صيدلية", "medrole|PHARMACY");
       await bot.api.sendMessage(
         chatId,
-        "🏥 أهلاً بك في المساعد الطبي. يرجى اختيار نوع حسابك:",
+        startGuide("MEDICAL") + "\n\nاختر نوع حسابك:",
         { reply_markup: kb }
       );
       return;
     }
-    await bot.api.sendMessage(chatId, `🏠 القائمة الرئيسية:`, { reply_markup: patientMainMenu() });
+    await bot.api.sendMessage(chatId, withGuide ? startGuide("MEDICAL") : `🏠 القائمة الرئيسية:`, { reply_markup: patientMainMenu() });
     return;
   }
 

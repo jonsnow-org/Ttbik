@@ -1,3 +1,4 @@
+import { startGuide } from "./botStartGuide";
 // Minimal AR/EN dictionary for the AD_BOT's end-user-facing screens (owner
 // request 2026-08-31: "at least ar/en"). The Super Admin panel stays
 // Arabic-only — it's a single-operator surface (the platform owner), not
@@ -53,7 +54,14 @@ export const STR: Dict = {
   },
   contactAdminSent: { ar: "✅ تم إرسال رسالتك للأدمن، بانتظار الرد.", en: "✅ Your message was sent to the admin — waiting for a reply." },
 
-  welcome: { ar: "🚀 مرحباً بك في منصة الإعلانات! اختر من القائمة أدناه:", en: "🚀 Welcome to the ads platform! Choose from the menu below:" },
+  welcome: {
+    ar: startGuide("AD").replace("اضغط «معلومات»", "اضغط «❓ الأسئلة الشائعة»"),
+    en:
+      "📢 Welcome to the Ads & Earn platform\nPromote your project, or earn by watching other people's ads.\n\n" +
+      "⚙️ How it works\n1️⃣ Tap «➕ Create Ad» to place your ad.\n2️⃣ Or tap «👀 Watch & Earn» to watch ads and earn.\n3️⃣ Track your balance in «💰 Wallet».\n\n" +
+      "📂 Contents\n➕ Create Ad · 📢 My Ads · 👀 Watch & Earn · 💰 Wallet · 🙌 Referrals · 📊 Stats\n\n" +
+      "ℹ️ For more, tap «❓ FAQ».",
+  },
   adminNote: { ar: "\n\n🛠 أنت مالك المنصة — أرسل /admin لفتح لوحة التحكم.", en: "\n\n🛠 You're the platform owner — send /admin to open the control panel." },
   mainMenuTitle: { ar: "🏠 القائمة الرئيسية:", en: "🏠 Main menu:" },
   chooseUnknown: { ar: "يرجى الاختيار من القائمة السفلية فقط.", en: "Please choose from the menu below only." },

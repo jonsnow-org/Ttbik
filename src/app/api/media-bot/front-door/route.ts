@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mediaDb } from "@/lib/mediaSocial";
-import { hookSecret, safeEqual, setRenderUrl } from "@/lib/mediaFrontDoor";
+import { hookSecret, safeEqual, setPrimaryUrl, setRenderUrl } from "@/lib/mediaFrontDoor";
 
 // Called only by the Python media bot (see media-bot/main.py):
-//   POST {render_url}  register where to forward updates → then it points the webhook at /api/media-bot/webhook
+//   POST {render_url, role?}  role "primary" = the always-on engine (Oracle); anything else = the backup (Render).
+//                      register where to forward updates → then it points the webhook at /api/media-bot/webhook
 //   GET                claim queued download requests saved while it was down (removed as they're handed out)
 // Auth: x-media-bot-key = the same token-derived secret as the webhook.
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const url = String(body.render_url || "").trim().replace(/\/$/, "");
   if (!/^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(url)) return NextResponse.json({ error: "bad render_url" }, { status: 400 });
-  const ok = await setRenderUrl(url);
+  const ok = body.role === "primary" ? await setPrimaryUrl(url) : await setRenderUrl(url);
   return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "store failed" }, { status: 500 });
 }
 

@@ -3,7 +3,7 @@ import HijriConverter from "./HijriConverter";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "محوّل التاريخ الهجري والميلادي | أدوات مجانية | سوق تولز",
+  title: "محوّل التاريخ الهجري والميلادي | أدوات مجانية | شام AI",
   description:
     "حوّل أي تاريخ بين الهجري والميلادي فوراً مع أسماء الأشهر العربية واسم اليوم — أداة مجانية بلا تسجيل تعمل داخل المتصفح.",
 };

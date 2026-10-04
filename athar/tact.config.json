@@ -1,0 +1,20 @@
+{
+  "projects": [
+    {
+      "name": "athar",
+      "path": "./contracts/athar.tact",
+      "output": "./build",
+      "options": {
+        "debug": false
+      }
+    },
+    {
+      "name": "mock",
+      "path": "./tests/mock/mock.tact",
+      "output": "./tests/mock/build",
+      "options": {
+        "debug": false
+      }
+    }
+  ]
+}

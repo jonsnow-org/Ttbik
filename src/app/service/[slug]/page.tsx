@@ -33,7 +33,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   if (!service) return {};
   const description = service.short_desc_ar || service.long_desc_ar || undefined;
   return {
-    title: `${service.name_ar} — ${formatUsd(service.price_usd)} | سوق تولز`,
+    title: `${service.name_ar} — ${formatUsd(service.price_usd)} | شام AI`,
     description,
     openGraph: { title: service.name_ar, description, type: "website" },
   };

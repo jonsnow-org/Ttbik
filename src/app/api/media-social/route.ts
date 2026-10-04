@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { notify } from "@/lib/mediaNotify";
+import { write } from "@/lib/mediaSafe";
 import {
   EMPTY_RELATIONS,
   MEDIA_OWNER_ID,
@@ -117,7 +119,7 @@ export async function POST(req: NextRequest) {
         if (await isBlockedEitherWay(db, me.id, target)) return bad("blocked", 403);
         const { error } = await db.from("media_follows").upsert({ follower_id: me.id, followee_id: target }, { onConflict: "follower_id,followee_id" });
         if (error) throw error;
-        await db.from("media_notifications").insert({ to_id: target, from_id: me.id, from_name: me.name, type: "follow", post_id: null }).then(() => {}, () => {});
+        await notify(db, { toId: target, fromId: me.id, fromName: me.name, type: "follow" }).catch(() => null);
         return ok();
       }
       case "set_avatar": {
@@ -132,9 +134,10 @@ export async function POST(req: NextRequest) {
         if (error) return bad("avatar column missing — run supabase/migration_mini_app_users.sql", 503);
         return ok();
       }
-      case "unfollow":
-        await db.from("media_follows").delete().eq("follower_id", me.id).eq("followee_id", target);
-        return ok();
+      case "unfollow": {
+        const w = await write("unfollow", db.from("media_follows").delete().eq("follower_id", me.id).eq("followee_id", target));
+        return w.ok ? ok() : bad("not saved", 503);
+      }
       case "set_notify": {
         const on = !!body.on;
         const { error } = await db.from("media_follows").update({ notify: on }).eq("follower_id", me.id).eq("followee_id", target);
@@ -143,23 +146,28 @@ export async function POST(req: NextRequest) {
       }
       case "mute":
         if (!target || target === me.id) return bad("invalid target");
-        await db.from("media_mutes").upsert({ user_id: me.id, muted_id: target }, { onConflict: "user_id,muted_id" });
-        return ok();
-      case "unmute":
-        await db.from("media_mutes").delete().eq("user_id", me.id).eq("muted_id", target);
-        return ok();
+        {
+          const w = await write("mute", db.from("media_mutes").upsert({ user_id: me.id, muted_id: target }, { onConflict: "user_id,muted_id" }));
+          return w.ok ? ok() : bad("not saved", 503);
+        }
+      case "unmute": {
+        const w = await write("unmute", db.from("media_mutes").delete().eq("user_id", me.id).eq("muted_id", target));
+        return w.ok ? ok() : bad("not saved", 503);
+      }
       case "block": {
         if (!target || target === me.id) return bad("invalid target");
         if (target === MEDIA_OWNER_ID) return bad("cannot block the app owner", 403);
-        await db.from("media_blocks").upsert({ user_id: me.id, blocked_id: target }, { onConflict: "user_id,blocked_id" });
+        const w = await write("block", db.from("media_blocks").upsert({ user_id: me.id, blocked_id: target }, { onConflict: "user_id,blocked_id" }));
+        if (!w.ok) return bad("not saved", 503);
         // A block also ends any follow in both directions.
-        await db.from("media_follows").delete().eq("follower_id", me.id).eq("followee_id", target);
-        await db.from("media_follows").delete().eq("follower_id", target).eq("followee_id", me.id);
+        await write("block unfollow", db.from("media_follows").delete().eq("follower_id", me.id).eq("followee_id", target));
+        await write("block unfollow", db.from("media_follows").delete().eq("follower_id", target).eq("followee_id", me.id));
         return ok();
       }
-      case "unblock":
-        await db.from("media_blocks").delete().eq("user_id", me.id).eq("blocked_id", target);
-        return ok();
+      case "unblock": {
+        const w = await write("unblock", db.from("media_blocks").delete().eq("user_id", me.id).eq("blocked_id", target));
+        return w.ok ? ok() : bad("not saved", 503);
+      }
 
       case "delete_post": {
         if (!postId) return bad("post_id required");

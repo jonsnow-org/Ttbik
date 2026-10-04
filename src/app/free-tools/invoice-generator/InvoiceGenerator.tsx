@@ -274,7 +274,7 @@ export default function InvoiceGenerator() {
             {docDate && <p className="text-sm text-slate-600">التاريخ: {docDate}</p>}
           </div>
           <div className="text-left text-sm text-slate-500" dir="ltr">
-            سوق تولز
+            شام AI
           </div>
         </header>
 

@@ -252,6 +252,17 @@ class Frontier:
 
 
 FRONTIER = Frontier()
+# Everything already visited, by address: a news item, a page, a picture. Checked
+# BEFORE anything is downloaded, so re-reading a feed or meeting the same page/logo
+# again costs one set lookup instead of a download that the fingerprint then throws
+# away (the cause of the 20,000+ "duplicates" in the live trainer's reports).
+# Saved with the checkpoint (crawl_urls.json), so it also holds across sessions.
+URL_SEEN = Seen()
+
+
+def new_url(kind: str, url: str) -> bool:
+    """True the first time this address is met (and remembers it)."""
+    return URL_SEEN.add_new(kind + ":" + hashlib.sha1(url.encode("utf-8", "ignore")).hexdigest()[:20])
 # Pages whose pictures, sounds and videos are read with the text around them
 # (multimodal_media_analysis.discover_media_with_captions): every news article
 # the RSS feeds point to, and every Arabic Wikipedia article the spider reads.
@@ -293,13 +304,16 @@ def src_wiki(name):
 
 
 _rss_last: dict[str, float] = {}
+_rss_wait: dict[str, float] = {}   # per feed: how long to leave it alone (doubles while it has nothing new)
+RSS_MIN_WAIT, RSS_MAX_WAIT = 900.0, 7200.0
 _rss_lock = threading.Lock()
 
 
 def src_rss(rng):
-    """One feed that has not been read for 15 minutes; headline + summary."""
+    """One feed that is due; headline + summary + photo of every item NOT seen before.
+    A feed that brought nothing new is left alone twice as long next time (15 min → 2 h)."""
     with _rss_lock:
-        due = [n for n in RSS_FEEDS if time.time() - _rss_last.get(n, 0) > 900]
+        due = [n for n in RSS_FEEDS if time.time() - _rss_last.get(n, 0) > _rss_wait.get(n, RSS_MIN_WAIT)]
         if not due:
             return []
         name = rng.choice(due)
@@ -311,14 +325,17 @@ def src_rss(rng):
         root = ET.fromstring(raw)
     except Exception:
         return []
-    out = []
+    out, fresh = [], 0
     for it in (e for e in root.iter() if e.tag.split("}")[-1] == "item"):
         f = {c.tag.split("}")[-1]: (c.text or "") for c in it}
         title, desc = clean(f.get("title", "")), clean(f.get("description", ""), 1500)
         if len(title) + len(desc) < 20:
             continue
-        out.append(Item("text", f"{title}\n{desc}", f"rss:{name}", license="news summary"))
         link = (f.get("link") or f.get("guid") or "").strip()
+        if link.startswith("http") and not new_url("rss", link):
+            continue  # this news item was already taken: no text, no photo download, no page re-queue
+        fresh += 1
+        out.append(Item("text", f"{title}\n{desc}", f"rss:{name}", license="news summary"))
         if link.startswith("http"):
             PAGES.push([link])
         words = [w for w in re.findall(r"[؀-ۿ]{4,}", title)][:3]
@@ -332,6 +349,8 @@ def src_rss(rng):
             img = http_get(thumb, max_bytes=MAX_MEDIA_BYTES) if thumb else None
             if img:
                 out.append(Item("image", title, f"rss_image:{name}", img, "news photo"))
+    with _rss_lock:
+        _rss_wait[name] = RSS_MIN_WAIT if fresh else min(_rss_wait.get(name, RSS_MIN_WAIT) * 2, RSS_MAX_WAIT)
     return out
 
 
@@ -347,6 +366,8 @@ def src_page_media(rng):
         if not title:
             return []
         url = "https://ar.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
+    if not new_url("page", url):
+        return []  # this page's pictures/sounds/videos were already taken
     fetch = url
     if url.startswith("https://ar.wikipedia.org/wiki/"):  # the article body only (no site logos), with figure captions
         fetch = "https://ar.wikipedia.org/api/rest_v1/page/html/" + url.rsplit("/wiki/", 1)[1]
@@ -358,6 +379,8 @@ def src_page_media(rng):
     for m in discover_media_with_captions(html_text, url):
         if per_kind[m["kind"]] >= (4 if m["kind"] == "image" else 1):
             continue
+        if not new_url("media", m["url"]):
+            continue  # the same logo / flag / icon on another page: already taken (or already judged)
         data = http_get(m["url"], timeout=40, max_bytes=MAX_MEDIA_BYTES)
         if not data:
             continue
@@ -554,6 +577,7 @@ class SourceState:
     ok: int = 0
     fail: int = 0
     items: int = 0
+    dups: int = 0       # items it returned that were already known (so the owner sees WHO wastes effort)
     streak: int = 0
     rest_until: float = 0.0
     recent: deque = field(default_factory=lambda: deque(maxlen=20))  # (items, seconds)
@@ -638,6 +662,7 @@ class Spider:
             if not self.seen.add_new(it.key):
                 with self._lock:
                     self.dups += 1
+                    src.dups += 1
                 continue
             while not self._stop.is_set():
                 try:
@@ -666,8 +691,11 @@ class Spider:
     def report(self) -> str:
         rows = sorted(self.sources, key=lambda s: -s.items)
         parts = [f"{s.name}:{s.items}" + ("(راحة)" if s.rest_until > time.time() else "") for s in rows if s.ok or s.fail]
+        dup_rows = sorted((s for s in self.sources if s.dups), key=lambda s: -s.dups)[:6]
+        dup_txt = ", ".join(f"{s.name}:{s.dups:,}" for s in dup_rows) or "—"
         return (f"🕸 الشبكة: " + " | ".join(f"{k} {v:,}" for k, v in self.emitted.items())
-                + f" | مكرر مُستبعد {self.dups:,}\n   المصادر: " + ", ".join(parts))
+                + f" | مكرر مُستبعد {self.dups:,}\n   المصادر: " + ", ".join(parts)
+                + f"\n   أكثر المصادر تكراراً: {dup_txt}")
 
 
 if __name__ == "__main__":
@@ -719,4 +747,21 @@ if __name__ == "__main__":
     got = src_page_media(random.Random(0))
     http_get = real_get
     assert [(g.kind, g.text) for g in got] == [("image", "سوق الحميدية في دمشق")], got
+    PAGES.push(["https://news.test/a"])  # the same page again: nothing is read or downloaded
+    assert src_page_media(random.Random(0)) == []
+
+    # RSS: a re-read of the same feed costs nothing and makes the feed wait longer
+    feed = ("<rss><channel>" + "".join(
+        f"<item><title>خبر رقم {i} عن الاقتصاد والأسواق</title><link>https://news.test/n{i}</link>"
+        f"<description>تفاصيل الخبر رقم {i} كاملة هنا</description></item>" for i in range(3)) + "</channel></rss>").encode()
+    calls = []
+    http_get = lambda url, *a, **k: (calls.append(url), feed)[1]  # noqa: F811 — offline test only
+    RSS_FEEDS.clear(); RSS_FEEDS["t_feed"] = "https://news.test/feed"
+    first = src_rss(random.Random(0))
+    assert len(first) == 3 and _rss_wait["t_feed"] == RSS_MIN_WAIT, (len(first), _rss_wait)
+    _rss_last["t_feed"] = 0  # pretend the wait elapsed
+    n_calls = len(calls)
+    second = src_rss(random.Random(0))
+    assert second == [] and _rss_wait["t_feed"] == RSS_MIN_WAIT * 2 and len(calls) == n_calls + 1, (second, _rss_wait)
+    http_get = real_get
     print("sham_spider self-test OK")

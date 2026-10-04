@@ -2,6 +2,7 @@ import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 
 /**
@@ -412,11 +413,11 @@ export async function handlePrayerBotUpdate(bot: TelegramBot, botRow: BotRow, up
     await recordBotVisit(botRow.id, tgUserId);
     if (!city) {
       await setPending(tgUserId, { mode: "choose_city" });
-      await bot.api.sendMessage(chatId, "🕌 أهلاً بك في بوت مواقيت الصلاة!\n\nاختر مدينتك لأعرض لك مواقيت الصلاة بدقة:", { reply_markup: cityMenu() });
+      await bot.api.sendMessage(chatId, startGuide("PRAYER") + "\n\n📍 اختر مدينتك للبدء:", { reply_markup: cityMenu() });
       return;
     }
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, `🕌 أهلاً بك من جديد! مدينتك: ${city.name}`, { reply_markup: menu() });
+    await bot.api.sendMessage(chatId, `${startGuide("PRAYER")}\n\n📍 مدينتك: ${city.name}`, { reply_markup: menu() });
     return;
   }
 

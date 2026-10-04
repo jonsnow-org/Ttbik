@@ -3,7 +3,7 @@ import CvGenerator from "./CvGenerator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "مولّد سيرة ذاتية عربي + PDF | أدوات مجانية | سوق تولز",
+  title: "مولّد سيرة ذاتية عربي + PDF | أدوات مجانية | شام AI",
   description:
     "أنشئ سيرة ذاتية عربية احترافية مجاناً واحفظها كـ PDF — بدون تسجيل، بدون مكتبات خارجية، النص العربي يظهر بشكل صحيح.",
 };

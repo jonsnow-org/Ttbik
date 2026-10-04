@@ -11,21 +11,21 @@ import StickyBottomAd from "@/components/StickyBottomAd";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 import { SITE_URL } from "@/lib/siteUrl";
-const SITE_TITLE = "سوق تولز — سوق الخدمات الرقمية المصغّرة";
+const SITE_TITLE = "شام AI — Sham AI | الذكاء الاصطناعي والتقنية والخدمات الرقمية المتكاملة";
 const SITE_DESCRIPTION =
-  "سوق تولز: منصة لبيع خدمات وأدوات رقمية جاهزة (بوتات، أدوات ذكاء اصطناعي، أتمتة) بأسعار رمزية وتسليم فوري، بالإضافة لأدوات مجانية حقيقية تعمل مباشرة في متصفحك.";
+  "مشروع شام للذكاء الاصطناعي والتقنية والخدمات الرقمية المتكاملة: خدمات وأدوات رقمية جاهزة (بوتات، أدوات ذكاء اصطناعي، أتمتة) بأسعار رمزية وتسليم فوري، بالإضافة لأدوات مجانية حقيقية تعمل مباشرة في متصفحك.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: { default: SITE_TITLE, template: "%s | سوق تولز" },
+  title: { default: SITE_TITLE, template: "%s | شام AI" },
   description: SITE_DESCRIPTION,
-  keywords: ["سوق تولز", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
+  keywords: ["شام AI", "Sham AI", "سوق تولز", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
     locale: "ar_AR",
     url: "/",
-    siteName: "سوق تولز",
+    siteName: "شام AI",
     title: SITE_TITLE,
     description: SITE_DESCRIPTION,
   },
@@ -42,7 +42,8 @@ export const metadata: Metadata = {
 const ORGANIZATION_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebSite",
-  name: "سوق تولز",
+  name: "شام AI",
+  alternateName: ["Sham AI", "سوق تولز"],
   url: SITE_URL,
   description: SITE_DESCRIPTION,
   sameAs: LIVE_BOTS.map((b) => b.href),
@@ -50,7 +51,7 @@ const ORGANIZATION_JSON_LD = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = headers().get("x-pathname") || "";
-  const isMiniApp = pathname.startsWith("/mini-app");
+  const isMiniApp = pathname.startsWith("/mini-app") || pathname.startsWith("/fadaa");
 
   // Embeddable widgets (/embed/*) are shown inside other sites' iframes:
   // no header, ads or footer — just the widget.
@@ -99,7 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3.5">
             <a href="/" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
-              <Logo className="h-7 w-7" /> سوق تولز
+              <Logo className="h-7 w-7" /> شام AI
             </a>
             <nav className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-sm font-semibold text-slate-600 lg:flex">
               <a href="/#categories" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
@@ -156,7 +157,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <div className="mx-auto max-w-6xl px-4 py-10">
             <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-right">
               <a href="/" className="flex items-center gap-2 text-base font-extrabold text-brand-800">
-                <Logo className="h-6 w-6" /> سوق تولز
+                <Logo className="h-6 w-6" /> شام AI
               </a>
               <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-slate-500">
                 <a href="/prayer-times" className="hover:text-brand-700">مواقيت الصلاة</a>
@@ -169,7 +170,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </p>
             </div>
             <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-6 text-xs text-slate-400 sm:flex-row">
-              <p>© {new Date().getFullYear()} سوق تولز — جميع الحقوق محفوظة.</p>
+              <p>© {new Date().getFullYear()} شام AI — جميع الحقوق محفوظة.</p>
               <p className="flex items-center gap-4">
                 <a href="/terms" className="hover:text-brand-700">الشروط وسياسة الاسترجاع</a>
                 <a href="/privacy" className="hover:text-brand-700">سياسة الخصوصية</a>

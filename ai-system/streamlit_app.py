@@ -21,7 +21,7 @@ INTERNAL_SECRET = os.environ.get("NOVA_INTERNAL_SECRET", "")
 
 st.set_page_config(page_title="Nova AI", page_icon="✨")
 st.title("✨ Nova AI")
-st.caption("مساعد ذكاء اصطناعي مجاني — من سوق تولز")
+st.caption("مساعد ذكاء اصطناعي مجاني — من شام AI")
 
 if "email" not in st.session_state:
     st.session_state.email = ""

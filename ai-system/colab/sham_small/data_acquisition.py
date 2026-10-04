@@ -75,6 +75,7 @@ already proven in merge_and_finetune.ipynb's own DPO cell).
 """
 
 import json
+import os
 import random
 from pathlib import Path
 from typing import Iterator
@@ -176,6 +177,21 @@ def stream_hf_text_corpus(
         stream_hf_text_corpus("oscar-corpus/OSCAR-2301", "ar", "text", "/kaggle/working/corpus/oscar_ar")
         stream_hf_text_corpus("allenai/c4", "ar", "text", "/kaggle/working/corpus/mc4_ar")
     """
+    # The old Arabic-Wikipedia slice (20,000 articles) is what the existing notebook cells ask for.
+    # Sham is a general model, so that request is answered with a fresh sample of the general
+    # mixture (many languages, code, math, science) instead — see sham_text_mix.py. Set
+    # SHAM_ARABIC_WIKI_ONLY=1 to get the original behaviour.
+    if (dataset_name, config_name) == ("wikimedia/wikipedia", "20231101.ar") and not os.environ.get("SHAM_ARABIC_WIKI_ONLY"):
+        try:
+            import sham_text_mix
+            files = sham_text_mix.stream_mix(output_dir, max_documents=(600 if os.environ.get("SHAM_PIPELINE", "1") != "0" else int(max_documents * 3)),
+                                             documents_per_file=documents_per_file, progress_path=progress_path)
+            if files:
+                return files
+            print("⚠ المزيج العام لم يُنتج شيئاً — العودة إلى ويكيبيديا العربية.")
+        except Exception as exc:
+            print(f"⚠ تعذّر المزيج العام ({type(exc).__name__}: {str(exc)[:100]}) — العودة إلى ويكيبيديا العربية.")
+
     from datasets import load_dataset  # imported here, not at module load, since this sandbox can't use it at all
 
     output_path = Path(output_dir)

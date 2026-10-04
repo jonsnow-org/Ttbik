@@ -3,7 +3,7 @@ import InvoiceGenerator from "./InvoiceGenerator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "مولّد فواتير وعقود بسيطة بالعربي | أدوات مجانية | سوق تولز",
+  title: "مولّد فواتير وعقود بسيطة بالعربي | أدوات مجانية | شام AI",
   description:
     "أنشئ فاتورة أو عقد خدمة بسيط بالعربي مجاناً واحفظه كـ PDF من المتصفح — بدون تسجيل، نص عربي صحيح.",
 };

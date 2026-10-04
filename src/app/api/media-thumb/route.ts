@@ -30,6 +30,13 @@ export async function GET(req: NextRequest) {
     }
   }
   if (!imageUrl || imageUrl.startsWith("/")) return new NextResponse("no thumbnail", { status: 404 });
+  // the address came from a link a user submitted: only fetch public https hosts (never internal/metadata addresses)
+  try {
+    const u = new URL(imageUrl);
+    const h = u.hostname.toLowerCase();
+    const internal = h === "localhost" || h.endsWith(".local") || h.endsWith(".internal") || /^(127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[|::)/.test(h);
+    if (u.protocol !== "https:" || internal) return new NextResponse("no thumbnail", { status: 404 });
+  } catch { return new NextResponse("no thumbnail", { status: 404 }); }
 
   try {
     const img = await fetch(imageUrl, { cache: "no-store" });

@@ -7,8 +7,8 @@ import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 
 export const metadata: Metadata = {
   // title.absolute opts out of the root layout's Arabic title template
-  // ("%s | سوق تولز") — see qr-generator's English page for the same fix.
-  title: { absolute: "Free URL Shortener + Real Click Counter | SouqTools" },
+  // ("%s | شام AI") — see qr-generator's English page for the same fix.
+  title: { absolute: "Free URL Shortener + Real Click Counter | Sham AI" },
   description:
     "Shorten any link and get a short URL with a real click counter — free, no signup, no daily limits.",
   alternates: {
@@ -22,11 +22,11 @@ export const metadata: Metadata = {
   openGraph: {
     locale: "en_US",
     url: `${SITE_URL}/en/free-tools/url-shortener`,
-    title: "Free URL Shortener + Real Click Counter | SouqTools",
+    title: "Free URL Shortener + Real Click Counter | Sham AI",
     description: "Shorten any link and get a short URL with a real click counter — free, no signup.",
   },
   twitter: {
-    title: "Free URL Shortener + Real Click Counter | SouqTools",
+    title: "Free URL Shortener + Real Click Counter | Sham AI",
     description: "Shorten any link and get a short URL with a real click counter — free, no signup.",
   },
 };

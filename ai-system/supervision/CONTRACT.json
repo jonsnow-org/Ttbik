@@ -1,0 +1,336 @@
+{
+  "version": 1,
+  "about": "خريطة المدخلات والمخارج لكل دفتر وسير عمل في مشروع شام. أي تعديل يخرج عنها يُرفض في فحص sham_contract.py. حدّثها حين يضاف دفتر أو مجموعة بيانات.",
+  "datasets": {
+    "sham-checkpoint": {
+      "role": "نقطة حفظ النص الأساسي (المرحلة الأولى) + مُرمِّز النص العام",
+      "writer": "stage1_text"
+    },
+    "nova-small-checkpoint": {
+      "role": "الاسم القديم لـ sham-checkpoint — يُقرأ احتياطاً فقط",
+      "writer": null
+    },
+    "sham-image-tokenizer-checkpoint": {
+      "role": "مُرمِّز الصورة VQ-VAE",
+      "writer": "image_tokenizer"
+    },
+    "sham-audio-tokenizer-checkpoint": {
+      "role": "مُرمِّز الصوت VQ-VAE",
+      "writer": "audio_tokenizer"
+    },
+    "sham-video-corpus": {
+      "role": "فيديو مُجمَّع ومُرمَّز",
+      "writer": "video_tokenizer"
+    },
+    "sham-multimodal-checkpoint": {
+      "role": "نقطة حفظ المرحلة الثانية (نص + صورة + صوت)",
+      "writer": "stage2_multimodal"
+    },
+    "sham-chat-checkpoint": {
+      "role": "نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج)",
+      "writer": "chat_stage"
+    },
+    "sham-cpu-track-checkpoint": {
+      "role": "قديم (v1) — لا يُكتب",
+      "writer": null
+    },
+    "sham-cpu-track-checkpoint-v2": {
+      "role": "المسار A: تدريب نصي مستمر على CPU",
+      "writer": "track_a"
+    },
+    "sham-research-track-checkpoint-v2": {
+      "role": "المسار B: بحث ذاتي من الإنترنت + تدريب CPU",
+      "writer": "track_b"
+    },
+    "sham-crawl-checkpoint": {
+      "role": "المدرّب الحي على Kaggle (نموذج)",
+      "writer": "live_trainer"
+    },
+    "sham-crawl-corpus": {
+      "role": "نصوص المدرّب الحي على Kaggle",
+      "writer": "live_trainer"
+    },
+    "sham-crawl-legacy": {
+      "role": "ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح)",
+      "writer": "repair"
+    },
+    "sham-chat-checkpoint-incoming": {
+      "role": "ما نُشر فوق مجموعة المحادثة من دفتر آخر (يُنقل بالإصلاح)",
+      "writer": "repair"
+    },
+    "sham-crawl-gh": {
+      "role": "مدرّب CPU على GitHub (نموذج)",
+      "writer": "gh_cpu_trainer"
+    },
+    "sham-crawl-gh-corpus": {
+      "role": "نصوص مدرّب CPU على GitHub",
+      "writer": "gh_cpu_trainer"
+    },
+    "sham-crawl-gh-collect-corpus": {
+      "role": "الزاحف العام على GitHub (نصوص فقط)",
+      "writer": "gh_collector"
+    },
+    "sham-merged-checkpoint": {
+      "role": "ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر)",
+      "writer": "gh_merge_eval"
+    },
+    "sham-reports": {
+      "role": "نسخة من تقارير الجلسات (للإشراف)",
+      "writer": "any (عبر sham_reports.py من كل دفتر)"
+    },
+    "sham-research-track-checkpoint": {
+      "role": "الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط",
+      "writer": null
+    },
+    "sham-checkpoint-v2": {
+      "role": "اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة",
+      "writer": null
+    }
+  },
+  "dynamic_dataset_patterns": [
+    "sham-crawl-*",
+    "sham-crawl-*-corpus"
+  ],
+  "dataset_rules": [
+    "كل مجموعة لها كاتب واحد فقط (writer). دفتر ثانٍ لا ينشر فوقها — كل دفتر جمع جديد يستعمل اسماً جديداً يبدأ بـ sham-crawl-.",
+    "أي مجموعة تبدأ بـ sham* تُكتشف تلقائياً كمصدر دمج؛ الدمج لا يتم إلا بعد الإصلاح وبوابة الجودة."
+  ],
+  "components": {
+    "stage1_text": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_small_training.ipynb",
+      "title": "شام — أول دورة تدريب نصية حقيقية",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU إن غاب)",
+      "reads": [
+        "sham-checkpoint",
+        "nova-small-checkpoint"
+      ],
+      "writes": [
+        "sham-checkpoint"
+      ]
+    },
+    "stage2_multimodal": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_small_training_stage2_multimodal.ipynb",
+      "title": "المرحلة الثانية: إضافة الصورة والصوت",
+      "kind": "notebook",
+      "accelerator": "GPU",
+      "reads": [
+        "sham-checkpoint",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint",
+        "sham-multimodal-checkpoint"
+      ],
+      "writes": [
+        "sham-multimodal-checkpoint"
+      ]
+    },
+    "chat_stage": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_chat_stage.ipynb",
+      "title": "مرحلة التجميع والمحادثة",
+      "kind": "notebook",
+      "accelerator": "GPU",
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-research-track-checkpoint-v2",
+        "sham-crawl-*",
+        "sham-merged-checkpoint"
+      ],
+      "writes": [
+        "sham-chat-checkpoint"
+      ]
+    },
+    "live_trainer": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_live_trainer.ipynb",
+      "title": "المدرّب الحي",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-checkpoint"
+      ],
+      "writes": [
+        "sham-crawl-checkpoint",
+        "sham-crawl-corpus"
+      ]
+    },
+    "track_a": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_cpu_training_track.ipynb",
+      "title": "المسار A (CPU)",
+      "kind": "notebook",
+      "accelerator": "CPU فقط",
+      "reads": [
+        "sham-cpu-track-checkpoint-v2",
+        "sham-checkpoint"
+      ],
+      "writes": [
+        "sham-cpu-track-checkpoint-v2"
+      ]
+    },
+    "track_b": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_cpu_research_track.ipynb",
+      "title": "المسار B (CPU)",
+      "kind": "notebook",
+      "accelerator": "CPU فقط",
+      "reads": [
+        "sham-research-track-checkpoint-v2",
+        "sham-cpu-track-checkpoint-v2",
+        "sham-checkpoint"
+      ],
+      "writes": [
+        "sham-research-track-checkpoint-v2"
+      ]
+    },
+    "image_tokenizer": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_image_tokenizer_track.ipynb",
+      "title": "مسار ترميز الصورة",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-image-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-image-tokenizer-checkpoint"
+      ]
+    },
+    "audio_tokenizer": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_audio_tokenizer_track.ipynb",
+      "title": "مسار ترميز الصوت",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-audio-tokenizer-checkpoint"
+      ],
+      "writes": [
+        "sham-audio-tokenizer-checkpoint"
+      ]
+    },
+    "video_tokenizer": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_video_tokenizer_track.ipynb",
+      "title": "مسار ترميز الفيديو",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-video-corpus"
+      ],
+      "writes": [
+        "sham-video-corpus"
+      ]
+    },
+    "control_center": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_control_center.ipynb",
+      "title": "مركز تحكم شام",
+      "kind": "notebook (أداة)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "orchestrator": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/kaggle_resume_orchestrator.ipynb",
+      "title": "منسّق الاستئناف التلقائي",
+      "kind": "notebook (أداة)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "bot_test": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_bot_test.ipynb",
+      "title": "تجربة البوت",
+      "kind": "notebook (اختبار)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "gh_collector": {
+      "file": ".github/workflows/sham-collector.yml",
+      "title": "الزاحف العام على GitHub",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-crawl-gh-collect-corpus"
+      ]
+    },
+    "gh_cpu_trainer": {
+      "file": ".github/workflows/sham-cpu-trainer.yml",
+      "title": "مدرّب CPU على GitHub",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-gh"
+      ],
+      "writes": [
+        "sham-crawl-gh",
+        "sham-crawl-gh-corpus"
+      ]
+    },
+    "gh_merge_eval": {
+      "file": ".github/workflows/sham-merge-eval.yml",
+      "title": "الدمج والإصلاح والتقييم على CPU",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-*",
+        "sham-merged-checkpoint"
+      ],
+      "writes": [
+        "sham-merged-checkpoint"
+      ]
+    },
+    "status": {
+      "file": ".github/workflows/sham-status.yml",
+      "title": "حالة المشروع للإشراف",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-reports",
+        "sham-chat-checkpoint"
+      ],
+      "writes": []
+    },
+    "ci_check": {
+      "file": ".github/workflows/sham-ci.yml",
+      "title": "فحص طلبات الدمج لمسار النموذج (عقد + اختبارات ذاتية، قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    }
+  },
+  "lineage": [
+    "stage1_text",
+    "stage2_multimodal",
+    "chat_stage",
+    "live_trainer"
+  ],
+  "lineage_note": "الخط الرئيسي: النص ← الصورة والصوت ← المحادثة والدمج. بقية المسارات (A, B, الزواحف) فروع تُدمج عبر الإصلاح + البوابة، ولا تُستأنف منها الخطوط الأخرى.",
+  "edit_allowlist": [
+    "ai-system/colab/sham_small/",
+    "ai-system/supervision/",
+    "docs/"
+  ],
+  "edit_denylist": [
+    ".github/",
+    "ai-system/app/",
+    ".env",
+    "secret",
+    "credential",
+    "sham_small_api_keys.db",
+    "api_keys.py"
+  ],
+  "kill_switches": {
+    "about": "متغيرات مستودع (Settings ← Secrets and variables ← Actions ← Variables). قيمتها 1 توقف السير فوراً (تُتخطّى المهمة).",
+    "variables": {
+      "SHAM_PAUSE_ALL": "يوقف كل مصنع GitHub",
+      "SHAM_PAUSE_COLLECTOR": "الزاحف العام",
+      "SHAM_PAUSE_CPU_TRAINER": "مدرّب CPU",
+      "SHAM_PAUSE_MERGE_EVAL": "الدمج والتقييم",
+      "SHAM_PAUSE_STATUS": "حالة المشروع"
+    }
+  }
+}

@@ -8,6 +8,7 @@ import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/novaAssist";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
@@ -244,7 +245,7 @@ function randomChatMenu(): Keyboard {
   return new Keyboard().text("⏹ إنهاء المحادثة").resized();
 }
 function isBack(text: string): boolean {
-  return text === backLabel();
+  return text === backLabel() || text === "/cancel";
 }
 function isSkip(text: string): boolean {
   return text === SKIP_LABEL;
@@ -1331,7 +1332,45 @@ export async function logFakeChatEvent(event: string) {
   }
 }
 
+// The Oracle VM calls /api/internal/fake-chat-sweep every minute. While that heartbeat is fresh the
+// 280-second per-chat Vercel function is not started; when it goes stale the old per-chat chain resumes.
+const SWEEPER_KEY = "fake_chat_sweeper_at";
+const SWEEPER_FRESH_MS = 3 * 60 * 1000;
+let sweeperCache = { at: 0, active: false };
+
+async function fakeChatSweeperActive(): Promise<boolean> {
+  if (Date.now() - sweeperCache.at < 30_000) return sweeperCache.active;
+  let active = false;
+  try {
+    const { data } = await supabaseAdmin().from("bot_settings").select("value").eq("key", SWEEPER_KEY).maybeSingle();
+    const t = Number((data as any)?.value);
+    active = Number.isFinite(t) && Date.now() - t < SWEEPER_FRESH_MS;
+  } catch {
+    active = false;
+  }
+  sweeperCache = { at: Date.now(), active };
+  return active;
+}
+
+// Ends every fake chat idle for 5+ minutes. Idempotent: expireFakeChatIfIdle re-checks lastAt itself.
+export async function sweepFakeChats(): Promise<{ open: number; ended: number }> {
+  await supabaseAdmin().from("bot_settings").upsert({ key: SWEEPER_KEY, value: Date.now(), updated_at: new Date().toISOString() });
+  const rows = await prisma.matchUser.findMany({
+    where: { pendingAction: { path: ["mode"], equals: "fake_chatting" } },
+    select: { id: true, pendingAction: true },
+  });
+  let ended = 0;
+  for (const r of rows) {
+    const lastAt = (r.pendingAction as any)?.lastAt;
+    if (typeof lastAt !== "number" || Date.now() - lastAt < FAKE_CHAT_TIMEOUT_MS) continue;
+    const state = await expireFakeChatIfIdle(r.id, lastAt).catch(() => "stale" as const);
+    if (state === "ended") ended++;
+  }
+  return { open: rows.length, ended };
+}
+
 export async function dispatchFakeChatCheck(userId: string, lastAt: number) {
+  if (await fakeChatSweeperActive()) return;
   const user = await prisma.matchUser.findUnique({ where: { id: userId }, select: { botId: true } }).catch(() => null);
   if (!user?.botId) { await logFakeChatEvent("dispatch: no user/botId"); return; }
   const botRow = await prisma.bot.findUnique({ where: { id: user.botId }, select: { webhookSecret: true } }).catch(() => null);
@@ -2188,7 +2227,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
 
   if (text === "/start") {
     await setPending(tgUserId, null);
-    await bot.api.sendMessage(chatId, "أهلاً بك 👋", { reply_markup: mainMenu() });
+    await bot.api.sendMessage(chatId, startGuide("MATCH"), { reply_markup: mainMenu() });
     return;
   }
 

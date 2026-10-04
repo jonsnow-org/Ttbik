@@ -28,19 +28,21 @@ from telegram.ext import (
 
 from config import Config
 from keyboards import (
+    START_GUIDE,
     owner_main_keyboard,
     user_main_keyboard,
     quality_keyboard,
     owner_force_sub_keyboard,
     premium_keyboard,
     user_settings_keyboard,
+    notify_settings_keyboard,
     squad_keyboard,
     menu_button_webapp,
     INFO_TEXT,
 )
 from services.force_sub import require_subscription
 from services.rewards import refresh_bonus
-from services.downloader import extract_info, download_media, normalize_url, EXTRACT_TIMEOUT
+from services.downloader import extract_info, download_media, normalize_url, friendly_reason, EXTRACT_TIMEOUT
 from services.archive import (
     get_cached_file_id,
     archive_and_get_file_id,
@@ -51,6 +53,7 @@ from services.store import store, persist, load_from_archive, PREMIUM_DAILY_LIMI
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
 from services.premium import verify_premium_code, sync_premium_grant
+from services import notify_prefs
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -76,6 +79,16 @@ def _squad_kb(user_id: int):
 
 
 cfg = Config.from_env()
+# "primary" = the always-on engine (Oracle); anything else = the sleeping backup (Render).
+# The Vercel front door sends updates to the primary and only falls back to the backup.
+ENGINE_ROLE = "primary" if os.environ.get("MEDIA_ENGINE_ROLE", "").strip().lower() == "primary" else "backup"
+ALWAYS_ON = os.environ.get("MEDIA_ENGINE_ALWAYS_ON", "").strip().lower() in ("1", "true", "yes") or ENGINE_ROLE == "primary"
+# Render free tier OOM guard: one active download at a time. A bigger host (Oracle) can raise it.
+try:
+    _MAX_PARALLEL = max(1, int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "1")))
+except ValueError:
+    _MAX_PARALLEL = 1
+_dl_lock = asyncio.Semaphore(_MAX_PARALLEL)
 _pending_url: dict[int, str] = {}
 _pending_meta: dict[int, dict] = {}
 _waiting_channel: set[int] = set()
@@ -199,6 +212,9 @@ async def _force_menu_button(bot) -> None:
 
 async def _cold_start_notice(update: Update) -> None:
     now = time.time()
+    if ALWAYS_ON:  # nothing ever sleeps here, so there is no "waking up" to announce
+        store.last_wakeup = now
+        return
     if now - store.last_wakeup > 12 * 60:
         if update.message:
             await update.message.reply_text("⏳ محرك البوت يستيقظ من وضع التوفير...\nثوانٍ معدودة ويجهز طلبك 🚀")
@@ -249,13 +265,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     if user.id == cfg.owner_id:
         store.set_share(user.id, True)
-        await update.message.reply_text("👑 لوحة مالك البوت\n\nأرسل أي رابط للتحميل مباشرة.", reply_markup=owner_main_keyboard())
+        await update.message.reply_text("👑 لوحة مالك البوت\n\n" + START_GUIDE, reply_markup=owner_main_keyboard())
         return
     ok = await require_subscription(context.bot, user.id, store.force_sub_channels, update.effective_chat.id)
     if not ok:
         return
     await update.message.reply_text(
-        f"مرحباً 👋\nأرسل رابط يوتيوب / تيك توك / إنستغرام...\n\n{store.perk_label(user.id)}",
+        f"{START_GUIDE}\n\n{store.perk_label(user.id)}",
         reply_markup=user_main_keyboard(),
     )
 
@@ -280,6 +296,29 @@ async def pending_message_relay_handler(update: Update, context: ContextTypes.DE
         logger.warning("message relay failed: %s", e)
         await update.message.reply_text("❌ تعذر الإرسال — على الأغلب الطرف الآخر لم يبدأ البوت بعد.")
     raise ApplicationHandlerStop
+
+
+async def restore_flag_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Owner-only: /restore_cancel stops the Oracle auto-restore, /restore_resume allows it again.
+    The flag lives on the Oracle host (/state), never in Supabase, so it works while Supabase is down."""
+    user = update.effective_user
+    if not user or not update.message or user.id != cfg.owner_id:
+        return
+    cmd = (update.message.text or "").split()[0].lstrip("/").split("@")[0]
+    flag = "/state/restore_cancel"
+    if not os.path.isdir("/state"):
+        await update.message.reply_text("هذه الميزة تعمل على خادم Oracle فقط.")
+        return
+    try:
+        if cmd == "restore_cancel":
+            open(flag, "w").close()
+            await update.message.reply_text("⛔ أُوقف الاسترجاع الآلي. أرسل /restore_resume لإعادته.")
+        else:
+            if os.path.exists(flag):
+                os.remove(flag)
+            await update.message.reply_text("✅ أُعيد تفعيل الاسترجاع الآلي (بشروطه).")
+    except Exception as e:
+        await update.message.reply_text(f"تعذّر التنفيذ: {e}")
 
 
 async def _mini_app_stats() -> dict | None:
@@ -389,6 +428,9 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = (update.message.text or "").strip()
     if user.id in _waiting_squad_join:
         _waiting_squad_join.discard(user.id)
+        if not (store.is_premium(user.id) or user.id == cfg.owner_id):
+            await update.message.reply_text("💎 الغرف ميزة مدفوعة.", reply_markup=_squad_kb(user.id))
+            return
         msg = store.join_squad(user.id, text)
         await _save(context.bot)
         await update.message.reply_text(msg, reply_markup=_squad_kb(user.id))
@@ -426,8 +468,8 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         else:
             body = (
                 "👥 الغرف الخاصة\n\nلست في غرفة.\n\n"
-                "• إنشاء غرفة → رمز دعوة + تفعيل نشر الغرفة تلقائياً\n"
-                "• الانضمام برمز → تدخل غرفة صديقك\n"
+                "• 💎 إنشاء غرفة (للمشتركين المدفوعين) → رمز دعوة + نشر الغرفة تلقائياً\n"
+                "• الانضمام برمز (مدفوع) → تدخل غرفة صديقك\n"
                 "• تنزيلات الغرفة لا تظهر في الموجز العام"
             )
         await update.message.reply_text(body, parse_mode="Markdown", reply_markup=_squad_kb(user.id))
@@ -513,9 +555,108 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     await status_msg.edit_text(f"✅ {info.title[:80]}\n⏱ {duration}\n📊 {limit_msg}\n\nاختر الجودة:", reply_markup=quality_keyboard(show_summary=is_yt))
 
 
+NOTIFY_PAID_TEXT = (
+    "💎 إيقاف إشعارات البوت ميزة مدفوعة.\n"
+    "الإشعارات داخل التطبيق المصغّر تبقى دائماً. فعّل الترقية المدفوعة لتتحكم بما يصلك هنا."
+)
+
+
+def _notify_menu_text(data: dict, paid: bool) -> str:
+    lines = ["🔔 إشعاراتي في البوت", ""]
+    for t in data.get("types", []):
+        lines.append(f"{'🔔' if t.get('on') else '🔕'} {t.get('label')}")
+    lines.append("")
+    lines.append("اضغط على نوع لتشغيله أو إيقافه." if paid else "اضغط على نوع لتجربة إيقافه 💎 (الإيقاف للمشتركين المدفوعين).")
+    return "\n".join(lines)
+
+
+async def notify_callbacks(query, context, data: str) -> None:
+    """The 🔕 / ⚙️ buttons under every notification and the 🔔 settings menu (callback data: mn:<action>[:<type>])."""
+    user_id = query.from_user.id
+    paid = store.is_premium(user_id) or user_id == cfg.owner_id
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else "menu"
+    ntype = parts[2] if len(parts) > 2 else "all"
+
+    async def show_menu(edit: bool) -> None:
+        res = await notify_prefs.call(user_id, "get")
+        if not res or not res.get("ok"):
+            await query.answer("تعذّر الوصول للإعدادات الآن، حاول بعد قليل.", show_alert=True)
+            return
+        text = _notify_menu_text(res, paid)
+        kb = notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff")))
+        await query.answer()
+        if edit:
+            await query.edit_message_text(text, reply_markup=kb)
+        else:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=kb)
+
+    if action == "menu":
+        # opened from a notification: send a new message so the notification itself stays
+        is_menu_msg = (query.message.text or "").startswith("🔔 إشعاراتي")
+        await show_menu(edit=is_menu_msg)
+        return
+
+    if action == "tog":
+        res = await notify_prefs.call(user_id, "get")
+        if not res or not res.get("ok"):
+            await query.answer("تعذّر الوصول للإعدادات الآن.", show_alert=True)
+            return
+        on = any(t.get("type") == ntype and t.get("on") for t in res.get("types", []))
+        action = "off" if on else "on"
+
+    if action == "off" and not paid:
+        await query.answer("💎 ميزة مدفوعة", show_alert=True)
+        await context.bot.send_message(chat_id=query.message.chat_id, text=NOTIFY_PAID_TEXT, reply_markup=premium_keyboard())
+        return
+
+    res = await notify_prefs.call(user_id, action, ntype, premium=paid)
+    if not res or not res.get("ok"):
+        if res and res.get("status") == 402:
+            await query.answer("💎 ميزة مدفوعة", show_alert=True)
+            await context.bot.send_message(chat_id=query.message.chat_id, text=NOTIFY_PAID_TEXT, reply_markup=premium_keyboard())
+        else:
+            await query.answer("تعذّر الحفظ الآن، حاول بعد قليل.", show_alert=True)
+        return
+    label = "كل الإشعارات" if ntype == "all" else notify_prefs.TYPE_LABELS.get(ntype, ntype)
+    await query.answer(("🔕 أُوقف: " if action == "off" else "🔔 عاد: ") + label)
+    if (query.message.text or "").startswith("🔔 إشعاراتي"):
+        await query.edit_message_text(_notify_menu_text(res, paid), reply_markup=notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff"))))
+    else:
+        # under a notification: swap the stop button for an undo button
+        undo = "mn:on:" + ntype
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        rows = []
+        try:
+            rows = [list(r) for r in (query.message.reply_markup.inline_keyboard if query.message.reply_markup else [])][:1]
+        except Exception:
+            rows = []
+        rows.append([InlineKeyboardButton(("🔔 إعادة تشغيل: " if action == "off" else "🔕 إيقاف: ") + label, callback_data=("mn:on:" if action == "off" else "mn:off:") + ntype),
+                     InlineKeyboardButton("⚙️ الإشعارات", callback_data="mn:menu")])
+        try:
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
+        except Exception:
+            pass
+
+
+async def notifications_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    paid = store.is_premium(user.id) or user.id == cfg.owner_id
+    res = await notify_prefs.call(user.id, "get")
+    if not res or not res.get("ok"):
+        await update.message.reply_text("تعذّر الوصول للإعدادات الآن، حاول بعد قليل.")
+        return
+    await update.message.reply_text(_notify_menu_text(res, paid), reply_markup=notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff"))))
+
+
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.from_user:
+        return
+    if (query.data or "").startswith("mn:"):
+        await notify_callbacks(query, context, query.data or "")   # answers the query itself, exactly once
         return
     await query.answer()
     data = query.data or ""
@@ -552,6 +693,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if data in ("toggle_share_feed", "share_public_toggle"):
+        if store.get_share_public(user_id) and not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 إيقاف النشر في الموجز العام ميزة مدفوعة.\nفعّل الترقية المدفوعة (💎 الترقية المدفوعة) لتتحكم بما يُنشر.",
+                reply_markup=user_settings_keyboard(True, store.get_share_room(user_id), has_squad=bool(store.get_user_squad(user_id))),
+            )
+            return
         new_val = not store.get_share_public(user_id)
         store.set_share(user_id, new_val)
         await _save(context.bot)
@@ -575,6 +722,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text(note, reply_markup=user_settings_keyboard(store.get_share_public(user_id), store.get_share_room(user_id), has_squad=True))
         return
     if data == "share_off":
+        if not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 إيقاف النشر العام ميزة مدفوعة.",
+                reply_markup=user_settings_keyboard(True, store.get_share_room(user_id), has_squad=bool(store.get_user_squad(user_id))),
+            )
+            return
         store.set_share(user_id, False)
         store.set_share_room(user_id, False)
         await _save(context.bot)
@@ -585,6 +738,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if data == "squad_create":
         if store.get_user_squad(user_id):
             await query.edit_message_text("أنت بالفعل في غرفة.\nغادرها أولاً.", reply_markup=_squad_kb(user_id))
+            return
+        if not (store.is_premium(user_id) or user_id == cfg.owner_id):
+            await query.edit_message_text(
+                "💎 إنشاء الغرف ميزة مدفوعة.\n\nيمكنك الانضمام إلى غرفة صديق برمزه مجاناً من «🔑 الانضمام لغرفة أخرى».\nلإنشاء غرفتك فعّل الترقية المدفوعة (💎 الترقية المدفوعة).",
+                reply_markup=_squad_kb(user_id),
+            )
             return
         code = store.create_squad(user_id)
         await _save(context.bot)
@@ -609,6 +768,12 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if data == "squad_join":
+        if not (store.is_premium(user_id) or is_owner):
+            await query.edit_message_text(
+                "💎 الغرف الخاصة (إنشاءً وانضماماً) ميزة مدفوعة.\nفعّل الترقية المدفوعة (💎 الترقية المدفوعة) لاستخدامها.",
+                reply_markup=_squad_kb(user_id),
+            )
+            return
         _waiting_squad_join.add(user_id)
         await query.edit_message_text("🔑 أرسل رمز الغرفة الآن\nمثال: `8A038B`", parse_mode="Markdown")
         return
@@ -691,34 +856,50 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await query.edit_message_text(f"✅ تم · {limit_msg}")
             return
 
-    await query.edit_message_text("⬇️ جاري التحميل...")
-    try:
-        result, dl_err = await download_media(url, quality=quality, media_type=media_type)
-    except Exception as e:
-        result, dl_err = None, str(e)
-    if not result:
-        detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
-        await query.edit_message_text("❌ فشل التحميل." + detail)
+    if _dl_lock.locked():
+        await query.edit_message_text("⏳ يوجد تحميل آخر قيد المعالجة.\nانتظر قليلاً ثم أعد المحاولة.")
         return
 
-    file_id = await archive_and_get_file_id(
-        context.bot, cfg.archive_channel_id, str(result.path), url, media_type, quality, result.title,
-        downloader_name=dname, downloader_id=user_id,
-    )
-    ok, sent_id = await send_from_cache_or_file(context.bot, query.message.chat_id, file_id, str(result.path), media_type, result.title)
+    await query.edit_message_text("⬇️ جاري التحميل...")
+    result, dl_err = None, ""
     try:
-        parent = result.path.parent
-        if parent.exists() and str(parent).startswith("/tmp"):
-            shutil.rmtree(parent, ignore_errors=True)
-    except Exception:
-        pass
-    if ok:
-        store.record_download(user_id)
-        await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user)
-        await _save(context.bot)
-        await query.edit_message_text(f"✅ تم · {limit_msg}")
-    else:
-        await query.edit_message_text("❌ تعذر إرسال الملف.")
+        async with _dl_lock:
+            try:
+                result, dl_err = await download_media(url, quality=quality, media_type=media_type)
+            except Exception as e:
+                result, dl_err = None, str(e)
+            if not result:
+                detail = f"\n\n{(dl_err or '')[:250]}" if dl_err and is_owner else ""
+                logger.warning("download failed url=%s err=%s", url, dl_err)
+                await query.edit_message_text("❌ فشل التحميل.\n" + friendly_reason(dl_err) + detail)
+                return
+
+            file_id = await archive_and_get_file_id(
+                context.bot, cfg.archive_channel_id, str(result.path), url, media_type, quality, result.title,
+                downloader_name=dname, downloader_id=user_id,
+            )
+            ok, sent_id = await send_from_cache_or_file(context.bot, query.message.chat_id, file_id, str(result.path), media_type, result.title)
+            try:
+                parent = result.path.parent
+                if parent.exists() and (str(parent).startswith("/tmp") or "mediabot_" in str(parent) or "tikwm_" in str(parent)):
+                    shutil.rmtree(parent, ignore_errors=True)
+            except Exception:
+                pass
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
+            if ok:
+                store.record_download(user_id)
+                await _maybe_publish_feed(user_id=user_id, file_id=sent_id or file_id or "", media_type=media_type, title=result.title or meta.get("title") or "media", url=url, thumbnail=meta.get("thumbnail") or getattr(result, "thumbnail", None), from_user=from_user)
+                await _save(context.bot)
+                await query.edit_message_text(f"✅ تم · {limit_msg}")
+            else:
+                await query.edit_message_text("❌ تعذر إرسال الملف.")
+    except Exception as e:
+        logger.exception("download pipeline failed: %s", e)
+        await query.edit_message_text("❌ تعذر إكمال التحميل.")
 
 
 async def _maybe_publish_feed(*, user_id: int, file_id: str, media_type: str, title: str, url: str, thumbnail: str | None, from_user) -> None:
@@ -802,9 +983,11 @@ def _build_app() -> Application:
     )
     app.add_error_handler(_error_handler)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler(["restore_cancel", "restore_resume"], restore_flag_cmd))
     app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("premium", premium_cmd))
+    app.add_handler(CommandHandler("notifications", notifications_cmd))
     # Distinct groups: PTB runs only the first matching handler per group, and
     # owner_text_handler's filter matches every text (owner check is inside it).
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)
@@ -849,7 +1032,7 @@ async def _register_front_door() -> str:
         async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
                 f"{base}/api/media-bot/front-door",
-                json={"render_url": WEBHOOK_BASE},
+                json={"render_url": WEBHOOK_BASE, "role": ENGINE_ROLE},
                 headers={"x-media-bot-key": _HOOK_SECRET},
             )
         if r.status_code == 200:

@@ -1,0 +1,137 @@
+# Oracle host: always-on media-bot engine (primary) + optional full site.
+#   Phase 1 (engine only):   docker compose up -d --build
+#   Phase 2 (+ site mirror): docker compose --profile site up -d --build
+#   Cutover only (+ cron):   docker compose --profile site --profile cron up -d
+# Vercel keeps the Telegram front door; Render stays the sleeping backup engine.
+name: ttbik
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set PUBLIC_HOST in .env (run bootstrap.sh)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  media-engine:
+    build: ../../media-bot
+    restart: unless-stopped
+    env_file:
+      - ./media.env
+    environment:
+      PORT: "10000"
+      MEDIA_ENGINE_ROLE: primary          # the Vercel front door sends updates here first
+      MEDIA_ENGINE_ALWAYS_ON: "1"         # never announce "waking up"
+      WEBHOOK_BASE_URL: https://${PUBLIC_HOST}
+      MAX_CONCURRENT_DOWNLOADS: ${MAX_CONCURRENT_DOWNLOADS:-2}
+    volumes:
+      - /var/lib/ttbik:/state   # owner flags written by the bot (/restore_cancel)
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  site:
+    profiles: ["site"]
+    build:
+      context: ../..
+      dockerfile: deploy/oracle/Dockerfile.site
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://ttbik.vercel.app}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder}
+        NEXT_PUBLIC_OWNER_ID: ${NEXT_PUBLIC_OWNER_ID:-}
+        NEXT_PUBLIC_MEDIA_BOT_USERNAME: ${NEXT_PUBLIC_MEDIA_BOT_USERNAME:-}
+        NEXT_PUBLIC_MEDIA_STREAM_BASE: ${NEXT_PUBLIC_MEDIA_STREAM_BASE:-}
+        NEXT_PUBLIC_BASHAR_TG_APP: ${NEXT_PUBLIC_BASHAR_TG_APP:-}
+        NEXT_PUBLIC_MONETAG_ZONE_ID: ${NEXT_PUBLIC_MONETAG_ZONE_ID:-}
+        NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL: ${NEXT_PUBLIC_MONETAG_BANNER_SCRIPT_URL:-}
+        NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID: ${NEXT_PUBLIC_MONETAG_BANNER_CONTAINER_ID:-}
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NODE_ENV: production
+    mem_limit: 4g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Athar (NFT mini-app + admin launch panel). Served at https://athar.<PUBLIC_HOST>, no extra domain needed.
+  #   enable:  echo "--profile athar" >> /opt/ttbik/deploy/oracle/profiles   (the update agent then builds and runs it)
+  athar-web:
+    profiles: ["athar"]
+    build:
+      context: ../../athar
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: https://athar.${PUBLIC_HOST}
+        NEXT_PUBLIC_ATHAR_META_BASE: ${ATHAR_META_BASE:-}   # e.g. https://ttbik.vercel.app/api/athar (the mirror in front of this server)
+        NEXT_PUBLIC_ATHAR_ADMIN: ${ATHAR_ADMIN:-}
+        NEXT_PUBLIC_TON_NETWORK: ${ATHAR_NETWORK:-mainnet}
+    restart: unless-stopped
+    environment:
+      TONCENTER_API_KEY: ${TONCENTER_API_KEY:-}
+      ATHAR_ADMIN: ${ATHAR_ADMIN:-}        # read at run time: set it in .env and restart, no rebuild
+      ATHAR_ADMIN_PATH: ${ATHAR_ADMIN_PATH:-}   # secret address of the management panel (made by the update agent)
+      ATHAR_TURBO_KEY: ${ATHAR_TURBO_KEY:-}     # throw-away signer for free permanent uploads (made by the update agent)
+      ATHAR_DATA_DIR: /data                    # the legal-takedown list lives here and survives rebuilds
+    volumes:
+      - /var/lib/ttbik/athar:/data
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Test-network twin of Athar (https://athar-test.<PUBLIC_HOST>): same code, TON testnet, its own data folder. Started by the update
+  # agent only when agent/ATHAR_TEST_ADMIN exists. Nothing here touches the real app or real money.
+  athar-web-test:
+    profiles: ["athar"]
+    build:
+      context: ../../athar
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_SITE_URL: https://athar-test.${PUBLIC_HOST}
+        NEXT_PUBLIC_ATHAR_ADMIN: ${ATHAR_TEST_ADMIN:-}
+        NEXT_PUBLIC_TON_NETWORK: testnet
+        NEXT_PUBLIC_ATHAR_DELAY_SEC: "300"
+    restart: unless-stopped
+    environment:
+      TONCENTER_API_KEY: ${TONCENTER_API_KEY:-}
+      ATHAR_ADMIN: ${ATHAR_TEST_ADMIN:-}
+      ATHAR_ADMIN_PATH: ${ATHAR_ADMIN_PATH:-}
+      ATHAR_TURBO_KEY: ${ATHAR_TURBO_KEY:-}
+      ATHAR_DATA_DIR: /data
+    volumes:
+      - /var/lib/ttbik/athar-test:/data
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Replaces Vercel Cron: reads ../../vercel.json and calls each route on the same schedule (UTC).
+  # START IT ONLY AT CUTOVER, after Vercel's crons are off — otherwise every job runs twice
+  # (duplicate channel posts, double TON deposit checks).
+  cron:
+    profiles: ["cron"]
+    image: alpine:3.20
+    restart: unless-stopped
+    depends_on: [site]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:-}   # only the cron profile needs it (its entrypoint refuses to start without one)
+    volumes:
+      - ../../vercel.json:/app/vercel.json:ro
+      - ./cron/entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,13 @@
+# Optional third host for Athar (Render, free web service): "New + > Blueprint", pick this repository. Same Docker image as our own server.
+# It answers token pictures/metadata on its own; set the same settings as the main server (ATHAR_ADMIN, NEXT_PUBLIC_*) in Render's dashboard.
+services:
+  - type: web
+    name: athar-mirror
+    runtime: docker
+    plan: free
+    dockerfilePath: athar/web/Dockerfile
+    dockerContext: athar
+    healthCheckPath: /api/img/1.svg
+    envVars:
+      - key: PORT
+        value: "3100"

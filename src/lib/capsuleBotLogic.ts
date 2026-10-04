@@ -2,6 +2,7 @@ import { Bot as TelegramBot, Keyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import type { Bot as BotRow } from "@prisma/client";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
+import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { earnPoints } from "@/lib/platformPoints";
 
@@ -296,7 +297,7 @@ export async function handleCapsuleBotUpdate(bot: TelegramBot, botRow: BotRow, u
     }
     await bot.api.sendMessage(
       chatId,
-      "⏳ أهلاً بك في «كبسولة الزمن»!\n\nاكتب رسالة لنفسك في المستقبل — أو لصديق — واختر موعد وصولها. سنحتفظ بها ونسلّمها لك في يومها بالضبط.\n\nماذا تحب أن تفعل؟",
+      startGuide("CAPSULE"),
       { reply_markup: mainMenu() }
     );
     return;

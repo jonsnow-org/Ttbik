@@ -277,7 +277,7 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
     const lines =
       lang === "ar"
         ? [
-            `ضغط الصورة — سوق تولز`,
+            `ضغط الصورة — شام AI`,
             `الاسم: ${file.name}`,
             `الحجم الأصلي: ${orig}`,
             `الحجم الجديد: ${neu}`,
@@ -285,7 +285,7 @@ export default function ImageOptimizer({ lang = "ar" }: { lang?: "ar" | "en" }) 
             `الصيغة: ${result.ext.toUpperCase()}`,
           ]
         : [
-            `Image compress — SouqTools`,
+            `Image compress — Sham AI`,
             `Name: ${file.name}`,
             `Original size: ${orig}`,
             `New size: ${neu}`,

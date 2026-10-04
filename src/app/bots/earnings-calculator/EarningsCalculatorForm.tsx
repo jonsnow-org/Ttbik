@@ -110,7 +110,7 @@ export default function EarningsCalculatorForm() {
   }, [subscribers, avgViews, postsPerMonth, cpm, fillRate, targetMonthly]);
   async function copySummary() {
     const text = [
-      "تقدير أرباح قناة تليجرام — سوق تولز",
+      "تقدير أرباح قناة تليجرام — شام AI",
       `تقدير شهري: $${result.monthlyUsd.toFixed(2)}`,
       `تقدير سنوي: $${result.yearlyUsd.toFixed(2)}`,
       `تغطية الهدف: ${result.targetProgressPct.toFixed(1)}%`,

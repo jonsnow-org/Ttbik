@@ -7,12 +7,12 @@ const SITE = SITE_URL;
 const PATH = "/editorial-policy";
 
 export const metadata: Metadata = {
-  title: "سياسة التحرير | سوق تولز",
+  title: "سياسة التحرير | شام AI",
   description:
     "كيف نكتب الأخبار والمقالات: مصادر موثوقة، بلا اختلاق، بلا نسخ كامل، وتصحيح ظاهر عند الخطأ.",
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "سياسة التحرير | سوق تولز",
+    title: "سياسة التحرير | شام AI",
     description: "مصادر، تصحيحات، ومساعدة أدوات ذكاء اصطناعي معلنة.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
@@ -52,7 +52,7 @@ export default function EditorialPolicyPage() {
 
         <h1 className="mb-4 text-2xl font-extrabold text-slate-900">سياسة التحرير</h1>
         <p className="mb-6 text-sm leading-7">
-          صفحات الأخبار والأحداث في سوق تولز ليست وكالة أنباء. نلخّص ما نشرته مصادر يمكن فتحها،
+          صفحات الأخبار والأحداث في شام AI ليست وكالة أنباء. نلخّص ما نشرته مصادر يمكن فتحها،
           ونضع الرابط الأصلي. أي رقم أو تاريخ أو اسم لا يظهر في المصدر لا يُكتب هنا.
         </p>
 

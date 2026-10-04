@@ -5,7 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import ResultView from "./ResultView";
 
 export const metadata: Metadata = {
-  title: "رابط طلب واتساب جاهز | سوق تولز",
+  title: "رابط طلب واتساب جاهز | شام AI",
 };
 
 export default function WhatsappLinkResultPage() {

@@ -49,6 +49,8 @@ from pathlib import Path
 
 import torch
 
+import sham_amp
+
 WORK = Path("/kaggle/working")
 MODEL_DATASET = "sham-crawl-checkpoint"
 CORPUS_DATASET = "sham-crawl-corpus"
@@ -67,6 +69,7 @@ HOLDOUT_PER_KIND = 12
 REHEARSAL_SHARE = 0.15
 LR, MIN_LR_RATIO, WARMUP = 5e-5, 0.1, 200
 EMA_DECAY = 0.999
+SAVE_EVERY_GPU, SAVE_EVERY_CPU = 20 * 60, 60 * 60   # a check = two held-out evaluations: rarer on a slow CPU
 VIDEO_KEYFRAMES = 2
 SAMPLE_RATE = 16000
 
@@ -292,9 +295,14 @@ class EMA:
 
 
 @torch.no_grad()
-def holdout_loss(model, holdout: dict, device: str) -> dict:
+def holdout_loss(model, holdout: dict, device: str, kinds=None) -> dict:
+    """Loss per skill on its held-out set — only on a set that is already FULL, so the very same
+    examples are used by every later measurement and the numbers can be compared."""
     from sham_media_link import _loss
-    return {k: _loss(model, v, device) for k, v in holdout.items() if v}
+    out = {k: _loss(model, v, device) for k, v in holdout.items()
+           if len(v) >= HOLDOUT_PER_KIND and (kinds is None or k in kinds)}
+    model.train()
+    return out
 
 
 def make_batches(examples: list, token_budget: int):
@@ -316,13 +324,16 @@ def make_batches(examples: list, token_budget: int):
 # ---------------------------------------------------------------- run
 
 def run(hours: float | None = None, workers: int | None = None, publish_every_hours: float = 3.0,
-        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None) -> dict:
+        mirrors: bool = True, video: bool = True, dry_run_steps: int | None = None, name: str | None = None, source_set: str = "default") -> dict:
     """The whole live session. dry_run_steps: stop after that many steps
     (used by the offline test)."""
     from checkpoint import load_checkpoint, save_checkpoint
     from sham_chat import build_chat_example, load_arabic_dialogues
     from sham_inputs import publish_dataset
     from sham_link_contrast import attach, report as link_report
+    import sham_spider
+    from sham_guard import Guard
+    from sham_selfdev import record as selfdev_record, summary as selfdev_summary
     from sham_spider import Seen, Spider, default_sources
     from train import build_optimizer
     from train_audio_tokenizer import save_tokenizer_checkpoint as save_aud
@@ -360,11 +371,19 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     # still waiting in a queue when the session ends are collected next time.
     kept = Seen(list(seen._keys))
     print(f"بصمات سابقة (لن يُجمع أي منها مرة أخرى): {len(seen):,}")
+    urls_path = next(iter(ckpt_dir.rglob("crawl_urls.json")), None)
+    sham_spider.URL_SEEN = Seen.load(urls_path) if urls_path else Seen()
+    print(f"عناوين سبقت زيارتها (لا تُحمَّل ثانيةً): {len(sham_spider.URL_SEEN):,}")
 
     # — the spider network and the encoders
     raw_q, enc_q = queue.Queue(maxsize=256), queue.Queue(maxsize=512)
     ledgers = {}
-    spider = Spider(default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video),
+    if source_set == "gh":   # the GitHub-hosted trainer reads different sources than the Kaggle one (sham_sources_gh.py)
+        from sham_sources_gh import gh_sources
+        _sources = [x for x in gh_sources() if video or x.kind != "video"]
+    else:
+        _sources = default_sources(WORK / "live_mirror", ledgers, mirrors=mirrors, video=video)
+    spider = Spider(_sources,
                     seen, raw_q, TARGETS if video else {k: v for k, v in TARGETS.items() if k != "video"},
                     workers=workers, seed=step).start()
     encoder = Encoder(tokenizer, img_tok, aud_tok, max_len, device)
@@ -398,13 +417,29 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     for i in range(3):
         threading.Thread(target=encode_loop, args=(i,), daemon=True).start()
 
-    # — dialogue rehearsal (chat must not be forgotten)
-    try:
-        dialogues, dprog = load_arabic_dialogues(progress.get("dialogues", {}), 3000)
-        progress["dialogues"] = dprog
-    except Exception as exc:
-        print(f"⚠ تعذّر تحميل حوارات التذكّر: {exc}")
-        dialogues = []
+    # — dialogue rehearsal (chat must not be forgotten). The HF download can fail (a live report had no
+    # chat at all, so no "before" and no rehearsal): retry, then fall back to the copy saved with the checkpoint.
+    dialogues = []
+    for attempt, wait in enumerate((0, 20, 60)):
+        time.sleep(wait)
+        try:
+            dialogues, dprog = load_arabic_dialogues(progress.get("dialogues", {}), 3000)
+            progress["dialogues"] = dprog
+            (out / "rehearsal_cache.json").write_text(json.dumps(dialogues, ensure_ascii=False), encoding="utf-8")
+            break
+        except Exception as exc:
+            print(f"⚠ تعذّر تحميل حوارات التذكّر (محاولة {attempt + 1}/3): {str(exc)[:120]}")
+    if not dialogues:
+        cached = next(iter(ckpt_dir.rglob("rehearsal_cache.json")), None)
+        if cached:
+            try:
+                dialogues = [tuple(x) for x in json.loads(cached.read_text(encoding="utf-8"))]
+                (out / "rehearsal_cache.json").write_text(json.dumps(dialogues, ensure_ascii=False), encoding="utf-8")
+                print(f"↩ حوارات التذكّر من النسخة المحفوظة مع النقطة: {len(dialogues):,}")
+            except Exception as exc:
+                print(f"⚠ نسخة الحوارات المحفوظة تالفة: {exc}")
+    if not dialogues:
+        print("⚠ لا حوارات للتذكّر هذه الجلسة — المحادثة لن تُقاس ولن تُذكَّر")
     rehearsal = [build_chat_example(tokenizer.encode(q), tokenizer.encode(a), max_len=max_len) for q, a in dialogues]
     random.Random(step).shuffle(rehearsal)
 
@@ -414,37 +449,40 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
 
     optimizer = build_optimizer(model, lr=LR, weight_decay=0.1)
+    use_amp = sham_amp.enabled(device)
+    use_scaler = use_amp and sham_amp.amp_dtype() == torch.float16
+    scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    if use_amp:
+        print(f"⚡ دقة مختلطة ({'fp16' if use_scaler else 'bf16'}) في المدرّب الحي")
     detach_link = attach(model)
     ema = EMA(model, EMA_DECAY)
+    guard = Guard(model, base_rehearsal=REHEARSAL_SHARE)   # remembers the starting weights = the reference
+    save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
     model.train()
     start_step, pending, losses = step, [], []
     trained_kind = {k: 0 for k in list(TARGETS) + ["chat"]}
     last_log = last_save = last_pub = time.time()
-    first_eval = None
     t_train = time.time()
 
     def save(tag=""):
-        # the better of raw / EMA on the held-out examples becomes final.pt
-        raw = holdout_loss(model, holdout, device)
-        ema.swap(model)
-        smooth = holdout_loss(model, holdout, device)
-        use_ema = sum(smooth.values()) <= sum(raw.values())
-        if not use_ema:
-            ema.swap(model)
-        save_checkpoint(out / "final.pt", model, step)
-        if use_ema:
-            ema.swap(model)
+        # score the current weights (raw and EMA) on every skill's held-out set against the starting
+        # weights; keep the best, roll back on a clear regression; publish ALWAYS the best weights
+        r = guard.evaluate(model, ema, lambda kinds=None: holdout_loss(model, holdout, device, kinds))
+        with guard.best_loaded(model):
+            save_checkpoint(out / "final.pt", model, step)
         model.train()
         kept.save(out / "crawl_seen.json")
+        sham_spider.URL_SEEN.save(out / "crawl_urls.json")
         for ledger in ledgers.values():
             ledger.save(out)
-        chosen = smooth if use_ema else raw
-        progress.update({"by": "sham_live", "step": step, "holdout": chosen, "weights": "ema" if use_ema else "raw",
+        chosen = dict(guard.best_losses)
+        progress.update({"by": "sham_live", "step": step, "holdout": chosen, "baseline": dict(guard.base),
+                         "weights": guard.best_flavor, "guard_score": guard.best_score, "rollbacks": guard.rollbacks,
                          "seen_total": len(kept), "sources": {s.name: s.items for s in spider.sources},
                          "sessions": int(progress.get("sessions", 0)) + (1 if tag == "final" else 0)})
         (out / "crawl_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
-        print(f"💾 حفظ ({'EMA' if use_ema else 'الخام'}) الخطوة {step:,} — تحقق: "
-              + ", ".join(f"{k} {v:.3f}" for k, v in chosen.items()))
+        print(f"💾 حفظ الخطوة {step:,} — {guard.line(r)}\n   تحقق (أفضل نقطة): "
+              + ", ".join(f"{k} {guard.base.get(k, float('nan')):.3f}→{v:.3f}" for k, v in chosen.items()))
         return chosen
 
     def publish(message):
@@ -452,8 +490,9 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         shutil.rmtree(snap, ignore_errors=True)
         snap.mkdir(parents=True)
         for f in ("final.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt",
-                  "crawl_progress.json", "crawl_seen.json"):
-            shutil.copy2(out / f, snap / f)
+                  "crawl_progress.json", "crawl_seen.json", "crawl_urls.json", "rehearsal_cache.json"):
+            if (out / f).exists():
+                shutil.copy2(out / f, snap / f)
         for f in out.glob("live_*_ledger.json"):
             shutil.copy2(f, snap / f.name)
         return publish_dataset(snap, model_ds, message)
@@ -476,7 +515,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             continue
         pool = [ex for _, ex in pending]
         kinds = [k for k, _ in pending]
-        n_rehearse = int(len(pool) * REHEARSAL_SHARE / (1 - REHEARSAL_SHARE))
+        n_rehearse = int(len(pool) * guard.rehearsal / (1 - guard.rehearsal))
         if rehearsal and n_rehearse:
             pick = [rehearsal[rng.randrange(len(rehearsal))] for _ in range(n_rehearse)]
             pool += pick
@@ -484,27 +523,30 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
         pending = []
         for k in kinds:
             trained_kind[k] += 1
-        if first_eval is None and all(len(v) >= 2 for k, v in holdout.items() if k in ("text", "chat")):
-            first_eval = holdout_loss(model, holdout, device)
-            model.train()
-            print("📏 قبل التدريب (بيانات لم يرها): " + ", ".join(f"{k} {v:.3f}" for k, v in first_eval.items()))
         for ids, labels in make_batches(pool, token_budget):
             for g in optimizer.param_groups:
-                g["lr"] = lr_at(step - start_step, time.time() - t_train, budget - (t_train - t_start))
+                g["lr"] = lr_at(step - start_step, time.time() - t_train, budget - (t_train - t_start)) * guard.lr_scale
             try:
-                _, loss = model(ids.to(device), labels=labels.to(device))
+                with torch.autocast("cuda", dtype=sham_amp.amp_dtype(), enabled=use_amp):
+                    _, loss = model(ids.to(device), labels=labels.to(device))
                 if not torch.isfinite(loss):
                     optimizer.zero_grad(set_to_none=True)
                     continue
-                loss.backward()
+                (scaler.scale(loss) if use_scaler else loss).backward()
             except torch.cuda.OutOfMemoryError:
                 optimizer.zero_grad(set_to_none=True)
                 torch.cuda.empty_cache()
                 token_budget = max(1024, token_budget // 2)
                 print(f"⚠ الذاكرة لا تكفي — ميزانية الدفعة أصبحت {token_budget} رمزاً")
                 break
+            if use_scaler:
+                scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            if use_scaler:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
             optimizer.zero_grad(set_to_none=True)
             ema.update(model)
             step += 1
@@ -516,7 +558,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                   + " ".join(f"{k}:{v:,}" for k, v in trained_kind.items()))
             print(spider.report())
             last_log = time.time()
-        if time.time() - last_save > 20 * 60:
+        if time.time() - last_save > save_every:
             save()
             last_save = time.time()
         if time.time() - last_pub > publish_every_hours * 3600:
@@ -529,11 +571,14 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     shard.close()
     final = save("final")
     print(link_report())
-    report = (f"🕸 المدرّب الحي: {step - start_step:,} خطوة (من {start_step:,} إلى {step:,}) في "
+    selfdev_record("حارس التراجع", f"أفضل نقطة {guard.best_flavor} بمؤشر {guard.best_score:.3f} "
+                   f"(1.000 = نقطة البداية)، تراجعات {guard.rollbacks}")
+    report = (f"🕸 المدرّب الحي ({'GPU' if cuda else 'CPU'}): {step - start_step:,} خطوة (من {start_step:,} إلى {step:,}) في "
               f"{(time.time() - t_start) / 3600:.1f} ساعة\n" + spider.report() + "\n"
-              + "📏 التحقق قبل → بعد: " + ", ".join(
-                  f"{k} {first_eval.get(k, float('nan')):.3f}→{v:.3f}" if first_eval else f"{k} {v:.3f}"
-                  for k, v in final.items()))
+              + "📏 التحقق قبل → بعد (أفضل نقطة، على أمثلة لم يرها): " + ", ".join(
+                  f"{k} {guard.base[k]:.3f}→{v:.3f}" if k in guard.base else f"{k} {v:.3f}" for k, v in final.items())
+              + f"\n🛡 المؤشر {guard.best_score:.3f} (أقل من 1.000 = أفضل من نقطة البداية) | تراجعات {guard.rollbacks}"
+              + ("\n" + selfdev_summary() if selfdev_summary() else ""))
     print(report)
     published = publish(f"live session to step {step:,}")
     corpus = None
@@ -547,4 +592,5 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     except Exception:
         pass
     return {"steps": step - start_step, "published": published, "corpus": corpus, "holdout": final,
-            "before": first_eval, "trained": trained_kind}
+            "before": dict(guard.base), "trained": trained_kind, "guard_score": guard.best_score,
+            "rollbacks": guard.rollbacks}

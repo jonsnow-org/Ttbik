@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isBlockedEitherWay, mediaDb, mediaUser, namesFor } from "@/lib/mediaSocial";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
+import { notify } from "@/lib/mediaNotify";
+import { write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
 
@@ -36,15 +38,6 @@ async function sb() {
   if (!url || !key) return null;
   const { createClient } = await import("@supabase/supabase-js");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-}
-
-async function notify(db: any, toId: string, fromId: string, fromName: string, type: string, postId: string) {
-  if (!toId || !fromId || toId === fromId || !db) return;
-  try {
-    await db.from("media_notifications").insert({ to_id: toId, from_id: fromId, from_name: fromName.slice(0, 40), type, post_id: postId });
-  } catch {
-    /* ignore */
-  }
 }
 
 /** GET ?post_id= — all comments for a post (flat, oldest first; client nests by parent_id) */
@@ -138,21 +131,22 @@ export async function POST(req: NextRequest) {
   g.__comments = [...(g.__comments || []), comment].slice(-2000);
 
   const db = await sb();
+  // The comment is only reported as saved when the database really took it. (The in-memory copy below only covers the seconds
+  // until the next read; it must never be what makes a failure look like success.)
+  let persisted = false, persistError = "";
   if (db) {
-    try {
-      await db.from("media_comments").insert({
-        id: comment.id,
-        post_id: comment.post_id,
-        parent_id: comment.parent_id,
-        from_id: comment.from_id,
-        from_name: comment.from_name,
-        body: comment.body,
-        created_at: new Date(comment.created_at * 1000).toISOString(),
-      });
-    } catch {
-      /* table may not exist yet */
-    }
-  }
+    const w = await write("comment insert", db.from("media_comments").insert({
+      id: comment.id,
+      post_id: comment.post_id,
+      parent_id: comment.parent_id,
+      from_id: comment.from_id,
+      from_name: comment.from_name,
+      body: comment.body,
+      created_at: new Date(comment.created_at * 1000).toISOString(),
+    }));
+    persisted = w.ok; persistError = w.error || "";
+  } else persistError = "database not configured";
+  if (!persisted) g.__comments = (g.__comments || []).filter((c) => c.id !== comment.id);     // do not show a comment that did not stick
 
   // A reply notifies the parent comment's author; a top-level comment
   // notifies the post's owner. Never notify yourself.
@@ -166,16 +160,17 @@ export async function POST(req: NextRequest) {
         /* ignore */
       }
     }
-    if (parentFromId) await notify(db, parentFromId, fromId, fromName, "reply", postId);
+    if (parentFromId && persisted) await notify(db, { toId: parentFromId, fromId, fromName, type: "reply", postId, extra: text.slice(0, 80) }).catch(() => null);
   } else if (db) {
     try {
       const { data } = await db.from("media_feed").select("sharer_id").eq("id", postId).maybeSingle();
       const ownerId = data ? String((data as any).sharer_id || "") : "";
-      if (ownerId) await notify(db, ownerId, fromId, fromName, "comment", postId);
+      if (ownerId && persisted) await notify(db, { toId: ownerId, fromId, fromName, type: "comment", postId, extra: text.slice(0, 80) }).catch(() => null);
     } catch {
       /* ignore */
     }
   }
 
+  if (!persisted) return NextResponse.json({ ok: false, error: "not saved", detail: persistError }, { status: 503 });
   return NextResponse.json({ ok: true, comment });
 }

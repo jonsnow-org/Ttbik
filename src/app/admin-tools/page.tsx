@@ -4,7 +4,7 @@ import { isOwnerServer } from "@/lib/isOwner";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "أدوات الأدمن | سوق تولز",
+  title: "أدوات الأدمن | شام AI",
   description: "أدوات وإدارة خاصة بمالك المنصة — منشئ بوتات الوسائط المتقدم وأكثر.",
   robots: { index: false, follow: false },
 };
@@ -58,6 +58,22 @@ export default function AdminToolsPage() {
             جلسات مؤقتة (معرفة · تجربة · قرار) مع تطبيق مصغر على Vercel — بدون Render.
           </p>
           <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-violet-300">
+            فتح المنشئ ←
+          </span>
+        </Link>
+        <Link
+          href="/admin-tools/athar-bot"
+          className="group relative overflow-hidden rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-900 to-zinc-800 p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+        >
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-l from-amber-400 to-yellow-300" />
+          <span className="text-3xl">🕰</span>
+          <h2 className="mt-3 text-lg font-extrabold text-white group-hover:text-amber-200">
+            منشئ بوت أثر
+          </h2>
+          <p className="mt-2 text-sm text-zinc-300">
+            رموز التواريخ على TON مع تطبيق مصغر يعمل على Oracle: بحث وشراء ومزادات وصناديق غموض.
+          </p>
+          <span className="mt-4 inline-flex items-center gap-1 text-sm font-bold text-amber-300">
             فتح المنشئ ←
           </span>
         </Link>

@@ -3,7 +3,7 @@ import WritingAssistant from "./WritingAssistant";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "مساعد الكتابة الذكي مجاناً | سوق تولز",
+  title: "مساعد الكتابة الذكي مجاناً | شام AI",
   description: "منشورات سوشيال ميديا، مقالات مدونة، أوصاف منتجات، وترجمة نصوص عمل — بالذكاء الاصطناعي، مجاناً وبدون تسجيل.",
 };
 

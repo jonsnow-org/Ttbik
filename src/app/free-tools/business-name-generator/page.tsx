@@ -3,7 +3,7 @@ import BusinessNameGenerator from "./BusinessNameGenerator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "مولد أسماء المشاريع والمتاجر مجاناً | سوق تولز",
+  title: "مولد أسماء المشاريع والمتاجر مجاناً | شام AI",
   description: "احصل على 8 اقتراحات أسماء لمشروعك أو متجرك خلال ثوانٍ، مجاناً بالكامل وبدون تسجيل.",
 };
 

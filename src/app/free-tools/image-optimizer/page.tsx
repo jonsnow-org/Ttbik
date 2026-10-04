@@ -7,7 +7,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 const PATH = "/free-tools/image-optimizer";
 
 export const metadata: Metadata = {
-  title: "أداة ضغط وتحويل الصور مجاناً (WebP/JPEG/PNG) | سوق تولز",
+  title: "أداة ضغط وتحويل الصور مجاناً (WebP/JPEG/PNG) | شام AI",
   description:
     "اضغط صورك وحوّلها إلى WebP أو JPEG أو PNG داخل المتصفح مجاناً — بدون رفع للخادم، تنزيل فوري، خصوصية كاملة.",
   keywords: [
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     "تصغير حجم الصورة",
     "JPEG إلى WebP",
     "أداة ضغط صور مجانية",
-    "سوق تولز",
+    "شام AI",
   ],
   alternates: {
     canonical: `${SITE_URL}${PATH}`,
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     },
   },
   openGraph: {
-    title: "ضغط وتحويل الصور مجاناً | سوق تولز",
+    title: "ضغط وتحويل الصور مجاناً | شام AI",
     description: "WebP / JPEG / PNG داخل المتصفح بلا رفع لخادم.",
     url: `${SITE_URL}${PATH}`,
     locale: "ar_AR",

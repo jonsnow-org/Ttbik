@@ -9,13 +9,13 @@ const SITE = SITE_URL;
 const PATH = "/articles";
 
 export const metadata: Metadata = {
-  title: "مقالات مفيدة | سوق تولز",
+  title: "مقالات مفيدة | شام AI",
   description:
     "مقالات عربية هادفة: محو أمية رقمية، ثقافة مالية، أمن حسابات، ومهارات عملية — قيمة حقيقية بلا حشو.",
-  keywords: ["مقالات عربية", "محو الأمية الرقمية", "أمن رقمي", "سوق تولز"],
+  keywords: ["مقالات عربية", "محو الأمية الرقمية", "أمن رقمي", "شام AI"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "مقالات مفيدة | سوق تولز",
+    title: "مقالات مفيدة | شام AI",
     description: "مقالات تقدّم فائدة حقيقية للقارئ.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",

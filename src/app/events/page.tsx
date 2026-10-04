@@ -10,13 +10,13 @@ const SITE = SITE_URL;
 const PATH = "/events";
 
 export const metadata: Metadata = {
-  title: "أحداث عالمية | سوق تولز",
+  title: "أحداث عالمية | شام AI",
   description:
     "حدث عالمي كل يوم: مناسبات فلكية وثقافية موثّقة بمصادر، مع أسئلة شائعة وملخص واضح بالعربية.",
-  keywords: ["أحداث عالمية", "حدث اليوم", "سوق تولز", "مناسبات"],
+  keywords: ["أحداث عالمية", "حدث اليوم", "شام AI", "مناسبات"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أحداث عالمية | سوق تولز",
+    title: "أحداث عالمية | شام AI",
     description: "حدث عالمي موثّق كل يوم.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",

@@ -9,7 +9,7 @@
  * - anything owner-only: admin panels, activation codes, creator passwords,
  *   moderation/report handling, stats, broadcast tools, env vars, SQL;
  * - infrastructure details: hosting, servers, outages, costs, secrets;
- * - Nova AI or "Sham" (owner directive 2026-09-21: never promoted publicly).
+ * - Nova AI, or "Sham" on its own (the site brand "Sham AI" / "شام AI" is fine since the 2026-10-03 rename).
  * Write it the way a user would read it: what they can now do, and where.
  */
 export type ChangelogEntry = {

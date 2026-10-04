@@ -19,7 +19,7 @@ INFO_TEXT = (
     "3) على يوتيوب: زر «ملخص ذكي» يعرض 3 نقاط من الترجمة قبل التحميل.\n"
     "4) الملف يُحفظ في الأرشيف ويمكن استنساخه فوراً من التطبيق المصغر.\n\n"
     "🎁 المشاركة (اختر وضعاً)\n"
-    "• موجز عام: يظهر للجميع في رائج/فيديو/صوت\n"
+    "• موجز عام: افتراضي لكل المستخدمين (إيقافه للمشتركين المدفوعين)\n"
     "• غرفة خاصة: يظهر لأعضاء غرفتك فقط\n"
     "• إيقاف: لا يُنشر في التطبيق\n"
     "تفعيل أي وضع مشاركة يرفع الحد اليومي.\n\n"
@@ -27,6 +27,19 @@ INFO_TEXT = (
     "أنشئ غرفة → يُفعَّل نشر الغرفة تلقائياً.\n"
     "شارك الرمز مع أصدقائك.\n\n"
     "📱 Mini-App: الزر المربع بجانب حقل الرسالة."
+)
+
+
+START_GUIDE = (
+    "📥 أهلاً بك في «تحميل الوسائط»\n"
+    "حمّل فيديو أو صوتاً من يوتيوب وتيك توك وإنستغرام وتويتر.\n\n"
+    "⚙️ كيف يعمل؟\n"
+    "1️⃣ أرسل الرابط مباشرة.\n"
+    "2️⃣ اختر الجودة أو الصوت أو الرسالة الصوتية.\n"
+    "3️⃣ يصلك الملف هنا، ويُحفظ في الأرشيف.\n\n"
+    "📂 المحتويات\n"
+    "📥 تحميل وسائط · 👥 غرفتي · ⚙️ إعداداتي · 💎 الترقية المدفوعة · 📱 التطبيق المصغر\n\n"
+    "ℹ️ للمزيد اضغط «معلومات»."
 )
 
 
@@ -73,11 +86,26 @@ def user_settings_keyboard(
         rows.append([InlineKeyboardButton(room_label, callback_data="share_room_toggle")])
     else:
         rows.append(
-            [InlineKeyboardButton("🏠 أنشئ غرفة أولاً لنشر خاص", callback_data="squad_create")]
+            [InlineKeyboardButton("💎 الغرف للمشتركين المدفوعين", callback_data="squad_create")]
         )
     if share_public or share_room:
         rows.append([InlineKeyboardButton("⏹ إيقاف كل النشر", callback_data="share_off")])
+    rows.append([InlineKeyboardButton("🔔 إشعاراتي", callback_data="mn:menu")])
     rows.append([InlineKeyboardButton("🎁 عن المكافأة والحدود", callback_data="perk_info")])
+    rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
+    return InlineKeyboardMarkup(rows)
+
+
+def notify_settings_keyboard(types: list[dict], paid: bool, all_off: bool) -> InlineKeyboardMarkup:
+    """One row per kind of notification (🔔 on / 🔕 off) and a switch for all of them. Stopping is the paid part."""
+    rows: list[list[InlineKeyboardButton]] = []
+    for t in types:
+        icon = "🔔" if t.get("on") else "🔕"
+        rows.append([InlineKeyboardButton(f"{icon} {t.get('label')}", callback_data=f"mn:tog:{t.get('type')}")])
+    if all_off:
+        rows.append([InlineKeyboardButton("🔔 تشغيل كل الإشعارات", callback_data="mn:on:all")])
+    else:
+        rows.append([InlineKeyboardButton("🔕 إيقاف كل الإشعارات" + ("" if paid else " 💎"), callback_data="mn:off:all")])
     rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 

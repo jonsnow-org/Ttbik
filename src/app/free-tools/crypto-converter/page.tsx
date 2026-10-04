@@ -3,9 +3,9 @@ import CryptoConverter from "./CryptoConverter";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "محول عملات رقمية (TON / BTC / ETH) | أدوات مجانية | سوق تولز",
+  title: "محول عملات رقمية (TON / BTC / ETH) | أدوات مجانية | شام AI",
   description:
-    "حوّل بين TON وبيتكوين وإيثريوم وUSDT والدولار والريال بأسعار حية — مجاناً بلا تسجيل. مفيد أيضاً لمستخدمي محفظة TON على سوق تولز.",
+    "حوّل بين TON وبيتكوين وإيثريوم وUSDT والدولار والريال بأسعار حية — مجاناً بلا تسجيل. مفيد أيضاً لمستخدمي محفظة TON على شام AI.",
 };
 
 export default function CryptoConverterPage() {
@@ -17,7 +17,7 @@ export default function CryptoConverterPage() {
       <h1 className="mt-3 text-2xl font-extrabold text-slate-900">محول العملات الرقمية</h1>
       <p className="mt-2 text-slate-600">
         أسعار حية لـ TON وBTC وETH وUSDT مقابل الدولار والريال السعودي. مناسب لتقدير قيمة
-        التحويلات — وبشكل خاص لمستخدمي محفظة TON الموجودة في بوتات الإعلانات على سوق تولز.
+        التحويلات — وبشكل خاص لمستخدمي محفظة TON الموجودة في بوتات الإعلانات على شام AI.
       </p>
       <div className="mt-6">
         <CryptoConverter />

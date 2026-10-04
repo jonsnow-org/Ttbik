@@ -14,12 +14,12 @@ const PATH = "/digest";
 export const revalidate = 600;
 
 export const metadata: Metadata = {
-  title: "ملخص اليوم | سوق تولز",
+  title: "ملخص اليوم | شام AI",
   description:
     "صفحة واحدة لحدث اليوم وخبر اليوم ومقال مفيد وعناوين عاجلة من مصادر عربية — ابدأ من هنا يومياً.",
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "ملخص اليوم | سوق تولز",
+    title: "ملخص اليوم | شام AI",
     description: "حدث + خبر + مقال + عاجل في صفحة واحدة.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",

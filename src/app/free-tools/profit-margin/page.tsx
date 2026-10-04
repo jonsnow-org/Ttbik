@@ -3,7 +3,7 @@ import ProfitMarginCalculator from "./ProfitMarginCalculator";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "حاسبة هامش الربح ونقطة التعادل | أدوات مجانية | سوق تولز",
+  title: "حاسبة هامش الربح ونقطة التعادل | أدوات مجانية | شام AI",
   description:
     "احسب هامش الربح ونسبة الإضافة ونقطة التعادل فوراً — تكلفة الوحدة، سعر البيع، التكاليف الثابتة. أداة عربية مجانية بلا تسجيل.",
 };

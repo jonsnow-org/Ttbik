@@ -1,0 +1,67 @@
+name: Sham Status (supervision snapshot)
+
+# كل 3 ساعات: يقرأ حالة المشروع كلها (دفاتر Kaggle، مجموعات البيانات، سير عمل GitHub، آخر تقارير الجلسات)
+# ويكتب STATUS.md و status.json في فرع مستقل `sham-status` — يقرؤهما من يشرف على المشروع (Grok أو أي مساعد) من رابط عام:
+#   https://raw.githubusercontent.com/jonsnow-org/Ttbik/sham-status/STATUS.md
+# أسماء دفاتر Kaggle تبقى مستعارة (قرار المالكة)؛ لا أسرار ولا روابط حساب في المخرجات.
+
+on:
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-status
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+  issues: write      # تنبيه sham-alert (issue واحد يعكس التنبيهات الحالية)
+
+jobs:
+  status:
+    # مفتاح إيقاف طارئ: متغير مستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_STATUS = 1 يتخطّى المهمة
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_STATUS != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers numpy requests kaggle
+
+      - name: Collect the status
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHAM_POST_ALERTS: "1"
+        run: python ai-system/supervision/sham_status.py /tmp/sham_status_out
+
+      - name: Publish to the sham-status branch
+        run: |
+          git config user.name "sham-status"
+          git config user.email "actions@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin sham-status >/dev/null 2>&1; then
+            git fetch --depth 1 origin sham-status
+            git worktree add /tmp/st FETCH_HEAD
+            cd /tmp/st && git checkout -B sham-status
+          else
+            mkdir /tmp/st && cd /tmp/st && git init -q -b sham-status
+            git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          fi
+          cd /tmp/st
+          cp /tmp/sham_status_out/* .
+          git add -A
+          git diff --cached --quiet && { echo "no change"; exit 0; }
+          git commit -q -m "status $(date -u +'%Y-%m-%d %H:%M UTC')"
+          git push origin HEAD:sham-status

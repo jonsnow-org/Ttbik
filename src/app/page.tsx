@@ -32,15 +32,17 @@ export default async function HomePage() {
       />
       <section className="mx-auto max-w-6xl px-4 pt-4">
         <Link
-          href="/bashar"
-          className="flex items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-slate-900 to-indigo-900 p-5 text-white shadow-lg transition hover:-translate-y-0.5"
+          href="/news"
+          className="flex items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 text-white shadow-lg transition hover:-translate-y-0.5"
         >
           <div>
-            <span className="rounded-full bg-emerald-400/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-300">جديد</span>
-            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">بَشَر: اسأل فيجيبك إنسان حقيقي، لا ذكاء اصطناعي</h2>
-            <p className="mt-1 text-xs text-white/75 sm:text-sm">جوابه خلال 75 ثانية، ثم تعرف من أي بلد هو. وكن أنت «الذكاء» لغيرك.</p>
+            <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · مقالات</span>
+            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
+            <p className="mt-1 text-xs text-white/80 sm:text-sm">
+              أخبار عاجلة، أحداث يومية، ومقالات هادفة — كل المحتوى التحريري في مكان واحد.
+            </p>
           </div>
-          <span className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">جرّب ←</span>
+          <span className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح ←</span>
         </Link>
       </section>
 
@@ -113,7 +115,7 @@ export default async function HomePage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8">
-        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">لماذا سوق تولز؟</h2>
+        <h2 className="text-xl font-extrabold text-slate-900 sm:text-2xl">لماذا شام AI؟</h2>
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           {[
             { img: "/img/community.jpg", alt: "أصدقاء يعملون معاً", t: "مجاني وبلا تسجيل", d: "أدوات حسابية وتصميمية تعمل فوراً داخل المتصفح، بدون حساب وبدون حدود استخدام." },

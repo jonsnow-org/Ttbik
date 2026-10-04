@@ -5,7 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import ResultView from "./ResultView";
 
 export const metadata: Metadata = {
-  title: "نتيجة محلل النصوص | سوق تولز",
+  title: "نتيجة محلل النصوص | شام AI",
 };
 
 export default function TextAnalyzerResultPage() {

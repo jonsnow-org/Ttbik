@@ -5,7 +5,7 @@ import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "مولّد رمز QR مجاني (عربي) | أدوات مجانية | سوق تولز",
+  title: "مولّد رمز QR مجاني (عربي) | أدوات مجانية | شام AI",
   description:
     "أنشئ رمز QR لأي رابط أو نص خلال ثوانٍ — حجم وألوان قابلة للتخصيص، تنزيل PNG فوري، يعمل بالكامل داخل المتصفح بلا تسجيل وبلا تكلفة.",
   alternates: {

@@ -72,8 +72,8 @@ def _attached_dir(name: str) -> Path | None:
 
 
 def _ensure_credentials() -> str | None:
-    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
-        return os.environ["KAGGLE_USERNAME"]
+    if os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")):
+        return os.environ["KAGGLE_USERNAME"]   # GitHub Actions: the repository's KAGGLE_API_TOKEN + the account name
     try:
         from kaggle_secrets import UserSecretsClient
 
@@ -136,14 +136,21 @@ def _has(root: Path, pattern: str | None) -> bool:
     return pattern is None or any(root.rglob(pattern))
 
 
+def _rest_auth() -> dict:
+    """requests kwargs authenticating to Kaggle's REST API: the classic username+key, or the new-style API token."""
+    tok = os.environ.get("KAGGLE_API_TOKEN")
+    if tok and not os.environ.get("KAGGLE_KEY"):
+        return {"headers": {"Authorization": f"Bearer {tok}"}}
+    return {"auth": (os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY"))}
+
+
 def _download_version(ref: str, version: int, dest: Path) -> bool:
     """One specific dataset version through Kaggle's public REST API."""
     import requests
 
-    user, key = os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")
     url = f"https://www.kaggle.com/api/v1/datasets/download/{ref}?datasetVersionNumber={version}"
     try:
-        with requests.get(url, auth=(user, key), stream=True, timeout=600) as r:
+        with requests.get(url, stream=True, timeout=600, **_rest_auth()) as r:
             if r.status_code != 200:
                 return False
             dest.mkdir(parents=True, exist_ok=True)
@@ -165,8 +172,7 @@ def _current_version(ref: str) -> int | None:
     import requests
 
     try:
-        r = requests.get(f"https://www.kaggle.com/api/v1/datasets/view/{ref}",
-                         auth=(os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")), timeout=60)
+        r = requests.get(f"https://www.kaggle.com/api/v1/datasets/view/{ref}", timeout=60, **_rest_auth())
         data = r.json() if r.status_code == 200 else {}
         v = data.get("currentVersionNumber") or max((x.get("versionNumber", 0) for x in data.get("versions") or []), default=0)
         return int(v) or None
@@ -408,6 +414,58 @@ def crawl_dataset_names(prefix: str = CRAWL_PREFIX) -> dict:
     return found
 
 
+def account_dataset_names() -> list[str]:
+    """Every dataset of the account (names only), via the Kaggle API; [] if unreachable."""
+    user = _ensure_credentials()
+    if not user:
+        return []
+    if not shutil.which("kaggle"):
+        subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
+    names: list[str] = []
+    for page in range(1, 11):
+        r = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)],
+                           capture_output=True, text=True)
+        rows = [l.split(",", 1)[0] for l in (r.stdout or "").splitlines()[1:] if "/" in l.split(",", 1)[0]]
+        if not rows:
+            break
+        names += [ref.split("/", 1)[1] for ref in rows if ref.split("/", 1)[0] == user]
+    return sorted(set(names))
+
+
+def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
+    """Account datasets that may hold a Sham model to merge: every dataset starting with "sham"
+    (or the old "nova-small") that is not a tokenizer-only or text-corpus dataset — the name need
+    not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
+    repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
+    names = account_dataset_names() if names is None else names
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in ("tokenizer", "corpus", "reports"))]
+
+
+def repo_dataset_names() -> set[str]:
+    """Dataset names the repository's notebooks/modules mention (what the project knowingly uses)."""
+    import re
+    root = Path(__file__).parent
+    used: set[str] = set()
+    for f in [*root.glob("*.py"), *(root / "kaggle_notebooks").glob("*.ipynb")]:
+        try:
+            used |= set(re.findall(r"\b(?:sham|nova)-[a-z0-9]+(?:-[a-z0-9]+)*\b", f.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return used
+
+
+def dataset_inventory(names: list[str] | None = None) -> str:
+    """Which of the account's datasets the project uses, and which nobody reads (lost/forgotten)."""
+    names = account_dataset_names() if names is None else names
+    if not names:
+        return "📦 تعذّر قراءة قائمة مجموعات البيانات."
+    used = repo_dataset_names()
+    mine = [n for n in names if n.startswith(("sham", "nova"))]
+    unused = [n for n in mine if n not in used and not n.startswith(CRAWL_PREFIX)]
+    return (f"📦 مجموعات بيانات شام في حسابك: {len(mine)} | يقرؤها المشروع: {len(mine) - len(unused)}"
+            + (f" | لا أحد يقرؤها: {', '.join(unused)}" if unused else ""))
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
@@ -548,3 +606,33 @@ try:
     _sham_link_contrast.install()
 except Exception as _exc:
     print(f"sham_link_contrast not installed: {_exc}")
+
+# The session-level pieces every plain-text training notebook gets without a cell change:
+# the held-out yardstick that tells learning from memorising (sham_train_eval.py).
+try:
+    import sham_train_eval as _sham_train_eval
+    _sham_train_eval.install()
+except Exception as _exc:
+    print(f"sham_train_eval not installed: {_exc}")
+
+# Sham is a general model: its text is spelled with the general tokenizer (many languages, code, math)
+# and older checkpoints are moved to it on load — no cell change (sham_general_text.py).
+try:
+    import sham_general_text as _sham_general_text
+    _sham_general_text.install()
+except Exception as _exc:
+    print(f"sham_general_text not installed: {_exc}")
+
+# Mixed precision on GPU sessions (sham_amp.py): fp16 + loss scaling on a T4, CPU untouched.
+try:
+    import sham_amp as _sham_amp
+    _sham_amp.install()
+except Exception as _exc:
+    print(f"sham_amp not installed: {_exc}")
+
+# Cell fixes reach already-imported notebooks without re-importing them (sham_cell_sync.py).
+try:
+    import sham_cell_sync as _sham_cell_sync
+    _sham_cell_sync.install()
+except Exception as _exc:
+    print(f"sham_cell_sync not installed: {_exc}")

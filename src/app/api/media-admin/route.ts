@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
+import { recentErrors, selfTest, write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
 
@@ -91,11 +92,8 @@ export async function POST(req: NextRequest) {
     const id = String(body.id || "");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
     if (db) {
-      const { error } = await db
-        .from("media_feed")
-        .update({ hidden: action === "hide" })
-        .eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      const w = await write("feed hide", db.from("media_feed").update({ hidden: action === "hide" }).eq("id", id));
+      if (!w.ok) return NextResponse.json({ error: w.error }, { status: 500 });
     }
     return NextResponse.json({ ok: true, id, hidden: action === "hide" });
   }
@@ -105,11 +103,8 @@ export async function POST(req: NextRequest) {
       ? body.channels.map(String).slice(0, 2)
       : [];
     if (db) {
-      await db.from("bot_settings").upsert({
-        key: "force_sub_channels",
-        value: channels,
-        updated_at: new Date().toISOString(),
-      });
+      const w = await write("force sub save", db.from("bot_settings").upsert({ key: "force_sub_channels", value: channels, updated_at: new Date().toISOString() }));
+      if (!w.ok) return NextResponse.json({ ok: false, error: w.error }, { status: 500 });
     }
     return NextResponse.json({ ok: true, channels });
   }
@@ -118,12 +113,44 @@ export async function POST(req: NextRequest) {
     const free = Number(body.daily_limit_free ?? 8);
     const share = Number(body.daily_limit_share ?? 20);
     if (db) {
-      await db.from("bot_settings").upsert([
+      const w = await write("limits save", db.from("bot_settings").upsert([
         { key: "daily_limit_free", value: free, updated_at: new Date().toISOString() },
         { key: "daily_limit_share", value: share, updated_at: new Date().toISOString() },
-      ]);
+      ]));
+      if (!w.ok) return NextResponse.json({ ok: false, error: w.error }, { status: 500 });
     }
     return NextResponse.json({ ok: true, daily_limit_free: free, daily_limit_share: share });
+  }
+
+  // Is everything the media layer needs really in the database, and what failed recently?
+  if (action === "selftest") {
+    if (!db) return NextResponse.json({ ok: false, error: "database not configured" });
+    const checks = await selfTest(db);
+    return NextResponse.json({ ok: checks.every((c) => c.ok), checks, errors: recentErrors().slice(0, 12) });
+  }
+
+  // Rebuild the view and like counters from the logs of who really viewed / liked (repairs any counter that drifted).
+  if (action === "recount") {
+    if (!db) return NextResponse.json({ ok: false, error: "database not configured" });
+    const [views, likes, feed] = await Promise.all([
+      db.from("media_views").select("post_id,times").limit(200000),
+      db.from("media_likes").select("post_id").limit(200000),
+      db.from("media_feed").select("id,views,likes").limit(5000),
+    ]);
+    if (views.error || likes.error || feed.error) return NextResponse.json({ ok: false, error: (views.error || likes.error || feed.error)?.message });
+    const v = new Map<string, number>(), l = new Map<string, number>();
+    for (const r of views.data || []) v.set(String(r.post_id), (v.get(String(r.post_id)) || 0) + Number((r as any).times || 1));
+    for (const r of likes.data || []) l.set(String(r.post_id), (l.get(String(r.post_id)) || 0) + 1);
+    let fixed = 0;
+    for (const p of feed.data || []) {
+      const nv = v.get(String(p.id)) ?? 0, nl = l.get(String(p.id)) ?? 0;
+      // never lower a counter that has views from before the log existed
+      const patch: Record<string, number> = {};
+      if (nv > Number(p.views || 0)) patch.views = nv;
+      if (nl !== Number(p.likes || 0)) patch.likes = nl;
+      if (Object.keys(patch).length) { const w = await write("recount", db.from("media_feed").update(patch).eq("id", p.id)); if (w.ok) fixed++; }
+    }
+    return NextResponse.json({ ok: true, fixed });
   }
 
   if (action === "broadcast") {

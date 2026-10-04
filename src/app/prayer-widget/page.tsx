@@ -67,7 +67,7 @@ export default function PrayerWidgetPage() {
         <dl className="space-y-3 text-sm leading-7 text-slate-700">
           <div>
             <dt className="font-bold">هل الودجت مجاني؟</dt>
-            <dd>نعم، بلا تسجيل ولا حد للاستخدام. نطلب فقط إبقاء رابط «سوق تولز» أسفله.</dd>
+            <dd>نعم، بلا تسجيل ولا حد للاستخدام. نطلب فقط إبقاء رابط «شام AI» أسفله.</dd>
           </div>
           <div>
             <dt className="font-bold">ما طريقة الحساب؟</dt>

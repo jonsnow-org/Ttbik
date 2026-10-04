@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mediaDb, MEDIA_OWNER_ID, isMediaPremium } from "@/lib/mediaSocial";
 import {
-  getRenderUrl,
+  getEngineUrls,
   hookPath,
   hookSecret,
   miniAppKeyboard,
   safeEqual,
   tg,
 } from "@/lib/mediaFrontDoor";
+import { startGuide } from "@/lib/botStartGuide";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -59,9 +60,7 @@ function premiumStarsButton() {
 
 type Outcome = "delivered" | "timeout" | "down";
 
-async function forward(raw: string, secret: string): Promise<Outcome> {
-  const base = await getRenderUrl().catch(() => "");
-  if (!base) return "down";
+async function forwardTo(base: string, raw: string, secret: string, timeoutMs: number): Promise<Outcome> {
   try {
     const r = await fetch(base + hookPath(), {
       method: "POST",
@@ -70,7 +69,7 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
         "x-telegram-bot-api-secret-token": secret,
       },
       body: raw,
-      signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (r.status === 503) return "timeout";
     return r.ok ? "delivered" : "down";
@@ -78,6 +77,23 @@ async function forward(raw: string, secret: string): Promise<Outcome> {
     const name = (e as Error)?.name || "";
     return name === "TimeoutError" || name === "AbortError" ? "timeout" : "down";
   }
+}
+
+// Primary engine (Oracle) first, with a short deadline so a dead host never
+// stalls users; the backup (Render, which may need to wake) only gets the
+// update when the primary did not take it, so nothing is processed twice.
+const PRIMARY_TIMEOUT_MS = 10_000;
+
+async function forward(raw: string, secret: string): Promise<Outcome> {
+  const engines = await getEngineUrls().catch(() => [] as string[]);
+  if (!engines.length) return "down";
+  let last: Outcome = "down";
+  for (let i = 0; i < engines.length; i++) {
+    const isLast = i === engines.length - 1;
+    last = await forwardTo(engines[i], raw, secret, isLast ? FORWARD_TIMEOUT_MS : PRIMARY_TIMEOUT_MS);
+    if (last === "delivered") return "delivered";
+  }
+  return last;
 }
 
 async function enqueue(update: any): Promise<boolean> {
@@ -263,13 +279,13 @@ async function handleMessage(update: any, outcome: Outcome): Promise<void> {
     if (isOwner) {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "لوحة مالك البوت\n\nارسل اي رابط للتحميل مباشرة." + wakeNote,
+        text: "👑 لوحة مالك البوت\n\n" + startGuide("MEDIA") + wakeNote,
         reply_markup: ownerKeyboard(),
       });
     } else {
       await tg("sendMessage", {
         chat_id: chatId,
-        text: "مرحبا\nارسل رابط يوتيوب / تيك توك / انستغرام..." + wakeNote,
+        text: startGuide("MEDIA") + wakeNote,
         reply_markup: userKeyboard(),
       });
     }
