@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramOwner } from "@/lib/verifyTelegramOwner";
-import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, notifyFollowers, resolveRealTitle } from "@/lib/mediaSocial";
+import { isPlaceholderTitle, isTikTok, loadRelations, mediaDb, mediaUser, resolveRealTitle } from "@/lib/mediaSocial";
+import { notify, notifyFollowers } from "@/lib/mediaNotify";
+import { recordError as recordMediaError, write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
 
@@ -429,6 +431,33 @@ const PATCH_DELTAS: Record<string, { col: string; delta: number }> = {
   unlike: { col: "likes", delta: -1 },
 };
 
+// A person who comes back to a post later is a new view (like on any platform), but opening it ten times in a minute is one.
+const VIEW_COOLDOWN_MS = 30 * 60_000;
+
+/**
+ * Add `delta` to a counter without losing concurrent updates: write only if the value is still the one we read (compare-and-set),
+ * retry a few times, and as a last resort recompute it from the log of who viewed / liked. Returns the stored value, or null.
+ */
+async function adjustCounter(db: any, id: string, col: "views" | "likes" | "clones", delta: number): Promise<number | null> {
+  for (let i = 0; i < 4; i++) {
+    const cur = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
+    if (cur.error || !cur.data) return null;
+    const was = Number((cur.data as any)[col] || 0);
+    const next = Math.max(0, was + delta);
+    const r = await write("counter update", db.from("media_feed").update({ [col]: next }).eq("id", id).eq(col, was).select(col));
+    if (!r.ok) return null;
+    if ((r.data as any[] | null)?.length) return next;
+  }
+  if (col === "clones") return null;
+  // contention: rebuild from the log, which is the truth
+  const table = col === "views" ? "media_views" : "media_likes";
+  const rows = await db.from(table).select(col === "views" ? "times" : "post_id").eq("post_id", id).limit(100000);
+  if (rows.error) return null;
+  const total = col === "views" ? (rows.data || []).reduce((n: number, r: any) => n + Number(r.times || 1), 0) : (rows.data || []).length;
+  const w = await write("counter rebuild", db.from("media_feed").update({ [col]: total }).eq("id", id));
+  return w.ok ? total : null;
+}
+
 export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const id = String(body.id || "");
@@ -440,65 +469,65 @@ export async function PATCH(req: NextRequest) {
   const { col, delta } = spec;
   const db = await mediaDb();
 
-  async function bump(d: number) {
+  const memBump = (d: number) => {
     const mem = (g.__mediaFeed || []).find((x) => x.id === id);
     if (mem) (mem as any)[col] = Math.max(0, ((mem as any)[col] || 0) + d);
-    if (!db) return;
-    const { data } = await db.from("media_feed").select(col).eq("id", id).maybeSingle();
-    const next = Math.max(0, Number((data as any)?.[col] || 0) + d);
-    await db.from("media_feed").update({ [col]: next }).eq("id", id);
-  }
+  };
 
-  // Views and likes count once per real Telegram user per post (verified
-  // initData), never for the post's own sharer — so refreshing, replaying
-  // or scripting the endpoint can't inflate them. Anonymous calls count
-  // nothing. Clones are counted by the bot itself.
+  // Views and likes are tied to a verified Telegram user (initData) so they cannot be inflated by scripts. When something stops a
+  // count the answer says WHY (`reason`), and the app only gives up on reasons that can never change.
   if (action === "view" || action === "like" || action === "unlike") {
     const viewer = mediaUser(String(body.init_data || ""));
-    if (!viewer || !db) return NextResponse.json({ ok: true, counted: false });
-    try {
-      if (action === "view") {
-        const { data: post } = await db.from("media_feed").select("sharer_id,views").eq("id", id).maybeSingle();
-        if (!post || String((post as any).sharer_id) === viewer.id) {
-          return NextResponse.json({ ok: true, counted: false, views: Number((post as any)?.views || 0) });
-        }
-        const { error } = await db.from("media_views").insert({ post_id: id, viewer_id: viewer.id });
-        if (error) {
-          // unique violation = already counted for this viewer
-          if (error.code === "23505") {
-            return NextResponse.json({ ok: true, counted: false, views: Number((post as any).views || 0) });
-          }
-          throw error;
-        }
-        await bump(1);
-        const nextViews = Number((post as any).views || 0) + 1;
-        return NextResponse.json({ ok: true, counted: true, views: nextViews });
-      } else if (action === "like") {
-        const { error } = await db.from("media_likes").insert({ post_id: id, user_id: viewer.id });
-        if (error) {
-          if (error.code === "23505") return NextResponse.json({ ok: true, counted: false });
-          throw error;
-        }
-        await bump(1);
-      } else {
-        const { data: removed, error } = await db.from("media_likes").delete().eq("post_id", id).eq("user_id", viewer.id).select("post_id");
-        if (error) throw error;
-        if (!removed?.length) return NextResponse.json({ ok: true, counted: false });
-        await bump(-1);
+    if (!viewer) return NextResponse.json({ ok: true, counted: false, reason: "no-auth" });
+    if (!db) return NextResponse.json({ ok: true, counted: false, reason: "no-db" });
+    const { data: post } = await db.from("media_feed").select("sharer_id,sharer_name,views,likes").eq("id", id).maybeSingle();
+    if (!post) return NextResponse.json({ ok: true, counted: false, reason: "no-post" });
+
+    if (action === "view") {
+      const now = Date.now();
+      const prev = await db.from("media_views").select("last_at,times").eq("post_id", id).eq("viewer_id", viewer.id).maybeSingle();
+      if (prev.error) {
+        recordMediaError("media_views read", prev.error.message);
+        return NextResponse.json({ ok: true, counted: false, reason: "storage", views: Number((post as any).views || 0) });
       }
-      return NextResponse.json({ ok: true, counted: true });
-    } catch {
-      // Dedup tables not created yet (migration pending): old behaviour.
-      await bump(delta).catch(() => {});
-      return NextResponse.json({ ok: true, counted: true, dedup: false });
+      if (prev.data) {
+        const last = prev.data.last_at ? new Date(prev.data.last_at).getTime() : 0;
+        if (now - last < VIEW_COOLDOWN_MS) return NextResponse.json({ ok: true, counted: false, reason: "cooldown", views: Number((post as any).views || 0) });
+        const u = await write("media_views touch", db.from("media_views").update({ last_at: new Date(now).toISOString(), times: Number(prev.data.times || 1) + 1 }).eq("post_id", id).eq("viewer_id", viewer.id));
+        if (!u.ok) return NextResponse.json({ ok: true, counted: false, reason: "storage", views: Number((post as any).views || 0) });
+      } else {
+        const ins = await write("media_views insert", db.from("media_views").insert({ post_id: id, viewer_id: viewer.id, last_at: new Date(now).toISOString(), times: 1 }));
+        if (!ins.ok && ins.code !== "23505") return NextResponse.json({ ok: true, counted: false, reason: "storage", views: Number((post as any).views || 0) });
+        if (!ins.ok) return NextResponse.json({ ok: true, counted: false, reason: "cooldown", views: Number((post as any).views || 0) });
+      }
+      const views = await adjustCounter(db, id, "views", 1);
+      memBump(1);
+      return NextResponse.json({ ok: true, counted: true, views: views ?? Number((post as any).views || 0) + 1, stored: views !== null });
     }
+
+    if (action === "like") {
+      const ins = await write("media_likes insert", db.from("media_likes").insert({ post_id: id, user_id: viewer.id }));
+      if (!ins.ok && ins.code === "23505") return NextResponse.json({ ok: true, counted: false, reason: "already", likes: Number((post as any).likes || 0) });
+      if (!ins.ok) return NextResponse.json({ ok: true, counted: false, reason: "storage", likes: Number((post as any).likes || 0) });
+      const likes = await adjustCounter(db, id, "likes", 1);
+      memBump(1);
+      // the person who shared it hears about it (in the app and, if they allow, in the bot); never about their own like
+      const owner = String((post as any).sharer_id || "");
+      if (owner && owner !== viewer.id) await notify(db, { toId: owner, fromId: viewer.id, fromName: viewer.name, type: "like", postId: id }).catch(() => null);
+      return NextResponse.json({ ok: true, counted: true, likes: likes ?? Number((post as any).likes || 0) + 1, stored: likes !== null });
+    }
+
+    const del = await write("media_likes delete", db.from("media_likes").delete().eq("post_id", id).eq("user_id", viewer.id).select("post_id"));
+    if (!del.ok) return NextResponse.json({ ok: true, counted: false, reason: "storage" });
+    if (!(del.data as any[] | null)?.length) return NextResponse.json({ ok: true, counted: false, reason: "not-liked" });
+    const likes = await adjustCounter(db, id, "likes", -1);
+    memBump(-1);
+    return NextResponse.json({ ok: true, counted: true, likes: likes ?? Math.max(0, Number((post as any).likes || 0) - 1), stored: likes !== null });
   }
 
-  try {
-    await bump(delta);
-  } catch {
-    /* ignore */
-  }
+  // clones are counted by the bot itself
+  memBump(delta);
+  if (db) await adjustCounter(db, id, "clones", delta);
   return NextResponse.json({ ok: true });
 }
 

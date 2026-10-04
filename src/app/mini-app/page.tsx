@@ -10,7 +10,7 @@ import AdsterraBanner from "@/components/AdsterraBanner";
 type Tab = "trending" | "following" | "audio" | "me" | "admin";
 type ProfileSection = "all" | "video" | "audio" | "photo";
 type FeedItem = { id: string; liked?: boolean; media_type: string; title: string; url?: string; thumbnail?: string; sharer_name?: string; sharer_id?: string; clones?: number; likes?: number; views?: number; created_at?: number; squad_code?: string };
-type Notif = { id: string; type: "follow" | "like" | "comment" | "reply"; fromId: string; fromName: string; at: number; read: boolean; postId?: string };
+type Notif = { id: string; type: "follow" | "like" | "comment" | "reply" | "post"; fromId: string; fromName: string; at: number; read: boolean; postId?: string };
 type CommentRow = { id: string; post_id: string; parent_id: string | null; from_id: string; from_name: string; body: string; created_at: number };
 type Relations = { following: string[]; mutes: string[]; blocks: string[]; blockedBy: string[] };
 type Report = { id: string; post_id: string; post_title: string; post_owner_id: string; reporter_id: string; reporter_name: string; reason: string; reason_label: string; details: string; status: string; created_at: number };
@@ -181,6 +181,14 @@ export default function MiniAppPage() {
   const [profileSection, setProfileSection] = useState<ProfileSection>("all");
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState<{ pushOff: boolean; offTypes: string[] }>({ pushOff: false, offTypes: [] });
+  const [notifPaid, setNotifPaid] = useState(false);
+  const [notifTypes, setNotifTypes] = useState<{ type: string; label: string }[]>([]);
+  const [showNotifPrefs, setShowNotifPrefs] = useState(false);
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());   // unread when the sheet was opened: stay highlighted while it is open
+  const notifsRef = useRef<Notif[]>([]);
+  const [sysCheck, setSysCheck] = useState<{ ok: boolean; checks: { name: string; what: string; ok: boolean; error?: string }[]; errors: { at: number; label: string; error: string }[] } | null>(null);
+  const [sysBusy, setSysBusy] = useState(false);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [adNonce, setAdNonce] = useState(0);
@@ -593,8 +601,36 @@ export default function MiniAppPage() {
       const r = await fetch(`/api/media-notifications?init_data=${encodeURIComponent(tgInitData())}`, { cache: "no-store" });
       const j = await r.json();
       if (Array.isArray(j.notifications)) setNotifs(j.notifications.map((n: any) => ({ id: n.id, type: n.type, fromId: n.fromId, fromName: n.fromName, at: n.at, read: n.read, postId: n.postId })));
+      if (j.prefs) setNotifPrefs({ pushOff: !!j.prefs.pushOff, offTypes: Array.isArray(j.prefs.offTypes) ? j.prefs.offTypes : [] });
+      setNotifPaid(!!j.paid);
+      if (Array.isArray(j.types)) setNotifTypes(j.types);
     } catch {}
   }, [userId]);
+  // Bot messages can be stopped only with the paid upgrade; everyone keeps the notifications inside the app.
+  const saveNotifPrefs = async (next: { pushOff: boolean; offTypes: string[] }) => {
+    const before = notifPrefs;
+    setNotifPrefs(next);
+    try {
+      const r = await fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), action: "prefs", pushOff: next.pushOff, offTypes: next.offTypes }) });
+      if (r.status === 402) { setNotifPrefs(before); showToast("💎 إيقاف إشعارات البوت ميزة مدفوعة"); return; }
+      if (!r.ok) { setNotifPrefs(before); showToast("تعذّر الحفظ، حاول مجدداً"); }
+    } catch { setNotifPrefs(before); showToast("تعذّر الحفظ، حاول مجدداً"); }
+  };
+  const runSysCheck = async (action: "selftest" | "recount") => {
+    setSysBusy(true);
+    try {
+      const r = await fetch("/api/media-admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, init_data: tgInitData() }) });
+      const j = await r.json();
+      if (action === "selftest") setSysCheck(j);
+      else showToast(j.ok ? `أُعيد احتساب العدّادات (صُحّح ${j.fixed})` : `تعذّر: ${j.error || ""}`);
+    } catch { showToast("تعذّر الفحص"); }
+    setSysBusy(false);
+  };
+  const toggleNotifType = (type: string) => {
+    const on = !notifPrefs.pushOff && !notifPrefs.offTypes.includes(type);
+    if (on && !notifPaid) { showToast("💎 إيقاف إشعارات البوت ميزة مدفوعة (ترقية بوت الوسائط)"); return; }
+    void saveNotifPrefs({ pushOff: notifPrefs.pushOff, offTypes: on ? [...notifPrefs.offTypes, type] : notifPrefs.offTypes.filter((t) => t !== type) });
+  };
   useEffect(() => { void loadNotifs(); const t = setInterval(() => { if (!document.hidden) void loadNotifs(); }, 30000); return () => clearInterval(t); }, [loadNotifs]);
 
   // Real live-status pulse -- Telegram's own chat header can't be touched
@@ -690,8 +726,10 @@ export default function MiniAppPage() {
   async function sendDm() {
     if (!chatPeer || !dmInput.trim() || !userId) return;
     const body = dmInput.trim(); setDmInput("");
-    const r = await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) });
-    if (r.status === 403) { showToast("لا يمكن مراسلة هذا المستخدم"); return; }
+    let r: Response | null = null;
+    try { r = await fetch("/api/media-messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), from_name: displayName || username || "مستخدم", to_id: chatPeer.id, body }) }); } catch { r = null; }
+    if (r && r.status === 403) { showToast("لا يمكن مراسلة هذا المستخدم"); return; }
+    if (!r || !r.ok) { setDmInput(body); showToast("لم تُرسَل الرسالة، حاول مجدداً"); return; }   // the text stays in the box
     await loadThreadMessages(chatPeer.id);
   }
   useEffect(() => {
@@ -715,9 +753,12 @@ export default function MiniAppPage() {
   async function sendComment() {
     if (!commentsPost || !commentInput.trim() || !userId) return;
     const bodyText = commentInput.trim(); const parentId = replyTo?.id || null;
+    const prevReply = replyTo;
     setCommentInput(""); setReplyTo(null);
-    const r = await fetch("/api/media-comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), post_id: commentsPost.id, parent_id: parentId, from_name: displayName || username || "مستخدم", body: bodyText }) });
-    if (r.status === 403) { showToast("لا يمكنك التعليق على هذا المنشور"); return; }
+    let r: Response | null = null;
+    try { r = await fetch("/api/media-comments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), post_id: commentsPost.id, parent_id: parentId, from_name: displayName || username || "مستخدم", body: bodyText }) }); } catch { r = null; }
+    if (r && r.status === 403) { showToast("لا يمكنك التعليق على هذا المنشور"); return; }
+    if (!r || !r.ok) { setCommentInput(bodyText); setReplyTo(prevReply); showToast("لم يُحفظ التعليق، حاول مجدداً"); return; }   // the text stays in the box
     await loadComments(commentsPost.id);
   }
   useEffect(() => {
@@ -839,7 +880,7 @@ export default function MiniAppPage() {
           const id = (e.target as HTMLElement).dataset.feedId;
           if (!id) continue;
           if (e.isIntersecting && e.intersectionRatio >= 0.55) {
-            if (timers.has(id) || viewedRef.current.has(id) || viewPendingRef.current.has(id)) continue;
+            if (timers.has(id) || recentlyViewed(id) || viewPendingRef.current.has(id)) continue;
             timers.set(
               id,
               setTimeout(() => {
@@ -878,6 +919,8 @@ export default function MiniAppPage() {
       following: profileCounts?.following ?? 0,
     };
   }, [items, profileTargetId, profileCounts]);
+  notifsRef.current = notifs;
+  useEffect(() => { if (!showNotifs && freshIds.size) setFreshIds(new Set()); }, [showNotifs, freshIds]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
   const openReports = useMemo(() => reports.filter((r) => r.status === "open"), [reports]);
   const cloneHref = (id: string) => (BOT_USERNAME ? `https://t.me/${BOT_USERNAME.replace(/^@/, "")}?start=clone_${id}` : "#");
@@ -891,55 +934,60 @@ export default function MiniAppPage() {
     haptic();
     setLiked((p) => { const next = { ...p, [id]: !was }; saveJSON(LS.liked, next); return next; });
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? -1 : 1)) } : it));
-    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like", init_data: tgInitData() }) }).catch(() => {});
+    const undo = () => {
+      setLiked((p) => { const next = { ...p, [id]: was }; saveJSON(LS.liked, next); return next; });
+      setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: Math.max(0, (it.likes || 0) + (was ? 1 : -1)) } : it));
+      showToast("تعذّر حفظ الإعجاب، حاول مجدداً");
+    };
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id, action: was ? "unlike" : "like", init_data: tgInitData() }) })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j?.reason === "storage" || j?.reason === "no-db") undo();
+        else if (typeof j?.likes === "number") setItems((prev) => prev.map((it) => it.id === id ? { ...it, likes: j.likes } : it));
+      })
+      .catch(undo);
     track(was ? "unlike" : "like", { post_id: id });
-    if (!was && item.sharer_id && item.sharer_id !== userId) {
-      void fetch("/api/media-notifications", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), to_id: item.sharer_id, from_name: displayName || username || "مستخدم", type: "like", post_id: id }) }).catch(() => {});
-    }
   };
   // View counting:
   // - Video/audio: ≥1.5s played (autoplay included), or natural end of a short clip
   // - Photo / failed autoplay: ≥1.8s with ≥55% of the card on screen
   // Server dedupes once per verified Telegram user and ignores the sharer's own views.
   // Client only locks an id after the server confirms counted:true so a failed request can retry.
-  const viewedRef = useRef<Set<string>>(new Set());
+  // id -> when the server last counted it for this person (or refused for good). A post counts again after the server's cooldown.
+  const viewedRef = useRef<Map<string, number>>(new Map());
   const viewPendingRef = useRef<Set<string>>(new Set());
+  const viewTriesRef = useRef<Map<string, number>>(new Map());
+  const VIEW_COOLDOWN_MS = 30 * 60_000;
+  const recentlyViewed = (id: string) => { const t = viewedRef.current.get(id); return t !== undefined && Date.now() - t < VIEW_COOLDOWN_MS; };
   const markViewed = (item: FeedItem, seconds: number, force = false) => {
     if (!item?.id) return;
-    if (viewedRef.current.has(item.id) || viewPendingRef.current.has(item.id)) return;
+    if (recentlyViewed(item.id) || viewPendingRef.current.has(item.id)) return;
     if (!force && seconds < 1.5) return;
-    if (item.sharer_id && userId && item.sharer_id === userId) {
-      viewedRef.current.add(item.id);
-      return;
-    }
     viewPendingRef.current.add(item.id);
-    const init = tgInitData();
-    fetch("/api/media-feed", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: item.id, action: "view", init_data: init }),
-    })
+    const lock = () => viewedRef.current.set(item.id, Date.now());
+    fetch("/api/media-feed", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id, action: "view", init_data: tgInitData() }) })
       .then(async (r) => {
         const j = await r.json().catch(() => ({}));
         viewPendingRef.current.delete(item.id);
         if (j?.counted) {
-          viewedRef.current.add(item.id);
-          setItems((prev) =>
-            prev.map((it) =>
-              it.id === item.id
-                ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 }
-                : it
-            )
-          );
+          lock();
+          setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: typeof j.views === "number" ? j.views : (it.views || 0) + 1 } : it));
           track("view", { post_id: item.id, type: item.media_type });
-        } else if (j?.counted === false) {
-          // Already counted on server (or own post) — do not retry
-          viewedRef.current.add(item.id);
+        } else if (j?.reason === "cooldown" || j?.reason === "no-post") {
+          lock();                                    // counted recently / nothing to count: do not ask again for now
+          if (typeof j.views === "number") setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, views: Math.max(it.views || 0, j.views) } : it));
+        } else {
+          // no-auth / no-db / storage / network: the view did NOT count. Try again a few times instead of silently giving up.
+          const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+          viewTriesRef.current.set(item.id, n);
+          if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
         }
-        // else: network/auth glitch — leave unlocked for a later retry
       })
       .catch(() => {
         viewPendingRef.current.delete(item.id);
+        const n = (viewTriesRef.current.get(item.id) || 0) + 1;
+        viewTriesRef.current.set(item.id, n);
+        if (n < 4) setTimeout(() => markViewed(item, seconds, true), 4000 * n);
       });
   };
   const playItem = (item: FeedItem) => {
@@ -1088,7 +1136,7 @@ export default function MiniAppPage() {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => { haptic(); setAdNonce((n) => n + 1); void load(); }} title="تحديث" className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal-100 text-lg shadow-sm ring-1 ring-teal-200">🔄</button>
             <button type="button" onClick={() => { haptic(); setSearchOpen((o) => !o); }} title="بحث" aria-expanded={searchOpen} className={`relative flex h-9 w-9 items-center justify-center rounded-2xl text-lg shadow-sm ring-1 ${searchOpen ? "bg-sky-500 ring-sky-600" : "bg-sky-100 ring-sky-200"}`}>🔍{!searchOpen && search.trim() && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-rose-500" />}</button>
-            <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData() }) }).catch(() => {}); setNotifs((prev) => prev.map((n) => ({ ...n, read: true }))); } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
+            <button type="button" title="الإشعارات" onClick={async () => { setShowNotifs(true); setShowInbox(false); setShowComments(false); await loadNotifs(); if (userId) { const ids = notifsRef.current.filter((n) => !n.read).map((n) => n.id); setFreshIds(new Set(ids)); if (ids.length) { const r = await fetch("/api/media-notifications", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ init_data: tgInitData(), ids }) }).catch(() => null); if (r && r.ok) setNotifs((prev) => prev.map((n) => (ids.includes(n.id) ? { ...n, read: true } : n))); } } }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-rose-100 text-lg shadow-sm ring-1 ring-rose-200">🔔{unreadCount > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white">{unreadCount}</span>}</button>
             <button type="button" title="الرسائل" onClick={() => { setShowInbox(true); setChatPeer(null); setShowNotifs(false); setShowComments(false); void loadInbox(); }} className="relative flex h-9 w-9 items-center justify-center rounded-2xl bg-violet-100 text-lg shadow-sm ring-1 ring-violet-200">✉️{inboxUnread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-black text-white">{inboxUnread}</span>}</button>
             <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
@@ -1149,8 +1197,9 @@ export default function MiniAppPage() {
 
       {showNotifs && (
         <div className="relative z-10 mx-3 mt-3 overflow-hidden rounded-3xl border border-rose-200 bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-4 py-3"><p className="text-sm font-black text-rose-700">🔔 الإشعارات</p><button type="button" onClick={() => setShowNotifs(false)} className="text-xs font-bold text-slate-500">إغلاق</button></div>
-          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.filter((n) => !hiddenUsers.has(n.fromId)).map((n) => (<li key={n.id}><button type="button" onClick={() => { if ((n.type === "comment" || n.type === "reply") && n.postId) { const it = items.find((x) => x.id === n.postId); void openComments(n.postId, it ? displayTitle(it) : "منشور"); } else { openProfile(n.fromId, n.fromName); } }} className={`flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-rose-50 ${n.read ? "" : "bg-rose-50/60"}`}><div className={`flex h-10 w-10 items-center justify-center rounded-full text-base ${n.type === "like" ? "bg-rose-100" : n.type === "follow" ? "bg-violet-100" : "bg-amber-100"}`}>{n.type === "like" ? "❤️" : n.type === "follow" ? "💜" : "💬"}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-700">{n.fromName}</span> {n.type === "like" ? "أعجب بمنشورك" : n.type === "comment" ? "علّق على منشورك" : n.type === "reply" ? "ردّ على تعليقك" : "بدأ بمتابعتك"}</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
+          <div className="flex items-center justify-between border-b border-rose-100 bg-rose-50 px-4 py-3"><p className="text-sm font-black text-rose-700">🔔 الإشعارات</p><div className="flex items-center gap-3"><button type="button" onClick={() => setShowNotifPrefs((v) => !v)} className="text-xs font-bold text-rose-600">⚙️ إشعارات البوت</button><button type="button" onClick={() => setShowNotifs(false)} className="text-xs font-bold text-slate-500">إغلاق</button></div></div>
+          {showNotifPrefs && (<div className="border-b border-rose-100 bg-white px-4 py-3"><p className="mb-2 text-[11px] font-bold text-slate-500">ما تريد أن يصلك في محادثة البوت. الإشعارات هنا داخل التطبيق تبقى دائماً.{!notifPaid && " 💎 إيقاف رسائل البوت للمشتركين المدفوعين."}</p><div className="grid grid-cols-2 gap-2">{notifTypes.map((t) => { const on = !notifPrefs.pushOff && !notifPrefs.offTypes.includes(t.type); return (<button key={t.type} type="button" onClick={() => toggleNotifType(t.type)} className={`rounded-xl px-3 py-2 text-xs font-bold ring-1 ${on ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-100 text-slate-500 ring-slate-200"}`}>{on ? "🔔" : "🔕"} {t.label}</button>); })}</div><button type="button" onClick={() => { if (!notifPrefs.pushOff && !notifPaid) { showToast("💎 إيقاف إشعارات البوت ميزة مدفوعة (ترقية بوت الوسائط)"); return; } void saveNotifPrefs({ pushOff: !notifPrefs.pushOff, offTypes: notifPrefs.offTypes }); }} className={`mt-2 w-full rounded-xl px-3 py-2 text-xs font-bold ring-1 ${notifPrefs.pushOff ? "bg-emerald-500 text-white ring-emerald-600" : "bg-rose-50 text-rose-600 ring-rose-100"}`}>{notifPrefs.pushOff ? "🔔 تشغيل كل رسائل البوت" : `🔕 إيقاف كل رسائل البوت${notifPaid ? "" : " 💎"}`}</button></div>)}
+          {notifs.length === 0 ? <p className="px-4 py-6 text-center text-sm text-slate-500">لا إشعارات بعد</p> : <ul className="max-h-72 overflow-y-auto">{notifs.filter((n) => !hiddenUsers.has(n.fromId)).map((n) => (<li key={n.id}><button type="button" onClick={() => { if ((n.type === "comment" || n.type === "reply") && n.postId) { const it = items.find((x) => x.id === n.postId); void openComments(n.postId, it ? displayTitle(it) : "منشور"); } else { openProfile(n.fromId, n.fromName); } }} className={`flex w-full items-center gap-3 px-4 py-3 text-right hover:bg-rose-50 ${n.read && !freshIds.has(n.id) ? "" : "bg-rose-50/60"}`}><div className={`flex h-10 w-10 items-center justify-center rounded-full text-base ${n.type === "like" ? "bg-rose-100" : n.type === "follow" || n.type === "post" ? "bg-violet-100" : "bg-amber-100"}`}>{n.type === "like" ? "❤️" : n.type === "follow" || n.type === "post" ? "💜" : "💬"}</div><div className="flex-1"><p className="text-sm font-bold"><span className="text-sky-700">{n.fromName}</span> {n.type === "like" ? "أعجب بمنشورك" : n.type === "comment" ? "علّق على منشورك" : n.type === "reply" ? "ردّ على تعليقك" : n.type === "post" ? "شارك منشوراً جديداً" : "بدأ بمتابعتك"}</p><p className="text-[11px] text-slate-500">{timeAgo(n.at)}</p></div></button></li>))}</ul>}
         </div>
       )}
 
@@ -1370,6 +1419,18 @@ export default function MiniAppPage() {
                 <input value={forceChans} onChange={(e) => setForceChans(e.target.value)} className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs outline-none" placeholder="@channel1, @channel2" />
                 <button type="button" disabled={adminBusy} onClick={() => void saveForceSub()} className="w-full rounded-xl bg-sky-100 py-2 text-xs font-bold disabled:opacity-50">حفظ القنوات</button>
                 {adminStats && <p className="text-[10px] text-slate-500">مخفي: {adminStats.hidden} · ناشرون: {adminStats.publishers}</p>}
+              <div className="mt-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                <p className="text-xs font-black text-slate-700">🩺 فحص النظام</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" disabled={sysBusy} onClick={() => void runSysCheck("selftest")} className="rounded-xl bg-sky-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">افحص كل الأنظمة</button>
+                  <button type="button" disabled={sysBusy} onClick={() => void runSysCheck("recount")} className="rounded-xl bg-violet-100 px-3 py-2 text-xs font-bold text-violet-700 disabled:opacity-50">🔄 أعد احتساب المشاهدات والإعجابات</button>
+                </div>
+                {sysCheck && (<div className="mt-2 space-y-1">
+                  <p className={`text-[11px] font-bold ${sysCheck.ok ? "text-emerald-600" : "text-rose-600"}`}>{sysCheck.ok ? "✅ كل شيء يعمل ويُحفظ" : "⚠️ توجد أجزاء لا تُحفظ، سيُصلحها تحديث قاعدة البيانات التلقائي أو يظهر السبب أدناه"}</p>
+                  {sysCheck.checks.map((c) => <p key={c.name} className="text-[11px] text-slate-600">{c.ok ? "✅" : "❌"} {c.what}{c.error ? <span className="text-rose-500"> — {c.error.slice(0, 90)}</span> : null}</p>)}
+                  {sysCheck.errors?.length > 0 && <div className="mt-1 border-t border-slate-100 pt-1"><p className="text-[10px] font-bold text-slate-500">آخر الأعطال المسجّلة</p>{sysCheck.errors.map((e, i) => <p key={i} className="text-[10px] text-rose-500">{e.label}: {e.error.slice(0, 100)}</p>)}</div>}
+                </div>)}
+              </div>
               {adminStats && (adminStats.events_24h || 0) > 0 && (
                 <div className="mt-3 rounded-2xl border border-violet-100 bg-white p-3">
                   <p className="text-xs font-black text-violet-800">📊 سلوك المستخدمين (24 ساعة)</p>

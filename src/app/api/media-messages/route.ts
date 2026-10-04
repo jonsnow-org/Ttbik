@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
-import { MEDIA_OWNER_ID, isBlockedEitherWay, loadRelations, mediaDb, mediaUser, namesFor, tgApi } from "@/lib/mediaSocial";
+import { MEDIA_OWNER_ID, isBlockedEitherWay, loadRelations, mediaDb, mediaUser, namesFor } from "@/lib/mediaSocial";
+import { pushText, pushToUser } from "@/lib/mediaNotify";
+import { recordError, write } from "@/lib/mediaSafe";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +71,7 @@ export async function GET(req: NextRequest) {
         .eq("to_id", uid)
         .order("created_at", { ascending: false })
         .limit(200);
+      if (e1 || e2) recordError("direct_messages read", (e1 || e2)?.message || "unknown");
       const data = !e1 && !e2 ? [...(sent || []), ...(received || [])] : null;
       if (data) {
         messages = data.map((r: any) => ({
@@ -203,44 +206,38 @@ export async function POST(req: NextRequest) {
     created_at: Math.floor(Date.now() / 1000),
     read: false,
   };
-  g.__dm = [msg, ...(g.__dm || [])].slice(0, 500);
-
   const db = await sb();
+  // saved first, shown after: a message the database did not take is reported as not sent
+  let persisted = false, persistError = "";
   if (db) {
-    try {
-      await db.from("direct_messages").insert({
-        id: msg.id,
-        from_id: msg.from_id,
-        from_name: msg.from_name,
-        to_id: msg.to_id,
-        body: msg.body,
-        read: false,
-        created_at: new Date(msg.created_at * 1000).toISOString(),
-      });
-    } catch {
-      /* table may not exist yet */
-    }
-  }
+    const w = await write("direct message insert", db.from("direct_messages").insert({
+      id: msg.id,
+      from_id: msg.from_id,
+      from_name: msg.from_name,
+      to_id: msg.to_id,
+      body: msg.body,
+      read: false,
+      created_at: new Date(msg.created_at * 1000).toISOString(),
+    }));
+    persisted = w.ok; persistError = w.error || "";
+  } else persistError = "database not configured";
+  if (!persisted) return NextResponse.json({ ok: false, error: "not sent", detail: persistError }, { status: 503 });
+  g.__dm = [msg, ...(g.__dm || [])].slice(0, 500);
 
   await notifyRecipient(msg).catch(() => {});
   return NextResponse.json({ ok: true, message: msg });
 }
 
-// A bot message tells the recipient they have a new DM (with a button that
-// opens the conversation), at most once per sender every 10 minutes so a
-// chat in progress doesn't spam them. Best-effort, per server instance.
-const g2 = globalThis as unknown as { __dmNotified?: Map<string, number> };
-if (!g2.__dmNotified) g2.__dmNotified = new Map();
+// A bot message tells the recipient they have a new DM (with the buttons to open it or to stop these), at most once per sender every
+// 10 minutes (and per the recipient's own settings) so a chat in progress does not spam them.
 async function notifyRecipient(msg: Msg) {
-  const key = `${msg.from_id}>${msg.to_id}`;
-  const last = g2.__dmNotified!.get(key) || 0;
-  if (Date.now() - last < 10 * 60 * 1000) return;
-  g2.__dmNotified!.set(key, Date.now());
+  const db = await mediaDb();
+  if (!db) return;
   const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-  await tgApi("sendMessage", {
-    chat_id: msg.to_id,
-    text: `📩 رسالة جديدة من ${msg.from_name || "مستخدم"}:\n«${msg.body.slice(0, 120)}»`,
-    reply_markup: { inline_keyboard: [[{ text: "💬 افتح المحادثة", web_app: { url: `${site}/mini-app?dm=${encodeURIComponent(msg.from_id)}` } }]] },
+  await pushToUser(db, {
+    toId: msg.to_id, fromId: msg.from_id, type: "message",
+    text: pushText("message", msg.from_name || "مستخدم", msg.body.slice(0, 120)),
+    openUrl: `${site}/mini-app?dm=${encodeURIComponent(msg.from_id)}`, openText: "💬 افتح المحادثة",
   });
 }
 
@@ -300,15 +297,8 @@ export async function PATCH(req: NextRequest) {
 
   const db = await sb();
   if (db) {
-    try {
-      await db
-        .from("direct_messages")
-        .update({ read: true })
-        .eq("to_id", uid)
-        .eq("from_id", peer);
-    } catch {
-      /* ignore */
-    }
+    const w = await write("direct message read", db.from("direct_messages").update({ read: true }).eq("to_id", uid).eq("from_id", peer));
+    if (!w.ok) return NextResponse.json({ ok: false, error: "not saved" }, { status: 503 });
   }
   return NextResponse.json({ ok: true });
 }

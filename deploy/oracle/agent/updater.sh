@@ -17,6 +17,7 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"
   bash "$OR/agent/ensure-sweeper.sh" >/dev/null 2>&1 || true
+  bash "$OR/agent/migrate.sh" >/dev/null 2>&1 || true      # new database scripts (deploy/oracle/migrations) are applied here, once each
   if [ -n "$CHANGED" ] || [ -f "$STATE/force-update" ]; then
     rm -f "$STATE/force-update"
     cd "$OR"

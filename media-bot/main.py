@@ -35,6 +35,7 @@ from keyboards import (
     owner_force_sub_keyboard,
     premium_keyboard,
     user_settings_keyboard,
+    notify_settings_keyboard,
     squad_keyboard,
     menu_button_webapp,
     INFO_TEXT,
@@ -52,6 +53,7 @@ from services.store import store, persist, load_from_archive, PREMIUM_DAILY_LIMI
 from services.feed import publish_feed_item, find_local, increment_clone
 from services.subtitles import youtube_subtitle_summary, guess_tags
 from services.premium import verify_premium_code, sync_premium_grant
+from services import notify_prefs
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 # httpx logs every request URL at INFO, and Telegram URLs contain the bot token.
@@ -553,9 +555,108 @@ async def _handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: s
     await status_msg.edit_text(f"✅ {info.title[:80]}\n⏱ {duration}\n📊 {limit_msg}\n\nاختر الجودة:", reply_markup=quality_keyboard(show_summary=is_yt))
 
 
+NOTIFY_PAID_TEXT = (
+    "💎 إيقاف إشعارات البوت ميزة مدفوعة.\n"
+    "الإشعارات داخل التطبيق المصغّر تبقى دائماً. فعّل الترقية المدفوعة لتتحكم بما يصلك هنا."
+)
+
+
+def _notify_menu_text(data: dict, paid: bool) -> str:
+    lines = ["🔔 إشعاراتي في البوت", ""]
+    for t in data.get("types", []):
+        lines.append(f"{'🔔' if t.get('on') else '🔕'} {t.get('label')}")
+    lines.append("")
+    lines.append("اضغط على نوع لتشغيله أو إيقافه." if paid else "اضغط على نوع لتجربة إيقافه 💎 (الإيقاف للمشتركين المدفوعين).")
+    return "\n".join(lines)
+
+
+async def notify_callbacks(query, context, data: str) -> None:
+    """The 🔕 / ⚙️ buttons under every notification and the 🔔 settings menu (callback data: mn:<action>[:<type>])."""
+    user_id = query.from_user.id
+    paid = store.is_premium(user_id) or user_id == cfg.owner_id
+    parts = data.split(":")
+    action = parts[1] if len(parts) > 1 else "menu"
+    ntype = parts[2] if len(parts) > 2 else "all"
+
+    async def show_menu(edit: bool) -> None:
+        res = await notify_prefs.call(user_id, "get")
+        if not res or not res.get("ok"):
+            await query.answer("تعذّر الوصول للإعدادات الآن، حاول بعد قليل.", show_alert=True)
+            return
+        text = _notify_menu_text(res, paid)
+        kb = notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff")))
+        await query.answer()
+        if edit:
+            await query.edit_message_text(text, reply_markup=kb)
+        else:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=text, reply_markup=kb)
+
+    if action == "menu":
+        # opened from a notification: send a new message so the notification itself stays
+        is_menu_msg = (query.message.text or "").startswith("🔔 إشعاراتي")
+        await show_menu(edit=is_menu_msg)
+        return
+
+    if action == "tog":
+        res = await notify_prefs.call(user_id, "get")
+        if not res or not res.get("ok"):
+            await query.answer("تعذّر الوصول للإعدادات الآن.", show_alert=True)
+            return
+        on = any(t.get("type") == ntype and t.get("on") for t in res.get("types", []))
+        action = "off" if on else "on"
+
+    if action == "off" and not paid:
+        await query.answer("💎 ميزة مدفوعة", show_alert=True)
+        await context.bot.send_message(chat_id=query.message.chat_id, text=NOTIFY_PAID_TEXT, reply_markup=premium_keyboard())
+        return
+
+    res = await notify_prefs.call(user_id, action, ntype, premium=paid)
+    if not res or not res.get("ok"):
+        if res and res.get("status") == 402:
+            await query.answer("💎 ميزة مدفوعة", show_alert=True)
+            await context.bot.send_message(chat_id=query.message.chat_id, text=NOTIFY_PAID_TEXT, reply_markup=premium_keyboard())
+        else:
+            await query.answer("تعذّر الحفظ الآن، حاول بعد قليل.", show_alert=True)
+        return
+    label = "كل الإشعارات" if ntype == "all" else notify_prefs.TYPE_LABELS.get(ntype, ntype)
+    await query.answer(("🔕 أُوقف: " if action == "off" else "🔔 عاد: ") + label)
+    if (query.message.text or "").startswith("🔔 إشعاراتي"):
+        await query.edit_message_text(_notify_menu_text(res, paid), reply_markup=notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff"))))
+    else:
+        # under a notification: swap the stop button for an undo button
+        undo = "mn:on:" + ntype
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        rows = []
+        try:
+            rows = [list(r) for r in (query.message.reply_markup.inline_keyboard if query.message.reply_markup else [])][:1]
+        except Exception:
+            rows = []
+        rows.append([InlineKeyboardButton(("🔔 إعادة تشغيل: " if action == "off" else "🔕 إيقاف: ") + label, callback_data=("mn:on:" if action == "off" else "mn:off:") + ntype),
+                     InlineKeyboardButton("⚙️ الإشعارات", callback_data="mn:menu")])
+        try:
+            await query.edit_message_reply_markup(reply_markup=InlineKeyboardMarkup(rows))
+        except Exception:
+            pass
+
+
+async def notifications_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or not update.message:
+        return
+    paid = store.is_premium(user.id) or user.id == cfg.owner_id
+    res = await notify_prefs.call(user.id, "get")
+    if not res or not res.get("ok"):
+        await update.message.reply_text("تعذّر الوصول للإعدادات الآن، حاول بعد قليل.")
+        return
+    await update.message.reply_text(_notify_menu_text(res, paid), reply_markup=notify_settings_keyboard(res.get("types", []), paid, bool(res.get("pushOff"))))
+
+
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.from_user:
+        return
+    if (query.data or "").startswith("mn:"):
+        await notify_callbacks(query, context, query.data or "")   # answers the query itself, exactly once
         return
     await query.answer()
     data = query.data or ""
@@ -886,6 +987,7 @@ def _build_app() -> Application:
     app.add_handler(CommandHandler("version", version_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("premium", premium_cmd))
+    app.add_handler(CommandHandler("notifications", notifications_cmd))
     # Distinct groups: PTB runs only the first matching handler per group, and
     # owner_text_handler's filter matches every text (owner check is inside it).
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pending_message_relay_handler), group=-1)

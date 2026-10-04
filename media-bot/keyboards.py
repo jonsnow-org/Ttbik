@@ -90,7 +90,22 @@ def user_settings_keyboard(
         )
     if share_public or share_room:
         rows.append([InlineKeyboardButton("⏹ إيقاف كل النشر", callback_data="share_off")])
+    rows.append([InlineKeyboardButton("🔔 إشعاراتي", callback_data="mn:menu")])
     rows.append([InlineKeyboardButton("🎁 عن المكافأة والحدود", callback_data="perk_info")])
+    rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
+    return InlineKeyboardMarkup(rows)
+
+
+def notify_settings_keyboard(types: list[dict], paid: bool, all_off: bool) -> InlineKeyboardMarkup:
+    """One row per kind of notification (🔔 on / 🔕 off) and a switch for all of them. Stopping is the paid part."""
+    rows: list[list[InlineKeyboardButton]] = []
+    for t in types:
+        icon = "🔔" if t.get("on") else "🔕"
+        rows.append([InlineKeyboardButton(f"{icon} {t.get('label')}", callback_data=f"mn:tog:{t.get('type')}")])
+    if all_off:
+        rows.append([InlineKeyboardButton("🔔 تشغيل كل الإشعارات", callback_data="mn:on:all")])
+    else:
+        rows.append([InlineKeyboardButton("🔕 إيقاف كل الإشعارات" + ("" if paid else " 💎"), callback_data="mn:off:all")])
     rows.append([InlineKeyboardButton("🔙 إغلاق", callback_data="close_msg")])
     return InlineKeyboardMarkup(rows)
 

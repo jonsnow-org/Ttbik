@@ -18,5 +18,5 @@
     "paths": { "@/*": ["src/*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "athar", ".smoke"]
+  "exclude": ["node_modules", "athar", ".smoke", "src/lib/__tests__"]
 }
