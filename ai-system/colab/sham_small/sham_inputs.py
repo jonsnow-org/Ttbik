@@ -72,8 +72,8 @@ def _attached_dir(name: str) -> Path | None:
 
 
 def _ensure_credentials() -> str | None:
-    if os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"):
-        return os.environ["KAGGLE_USERNAME"]
+    if os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")):
+        return os.environ["KAGGLE_USERNAME"]   # GitHub Actions: the repository's KAGGLE_API_TOKEN + the account name
     try:
         from kaggle_secrets import UserSecretsClient
 
@@ -136,14 +136,21 @@ def _has(root: Path, pattern: str | None) -> bool:
     return pattern is None or any(root.rglob(pattern))
 
 
+def _rest_auth() -> dict:
+    """requests kwargs authenticating to Kaggle's REST API: the classic username+key, or the new-style API token."""
+    tok = os.environ.get("KAGGLE_API_TOKEN")
+    if tok and not os.environ.get("KAGGLE_KEY"):
+        return {"headers": {"Authorization": f"Bearer {tok}"}}
+    return {"auth": (os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY"))}
+
+
 def _download_version(ref: str, version: int, dest: Path) -> bool:
     """One specific dataset version through Kaggle's public REST API."""
     import requests
 
-    user, key = os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")
     url = f"https://www.kaggle.com/api/v1/datasets/download/{ref}?datasetVersionNumber={version}"
     try:
-        with requests.get(url, auth=(user, key), stream=True, timeout=600) as r:
+        with requests.get(url, stream=True, timeout=600, **_rest_auth()) as r:
             if r.status_code != 200:
                 return False
             dest.mkdir(parents=True, exist_ok=True)
@@ -165,8 +172,7 @@ def _current_version(ref: str) -> int | None:
     import requests
 
     try:
-        r = requests.get(f"https://www.kaggle.com/api/v1/datasets/view/{ref}",
-                         auth=(os.environ.get("KAGGLE_USERNAME"), os.environ.get("KAGGLE_KEY")), timeout=60)
+        r = requests.get(f"https://www.kaggle.com/api/v1/datasets/view/{ref}", timeout=60, **_rest_auth())
         data = r.json() if r.status_code == 200 else {}
         v = data.get("currentVersionNumber") or max((x.get("versionNumber", 0) for x in data.get("versions") or []), default=0)
         return int(v) or None
@@ -432,7 +438,7 @@ def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
     repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
     names = account_dataset_names() if names is None else names
-    return [n for n in names if n.startswith(("sham", "nova-small")) and "tokenizer" not in n and "corpus" not in n]
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in ("tokenizer", "corpus", "reports"))]
 
 
 def repo_dataset_names() -> set[str]:
