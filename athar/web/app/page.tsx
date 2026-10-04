@@ -51,6 +51,7 @@ export default function Home() {
       <div className="row" style={{ gap: 10 }}>
         <Link href="/mystery" className="btn ghost">{t("home.mbtn")}</Link>
         <Link href="/auctions" className="btn ghost">{t("home.abtn")}</Link>
+        <Link href="/board" className="btn ghost">{t("board.title")}</Link>
       </div>
       <p className="muted" style={{ textAlign: "center", marginTop: 18 }}>{t("brand.by")}</p>
     </>
