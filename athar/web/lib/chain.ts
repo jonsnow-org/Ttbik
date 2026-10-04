@@ -8,10 +8,34 @@ import { AtharMinter } from "../../build/athar_AtharMinter";
 import { adminAddress, COLLECTION_URI, DELAY_SEC, TONCENTER_RPC, TONCENTER_V3 } from "./config";
 import { SEASONS, SeasonDef, seasonTier, specialIndex, buildPool } from "./seasons";
 
-const client = new TonClient({ endpoint: TONCENTER_RPC, apiKey: process.env.TONCENTER_API_KEY });
+const GAP = process.env.TONCENTER_API_KEY ? 120 : 1100;
+// Every call to the node, however many a page makes at once, goes through one gate: spaced out, and retried when the free
+// public API answers "too many requests" (found on the test network: a burst of reads made the whole app look undeployed).
+let gate: Promise<void> = Promise.resolve();
+async function throttled<T>(fn: () => Promise<T>): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < 6; i++) {
+    const turn = gate.then(() => new Promise<void>((r) => setTimeout(r, GAP)));
+    gate = turn.catch(() => undefined);
+    await turn;
+    try { return await fn(); } catch (e: any) {
+      last = e;
+      const st = e?.response?.status;
+      if (st !== 429 && st !== 500 && st !== 502 && st !== 503 && st !== 504) throw e;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+  throw last;
+}
+export class PacedClient extends TonClient {
+  callGetMethod(...a: Parameters<TonClient["callGetMethod"]>) { return throttled(() => super.callGetMethod(...a)); }
+  getContractState(...a: Parameters<TonClient["getContractState"]>) { return throttled(() => super.getContractState(...a)); }
+  getBalance(...a: Parameters<TonClient["getBalance"]>) { return throttled(() => super.getBalance(...a)); }
+}
+export const makeClient = () => new PacedClient({ endpoint: TONCENTER_RPC, apiKey: process.env.TONCENTER_API_KEY });
+const client = makeClient();
 const cache = new Map<string, { at: number; v: unknown }>();
 let chain: Promise<unknown> = Promise.resolve();
-const GAP = process.env.TONCENTER_API_KEY ? 120 : 1100;
 
 async function paced<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(() => fn());

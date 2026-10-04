@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { Address } from "@ton/core";
-import { TonClient } from "@ton/ton";
+import { makeClient } from "@/lib/chain";
 import { AtharCollection } from "../../../../../build/athar_AtharCollection";
 import { AtharMinter } from "../../../../../build/athar_AtharMinter";
-import { COLLECTION_URI, DELAY_SEC, TONCENTER_RPC, SITE_URL, ADMIN } from "@/lib/config";
+import { COLLECTION_URI, DELAY_SEC, SITE_URL, ADMIN } from "@/lib/config";
 import { SEASON_1 } from "@/lib/seasons";
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET(req: Request) {
   const adminStr = new URL(req.url).searchParams.get("admin") || "";
   let admin: Address;
   try { admin = Address.parse(adminStr); } catch { return NextResponse.json({ error: "bad admin" }, { status: 400 }); }
-  const client = new TonClient({ endpoint: TONCENTER_RPC, apiKey: process.env.TONCENTER_API_KEY });
+  const client = makeClient();
   const gap = () => new Promise((r) => setTimeout(r, process.env.TONCENTER_API_KEY ? 100 : 1100));
   const collection = await AtharCollection.fromInit(admin, COLLECTION_URI, BigInt(DELAY_SEC));
   const minter = await AtharMinter.fromInit(collection.address, admin, BigInt(SEASON_1.id), BigInt(SEASON_1.rangeStart), BigInt(SEASON_1.rangeEnd));
