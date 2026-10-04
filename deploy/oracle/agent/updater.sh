@@ -30,6 +30,8 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     fi
     # Athar is built on its own so a problem there can never block the media engine or the rest.
     if [ -f "$OR/agent/ATHAR_ON" ]; then
+      # public address of the management wallet (not a secret); put it in agent/ATHAR_ADMIN to switch the app from "soon" to live
+      [ -f "$OR/agent/ATHAR_ADMIN" ] && export ATHAR_ADMIN="$(tr -d ' \r\n' < "$OR/agent/ATHAR_ADMIN")"
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
         # Caddyfile is a single-file bind mount: git replaces the file, so the container keeps seeing the old one
