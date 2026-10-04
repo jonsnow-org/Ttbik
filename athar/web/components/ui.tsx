@@ -2,18 +2,24 @@
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { TIER_NAME_AR } from "@/lib/dates";
+import { LANGS, useI18n } from "@/lib/i18n";
 import { Msg, tx } from "@/lib/tx";
 
 export function Top() {
+  const { lang, setLang } = useI18n();
   return (
     <div className="top">
       <Link href="/" className="logo">أثر<b>.</b></Link>
-      <TonConnectButton />
+      <div className="row" style={{ flex: "none", gap: 8 }}>
+        <select aria-label="language" value={lang} onChange={(e) => setLang(e.target.value as typeof lang)} style={{ width: "auto", padding: "8px 10px", fontSize: 14 }}>
+          {LANGS.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+        </select>
+        <TonConnectButton />
+      </div>
     </div>
   );
 }
-export const TierBadge = ({ tier }: { tier: number }) => <span className={`badge t${tier}`}>{TIER_NAME_AR[tier]}</span>;
+export const TierBadge = ({ tier }: { tier: number }) => { const { t } = useI18n(); return <span className={`badge t${tier}`}>{t(`tier.${tier}` as "tier.0")}</span>; };
 export const Bar = ({ value }: { value: number }) => <div className="bar"><i style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} /></div>;
 export const ton = (n: number | null | undefined) => (n == null ? "—" : `${n.toFixed(n < 10 ? 2 : 1)} TON`);
 
@@ -30,14 +36,15 @@ export function useSend() {
   const [ui] = useTonConnectUI();
   const address = useTonAddress();
   const toast = useToast();
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
-  const send = useCallback(async (messages: Msg[], okText = "تم الإرسال. سيظهر الأثر خلال لحظات.") => {
+  const send = useCallback(async (messages: Msg[], okText?: string) => {
     if (!address) { ui.openModal(); return false; }
     setBusy(true);
-    try { await ui.sendTransaction(tx(messages)); toast(okText); return true; }
-    catch { toast("لم تكتمل العملية (أُلغيت أو رُفضت من المحفظة)."); return false; }
+    try { await ui.sendTransaction(tx(messages)); toast(okText ?? t("ui.sent")); return true; }
+    catch { toast(t("ui.cancelled")); return false; }
     finally { setBusy(false); }
-  }, [address, ui, toast]);
+  }, [address, ui, toast, t]);
   return { send, busy, address };
 }
 

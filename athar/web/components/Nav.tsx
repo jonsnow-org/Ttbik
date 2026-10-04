@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n";
 
 const I = {
   home: <path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
@@ -10,18 +11,19 @@ const I = {
   me: <><circle cx="12" cy="8" r="4" /><path d="M4 21c1-4 4-6 8-6s7 2 8 6" /></>,
 };
 const TABS = [
-  { href: "/", label: "الرئيسية", icon: I.home }, { href: "/date", label: "ابحث", icon: I.find },
-  { href: "/mystery", label: "الغموض", icon: I.box }, { href: "/auctions", label: "المزادات", icon: I.gavel }, { href: "/mine", label: "رموزي", icon: I.me },
-];
+  { href: "/", label: "nav.home", icon: I.home }, { href: "/date", label: "nav.find", icon: I.find },
+  { href: "/mystery", label: "nav.mystery", icon: I.box }, { href: "/auctions", label: "nav.auctions", icon: I.gavel }, { href: "/mine", label: "nav.mine", icon: I.me },
+] as const;
 export default function Nav() {
   const path = usePathname();
+  const { t } = useI18n();
   if (path.startsWith("/admin")) return null;
   return (
     <nav className="nav">
-      {TABS.map((t) => (
-        <Link key={t.href} href={t.href} className={(t.href === "/" ? path === "/" : path.startsWith(t.href)) ? "on" : ""}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{t.icon}</svg>
-          {t.label}
+      {TABS.map((tab) => (
+        <Link key={tab.href} href={tab.href} className={(tab.href === "/" ? path === "/" : path.startsWith(tab.href)) ? "on" : ""}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{tab.icon}</svg>
+          {t(tab.label)}
         </Link>
       ))}
     </nav>

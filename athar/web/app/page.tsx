@@ -1,56 +1,55 @@
 "use client";
 import Link from "next/link";
 import { Bar, Top, ton, useApi } from "@/components/ui";
+import { useI18n } from "@/lib/i18n";
 
-type Season = { configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; name: string; prices?: { common: number; rare: number; ticket: number }; pool: { mythic: number; rare: number; common: number } };
+type Season = { configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; prices?: { common: number; rare: number; ticket: number } };
 
 export default function Home() {
+  const { t } = useI18n();
   const { data: s } = useApi<Season>("/api/season", 15000);
   const live = s?.configured && s.deployed && s.status === 1;
+  const steps = [["home.s1t", "home.s1d"], ["home.s2t", "home.s2d"], ["home.s3t", "home.s3d"]] as const;
+  const why = [["home.w1h", "home.w1d"], ["home.w2h", "home.w2d"], ["home.w3h", "home.w3d"], ["home.w4h", "home.w4d"]] as const;
   return (
     <>
       <Top />
       <div className="card hero">
-        <img src="/api/img/18262.svg?t=2&g=3&h=7" alt="أثر" />
-        <h1>لكل يوم أثر. واليوم الذي يخصّك لك وحدك.</h1>
-        <p className="muted">رمز واحد فقط لكل تاريخ بين 1950 و2049. يحفظ من امتلكه وما كتبوه، ويكبر شكله كلما احتُفظ به.</p>
-        <Link href="/date" className="btn gold">ابحث عن تاريخك</Link>
+        <img src="/api/img/18262.svg?t=2&g=3&h=7" alt="Athar" />
+        <h1>{t("home.title")}</h1>
+        <p className="muted">{t("home.sub")}</p>
+        <Link href="/date" className="btn gold">{t("home.cta")}</Link>
       </div>
 
       <div className="card">
-        <div className="row between"><h3>{s?.name ?? "الموسم الأول"}</h3><span className={`badge ${live ? "t1" : "t0"}`}>{live ? "مفتوح الآن" : "قريباً"}</span></div>
-        <p className="muted">{s ? `${s.size.toLocaleString("ar")} تاريخاً في هذا الموسم` : "…"}</p>
+        <div className="row between"><h3>{t("home.season")}</h3><span className={`badge ${live ? "t1" : "t0"}`}>{live ? t("home.open") : t("home.soon")}</span></div>
+        <p className="muted">{s ? t("home.size", { n: s.size }) : "…"}</p>
         <Bar value={s && s.sold != null ? s.sold / s.size : 0} />
         <div className="row" style={{ marginTop: 14 }}>
-          <div className="stat"><b>{s?.sold ?? 0}</b><span>مُصكوك</span></div>
-          <div className="stat"><b>{ton(s?.prices?.common)}</b><span>سعر العادي الآن</span></div>
-          <div className="stat"><b>{ton(s?.prices?.rare)}</b><span>سعر النادر الآن</span></div>
+          <div className="stat"><b>{s?.sold ?? 0}</b><span>{t("home.minted")}</span></div>
+          <div className="stat"><b>{ton(s?.prices?.common)}</b><span>{t("home.pcommon")}</span></div>
+          <div className="stat"><b>{ton(s?.prices?.rare)}</b><span>{t("home.prare")}</span></div>
         </div>
-        <p className="muted" style={{ marginTop: 10 }}>الأسعار تتحرك وحدها: ترتفع مع كل عملية شراء وتنخفض عندما يهدأ الطلب. اشترِ مبكراً.</p>
+        <p className="muted" style={{ marginTop: 10 }}>{t("home.pnote")}</p>
       </div>
 
       <div className="card">
-        <h3>كيف يعمل؟</h3>
+        <h3>{t("home.how")}</h3>
         <div className="steps">
-          <div className="step"><i>1</i><div><b>اختر تاريخك</b><div className="muted">ميلادك، زواجك، أو يوم تحبه.</div></div></div>
-          <div className="step"><i>2</i><div><b>اصنع أثرك</b><div className="muted">تدفع من محفظتك مباشرة. لا حساب ولا وسيط.</div></div></div>
-          <div className="step"><i>3</i><div><b>اكتب ذاكرتك</b><div className="muted">انقش سطراً يبقى مع الرمز للأبد، ومن بعدك يقرؤه.</div></div></div>
+          {steps.map(([a, b], i) => <div className="step" key={a}><i>{i + 1}</i><div><b>{t(a)}</b><div className="muted">{t(b)}</div></div></div>)}
         </div>
       </div>
 
       <div className="card">
-        <h3>ما الذي يجعله مختلفاً؟</h3>
-        <div className="note"><b>ذاكرة:</b> كل من امتلك الرمز يترك فيه أثراً مكتوباً.</div>
-        <div className="note"><b>ينضج:</b> يتغير شكله مع طول الاحتفاظ به، وأي نقل يعيد العدّاد.</div>
-        <div className="note"><b>ندرة حقيقية:</b> قواعد الندرة معلنة ومكتوبة في العقد. لا أحد يعرف ولا يغيّر شيئاً بعد النشر.</div>
-        <div className="note"><b>عدالة:</b> صناديق الغموض تُكشف بعشوائية لا يعرفها حتى نحن.</div>
+        <h3>{t("home.why")}</h3>
+        {why.map(([a, b]) => <div className="note" key={a}><b>{t(a)}:</b> {t(b)}</div>)}
       </div>
 
       <div className="row" style={{ gap: 10 }}>
-        <Link href="/mystery" className="btn ghost">صندوق الغموض</Link>
-        <Link href="/auctions" className="btn ghost">المزادات الأسطورية</Link>
+        <Link href="/mystery" className="btn ghost">{t("home.mbtn")}</Link>
+        <Link href="/auctions" className="btn ghost">{t("home.abtn")}</Link>
       </div>
-      <p className="muted" style={{ textAlign: "center", marginTop: 18 }}>من شام AI</p>
+      <p className="muted" style={{ textAlign: "center", marginTop: 18 }}>{t("brand.by")}</p>
     </>
   );
 }
