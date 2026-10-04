@@ -6,6 +6,7 @@ import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { storeNow } from "@/lib/storage";
 import { enqueue } from "@/lib/mediaQueue";
+import { storedMotion } from "@/lib/live";
 import { OCCASIONS } from "@/lib/occasions";
 import { imageSize } from "@/lib/imgsize";
 import { tokenState } from "@/lib/chain";
@@ -74,6 +75,7 @@ export async function POST(req: Request) {
     if (dims.w / dims.h < 0.25 || dims.w / dims.h > 4) notes.push("shape");
     svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, dims);
   }
+  if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
   if (preview) return NextResponse.json({ svg, notes });
   try {
     const st2 = await storeNow(svg);

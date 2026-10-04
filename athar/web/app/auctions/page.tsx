@@ -23,7 +23,7 @@ function Card({ a, minter, onDone }: { a: A; minter?: string; onDone: () => void
   return (
     <div className="card">
       <div className="row between"><h3>{dateLabel(y, m, d)}</h3><span className="badge t2">{t("tier.2")}</span></div>
-      <img src={au.mediaRef && au.mediaRef !== "0" ? `https://turbo-gateway.com/${arweaveId(BigInt(au.mediaRef))}` : `/api/img/${a.index}.svg?t=2`} alt="" style={{ width: "60%", maxWidth: 220, display: "block", margin: "8px auto", borderRadius: 20 }} />
+      <img src={au.mediaRef && au.mediaRef !== "0" ? `https://turbo-gateway.com/${arweaveId(BigInt(au.mediaRef))}` : `/api/img/${a.index}.svg?t=2&live=1`} alt="" style={{ width: "60%", maxWidth: 220, display: "block", margin: "8px auto", borderRadius: 20 }} />
       <div className="kv"><span>{au.highBidder ? t("auc.high") : t("auc.reserve")}</span><span>{ton(au.highBidder ? au.highBid : au.reserve)}</span></div>
       {au.highBidder && <div className="kv"><span>{t("auc.bidder")}</span><span className="mono">{short(au.highBidder)}</span></div>}
       <div className="kv"><span>{t("auc.endsIn")}</span><span>{left > 0 ? `${Math.floor(left / 3600)}:${String(Math.floor((left % 3600) / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}` : t("auc.ended")}</span></div>

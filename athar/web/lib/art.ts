@@ -103,7 +103,7 @@ function shell(a: ArtInput, centre: string, defs: string): string {
 <clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
 ${defs}</defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
-${rings}${rim}${dots}${glow}
+<g class="ar-rings">${rings}</g><g class="ar-rim">${rim}</g><g class="ar-dots">${dots}</g><g class="ar-glow">${glow}</g>
 <circle cx="400" cy="400" r="${PR}" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
 ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
@@ -121,7 +121,7 @@ export function renderArt(a: ArtInput): string {
   const accent = a.tier === 2 || occ?.gold ? GOLD : pal.accent;
   const ro = rosette(a, accent, pal.ink);
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.34 : a.tier === 1 ? 0.26 : 0.38}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
-  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${ro.body}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
+  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}><g class="ar-ro">${ro.body}</g></g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
 

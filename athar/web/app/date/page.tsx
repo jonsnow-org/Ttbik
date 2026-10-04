@@ -85,7 +85,7 @@ export default function DatePage() {
       </div>
 
       <div className="card" style={{ textAlign: "center" }}>
-        <img src={`/api/img/${index}.svg${fresh ? `?t=${info!.tier}` : ""}`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
+        <img src={`/api/img/${index}.svg?live=1${fresh ? `&t=${info!.tier}` : ""}`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, dd)}</h2>
         {fresh && <TierBadge tier={info!.tier} />}
         {!fresh && <p className="muted">…</p>}

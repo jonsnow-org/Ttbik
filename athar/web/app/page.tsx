@@ -15,7 +15,7 @@ export default function Home() {
     <>
       <Top />
       <div className="card hero">
-        <img src="/api/img/18262.svg?t=2&g=3&h=7" alt="Athar" />
+        <img src="/api/img/18262.svg?t=2&g=3&h=7&live=1" alt="Athar" />
         <h1>{t("home.title")}</h1>
         <p className="muted">{t("home.sub")}</p>
         <Link href="/date" className="btn gold">{t("home.cta")}</Link>

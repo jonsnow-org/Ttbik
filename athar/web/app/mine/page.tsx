@@ -17,7 +17,7 @@ export default function Mine() {
       {address && data && data.tokens.length === 0 && <div className="card"><p className="muted">{t("mine.none")}</p><Link className="btn gold" href="/date">{t("home.cta")}</Link></div>}
       <div className="grid">
         {data?.tokens.map((i) => { const { y, m, d } = ymd(i); return (
-          <Link key={i} href={`/token/${i}`} className="card tok"><img src={`/api/img/${i}.svg`} alt="" /><div>{dateLabel(y, m, d)}</div></Link>
+          <Link key={i} href={`/token/${i}`} className="card tok"><img src={`/api/img/${i}.svg?live=1`} alt="" /><div>{dateLabel(y, m, d)}</div></Link>
         ); })}
       </div>
     </>

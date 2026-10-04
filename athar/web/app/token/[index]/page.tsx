@@ -38,7 +38,8 @@ export default function Token({ params }: { params: { index: string } }) {
   const mine = !!address && eq(address, t.owner);
   if (!mediaInit && t) { setMediaInit(true); setMedia({ occasion: t.occasion, photo: null }); }
   const stage = stageOf(t.lastTransferAt);
-  const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}`;
+  const today = new Date(), anniv = today.getMonth() + 1 === m && today.getDate() === d;   // the date's own day: a golden aura
+  const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}&live=1${anniv ? "&ann=1" : ""}`;
   const shown = t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
   const tokAddr = t.address;
   async function storeAndSet(kind: "photo" | "snapshot") {
