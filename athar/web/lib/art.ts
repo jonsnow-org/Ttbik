@@ -77,10 +77,11 @@ ${occ ? `<g transform="translate(400 188) scale(0.8)">${emblem(occ.id, accent)}<
  */
 export function photoBox(w: number, h: number, r: number): { iw: number; ih: number } {
   // The photo keeps its own aspect ratio and is enlarged to fill the circle: a clearly tall or wide photo gets its long side
-  // equal to the circle's diameter (only the far corners of that long edge touch the rim); a near-square photo is
-  // enlarged less so its corners are not lost. The space the photo does not reach is painted by a blurred copy of itself.
+  // a little longer than the circle's diameter (the circle is narrowest at those ends, so only far-corner background is lost);
+  // a near-square photo is enlarged less so its corners are not lost. What the photo still does not reach is painted by
+  // mirrored, softened copies of its own edges, so there are never black bars.
   const asp = w / h, tall = Math.min(1, Math.abs(Math.log(asp)) / Math.log(2));
-  const L = 2 * r * (0.86 + 0.14 * tall);
+  const L = 2 * r * (0.86 + 0.26 * tall);
   const k = L / Math.max(w, h);
   return { iw: Math.floor(w * k), ih: Math.floor(h * k) };
 }
@@ -113,15 +114,14 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
 <clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
-<filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="22"/></filter>
+<filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
 <image id="ph" href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
 </defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
 ${rings}${rim}${dots}
 <circle cx="400" cy="400" r="${PR}" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
 <g clip-path="url(#win)">
-<g filter="url(#soft)"><use href="#ph" xlink:href="#ph" transform="translate(400 400) scale(${(Math.max(1, (2 * PR) / Math.min(iw, ih)) * 1.15).toFixed(3)}) translate(-400 -400)"/></g>
-<rect x="${400 - PR}" y="${400 - PR}" width="${2 * PR}" height="${2 * PR}" fill="#050914" opacity="0.28"/>
+<g filter="url(#soft)">${ix > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use href="#ph" xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
 <use href="#ph" xlink:href="#ph"/>
 </g>
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>

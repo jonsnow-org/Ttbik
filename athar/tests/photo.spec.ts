@@ -30,9 +30,8 @@ describe("photo shape", () => {
     const m = /<image id="ph"[^>]*width="(\d+)" height="(\d+)"/.exec(tall)!;
     const w = Number(m[1]), h = Number(m[2]);
     expect(w).toBeLessThan(300);
-    expect(h).toBeGreaterThan(440);                               // enlarged to fill the circle's height
-    expect(h).toBeLessThanOrEqual(474);
-    expect(tall).toContain('feGaussianBlur');                     // the side space is painted by a blurred copy, never black bars
+    expect(h).toBeGreaterThanOrEqual(474);                        // enlarged to fill (a little beyond) the circle's height
+    expect(tall).toContain('scale(-1 1)');                        // the side space is painted by mirrored, softened copies of the photo, never black bars
     expect(tall).toContain('<circle cx="400" cy="400" r="392"');   // round token on a transparent square canvas
     expect(tall).not.toContain('<rect width="800"');
   });
