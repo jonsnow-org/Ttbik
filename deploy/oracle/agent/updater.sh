@@ -42,6 +42,12 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
         if [ -n "$NEWPATH" ]; then tg_notify "رابط إدارة أثر (سرّي، لا تشاركه): https://athar.$(getkv "$OR/.env" PUBLIC_HOST)/$ATHAR_ADMIN_PATH"; fi
+        # Test-network twin of the app (same code, own hostname): rehearse and show test tokens without touching the real one.
+        # Switched on by agent/ATHAR_TEST_ADMIN (the test wallet's public address). A failure here never affects the real app.
+        if [ -s "$OR/agent/ATHAR_TEST_ADMIN" ]; then
+          export ATHAR_TEST_ADMIN="$(tr -d ' \r\n' < "$OR/agent/ATHAR_TEST_ADMIN")"
+          if docker compose --profile athar up -d --build athar-web-test > "$STATE/athar_test.log" 2>&1; then echo "$(now) OK" > "$STATE/athar_test_status"; else echo "$(now) FAILED: $(tail -3 "$STATE/athar_test.log" | tr '\n' ' ' | mask | cut -c1-200)" > "$STATE/athar_test_status"; fi
+        fi
         # Caddyfile is a single-file bind mount: git replaces the file, so the container keeps seeing the old one
         # until it restarts. Restart Caddy only when the file is newer than the running container (certificates persist).
         cid=$(docker compose ps -q caddy 2>/dev/null | head -1)

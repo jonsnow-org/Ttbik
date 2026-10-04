@@ -74,6 +74,7 @@ out={
  "watchdog": rd(f"{STATE}/watchdog_note").strip(),
  "sweeper": rd(f"{STATE}/sweeper_note").strip(),
  "athar": rd(f"{STATE}/athar_status").strip(),
+ "athar_test": rd(f"{STATE}/athar_test_status").strip(),
  "bots_health": (lambda t: (json.loads(t) if t.strip().startswith("{") else t[:200]))(rd(f"{STATE}/bots_health.json")),
  "restore_selftest": rd(f"{STATE}/restore_selftest").strip(),
  "auto_restore": os.path.exists(f"{OR}/agent/AUTO_RESTORE_ON"),
