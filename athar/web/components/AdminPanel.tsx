@@ -25,6 +25,17 @@ export default function AdminPanel() {
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [secretShown, setSecretShown] = useState("");
+  const [hiddenRows, setHiddenRows] = useState<{ kind: string; key: string; at: number; note: string }[]>([]);
+  const [hKind, setHKind] = useState<"token" | "ref">("token");
+  const [hKey, setHKey] = useState("");
+  const [hNote, setHNote] = useState("");
+  const adm = () => ({ "x-athar-adm": window.location.pathname.slice(1), "content-type": "application/json" });
+  const loadHidden = useCallback(async () => { const r = await fetch("/api/admin/hide", { headers: adm(), cache: "no-store" }); if (r.ok) setHiddenRows((await r.json()).rows); }, []);
+  useEffect(() => { loadHidden(); }, [loadHidden]);
+  async function hideAct(action: "hide" | "unhide", kind = hKind, key = hKey) {
+    const r = await fetch("/api/admin/hide", { method: "POST", headers: adm(), body: JSON.stringify({ kind, key, note: hNote, action }) });
+    if (r.ok) { setHiddenRows((await r.json()).rows); if (action === "hide") { setHKey(""); setHNote(""); } } else toast("مفتاح غير صالح");
+  }
   const stRef = useRef<St | null>(null);
   stRef.current = st;
 
@@ -151,6 +162,23 @@ export default function AdminPanel() {
           <p className="muted">الأرباح تصل إلى عنوان الاستلام فور كل عملية بيع، ولا تُحفظ في العقود.</p>
         </div>
       )}
+
+      <div className="card">
+        <h3>الإخفاء القانوني للصور</h3>
+        <p className="muted">يُخفي الصورة من التطبيق ومن بيانات الرمز عند ورود أمر قانوني مثبَت. الملف الخام على Arweave لا يُحذف. بعد الإخفاء يحتاج السوق لتحديث البيانات ليظهر ذلك عنده.</p>
+        <div className="gap">
+          <select value={hKind} onChange={(e) => setHKind(e.target.value as "token" | "ref")}><option value="token">كل صور رمز (رقم الرمز)</option><option value="ref">ملف محدد (معرّف Arweave)</option></select>
+          <input type="text" dir="ltr" placeholder={hKind === "token" ? "رقم الرمز، مثل 18262" : "معرّف Arweave من 43 حرفاً"} value={hKey} onChange={(e) => setHKey(e.target.value)} />
+          <input type="text" placeholder="مرجع القضية أو الطلب (يُحفظ في السجل)" value={hNote} onChange={(e) => setHNote(e.target.value)} />
+          <button className="btn" disabled={!hKey.trim()} onClick={() => hideAct("hide")}>أخفِ</button>
+        </div>
+        {hiddenRows.map((r) => (
+          <div className="kv" key={r.kind + r.key} style={{ alignItems: "center" }}>
+            <span className="mono">{r.kind === "token" ? "رمز " : "ملف "}{r.key}<br />{r.note} · {new Date(r.at * 1000).toLocaleDateString("ar")}</span>
+            <button className="btn sm ghost" onClick={() => hideAct("unhide", r.kind as "token" | "ref", r.key)}>إلغاء الإخفاء</button>
+          </div>
+        ))}
+      </div>
 
       {launched && st && (
         <div className="card">

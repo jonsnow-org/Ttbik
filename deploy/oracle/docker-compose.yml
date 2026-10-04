@@ -82,6 +82,9 @@ services:
       ATHAR_ADMIN: ${ATHAR_ADMIN:-}        # read at run time: set it in .env and restart, no rebuild
       ATHAR_ADMIN_PATH: ${ATHAR_ADMIN_PATH:-}   # secret address of the management panel (made by the update agent)
       ATHAR_TURBO_KEY: ${ATHAR_TURBO_KEY:-}     # throw-away signer for free permanent uploads (made by the update agent)
+      ATHAR_DATA_DIR: /data                    # the legal-takedown list lives here and survives rebuilds
+    volumes:
+      - /var/lib/ttbik/athar:/data
     mem_limit: 1g
     logging:
       driver: json-file

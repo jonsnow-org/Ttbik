@@ -5,3 +5,4 @@ build/*.fif
 build/*.md
 build/*.pkg.bak
 athar-samples.png
+athar-*.png

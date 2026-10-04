@@ -9,7 +9,7 @@ import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import { useToast } from "@/components/ui";
 
-type Tok = { occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
+type Tok = { pictureHidden?: boolean; occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
 
 export default function Token({ params }: { params: { index: string } }) {
   const index = Number(params.index);
@@ -28,7 +28,7 @@ export default function Token({ params }: { params: { index: string } }) {
   if (!mediaInit && t) { setMediaInit(true); setMedia({ occasion: t.occasion, photo: null }); }
   const stage = stageOf(t.lastTransferAt);
   const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}`;
-  const shown = t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
+  const shown = t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
   const tokAddr = t.address;
   async function storeAndSet(kind: "photo" | "snapshot") {
     setStoring(true); toast(tr("media.saving"));

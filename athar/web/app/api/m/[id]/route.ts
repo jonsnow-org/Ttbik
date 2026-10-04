@@ -3,6 +3,7 @@ import { tokenState } from "@/lib/chain";
 import { dateLabelAr, MONTHS_EN, stageOf, STAGE_NAME_AR, TIER_NAME_AR, TIER_NAME_EN, ymd, TOTAL_DATES } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { SITE_URL } from "@/lib/config";
+import { isHiddenRef, isHiddenToken } from "@/lib/hidden";
 export const dynamic = "force-dynamic";
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   const index = Number(params.id.replace(/\.json$/, ""));
@@ -17,13 +18,14 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     { trait_type: "Rarity", value: TIER_NAME_EN[tier] }, { trait_type: "الندرة", value: TIER_NAME_AR[tier] },
   ];
   if (st) attrs.push({ trait_type: "Season", value: st.season }, { trait_type: "Age stage", value: STAGE_NAME_AR[stage] }, { trait_type: "Hands", value: st.hands }, { trait_type: "Engravings", value: st.engravings.length }, { trait_type: "Edition", value: 1 });
-  const permanent = st?.mediaRef ? `https://turbo-gateway.com/${st.mediaRef}` : null;
+  const hidden = isHiddenToken(index) || isHiddenRef(st?.mediaRef);
+  const permanent = st?.mediaRef && !hidden ? `https://turbo-gateway.com/${st.mediaRef}` : null;
   if (st) attrs.push({ trait_type: "Occasion", value: st.occasion });
   const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}` : `?t=${tier}`;
   return NextResponse.json({
     name: `أثر · ${dateLabelAr(y, m, d)}`,
     description: `رمز اليوم ${dateLabelAr(y, m, d)} — ${TIER_NAME_AR[tier]}. يحفظ ذاكرة كل من امتلكه.${st && st.engravings[0] ? `\nآخر نقش: ${st.engravings[0].text}` : ""}`,
-    image: permanent ?? `${SITE_URL}/api/img/${index}.svg${q}`,
+    image: hidden ? `${SITE_URL}/api/img/hidden.svg` : permanent ?? `${SITE_URL}/api/img/${index}.svg${q}`,
     attributes: attrs,
   }, { headers: { "Cache-Control": "public, max-age=60" } });
 }

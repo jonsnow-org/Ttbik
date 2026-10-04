@@ -2,6 +2,7 @@
 // date -> shape, tier -> frame and halo, season -> palette, age stage -> rings, hands -> orbiting dots.
 import { MONTHS_AR, MONTHS_EN, ymd } from "./dates";
 import { emblem, occasionById } from "./occasions";
+import { fitWindow } from "./imgsize";
 
 const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: string }> = {
   1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#7aa2ff" },
@@ -73,7 +74,7 @@ ${occ ? `<g transform="translate(400 188) scale(0.8)">${emblem(occ.id, accent)}<
  * inside a framed window; the date becomes a small badge in the corner. The result is ONE self-contained SVG
  * (the photo is embedded), small enough to be stored permanently on Arweave for free (< 100 KiB).
  */
-export function renderPhotoArt(a: ArtInput, photoDataUri: string): string {
+export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: number; h: number }): string {
   const { y, m, d } = ymd(a.index);
   const pal = PALETTES[a.season] || PALETTES[1];
   const occ = occasionById(a.occasion ?? 0);
@@ -81,22 +82,27 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string): string {
   const accent = mythic || occ?.gold ? GOLD : pal.accent;
   const W = 800;
   const stroke = mythic ? 9 : rare ? 6 : 4;
+  // the window takes the photo's own shape, centred in the frame area
+  const { ww, wh } = dims && dims.w > 0 && dims.h > 0 ? fitWindow(dims.w, dims.h) : { ww: 656, wh: 548 };
+  const wx = Math.round(400 - ww / 2), wy = Math.round(390 - wh / 2);
+  const fx = wx - 6, fy = wy - 6, fw = ww + 12, fh = wh + 12;
   let stage = "";
-  for (let i = 1; i <= a.stage; i++) stage += `<rect x="${60 - i * 7}" y="${104 - i * 7}" width="${680 + i * 14}" height="${572 + i * 14}" rx="${44 + i * 7}" fill="none" stroke="${accent}" stroke-width="1.2" opacity="${(0.55 - i * 0.08).toFixed(2)}"/>`;
+  for (let i = 1; i <= a.stage; i++) stage += `<rect x="${fx - i * 7}" y="${fy - i * 7}" width="${fw + i * 14}" height="${fh + i * 14}" rx="${44 + i * 7}" fill="none" stroke="${accent}" stroke-width="1.2" opacity="${(0.55 - i * 0.08).toFixed(2)}"/>`;
+  const bx = Math.min(fx + fw - 20, 726), by = Math.min(fy + fh - 6, 726);   // date badge: bottom-right corner of the frame
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${W}" width="${W}" height="${W}">
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
-<clipPath id="win"><rect x="72" y="116" width="656" height="548" rx="34"/></clipPath>
+<clipPath id="win"><rect x="${wx}" y="${wy}" width="${ww}" height="${wh}" rx="30"/></clipPath>
 </defs>
 <rect width="${W}" height="${W}" rx="56" fill="url(#bg)"/>
 ${stage}
-<rect x="66" y="110" width="668" height="560" rx="40" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
-<image href="${photoDataUri}" xlink:href="${photoDataUri}" x="72" y="116" width="656" height="548" preserveAspectRatio="xMidYMid meet" clip-path="url(#win)"/>
-<g transform="translate(646 650)"><circle r="74" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(4, stroke - 2)}"/>
-<text y="14" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="68" font-weight="700" fill="${pal.ink}">${String(d).padStart(2, "0")}</text>
-<text y="44" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="19" letter-spacing="2" fill="${accent}">${MONTHS_EN[m - 1]} ${y}</text></g>
-${occ ? `<g transform="translate(140 740) scale(0.7)">${emblem(occ.id, accent)}</g>` : ""}
+<rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="36" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
+<image href="${photoDataUri}" xlink:href="${photoDataUri}" x="${wx}" y="${wy}" width="${ww}" height="${wh}" preserveAspectRatio="xMidYMid meet" clip-path="url(#win)"/>
+<g transform="translate(${bx} ${by - 4})"><circle r="70" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(4, stroke - 2)}"/>
+<text y="12" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="700" fill="${pal.ink}">${String(d).padStart(2, "0")}</text>
+<text y="40" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" letter-spacing="2" fill="${accent}">${MONTHS_EN[m - 1]} ${y}</text></g>
+${occ ? `<g transform="translate(110 742) scale(0.7)">${emblem(occ.id, accent)}</g>` : ""}
 <text x="400" y="72" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
-<text x="400" y="760" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}</text>
+<text x="400" y="766" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}</text>
 </svg>`;
 }

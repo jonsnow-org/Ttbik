@@ -6,6 +6,7 @@ import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { idToUint256, uploadPermanent } from "@/lib/arweave";
 import { OCCASIONS } from "@/lib/occasions";
+import { imageSize } from "@/lib/imgsize";
 import { tokenState } from "@/lib/chain";
 import { stageOf } from "@/lib/dates";
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
     if (buf.length > MAX_PHOTO) return NextResponse.json({ error: `photo too large (${Math.round(buf.length / 1024)} KB, max ${Math.round(MAX_PHOTO / 1024)} KB)` }, { status: 413 });
     const mime = mimeOf(buf);
     if (!mime) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
-    svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`);
+    svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, imageSize(buf) ?? undefined);
   }
   if (preview) return NextResponse.json({ svg });
   try {

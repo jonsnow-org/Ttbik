@@ -8,7 +8,7 @@ import { useI18n } from "@/lib/i18n";
 
 const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-export type MediaState = { occasion: number; photo: string | null };
+export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number };
 
 /** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
 export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0 }: {
@@ -18,15 +18,16 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
   const base = { index, tier, season, stage, hands, engravings, occasion: value.occasion };
-  const preview = value.photo ? renderPhotoArt(base, value.photo) : renderArt(base);
+  const preview = value.photo ? renderPhotoArt(base, value.photo, value.w && value.h ? { w: value.w, h: value.h } : undefined) : renderArt(base);
 
   async function pick(f: File | undefined) {
     if (!f) return;
     setBusy(true); setErr("");
     try {
-      const uri = await compressPhoto(f);
-      if (!uri) setErr(t("media.tooBig")); else onChange({ ...value, photo: uri });
+      const r = await compressPhoto(f);
+      if (!r) setErr(t("media.tooBig")); else onChange({ ...value, photo: r.uri, w: r.w, h: r.h });
     } catch { setErr(t("media.tooBig")); }
     finally { setBusy(false); }
   }
@@ -42,8 +43,10 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
         ))}
       </div>
       <div className="muted">{t("media.photo")}</div>
+      <div className="note">{t("media.warn")}</div>
+      <label className="muted"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} /> {t("media.consent")}</label>
       <div className="row" style={{ gap: 8 }}>
-        <button type="button" className="btn ghost" disabled={busy} onClick={() => file.current?.click()}>{busy ? t("media.busy") : t("media.choose")}</button>
+        <button type="button" className="btn ghost" disabled={busy || !ok} onClick={() => file.current?.click()}>{busy ? t("media.busy") : t("media.choose")}</button>
         {value.photo && <button type="button" className="btn ghost" onClick={() => onChange({ ...value, photo: null })}>{t("media.remove")}</button>}
         <input ref={file} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(e.target.files?.[0])} />
       </div>

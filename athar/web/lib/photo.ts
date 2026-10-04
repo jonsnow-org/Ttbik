@@ -12,7 +12,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-export async function compressPhoto(file: File): Promise<string | null> {
+export async function compressPhoto(file: File): Promise<{ uri: string; w: number; h: number } | null> {
   const img = await loadImage(file);
   let side = Math.min(760, Math.max(img.naturalWidth, img.naturalHeight));
   for (let round = 0; round < 8; round++) {
@@ -25,7 +25,7 @@ export async function compressPhoto(file: File): Promise<string | null> {
     for (const q of [0.85, 0.75, 0.65, 0.55, 0.45]) {
       const uri = c.toDataURL("image/jpeg", q);
       const bytes = Math.floor((uri.length - uri.indexOf(",") - 1) * 0.75);
-      if (bytes <= PHOTO_BUDGET) return uri;
+      if (bytes <= PHOTO_BUDGET) return { uri, w: c.width, h: c.height };
     }
     side = Math.round(side * 0.82);
   }
