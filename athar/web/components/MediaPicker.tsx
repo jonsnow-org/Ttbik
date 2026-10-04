@@ -1,0 +1,54 @@
+"use client";
+import { useRef, useState } from "react";
+import { renderArt, renderPhotoArt } from "@/lib/art";
+import { OCCASIONS } from "@/lib/occasions";
+import { emblem } from "@/lib/occasions";
+import { compressPhoto } from "@/lib/photo";
+import { useI18n } from "@/lib/i18n";
+
+const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+
+export type MediaState = { occasion: number; photo: string | null };
+
+/** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
+export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0 }: {
+  index: number; tier: number; season: number; value: MediaState; onChange: (v: MediaState) => void; stage?: number; hands?: number; engravings?: number;
+}) {
+  const { t, lang } = useI18n();
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const base = { index, tier, season, stage, hands, engravings, occasion: value.occasion };
+  const preview = value.photo ? renderPhotoArt(base, value.photo) : renderArt(base);
+
+  async function pick(f: File | undefined) {
+    if (!f) return;
+    setBusy(true); setErr("");
+    try {
+      const uri = await compressPhoto(f);
+      if (!uri) setErr(t("media.tooBig")); else onChange({ ...value, photo: uri });
+    } catch { setErr(t("media.tooBig")); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="gap">
+      <div className="muted">{t("media.occasion")}</div>
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <button type="button" className={`btn sm ${value.occasion === 0 ? "" : "ghost"}`} onClick={() => onChange({ ...value, occasion: 0 })}>{t("media.none")}</button>
+        {OCCASIONS.map((o) => (
+          <button type="button" key={o.id} className={`btn sm ${value.occasion === o.id ? "" : "ghost"}`} onClick={() => onChange({ ...value, occasion: o.id })} style={{ flex: "none" }}>
+            <svg width="22" height="22" viewBox="-50 -42 100 84" dangerouslySetInnerHTML={{ __html: emblem(o.id, "currentColor") }} /> {o.names[lang]}
+          </button>
+        ))}
+      </div>
+      <div className="muted">{t("media.photo")}</div>
+      <div className="row" style={{ gap: 8 }}>
+        <button type="button" className="btn ghost" disabled={busy} onClick={() => file.current?.click()}>{busy ? t("media.busy") : t("media.choose")}</button>
+        {value.photo && <button type="button" className="btn ghost" onClick={() => onChange({ ...value, photo: null })}>{t("media.remove")}</button>}
+        <input ref={file} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(e.target.files?.[0])} />
+      </div>
+      {err && <div className="bad">{err}</div>}
+      <img src={svgUri(preview)} alt="" style={{ width: "100%", maxWidth: 340, margin: "0 auto", display: "block", borderRadius: 22 }} />
+    </div>
+  );
+}

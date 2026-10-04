@@ -37,10 +37,8 @@ export async function addresses(season = 1) {
 
 const nano = (v: bigint | number) => Number(v) / 1e9;
 
-/** Arweave transaction ids are 32 bytes, written as 43 characters of URL-safe base64. */
-export function arweaveId(v: bigint) {
-  return Buffer.from(v.toString(16).padStart(64, "0"), "hex").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
+export { arweaveId } from "./ids";
+import { arweaveId } from "./ids";
 
 export async function seasonStatus(season = 1) {
   const a = await addresses(season);

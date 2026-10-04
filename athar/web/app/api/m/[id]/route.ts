@@ -17,9 +17,9 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     { trait_type: "Rarity", value: TIER_NAME_EN[tier] }, { trait_type: "الندرة", value: TIER_NAME_AR[tier] },
   ];
   if (st) attrs.push({ trait_type: "Season", value: st.season }, { trait_type: "Age stage", value: STAGE_NAME_AR[stage] }, { trait_type: "Hands", value: st.hands }, { trait_type: "Engravings", value: st.engravings.length }, { trait_type: "Edition", value: 1 });
-  const permanent = st?.mediaRef ? `https://arweave.net/${st.mediaRef}` : null;
+  const permanent = st?.mediaRef ? `https://turbo-gateway.com/${st.mediaRef}` : null;
   if (st) attrs.push({ trait_type: "Occasion", value: st.occasion });
-  const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}` : `?t=${tier}`;
+  const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}` : `?t=${tier}`;
   return NextResponse.json({
     name: `أثر · ${dateLabelAr(y, m, d)}`,
     description: `رمز اليوم ${dateLabelAr(y, m, d)} — ${TIER_NAME_AR[tier]}. يحفظ ذاكرة كل من امتلكه.${st && st.engravings[0] ? `\nآخر نقش: ${st.engravings[0].text}` : ""}`,

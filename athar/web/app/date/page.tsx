@@ -6,6 +6,9 @@ import { Top, TierBadge, ton, useApi, useSend } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { buyMsg, short } from "@/lib/tx";
+import MediaPicker, { MediaState } from "@/components/MediaPicker";
+import Born from "@/components/Born";
+import { useToast } from "@/components/ui";
 
 type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number } };
 type Season = { configured: boolean; minter?: string; deployed?: boolean; status?: number };
@@ -25,6 +28,13 @@ export default function DatePage() {
   const { data: info, reload } = useApi<Info>(`/api/date/${index}`, 12000);
   const { data: season } = useApi<Season>("/api/season", 20000);
   const { send, busy } = useSend();
+  const toast = useToast();
+  const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
+  const [perm, setPerm] = useState(true);
+  const [showMedia, setShowMedia] = useState(false);
+  const { data: sp } = useApi<{ special: { hasArt: boolean } | null }>(`/api/special?index=${index}`);
+  const useSpecial = !!sp?.special?.hasArt && !media.photo;
+  const [storing, setStoring] = useState(false);
   const [gift, setGift] = useState(false);
   const [to, setTo] = useState("");
   const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
@@ -33,7 +43,18 @@ export default function DatePage() {
 
   async function buy() {
     if (!season?.minter || info?.price == null) return;
-    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined)], t("date.sent"))) reload();
+    // the picture is stored permanently BEFORE the purchase so the token is born holding it
+    let ref = 0n;
+    if (perm) {
+      setStoring(true); toast(t("media.saving"));
+      try {
+        const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, kind: media.photo ? "photo" : useSpecial ? "special" : "snapshot", occasion: media.occasion, photo: media.photo }) });
+        const j = await r.json();
+        if (r.ok) ref = BigInt(j.ref); else toast(j.error || t("media.fail"));
+      } catch { toast(t("media.fail")); }
+      setStoring(false);
+    }
+    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref)], t("date.sent"))) reload();
   }
 
   return (
@@ -69,10 +90,14 @@ export default function DatePage() {
                 <div className="big">{ton(info!.price)}</div>
                 <p className="muted">{t("date.fees")}</p>
                 <div className="gap" style={{ textAlign: "start" }}>
+                  <label className="muted"><input type="checkbox" checked={showMedia} onChange={(e) => setShowMedia(e.target.checked)} /> {t("media.title")}</label>
+                  {showMedia && <MediaPicker index={index} tier={info!.tier} season={1} value={media} onChange={setMedia} />}
+                  <label className="muted"><input type="checkbox" checked={perm} onChange={(e) => setPerm(e.target.checked)} /> {t("media.perm")}</label>
+                  {perm && <span className="muted">{t("media.permNote")}</span>}
                   <label className="muted"><input type="checkbox" checked={gift} onChange={(e) => setGift(e.target.checked)} /> {t("gift.toggle")}</label>
                   {gift && <input type="text" dir="ltr" placeholder={t("gift.ph")} value={to} onChange={(e) => setTo(e.target.value)} />}
                   {gift && to && !toOk && <span className="bad">{t("gift.bad")}</span>}
-                  <button className="btn gold" disabled={busy || !season?.deployed || season.status !== 1 || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : gift ? t("gift.buy") : t("date.buy")}</button>
+                  <button className="btn gold" disabled={busy || storing || !season?.deployed || season.status !== 1 || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : gift ? t("gift.buy") : t("date.buy")}</button>
                 </div>
               </>
             )}
@@ -85,6 +110,7 @@ export default function DatePage() {
           </div>
         )}
       </div>
+      <Born index={index} />
       <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/mystery" style={{ color: "var(--gold)" }}>{t("home.mbtn")}</Link>.</p>
     </>
   );

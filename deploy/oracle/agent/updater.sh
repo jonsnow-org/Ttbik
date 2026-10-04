@@ -35,6 +35,9 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
       NEWPATH=""
       if [ ! -s "$STATE/athar_admin_path" ]; then head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-24 > "$STATE/athar_admin_path"; chmod 600 "$STATE/athar_admin_path"; NEWPATH=1; fi
       export ATHAR_ADMIN_PATH="$(cat "$STATE/athar_admin_path")"
+      # throw-away key that only signs free (under 100 KiB) permanent uploads; it holds nothing
+      [ -s "$STATE/athar_turbo_key" ] || { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$STATE/athar_turbo_key"; chmod 600 "$STATE/athar_turbo_key"; }
+      export ATHAR_TURBO_KEY="$(cat "$STATE/athar_turbo_key")"
       [ -f "$OR/agent/ATHAR_ADMIN" ] && export ATHAR_ADMIN="$(tr -d ' \r\n' < "$OR/agent/ATHAR_ADMIN")"
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
