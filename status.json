@@ -1,16 +1,7 @@
 {
- "generated_at": "2026-10-04 18:02 UTC",
+ "generated_at": "2026-10-04 18:30 UTC",
  "errors": [],
  "kernels": [
-  {
-   "alias": "المرحلة الثالثة 5",
-   "track": "chat_stage",
-   "status": "complete",
-   "role": "primary",
-   "last_run": "2026-10-02",
-   "gpu": false,
-   "failure": ""
-  },
   {
    "alias": "المدرّب الحي 1",
    "track": "live_trainer",
@@ -18,6 +9,15 @@
    "role": "primary",
    "last_run": "2026-10-03",
    "gpu": true,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 5",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-02",
+   "gpu": false,
    "failure": ""
   },
   {
@@ -30,21 +30,21 @@
    "failure": ""
   },
   {
-   "alias": "المرحلة الثالثة 3",
-   "track": "chat_stage",
-   "status": "complete",
-   "role": "duplicate",
-   "last_run": "2026-09-30",
-   "gpu": true,
-   "failure": ""
-  },
-  {
    "alias": "المرحلة الثالثة 2",
    "track": "chat_stage",
    "status": "complete",
    "role": "duplicate",
    "last_run": "2026-09-30",
    "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 3",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-30",
+   "gpu": true,
    "failure": ""
   },
   {
@@ -301,7 +301,7 @@
   },
   {
    "name": "sham-checkpoint",
-   "size": "0",
+   "size": "2776586859",
    "updated": "2026-10-04 06:51:23.393000",
    "downloads": "5"
   },
@@ -396,17 +396,139 @@
    "downloads": "1"
   }
  ],
+ "dataset_diag": {
+  "sham-multimodal-checkpoint": {
+   "status": "ready",
+   "files": 6,
+   "kinds": {
+    "model": 3,
+    "text": 3
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "final_multimodal.pt",
+    "image_tokenizer.pt",
+    "sham_small_tokenizer.json"
+   ],
+   "documented": true
+  },
+  "sham-checkpoint": {
+   "status": "ready",
+   "files": 5,
+   "kinds": {
+    "model": 3,
+    "text": 2
+   },
+   "sample": [
+    "checkpoints/final.pt",
+    "checkpoints/step_55200.pt",
+    "checkpoints/step_55400.pt",
+    "sham_small_tokenizer.json"
+   ],
+   "documented": true
+  },
+  "sham-chat-checkpoint": {
+   "status": "ready",
+   "files": 9,
+   "kinds": {
+    "model": 3,
+    "text": 6
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "chat_audio_ledger.json",
+    "chat_image_ledger.json",
+    "chat_progress.json"
+   ],
+   "documented": true
+  },
+  "sham-audio-tokenizer-adult-synth": {
+   "status": "",
+   "files": 2,
+   "kinds": {
+    "model": 1,
+    "text": 1
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "audio_tokenizer_progress.json"
+   ],
+   "documented": false
+  },
+  "sham-video-frames-audio-tokenizers": {
+   "status": "",
+   "files": 4,
+   "kinds": {
+    "model": 2,
+    "text": 2
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "audio_tokenizer_progress.json",
+    "image_tokenizer.pt",
+    "image_tokenizer_progress.json"
+   ],
+   "documented": false
+  },
+  "sham-audio-tokenizer-adult-synth-v2": {
+   "status": "",
+   "files": 2,
+   "kinds": {
+    "model": 1,
+    "text": 1
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "audio_tokenizer_progress.json"
+   ],
+   "documented": false
+  },
+  "sham-orchestrator-state": {
+   "status": "",
+   "files": 1,
+   "kinds": {
+    "text": 1
+   },
+   "sample": [
+    "accelerator_state.json"
+   ],
+   "documented": false
+  }
+ },
  "workflows": {
   "Sham Status (supervision snapshot)": [
    {
+    "id": 37224681316,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37224681316",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-04T18:30",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 37222766691,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37222766691",
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-04T18:01",
     "minutes": null,
     "event": "workflow_dispatch"
    }
+  ],
+  "Sham CI (contract + self-tests, read-only)": [
+   {
+    "id": 37223457505,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37223457505",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-04T18:11",
+    "minutes": null,
+    "event": "pull_request"
+   }
   ]
  },
+ "failures": [],
  "reports": [],
  "alerts": [
   "⚠ لا تشغيلات مسجلة لسير العمل «Sham Collector (free CPU runner)» (لم يبدأ بعد؟)",
