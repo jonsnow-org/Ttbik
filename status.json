@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-04 18:30 UTC",
+ "generated_at": "2026-10-04 21:33 UTC",
  "errors": [],
  "kernels": [
   {
@@ -21,20 +21,20 @@
    "failure": ""
   },
   {
-   "alias": "المرحلة الثالثة 4",
-   "track": "chat_stage",
-   "status": "complete",
-   "role": "duplicate",
-   "last_run": "2026-10-01",
-   "gpu": false,
-   "failure": ""
-  },
-  {
    "alias": "المرحلة الثالثة 2",
    "track": "chat_stage",
    "status": "complete",
    "role": "duplicate",
    "last_run": "2026-09-30",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 4",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-10-01",
    "gpu": false,
    "failure": ""
   },
@@ -297,7 +297,7 @@
    "name": "sham-audio-tokenizer-checkpoint",
    "size": "34975584",
    "updated": "2026-10-04 00:08:57.250000",
-   "downloads": "15"
+   "downloads": "17"
   },
   {
    "name": "sham-checkpoint",
@@ -315,7 +315,7 @@
    "name": "sham-image-tokenizer-checkpoint",
    "size": "144043947",
    "updated": "2026-10-04 00:17:51.543000",
-   "downloads": "12"
+   "downloads": "14"
   },
   {
    "name": "sham-chat-checkpoint",
@@ -339,7 +339,7 @@
    "name": "sham-audio-tokenizer-adult-synth",
    "size": "34872718",
    "updated": "2026-09-24 00:46:59.817000",
-   "downloads": "3"
+   "downloads": "5"
   },
   {
    "name": "sham-crawl-agent",
@@ -357,19 +357,19 @@
    "name": "sham-video-frames-audio-tokenizers",
    "size": "178421614",
    "updated": "2026-09-23 12:22:00.930000",
-   "downloads": "3"
+   "downloads": "5"
   },
   {
    "name": "sham-audio-tokenizer-adult-synth-v2",
    "size": "34872673",
    "updated": "2026-09-21 16:13:15.337000",
-   "downloads": "3"
+   "downloads": "5"
   },
   {
    "name": "sham-video-corpus",
    "size": "768362",
    "updated": "2026-10-01 12:45:55.033000",
-   "downloads": "4"
+   "downloads": "6"
   },
   {
    "name": "sham-orchestrator-state",
@@ -498,10 +498,19 @@
  "workflows": {
   "Sham Status (supervision snapshot)": [
    {
-    "id": 37224681316,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37224681316",
+    "id": 37236574874,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236574874",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-04T21:33",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 37224681316,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37224681316",
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-04T18:30",
     "minutes": null,
     "event": "workflow_dispatch"
@@ -518,6 +527,24 @@
   ],
   "Sham CI (contract + self-tests, read-only)": [
    {
+    "id": 37236401600,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236401600",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-04T21:30",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37235584038,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235584038",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started": "2026-10-04T21:18",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
     "id": 37223457505,
     "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37223457505",
     "status": "completed",
@@ -526,13 +553,33 @@
     "minutes": null,
     "event": "pull_request"
    }
+  ],
+  "Sham Collector (free CPU runner)": [
+   {
+    "id": 37235683325,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235683325",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-04T21:20",
+    "minutes": null,
+    "event": "schedule"
+   }
+  ],
+  "Sham CPU Trainer (free CPU runner, slow and continuous)": [
+   {
+    "id": 37235302424,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235302424",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-04T21:14",
+    "minutes": null,
+    "event": "schedule"
+   }
   ]
  },
  "failures": [],
  "reports": [],
  "alerts": [
-  "⚠ لا تشغيلات مسجلة لسير العمل «Sham Collector (free CPU runner)» (لم يبدأ بعد؟)",
-  "⚠ لا تشغيلات مسجلة لسير العمل «Sham CPU Trainer (free CPU runner, slow and continuous)» (لم يبدأ بعد؟)",
   "⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)",
   "❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
   "❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",

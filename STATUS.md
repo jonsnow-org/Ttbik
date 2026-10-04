@@ -1,10 +1,8 @@
-# حالة مشروع شام — 2026-10-04 18:30 UTC
+# حالة مشروع شام — 2026-10-04 21:33 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
 ## التنبيهات (ابدأ منها)
-- ⚠ لا تشغيلات مسجلة لسير العمل «Sham Collector (free CPU runner)» (لم يبدأ بعد؟)
-- ⚠ لا تشغيلات مسجلة لسير العمل «Sham CPU Trainer (free CPU runner, slow and continuous)» (لم يبدأ بعد؟)
 - ⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)
 - ❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
 - ❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
@@ -27,8 +25,8 @@
 ## الدفاتر على Kaggle (بأسماء مستعارة)
 - complete | المدرّب الحي 1 | الدور: primary | آخر تشغيل 2026-10-03 | GPU
 - complete | المرحلة الثالثة 5 | الدور: primary | آخر تشغيل 2026-10-02
-- complete | المرحلة الثالثة 4 | الدور: duplicate | آخر تشغيل 2026-10-01
 - complete | المرحلة الثالثة 2 | الدور: duplicate | آخر تشغيل 2026-09-30
+- complete | المرحلة الثالثة 4 | الدور: duplicate | آخر تشغيل 2026-10-01
 - complete | المرحلة الثالثة 3 | الدور: duplicate | آخر تشغيل 2026-09-30 | GPU
 - complete | مركز تحكم شام 1 | الدور: tool | آخر تشغيل 2026-09-24
 - cancelAcknowledged | مسار ترميز الصورة 2 | الدور: duplicate | آخر تشغيل 2026-09-28
@@ -49,8 +47,10 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-04T18:30 in_progress ، 2026-10-04T18:01 success
-- Sham CI (contract + self-tests, read-only): 2026-10-04T18:11 success
+- Sham Status (supervision snapshot): 2026-10-04T21:33 in_progress ، 2026-10-04T18:30 success ، 2026-10-04T18:01 success
+- Sham CI (contract + self-tests, read-only): 2026-10-04T21:30 in_progress ، 2026-10-04T21:18 cancelled ، 2026-10-04T18:11 success
+- Sham Collector (free CPU runner): 2026-10-04T21:20 in_progress
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-04T21:14 in_progress
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - لا أخطاء حديثة ✅
