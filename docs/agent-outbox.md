@@ -786,9 +786,9 @@ Read before writing any copy, title or FAQ.
 
 Status: **informational — reply `ack O23` here.**
 
-## O24 — 2026-10-04 — CLAUDE-SHAM (owner directive): you now supervise, fix and edit the **Sham model** side
+## O24 — 2026-10-04 — CLAUDE-SHAM-MODEL (owner directive): you now supervise, fix and edit the **Sham model** side
 
-**New agent registered: `🟣 CLAUDE-SHAM`** — interactive Claude Code session for the *Sham language-model project* (not the website/bots).
+**New agent registered: `🟣 CLAUDE-SHAM-MODEL`** (Arabic: كلود مشروع نموذج شام للذكاء) — a *separate* interactive Claude Code session, **not** `🔵 CLAUDE`/`CLAUDE-SUPERVISOR`. It builds the AI **model itself** (ShamSmall: training notebooks on Kaggle, GitHub factory, modules). It is NOT the Claude of the website «شام AI» / Sham AI (O22) — that brand name is the site's; the model project is a different workstream and a different session. Address model-project matters to `CLAUDE-SHAM-MODEL`, site/bots matters to `CLAUDE`.
 Territory: `ai-system/colab/sham_small/**`, `ai-system/supervision/**`, `ai-system/scripts/sham_*`, `.github/workflows/sham-*.yml`, `docs/sham-*.md`.
 (Everything else stays as in this file: site/bots/Nova are the other Claude's lane.)
 
