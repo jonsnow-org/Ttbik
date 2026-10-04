@@ -1,0 +1,421 @@
+{
+ "generated_at": "2026-10-04 18:02 UTC",
+ "errors": [],
+ "kernels": [
+  {
+   "alias": "المرحلة الثالثة 5",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-02",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المدرّب الحي 1",
+   "track": "live_trainer",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": true,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 4",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-10-01",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 3",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-30",
+   "gpu": true,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 2",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-30",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مركز تحكم شام 1",
+   "track": "control_center",
+   "status": "complete",
+   "role": "tool",
+   "last_run": "2026-09-24",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصورة 2",
+   "track": "image_tokenizer",
+   "status": "cancelAcknowledged",
+   "role": "duplicate",
+   "last_run": "2026-09-28",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصوت 2",
+   "track": "audio_tokenizer",
+   "status": "error",
+   "role": "duplicate",
+   "last_run": "2026-09-23",
+   "gpu": false,
+   "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service."
+  },
+  {
+   "alias": "المرحلة الثالثة 1",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-28",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "تجربة بوت شام 1",
+   "track": "bot_test",
+   "status": "complete",
+   "role": "tool",
+   "last_run": "2026-10-03",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثانية 2",
+   "track": "stage2_multimodal",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار جمع وترميز الفيديو 1",
+   "track": "video_corpus",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-01",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصوت 3",
+   "track": "audio_tokenizer",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصورة 3",
+   "track": "image_tokenizer",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": true,
+   "failure": ""
+  },
+  {
+   "alias": "المسار B 1",
+   "track": "research_track",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المسار A 1",
+   "track": "cpu_training_track",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-03",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الأولى 2",
+   "track": "text_stage1",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-04",
+   "gpu": true,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثانية 1",
+   "track": "stage2_multimodal",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-23",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصورة 1",
+   "track": "image_tokenizer",
+   "status": "complete",
+   "role": "duplicate",
+   "last_run": "2026-09-23",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "مسار ترميز الصوت 1",
+   "track": "audio_tokenizer",
+   "status": "error",
+   "role": "duplicate",
+   "last_run": "2026-09-23",
+   "gpu": false,
+   "failure": "    494     except FileNotFoundError:\n--> 495         raise EmptyDatasetError(f\"The directory at {base_path} doesn't contain any data files\") from None\nEmptyDatasetError: The directory at hf://datasets/mozilla-foundation/common_voice_17_0@11dc88355e899d1bf2df74f01b904a8544a17b33 doesn't contain any "
+  },
+  {
+   "alias": "المرحلة الأولى 1",
+   "track": "text_stage1",
+   "status": "error",
+   "role": "duplicate",
+   "last_run": "2026-09-22",
+   "gpu": false,
+   "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined"
+  }
+ ],
+ "pipeline": {
+  "current_stage": "serve",
+  "next_step": {
+   "why": "شام متعدد الوسائط جاهز (نص + صورة + صوت).",
+   "do": "الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام»."
+  },
+  "stages": {
+   "text_stage1": {
+    "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {},
+    "dataset": "نتائج المرحلة الأولى 1"
+   },
+   "image_tokenizer": {
+    "name": "مسار ترميز الصورة (VQ-VAE)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {
+     "samples_consumed": 1463,
+     "step": 42,
+     "last_run_sources": {
+      "x": 76,
+      "web_fallback": 24
+     }
+    },
+    "dataset": "نتائج مسار ترميز الصورة 1"
+   },
+   "audio_tokenizer": {
+    "name": "مسار ترميز الصوت (VQ-VAE)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {
+     "samples_consumed": 2253,
+     "step": 112,
+     "last_run_sources": {
+      "x": 69
+     }
+    },
+    "dataset": "نتائج مسار ترميز الصوت 1"
+   },
+   "video_corpus": {
+    "name": "مسار جمع وترميز الفيديو",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {
+     "videos_consumed": 568
+    },
+    "dataset": "نتائج مسار جمع وترميز الفيديو 1"
+   },
+   "stage2_multimodal": {
+    "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {},
+    "dataset": "نتائج المرحلة الثانية 1"
+   },
+   "cpu_training_track": {
+    "name": "المسار A — التدريب النصي المستمر (CPU)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {},
+    "dataset": "نتائج المسار A 1"
+   },
+   "research_track": {
+    "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {},
+    "dataset": "نتائج المسار B 1"
+   },
+   "chat_stage": {
+    "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
+    "ready": true,
+    "kernel_status": "complete",
+    "progress": {},
+    "dataset": "نتائج المرحلة الثالثة 1"
+   }
+  }
+ },
+ "other_notebooks": 4,
+ "engineer_notebooks": 2,
+ "datasets": [
+  {
+   "name": "sham-multimodal-checkpoint",
+   "size": "577676682",
+   "updated": "2026-10-03 15:26:58.047000",
+   "downloads": "30"
+  },
+  {
+   "name": "sham-crawl-xlive",
+   "size": "1373973598",
+   "updated": "2026-10-03 02:42:30.113000",
+   "downloads": "3"
+  },
+  {
+   "name": "sham-cpu-track-checkpoint-v2",
+   "size": "2731054018",
+   "updated": "2026-10-04 08:28:43.507000",
+   "downloads": "3"
+  },
+  {
+   "name": "sham-audio-tokenizer-checkpoint",
+   "size": "34975584",
+   "updated": "2026-10-04 00:08:57.250000",
+   "downloads": "15"
+  },
+  {
+   "name": "sham-checkpoint",
+   "size": "0",
+   "updated": "2026-10-04 06:51:23.393000",
+   "downloads": "5"
+  },
+  {
+   "name": "sham-research-track-checkpoint-v2",
+   "size": "385145782",
+   "updated": "2026-10-04 08:09:34.743000",
+   "downloads": "9"
+  },
+  {
+   "name": "sham-image-tokenizer-checkpoint",
+   "size": "144043947",
+   "updated": "2026-10-04 00:17:51.543000",
+   "downloads": "12"
+  },
+  {
+   "name": "sham-chat-checkpoint",
+   "size": "580621375",
+   "updated": "2026-10-03 11:47:35.110000",
+   "downloads": "18"
+  },
+  {
+   "name": "sham-crawl-checkpoint",
+   "size": "582297996",
+   "updated": "2026-10-03 19:06:37.643000",
+   "downloads": "5"
+  },
+  {
+   "name": "nova-small-checkpoint",
+   "size": "2444237366",
+   "updated": "2026-09-19 09:08:27.937000",
+   "downloads": "1"
+  },
+  {
+   "name": "sham-audio-tokenizer-adult-synth",
+   "size": "34872718",
+   "updated": "2026-09-24 00:46:59.817000",
+   "downloads": "3"
+  },
+  {
+   "name": "sham-crawl-agent",
+   "size": "1370230289",
+   "updated": "2026-10-01 15:31:00.620000",
+   "downloads": "1"
+  },
+  {
+   "name": "sham-cpu-track-checkpoint",
+   "size": "175",
+   "updated": "2026-09-20 11:58:06.133000",
+   "downloads": "0"
+  },
+  {
+   "name": "sham-video-frames-audio-tokenizers",
+   "size": "178421614",
+   "updated": "2026-09-23 12:22:00.930000",
+   "downloads": "3"
+  },
+  {
+   "name": "sham-audio-tokenizer-adult-synth-v2",
+   "size": "34872673",
+   "updated": "2026-09-21 16:13:15.337000",
+   "downloads": "3"
+  },
+  {
+   "name": "sham-video-corpus",
+   "size": "768362",
+   "updated": "2026-10-01 12:45:55.033000",
+   "downloads": "4"
+  },
+  {
+   "name": "sham-orchestrator-state",
+   "size": "277",
+   "updated": "2026-09-27 18:04:46.037000",
+   "downloads": "0"
+  },
+  {
+   "name": "sham-crawl-corpus",
+   "size": "16620339",
+   "updated": "2026-10-03 19:06:45.883000",
+   "downloads": "0"
+  },
+  {
+   "name": "sham-crawl-xlive-corpus",
+   "size": "251624",
+   "updated": "2026-10-03 02:42:33.993000",
+   "downloads": "0"
+  },
+  {
+   "name": "sham-crawl-agent-corpus",
+   "size": "65727",
+   "updated": "2026-10-01 00:35:55.173000",
+   "downloads": "1"
+  }
+ ],
+ "workflows": {
+  "Sham Status (supervision snapshot)": [
+   {
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-04T18:01",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   }
+  ]
+ },
+ "reports": [],
+ "alerts": [
+  "⚠ لا تشغيلات مسجلة لسير العمل «Sham Collector (free CPU runner)» (لم يبدأ بعد؟)",
+  "⚠ لا تشغيلات مسجلة لسير العمل «Sham CPU Trainer (free CPU runner, slow and continuous)» (لم يبدأ بعد؟)",
+  "⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)",
+  "❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
+  "❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
+  "❓ مجموعة sham-audio-tokenizer-adult-synth-v2 في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
+  "❓ مجموعة sham-orchestrator-state في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
+  "ℹ لا تقارير بعد في sham-reports (تظهر بعد أول جلسة تعمل بالكود الجديد)"
+ ]
+}
