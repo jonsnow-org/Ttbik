@@ -265,6 +265,9 @@ builder $MockSuccessor$_store(builder build_0, (int) v) inline {
         var $msg'mintedAt = in_msg~load_uint(32);
         var $msg'hands = in_msg~load_uint(32);
         var $msg'engravings = in_msg~load_maybe_ref();
+        var $msg'occasion = in_msg~load_uint(8);
+        var $msg'mediaRef = in_msg~load_uint(256);
+        var $msg'mediaLog = in_msg~load_maybe_ref();
         throw_unless(18041, ($Context$_get_value(__tact_context_get()) >= $self'price));
         $global_send($SendParameters$_constructor_to_value_mode_bounce_body(__tact_context_get_sender(), 0, 64, false, $UpgradeDone$_store_cell($UpgradeDone$_constructor_index($msg'index), begin_cell())));
         $MockSuccessor$_contract_store(($self'price));

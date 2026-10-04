@@ -1088,6 +1088,8 @@ export type ItemInit = {
     tier: bigint;
     paid: bigint;
     mintedAt: bigint;
+    occasion: bigint;
+    mediaRef: bigint;
 }
 
 export function storeItemInit(src: ItemInit) {
@@ -1099,6 +1101,8 @@ export function storeItemInit(src: ItemInit) {
         b_0.storeUint(src.tier, 8);
         b_0.storeCoins(src.paid);
         b_0.storeUint(src.mintedAt, 32);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
     };
 }
 
@@ -1110,7 +1114,9 @@ export function loadItemInit(slice: Slice) {
     const _tier = sc_0.loadUintBig(8);
     const _paid = sc_0.loadCoins();
     const _mintedAt = sc_0.loadUintBig(32);
-    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt };
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, occasion: _occasion, mediaRef: _mediaRef };
 }
 
 export function loadTupleItemInit(source: TupleReader) {
@@ -1119,7 +1125,9 @@ export function loadTupleItemInit(source: TupleReader) {
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
     const _mintedAt = source.readBigNumber();
-    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, occasion: _occasion, mediaRef: _mediaRef };
 }
 
 export function loadGetterTupleItemInit(source: TupleReader) {
@@ -1128,7 +1136,9 @@ export function loadGetterTupleItemInit(source: TupleReader) {
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
     const _mintedAt = source.readBigNumber();
-    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'ItemInit' as const, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, occasion: _occasion, mediaRef: _mediaRef };
 }
 
 export function storeTupleItemInit(source: ItemInit) {
@@ -1138,6 +1148,8 @@ export function storeTupleItemInit(source: ItemInit) {
     builder.writeNumber(source.tier);
     builder.writeNumber(source.paid);
     builder.writeNumber(source.mintedAt);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
     return builder.build();
 }
 
@@ -1159,6 +1171,8 @@ export type MintItem = {
     season: bigint;
     tier: bigint;
     paid: bigint;
+    occasion: bigint;
+    mediaRef: bigint;
     remit: bigint;
 }
 
@@ -1171,6 +1185,8 @@ export function storeMintItem(src: MintItem) {
         b_0.storeUint(src.season, 16);
         b_0.storeUint(src.tier, 8);
         b_0.storeCoins(src.paid);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
         b_0.storeCoins(src.remit);
     };
 }
@@ -1183,8 +1199,10 @@ export function loadMintItem(slice: Slice) {
     const _season = sc_0.loadUintBig(16);
     const _tier = sc_0.loadUintBig(8);
     const _paid = sc_0.loadCoins();
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
     const _remit = sc_0.loadCoins();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, occasion: _occasion, mediaRef: _mediaRef, remit: _remit };
 }
 
 export function loadTupleMintItem(source: TupleReader) {
@@ -1193,8 +1211,10 @@ export function loadTupleMintItem(source: TupleReader) {
     const _season = source.readBigNumber();
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
     const _remit = source.readBigNumber();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, occasion: _occasion, mediaRef: _mediaRef, remit: _remit };
 }
 
 export function loadGetterTupleMintItem(source: TupleReader) {
@@ -1203,8 +1223,10 @@ export function loadGetterTupleMintItem(source: TupleReader) {
     const _season = source.readBigNumber();
     const _tier = source.readBigNumber();
     const _paid = source.readBigNumber();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
     const _remit = source.readBigNumber();
-    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, remit: _remit };
+    return { $$type: 'MintItem' as const, index: _index, newOwner: _newOwner, season: _season, tier: _tier, paid: _paid, occasion: _occasion, mediaRef: _mediaRef, remit: _remit };
 }
 
 export function storeTupleMintItem(source: MintItem) {
@@ -1214,6 +1236,8 @@ export function storeTupleMintItem(source: MintItem) {
     builder.writeNumber(source.season);
     builder.writeNumber(source.tier);
     builder.writeNumber(source.paid);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
     builder.writeNumber(source.remit);
     return builder.build();
 }
@@ -1364,6 +1388,59 @@ export function dictValueParserEngrave(): DictionaryValue<Engrave> {
     }
 }
 
+export type SetMedia = {
+    $$type: 'SetMedia';
+    occasion: bigint;
+    mediaRef: bigint;
+}
+
+export function storeSetMedia(src: SetMedia) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024071, 32);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+    };
+}
+
+export function loadSetMedia(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024071) { throw Error('Invalid prefix'); }
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadTupleSetMedia(source: TupleReader) {
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadGetterTupleSetMedia(source: TupleReader) {
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'SetMedia' as const, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function storeTupleSetMedia(source: SetMedia) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    return builder.build();
+}
+
+export function dictValueParserSetMedia(): DictionaryValue<SetMedia> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetMedia(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetMedia(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type UpgradeStart = {
     $$type: 'UpgradeStart';
     queryId: bigint;
@@ -1421,6 +1498,9 @@ export type UpgradeRequest = {
     mintedAt: bigint;
     hands: bigint;
     engravings: Cell | null;
+    occasion: bigint;
+    mediaRef: bigint;
+    mediaLog: Cell | null;
 }
 
 export function storeUpgradeRequest(src: UpgradeRequest) {
@@ -1435,6 +1515,9 @@ export function storeUpgradeRequest(src: UpgradeRequest) {
         b_0.storeUint(src.mintedAt, 32);
         b_0.storeUint(src.hands, 32);
         if (src.engravings !== null && src.engravings !== undefined) { b_0.storeBit(true).storeRef(src.engravings); } else { b_0.storeBit(false); }
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+        if (src.mediaLog !== null && src.mediaLog !== undefined) { b_0.storeBit(true).storeRef(src.mediaLog); } else { b_0.storeBit(false); }
     };
 }
 
@@ -1449,7 +1532,10 @@ export function loadUpgradeRequest(slice: Slice) {
     const _mintedAt = sc_0.loadUintBig(32);
     const _hands = sc_0.loadUintBig(32);
     const _engravings = sc_0.loadBit() ? sc_0.loadRef() : null;
-    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    const _mediaLog = sc_0.loadBit() ? sc_0.loadRef() : null;
+    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function loadTupleUpgradeRequest(source: TupleReader) {
@@ -1461,7 +1547,10 @@ export function loadTupleUpgradeRequest(source: TupleReader) {
     const _mintedAt = source.readBigNumber();
     const _hands = source.readBigNumber();
     const _engravings = source.readCellOpt();
-    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _mediaLog = source.readCellOpt();
+    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function loadGetterTupleUpgradeRequest(source: TupleReader) {
@@ -1473,7 +1562,10 @@ export function loadGetterTupleUpgradeRequest(source: TupleReader) {
     const _mintedAt = source.readBigNumber();
     const _hands = source.readBigNumber();
     const _engravings = source.readCellOpt();
-    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _mediaLog = source.readCellOpt();
+    return { $$type: 'UpgradeRequest' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function storeTupleUpgradeRequest(source: UpgradeRequest) {
@@ -1486,6 +1578,9 @@ export function storeTupleUpgradeRequest(source: UpgradeRequest) {
     builder.writeNumber(source.mintedAt);
     builder.writeNumber(source.hands);
     builder.writeCell(source.engravings);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    builder.writeCell(source.mediaLog);
     return builder.build();
 }
 
@@ -1510,6 +1605,9 @@ export type UpgradeAccept = {
     mintedAt: bigint;
     hands: bigint;
     engravings: Cell | null;
+    occasion: bigint;
+    mediaRef: bigint;
+    mediaLog: Cell | null;
 }
 
 export function storeUpgradeAccept(src: UpgradeAccept) {
@@ -1524,6 +1622,9 @@ export function storeUpgradeAccept(src: UpgradeAccept) {
         b_0.storeUint(src.mintedAt, 32);
         b_0.storeUint(src.hands, 32);
         if (src.engravings !== null && src.engravings !== undefined) { b_0.storeBit(true).storeRef(src.engravings); } else { b_0.storeBit(false); }
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+        if (src.mediaLog !== null && src.mediaLog !== undefined) { b_0.storeBit(true).storeRef(src.mediaLog); } else { b_0.storeBit(false); }
     };
 }
 
@@ -1538,7 +1639,10 @@ export function loadUpgradeAccept(slice: Slice) {
     const _mintedAt = sc_0.loadUintBig(32);
     const _hands = sc_0.loadUintBig(32);
     const _engravings = sc_0.loadBit() ? sc_0.loadRef() : null;
-    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    const _mediaLog = sc_0.loadBit() ? sc_0.loadRef() : null;
+    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function loadTupleUpgradeAccept(source: TupleReader) {
@@ -1550,7 +1654,10 @@ export function loadTupleUpgradeAccept(source: TupleReader) {
     const _mintedAt = source.readBigNumber();
     const _hands = source.readBigNumber();
     const _engravings = source.readCellOpt();
-    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _mediaLog = source.readCellOpt();
+    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function loadGetterTupleUpgradeAccept(source: TupleReader) {
@@ -1562,7 +1669,10 @@ export function loadGetterTupleUpgradeAccept(source: TupleReader) {
     const _mintedAt = source.readBigNumber();
     const _hands = source.readBigNumber();
     const _engravings = source.readCellOpt();
-    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings };
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    const _mediaLog = source.readCellOpt();
+    return { $$type: 'UpgradeAccept' as const, index: _index, owner: _owner, season: _season, tier: _tier, paid: _paid, mintedAt: _mintedAt, hands: _hands, engravings: _engravings, occasion: _occasion, mediaRef: _mediaRef, mediaLog: _mediaLog };
 }
 
 export function storeTupleUpgradeAccept(source: UpgradeAccept) {
@@ -1575,6 +1685,9 @@ export function storeTupleUpgradeAccept(source: UpgradeAccept) {
     builder.writeNumber(source.mintedAt);
     builder.writeNumber(source.hands);
     builder.writeCell(source.engravings);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    builder.writeCell(source.mediaLog);
     return builder.build();
 }
 
@@ -2292,14 +2405,15 @@ const MockSuccessor_types: ABIType[] = [
     {"name":"NftData","header":null,"fields":[{"name":"isInitialized","type":{"kind":"simple","type":"bool","optional":false}},{"name":"index","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"collectionAddress","type":{"kind":"simple","type":"address","optional":false}},{"name":"ownerAddress","type":{"kind":"simple","type":"address","optional":false}},{"name":"individualContent","type":{"kind":"simple","type":"cell","optional":false}}]},
     {"name":"CollectionData","header":null,"fields":[{"name":"nextItemIndex","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"collectionContent","type":{"kind":"simple","type":"cell","optional":false}},{"name":"ownerAddress","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"RoyaltyParams","header":null,"fields":[{"name":"numerator","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"denominator","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"destination","type":{"kind":"simple","type":"address","optional":false}}]},
-    {"name":"ItemInit","header":1096024065,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
-    {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"remit","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"ItemInit","header":1096024065,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
+    {"name":"MintItem","header":1096024066,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"remit","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Proceeds","header":1096024067,"fields":[]},
     {"name":"MintOk","header":1096024069,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Engrave","header":1096024068,"fields":[{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
+    {"name":"SetMedia","header":1096024071,"fields":[{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"UpgradeStart","header":1096024080,"fields":[{"name":"queryId","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
-    {"name":"UpgradeRequest","header":1096024081,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}}]},
-    {"name":"UpgradeAccept","header":1096024082,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}}]},
+    {"name":"UpgradeRequest","header":1096024081,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
+    {"name":"UpgradeAccept","header":1096024082,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"UpgradeDone","header":1096024083,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"BurnConfirm","header":1096024084,"fields":[]},
     {"name":"UpgradeAbort","header":1096024085,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
@@ -2326,6 +2440,7 @@ const MockSuccessor_opcodes = {
     "Proceeds": 1096024067,
     "MintOk": 1096024069,
     "Engrave": 1096024068,
+    "SetMedia": 1096024071,
     "UpgradeStart": 1096024080,
     "UpgradeRequest": 1096024081,
     "UpgradeAccept": 1096024082,
@@ -2365,6 +2480,7 @@ export const COLL_GAS = 20000000n;
 export const MINT_FEES = 130000000n;
 export const BUY_FEES = 150000000n;
 export const ENGRAVE_FEE = 100000000n;
+export const MEDIA_FEE = 100000000n;
 export const MIN_STORAGE = 50000000n;
 export const DAY = 86400n;
 

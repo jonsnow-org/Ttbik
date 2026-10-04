@@ -3,7 +3,7 @@ Contract: MockSuccessor
 BoC Size: 223 bytes
 
 ## Structures (Structs and Messages)
-Total structures: 39
+Total structures: 40
 
 ### DataSize
 TL-B: `_ cells:int257 bits:int257 refs:int257 = DataSize`
@@ -78,12 +78,12 @@ TL-B: `_ numerator:int257 denominator:int257 destination:address = RoyaltyParams
 Signature: `RoyaltyParams{numerator:int257,denominator:int257,destination:address}`
 
 ### ItemInit
-TL-B: `item_init#41540001 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 = ItemInit`
-Signature: `ItemInit{owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32}`
+TL-B: `item_init#41540001 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 occasion:uint8 mediaRef:uint256 = ItemInit`
+Signature: `ItemInit{owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32,occasion:uint8,mediaRef:uint256}`
 
 ### MintItem
-TL-B: `mint_item#41540002 index:uint64 newOwner:address season:uint16 tier:uint8 paid:coins remit:coins = MintItem`
-Signature: `MintItem{index:uint64,newOwner:address,season:uint16,tier:uint8,paid:coins,remit:coins}`
+TL-B: `mint_item#41540002 index:uint64 newOwner:address season:uint16 tier:uint8 paid:coins occasion:uint8 mediaRef:uint256 remit:coins = MintItem`
+Signature: `MintItem{index:uint64,newOwner:address,season:uint16,tier:uint8,paid:coins,occasion:uint8,mediaRef:uint256,remit:coins}`
 
 ### Proceeds
 TL-B: `proceeds#41540003  = Proceeds`
@@ -97,17 +97,21 @@ Signature: `MintOk{index:uint64}`
 TL-B: `engrave#41540004 text:^string = Engrave`
 Signature: `Engrave{text:^string}`
 
+### SetMedia
+TL-B: `set_media#41540007 occasion:uint8 mediaRef:uint256 = SetMedia`
+Signature: `SetMedia{occasion:uint8,mediaRef:uint256}`
+
 ### UpgradeStart
 TL-B: `upgrade_start#41540010 queryId:uint64 = UpgradeStart`
 Signature: `UpgradeStart{queryId:uint64}`
 
 ### UpgradeRequest
-TL-B: `upgrade_request#41540011 index:uint64 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 hands:uint32 engravings:Maybe ^cell = UpgradeRequest`
-Signature: `UpgradeRequest{index:uint64,owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32,hands:uint32,engravings:Maybe ^cell}`
+TL-B: `upgrade_request#41540011 index:uint64 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 hands:uint32 engravings:Maybe ^cell occasion:uint8 mediaRef:uint256 mediaLog:Maybe ^cell = UpgradeRequest`
+Signature: `UpgradeRequest{index:uint64,owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32,hands:uint32,engravings:Maybe ^cell,occasion:uint8,mediaRef:uint256,mediaLog:Maybe ^cell}`
 
 ### UpgradeAccept
-TL-B: `upgrade_accept#41540012 index:uint64 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 hands:uint32 engravings:Maybe ^cell = UpgradeAccept`
-Signature: `UpgradeAccept{index:uint64,owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32,hands:uint32,engravings:Maybe ^cell}`
+TL-B: `upgrade_accept#41540012 index:uint64 owner:address season:uint16 tier:uint8 paid:coins mintedAt:uint32 hands:uint32 engravings:Maybe ^cell occasion:uint8 mediaRef:uint256 mediaLog:Maybe ^cell = UpgradeAccept`
+Signature: `UpgradeAccept{index:uint64,owner:address,season:uint16,tier:uint8,paid:coins,mintedAt:uint32,hands:uint32,engravings:Maybe ^cell,occasion:uint8,mediaRef:uint256,mediaLog:Maybe ^cell}`
 
 ### UpgradeDone
 TL-B: `upgrade_done#41540013 index:uint64 = UpgradeDone`

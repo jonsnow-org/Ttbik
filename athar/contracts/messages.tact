@@ -13,6 +13,7 @@ const COLL_GAS: Int = 20000000;         // 0.02 TON kept by the collection per m
 const MINT_FEES: Int = 130000000;       // ITEM_FUND + OK_VALUE + COLL_GAS (collection side)
 const BUY_FEES: Int = 150000000;        // MINT_FEES + MINTER_GAS: what a buyer pays on top of the price
 const ENGRAVE_FEE: Int = 100000000;     // 0.1 TON per engraving
+const MEDIA_FEE: Int = 100000000;       // 0.1 TON to attach or change the token's picture / occasion
 const MIN_STORAGE: Int = 50000000;      // 0.05 TON stays in contracts for storage
 const DAY: Int = 86400;
 
@@ -63,6 +64,8 @@ message(0x41540001) ItemInit {
     tier: Int as uint8;
     paid: Int as coins;
     mintedAt: Int as uint32;
+    occasion: Int as uint8;        // 0 none, 1 birthday, 2 wedding, 3 newborn, 4 graduation, 5 anniversary, 6 memorial, ... (meaning lives in the app)
+    mediaRef: Int as uint256;      // permanent picture: the Arweave transaction id (32 bytes), 0 = the generated art
 }
 message(0x41540002) MintItem {
     index: Int as uint64;
@@ -70,11 +73,14 @@ message(0x41540002) MintItem {
     season: Int as uint16;
     tier: Int as uint8;
     paid: Int as coins;       // what the buyer paid, recorded in the token
+    occasion: Int as uint8;
+    mediaRef: Int as uint256;
     remit: Int as coins;      // money forwarded to the payout wallet now (0 when the money was taken earlier, e.g. mystery tickets)
 }
 message(0x41540003) Proceeds { }                         // item -> collection: engraving fee, forwarded to payout at once
 message(0x41540005) MintOk { index: Int as uint64; }     // collection -> minter: the token exists
 message(0x41540004) Engrave { text: String; }            // owner -> item (value >= ENGRAVE_FEE)
+message(0x41540007) SetMedia { occasion: Int as uint8; mediaRef: Int as uint256; }   // owner -> item (value >= MEDIA_FEE); every earlier picture stays in the on-chain history
 
 // ---- upgrade (burn to a higher edition). Two phases so a token is never lost ----
 message(0x41540010) UpgradeStart { queryId: Int as uint64; }          // owner -> item (carries the upgrade price + gas)
@@ -87,6 +93,9 @@ message(0x41540011) UpgradeRequest {                                   // item -
     mintedAt: Int as uint32;
     hands: Int as uint32;
     engravings: Cell?;
+    occasion: Int as uint8;
+    mediaRef: Int as uint256;
+    mediaLog: Cell?;
 }
 message(0x41540012) UpgradeAccept {                                    // collection -> successor edition
     index: Int as uint64;
@@ -97,6 +106,9 @@ message(0x41540012) UpgradeAccept {                                    // collec
     mintedAt: Int as uint32;
     hands: Int as uint32;
     engravings: Cell?;
+    occasion: Int as uint8;
+    mediaRef: Int as uint256;
+    mediaLog: Cell?;
 }
 message(0x41540013) UpgradeDone { index: Int as uint64; }              // successor -> collection (new token issued)
 message(0x41540014) BurnConfirm { }                                    // collection -> item

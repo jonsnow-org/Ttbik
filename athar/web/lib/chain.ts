@@ -37,6 +37,11 @@ export async function addresses(season = 1) {
 
 const nano = (v: bigint | number) => Number(v) / 1e9;
 
+/** Arweave transaction ids are 32 bytes, written as 43 characters of URL-safe base64. */
+export function arweaveId(v: bigint) {
+  return Buffer.from(v.toString(16).padStart(64, "0"), "hex").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export async function seasonStatus(season = 1) {
   const a = await addresses(season);
   if (!a) return { configured: false as const };
@@ -102,7 +107,17 @@ export async function tokenState(index: number) {
         notes.push({ owner, at, text });
         c = s.loadMaybeRef();
       }
+      // picture history (newest first): owner, time, Arweave id
+      const media: { owner: string; at: number; ref: string }[] = [];
+      let mc = st.mediaLog;
+      while (mc && media.length < 50) {
+        const ms = mc.beginParse();
+        const mo = ms.loadAddress().toString(); const mt = ms.loadUint(32); const mr = ms.loadUintBig(256);
+        media.push({ owner: mo, at: mt, ref: arweaveId(mr) });
+        mc = ms.loadMaybeRef();
+      }
       return {
+        occasion: Number(st.occasion), mediaRef: st.mediaRef === 0n ? null : arweaveId(st.mediaRef), media,
         index, address: itemAddr.toString({ bounceable: true }), owner: d.ownerAddress.toString(),
         season: Number(st.season), tier: Number(st.tier), paid: nano(st.paid), mintedAt: Number(st.mintedAt),
         lastTransferAt: Number(st.lastTransferAt), hands: Number(st.hands), locked: st.locked, engravings: notes,

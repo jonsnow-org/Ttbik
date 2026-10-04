@@ -18,6 +18,9 @@ contract AtharItem {
     lastTransferAt: Int as uint32 = 0;
     hands: Int as uint32 = 0;
     engravings: Cell? = null;     // linked chain: each cell = owner, time, text, ref to previous
+    occasion: Int as uint8 = 0;
+    mediaRef: Int as uint256 = 0;
+    mediaLog: Cell? = null;       // linked chain of every picture the token ever had: owner, time, ref, ref to previous
     locked: Bool = false;         // true while an upgrade is in flight
 
     receive(msg: ItemInit) {
@@ -30,6 +33,9 @@ contract AtharItem {
         self.mintedAt = msg.mintedAt;
         self.lastTransferAt = msg.mintedAt;
         self.hands = 1;
+        self.occasion = msg.occasion;
+        self.mediaRef = msg.mediaRef;
+        if (msg.mediaRef != 0) { self.mediaLog = self.logMedia(msg.owner, msg.mediaRef, msg.mintedAt); }
     }
 
     receive(msg: Transfer) {
@@ -85,6 +91,25 @@ contract AtharItem {
         send(SendParameters{ to: ctx.sender, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
     }
 
+    fun logMedia(owner: Address, ref: Int, at: Int): Cell {
+        return beginCell().storeAddress(owner).storeUint(at, 32).storeUint(ref, 256).storeMaybeRef(self.mediaLog).endCell();
+    }
+
+    // The owner sets the occasion and/or a permanent picture (an Arweave id). Every earlier picture stays in the history.
+    receive(msg: SetMedia) {
+        let ctx: Context = context();
+        require(self.owner != null && ctx.sender == self.owner!!, "not owner");
+        require(!self.locked, "upgrade in progress");
+        require(ctx.value >= MEDIA_FEE + MIN_STORAGE, "not enough value");
+        self.occasion = msg.occasion;
+        if (msg.mediaRef != 0 && msg.mediaRef != self.mediaRef) {
+            self.mediaRef = msg.mediaRef;
+            self.mediaLog = self.logMedia(ctx.sender, msg.mediaRef, now());
+        }
+        send(SendParameters{ to: self.collection, value: MEDIA_FEE, mode: SendPayGasSeparately, bounce: false, body: Proceeds{}.toCell() });
+        send(SendParameters{ to: ctx.sender, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false, body: Excesses{ queryId: 0 }.toCell() });
+    }
+
     // ---- upgrade: phase 1 (lock, ask the collection). Nothing is destroyed yet. ----
     receive(msg: UpgradeStart) {
         let ctx: Context = context();
@@ -95,7 +120,8 @@ contract AtharItem {
             to: self.collection, value: 0, mode: SendRemainingValue, bounce: true,
             body: UpgradeRequest{
                 index: self.index, owner: ctx.sender, season: self.season, tier: self.tier, paid: self.paid,
-                mintedAt: self.mintedAt, hands: self.hands, engravings: self.engravings
+                mintedAt: self.mintedAt, hands: self.hands, engravings: self.engravings,
+                occasion: self.occasion, mediaRef: self.mediaRef, mediaLog: self.mediaLog
             }.toCell()
         });
     }
@@ -142,7 +168,8 @@ contract AtharItem {
     get fun athar(): AtharState {
         return AtharState{
             season: self.season, tier: self.tier, paid: self.paid, mintedAt: self.mintedAt,
-            lastTransferAt: self.lastTransferAt, hands: self.hands, engravings: self.engravings, locked: self.locked
+            lastTransferAt: self.lastTransferAt, hands: self.hands, engravings: self.engravings, locked: self.locked,
+            occasion: self.occasion, mediaRef: self.mediaRef, mediaLog: self.mediaLog
         };
     }
 }
@@ -156,4 +183,7 @@ struct AtharState {
     hands: Int;
     engravings: Cell?;
     locked: Bool;
+    occasion: Int;
+    mediaRef: Int;
+    mediaLog: Cell?;
 }

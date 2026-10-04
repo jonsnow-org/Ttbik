@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 // Read-only progress of a launch for a given admin wallet (public data, no secrets).
 export async function GET(req: Request) {
+  const secret = process.env.ATHAR_ADMIN_PATH || "";
+  if (!secret || req.headers.get("x-athar-adm") !== secret) return new Response("Not Found", { status: 404 });
   const adminStr = new URL(req.url).searchParams.get("admin") || "";
   let admin: Address;
   try { admin = Address.parse(adminStr); } catch { return NextResponse.json({ error: "bad admin" }, { status: 400 }); }

@@ -58,10 +58,10 @@ describe("launch rehearsal (what the admin button does)", () => {
     expect(seasonTier(SEASON_1, idx)).toBeLessThan(2);
     const pool = new Set(poolDates);
     let day = SEASON_1.rangeStart; while (pool.has(day) || seasonTier(SEASON_1, day) !== 0) day++;
-    let r = await alice.send({ to: min.address, value: toNano("1"), body: (await import("@ton/core")).beginCell().store((await import("../build/athar_AtharMinter")).storeBuy({ $$type: "Buy", index: BigInt(day), recipient: null })).endCell() });
+    let r = await alice.send({ to: min.address, value: toNano("1"), body: (await import("@ton/core")).beginCell().store((await import("../build/athar_AtharMinter")).storeBuy({ $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n })).endCell() });
     expect(await min.getIsTaken(BigInt(day))).toBe(false);
     bc.now = startAt + 5;
-    await min.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(day), recipient: null });
+    await min.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n });
     expect(await min.getIsTaken(BigInt(day))).toBe(true);
     await min.send(alice.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
     expect((await min.getMysteryInfo()).ticketsSold).toBe(1n);

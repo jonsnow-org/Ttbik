@@ -13,10 +13,11 @@ type St = { siteUrl: string; envAdmin: string; collection: string; minter: strin
 const KEY = "athar_secret_s1";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function Admin() {
+export default function AdminPanel() {
   const address = useTonAddress();
   const [ui] = useTonConnectUI();
   const toast = useToast();
+  useEffect(() => { document.body.dataset.admin = "1"; return () => { delete document.body.dataset.admin; }; }, []);
   const [st, setSt] = useState<St | null>(null);
   const [payout, setPayout] = useState("");
   const [startAt, setStartAt] = useState(() => { const d = new Date(Date.now() + 20 * 60000); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
@@ -29,7 +30,7 @@ function Admin() {
 
   const refresh = useCallback(async () => {
     if (!address) return null;
-    const r = await fetch(`/api/admin/state?admin=${encodeURIComponent(address)}`, { cache: "no-store" });
+    const r = await fetch(`/api/admin/state?admin=${encodeURIComponent(address)}`, { cache: "no-store", headers: { "x-athar-adm": window.location.pathname.slice(1) } });
     const j = await r.json(); setSt(j); return j as St;
   }, [address]);
   useEffect(() => { refresh(); const t = setInterval(refresh, 20000); return () => clearInterval(t); }, [refresh]);
@@ -169,6 +170,3 @@ function Admin() {
   );
 }
 
-export default function Page() {
-  return <Admin />;
-}

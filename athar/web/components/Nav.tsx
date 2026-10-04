@@ -17,7 +17,6 @@ const TABS = [
 export default function Nav() {
   const path = usePathname();
   const { t } = useI18n();
-  if (path.startsWith("/admin")) return null;
   return (
     <nav className="nav">
       {TABS.map((tab) => (

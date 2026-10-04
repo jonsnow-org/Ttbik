@@ -13,6 +13,7 @@ import { handleStreakBotUpdate } from "@/lib/streakBotLogic";
 import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
+import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
 
 export const maxDuration = 60;
 
@@ -29,6 +30,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   PRAYER_BOT: "migration_39_prayer_bot.sql",
   CAPSULE_BOT: "migration_40_capsule_bot.sql",
   FADAA_BOT: "migration_fadaa.sql",
+  ATHAR_BOT: "migration_full_current_schema.sql",
 };
 
 export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
@@ -91,6 +93,8 @@ export async function POST(req: NextRequest, { params }: { params: { botId: stri
         await handleCapsuleBotUpdate(bot, botRow, body);
       } else if (botRow.template === "FADAA_BOT") {
         await handleFadaaBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "ATHAR_BOT") {
+        await handleAtharBotUpdate(bot, botRow, body);
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {

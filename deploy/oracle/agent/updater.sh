@@ -31,9 +31,14 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     # Athar is built on its own so a problem there can never block the media engine or the rest.
     if [ -f "$OR/agent/ATHAR_ON" ]; then
       # public address of the management wallet (not a secret); put it in agent/ATHAR_ADMIN to switch the app from "soon" to live
+      # secret address of the management panel: created once, kept on this machine, sent only to the owner on Telegram
+      NEWPATH=""
+      if [ ! -s "$STATE/athar_admin_path" ]; then head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' | cut -c1-24 > "$STATE/athar_admin_path"; chmod 600 "$STATE/athar_admin_path"; NEWPATH=1; fi
+      export ATHAR_ADMIN_PATH="$(cat "$STATE/athar_admin_path")"
       [ -f "$OR/agent/ATHAR_ADMIN" ] && export ATHAR_ADMIN="$(tr -d ' \r\n' < "$OR/agent/ATHAR_ADMIN")"
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
+        if [ -n "$NEWPATH" ]; then tg_notify "رابط إدارة أثر (سرّي، لا تشاركه): https://athar.$(getkv "$OR/.env" PUBLIC_HOST)/$ATHAR_ADMIN_PATH"; fi
         # Caddyfile is a single-file bind mount: git replaces the file, so the container keeps seeing the old one
         # until it restarts. Restart Caddy only when the file is newer than the running container (certificates persist).
         cid=$(docker compose ps -q caddy 2>/dev/null | head -1)

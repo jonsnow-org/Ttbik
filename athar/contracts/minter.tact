@@ -35,7 +35,7 @@ message(0x41540040) Configure {
 message(0x41540041) AddSpecial { items: map<Int as uint16, Int as uint8>; }
 message(0x41540042) Open { startAt: Int as uint32; walletDailyCap: Int as uint16; }
 message(0x41540043) SetPaused { paused: Bool; }
-message(0x41540044) Buy { index: Int as uint64; recipient: Address?; }
+message(0x41540044) Buy { index: Int as uint64; recipient: Address?; occasion: Int as uint8; mediaRef: Int as uint256; }
 message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; duration: Int as uint32; }
 message(0x41540046) Bid { index: Int as uint64; }
 message(0x41540047) Settle { index: Int as uint64; }
@@ -196,7 +196,7 @@ contract AtharMinter {
         self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + MINT_FEES, kind: 0, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: price + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price, remit: price }.toCell()
+            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price, occasion: msg.occasion, mediaRef: msg.mediaRef, remit: price }.toCell()
         });
         let refund: Int = ctx.value - price - BUY_FEES;
         if (refund > 10000000) {
@@ -277,7 +277,7 @@ contract AtharMinter {
         self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, kind: 1, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: au.highBid + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid, remit: au.highBid }.toCell()
+            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid, occasion: 0, mediaRef: 0, remit: au.highBid }.toCell()
         });
     }
 
@@ -384,7 +384,7 @@ contract AtharMinter {
         self.pending.set(date, PendingMint{ buyer: tk!!.owner, amount: MINT_FEES, kind: 2, ticket: msg.ticket });
         send(SendParameters{
             to: self.collection, value: MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: date, newOwner: tk!!.owner, season: self.seasonId, tier: self.tierOfIndex(date), paid: tk!!.price, remit: 0 }.toCell()
+            body: MintItem{ index: date, newOwner: tk!!.owner, season: self.seasonId, tier: self.tierOfIndex(date), paid: tk!!.price, occasion: 0, mediaRef: 0, remit: 0 }.toCell()
         });
     }
 

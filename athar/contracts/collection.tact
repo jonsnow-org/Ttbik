@@ -94,7 +94,7 @@ contract AtharCollection {
         send(SendParameters{ to: ctx.sender, value: OK_VALUE, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: MintOk{ index: msg.index }.toCell() });
         send(SendParameters{
             to: contractAddress(init), value: ctx.value - msg.remit - OK_VALUE - COLL_GAS, mode: SendPayGasSeparately, bounce: true,
-            body: ItemInit{ owner: msg.newOwner, season: msg.season, tier: msg.tier, paid: msg.paid, mintedAt: now() }.toCell(),
+            body: ItemInit{ owner: msg.newOwner, season: msg.season, tier: msg.tier, paid: msg.paid, mintedAt: now(), occasion: msg.occasion, mediaRef: msg.mediaRef }.toCell(),
             code: init.code, data: init.data
         });
     }
@@ -128,7 +128,8 @@ contract AtharCollection {
             to: self.successor!!, value: 0, mode: SendRemainingValue, bounce: true,
             body: UpgradeAccept{
                 index: msg.index, owner: msg.owner, season: msg.season, tier: msg.tier, paid: msg.paid,
-                mintedAt: msg.mintedAt, hands: msg.hands, engravings: msg.engravings
+                mintedAt: msg.mintedAt, hands: msg.hands, engravings: msg.engravings,
+                occasion: msg.occasion, mediaRef: msg.mediaRef, mediaLog: msg.mediaLog
             }.toCell()
         });
     }
