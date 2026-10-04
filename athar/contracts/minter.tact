@@ -22,6 +22,7 @@ struct Auction {
     reserve: Int as coins;
     highBid: Int as coins;
     highBidder: Address?;
+    mediaRef: Int as uint256;  // the permanent picture of a special date, chosen by the admin and shown to bidders (0 = none)
 }
 
 message(0x41540040) Configure {
@@ -35,8 +36,9 @@ message(0x41540040) Configure {
 message(0x41540041) AddSpecial { items: map<Int as uint16, Int as uint8>; }
 message(0x41540042) Open { startAt: Int as uint32; walletDailyCap: Int as uint16; }
 message(0x41540043) SetPaused { paused: Bool; }
-message(0x41540044) Buy { index: Int as uint64; recipient: Address?; occasion: Int as uint8; mediaRef: Int as uint256; }
-message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; duration: Int as uint32; }
+message(0x41540044) Buy { index: Int as uint64; recipient: Address?; occasion: Int as uint8; mediaRef: Int as uint256; style: Int as uint8; }   // style: 0 generated art (free), 1 own photo, 2 own photo in waxed silver
+message(0x41540045) StartAuction { index: Int as uint64; reserve: Int as coins; duration: Int as uint32; mediaRef: Int as uint256; }
+message(0x41540049) SetFees { photoFee: Int as coins; silverFee: Int as coins; }
 message(0x41540046) Bid { index: Int as uint64; }
 message(0x41540047) Settle { index: Int as uint64; }
 message(0x41540048) Sweep { }
@@ -82,6 +84,8 @@ contract AtharMinter {
     startAt: Int as uint32 = 0;
     walletDailyCap: Int as uint16 = 0;
     soldCount: Int as uint32 = 0;
+    photoFee: Int as coins = 0;                    // extra price of putting your own photo on the token
+    silverFee: Int as coins = 0;                   // extra price of the waxed-silver treatment of that photo
 
     receive() { }
 
@@ -93,6 +97,13 @@ contract AtharMinter {
         require(msg.floor > 0 && msg.floor <= msg.startPrice && msg.startPrice <= msg.cap, "bad price bounds");
         require(msg.bumpBps <= 2000 && msg.decayBps <= 5000, "bad rates");
         self.tiers.set(msg.tier, TierState{ price: msg.startPrice, floor: msg.floor, cap: msg.cap, bumpBps: msg.bumpBps, decayBps: msg.decayBps, lastDecayAt: 0, sold: 0 });
+    }
+    receive(msg: SetFees) {
+        require(sender() == self.admin, "only admin");
+        require(msg.photoFee <= 2000000000 && msg.silverFee <= 2000000000, "fee too high");   // never above 2 TON each
+        require(msg.silverFee >= msg.photoFee, "silver includes the photo");
+        self.photoFee = msg.photoFee;
+        self.silverFee = msg.silverFee;
     }
     receive(msg: AddSpecial) {
         require(sender() == self.admin, "only admin");
@@ -163,10 +174,14 @@ contract AtharMinter {
         require(self.auctions.get(msg.index) == null, "this date is sold by auction");
         require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
         let tier: Int = self.tierOfIndex(msg.index);
-        require(tier != TIER_MYTHIC, "mythic dates are sold by auction");
+        require(tier != TIER_MYTHIC && self.special.get(msg.index) == null, "mythic and special dates are sold by auction");
+        require(msg.style <= 2, "bad style");
         let t: TierState = self.tiers.get(tier)!!;
         let price: Int = self.priceNow(t);
-        require(ctx.value >= price + BUY_FEES, "send price + fees");
+        let extra: Int = 0;
+        if (msg.style == 1) { extra = self.photoFee; }
+        if (msg.style == 2) { extra = self.silverFee; }
+        require(ctx.value >= price + extra + BUY_FEES, "send price + fees");
 
         let buyer: Address = ctx.sender;
         let recipient: Address = buyer;
@@ -193,12 +208,12 @@ contract AtharMinter {
         t.sold = t.sold + 1;
         self.tiers.set(tier, t);
 
-        self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + MINT_FEES, kind: 0, ticket: 0 });
+        self.pending.set(msg.index, PendingMint{ buyer: buyer, amount: price + extra + MINT_FEES, kind: 0, ticket: 0 });
         send(SendParameters{
-            to: self.collection, value: price + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price, occasion: msg.occasion, mediaRef: msg.mediaRef, remit: price }.toCell()
+            to: self.collection, value: price + extra + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
+            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: price, occasion: msg.occasion, mediaRef: msg.mediaRef, remit: price + extra }.toCell()
         });
-        let refund: Int = ctx.value - price - BUY_FEES;
+        let refund: Int = ctx.value - price - extra - BUY_FEES;
         if (refund > 10000000) {
             send(SendParameters{ to: buyer, value: refund, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar change".asComment() });
         }
@@ -219,7 +234,7 @@ contract AtharMinter {
         if (p!!.kind == 1) {
             // settlement failed: the auction stays open to settle again once the cause is fixed
             let a: Auction = self.auctions.get(msg.index)!!;
-            let a2: Auction = Auction{ started: true, endAt: a.endAt, reserve: a.reserve, highBid: a.highBid, highBidder: a.highBidder };
+            let a2: Auction = Auction{ started: true, endAt: a.endAt, reserve: a.reserve, highBid: a.highBid, highBidder: a.highBidder, mediaRef: a.mediaRef };
             self.auctions.set(msg.index, a2);
         } else if (p!!.kind == 2) {
             // claim failed: the ticket can be claimed again
@@ -235,13 +250,13 @@ contract AtharMinter {
         require(sender() == self.admin, "only admin");
         require(self.isOpenNow(), "sale is not open");
         require(self.inSeason(msg.index), "date not in this season");
-        require(self.tierOfIndex(msg.index) == TIER_MYTHIC, "only mythic dates");
+        require(self.tierOfIndex(msg.index) == TIER_MYTHIC || self.special.get(msg.index) != null, "only mythic or special dates");
         require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
         require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
-        require(msg.reserve > 0 && msg.duration >= 3600 && msg.duration <= 7 * DAY, "bad auction");
+        require(msg.reserve > 0 && msg.duration >= 3600 && msg.duration <= 365 * DAY, "bad auction");
         let cur: Auction? = self.auctions.get(msg.index);
         require(cur == null || (cur!!.highBidder == null && now() >= cur!!.endAt), "auction already exists");
-        self.auctions.set(msg.index, Auction{ started: true, endAt: now() + msg.duration, reserve: msg.reserve, highBid: 0, highBidder: null });
+        self.auctions.set(msg.index, Auction{ started: true, endAt: now() + msg.duration, reserve: msg.reserve, highBid: 0, highBidder: null, mediaRef: msg.mediaRef });
     }
 
     receive(msg: Bid) {
@@ -277,7 +292,7 @@ contract AtharMinter {
         self.pending.set(msg.index, PendingMint{ buyer: au.highBidder!!, amount: au.highBid + BUY_FEES, kind: 1, ticket: 0 });
         send(SendParameters{
             to: self.collection, value: au.highBid + MINT_FEES, mode: SendPayGasSeparately, bounce: true,
-            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: TIER_MYTHIC, paid: au.highBid, occasion: 0, mediaRef: 0, remit: au.highBid }.toCell()
+            body: MintItem{ index: msg.index, newOwner: au.highBidder!!, season: self.seasonId, tier: self.tierOfIndex(msg.index), paid: au.highBid, occasion: 0, mediaRef: au.mediaRef, remit: au.highBid }.toCell()
         });
     }
 
@@ -407,8 +422,10 @@ contract AtharMinter {
         return self.priceNow(t!!);
     }
     get fun auction_of(index: Int): Auction? { return self.auctions.get(index); }
+    get fun fees(): FeeInfo { return FeeInfo{ photo: self.photoFee, silver: self.silverFee }; }
 }
 
+struct FeeInfo { photo: Int; silver: Int; }
 struct MysteryInfo { poolSize: Int; loaded: Int; ticketsSold: Int; revealed: Bool; revealAt: Int; commitHash: Int; a: Int; b: Int; }
 
 fun gcd(a: Int, b: Int): Int {

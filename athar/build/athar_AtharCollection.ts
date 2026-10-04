@@ -2880,6 +2880,7 @@ export type Auction = {
     reserve: bigint;
     highBid: bigint;
     highBidder: Address | null;
+    mediaRef: bigint;
 }
 
 export function storeAuction(src: Auction) {
@@ -2890,6 +2891,7 @@ export function storeAuction(src: Auction) {
         b_0.storeCoins(src.reserve);
         b_0.storeCoins(src.highBid);
         b_0.storeAddress(src.highBidder);
+        b_0.storeUint(src.mediaRef, 256);
     };
 }
 
@@ -2900,7 +2902,8 @@ export function loadAuction(slice: Slice) {
     const _reserve = sc_0.loadCoins();
     const _highBid = sc_0.loadCoins();
     const _highBidder = sc_0.loadMaybeAddress();
-    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder };
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder, mediaRef: _mediaRef };
 }
 
 export function loadTupleAuction(source: TupleReader) {
@@ -2909,7 +2912,8 @@ export function loadTupleAuction(source: TupleReader) {
     const _reserve = source.readBigNumber();
     const _highBid = source.readBigNumber();
     const _highBidder = source.readAddressOpt();
-    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder };
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder, mediaRef: _mediaRef };
 }
 
 export function loadGetterTupleAuction(source: TupleReader) {
@@ -2918,7 +2922,8 @@ export function loadGetterTupleAuction(source: TupleReader) {
     const _reserve = source.readBigNumber();
     const _highBid = source.readBigNumber();
     const _highBidder = source.readAddressOpt();
-    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder };
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'Auction' as const, started: _started, endAt: _endAt, reserve: _reserve, highBid: _highBid, highBidder: _highBidder, mediaRef: _mediaRef };
 }
 
 export function storeTupleAuction(source: Auction) {
@@ -2928,6 +2933,7 @@ export function storeTupleAuction(source: Auction) {
     builder.writeNumber(source.reserve);
     builder.writeNumber(source.highBid);
     builder.writeAddress(source.highBidder);
+    builder.writeNumber(source.mediaRef);
     return builder.build();
 }
 
@@ -3172,6 +3178,7 @@ export type Buy = {
     recipient: Address | null;
     occasion: bigint;
     mediaRef: bigint;
+    style: bigint;
 }
 
 export function storeBuy(src: Buy) {
@@ -3182,6 +3189,7 @@ export function storeBuy(src: Buy) {
         b_0.storeAddress(src.recipient);
         b_0.storeUint(src.occasion, 8);
         b_0.storeUint(src.mediaRef, 256);
+        b_0.storeUint(src.style, 8);
     };
 }
 
@@ -3192,7 +3200,8 @@ export function loadBuy(slice: Slice) {
     const _recipient = sc_0.loadMaybeAddress();
     const _occasion = sc_0.loadUintBig(8);
     const _mediaRef = sc_0.loadUintBig(256);
-    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+    const _style = sc_0.loadUintBig(8);
+    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef, style: _style };
 }
 
 export function loadTupleBuy(source: TupleReader) {
@@ -3200,7 +3209,8 @@ export function loadTupleBuy(source: TupleReader) {
     const _recipient = source.readAddressOpt();
     const _occasion = source.readBigNumber();
     const _mediaRef = source.readBigNumber();
-    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+    const _style = source.readBigNumber();
+    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef, style: _style };
 }
 
 export function loadGetterTupleBuy(source: TupleReader) {
@@ -3208,7 +3218,8 @@ export function loadGetterTupleBuy(source: TupleReader) {
     const _recipient = source.readAddressOpt();
     const _occasion = source.readBigNumber();
     const _mediaRef = source.readBigNumber();
-    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+    const _style = source.readBigNumber();
+    return { $$type: 'Buy' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef, style: _style };
 }
 
 export function storeTupleBuy(source: Buy) {
@@ -3217,6 +3228,7 @@ export function storeTupleBuy(source: Buy) {
     builder.writeAddress(source.recipient);
     builder.writeNumber(source.occasion);
     builder.writeNumber(source.mediaRef);
+    builder.writeNumber(source.style);
     return builder.build();
 }
 
@@ -3236,6 +3248,7 @@ export type StartAuction = {
     index: bigint;
     reserve: bigint;
     duration: bigint;
+    mediaRef: bigint;
 }
 
 export function storeStartAuction(src: StartAuction) {
@@ -3245,6 +3258,7 @@ export function storeStartAuction(src: StartAuction) {
         b_0.storeUint(src.index, 64);
         b_0.storeCoins(src.reserve);
         b_0.storeUint(src.duration, 32);
+        b_0.storeUint(src.mediaRef, 256);
     };
 }
 
@@ -3254,21 +3268,24 @@ export function loadStartAuction(slice: Slice) {
     const _index = sc_0.loadUintBig(64);
     const _reserve = sc_0.loadCoins();
     const _duration = sc_0.loadUintBig(32);
-    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration };
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration, mediaRef: _mediaRef };
 }
 
 export function loadTupleStartAuction(source: TupleReader) {
     const _index = source.readBigNumber();
     const _reserve = source.readBigNumber();
     const _duration = source.readBigNumber();
-    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration };
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration, mediaRef: _mediaRef };
 }
 
 export function loadGetterTupleStartAuction(source: TupleReader) {
     const _index = source.readBigNumber();
     const _reserve = source.readBigNumber();
     const _duration = source.readBigNumber();
-    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration };
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'StartAuction' as const, index: _index, reserve: _reserve, duration: _duration, mediaRef: _mediaRef };
 }
 
 export function storeTupleStartAuction(source: StartAuction) {
@@ -3276,6 +3293,7 @@ export function storeTupleStartAuction(source: StartAuction) {
     builder.writeNumber(source.index);
     builder.writeNumber(source.reserve);
     builder.writeNumber(source.duration);
+    builder.writeNumber(source.mediaRef);
     return builder.build();
 }
 
@@ -3286,6 +3304,59 @@ export function dictValueParserStartAuction(): DictionaryValue<StartAuction> {
         },
         parse: (src) => {
             return loadStartAuction(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetFees = {
+    $$type: 'SetFees';
+    photoFee: bigint;
+    silverFee: bigint;
+}
+
+export function storeSetFees(src: SetFees) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024137, 32);
+        b_0.storeCoins(src.photoFee);
+        b_0.storeCoins(src.silverFee);
+    };
+}
+
+export function loadSetFees(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024137) { throw Error('Invalid prefix'); }
+    const _photoFee = sc_0.loadCoins();
+    const _silverFee = sc_0.loadCoins();
+    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+}
+
+export function loadTupleSetFees(source: TupleReader) {
+    const _photoFee = source.readBigNumber();
+    const _silverFee = source.readBigNumber();
+    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+}
+
+export function loadGetterTupleSetFees(source: TupleReader) {
+    const _photoFee = source.readBigNumber();
+    const _silverFee = source.readBigNumber();
+    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+}
+
+export function storeTupleSetFees(source: SetFees) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.photoFee);
+    builder.writeNumber(source.silverFee);
+    return builder.build();
+}
+
+export function dictValueParserSetFees(): DictionaryValue<SetFees> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetFees(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetFees(src.loadRef().beginParse());
         }
     }
 }
@@ -3818,6 +3889,8 @@ export type AtharMinter$Data = {
     startAt: bigint;
     walletDailyCap: bigint;
     soldCount: bigint;
+    photoFee: bigint;
+    silverFee: bigint;
 }
 
 export function storeAtharMinter$Data(src: AtharMinter$Data) {
@@ -3851,6 +3924,8 @@ export function storeAtharMinter$Data(src: AtharMinter$Data) {
         b_2.storeUint(src.startAt, 32);
         b_2.storeUint(src.walletDailyCap, 16);
         b_2.storeUint(src.soldCount, 32);
+        b_2.storeCoins(src.photoFee);
+        b_2.storeCoins(src.silverFee);
         b_1.storeRef(b_2.endCell());
         b_0.storeRef(b_1.endCell());
     };
@@ -3886,7 +3961,9 @@ export function loadAtharMinter$Data(slice: Slice) {
     const _startAt = sc_2.loadUintBig(32);
     const _walletDailyCap = sc_2.loadUintBig(16);
     const _soldCount = sc_2.loadUintBig(32);
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    const _photoFee = sc_2.loadCoins();
+    const _silverFee = sc_2.loadCoins();
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee };
 }
 
 export function loadTupleAtharMinter$Data(source: TupleReader) {
@@ -3917,7 +3994,9 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    const _photoFee = source.readBigNumber();
+    const _silverFee = source.readBigNumber();
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee };
 }
 
 export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
@@ -3947,7 +4026,9 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount };
+    const _photoFee = source.readBigNumber();
+    const _silverFee = source.readBigNumber();
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee };
 }
 
 export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
@@ -3978,6 +4059,8 @@ export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
     builder.writeNumber(source.startAt);
     builder.writeNumber(source.walletDailyCap);
     builder.writeNumber(source.soldCount);
+    builder.writeNumber(source.photoFee);
+    builder.writeNumber(source.silverFee);
     return builder.build();
 }
 
@@ -3988,6 +4071,57 @@ export function dictValueParserAtharMinter$Data(): DictionaryValue<AtharMinter$D
         },
         parse: (src) => {
             return loadAtharMinter$Data(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type FeeInfo = {
+    $$type: 'FeeInfo';
+    photo: bigint;
+    silver: bigint;
+}
+
+export function storeFeeInfo(src: FeeInfo) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.photo, 257);
+        b_0.storeInt(src.silver, 257);
+    };
+}
+
+export function loadFeeInfo(slice: Slice) {
+    const sc_0 = slice;
+    const _photo = sc_0.loadIntBig(257);
+    const _silver = sc_0.loadIntBig(257);
+    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+}
+
+export function loadTupleFeeInfo(source: TupleReader) {
+    const _photo = source.readBigNumber();
+    const _silver = source.readBigNumber();
+    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+}
+
+export function loadGetterTupleFeeInfo(source: TupleReader) {
+    const _photo = source.readBigNumber();
+    const _silver = source.readBigNumber();
+    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+}
+
+export function storeTupleFeeInfo(source: FeeInfo) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.photo);
+    builder.writeNumber(source.silver);
+    return builder.build();
+}
+
+export function dictValueParserFeeInfo(): DictionaryValue<FeeInfo> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeFeeInfo(src)).endCell());
+        },
+        parse: (src) => {
+            return loadFeeInfo(src.loadRef().beginParse());
         }
     }
 }
@@ -4152,12 +4286,15 @@ export const AtharCollection_errors = {
     5268: { message: "auction not finished" },
     6032: { message: "closed" },
     9254: { message: "only a real item" },
+    9748: { message: "silver includes the photo" },
     10060: { message: "daily limit reached for this wallet" },
     10517: { message: "only the next edition" },
     12078: { message: "not revealed yet" },
     12332: { message: "mystery pool incomplete" },
     12683: { message: "not minted" },
+    12902: { message: "only mythic or special dates" },
     13448: { message: "auction already exists" },
+    13916: { message: "bad style" },
     14245: { message: "notice period not over" },
     14254: { message: "bad auction" },
     14444: { message: "upgrade already in progress" },
@@ -4172,8 +4309,8 @@ export const AtharCollection_errors = {
     23197: { message: "no upgrade pending" },
     23696: { message: "already revealed" },
     23975: { message: "date already taken" },
-    24098: { message: "only mythic dates" },
     24241: { message: "not open yet" },
+    24505: { message: "mythic and special dates are sold by auction" },
     25177: { message: "wrong secret" },
     28276: { message: "sale is not open" },
     28433: { message: "payout not set" },
@@ -4194,7 +4331,7 @@ export const AtharCollection_errors = {
     49280: { message: "not owner" },
     50514: { message: "no open ticket" },
     50563: { message: "bad rates" },
-    51269: { message: "mythic dates are sold by auction" },
+    52892: { message: "fee too high" },
     53050: { message: "nothing proposed" },
     53528: { message: "no next edition yet" },
     55815: { message: "already set" },
@@ -4248,12 +4385,15 @@ export const AtharCollection_errors_backward = {
     "auction not finished": 5268,
     "closed": 6032,
     "only a real item": 9254,
+    "silver includes the photo": 9748,
     "daily limit reached for this wallet": 10060,
     "only the next edition": 10517,
     "not revealed yet": 12078,
     "mystery pool incomplete": 12332,
     "not minted": 12683,
+    "only mythic or special dates": 12902,
     "auction already exists": 13448,
+    "bad style": 13916,
     "notice period not over": 14245,
     "bad auction": 14254,
     "upgrade already in progress": 14444,
@@ -4268,8 +4408,8 @@ export const AtharCollection_errors_backward = {
     "no upgrade pending": 23197,
     "already revealed": 23696,
     "date already taken": 23975,
-    "only mythic dates": 24098,
     "not open yet": 24241,
+    "mythic and special dates are sold by auction": 24505,
     "wrong secret": 25177,
     "sale is not open": 28276,
     "payout not set": 28433,
@@ -4290,7 +4430,7 @@ export const AtharCollection_errors_backward = {
     "not owner": 49280,
     "no open ticket": 50514,
     "bad rates": 50563,
-    "mythic dates are sold by auction": 51269,
+    "fee too high": 52892,
     "nothing proposed": 53050,
     "no next edition yet": 53528,
     "already set": 55815,
@@ -4349,13 +4489,14 @@ const AtharCollection_types: ABIType[] = [
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"Ticket","header":null,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"claimed","type":{"kind":"simple","type":"bool","optional":false}}]},
-    {"name":"Auction","header":null,"fields":[{"name":"started","type":{"kind":"simple","type":"bool","optional":false}},{"name":"endAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBidder","type":{"kind":"simple","type":"address","optional":true}}]},
+    {"name":"Auction","header":null,"fields":[{"name":"started","type":{"kind":"simple","type":"bool","optional":false}},{"name":"endAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBidder","type":{"kind":"simple","type":"address","optional":true}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"Configure","header":1096024128,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"AddSpecial","header":1096024129,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}}]},
     {"name":"Open","header":1096024130,"fields":[{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"SetPaused","header":1096024131,"fields":[{"name":"paused","type":{"kind":"simple","type":"bool","optional":false}}]},
-    {"name":"Buy","header":1096024132,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
-    {"name":"StartAuction","header":1096024133,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"duration","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"Buy","header":1096024132,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"style","type":{"kind":"simple","type":"uint","optional":false,"format":8}}]},
+    {"name":"StartAuction","header":1096024133,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"duration","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
+    {"name":"SetFees","header":1096024137,"fields":[{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Bid","header":1096024134,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Settle","header":1096024135,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Sweep","header":1096024136,"fields":[]},
@@ -4366,7 +4507,8 @@ const AtharCollection_types: ABIType[] = [
     {"name":"ClaimTicket","header":1096024148,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"RevealPublic","header":1096024150,"fields":[]},
     {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
-    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
+    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"FeeInfo","header":null,"fields":[{"name":"photo","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"silver","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"MysteryInfo","header":null,"fields":[{"name":"poolSize","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"loaded","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticketsSold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"commitHash","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"a","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"b","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
 ]
 
@@ -4402,6 +4544,7 @@ const AtharCollection_opcodes = {
     "SetPaused": 1096024131,
     "Buy": 1096024132,
     "StartAuction": 1096024133,
+    "SetFees": 1096024137,
     "Bid": 1096024134,
     "Settle": 1096024135,
     "Sweep": 1096024136,

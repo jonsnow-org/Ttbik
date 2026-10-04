@@ -2,7 +2,7 @@
 // every request is shown to the owner inside their own wallet, who pays and confirms.
 import { Address, beginCell, Cell, Dictionary, storeStateInit, toNano } from "@ton/core";
 import { AtharCollection, storeProposePayout, storeProposeBaseUri, storeProposeMinter } from "../../build/athar_AtharCollection";
-import { AtharMinter, storeConfigure, storeAddSpecial, storeLoadPool, storeSetMystery, storeOpen, storeStartAuction, storeSetPaused, storeReveal, storeSweep } from "../../build/athar_AtharMinter";
+import { AtharMinter, storeConfigure, storeAddSpecial, storeLoadPool, storeSetMystery, storeSetFees, storeOpen, storeStartAuction, storeSetPaused, storeReveal, storeSweep } from "../../build/athar_AtharMinter";
 import { BASE_URI, COLLECTION_URI, DELAY_SEC } from "./config";
 import { buildPool, SeasonDef, specialIndex, seasonTier } from "./seasons";
 import { ruleTier, TIER } from "./dates";
@@ -57,6 +57,7 @@ export async function launchSteps(admin: Address, payout: Address, def: SeasonDe
     { title: "ضبط الأسعار والتواريخ الخاصة وصناديق الغموض", messages: [
       { address: C, amount: nano("0.06").toString(), payload: body(storeProposeBaseUri({ $$type: "ProposeBaseUri", uri: BASE_URI })) },
       { address: M, amount: nano("0.06").toString(), payload: cfg(TIER.RARE, def.rare) },
+      { address: M, amount: nano("0.05").toString(), payload: body(storeSetFees({ $$type: "SetFees", photoFee: nano(def.fees.photo), silverFee: nano(def.fees.silver) })) },
       { address: M, amount: nano("0.3").toString(), payload: body(storeAddSpecial({ $$type: "AddSpecial", items: specials })) },
       { address: M, amount: nano("0.1").toString(), payload: body(storeSetMystery({ $$type: "SetMystery", commitHash: opts.commit, revealAt: BigInt(opts.revealAt), startPrice: nano(def.ticket.start), floor: nano(def.ticket.floor), cap: nano(def.ticket.cap), bumpBps: BigInt(def.ticket.bumpBps), decayBps: BigInt(def.ticket.decayBps) })) },
     ] },
@@ -69,12 +70,17 @@ export async function launchSteps(admin: Address, payout: Address, def: SeasonDe
   return { steps, collection: C, minter: M, poolDates: pool };
 }
 
+/** Auctions of the mythic dates by rule (48 h, no picture of ours). Special dates have their own, long auctions (specialAuctionMsg). */
 export function auctionMsgs(minter: string, def: SeasonDef): Msg[] {
   const pool = new Set(buildPool(def).dates);
+  const special = new Set(def.specials.map(specialIndex));
   const dates: number[] = [];
-  for (let i = def.rangeStart; i <= def.rangeEnd; i++) if (seasonTier(def, i) === TIER.MYTHIC && !pool.has(i)) dates.push(i);
-  for (const s of def.specials) { const i = specialIndex(s); if (s.tier === 2 && (i < def.rangeStart || i > def.rangeEnd)) dates.push(i); }
-  return dates.map((i) => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeStartAuction({ $$type: "StartAuction", index: BigInt(i), reserve: nano(def.auctionReserve), duration: BigInt(def.auctionHours * 3600) })) }));
+  for (let i = def.rangeStart; i <= def.rangeEnd; i++) if (seasonTier(def, i) === TIER.MYTHIC && !pool.has(i) && !special.has(i)) dates.push(i);
+  return dates.map((i) => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeStartAuction({ $$type: "StartAuction", index: BigInt(i), reserve: nano(def.auctionReserve), duration: BigInt(def.auctionHours * 3600), mediaRef: 0n })) }));
+}
+/** A special (gold) date: the picture is ours, stored permanently first, and bidders see it. */
+export function specialAuctionMsg(minter: string, def: SeasonDef, index: number, mediaRef: bigint, reserve = def.specialReserve, days = def.specialDays): Msg {
+  return { address: minter, amount: nano("0.05").toString(), payload: body(storeStartAuction({ $$type: "StartAuction", index: BigInt(index), reserve: nano(reserve), duration: BigInt(Math.round(days * 86400)), mediaRef })) };
 }
 export const pauseMsg = (minter: string, paused: boolean): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSetPaused({ $$type: "SetPaused", paused })) });
 export const revealMsg = (minter: string, secret: bigint): Msg => ({ address: minter, amount: nano("0.1").toString(), payload: body(storeReveal({ $$type: "Reveal", secret })) });

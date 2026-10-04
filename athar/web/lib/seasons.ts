@@ -18,6 +18,9 @@ export type SeasonDef = {
   auctionReserve: string;          // TON, mythic dates
   auctionHours: number;
   mysteryDays: number;             // ticket sale length before the reveal
+  fees: { photo: string; silver: string };   // extra price (TON) of an own photo / of the waxed-silver treatment; the generated art is free
+  specialReserve: string;          // TON, opening bid of a special (gold) date
+  specialDays: number;             // auction length of a special date: long while the community is small, shorter later
 };
 
 // Notable dates outside the 2000-2007 range that belong to Season 1 (neutral, widely known).
@@ -70,6 +73,9 @@ export const SEASON_1: SeasonDef = {
   auctionReserve: "10",
   auctionHours: 48,
   mysteryDays: 7,
+  fees: { photo: "0.15", silver: "0.3" },
+  specialReserve: "25",
+  specialDays: 90,
 };
 
 export const SEASONS: Record<number, SeasonDef> = { 1: SEASON_1 };

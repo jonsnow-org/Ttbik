@@ -6,13 +6,14 @@ import { Top, TierBadge, ton, useApi, useSend } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { buyMsg, short } from "@/lib/tx";
+import { arweaveId } from "@/lib/ids";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
 
-type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number } };
-type Season = { configured: boolean; minter?: string; deployed?: boolean; status?: number };
+type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; special?: boolean; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number; mediaRef?: string } };
+type Season = { configured: boolean; minter?: string; deployed?: boolean; status?: number; fees?: { photo: number; silver: number } };
 
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
@@ -34,14 +35,15 @@ export default function DatePage() {
   const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
   const [perm, setPerm] = useState(true);
   const [showMedia, setShowMedia] = useState(false);
-  const { data: sp } = useApi<{ special: { hasArt: boolean } | null }>(`/api/special?index=${index}`);
-  const useSpecial = !!sp?.special?.hasArt && !media.photo;
   const [storing, setStoring] = useState(false);
   const [gift, setGift] = useState(false);
   const [to, setTo] = useState("");
   const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
   const years = useMemo(() => Array.from({ length: 100 }, (_, i) => 2049 - i), []);
   const fresh = info && info.index === index;
+
+  const style = media.photo ? (media.style === "silver" ? 2 : 1) : 0;
+  const extra = style === 1 ? season?.fees?.photo ?? 0 : style === 2 ? season?.fees?.silver ?? 0 : 0;
 
   async function buy() {
     if (!season?.minter || info?.price == null) return;
@@ -50,7 +52,7 @@ export default function DatePage() {
     if (perm) {
       setStoring(true);
       try {
-        const kind = media.photo ? "photo" : useSpecial ? "special" : "snapshot";
+        const kind = media.photo ? "photo" : "snapshot";
         const body = { index, kind, occasion: media.occasion, photo: media.photo };
         const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
         const pj = await pr.json();
@@ -63,7 +65,7 @@ export default function DatePage() {
       } catch { toast(t("media.fail")); setStoring(false); return; }
       setStoring(false);
     }
-    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref)], t("date.sent"))) reload();
+    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, style, extra)], t("date.sent"))) reload();
   }
 
   return (
@@ -94,13 +96,14 @@ export default function DatePage() {
                 <Link className="btn ghost" href={`/token/${index}`}>{t("date.view")}</Link>
               </>
             )}
-            {info!.inSeason && !info!.taken && !info!.reserved && info!.tier < 2 && (
+            {info!.inSeason && !info!.taken && !info!.reserved && info!.tier < 2 && !info!.special && (
               <>
-                <div className="big">{ton(info!.price)}</div>
+                <div className="big">{ton((info!.price ?? 0) + extra)}</div>
+                {extra > 0 && <p className="muted">{t("date.incl", { base: ton(info!.price), extra: ton(extra) })}</p>}
                 <p className="muted">{t("date.fees")}</p>
                 <div className="gap" style={{ textAlign: "start" }}>
                   <label className="muted"><input type="checkbox" checked={showMedia} onChange={(e) => setShowMedia(e.target.checked)} /> {t("media.title")}</label>
-                  {showMedia && <MediaPicker index={index} tier={info!.tier} season={1} value={media} onChange={setMedia} />}
+                  {showMedia && <MediaPicker index={index} tier={info!.tier} season={1} value={media} onChange={setMedia} fees={season?.fees} />}
                   <label className="muted"><input type="checkbox" checked={perm} onChange={(e) => setPerm(e.target.checked)} /> {t("media.perm")}</label>
                   {perm && <span className="muted">{t("media.permNote")}</span>}
                   <label className="muted"><input type="checkbox" checked={gift} onChange={(e) => setGift(e.target.checked)} /> {t("gift.toggle")}</label>
@@ -110,9 +113,10 @@ export default function DatePage() {
                 </div>
               </>
             )}
-            {info!.inSeason && !info!.taken && !info!.reserved && info!.tier === 2 && (
+            {info!.inSeason && !info!.taken && !info!.reserved && (info!.tier === 2 || info!.special) && (
               <>
-                <p className="muted">{t("date.mythic")}</p>
+                {info!.auction?.mediaRef && info!.auction.mediaRef !== "0" && <img src={`https://turbo-gateway.com/${arweaveId(BigInt(info!.auction.mediaRef))}`} alt="" style={{ width: "100%", maxWidth: 300, borderRadius: 24, margin: "0 auto 10px", display: "block" }} />}
+                <p className="muted">{info!.special ? t("date.special") : t("date.mythic")}</p>
                 <Link className="btn gold" href="/auctions">{t("date.toAuctions")}</Link>
               </>
             )}

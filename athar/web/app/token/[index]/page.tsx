@@ -84,7 +84,7 @@ export default function Token({ params }: { params: { index: string } }) {
           </div>
         )}
       </div>
-      {mine && (
+      {mine && !t.mediaRef && (
         <div className="card">
           <h3>{tr("media.title")}</h3>
           <MediaPicker index={index} tier={t.tier} season={t.season} value={media} onChange={setMedia} stage={stage} hands={t.hands} engravings={t.engravings.length} />

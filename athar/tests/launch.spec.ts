@@ -4,7 +4,8 @@ process.env.NEXT_PUBLIC_SITE_URL = "https://athar.example.com";
 import { Blockchain } from "@ton/sandbox";
 import { Address, Cell, loadStateInit, toNano } from "@ton/core";
 import { createHash } from "crypto";
-import { launchSteps, auctionMsgs } from "../web/lib/launch";
+import { launchSteps, auctionMsgs, specialAuctionMsg } from "../web/lib/launch";
+import { specialIndex } from "../web/lib/seasons";
 import { SEASON_1, buildPool, seasonTier } from "../web/lib/seasons";
 import { AtharCollection } from "../build/athar_AtharCollection";
 import { AtharMinter } from "../build/athar_AtharMinter";
@@ -58,20 +59,29 @@ describe("launch rehearsal (what the admin button does)", () => {
     expect(seasonTier(SEASON_1, idx)).toBeLessThan(2);
     const pool = new Set(poolDates);
     let day = SEASON_1.rangeStart; while (pool.has(day) || seasonTier(SEASON_1, day) !== 0) day++;
-    let r = await alice.send({ to: min.address, value: toNano("1"), body: (await import("@ton/core")).beginCell().store((await import("../build/athar_AtharMinter")).storeBuy({ $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n })).endCell() });
+    let r = await alice.send({ to: min.address, value: toNano("1"), body: (await import("@ton/core")).beginCell().store((await import("../build/athar_AtharMinter")).storeBuy({ $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n })).endCell() });
     expect(await min.getIsTaken(BigInt(day))).toBe(false);
     bc.now = startAt + 5;
-    await min.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n });
+    await min.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(day), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(await min.getIsTaken(BigInt(day))).toBe(true);
     await min.send(alice.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
     expect((await min.getMysteryInfo()).ticketsSold).toBe(1n);
 
     // mythic auctions the panel can start after launch
     const am = auctionMsgs(minter, SEASON_1);
-    expect(am.length).toBeGreaterThan(20);
+    expect(am.length).toBeGreaterThan(10);
     const first = am[0];
     const rr = await admin.send({ to: Address.parse(first.address), value: BigInt(first.amount), body: Cell.fromBase64(first.payload!) });
     const au = await min.getAuctionOf(BigInt(rr.transactions.length ? 0 : 0) + BigInt(SEASON_1.rangeStart));
     expect(rr.transactions.some((t) => (t.description as any).computePhase?.success === true && t.inMessage?.info.dest?.toString() === min.address.toString())).toBe(true);
+
+    // a special date: the panel's long auction with the stored picture attached
+    const sp = specialAuctionMsg(minter, SEASON_1, specialIndex(SEASON_1.specials[0]), 42n);
+    const r2 = await admin.send({ to: Address.parse(sp.address), value: BigInt(sp.amount), body: Cell.fromBase64(sp.payload!) });
+    expect(r2.transactions.some((t) => (t.description as any).computePhase?.success === true && t.inMessage?.info.dest?.toString() === min.address.toString())).toBe(true);
+    const sau = await min.getAuctionOf(BigInt(specialIndex(SEASON_1.specials[0])));
+    expect(sau!.mediaRef).toBe(42n);
+    expect(sau!.reserve).toBe(toNano(SEASON_1.specialReserve));
+    expect((await min.getFees()).silver).toBe(toNano(SEASON_1.fees.silver));      // the launch steps set the feature prices
   });
 });

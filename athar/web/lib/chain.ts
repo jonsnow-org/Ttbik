@@ -47,10 +47,11 @@ export async function seasonStatus(season = 1) {
     const m = client.open(AtharMinter.fromAddress(a.minter.address));
     try {
       const status = Number(await m.getStatus());
-      const [sold, pc, pr, myst, pt] = [await m.getSoldCount(), await m.getPrice(0n), await m.getPrice(1n), await m.getMysteryInfo(), await m.getPrice(3n)];
+      const [sold, pc, pr, myst, pt, fe] = [await m.getSoldCount(), await m.getPrice(0n), await m.getPrice(1n), await m.getMysteryInfo(), await m.getPrice(3n), await m.getFees()];
       return {
         configured: true as const, deployed: true, status, sold: Number(sold),
         prices: { common: nano(pc), rare: nano(pr), ticket: nano(pt) },
+        fees: { photo: nano(fe.photo), silver: nano(fe.silver) },
         mystery: { poolSize: Number(myst.poolSize), ticketsSold: Number(myst.ticketsSold), revealed: myst.revealed, revealAt: Number(myst.revealAt) },
         minter: a.minter.address.toString({ bounceable: true }), collection: a.collection.address.toString({ bounceable: true }),
       };
@@ -66,19 +67,20 @@ export async function dateInfo(index: number) {
   const inSeason = (index >= def.rangeStart && index <= def.rangeEnd) || def.specials.some((s) => specialIndex(s) === index);
   const tier = seasonTier(def, index);
   const pool = new Set(buildPool(def).dates);
-  const base = { index, tier, inSeason, reserved: pool.has(index) };
+  const isSpecial = def.specials.some((s) => specialIndex(s) === index);
+  const base = { index, tier, inSeason, reserved: pool.has(index), special: isSpecial };
   if (!a || !inSeason) return { ...base, taken: false as boolean, owner: null as string | null, price: null as number | null, auction: null as null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean } };
   return cached(`date:${index}`, 8000, async () => {
     const m = client.open(AtharMinter.fromAddress(a.minter.address));
     let taken = false, owner: string | null = null, price: number | null = null;
-    let auction: null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean } = null;
+    let auction: null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean; mediaRef: string } = null;
     try {
       taken = await m.getIsTaken(BigInt(index));
       if (taken) owner = (await tokenState(index))?.owner ?? null;
-      else if (tier < 2 && !pool.has(index)) price = nano(await m.getPrice(BigInt(tier)));
-      if (tier === 2 && !pool.has(index) && !taken) {
+      else if (tier < 2 && !isSpecial && !pool.has(index)) price = nano(await m.getPrice(BigInt(tier)));
+      if ((tier === 2 || isSpecial) && !pool.has(index) && !taken) {
         const au = await m.getAuctionOf(BigInt(index));
-        if (au) auction = { endAt: Number(au.endAt), reserve: nano(au.reserve), highBid: nano(au.highBid), highBidder: au.highBidder?.toString() ?? null, live: au.started && Number(au.endAt) * 1000 > Date.now() };
+        if (au) auction = { endAt: Number(au.endAt), reserve: nano(au.reserve), highBid: nano(au.highBid), highBidder: au.highBidder?.toString() ?? null, live: au.started && Number(au.endAt) * 1000 > Date.now(), mediaRef: au.mediaRef.toString() };
       }
     } catch { /* contract not deployed yet */ }
     return { ...base, taken, owner, price, auction };
@@ -157,8 +159,9 @@ export async function ticketsOf(owner: string) {
 
 export function liveAuctionDates(def: SeasonDef = SEASONS[1]) {
   const pool = new Set(buildPool(def).dates);
+  const special = new Set(def.specials.map(specialIndex));
   const out: number[] = [];
-  for (let i = def.rangeStart; i <= def.rangeEnd; i++) if (seasonTier(def, i) === 2 && !pool.has(i)) out.push(i);
-  for (const s of def.specials) { const i = specialIndex(s); if (s.tier === 2 && (i < def.rangeStart || i > def.rangeEnd)) out.push(i); }
+  for (let i = def.rangeStart; i <= def.rangeEnd; i++) if (seasonTier(def, i) === 2 && !pool.has(i) && !special.has(i)) out.push(i);
+  for (const i of special) if (!pool.has(i)) out.push(i);        // every special date is sold by auction
   return out;
 }

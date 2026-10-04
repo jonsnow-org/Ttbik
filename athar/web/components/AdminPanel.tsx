@@ -3,8 +3,11 @@ import { Address } from "@ton/core";
 import { TonConnectButton, useTonAddress, useTonConnectUI } from "@tonconnect/ui-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastHost, useToast } from "@/components/ui";
-import { auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, sweepMsg } from "@/lib/launch";
-import { buildPool, SEASON_1, seasonSize } from "@/lib/seasons";
+import { auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, specialAuctionMsg, sweepMsg } from "@/lib/launch";
+import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
+import { compressPhoto } from "@/lib/photo";
+import { waxPhoto } from "@/lib/wax";
+import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
 import { tx } from "@/lib/tx";
@@ -36,6 +39,32 @@ export default function AdminPanel() {
     const r = await fetch("/api/admin/hide", { method: "POST", headers: adm(), body: JSON.stringify({ kind, key, note: hNote, action }) });
     if (r.ok) { setHiddenRows((await r.json()).rows); if (action === "hide") { setHKey(""); setHNote(""); } } else toast("مفتاح غير صالح");
   }
+  // special (gold) dates: the admin picks the picture, it gets the waxed-gold treatment, is shown for approval, stored for good,
+  // and only then is the long auction started with that picture attached
+  const [spIdx, setSpIdx] = useState(() => specialIndex(SEASON_1.specials[0]));
+  const [spPhoto, setSpPhoto] = useState<string | null>(null);
+  const [spSvg, setSpSvg] = useState("");
+  const [spReserve, setSpReserve] = useState(SEASON_1.specialReserve);
+  const [spDays, setSpDays] = useState(String(SEASON_1.specialDays));
+  const [spBusy, setSpBusy] = useState(false);
+  const spPick = async (f: File | undefined) => {
+    if (!f) return;
+    setSpBusy(true); setSpSvg("");
+    try {
+      const r = await compressPhoto(f);
+      const gold = r ? await waxPhoto(r.uri, "gold") : null;
+      if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
+      setSpPhoto(gold);
+      const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: gold, preview: true }) });
+      const pj = await pr.json(); if (pr.ok) setSpSvg(pj.svg); else toast(pj.error || "فشلت المعاينة");
+    } catch { toast("تعذّر تجهيز الصورة"); } finally { setSpBusy(false); }
+  };
+  const spStart = () => run(async () => {
+    const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: spPhoto }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
+    await ui.sendTransaction(tx([specialAuctionMsg(st!.minter, SEASON_1, spIdx, BigInt(j.ref), spReserve, Number(spDays))]));
+    setSpPhoto(null); setSpSvg("");
+  });
   const stRef = useRef<St | null>(null);
   stRef.current = st;
 
@@ -185,6 +214,21 @@ export default function AdminPanel() {
           <h3>أدوات ما بعد الإطلاق</h3>
           <div className="gap">
             <button className="btn" disabled={running} onClick={() => run(async () => { for (const g of chunk(auctionMsgs(st.minter, SEASON_1), maxMsgs)) await ui.sendTransaction(tx(g)); })}>ابدأ مزادات التواريخ الأسطورية</button>
+            <div className="card" style={{ margin: 0 }}>
+              <b>تاريخ خاص بصورة ذهبية (مزاد طويل)</b>
+              <div className="gap">
+                <select value={spIdx} onChange={(e) => { setSpIdx(Number(e.target.value)); setSpPhoto(null); setSpSvg(""); }}>
+                  {SEASON_1.specials.map((x) => { const i = specialIndex(x); const q = ymd(i); return <option key={i} value={i}>{q.d}/{q.m}/{q.y} · {x.note}</option>; })}
+                </select>
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} />
+                {spSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(spSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
+                <div className="row" style={{ gap: 8 }}>
+                  <input type="number" step="1" min="1" value={spReserve} onChange={(e) => setSpReserve(e.target.value)} title="سعر البداية TON" />
+                  <input type="number" step="1" min="1" max="365" value={spDays} onChange={(e) => setSpDays(e.target.value)} title="المدة بالأيام" />
+                </div>
+                <button className="btn gold" disabled={running || spBusy || !spPhoto} onClick={spStart}>خزّن الصورة وابدأ المزاد</button>
+              </div>
+            </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(st.minter, st.status === 1)])); })}>{st.status === 1 ? "أوقف البيع مؤقتاً" : "استأنف البيع"}</button>
             <button className="btn gold" disabled={running || !secretLocal || (st.revealAt ?? 0) * 1000 > Date.now() || !!st.revealed} onClick={() => run(async () => { await ui.sendTransaction(tx([revealMsg(st.minter, BigInt("0x" + secretLocal!))])); })}>
               {st.revealed ? "تم كشف الصناديق" : (st.revealAt ?? 0) * 1000 > Date.now() ? `كشف الصناديق (يُتاح ${new Date((st.revealAt ?? 0) * 1000).toLocaleString("ar")})` : "اكشف الصناديق الآن"}

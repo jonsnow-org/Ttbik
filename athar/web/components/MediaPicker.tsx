@@ -12,8 +12,8 @@ const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURICom
 export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number; raw?: string | null; style?: "plain" | "silver" };
 
 /** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
-export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0 }: {
-  index: number; tier: number; season: number; value: MediaState; onChange: (v: MediaState) => void; stage?: number; hands?: number; engravings?: number;
+export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0, fees }: {
+  index: number; tier: number; season: number; value: MediaState; onChange: (v: MediaState) => void; stage?: number; hands?: number; engravings?: number; fees?: { photo: number; silver: number };
 }) {
   const { t, lang } = useI18n();
   const file = useRef<HTMLInputElement>(null);
@@ -63,8 +63,8 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
       </div>
       {value.photo && value.raw && (
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className={`btn sm ${value.style === "silver" ? "ghost" : ""}`} disabled={busy} onClick={() => setStyle("plain")}>{t("media.stylePlain")}</button>
-          <button type="button" className={`btn sm ${value.style === "silver" ? "" : "ghost"}`} disabled={busy} onClick={() => setStyle("silver")}>{t("media.styleSilver")}</button>
+          <button type="button" className={`btn sm ${value.style === "silver" ? "ghost" : ""}`} disabled={busy} onClick={() => setStyle("plain")}>{t("media.stylePlain")}{fees && fees.photo > 0 ? ` (+${fees.photo})` : ""}</button>
+          <button type="button" className={`btn sm ${value.style === "silver" ? "" : "ghost"}`} disabled={busy} onClick={() => setStyle("silver")}>{t("media.styleSilver")}{fees && fees.silver > 0 ? ` (+${fees.silver})` : ""}</button>
         </div>
       )}
       {err && <div className="bad">{err}</div>}

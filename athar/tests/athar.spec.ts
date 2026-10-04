@@ -14,7 +14,7 @@ describe("Athar season sale", () => {
     expect(price).toBe(toNano("0.5"));
     const before = await payout.getBalance();
     const aliceBefore = await alice.getBalance();
-    const r = await minter.send(alice.getSender(), { value: price + BUY_FEES + toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    const r = await minter.send(alice.getSender(), { value: price + BUY_FEES + toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ from: minter.address, to: collection.address, success: true });
     const item = await itemOf(ctx, idx);
     const d = await item.getGetNftData();
@@ -37,8 +37,8 @@ describe("Athar season sale", () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, bob, minter } = ctx;
     const idx = find(S1_START, TIER.COMMON);
-    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
-    const r = await minter.send(bob.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
+    const r = await minter.send(bob.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ from: bob.address, to: minter.address, success: false });
     expect(r.transactions).toHaveTransaction({ from: minter.address, to: bob.address, inMessageBounced: true });
   });
@@ -47,11 +47,11 @@ describe("Athar season sale", () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, minter } = ctx;
     const idx = find(S1_START, TIER.COMMON);
-    let r = await minter.send(alice.getSender(), { value: toNano("0.5") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    let r = await minter.send(alice.getSender(), { value: toNano("0.5") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
-    r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(1990, 5, 5)), recipient: null, occasion: 0n, mediaRef: 0n });
+    r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(1990, 5, 5)), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
-    r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(2000, 11, 11)), recipient: null, occasion: 0n, mediaRef: 0n });
+    r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(2000, 11, 11)), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
   });
 
@@ -60,7 +60,7 @@ describe("Athar season sale", () => {
     const { alice, bc, minter } = ctx;
     const p0 = await minter.getPrice(0n);
     let idx = S1_START; let n = 0;
-    while (n < 40) { if (ruleTier(idx) === TIER.COMMON) { await minter.send(alice.getSender(), { value: toNano("3") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n }); n++; } idx++; }
+    while (n < 40) { if (ruleTier(idx) === TIER.COMMON) { await minter.send(alice.getSender(), { value: toNano("3") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n }); n++; } idx++; }
     const p1 = await minter.getPrice(0n);
     expect(p1).toBeGreaterThan(p0);                                              // demand pushed it up
     bc.now = bc.now! + 5 * 86400;
@@ -76,7 +76,7 @@ describe("Athar season sale", () => {
     let idx = S1_START; const res: boolean[] = [];
     for (let k = 0; k < 3; k++) {
       while (ruleTier(idx) !== TIER.COMMON) idx++;
-      const r = await minter.send(alice.getSender(), { value: toNano("2") }, { $$type: "Buy", index: BigInt(idx++), recipient: null, occasion: 0n, mediaRef: 0n });
+      const r = await minter.send(alice.getSender(), { value: toNano("2") }, { $$type: "Buy", index: BigInt(idx++), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
       res.push(r.transactions.some((t) => t.inMessage?.info.dest?.toString() === minter.address.toString() && (t.description as any).computePhase?.success === true && (t.description as any).aborted === false));
     }
     expect(res).toEqual([true, true, false]);
@@ -99,7 +99,7 @@ describe("Athar season sale", () => {
     await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: minter.address });   // later ones wait: delay not over
     const idx = find(S1_START, TIER.COMMON);
     const before = await alice.getBalance();
-    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     const after = await alice.getBalance();
     expect(before - after).toBeLessThan(toNano("0.1"));                          // refunded, only gas lost
     expect(await minter.getIsTaken(BigInt(idx))).toBe(false);                    // the date is free again
@@ -110,7 +110,7 @@ describe("token features", () => {
   async function minted() {
     const ctx = await setup(); await openSeason(ctx);
     const idx = find(S1_START, TIER.COMMON);
-    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     return { ctx, idx, item: await itemOf(ctx, idx) };
   }
 
@@ -191,7 +191,7 @@ describe("mythic auction", () => {
   const mythic = indexOf(2000, 11, 11);
   async function live() {
     const ctx = await setup(); await openSeason(ctx);
-    await ctx.minter.send(ctx.admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("10"), duration: 3600n });
+    await ctx.minter.send(ctx.admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("10"), duration: 3600n, mediaRef: 0n });
     return ctx;
   }
   it("highest bidder wins, outbid money is returned, winner gets the token, owner gets the price", async () => {
@@ -233,7 +233,7 @@ describe("mythic auction", () => {
     bc.now = bc.now! + 3700;
     await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
     expect(await minter.getIsTaken(BigInt(mythic))).toBe(false);
-    const r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("5"), duration: 3600n });
+    const r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("5"), duration: 3600n, mediaRef: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
   });
 });
@@ -242,7 +242,7 @@ describe("upgrade to a higher edition (burn + re-issue)", () => {
   async function withMock(price: bigint, setSuccessor = true) {
     const ctx = await setup(); await openSeason(ctx);
     const idx = find(S1_START, TIER.COMMON);
-    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n });
+    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     const mock: SandboxContract<MockSuccessor> = ctx.bc.openContract(await MockSuccessor.fromInit());
     await mock.send(ctx.admin.getSender(), { value: toNano("0.2") }, { $$type: "SetPrice", price });
     if (setSuccessor) await ctx.collection.send(ctx.admin.getSender(), { value: toNano("0.05") }, { $$type: "SetSuccessor", successor: mock.address });
@@ -276,7 +276,7 @@ describe("upgrade to a higher edition (burn + re-issue)", () => {
     let r = await item.send(ctx.bob.getSender(), { value: toNano("1") }, { $$type: "UpgradeStart", queryId: 1n });
     expect(r.transactions).toHaveTransaction({ to: item.address, success: false });
     const idx2 = find(S1_START + 100, TIER.COMMON);
-    r = await ctx.minter.send(ctx.bob.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx2), recipient: null, occasion: 0n, mediaRef: 0n });
+    r = await ctx.minter.send(ctx.bob.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx2), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(await ctx.minter.getIsTaken(BigInt(idx2))).toBe(false);                               // minting closed, buyer refunded
   });
 });
@@ -337,7 +337,7 @@ describe("mystery boxes (fair reveal)", () => {
     expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("20"));                    // ticket money reached the owner
     let r = await minter.send(alice.getSender(), { value: toNano("3") }, { $$type: "BuyTicket", recipient: null });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // all tickets sold
-    r = await minter.send(alice.getSender(), { value: toNano("2") }, { $$type: "Buy", index: BigInt(dates[0]), recipient: null, occasion: 0n, mediaRef: 0n });
+    r = await minter.send(alice.getSender(), { value: toNano("2") }, { $$type: "Buy", index: BigInt(dates[0]), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });              // pool dates cannot be bought directly
     expect(await minter.getTicketDate(0n)).toBeNull();                                             // unknown before the reveal
     r = await minter.send(admin.getSender(), { value: toNano("0.1") }, { $$type: "Reveal", secret });
@@ -388,7 +388,7 @@ describe("occasion and permanent picture", () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, bob, minter } = ctx;
     const idx = find(S1_START, TIER.COMMON);
-    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 3n, mediaRef: REF });
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 3n, mediaRef: REF, style: 0n });
     const item = await itemOf(ctx, idx);
     let st = await item.getAthar();
     expect(st.occasion).toBe(3n); expect(st.mediaRef).toBe(REF); expect(st.mediaLog).not.toBeNull();
@@ -412,7 +412,7 @@ describe("occasion and permanent picture", () => {
   it("the picture and occasion travel with an upgrade", async () => {
     const ctx = await setup(); await openSeason(ctx);
     const idx = find(S1_START, TIER.COMMON);
-    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 4n, mediaRef: REF });
+    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 4n, mediaRef: REF, style: 0n });
     const mock = ctx.bc.openContract(await MockSuccessor.fromInit());
     await mock.send(ctx.admin.getSender(), { value: toNano("0.2") }, { $$type: "SetPrice", price: 0n });
     await ctx.collection.send(ctx.admin.getSender(), { value: toNano("0.05") }, { $$type: "SetSuccessor", successor: mock.address });
