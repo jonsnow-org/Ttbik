@@ -2,7 +2,6 @@
 // date -> shape, tier -> frame and halo, season -> palette, age stage -> rings, hands -> orbiting dots.
 import { MONTHS_AR, MONTHS_EN, ymd } from "./dates";
 import { emblem, occasionById } from "./occasions";
-import { fitWindow } from "./imgsize";
 
 const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: string }> = {
   1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#7aa2ff" },
@@ -57,8 +56,9 @@ export function renderArt(a: ArtInput): string {
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
 <radialGradient id="halo"><stop offset="0.55" stop-color="${GOLD}" stop-opacity="0"/><stop offset="1" stop-color="${GOLD}" stop-opacity="0.35"/></radialGradient>
 </defs>
-<rect width="${W}" height="${W}" rx="56" fill="url(#bg)"/>
-${shapes}${rings}${halo}${dots}
+<clipPath id="disc"><circle cx="400" cy="400" r="392"/></clipPath>
+<circle cx="400" cy="400" r="392" fill="url(#bg)"/>
+<g clip-path="url(#disc)">${shapes}</g>${rings}${halo}${dots}
 <text x="400" y="470" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="230" font-weight="700" fill="${a.sealed ? accent : pal.ink}">${esc(label)}</text>
 <text x="400" y="540" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="34" letter-spacing="8" fill="${accent}">${esc(sub)}</text>
 <text x="400" y="590" text-anchor="middle" font-family="Tahoma, Arial, sans-serif" font-size="30" fill="${pal.ink}" opacity="0.85">${esc(ar)}</text>
@@ -70,10 +70,17 @@ ${occ ? `<g transform="translate(400 188) scale(0.8)">${emblem(occ.id, accent)}<
 
 
 /**
- * A token whose picture is a real photo (any shape: face, full figure, group). The photo is shown whole, never cropped,
- * inside a framed window; the date becomes a small badge in the corner. The result is ONE self-contained SVG
- * (the photo is embedded), small enough to be stored permanently on Arweave for free (< 100 KiB).
+ * A token whose picture is a real photo (any shape: face, full figure, group). The token is a circle on a transparent
+ * square canvas; the photo sits whole (never cropped) inside a smaller circle at its centre, and everything that gives the
+ * token its provenance (date, rarity, season, edition seal, age rings, one dot per hand) stays visible around it.
+ * The result is ONE self-contained SVG (the photo is embedded), small enough to be stored permanently for free (< 100 KiB).
  */
+export function photoBox(w: number, h: number, r: number): { iw: number; ih: number } {
+  // the largest rectangle with the photo's own aspect whose corners still lie inside the circle of radius r
+  const s = (2 * r) / Math.sqrt(w * w + h * h);
+  return { iw: Math.floor(w * s), ih: Math.floor(h * s) };
+}
+
 export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: number; h: number }): string {
   const { y, m, d } = ymd(a.index);
   const pal = PALETTES[a.season] || PALETTES[1];
@@ -82,27 +89,36 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
   const accent = mythic || occ?.gold ? GOLD : pal.accent;
   const W = 800;
   const stroke = mythic ? 9 : rare ? 6 : 4;
-  // the window takes the photo's own shape, centred in the frame area
-  const { ww, wh } = dims && dims.w > 0 && dims.h > 0 ? fitWindow(dims.w, dims.h) : { ww: 656, wh: 548 };
-  const wx = Math.round(400 - ww / 2), wy = Math.round(390 - wh / 2);
-  const fx = wx - 6, fy = wy - 6, fw = ww + 12, fh = wh + 12;
-  let stage = "";
-  for (let i = 1; i <= a.stage; i++) stage += `<rect x="${fx - i * 7}" y="${fy - i * 7}" width="${fw + i * 14}" height="${fh + i * 14}" rx="${44 + i * 7}" fill="none" stroke="${accent}" stroke-width="1.2" opacity="${(0.55 - i * 0.08).toFixed(2)}"/>`;
-  const bx = Math.min(fx + fw - 20, 726), by = Math.min(fy + fh - 6, 726);   // date badge: bottom-right corner of the frame
+  const PR = 240;                                   // photo circle radius
+  const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 6);
+  const ix = Math.round(400 - iw / 2), iy = Math.round(400 - ih / 2);
+  let rings = "";
+  for (let i = 0; i <= a.stage; i++) rings += `<circle cx="400" cy="400" r="${PR + 14 + i * 14}" fill="none" stroke="${accent}" stroke-width="${i === a.stage ? 2.5 : 1.1}" opacity="${(0.25 + i * 0.12).toFixed(2)}"/>`;
+  let dots = "";
+  const hd = Math.min(a.hands, 24);
+  for (let i = 0; i < hd; i++) {
+    const ang = (i / Math.max(hd, 1)) * Math.PI * 2 - Math.PI / 2;
+    dots += `<circle cx="${(400 + Math.cos(ang) * 350).toFixed(1)}" cy="${(400 + Math.sin(ang) * 350).toFixed(1)}" r="5" fill="${accent}"/>`;
+  }
+  const rim = mythic
+    ? `<circle cx="400" cy="400" r="378" fill="none" stroke="${GOLD}" stroke-width="6"/><circle cx="400" cy="400" r="368" fill="none" stroke="${GOLD}" stroke-width="1.5" stroke-dasharray="2 10"/>`
+    : rare
+    ? `<circle cx="400" cy="400" r="378" fill="none" stroke="${accent}" stroke-width="4"/><circle cx="400" cy="400" r="368" fill="none" stroke="${accent}" stroke-width="1" stroke-dasharray="1 7"/>`
+    : `<circle cx="400" cy="400" r="378" fill="none" stroke="${accent}" stroke-width="2" opacity="0.8"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${W}" width="${W}" height="${W}">
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
-<clipPath id="win"><rect x="${wx}" y="${wy}" width="${ww}" height="${wh}" rx="30"/></clipPath>
+<clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
 </defs>
-<rect width="${W}" height="${W}" rx="56" fill="url(#bg)"/>
-${stage}
-<rect x="${fx}" y="${fy}" width="${fw}" height="${fh}" rx="36" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
-<image href="${photoDataUri}" xlink:href="${photoDataUri}" x="${wx}" y="${wy}" width="${ww}" height="${wh}" preserveAspectRatio="xMidYMid meet" clip-path="url(#win)"/>
-<g transform="translate(${bx} ${by - 4})"><circle r="70" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(4, stroke - 2)}"/>
-<text y="12" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="62" font-weight="700" fill="${pal.ink}">${String(d).padStart(2, "0")}</text>
-<text y="40" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" letter-spacing="2" fill="${accent}">${MONTHS_EN[m - 1]} ${y}</text></g>
-${occ ? `<g transform="translate(110 742) scale(0.7)">${emblem(occ.id, accent)}</g>` : ""}
-<text x="400" y="72" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
-<text x="400" y="766" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}</text>
+<circle cx="400" cy="400" r="392" fill="url(#bg)"/>
+${rings}${rim}${dots}
+<circle cx="400" cy="400" r="${PR}" fill="#050914" stroke="${accent}" stroke-width="${stroke}"/>
+<image href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet" clip-path="url(#win)"/>
+<g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
+<text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${String(d).padStart(2, "0")}</text>
+<text y="34" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="1" fill="${accent}">${MONTHS_EN[m - 1]} ${y}</text></g>
+${occ ? `<g transform="translate(166 604) scale(0.6)">${emblem(occ.id, accent)}</g>` : ""}
+<text x="400" y="86" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
+<text x="400" y="736" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}</text>
 </svg>`;
 }

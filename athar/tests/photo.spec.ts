@@ -28,8 +28,12 @@ describe("photo shape", () => {
   it("the composite uses that window", () => {
     const tall = renderPhotoArt({ index: 18300, tier: 0, season: 1, stage: 0, hands: 1, engravings: 0 }, "data:image/jpeg;base64," + JPG, { w: 400, h: 900 });
     const m = /<image [^>]*width="(\d+)" height="(\d+)"/.exec(tall)!;
-    expect(Number(m[1])).toBeLessThan(300);
-    expect(Number(m[2])).toBeGreaterThan(500);
+    const w = Number(m[1]), h = Number(m[2]);
+    expect(w).toBeLessThan(300);
+    expect(h).toBeGreaterThan(400);
+    expect(Math.hypot(w / 2, h / 2)).toBeLessThanOrEqual(234);   // all four corners lie inside the photo circle: nothing is cropped
+    expect(tall).toContain('<circle cx="400" cy="400" r="392"');   // round token on a transparent square canvas
+    expect(tall).not.toContain('<rect width="800"');
   });
 });
 
