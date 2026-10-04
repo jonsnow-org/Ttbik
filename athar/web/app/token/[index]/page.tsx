@@ -7,6 +7,7 @@ import { NETWORK } from "@/lib/config";
 import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
+import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
 
 type Tok = { pictureHidden?: boolean; occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
@@ -17,6 +18,7 @@ export default function Token({ params }: { params: { index: string } }) {
   const { t: tr, dateLabel, lang } = useI18n();
   const { send, busy, address } = useSend();
   const toast = useToast();
+  const { confirm, node: previewNode } = useConfirmPreview();
   const [text, setText] = useState("");
   const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
   const [mediaInit, setMediaInit] = useState(false);
@@ -33,7 +35,12 @@ export default function Token({ params }: { params: { index: string } }) {
   async function storeAndSet(kind: "photo" | "snapshot") {
     setStoring(true); toast(tr("media.saving"));
     try {
-      const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, kind, occasion: media.occasion, photo: media.photo }) });
+      const body = { index, kind, occasion: media.occasion, photo: media.photo };
+      const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
+      const pj = await pr.json();
+      if (!pr.ok) { toast(pj.error || tr("media.fail")); return; }
+      if (!(await confirm(pj.svg, pj.notes || []))) return;                      // the user must approve the exact final picture
+      const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) { toast(j.error || tr("media.fail")); return; }
       if (await send([mediaMsg(tokAddr, media.occasion, BigInt(j.ref))], tr("media.sent"))) reload();
@@ -94,6 +101,7 @@ export default function Token({ params }: { params: { index: string } }) {
         </div>
       )}
       <Born index={index} />
+      {previewNode}
     </>
   );
 }

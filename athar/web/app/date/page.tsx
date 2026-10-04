@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import { buyMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
+import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
 
 type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number } };
@@ -29,6 +30,7 @@ export default function DatePage() {
   const { data: season } = useApi<Season>("/api/season", 20000);
   const { send, busy } = useSend();
   const toast = useToast();
+  const { confirm, node: previewNode } = useConfirmPreview();
   const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
   const [perm, setPerm] = useState(true);
   const [showMedia, setShowMedia] = useState(false);
@@ -46,12 +48,19 @@ export default function DatePage() {
     // the picture is stored permanently BEFORE the purchase so the token is born holding it
     let ref = 0n;
     if (perm) {
-      setStoring(true); toast(t("media.saving"));
+      setStoring(true);
       try {
-        const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, kind: media.photo ? "photo" : useSpecial ? "special" : "snapshot", occasion: media.occasion, photo: media.photo }) });
+        const kind = media.photo ? "photo" : useSpecial ? "special" : "snapshot";
+        const body = { index, kind, occasion: media.occasion, photo: media.photo };
+        const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
+        const pj = await pr.json();
+        if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
+        if (!(await confirm(pj.svg, pj.notes || []))) { setStoring(false); return; }      // the user must approve the exact final picture
+        toast(t("media.saving"));
+        const r = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const j = await r.json();
-        if (r.ok) ref = BigInt(j.ref); else toast(j.error || t("media.fail"));
-      } catch { toast(t("media.fail")); }
+        if (r.ok) ref = BigInt(j.ref); else { toast(j.error || t("media.fail")); setStoring(false); return; }
+      } catch { toast(t("media.fail")); setStoring(false); return; }
       setStoring(false);
     }
     if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref)], t("date.sent"))) reload();
@@ -111,6 +120,7 @@ export default function DatePage() {
         )}
       </div>
       <Born index={index} />
+      {previewNode}
       <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/mystery" style={{ color: "var(--gold)" }}>{t("home.mbtn")}</Link>.</p>
     </>
   );

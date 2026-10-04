@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     ? { index, tier: st.tier, season: st.season, stage: stageOf(st.lastTransferAt), hands: st.hands, engravings: st.engravings.length, occasion }
     : { index, tier, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion };
   let svg: string;
+  const notes: string[] = [];
   if (kind === "snapshot") {
     svg = renderArt(base);
   } else {
@@ -66,9 +67,13 @@ export async function POST(req: Request) {
     if (buf.length > MAX_PHOTO) return NextResponse.json({ error: `photo too large (${Math.round(buf.length / 1024)} KB, max ${Math.round(MAX_PHOTO / 1024)} KB)` }, { status: 413 });
     const mime = mimeOf(buf);
     if (!mime) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
-    svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, imageSize(buf) ?? undefined);
+    const dims = imageSize(buf);
+    if (!dims) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
+    if (Math.min(dims.w, dims.h) < 200) notes.push("small");
+    if (dims.w / dims.h < 0.25 || dims.w / dims.h > 4) notes.push("shape");
+    svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, dims);
   }
-  if (preview) return NextResponse.json({ svg });
+  if (preview) return NextResponse.json({ svg, notes });
   try {
     const up = await uploadPermanent(Buffer.from(svg, "utf8"), "image/svg+xml", { "Athar-Date": String(index), "Athar-Kind": kind });
     return NextResponse.json({ id: up.id, url: up.url, ref: idToUint256(up.id).toString(), bytes: Buffer.byteLength(svg) });
