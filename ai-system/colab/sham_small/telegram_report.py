@@ -66,6 +66,14 @@ def format_training_report(
     directly and only ever produce a flat loss_history, not the
     CycleResult objects autonomous_pipeline.format_cycle_report() needs.
     Pure formatting, no network."""
+    # The track names carry a fixed "(GPU)"; the real device decides what the owner is told. Live reports
+    # showed "(GPU)" over sessions of 195–245 steps — CPU speed, 25x fewer steps than a real GPU session.
+    try:
+        import torch
+        if not torch.cuda.is_available() and "(GPU)" in track_name:
+            track_name = track_name.replace("(GPU)", "(CPU ⚠ لم يُعثر على GPU — الجلسة أبطأ بنحو 25 ضعفاً)")
+    except Exception:
+        pass
     lines = [
         f"🧠 تقرير جلسة شام — {track_name}",
         f"خطوات تدريب حقيقية هذه الجلسة: {len(loss_history)} (الخطوة النهائية: {final_step:,})",
@@ -75,6 +83,12 @@ def format_training_report(
         last_avg = sum(loss_history[-10:]) / min(10, len(loss_history))
         lines.append(f"متوسط الخسارة أول 10 خطوات: {first_avg:.4f}")
         lines.append(f"متوسط الخسارة آخر 10 خطوات: {last_avg:.4f}")
+        lines.append("(كل رقم منهما دفعة واحدة، يتأرجح بنحو ±1.5 وحده — الحَكَم هو القياس على نص لم يُدرَّب عليه أدناه)")
+    try:  # held-out measurement + what every self-development method did (set by sham_train_eval / sham_selfdev)
+        from sham_train_eval import report_lines
+        lines += report_lines()
+    except Exception:
+        pass
     if dataset_slug:
         lines.append(f"نُشر إلى: {dataset_slug}")
     return "\n".join(lines)
