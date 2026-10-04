@@ -47,7 +47,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     attrs.push({ trait_type: "Age stage", value: `${STAGE_NAME_EN[stage]} · ${STAGE_NAME_AR[stage]}` }, { trait_type: "Owners so far", value: f.hands }, { trait_type: "Days held by current owner", value: heldDays }, { trait_type: "Engravings", value: f.engravings }, { trait_type: "Edition", value: 1 });
     const oc = f.occasion ? occasionName(f.occasion) : null;
     if (oc) attrs.push({ trait_type: "Occasion", value: oc });
-    attrs.push({ trait_type: "Own picture", value: f.mediaRef ? "Yes, kept permanently" : "Not yet (can be added)" });
+    attrs.push({ trait_type: "Own picture", value: f.mediaRef ? "Yes" : "Not yet (can be added)" });
   }
   const dateAr = `${d} ${["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"][m - 1]} ${y}`;
   const dateEn = `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1]} ${d}, ${y}`;
@@ -56,7 +56,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     event ? `في هذا اليوم: ${event}.` : "",
     "رمز حيّ: صورته تومض وتدور وتلمع، وتزداد حياةً وهالةً كلما طال بقاؤه، وفي ذكرى يومه تتوهّج بهالة ذهبية.",
     f ? `يعدّ أصحابه (${f.hands} حتى الآن) ويتذكّر ما نُقش عليه، وعمره الحالي «${STAGE_NAME_AR[stage]}»${heldDays ? ` (${heldDays} يوماً عند مالكه الحالي)` : ""}.` : "يعدّ أصحابه ويتذكّر ما يُنقش عليه وينضج كلما طال احتفاظ مالكه به.",
-    "يمكن لمالكه أن يضع صورته الخاصة عليه فتُحفظ حفظاً دائماً.",
+    "يمكن لمالكه أن يضع صورته الخاصة عليه.",
     f?.lastEngraving ? `آخر نقش: ${f.lastEngraving}` : "",
   ].filter(Boolean).join("\n");
   const en = [
@@ -64,7 +64,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     event ? `On this day: ${event}.` : "",
     "A living token: its picture flashes, turns and shines, livelier the longer it is held, and glows gold on the date's own anniversary.",
     f ? `It counts its owners (${f.hands} so far), remembers what is engraved on it, and is now ${STAGE_NAME_EN[stage].toLowerCase()}${heldDays ? ` (${heldDays} days with the current owner)` : ""}.` : "It counts its owners, remembers what is engraved on it and matures the longer it is held.",
-    "Its owner can add a personal picture, stored permanently.",
+    "Its owner can add a personal picture to it.",
   ].filter(Boolean).join("\n");
   return { attrs, description: `${ar}\n\n${en}`, supply, event };
 }
