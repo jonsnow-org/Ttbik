@@ -56,6 +56,18 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         self.tokenizer = tokenizer
         self.seq_len = seq_len
 
+        # sham_text_mix.stream_mix hands back a pipeline file (besides a few real shards): the windows
+        # then come from the endless background pipeline (sham_text_stream.py), never from a fixed slice.
+        self._streaming = None
+        if any(Path(p).name == "sham_pipeline.json" for p in file_paths):
+            try:
+                from sham_text_stream import StreamingWindows
+                self._streaming = StreamingWindows(tokenizer, seq_len)
+                return
+            except Exception as exc:
+                print(f"⚠ خط النص المتدفق تعذّر ({type(exc).__name__}: {str(exc)[:100]}) — شريحة ثابتة بدلاً منه")
+                file_paths = [p for p in file_paths if Path(p).name != "sham_pipeline.json"]
+
         stream: list[int] = []
         for path in file_paths:
             text = Path(path).read_text(encoding="utf-8", errors="ignore")
@@ -73,9 +85,11 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         self.chunks = _pack_sequences(stream, seq_len)
 
     def __len__(self) -> int:
-        return len(self.chunks)
+        return len(self._streaming) if self._streaming is not None else len(self.chunks)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
+        if self._streaming is not None:
+            return self._streaming[idx]
         return torch.tensor(self.chunks[idx], dtype=torch.long)
 
 
