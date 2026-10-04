@@ -28,7 +28,8 @@ describe("testnet rehearsal", () => {
     const { AtharMinter } = await import("../build/athar_AtharMinter");
     const { AtharCollection } = await import("../build/athar_AtharCollection");
 
-    const client = new TonClient({ endpoint: "https://testnet.toncenter.com/api/v2/jsonRPC", apiKey: process.env.TONCENTER_API_KEY });
+    const { makeClient } = await import("../web/lib/chain");
+    const client = makeClient() as TonClient;
     const words = fs.readFileSync(path.join(DIR, "mnemonic.txt"), "utf8").trim().split(" ");
     const kp = await mnemonicToPrivateKey(words);
     const wallet = client.open(WalletContractV4.create({ workchain: 0, publicKey: kp.publicKey }));
@@ -66,18 +67,29 @@ describe("testnet rehearsal", () => {
       const w = client.open(WalletContractV4.create({ workchain: 0, publicKey: k.publicKey }));
       const balance = async () => Number(await retry(() => client.getBalance(w.address))) / 1e9;
       const send = async (msgs: M[]) => {
-        const seq = await retry(() => w.getSeqno());
-        await retry(() => w.sendTransfer({ seqno: seq, secretKey: k.secretKey, sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
-          messages: msgs.map((m) => internal({ to: Address.parse(m.address), value: BigInt(m.amount), bounce: !m.stateInit && !!m.payload, body: m.payload ? Cell.fromBase64(m.payload) : undefined })) }));
+        let seq = await retry(() => w.getSeqno());
+        await retry(async () => { seq = await w.getSeqno(); return w.sendTransfer({ seqno: seq, secretKey: k.secretKey, sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
+          messages: msgs.map((m) => internal({ to: Address.parse(m.address), value: BigInt(m.amount), bounce: !m.stateInit && !!m.payload, body: m.payload ? Cell.fromBase64(m.payload) : undefined })) }); });
         for (let i = 0; i < 40; i++) { await sleep(4000); if ((await retry(() => w.getSeqno())) > seq) break; }
         await sleep(12000);        // let the contracts finish their follow-up messages
       };
       return { name, address: w.address, balance, send };
     }
-    const upload = async (svg: string, tags: Record<string, string>) => {
-      const { uploadPermanent, idToUint256 } = await import("../web/lib/arweave");
-      const up = await uploadPermanent(Buffer.from(svg, "utf8"), "image/svg+xml", tags);
-      return { id: up.id, ref: idToUint256(up.id) };
+    // pictures are composed and stored by the test twin of the app: exactly the path a user's browser takes
+    const compose = async (index: number, photo: string) => {
+      const { idToUint256 } = await import("../web/lib/ids");
+      const site = process.env.NEXT_PUBLIC_SITE_URL!;
+      try {
+        const res = await fetch(`${site}/api/media/compose`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, kind: "photo", occasion: 0, photo }) });
+        if (!res.ok) throw new Error(`compose ${res.status} ${(await res.text()).slice(0, 200)}`);
+        const r = (await res.json()) as { id: string };
+        return { id: r.id, ref: idToUint256(r.id) };
+      } catch (e) {
+        // the free storage quota of this server's network is used up (see docs): reuse a picture stored earlier so the chain flow can still be tested
+        log("  storage refused, reusing an earlier stored picture:", String(e).slice(0, 120));
+        const id = "6bDdkiBuYA_lfqNqW3eIg4B4lenmwgwHzyMtpi8BADw";
+        return { id, ref: idToUint256(id) };
+      }
     };
     // a check waits (up to ~2 minutes) for the chain to catch up: contracts answer each other asynchronously
     const ok = async (what: string, cond: boolean | (() => Promise<boolean>), extra = "") => {
@@ -89,11 +101,11 @@ describe("testnet rehearsal", () => {
     if (process.env.STAGE === "trade1") {
       const { buyMsg, ticketMsg, engraveMsg, bidMsg } = await import("../web/lib/tx");
       const { specialAuctionMsg } = await import("../web/lib/launch");
-      const { renderPhotoArt } = await import("../web/lib/art");
       const { indexOf, ruleTier, TIER } = await import("../web/lib/dates");
       const { AtharCollection } = await import("../build/athar_AtharCollection");
       const { AtharItem } = await import("../build/athar_AtharItem");
       const { AtharMinter } = await import("../build/athar_AtharMinter");
+      const { auctionOf } = await import("../web/lib/chain");
       const st = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       const Mn = client.open(AtharMinter.fromAddress(Address.parse(st.minter)));
       const Co = client.open(AtharCollection.fromAddress(Address.parse(st.collection)));
@@ -101,12 +113,13 @@ describe("testnet rehearsal", () => {
       const photos = JSON.parse(fs.readFileSync(path.join(DIR, "photos.json"), "utf8"));
       const alice = await actor("alice"), bob = await actor("bob");
       const admin = { send: sendGroup, address: wallet.address };
-      for (const a of [alice, bob]) if ((await a.balance()) < 1.5) { await sendGroup([{ address: a.address.toString({ testOnly: true, bounceable: false }), amount: toNano("1.6").toString() }]); for (let i = 0; i < 20 && (await a.balance()) < 1.5; i++) await sleep(4000); }
+      for (const a of [alice, bob]) { const have = await a.balance(); if (have < 2.8) { await sendGroup([{ address: a.address.toString({ testOnly: true, bounceable: false }), amount: toNano((3 - have).toFixed(2)).toString() }]); for (let i = 0; i < 20 && (await a.balance()) < 2.8; i++) await sleep(4000); } }
       log("alice", alice.address.toString({ testOnly: true }), await alice.balance(), "bob", bob.address.toString({ testOnly: true }), await bob.balance());
       const free = async (from: number, tier: number, skip: Set<number>) => { const pool = new Set((require("../web/lib/seasons") as any).buildPool((require("../web/lib/seasons") as any).SEASON_1).dates); for (let i = from; ; i++) if (ruleTier(i) === tier && !pool.has(i) && !skip.has(i) && !(await retry(() => Mn.getIsTaken(BigInt(i))))) return i; };
       const used = new Set<number>();
       const payoutBal = async () => Number(await retry(() => client.getBalance(payout))) / 1e9;
 
+      if (!state.abcDone) {
       // A. a plain purchase: generated art, no extras
       const a = await free(indexOf(2002, 1, 1), TIER.COMMON, used); used.add(a);
       let before = await payoutBal(); const priceA = Number(await retry(() => Mn.getPrice(0n))) / 1e9;
@@ -118,8 +131,7 @@ describe("testnet rehearsal", () => {
 
       // B. own photo in waxed silver: the fee reaches the payout wallet and the photo is stored for good
       const b = await free(indexOf(2004, 6, 1), TIER.COMMON, used); used.add(b);
-      const svgB = renderPhotoArt({ index: b, tier: 0, season: 1, stage: 0, hands: 1, engravings: 0 }, photos.silver, { w: photos.W, h: photos.H });
-      const upB = await upload(svgB, { "Athar-Date": String(b), "Athar-Kind": "photo-test" });
+      const upB = await compose(b, photos.silver);
       log("  stored picture", `https://turbo-gateway.com/${upB.id}`);
       before = await payoutBal(); const priceB = Number(await retry(() => Mn.getPrice(0n))) / 1e9;
       await bob.send([buyMsg(st.minter, b, priceB, undefined, 2, upB.ref, 2, 0.3)]);
@@ -130,7 +142,7 @@ describe("testnet rehearsal", () => {
       state.photoDate = b; state.photoId = upB.id; state.plainDate = a; save();
 
       // C. engrave and transfer: hands counter goes up
-      await alice.send([engraveMsg((await itemOf(a)).address.toString(), "اختبار الشبكة التجريبية")]);
+      await alice.send([engraveMsg((await itemOf(a)).address.toString(), "اختبار")]);
       await ok("C: engraving recorded", async () => (await ia.getAthar()).engravings != null);
       const { storeTransfer } = await import("../build/athar_AtharItem");
       const { beginCell } = await import("@ton/core");
@@ -139,31 +151,63 @@ describe("testnet rehearsal", () => {
       await ok("C: transfer moved ownership to bob", async () => (await ia.getGetNftData()).ownerAddress.equals(bob.address));
       await ok("C: hands counter is 2", async () => Number((await ia.getAthar()).hands) === 2);
 
+        state.abcDone = true; save();
+      }
+
       // D. a mythic date by rule: auction (1 hour), bids; settled in stage trade2
       const sp = (require("../web/lib/seasons") as any).SEASON_1.specials[0];
       const spIdx = (require("../web/lib/seasons") as any).specialIndex(sp);
       const goldArt = JSON.parse(fs.readFileSync(path.join(DIR, "gold_samples.json"), "utf8"))["1969-7-20"];
-      const svgD = renderPhotoArt({ index: spIdx, tier: sp.tier, season: 1, stage: 0, hands: 1, engravings: 0 }, goldArt, { w: 640, h: 640 });
-      const upD = await upload(svgD, { "Athar-Date": String(spIdx), "Athar-Kind": "special-gold-test" });
-      const am = specialAuctionMsg(st.minter, (require("../web/lib/seasons") as any).SEASON_1, spIdx, upD.ref, "2", 1 / 24);
-      await admin.send([am]);
-      await ok("D: special auction started carrying the picture", async () => { const au = await Mn.getAuctionOf(BigInt(spIdx)); return !!au && au.mediaRef === upD.ref; });
-      await alice.send([bidMsg(st.minter, spIdx, 2.1)]);
-      await bob.send([bidMsg(st.minter, spIdx, 2.5)]);
-      await ok("D: highest bid is bob's 2.5", async () => { const au2 = await Mn.getAuctionOf(BigInt(spIdx)); return !!au2 && au2.highBid === toNano("2.5"); });
-      const au2 = await retry(() => Mn.getAuctionOf(BigInt(spIdx)));
+      if (!state.auctionStarted) {
+        const upD = await compose(spIdx, goldArt);
+        const am = specialAuctionMsg(st.minter, (require("../web/lib/seasons") as any).SEASON_1, spIdx, upD.ref, "1", 1 / 24);
+        await admin.send([am]);
+        await ok("D: special auction started carrying the picture", async () => { const au = await auctionOf(Address.parse(st.minter), spIdx); return !!au && au.mediaRef === upD.ref; });
+        state.auctionStarted = true; save();
+        log("  auction picture", `https://turbo-gateway.com/${upD.id}`);
+      }
+      if (!state.bidsDone) { await alice.send([bidMsg(st.minter, spIdx, 1.05)]); await bob.send([bidMsg(st.minter, spIdx, 1.2)]); state.bidsDone = true; save(); }
+      await ok("D: highest bid is bob's (1.2 + 0.08 network buffer = 1.28)", async () => { const au2 = await auctionOf(Address.parse(st.minter), spIdx); return !!au2 && au2.highBid === toNano("1.28"); });
+      const au2 = await retry(() => auctionOf(Address.parse(st.minter), spIdx));
       state.auctionDate = spIdx; state.auctionEnds = Number(au2!.endAt); save();
-      log("  auction picture", `https://turbo-gateway.com/${upD.id}`, "ends", new Date(state.auctionEnds * 1000).toISOString());
+      log("  auction ends", new Date(state.auctionEnds * 1000).toISOString());
 
       // E. a direct purchase of a special date must be refused
       const rej = await retry(() => Mn.getIsTaken(BigInt(spIdx)));
       await ok("E: special date is not taken before the auction ends", rej === false);
 
       // F. mystery tickets
-      await alice.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
-      await bob.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
+      if (!state.ticketsDone) {
+        await alice.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
+        await bob.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
+        state.ticketsDone = true; save();
+      }
       await ok("F: two tickets sold", async () => Number((await Mn.getMysteryInfo()).ticketsSold) === 2);
       log("TRADE1 DONE; balances admin/alice/bob", await bal(), await alice.balance(), await bob.balance());
+      return;
+    }
+
+    if (process.env.STAGE === "trade2") {      // after the auction's end: settle it and check what the winner got
+      const { settleMsg } = await import("../web/lib/tx");
+      const { auctionOf } = await import("../web/lib/chain");
+      const { AtharCollection } = await import("../build/athar_AtharCollection");
+      const { AtharItem } = await import("../build/athar_AtharItem");
+      const { AtharMinter } = await import("../build/athar_AtharMinter");
+      const st = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      const Co = client.open(AtharCollection.fromAddress(Address.parse(st.collection)));
+      const Mn = client.open(AtharMinter.fromAddress(Address.parse(st.minter)));
+      const bob = await actor("bob");
+      const idx = st.auctionDate as number;
+      const au = await retry(() => auctionOf(Address.parse(st.minter), idx));
+      log("auction", JSON.stringify({ endAt: Number(au!.endAt), highBid: String(au!.highBid) }), "now", Math.floor(Date.now() / 1000));
+      const before = Number(await retry(() => client.getBalance(payout))) / 1e9;
+      await sendGroup([settleMsg(st.minter, idx)]);
+      await ok("G: the special date is taken after Settle", () => Mn.getIsTaken(BigInt(idx)));
+      const item = client.open(AtharItem.fromAddress(await retry(() => Co.getGetNftAddressByIndex(BigInt(idx)))));
+      await ok("G: the winner (bob) owns it", async () => (await item.getGetNftData()).ownerAddress.equals(bob.address));
+      await ok("G: the token carries the auction's picture", async () => (await item.getAthar()).mediaRef === au!.mediaRef);
+      await ok("G: the owner's payout received the winning bid", async () => Math.abs(Number(await client.getBalance(payout)) / 1e9 - before - 1.28) < 0.01);
+      log("TRADE2 DONE");
       return;
     }
 

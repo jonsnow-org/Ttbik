@@ -78,7 +78,8 @@ export default function Token({ params }: { params: { index: string } }) {
         ))}
         {mine && (
           <div className="gap" style={{ marginTop: 10 }}>
-            <input type="text" maxLength={32} placeholder={tr("tok.engrPh")} value={text} onChange={(e) => setText(e.target.value)} />
+            <input type="text" placeholder={tr("tok.engrPh")} value={text} onChange={(e) => setText(e.target.value)} />
+            <span className={new TextEncoder().encode(text).length > 32 ? "bad" : "muted"} dir="ltr">{new TextEncoder().encode(text).length} / 32 bytes</span>
             <button className="btn" disabled={busy || !text.trim() || new TextEncoder().encode(text).length > 32} onClick={async () => { if (await send([engraveMsg(t.address, text.trim())], tr("tok.engrSent"))) { setText(""); reload(); } }}>{tr("tok.engrBtn")}</button>
             <p className="muted">{tr("tok.engrHelp")}</p>
           </div>

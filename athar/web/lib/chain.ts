@@ -21,13 +21,15 @@ async function throttled<T>(fn: () => Promise<T>): Promise<T> {
     try { return await fn(); } catch (e: any) {
       last = e;
       const st = e?.response?.status;
-      if (st !== 429 && st !== 500 && st !== 502 && st !== 503 && st !== 504) throw e;
+      const transient = st === 429 || st === 500 || st === 502 || st === 503 || st === 504 || /exit_code: -13/.test(String(e?.message || e));   // -13: the public node's own hiccup, seen on the test network
+      if (!transient) throw e;
       await new Promise((r) => setTimeout(r, 800 * (i + 1)));
     }
   }
   throw last;
 }
 export class PacedClient extends TonClient {
+  runMethod(...a: Parameters<TonClient["runMethod"]>) { return throttled(() => super.runMethod(...a)); }
   callGetMethod(...a: Parameters<TonClient["callGetMethod"]>) { return throttled(() => super.callGetMethod(...a)); }
   getContractState(...a: Parameters<TonClient["getContractState"]>) { return throttled(() => super.getContractState(...a)); }
   getBalance(...a: Parameters<TonClient["getBalance"]>) { return throttled(() => super.getBalance(...a)); }
@@ -63,6 +65,21 @@ const nano = (v: bigint | number) => Number(v) / 1e9;
 
 export { arweaveId } from "./ids";
 import { arweaveId } from "./ids";
+
+/** auction_of read by hand: the public node writes an empty "null" address inside a tuple as an empty list, which the generated reader rejects. */
+type RawAuction = { started: boolean; endAt: bigint; reserve: bigint; highBid: bigint; highBidder: Address | null; mediaRef: bigint };
+export async function auctionOf(minter: Address, index: number): Promise<RawAuction | null> {
+  const res = await client.runMethod(minter, "auction_of", [{ type: "int", value: BigInt(index) }]);
+  const top: any = res.stack.pop();
+  if (!top || top.type !== "tuple") return null;
+  const it = top.items as any[];
+  const int = (x: any): bigint => (typeof x === "bigint" ? x : x && x.type === "int" ? (x.value as bigint) : 0n);   // the node's tuples hold plain values
+  let hb: Address | null = null;
+  const h = it[4];
+  if (h && typeof h.beginParse === "function") { try { hb = h.beginParse().loadMaybeAddress(); } catch { hb = null; } }
+  else if (h && h.cell && typeof h.cell.beginParse === "function") { try { hb = h.cell.beginParse().loadMaybeAddress(); } catch { hb = null; } }
+  return { started: int(it[0]) !== 0n, endAt: int(it[1]), reserve: int(it[2]), highBid: int(it[3]), highBidder: hb, mediaRef: int(it[5]) };
+}
 
 export async function seasonStatus(season = 1) {
   const a = await addresses(season);
@@ -103,7 +120,7 @@ export async function dateInfo(index: number) {
       if (taken) owner = (await tokenState(index))?.owner ?? null;
       else if (tier < 2 && !isSpecial && !pool.has(index)) price = nano(await m.getPrice(BigInt(tier)));
       if ((tier === 2 || isSpecial) && !pool.has(index) && !taken) {
-        const au = await m.getAuctionOf(BigInt(index));
+        const au = await auctionOf(a.minter.address, index);
         if (au) auction = { endAt: Number(au.endAt), reserve: nano(au.reserve), highBid: nano(au.highBid), highBidder: au.highBidder?.toString() ?? null, live: au.started && Number(au.endAt) * 1000 > Date.now(), mediaRef: au.mediaRef.toString() };
       }
     } catch { /* contract not deployed yet */ }
