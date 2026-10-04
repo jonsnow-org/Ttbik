@@ -32,7 +32,12 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     if [ -f "$OR/agent/ATHAR_ON" ]; then
       if docker compose --profile athar up -d --build athar-web > "$STATE/athar.log" 2>&1; then
         echo "$(now) OK" > "$STATE/athar_status"
-        docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile >> "$STATE/athar.log" 2>&1 || true
+        # Caddyfile is a single-file bind mount: git replaces the file, so the container keeps seeing the old one
+        # until it restarts. Restart Caddy only when the file is newer than the running container (certificates persist).
+        cid=$(docker compose ps -q caddy 2>/dev/null | head -1)
+        cse=$(date -d "$(docker inspect -f '{{.State.StartedAt}}' "$cid" 2>/dev/null)" +%s 2>/dev/null || echo 0)
+        cf=$(stat -c %Y "$OR/Caddyfile" 2>/dev/null || echo 0)
+        if [ -n "$cid" ] && [ "$cf" -gt "$cse" ]; then docker compose restart caddy >> "$STATE/athar.log" 2>&1 || true; fi
       else
         echo "$(now) FAILED: $(tail -3 "$STATE/athar.log" | tr '\n' ' ' | mask | cut -c1-200)" > "$STATE/athar_status"
         tg_notify "فشل بناء تطبيق أثر. باقي الخدمات لم تتأثر."
