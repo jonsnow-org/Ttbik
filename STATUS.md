@@ -1,17 +1,15 @@
-# حالة مشروع شام — 2026-10-05 01:27 UTC
+# حالة مشروع شام — 2026-10-05 03:29 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
 ## التنبيهات (ابدأ منها)
 - ❌ دفتر أساسي فشل: المسار A 1 (cpu_training_track) — Traceback (most recent call last):     raise DeadKernelError("Kernel died") nbclient.exceptions.DeadKernelError: Kernel died
-- ❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — 
+- ❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - ⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)
-- ⚠ sham-crawl-gh: حالة Kaggle «429 client error: too many requests for url: https://api.kaggle.com/v1/datasets.datasetapiservice/getdatasetstatus» (النشر لم يكتمل أو فشل؟)
 - ❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
 - ❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
 - ❓ مجموعة sham-audio-tokenizer-adult-synth-v2 في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
 - ❓ مجموعة sham-orchestrator-state في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
-- ℹ لا تقارير بعد في sham-reports (تظهر بعد أول جلسة تعمل بالكود الجديد)
 
 ## المراحل
 - ✅ المرحلة الأولى — تدريب النص الأساسي (GPU) — دفتر: error
@@ -42,7 +40,7 @@
 - complete | مسار ترميز الصورة 3 | الدور: primary | آخر تشغيل 2026-10-04 | GPU
 - running | المسار B 1 | الدور: primary | آخر تشغيل 2026-10-04
 - error | المسار A 1 | الدور: primary | آخر تشغيل 2026-10-04 | الخطأ: Traceback (most recent call last):     raise DeadKernelError("Kernel died") nbclient.exceptions.DeadKernelError: Kernel died
-- error | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-04 | GPU
+- error | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-04 | GPU | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - complete | المرحلة الثانية 1 | الدور: duplicate | آخر تشغيل 2026-09-23
 - complete | مسار ترميز الصورة 1 | الدور: duplicate | آخر تشغيل 2026-09-23
 - error | مسار ترميز الصوت 1 | الدور: duplicate | آخر تشغيل 2026-09-23
@@ -50,10 +48,10 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-05T01:26 in_progress ، 2026-10-04T21:33 success ، 2026-10-04T18:30 success ، 2026-10-04T18:01 success
-- Sham CI (contract + self-tests, read-only): 2026-10-05T00:35 success ، 2026-10-04T23:43 success ، 2026-10-04T23:14 success ، 2026-10-04T22:56 success
-- Sham Collector (free CPU runner): 2026-10-04T21:20 in_progress
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-04T21:14 in_progress
+- Sham Status (supervision snapshot): 2026-10-05T03:28 in_progress ، 2026-10-05T01:26 success ، 2026-10-04T21:33 success ، 2026-10-04T18:30 success
+- Sham CI (contract + self-tests, read-only): 2026-10-05T03:14 success ، 2026-10-05T03:01 success ، 2026-10-05T02:56 success ، 2026-10-05T02:49 success
+- Sham Collector (free CPU runner): 2026-10-04T21:20 success
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-04T21:14 success
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - لا أخطاء حديثة ✅
@@ -75,24 +73,21 @@
 | sham-crawl-corpus | 16620339 | 2026-10-03 | live_trainer | نصوص المدرّب الحي على Kaggle |
 | sham-crawl-legacy | — | غير موجودة | repair | ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح) |
 | sham-chat-checkpoint-incoming | — | غير موجودة | repair | ما نُشر فوق مجموعة المحادثة من دفتر آخر (يُنقل بالإصلاح) |
-| sham-crawl-gh | 0 | 2026-10-05 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
-| sham-crawl-gh-corpus | — | غير موجودة | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
+| sham-crawl-gh | 581139610 | 2026-10-05 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
+| sham-crawl-gh-corpus | 1520107 | 2026-10-05 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
 | sham-crawl-gh-collect-corpus | 39923781 | 2026-10-04 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
 | sham-merged-checkpoint | — | غير موجودة | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
-| sham-reports | — | غير موجودة | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
+| sham-reports | 356 | 2026-10-05 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
 | sham-crawl-xlive | 1373973598 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | ❓ غير معرّف | (ليست في العقد) |
-| sham-crawl-agent | 1370230289 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
+| sham-crawl-agent-corpus | 65727 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | ❓ غير معرّف | (ليست في العقد) |
+| sham-crawl-agent | 1370230289 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | ❓ غير معرّف | (ليست في العقد) |
 | sham-orchestrator-state | 277 | 2026-09-27 | ❓ غير معرّف | (ليست في العقد) |
 | sham-crawl-xlive-corpus | 251624 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-| sham-crawl-agent-corpus | 65727 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-
-## مجموعات غير جاهزة أو فارغة
-- sham-crawl-gh: الحالة «429 client error: too many requests for url: https://api.kaggle.com/v1/datasets.datasetapiservice/getdatasetstatus»، الملفات 8
 
 ## ما في المجموعات غير الموثّقة (بحسب نوع الملفات — تُدمج وفق نظامنا بحسب نوعها)
 - sham-audio-tokenizer-adult-synth: 2 ملف (model 1، text 1) — مثال: audio_tokenizer.pt | audio_tokenizer_progress.json
@@ -101,4 +96,7 @@
 - sham-orchestrator-state: 1 ملف (text 1) — مثال: accelerator_state.json
 
 ## آخر تقارير الجلسات (الأحدث أولاً)
-لا تقارير بعد.
+### 2026-10-05 02:11 UTC — 🤖 مدرّب CPU على GitHub: 1,714 خطوة | نُشر: None | نصوص: jonsnowjonsnow/sham-craw
+```
+🤖 مدرّب CPU على GitHub: 1,714 خطوة | نُشر: None | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.738
+```

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05 01:31 UTC",
+  "generated_at": "2026-10-05 03:32 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -153,7 +153,7 @@
       "role": "primary",
       "last_run": "2026-10-04",
       "gpu": true,
-      "failure": ""
+      "failure": "(بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\""
     },
     {
       "alias": "المرحلة الثانية 1",
@@ -196,30 +196,6 @@
   "engineer_notebooks_count": 2,
   "datasets": [
     {
-      "alias": "نتائج المرحلة الثانية 1",
-      "track": "stage2_multimodal",
-      "size_mb": 577.7,
-      "last_updated": "2026-10-03",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
-      "size_mb": 1374.0,
-      "last_updated": "2026-10-03",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 2731.1,
-      "last_updated": "2026-10-04",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
       "size_mb": 35.0,
@@ -231,6 +207,30 @@
           "x": 117
         }
       },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الثانية 1",
+      "track": "stage2_multimodal",
+      "size_mb": 577.7,
+      "last_updated": "2026-10-03",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 582.3,
+      "last_updated": "2026-10-03",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 2731.1,
+      "last_updated": "2026-10-04",
+      "progress": {},
       "has_key_files": true
     },
     {
@@ -246,6 +246,14 @@
       "track": "research_track",
       "size_mb": 385.1,
       "last_updated": "2026-10-04",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 1374.0,
+      "last_updated": "2026-10-03",
       "progress": {},
       "has_key_files": true
     },
@@ -273,14 +281,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 582.3,
-      "last_updated": "2026-10-03",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصوت 2",
       "track": "audio_tokenizer",
       "size_mb": 34.9,
@@ -290,14 +290,6 @@
         "step": 9,
         "type": "adult_synthesized"
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 3",
-      "track": "live_trainer",
-      "size_mb": 1370.2,
-      "last_updated": "2026-10-01",
-      "progress": {},
       "has_key_files": true
     },
     {
@@ -312,6 +304,14 @@
         "num_videos": 62,
         "num_frames": 489
       },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 3",
+      "track": "live_trainer",
+      "size_mb": 1370.2,
+      "last_updated": "2026-10-01",
+      "progress": {},
       "has_key_files": true
     },
     {

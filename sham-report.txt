@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-05 01:31 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-05 03:32 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -33,7 +33,7 @@ ConnectionError: Connection error trying to communicate with service
 ❌ فشل | المسار A 1 | primary | الخطأ: Traceback (most recent call last):
     raise DeadKernelError("Kernel died")
 nbclient.exceptions.DeadKernelError: Kernel died
-❌ فشل | المرحلة الأولى 2 | primary
+❌ فشل | المرحلة الأولى 2 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | المرحلة الثانية 1 | duplicate
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
 ❌ فشل | مسار ترميز الصوت 1 | duplicate
