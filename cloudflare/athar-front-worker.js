@@ -8,7 +8,7 @@ const ORIGINS = [
 ];
 const TIMEOUT_MS = 8000;             // the public chain API is slow when many people ask at once: wait for it
 // a copy younger than this is served at once (spares our servers and the chain API when a market asks for many tokens together)
-const FRESH = (path) => (path.startsWith("/m/") ? 300 : 3600);
+const FRESH = (path) => (path.startsWith("/img/") ? 3600 : 300);   // data changes now and then (age stage, owners): 5 minutes; pictures are fixed by their parameters: 1 hour
 const KEEP_SECONDS = 7 * 24 * 3600;
 
 const ok = /^\/(collection|m\/\d{1,5}(\.json)?|img\/[A-Za-z0-9._-]{1,40})$/;
