@@ -39,6 +39,25 @@ EOS = 42241          # model.SpecialTokens.EOS (the text tokenizer itself never 
 VIRTUAL_LEN = 10_000_000  # "endless": enough windows that no epoch ever completes
 
 
+def _tame_malloc() -> None:
+    """glibc keeps one arena per thread: with many short-lived reader threads the freed memory is never returned and RSS only
+    grows. Two arenas, and a malloc_trim after every chunk, keep the resident size flat. No-op where glibc is absent."""
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.mallopt(-8, 2)          # M_ARENA_MAX = 2
+    except Exception:
+        pass
+
+
+def _trim() -> None:
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 class CrawlCorpusDocs:
     """The text the collection notebooks published (every sham-crawl-*-corpus dataset of the account: the Kaggle live
     trainer's, the GitHub collector's, an engineer's...), as documents. Looks like a streaming dataset to Stream."""
@@ -78,7 +97,8 @@ class Stream:
     """Endless, bounded, multi-source window stream. One per session."""
 
     def __init__(self, tokenizer, seq_len: int = 1024, sources=None, seed: int | None = None,
-                 queue_windows: int = 2048, docs_buffer: int = 256, make_stream=None, tokenize_batch: int = 32):
+                 queue_windows: int = 2048, docs_buffer: int = 192, make_stream=None, tokenize_batch: int = 32,
+                 slots: int = 3, chunk_docs: int = 64):
         import sham_text_mix as mix
 
         self.tok, self.seq_len = tokenizer, seq_len
@@ -96,8 +116,18 @@ class Stream:
         self.threads: list[threading.Thread] = []
         self._rng = random.Random(self.seed)
         self._started = False
+        self.slots, self.chunk_docs = slots, chunk_docs
+        self._pick_lock = threading.Lock()
+        self._busy: set = set()
+        self._rest: dict = {}
+        self._fails: dict = {}
+        self._round = 0
 
     # -------------------------------------------------------------- producers
+    # 2026-10-05: the first version kept ALL ~23 sources open at once (each HF streaming dataset runs ~10 threads and
+    # holds read-ahead buffers): RSS reached 14 GB in two minutes and the first scheduled run (Track A on Kaggle CPU)
+    # died with "Kernel died". Now a few reader SLOTS take turns: a slot picks a source (weighted, hungriest first),
+    # opens it, reads one CHUNK of documents, CLOSES it and moves on — never more than `slots` streams open.
     def _open(self, src, round_no):
         label, name, config, field, _w, cap = src
         if name == "@crawl":
@@ -109,38 +139,67 @@ class Stream:
             ds = (load_dataset(name, config, split="train", streaming=True) if config
                   else load_dataset(name, split="train", streaming=True))
         try:
-            ds = ds.shuffle(seed=self.seed + 7919 * round_no, buffer_size=2000)
+            ds = ds.shuffle(seed=self.seed + 7919 * round_no, buffer_size=300)
         except Exception:
             pass
         return ds
 
-    def _produce(self, src):
+    def _pick_source(self):
+        """The source whose document queue is emptiest relative to its weight, among those not resting."""
+        now = time.time()
+        with self._pick_lock:
+            cands = [s for s in self.sources if self._rest.get(s[0], 0) <= now and s[0] not in self._busy
+                     and self.docs[s[0]].qsize() < self.docs[s[0]].maxsize * 0.5]
+            if not cands:
+                return None
+            src = max(cands, key=lambda s: (1 - self.docs[s[0]].qsize() / max(self.docs[s[0]].maxsize, 1)) * s[4] * (0.5 + self._rng.random()))
+            self._busy.add(src[0])
+            return src
+
+    def _read_chunk(self, src):
+        import gc
         import sham_text_mix as mix
         label, _n, _c, field, _w, cap = src
-        round_no, quiet = 0, 0
-        while not self.stop.is_set():
-            got = 0
-            try:
-                for ex in self._open(src, round_no):
-                    if self.stop.is_set():
-                        return
-                    text = (ex.get(field) or "").strip()
-                    if len(text) < mix.MIN_CHARS:
+        self._round += 1
+        got, ds = 0, None
+        try:
+            ds = self._open(src, self._round)
+            for ex in ds:
+                if self.stop.is_set():
+                    break
+                text = (ex.get(field) or "").strip()
+                if len(text) < mix.MIN_CHARS:
+                    continue
+                while not self.stop.is_set():
+                    try:
+                        self.docs[label].put(text[:cap], timeout=0.5)
+                        break
+                    except queue.Full:
                         continue
-                    while not self.stop.is_set():
-                        try:
-                            self.docs[label].put(text[:cap], timeout=0.5)
-                            break
-                        except queue.Full:
-                            continue
-                    got += 1
-            except Exception:
-                self.stats["failed"] += 1
-            round_no += 1
-            self.stats["restarts"] += 1
-            quiet = 0 if got else quiet + 1
-            # a source that yields nothing is retried with growing pauses, never abandoned or fatal
-            self.stop.wait(min(300, 2 ** min(quiet, 8)) if not got else (30 if src[1] == "@crawl" else 0.1))
+                got += 1
+                if got >= self.chunk_docs:
+                    break
+        except Exception:
+            self.stats["failed"] += 1
+        finally:
+            del ds
+            gc.collect()
+            _trim()
+        self.stats["restarts"] += 1
+        if got == 0:   # a source that yields nothing rests, longer each time — never abandoned, never fatal
+            self._fails[label] = self._fails.get(label, 0) + 1
+            self._rest[label] = time.time() + min(300, 2 ** min(self._fails[label], 8))
+        else:
+            self._fails[label] = 0
+        self._busy.discard(label)
+
+    def _slot(self):
+        while not self.stop.is_set():
+            src = self._pick_source()
+            if src is None:
+                self.stop.wait(0.2)
+                continue
+            self._read_chunk(src)
 
     # ------------------------------------------------------------------ mixer
     def _next_docs(self, n):
@@ -194,8 +253,9 @@ class Stream:
         if self._started:
             return self
         self._started = True
-        for s in self.sources:
-            t = threading.Thread(target=self._produce, args=(s,), daemon=True)
+        _tame_malloc()
+        for _ in range(self.slots):
+            t = threading.Thread(target=self._slot, daemon=True)
             t.start()
             self.threads.append(t)
         for _ in range(2):  # two mixers keep tokenization ahead of even a fast GPU
@@ -218,8 +278,11 @@ class Stream:
                 if time.time() - t0 > 600:
                     raise RuntimeError("لا بيانات منذ 10 دقائق — كل المصادر متوقفة؟")
 
-    def close(self):
+    def close(self, wait: float = 3.0):
         self.stop.set()
+        end = time.time() + wait
+        for t in self.threads:     # let the readers leave native HF/pyarrow code before the interpreter shuts down
+            t.join(timeout=max(0.0, end - time.time()))
 
     def report(self) -> str:
         top = sorted(self.per_source.items(), key=lambda kv: -kv[1])
@@ -245,6 +308,8 @@ def stream_for(tokenizer, seq_len: int) -> Stream:
     if s is None or s.stop.is_set() or s.seq_len != seq_len:
         s = Stream(tokenizer, seq_len).start()
         _ACTIVE["stream"] = s
+        import atexit
+        atexit.register(s.close)
         print(f"🌊 خط النص المتدفق يعمل (بذرة {s.seed}) — لا شريحة محمّلة، ولا تكرار")
     return s
 
@@ -273,6 +338,8 @@ if __name__ == "__main__":
 
     tok = ShamTextTokenizer.load(str(Path(__file__).with_name("sham_general_tokenizer.json")))
 
+    open_now = {"n": 0, "max": 0}
+
     class Fake:
         def __init__(self, n, tag):
             self.n, self.tag = n, tag
@@ -280,24 +347,35 @@ if __name__ == "__main__":
         def shuffle(self, seed, buffer_size):
             r = random.Random(seed)
             words = lambda: " ".join(f"w{r.randrange(10**6)}" for _ in range(120))
-            return iter([{"text": f"{self.tag} doc {r.random()} " + words(),
-                          "content": f"{self.tag} code {r.random()} " + words()} for _ in range(self.n)])
+            rows = [{"text": f"{self.tag} doc {r.random()} " + words(),
+                     "content": f"{self.tag} code {r.random()} " + words()} for _ in range(self.n)]
+
+            def gen():   # counts the streams that are open at the same time
+                open_now["n"] += 1
+                open_now["max"] = max(open_now["max"], open_now["n"])
+                try:
+                    yield from rows
+                finally:
+                    open_now["n"] -= 1
+            return gen()
 
     def fake_stream(src):
         if src[0] == "ko":
             raise RuntimeError("down")
         return Fake(60, src[0])
 
-    s = Stream(tok, seq_len=128, sources=mix.SOURCES, seed=3, queue_windows=64, make_stream=fake_stream).start()
+    s = Stream(tok, seq_len=128, sources=mix.SOURCES, seed=3, queue_windows=64, make_stream=fake_stream,
+               slots=3, chunk_docs=6).start()
     seen = set()
     for _ in range(400):
         w = s.next_window()
         assert w.shape == (128,) and int(w.max()) < 42256
         seen.add(hash(tuple(w.tolist())))
-    assert len(seen) > 380, len(seen)           # endless and (almost always) fresh: sources restart with new seeds
+    assert len(seen) > 380, len(seen)           # endless and (almost always) fresh: every visit opens the source with a new seed
     assert s.stats["windows"] >= 400 and s.stats["restarts"] > 0
     assert len([k for k, v in s.per_source.items() if v]) >= 15   # many sources really mixed
     assert s.per_source.get("ko", 0) == 0 and s.stats["failed"] > 0  # a down source never stops the others
+    assert open_now["max"] <= 3, open_now          # NEVER more streams open than slots (the Kaggle OOM of 2026-10-05)
     print(s.report()[:160])
     s.close()
 

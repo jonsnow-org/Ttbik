@@ -50,8 +50,22 @@ SOURCES = [
     ("school-math", "HuggingFaceTB/cosmopedia", "auto_math_text", "text", 3, 6000),
     ("textbooks", "HuggingFaceTB/cosmopedia", "openstax", "text", 2, 6000),
 ]
-MAX_PARALLEL = 6   # sources read at the same time (each holds parquet row groups in memory)
+MAX_PARALLEL = 4   # sources read at the same time (each HF stream holds ~1-2 GB: 6 reached 10 GB peak)
 MIN_CHARS = 200  # a stub is not worth a training window
+
+
+def pipeline_enabled() -> bool:
+    """The endless pipeline (sham_text_stream) is for GPU sessions, which consume ~100M tokens each. A CPU session consumes a few
+    million, a fixed fresh slice of the same mixture is enough for it and needs no background readers (the first scheduled
+    CPU run with the pipeline died of memory). SHAM_PIPELINE=1/0 forces it on/off."""
+    v = os.environ.get("SHAM_PIPELINE")
+    if v in ("0", "1"):
+        return v == "1"
+    try:
+        import torch
+        return bool(torch.cuda.is_available())
+    except Exception:
+        return False
 
 
 def plan(total: int) -> dict[str, int]:
@@ -122,7 +136,7 @@ def stream_mix(output_dir: str, max_documents: int = 50_000, documents_per_file:
     ok = sum(1 for v in report.values() if not v.endswith(")"))
     print(f"🌍 المزيج العام: {len(docs):,} وثيقة من {ok}/{len(chosen)} مصدراً (بذرة {seed}) في {len(files)} ملف")
     print("   " + " | ".join(f"{k}: {v}" for k, v in report.items()))
-    if os.environ.get("SHAM_PIPELINE", "1") != "0" and make_stream is None:
+    if make_stream is None and pipeline_enabled():
         import sham_text_stream
         files.append(sham_text_stream.write_spec(output_dir))
         print("🌊 وُضع ملف خط النص المتدفق: التدريب يسحب نوافذه من الخط، والملفات أعلاه نسخة صغيرة للأدوات الأخرى")
