@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function AdminToolsPage() {
-  const isOwner = isOwnerServer();
+export default async function AdminToolsPage() {
+  const isOwner = await isOwnerServer();
   if (!isOwner) {
     redirect("/admin/login?next=/admin-tools");
   }

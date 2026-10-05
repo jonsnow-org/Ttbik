@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 // the irreversible data-loss risk. A real delete flow, if still wanted,
 // needs an explicit owner decision on what happens to that bot's existing
 // Ads/Users/Transactions first.
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   if (typeof body.isActive !== "boolean") {
     return NextResponse.json({ error: "isActive (boolean) مطلوب" }, { status: 400 });

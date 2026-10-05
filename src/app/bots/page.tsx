@@ -24,8 +24,8 @@ import {
 
 export const metadata = botsMetadata;
 
-export default function BotsDeployPage() {
-  const isOwner = isOwnerServer();
+export default async function BotsDeployPage() {
+  const isOwner = await isOwnerServer();
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(WEBPAGE_JSON_LD) }} />

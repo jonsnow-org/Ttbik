@@ -6,11 +6,12 @@ import AdSlot from "@/components/AdSlot";
 
 type LinkItem = { label: string; url: string; order?: number };
 
-export async function generateMetadata({
-  params,
-}: {
-  params: { slug: string };
-}): Promise<Metadata> {
+export async function generateMetadata(
+  props: {
+    params: Promise<{ slug: string }>;
+  }
+): Promise<Metadata> {
+  const params = await props.params;
   const card = await prisma.digitalCard.findUnique({
     where: { slug: params.slug },
     select: { title: true, bio: true },
@@ -22,11 +23,12 @@ export async function generateMetadata({
   };
 }
 
-export default async function DigitalCardPublicPage({
-  params,
-}: {
-  params: { slug: string };
-}) {
+export default async function DigitalCardPublicPage(
+  props: {
+    params: Promise<{ slug: string }>;
+  }
+) {
+  const params = await props.params;
   const slug = (params.slug || "").trim().toLowerCase();
   if (!slug || slug.length > 32) notFound();
 

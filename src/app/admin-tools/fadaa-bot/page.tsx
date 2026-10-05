@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function FadaaBotCreatorPage() {
-  if (!isOwnerServer()) redirect("/admin/login?next=/admin-tools/fadaa-bot");
+export default async function FadaaBotCreatorPage() {
+  if (!await isOwnerServer()) redirect("/admin/login?next=/admin-tools/fadaa-bot");
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
       <span className="inline-block rounded-full bg-zinc-900 px-4 py-1.5 text-xs font-bold text-violet-300">🌌 قالب فضاء</span>

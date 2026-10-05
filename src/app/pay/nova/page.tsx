@@ -29,7 +29,8 @@ async function fetchPlans(): Promise<Record<string, Plan>> {
   }
 }
 
-export default async function NovaPayPage({ searchParams }: { searchParams: { uid?: string; paid?: string } }) {
+export default async function NovaPayPage(props: { searchParams: Promise<{ uid?: string; paid?: string }> }) {
+  const searchParams = await props.searchParams;
   if (NOVA_PAUSED) {
     return (
       <main className="mx-auto max-w-md px-4 py-16 text-center" dir="rtl">

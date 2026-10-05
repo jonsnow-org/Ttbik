@@ -13,7 +13,8 @@ const REQUIRED_SECONDS = 15;
 // browser, lets the client component fire window.open() as the very first
 // thing it does on mount, with zero intervening async work — the closest
 // this can get to a genuine, unblocked auto-open.
-export default async function WatchPage({ params }: { params: { token: string } }) {
+export default async function WatchPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const click = await prisma.adClick.findUnique({ where: { id: params.token } });
   if (!click) {
     return <WatchClient token={params.token} initialError="الرابط غير صالح أو منتهي." initialData={null} />;

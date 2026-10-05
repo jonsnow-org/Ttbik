@@ -9,8 +9,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function MediaBotCreatorPage() {
-  const isOwner = isOwnerServer();
+export default async function MediaBotCreatorPage() {
+  const isOwner = await isOwnerServer();
   if (!isOwner) {
     redirect("/admin/login?next=/admin-tools/media-bot");
   }

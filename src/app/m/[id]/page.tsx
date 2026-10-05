@@ -28,7 +28,8 @@ async function loadPost(id: string) {
   return { ...p, thumb, title };
 }
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const p = await loadPost(params.id);
   if (!p) return { title: "المنشور غير متاح" };
   const isAudio = p.media_type === "audio" || p.media_type === "voice";
@@ -49,7 +50,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   };
 }
 
-export default async function SharedMediaPage({ params }: { params: { id: string } }) {
+export default async function SharedMediaPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const p = await loadPost(params.id);
   if (!p) notFound();
   const bot = await mediaBotUsername();

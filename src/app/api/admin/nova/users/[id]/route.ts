@@ -11,7 +11,8 @@ const VALID_PLANS = ["PRO_BASIC", "PRO_PLUS", "PRO_ULTRA"];
 // activation in /api/payments/nova-webhook — this is for goodwill
 // grants, support cases, or activating someone who paid outside the
 // automated flow.
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const body = await req.json().catch(() => ({}));
   const action = String(body.action || "");
 

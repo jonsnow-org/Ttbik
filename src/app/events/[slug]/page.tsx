@@ -11,7 +11,8 @@ export function generateStaticParams() {
   return EVENT_ITEMS.map((e) => ({ slug: e.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const e = getEvent(params.slug);
   if (!e) return { title: "حدث" };
   return {
@@ -29,7 +30,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function EventArticlePage({ params }: { params: { slug: string } }) {
+export default async function EventArticlePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const e = getEvent(params.slug);
   if (!e) notFound();
 
