@@ -49,7 +49,7 @@ async function paced<T>(fn: () => Promise<T>): Promise<T> {
 // crowd, or a script walking through every date, can slow the pages down but never lock the site.
 const inflight = new Map<string, Promise<unknown>>();
 let waiting = 0;
-const BUSY_SERVE_STALE = 10, BUSY_REFUSE = 60;
+const BUSY_SERVE_STALE = 10, BUSY_REFUSE = 24;   // with the public node at about one call a second, a longer queue only means waiting minutes: refuse early, the caller retries
 export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.v as T;
