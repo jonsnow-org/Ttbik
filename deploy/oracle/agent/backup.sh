@@ -27,7 +27,7 @@ if [ ! -f "$WKF" ] || [ ! -f "$BK/ttbik-full-latest.tar.gz" ] || [ $(( $(date +%
 Our whole work, saved $(now)
 - repo-latest.bundle   every branch and tag of the project (restore: git clone repo-latest.bundle ttbik)
 - athar*-data.tgz      Athar's own files (takedown list, copies of pictures)
-- database.dump        (only in the full file on the server) restore: pg_restore --no-owner -d <database> database.dump
+- database.dump        the platform database (restore: pg_restore --no-owner -d <database> database.dump); step-by-step in RESTORE.md, variable names in ENV-VARS.md
 NOT inside (secrets, keep them in your own password manager): bot tokens, DATABASE_URL, Vercel variables (ATHAR_PRIMARY,
 NEXT_PUBLIC_ATHAR_META_BASE, ATHAR_ADMIN, ...), Cloudflare account, wallet words, Telegram bot tokens.
 Where things run: site on Vercel (main branch), server on Oracle (deploy/oracle), Athar front door on Cloudflare (Worker athar-meta,
