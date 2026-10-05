@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05 14:53 UTC",
+  "generated_at": "2026-10-05 22:07 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -12,25 +12,16 @@
       "failure": ""
     },
     {
-      "alias": "المرحلة الثالثة 2",
+      "alias": "المرحلة الثالثة 4",
       "track": "chat_stage",
       "status": "complete",
       "role": "duplicate",
-      "last_run": "2026-09-30",
-      "gpu": false,
-      "failure": ""
-    },
-    {
-      "alias": "المرحلة الثالثة 5",
-      "track": "chat_stage",
-      "status": "complete",
-      "role": "primary",
       "last_run": "2026-10-02",
       "gpu": false,
       "failure": ""
     },
     {
-      "alias": "المرحلة الثالثة 4",
+      "alias": "المرحلة الثالثة 3",
       "track": "chat_stage",
       "status": "complete",
       "role": "duplicate",
@@ -39,7 +30,7 @@
       "failure": ""
     },
     {
-      "alias": "المرحلة الثالثة 3",
+      "alias": "المرحلة الثالثة 2",
       "track": "chat_stage",
       "status": "complete",
       "role": "duplicate",
@@ -53,6 +44,15 @@
       "status": "complete",
       "role": "tool",
       "last_run": "2026-09-24",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "المرحلة الثالثة 5",
+      "track": "chat_stage",
+      "status": "complete",
+      "role": "primary",
+      "last_run": "2026-10-03",
       "gpu": false,
       "failure": ""
     },
