@@ -52,7 +52,11 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     // markets that play animated pages show the living picture; the rest keep using `image`
     ...(!st?.mediaRef && !hidden ? { animation_url: viewerUrl({ i: index, t: tier, s: st?.season ?? 1, g: stage, h: st?.hands ?? 1, e: st?.engravings.length ?? 0, o: st?.occasion ?? 0 }) } : {}),
     external_url: `${origin}/token/${index}`,
-    image: hidden ? `${imgBase}/hidden.svg` : permanent ?? `${imgBase}/${index}.svg${q}`,
+    // the picture markets show: an SVG with its motion built in (Getgems lists svg among its image formats): browsers play it, apps
+    // that only draw still pictures show the first frame. A picture the owner chose is shown as it was stored.
+    image: hidden ? `${imgBase}/hidden.svg` : permanent ?? `${imgBase}/${index}.svg${q}&live=1`,
+    // Getgems shows these as buttons on the token's page (label up to 24 characters)
+    ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${index}` }, { label: "Living view", uri: viewerUrl({ i: index, t: tier, s: st?.season ?? 1, g: stage, h: st?.hands ?? 1, e: st?.engravings.length ?? 0, o: st?.occasion ?? 0 }) }] } : {}),
     attributes: story.attrs,
   }, { headers: { "Cache-Control": "public, max-age=60" } });
 }
