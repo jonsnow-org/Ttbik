@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Top, TierBadge, useApi, useSend } from "@/components/ui";
 import { STAGE_DAYS, stageOf, ymd } from "@/lib/dates";
+import { eventEnOf } from "@/lib/specialNames";
 import { useI18n } from "@/lib/i18n";
 import { NETWORK, viewerUrl } from "@/lib/config";
 import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
@@ -123,7 +124,7 @@ export default function Token({ params }: { params: { index: string } }) {
       )}
       <Born index={index} />
       {previewNode}
-      <Features supply={tierSupply(t.season)[t.tier]} event={eventOf(index, t.season)} />
+      <Features supply={tierSupply(t.season)[t.tier]} event={eventOf(index, t.season)} eventEn={(() => { const c = ymd(index); return eventEnOf(c.y, c.m, c.d); })()} />
     </>
   );
 }

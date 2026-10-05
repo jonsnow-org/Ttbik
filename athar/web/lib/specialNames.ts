@@ -1,0 +1,27 @@
+// English names of the 78 special dates (the Arabic ones live with the season, in seasons.ts). Pure data, so every host can use it.
+export const EVENT_EN: Record<string, string> = {
+  "1953-04-25": "The structure of DNA is published", "1957-10-04": "Sputnik, the first satellite", "1961-04-12": "Gagarin, the first human in space",
+  "1962-02-20": "John Glenn orbits the Earth", "1963-08-28": "\"I have a dream\"", "1969-07-20": "Humans land on the Moon",
+  "1969-10-29": "First message on the early Internet", "1971-12-02": "UAE National Day", "1976-04-01": "Apple is founded", "1977-05-25": "Star Wars is released",
+  "1981-04-12": "First Space Shuttle flight", "1985-07-13": "Live Aid", "1986-06-22": "Maradona's famous match", "1989-03-12": "The World Wide Web proposal",
+  "1989-11-09": "The Berlin Wall falls", "1990-02-11": "Mandela is released", "1990-04-24": "Hubble telescope launch", "1990-10-03": "German reunification",
+  "1991-08-06": "The first website", "1993-04-30": "The Web is given to the public", "1997-06-26": "Harry Potter is published", "1998-07-12": "1998 World Cup final",
+  "1998-09-04": "Google is founded", "2008-10-31": "The Bitcoin whitepaper", "2009-01-03": "The first Bitcoin block", "2010-05-22": "Bitcoin Pizza Day",
+  "2012-07-04": "The Higgs boson announcement", "2013-08-14": "Telegram launches", "2015-07-30": "Ethereum begins", "2019-04-10": "First image of a black hole",
+  "2022-11-20": "Opening of the Qatar World Cup", "2022-12-18": "2022 World Cup final",
+  "1953-05-29": "First ascent of Mount Everest", "1954-05-06": "First mile run in under four minutes", "1955-12-01": "Rosa Parks refuses to give up her seat",
+  "1957-03-25": "Treaty of Rome: the seed of the European Union", "1958-01-31": "Explorer 1, the first American satellite", "1959-01-02": "Luna 1, the first craft to pass the Moon",
+  "1961-08-13": "The Berlin Wall is built", "1962-07-10": "Telstar, the first communications satellite", "1964-10-10": "Opening of the Tokyo Olympics",
+  "1965-03-18": "The first spacewalk", "1967-12-03": "The first heart transplant", "1968-12-24": "\"Earthrise\" from Apollo 8", "1969-08-15": "Woodstock festival",
+  "1970-04-22": "The first Earth Day", "1970-06-21": "Brazil win the World Cup for the third time", "1973-04-03": "The first mobile phone call",
+  "1976-01-21": "First commercial Concorde flight", "1977-09-05": "Voyager 1 is launched", "1978-07-25": "Birth of the first test-tube baby",
+  "1980-05-08": "Smallpox declared eradicated", "1983-01-01": "The modern Internet is born (TCP/IP)", "1986-01-28": "The Challenger disaster", "1986-04-26": "The Chernobyl disaster",
+  "1991-12-26": "The Soviet Union dissolves", "1992-07-25": "Opening of the Barcelona Olympics", "1993-11-01": "The European Union begins (Maastricht)",
+  "1994-04-27": "South Africa's first democratic election", "1994-05-06": "The Channel Tunnel opens", "1996-07-05": "Birth of Dolly the sheep",
+  "1998-11-20": "First module of the International Space Station launched", "1999-01-01": "The euro begins", "2008-08-08": "Opening of the Beijing Olympics",
+  "2008-09-15": "Lehman Brothers collapses: the financial crisis", "2010-12-17": "The spark of the Arab Spring (Tunisia)", "2011-03-11": "Japan earthquake and tsunami",
+  "2011-03-15": "The Syrian revolution begins", "2012-08-06": "Curiosity lands on Mars", "2014-11-12": "Philae lands on a comet", "2015-12-12": "The Paris climate agreement",
+  "2018-07-15": "2018 World Cup final", "2020-03-11": "Covid-19 declared a pandemic", "2021-02-18": "Perseverance lands on Mars", "2021-12-25": "James Webb Space Telescope launch",
+  "2022-11-30": "ChatGPT launches: the age of public AI", "2023-08-23": "Chandrayaan-3 lands near the Moon's south pole", "2024-12-08": "The fall of the regime in Syria: the revolution prevails",
+};
+export const eventEnOf = (y: number, m: number, d: number): string | null => EVENT_EN[`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`] ?? null;
