@@ -1,12 +1,12 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-04 21:35 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-05 01:31 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
    الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام».
 
 ✅ المرحلة الأولى — تدريب النص الأساسي (GPU)
-✅ مسار ترميز الصورة (VQ-VAE) — samples_consumed=1463 · step=42
-✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=2253 · step=112
+✅ مسار ترميز الصورة (VQ-VAE) — samples_consumed=1541 · step=46
+✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=2370 · step=130
 ✅ مسار جمع وترميز الفيديو
 ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)
 ✅ المسار A — التدريب النصي المستمر (CPU)
@@ -29,13 +29,12 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ✅ اكتمل | مسار ترميز الصوت 3 | primary
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-✅ اكتمل | المسار B 1 | primary
-✅ اكتمل | المسار A 1 | primary
-✅ اكتمل | المرحلة الأولى 2 | primary
+⏳ يعمل الآن | المسار B 1 | primary
+❌ فشل | المسار A 1 | primary | الخطأ: Traceback (most recent call last):
+    raise DeadKernelError("Kernel died")
+nbclient.exceptions.DeadKernelError: Kernel died
+❌ فشل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | duplicate
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
-❌ فشل | مسار ترميز الصوت 1 | duplicate | الخطأ:     494     except FileNotFoundError:
---> 495         raise EmptyDatasetError(f"The directory at {base_path} doesn't contain any data files") from Non
-❌ فشل | المرحلة الأولى 1 | duplicate | الخطأ: Exception encountered at "In [9]":
-NameError                                 Traceback (most recent call last)
-NameError: name 'realistic_steps' is no
+❌ فشل | مسار ترميز الصوت 1 | duplicate
+❌ فشل | المرحلة الأولى 1 | duplicate

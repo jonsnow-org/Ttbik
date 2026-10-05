@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-04 21:33 UTC",
+ "generated_at": "2026-10-05 01:27 UTC",
  "errors": [],
  "kernels": [
   {
@@ -115,7 +115,7 @@
    "track": "audio_tokenizer",
    "status": "complete",
    "role": "primary",
-   "last_run": "2026-10-03",
+   "last_run": "2026-10-04",
    "gpu": false,
    "failure": ""
   },
@@ -124,32 +124,32 @@
    "track": "image_tokenizer",
    "status": "complete",
    "role": "primary",
-   "last_run": "2026-10-03",
+   "last_run": "2026-10-04",
    "gpu": true,
    "failure": ""
   },
   {
    "alias": "المسار B 1",
    "track": "research_track",
-   "status": "complete",
+   "status": "running",
    "role": "primary",
-   "last_run": "2026-10-03",
+   "last_run": "2026-10-04",
    "gpu": false,
    "failure": ""
   },
   {
    "alias": "المسار A 1",
    "track": "cpu_training_track",
-   "status": "complete",
+   "status": "error",
    "role": "primary",
-   "last_run": "2026-10-03",
+   "last_run": "2026-10-04",
    "gpu": false,
-   "failure": ""
+   "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
   },
   {
    "alias": "المرحلة الأولى 2",
    "track": "text_stage1",
-   "status": "complete",
+   "status": "error",
    "role": "primary",
    "last_run": "2026-10-04",
    "gpu": true,
@@ -180,7 +180,7 @@
    "role": "duplicate",
    "last_run": "2026-09-23",
    "gpu": false,
-   "failure": "    494     except FileNotFoundError:\n--> 495         raise EmptyDatasetError(f\"The directory at {base_path} doesn't contain any data files\") from None\nEmptyDatasetError: The directory at hf://datasets/mozilla-foundation/common_voice_17_0@11dc88355e899d1bf2df74f01b904a8544a17b33 doesn't contain any "
+   "failure": ""
   },
   {
    "alias": "المرحلة الأولى 1",
@@ -189,7 +189,7 @@
    "role": "duplicate",
    "last_run": "2026-09-22",
    "gpu": false,
-   "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined"
+   "failure": ""
   }
  ],
  "pipeline": {
@@ -202,7 +202,7 @@
    "text_stage1": {
     "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
     "ready": true,
-    "kernel_status": "complete",
+    "kernel_status": "error",
     "progress": {},
     "dataset": "نتائج المرحلة الأولى 1"
    },
@@ -211,11 +211,11 @@
     "ready": true,
     "kernel_status": "complete",
     "progress": {
-     "samples_consumed": 1463,
-     "step": 42,
+     "samples_consumed": 1541,
+     "step": 46,
      "last_run_sources": {
-      "x": 76,
-      "web_fallback": 24
+      "x": 62,
+      "web_fallback": 16
      }
     },
     "dataset": "نتائج مسار ترميز الصورة 1"
@@ -225,10 +225,10 @@
     "ready": true,
     "kernel_status": "complete",
     "progress": {
-     "samples_consumed": 2253,
-     "step": 112,
+     "samples_consumed": 2370,
+     "step": 130,
      "last_run_sources": {
-      "x": 69
+      "x": 117
      }
     },
     "dataset": "نتائج مسار ترميز الصوت 1"
@@ -252,14 +252,14 @@
    "cpu_training_track": {
     "name": "المسار A — التدريب النصي المستمر (CPU)",
     "ready": true,
-    "kernel_status": "complete",
+    "kernel_status": "error",
     "progress": {},
     "dataset": "نتائج المسار A 1"
    },
    "research_track": {
     "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
     "ready": true,
-    "kernel_status": "complete",
+    "kernel_status": "running",
     "progress": {},
     "dataset": "نتائج المسار B 1"
    },
@@ -295,9 +295,9 @@
   },
   {
    "name": "sham-audio-tokenizer-checkpoint",
-   "size": "34975584",
-   "updated": "2026-10-04 00:08:57.250000",
-   "downloads": "17"
+   "size": "34984143",
+   "updated": "2026-10-05 00:07:52.660000",
+   "downloads": "19"
   },
   {
    "name": "sham-checkpoint",
@@ -309,19 +309,19 @@
    "name": "sham-research-track-checkpoint-v2",
    "size": "385145782",
    "updated": "2026-10-04 08:09:34.743000",
-   "downloads": "9"
+   "downloads": "10"
   },
   {
    "name": "sham-image-tokenizer-checkpoint",
-   "size": "144043947",
-   "updated": "2026-10-04 00:17:51.543000",
-   "downloads": "14"
+   "size": "144053496",
+   "updated": "2026-10-05 00:16:21.950000",
+   "downloads": "15"
   },
   {
    "name": "sham-chat-checkpoint",
    "size": "580621375",
    "updated": "2026-10-03 11:47:35.110000",
-   "downloads": "18"
+   "downloads": "19"
   },
   {
    "name": "sham-crawl-checkpoint",
@@ -339,7 +339,7 @@
    "name": "sham-audio-tokenizer-adult-synth",
    "size": "34872718",
    "updated": "2026-09-24 00:46:59.817000",
-   "downloads": "5"
+   "downloads": "6"
   },
   {
    "name": "sham-crawl-agent",
@@ -357,19 +357,19 @@
    "name": "sham-video-frames-audio-tokenizers",
    "size": "178421614",
    "updated": "2026-09-23 12:22:00.930000",
-   "downloads": "5"
+   "downloads": "6"
   },
   {
    "name": "sham-audio-tokenizer-adult-synth-v2",
    "size": "34872673",
    "updated": "2026-09-21 16:13:15.337000",
-   "downloads": "5"
+   "downloads": "6"
   },
   {
    "name": "sham-video-corpus",
    "size": "768362",
    "updated": "2026-10-01 12:45:55.033000",
-   "downloads": "6"
+   "downloads": "7"
   },
   {
    "name": "sham-orchestrator-state",
@@ -394,6 +394,18 @@
    "size": "65727",
    "updated": "2026-10-01 00:35:55.173000",
    "downloads": "1"
+  },
+  {
+   "name": "sham-crawl-gh-collect-corpus",
+   "size": "39923781",
+   "updated": "2026-10-04 22:50:57.733000",
+   "downloads": "0"
+  },
+  {
+   "name": "sham-crawl-gh",
+   "size": "0",
+   "updated": "2026-10-05 00:18:38.543000",
+   "downloads": "0"
   }
  ],
  "dataset_diag": {
@@ -493,15 +505,39 @@
     "accelerator_state.json"
    ],
    "documented": false
+  },
+  "sham-crawl-gh": {
+   "status": "429 client error: too many requests for url: https://api.kaggle.com/v1/datasets.datasetapiservice/getdatasetstatus",
+   "files": 8,
+   "kinds": {
+    "model": 3,
+    "text": 5
+   },
+   "sample": [
+    "audio_tokenizer.pt",
+    "crawl_progress.json",
+    "crawl_seen.json",
+    "crawl_urls.json"
+   ],
+   "documented": true
   }
  },
  "workflows": {
   "Sham Status (supervision snapshot)": [
    {
-    "id": 37236574874,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236574874",
+    "id": 37251442933,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37251442933",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-05T01:26",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 37236574874,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236574874",
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-04T21:33",
     "minutes": null,
     "event": "schedule"
@@ -527,29 +563,38 @@
   ],
   "Sham CI (contract + self-tests, read-only)": [
    {
-    "id": 37236401600,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236401600",
-    "status": "in_progress",
-    "conclusion": null,
-    "started": "2026-10-04T21:30",
-    "minutes": null,
-    "event": "pull_request"
-   },
-   {
-    "id": 37235584038,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235584038",
-    "status": "completed",
-    "conclusion": "cancelled",
-    "started": "2026-10-04T21:18",
-    "minutes": null,
-    "event": "pull_request"
-   },
-   {
-    "id": 37223457505,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37223457505",
+    "id": 37248112634,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37248112634",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-04T18:11",
+    "started": "2026-10-05T00:35",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37244790217,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37244790217",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-04T23:43",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37243027861,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37243027861",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-04T23:14",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37241912865,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37241912865",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-04T22:56",
     "minutes": null,
     "event": "pull_request"
    }
@@ -580,7 +625,10 @@
  "failures": [],
  "reports": [],
  "alerts": [
+  "❌ دفتر أساسي فشل: المسار A 1 (cpu_training_track) — Traceback (most recent call last):     raise DeadKernelError(\"Kernel died\") nbclient.exceptions.DeadKernelError: Kernel died",
+  "❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — ",
   "⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)",
+  "⚠ sham-crawl-gh: حالة Kaggle «429 client error: too many requests for url: https://api.kaggle.com/v1/datasets.datasetapiservice/getdatasetstatus» (النشر لم يكتمل أو فشل؟)",
   "❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
   "❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
   "❓ مجموعة sham-audio-tokenizer-adult-synth-v2 في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
