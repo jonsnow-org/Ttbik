@@ -64,7 +64,9 @@ export async function imgResponse(idParam: string, reqUrl: string, hooks: ImgHoo
       const svg = renderPhotoArt({ ...art, gold: sp.gold }, sp.uri, { w: sp.w, h: sp.h });
       return new Response(q.get("live") === "1" ? liveArt(svg, { stage: art.stage, tier: art.tier, anniversary: q.get("ann") === "1" }) : svg, { headers: SVG });
     }
-    if (sp && sp.raw) return new Response(sp.raw, { headers: SVG });          // not a photo picture (a drawing): shown as it was stored
+    // a drawing that is not a photo: a special date's own artwork is shown as it was stored; the saved copy of an ordinary token's generated art
+    // is not shown (it is frozen at the day of purchase, with the motion of that day): the site draws it live from the token's numbers instead
+    if (sp && sp.raw && SPECIAL_DATES.has(index)) return new Response(sp.raw, { headers: SVG });
   }
   // ?live=1 is the site's moving version (?ann=1 on the date's anniversary); without it the plain picture wallets and markets show
   const svg = q.get("live") === "1" ? liveArt(renderArt(art), { stage: art.stage, tier: art.tier, anniversary: q.get("ann") === "1" }) : renderArt(art);
