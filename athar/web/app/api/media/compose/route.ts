@@ -6,7 +6,7 @@ import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { MAX_BYTES, storeNow } from "@/lib/storage";
 import { enqueue } from "@/lib/mediaQueue";
-import { badgeMotion, storedMotion } from "@/lib/live";
+import { badgeMotion, liveArt, storedMotion } from "@/lib/live";
 import { OCCASIONS } from "@/lib/occasions";
 import { imageSize } from "@/lib/imgsize";
 import { tokenState } from "@/lib/chain";
@@ -75,7 +75,8 @@ export async function POST(req: Request) {
     if (dims.w / dims.h < 0.25 || dims.w / dims.h > 4) notes.push("shape");
     svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, dims);
   }
-  if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
+  if (kind === "snapshot" && base.tier !== 2) svg = liveArt(svg, { stage: base.stage, tier: base.tier });   // going back to the original picture keeps all of its motion: turning rosette, breathing rim, twinkles
+  else if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
   else svg = badgeMotion(svg);                      // every stored picture moves: the rosette or crystal, the photo's light, the badge
   if (Buffer.byteLength(svg) > MAX_BYTES) return NextResponse.json({ error: "picture too large for free permanent storage, choose a smaller photo" }, { status: 413 });
   if (preview) return NextResponse.json({ svg, notes });

@@ -11,8 +11,8 @@ const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: 
 };
 const GOLD = "#ffd36a";
 // Rare tokens have a look of their own (emerald-aqua crystal), so that common (silver-blue), rare (aqua crystal) and mythic (gold) are told apart at a glance.
-// where the small rosette badge sits (left, a little below the middle: inside the gap between the two circles, 302 from the centre)
-const BADGE_AT: [number, number] = [126, 528];
+// where the small rosette badge sits (the 9 o'clock position, left and level with the centre: inside the gap between the two circles, 302 from the centre)
+const BADGE_AT: [number, number] = [98, 400];
 const RARE_PAL = { bg1: "#04201f", bg2: "#0f5a55", ink: "#eafffa", accent: "#5ff0cf" };
 const palOf = (a: ArtInput) => (a.tier === 1 && !a.gold ? RARE_PAL : PALETTES[a.season] || PALETTES[1]);
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
