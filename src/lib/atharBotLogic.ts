@@ -81,8 +81,23 @@ const T: Record<Lang, Text> = {
 
 const withLang = (path: string, lang: Lang) => `${ATHAR_URL}${path}${path.includes("?") ? "&" : "?"}lang=${lang}`;
 
-function menu(lang: Lang): InlineKeyboard {
+// The owner is the Telegram id fixed when the bot was activated (or the platform owner's id): they get two extra buttons.
+const OWNER_FALLBACK = (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID || "420066855").split(",")[0].trim();
+const isOwner = (botRow: BotRow, tgId: string) => !!tgId && (tgId === String(botRow.ownerId || "") || tgId === OWNER_FALLBACK);
+// optional: the secret address of the management panel, shown as a button to the owner only (set ATHAR_ADMIN_URL in Vercel)
+const ADMIN_URL = (process.env.ATHAR_ADMIN_URL || "").trim();
+
+function menu(lang: Lang, owner = false): InlineKeyboard {
   const t = T[lang];
+  const kb = menuBase(lang, t);
+  if (owner) {
+    kb.row().text("📊 Stats", "ao:stats");
+    if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
+  }
+  return kb;
+}
+
+function menuBase(lang: Lang, t: Text): InlineKeyboard {
   return new InlineKeyboard()
     .webApp(t.open, withLang("", lang))
     .row()
@@ -114,6 +129,18 @@ async function setLang(botId: string, tgUserId: string, lang: Lang): Promise<voi
   } catch { /* the choice still applies to this message */ }
 }
 
+/** What the owner sees under «📊 Stats»: how many people started the bot and in which languages. */
+async function statsText(botId: string): Promise<string> {
+  try {
+    const total = await prisma.botVisit.count({ where: { botId } });
+    const since = new Date(Date.now() - 24 * 3600 * 1000);
+    const today = await prisma.botVisit.count({ where: { botId, firstSeenAt: { gte: since } } });
+    const langs = await prisma.atharBotUser.groupBy({ by: ["lang"], where: { botId }, _count: { lang: true } });
+    const parts = langs.map((l) => `${l.lang}: ${l._count.lang}`).join(" · ") || "—";
+    return `📊 Athar bot\nStarted: ${total}\nNew in 24h: ${today}\nChosen languages: ${parts}\n(people who never pressed 🌐 are in English)`;
+  } catch { return "📊 Stats are not available right now."; }
+}
+
 export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
   // 🌐 language button and the language list
   const cb = body.callback_query;
@@ -127,7 +154,9 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     } else if (data.startsWith("al:") && isLang(data.slice(3))) {
       const lang = data.slice(3) as Lang;
       await setLang(botRow.id, from, lang);
-      await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang) });
+      await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, from)) });
+    } else if (data === "ao:stats" && isOwner(botRow, from)) {
+      await bot.api.sendMessage(chatId, await statsText(botRow.id));
     }
     return;
   }
@@ -141,7 +170,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   }
   const lang = fromId ? await getLang(botRow.id, fromId) : "en";
   if (text.startsWith("/start") || text === "🕰 Athar") {
-    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang) });
+    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, fromId)) });
     await bot.api.sendMessage(chatId, "🕰", { reply_markup: new Keyboard().text("🕰 Athar").resized().persistent() }).catch(() => null);
     return;
   }
@@ -149,5 +178,5 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     await bot.api.sendMessage(chatId, T[lang].pick, { reply_markup: languageKeyboard() });
     return;
   }
-  await bot.api.sendMessage(chatId, T[lang].help, { reply_markup: menu(lang) });
+  await bot.api.sendMessage(chatId, T[lang].help, { reply_markup: menu(lang, isOwner(botRow, fromId)) });
 }

@@ -93,11 +93,11 @@ function shell(a: ArtInput, centre: string, defs: string): string {
     const ang = (i / Math.max(hd, 1)) * Math.PI * 2 - Math.PI / 2;
     dots += `<circle cx="${(400 + Math.cos(ang) * 350).toFixed(1)}" cy="${(400 + Math.sin(ang) * 350).toFixed(1)}" r="5" fill="${accent}"/>`;
   }
+  // the outer circle is coloured like the inner one: a bright rim, a soft coloured band inside it and a dotted ring
+  const band = `<circle cx="400" cy="400" r="368" fill="none" stroke="${accent}" stroke-width="26" opacity="0.14"/>`;
   const rim = mythic
-    ? `<circle cx="400" cy="400" r="378" fill="none" stroke="${GOLD}" stroke-width="6"/><circle cx="400" cy="400" r="368" fill="none" stroke="${GOLD}" stroke-width="1.5" stroke-dasharray="2 10"/>`
-    : rare
-    ? `<circle cx="400" cy="400" r="378" fill="none" stroke="${accent}" stroke-width="4"/><circle cx="400" cy="400" r="368" fill="none" stroke="${accent}" stroke-width="1" stroke-dasharray="1 7"/>`
-    : `<circle cx="400" cy="400" r="378" fill="none" stroke="${accent}" stroke-width="2" opacity="0.8"/>`;
+    ? `${band}<circle cx="400" cy="400" r="378" fill="none" stroke="${GOLD}" stroke-width="8"/><circle cx="400" cy="400" r="364" fill="none" stroke="${GOLD}" stroke-width="2" stroke-dasharray="2 10"/>`
+    : `${band}<circle cx="400" cy="400" r="378" fill="none" stroke="${accent}" stroke-width="${rare ? 7 : 6}"/><circle cx="400" cy="400" r="364" fill="none" stroke="${accent}" stroke-width="2" stroke-dasharray="2 9" opacity="0.9"/>`;
   const glow = mythic ? `<circle cx="400" cy="400" r="${PR + 10}" fill="url(#halo)"/>` : "";
   const dayText = a.sealed ? "?" : String(d).padStart(2, "0");
   const monText = a.sealed ? "SEALED" : `${MONTHS_EN[m - 1]} ${y}`;
