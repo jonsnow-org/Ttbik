@@ -21,6 +21,10 @@ import { latestNewsItem } from "@/lib/newsItems";
 
 export const revalidate = 30;
 
+// Athar (the token project): its app on our server, and its Telegram bot once one is created (NEXT_PUBLIC_ATHAR_BOT_URL=https://t.me/<bot>)
+const ATHAR_APP_URL = (process.env.NEXT_PUBLIC_ATHAR_URL || "https://athar.89-168-89-15.sslip.io").replace(/\/$/, "");
+const ATHAR_BOT_URL = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "").trim();
+
 export default async function HomePage() {
   const news = latestNewsItem();
 
@@ -44,6 +48,22 @@ export default async function HomePage() {
           </div>
           <span className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح ←</span>
         </Link>
+      </section>
+
+      <section className="mx-auto max-w-6xl px-4 pt-4">
+        <div className="flex flex-col gap-4 rounded-2xl bg-gradient-to-l from-amber-600 to-slate-900 p-5 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <span className="rounded-full bg-amber-300/25 px-2.5 py-0.5 text-[11px] font-bold text-amber-100">رموز · شبكة TON · Gram</span>
+            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">🕰 أثر: رمز واحد لكل يوم في التقويم</h2>
+            <p className="mt-1 text-xs text-white/80 sm:text-sm">
+              يوم ميلادك أو زواجك أو يوم تحبه، رمز حيّ يومض ويدور وينضج كلما طال بقاؤه عندك، يعدّ أصحابه ويحفظ ما يُنقش عليه.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <a href={ATHAR_APP_URL} className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح أثر ←</a>
+            {ATHAR_BOT_URL && <a href={ATHAR_BOT_URL} className="rounded-full border border-white/60 px-4 py-2 text-sm font-bold text-white">بوت تيليجرام</a>}
+          </div>
+        </div>
       </section>
 
       <section className="relative overflow-hidden bg-hero-glow bg-white">
