@@ -23,7 +23,7 @@ export default function Mine() {
       {unlocked.length > 0 && <div className="card"><h3>{t("perks.title")}</h3>{unlocked.map((p) => <div className="kv" key={p.id}><span>✓ {lang === "ar" ? p.ar : p.en}</span></div>)}</div>}
       <div className="grid">
         {data?.tokens.map((i) => { const { y, m, d } = ymd(i); return (
-          <Link key={i} href={`/token/${i}`} className="card tok"><img src={`/api/img/${i}.svg?live=1`} alt="" /><div>{dateLabel(y, m, d)}</div></Link>
+          <Link key={i} href={`/token/${i}`} className="card tok"><img src={`/api/live/${i}.svg`} alt="" /><div>{dateLabel(y, m, d)}</div></Link>
         ); })}
       </div>
     </>
