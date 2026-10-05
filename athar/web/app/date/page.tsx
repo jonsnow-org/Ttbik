@@ -72,19 +72,21 @@ export default function DatePage() {
     //   failed  -> only if even our server is unreachable: nothing is bought (the picture is mandatory), nothing is charged
     let ref = 0n;
     const buyStyle = style, buyExtra = extra;
-    // The picture is part of the token: saving it for good is always done, never optional.
+    // A photo is part of the token and saved for good; the generated art is not stored at all (the token keeps drawing it live).
     setStoring(true);
     try {
-      const kind = media.photo ? "photo" : "snapshot";
+      const kind = media.photo ? "photo" : "snapshot";   // "snapshot" here is only the preview shown for approval; it is not stored
       const body = { index, kind, occasion: media.occasion, photo: media.photo };
       const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
       const pj = await pr.json();
       if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
       if (!(await confirm(pj.svg, pj.notes || [], !media.photo))) { setStoring(false); return; }      // the user must approve the exact final picture
-      toast(t("media.saving"));
-      const p = await persistPicture(pj.svg);
-      if (p.state === "failed") { toast(t("media.mustSave")); setStoring(false); return; }   // nothing is bought without its picture saved
-      ref = p.ref; if (p.state === "queued") toast(t("media.queued"));
+      if (media.photo) {   // only a picture the buyer brought is stored; generated art is never frozen: it stays live (motion, ageing, colours) everywhere
+        toast(t("media.saving"));
+        const p = await persistPicture(pj.svg);
+        if (p.state === "failed") { toast(t("media.mustSave")); setStoring(false); return; }   // nothing is bought without its picture saved
+        ref = p.ref; if (p.state === "queued") toast(t("media.queued"));
+      }
     } catch { toast(t("media.fail")); setStoring(false); return; }
     setStoring(false);
     if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, buyStyle, buyExtra)], t("date.sent"))) reload();
