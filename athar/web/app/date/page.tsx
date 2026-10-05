@@ -14,9 +14,10 @@ import Features from "@/components/Features";
 import { eventOf, hijriLabel, tierSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
+import { SEASON_1, specialIndex } from "@/lib/seasons";
 
 type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; special?: boolean; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number; mediaRef?: string } };
-type Season = { configured: boolean; minter?: string; deployed?: boolean; status?: number; fees?: { photo: number; silver: number } };
+type Season = { fromYear?: number; toYear?: number; specials?: number; configured: boolean; minter?: string; deployed?: boolean; status?: number; fees?: { photo: number; silver: number } };
 
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
@@ -40,10 +41,27 @@ export default function DatePage() {
   const [showMedia, setShowMedia] = useState(false);
   const [storing, setStoring] = useState(false);
   const [gift, setGift] = useState(false);
+  const [wantN, setWantN] = useState<number | null>(null), [wantTg, setWantTg] = useState(""), [wantDone, setWantDone] = useState(false);
+  const specialsList = useMemo(() => SEASON_1.specials.map((x) => ({ i: specialIndex(x), y: x.y, m: x.m, d: x.d, note: x.note })).sort((a, b) => a.i - b.i), []);
   const [to, setTo] = useState("");
   const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
   const years = useMemo(() => Array.from({ length: 100 }, (_, i) => 2049 - i), []);
   const fresh = info && info.index === index;
+  const outside = !!fresh && !info!.inSeason;
+  useEffect(() => {
+    setWantDone(false); setWantN(null);
+    if (!outside) return;
+    try { if (JSON.parse(localStorage.getItem("athar_want") || "[]").includes(index)) setWantDone(true); } catch { /* private mode */ }
+    fetch(`/api/waitlist?index=${index}`).then((r) => r.json()).then((j) => setWantN(typeof j.n === "number" ? j.n : null)).catch(() => undefined);
+  }, [outside, index]);
+  async function want() {
+    try {
+      const r = await fetch("/api/waitlist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, contact: wantTg }) });
+      const j = await r.json(); if (!r.ok) return;
+      setWantN(j.n); setWantDone(true); toast(t("date.wantDone"));
+      try { const a = JSON.parse(localStorage.getItem("athar_want") || "[]"); a.push(index); localStorage.setItem("athar_want", JSON.stringify(a)); } catch { /* private mode */ }
+    } catch { /* offline: the button stays */ }
+  }
 
   const style = media.photo ? (media.style === "silver" ? 2 : 1) : 0;
   const extra = style === 1 ? season?.fees?.photo ?? 0 : style === 2 ? season?.fees?.silver ?? 0 : 0;
@@ -79,11 +97,23 @@ export default function DatePage() {
       <Top />
       <div className="card">
         <h3>{t("date.title")}</h3>
+        {season?.fromYear && <p className="muted" style={{ margin: "6px 0 0" }}>{t("date.coverage", { a: season.fromYear, b: season.toYear ?? 0, s: season.specials ?? 0 })}</p>}
+        {season?.fromYear && (
+          <div className="row" style={{ marginTop: 10, flexWrap: "wrap", gap: 6 }}>
+            {Array.from({ length: (season.toYear ?? 0) - season.fromYear + 1 }, (_, k) => season.fromYear! + k).map((v) => (
+              <button key={v} type="button" className={`btn sm ${y === v ? "" : "ghost"}`} onClick={() => setY(v)}>{v}</button>
+            ))}
+          </div>
+        )}
         <div className="row" style={{ marginTop: 10 }}>
           <select value={dd} onChange={(e) => setD(Number(e.target.value))}>{Array.from({ length: maxD }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select>
           <select value={m} onChange={(e) => setM(Number(e.target.value))}>{monthNames.map((n, i) => <option key={i} value={i + 1}>{n}</option>)}</select>
           <select value={y} onChange={(e) => setY(Number(e.target.value))}>{years.map((v) => <option key={v} value={v}>{v}</option>)}</select>
         </div>
+        <select style={{ marginTop: 10, width: "100%" }} value="" onChange={(e) => { const v = specialsList.find((x) => x.i === Number(e.target.value)); if (v) { setY(v.y); setM(v.m); setD(v.d); } }}>
+          <option value="">⭐ {t("date.history")} ({specialsList.length})</option>
+          {specialsList.map((x) => <option key={x.i} value={x.i}>{`${x.d}/${x.m}/${x.y}`}{lang === "ar" ? ` · ${x.note}` : ""}</option>)}
+        </select>
       </div>
 
       <div className="card" style={{ textAlign: "center" }}>
@@ -94,7 +124,15 @@ export default function DatePage() {
         {!fresh && <p className="muted">…</p>}
         {fresh && (
           <div style={{ marginTop: 14 }}>
-            {!info!.inSeason && <p className="muted">{t("date.notSeason")}</p>}
+            {!info!.inSeason && (
+              <>
+                <p className="muted">{t("date.notSeason")}</p>
+                <p className="muted" style={{ fontSize: 13 }}>{t("date.wantHint")}</p>
+                {!wantDone && <input type="text" dir="ltr" placeholder={t("date.wantTg")} value={wantTg} onChange={(e) => setWantTg(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />}
+                <button className="btn gold" disabled={wantDone} onClick={want}>{wantDone ? `✓ ${t("date.wantDone")}` : t("date.want")}</button>
+                {wantN != null && wantN > 0 && <p className="muted" style={{ marginTop: 8 }}>{t("date.wantCount", { n: wantN })}</p>}
+              </>
+            )}
             {info!.inSeason && info!.reserved && !info!.taken && <p className="muted">{t("date.inBox")}</p>}
             {info!.taken && (
               <>
