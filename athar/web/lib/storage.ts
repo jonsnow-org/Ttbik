@@ -3,7 +3,7 @@
 // and by whomever it is uploaded. That is what makes the failure plan work: a token can carry its picture's final id before the
 // file has reached the network, and any later upload (from the buyer's browser, from our server, a week later) lands on that id.
 // Works in the browser and on the server.
-import { createData, EthereumSigner } from "@dha-team/arbundles";
+import { buildDataItem } from "./dataitem";
 import { idToUint256 } from "./ids";
 
 export const MAX_BYTES = 100 * 1024 - 2048;          // the free limit is 105 KiB per item: stay clearly under it
@@ -27,13 +27,9 @@ export type Item = { id: string; ref: bigint; raw: Uint8Array; bytes: number };
 export async function buildItem(content: string | Uint8Array, contentType = "image/svg+xml"): Promise<Item> {
   const data = toBytes(content);
   if (data.length > MAX_BYTES) throw new Error("file too large for free permanent storage");
-  const signer = new EthereumSigner(await contentKey(data));
-  const item = createData(data as Uint8Array, signer, {
-    tags: [{ name: "Content-Type", value: contentType }, { name: "App-Name", value: "Athar" }],
-    anchor: "0".repeat(32),                           // fixed, so the signature (and the id) never varies
-  });
-  await item.sign(signer);
-  return { id: item.id, ref: idToUint256(item.id), raw: item.getRaw() as Uint8Array, bytes: data.length };
+  const item = buildDataItem(data, await contentKey(data), [{ name: "Content-Type", value: contentType }, { name: "App-Name", value: "Athar" }],
+    "0".repeat(32));                                  // fixed anchor, so the signature (and the id) never varies
+  return { id: item.id, ref: idToUint256(item.id), raw: item.raw, bytes: data.length };
 }
 
 export async function uploadItem(item: Item, endpoints = ENDPOINTS, timeoutMs = 25000): Promise<{ ok: boolean; via?: string; error?: string }> {

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { use, useState } from "react";
 import { Top, TierBadge, useApi, useSend } from "@/components/ui";
 import { STAGE_DAYS, stageOf, ymd } from "@/lib/dates";
 import { eventEnOf } from "@/lib/specialNames";
@@ -24,8 +24,8 @@ function PendingNote({ id }: { id: string }) {
   return <p className="note" style={{ marginTop: 10 }}>⏳ {t("media.pending")}</p>;
 }
 
-export default function Token({ params }: { params: { index: string } }) {
-  const index = Number(params.index);
+export default function Token({ params }: { params: Promise<{ index: string }> }) {
+  const index = Number(use(params).index);
   const { data: t, reload } = useApi<Tok & { error?: string }>(`/api/token/${index}`, 15000);
   const { data: season } = useApi<{ collection?: string; itemFees?: { engrave: number; media: number; change: number } }>("/api/season", 30000);
   const { t: tr, dateLabel, lang } = useI18n();
