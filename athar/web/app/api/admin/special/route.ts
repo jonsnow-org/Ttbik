@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { renderPhotoArt } from "@/lib/art";
+import { renderSpecialLive } from "@/lib/specialLive";
 import { storedMotion } from "@/lib/live";
 import { TOTAL_DATES } from "@/lib/dates";
 import { SEASON_1, specialIndex } from "@/lib/seasons";
@@ -19,13 +20,21 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => null);
   const index = Number(b?.index), preview = !!b?.preview;
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES || !SEASON_1.specials.some((s) => specialIndex(s) === index)) return NextResponse.json({ error: "not a special date" }, { status: 400 });
-  const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(b?.photo || ""));
-  if (!m) return NextResponse.json({ error: "photo must be a JPEG" }, { status: 400 });
-  const buf = Buffer.from(m[1], "base64");
-  if (buf.length > MAX_PHOTO) return NextResponse.json({ error: `photo too large (${Math.round(buf.length / 1024)} KB, max ${Math.round(MAX_PHOTO / 1024)} KB)` }, { status: 413 });
-  const dims = imageSize(buf);
-  if (!dims) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
-  const svg = storedMotion(renderPhotoArt({ index, tier: 2, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0 }, `data:image/jpeg;base64,${m[1]}`, dims));
+  let svg: string;
+  if (b?.auto) {   // our own coloured, animated drawing of the date (pure vector, nothing to upload)
+    const live = renderSpecialLive(index);
+    if (!live) return NextResponse.json({ error: "this date has no drawing of ours" }, { status: 400 });
+    svg = storedMotion(live);
+  } else {
+    const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String(b?.photo || ""));
+    if (!m) return NextResponse.json({ error: "photo must be a JPEG" }, { status: 400 });
+    const buf = Buffer.from(m[1], "base64");
+    if (buf.length > MAX_PHOTO) return NextResponse.json({ error: `photo too large (${Math.round(buf.length / 1024)} KB, max ${Math.round(MAX_PHOTO / 1024)} KB)` }, { status: 413 });
+    const dims = imageSize(buf);
+    if (!dims) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
+    svg = storedMotion(renderPhotoArt({ index, tier: 2, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0 }, `data:image/jpeg;base64,${m[1]}`, dims));
+  }
+  if (Buffer.byteLength(svg) > 98_000) return NextResponse.json({ error: "picture too large for free permanent storage" }, { status: 413 });
   if (preview) return NextResponse.json({ svg });
   try {
     const st2 = await storeNow(svg);

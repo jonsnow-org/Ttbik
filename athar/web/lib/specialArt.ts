@@ -247,6 +247,17 @@ const SYRIA = new Set(["2011-03-15", "2024-12-08"]);
 export const specialKey = (index: number) => { const { y, m, d } = ymd(index); return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`; };
 export const specialMotifs = () => Object.keys(BY_DATE);
 
+/** The parts of a special date's scene (background apart from the picture), for the coloured, animated version. */
+export function specialParts(index: number): { motif: string; key: string; inner: string; overlay?: string } | null {
+  const k = specialKey(index), motif = BY_DATE[k];
+  if (!motif || !MOTIFS[motif]) return null;
+  const big = BIG.has(motif);
+  const inner = big ? MOTIFS[motif]() : `<g transform="translate(400 400) scale(1.28) translate(-400 -400)">${MOTIFS[motif]()}</g>`;
+  if (!SYRIA.has(k)) return { motif, key: k, inner };
+  const flag = k === "2011-03-15" ? revolutionFlag(560, 100, 110) + bloodOverlay() : revolutionFlag(405, 330, 120);
+  return { motif, key: k, inner, overlay: flag };
+}
+
 /** The artwork of a special date: `scene` is to be turned into waxed gold; `overlay` (Syrian dates) is drawn afterwards in colour. */
 export function specialScene(index: number): { scene: string; overlay?: string } | null {
   const k = specialKey(index), motif = BY_DATE[k];
