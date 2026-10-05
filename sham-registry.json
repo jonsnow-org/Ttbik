@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05 06:56 UTC",
+  "generated_at": "2026-10-05 14:53 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -131,7 +131,7 @@
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-04",
       "gpu": false,
@@ -244,8 +244,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 385.1,
-      "last_updated": "2026-10-04",
+      "size_mb": 385.3,
+      "last_updated": "2026-10-05",
       "progress": {},
       "has_key_files": true
     },
@@ -404,7 +404,7 @@
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },

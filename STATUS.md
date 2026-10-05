@@ -1,4 +1,4 @@
-# حالة مشروع شام — 2026-10-05 06:53 UTC
+# حالة مشروع شام — 2026-10-05 14:49 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
@@ -13,7 +13,7 @@
 - ✅ مسار جمع وترميز الفيديو — دفتر: complete — تقدم: {'videos_consumed': 568}
 - ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU) — دفتر: complete
 - ✅ المسار A — التدريب النصي المستمر (CPU) — دفتر: error
-- ✅ المسار B — البحث الذاتي من الإنترنت (CPU) — دفتر: running
+- ✅ المسار B — البحث الذاتي من الإنترنت (CPU) — دفتر: complete
 - ✅ المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج) — دفتر: complete
 
 **الخطوة التالية المقترحة:** شام متعدد الوسائط جاهز (نص + صورة + صوت). — الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام».
@@ -33,7 +33,7 @@
 - complete | مسار جمع وترميز الفيديو 1 | الدور: primary | آخر تشغيل 2026-10-01
 - complete | مسار ترميز الصوت 3 | الدور: primary | آخر تشغيل 2026-10-04
 - complete | مسار ترميز الصورة 3 | الدور: primary | آخر تشغيل 2026-10-04 | GPU
-- running | المسار B 1 | الدور: primary | آخر تشغيل 2026-10-04
+- complete | المسار B 1 | الدور: primary | آخر تشغيل 2026-10-04
 - error | المسار A 1 | الدور: primary | آخر تشغيل 2026-10-04 | الخطأ: Traceback (most recent call last):     raise DeadKernelError("Kernel died") nbclient.exceptions.DeadKernelError: Kernel died
 - error | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-04 | GPU | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 - complete | المرحلة الثانية 1 | الدور: duplicate | آخر تشغيل 2026-09-23
@@ -43,11 +43,11 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham CI (contract + self-tests, read-only): 2026-10-05T06:52 success ، 2026-10-05T06:51 cancelled ، 2026-10-05T06:51 cancelled ، 2026-10-05T06:47 success
-- Sham Status (supervision snapshot): 2026-10-05T06:52 in_progress ، 2026-10-05T05:48 success
+- Sham Status (supervision snapshot): 2026-10-05T14:49 in_progress ، 2026-10-05T06:52 success ، 2026-10-05T05:48 success
+- Sham Collector (free CPU runner): 2026-10-05T14:30 in_progress ، 2026-10-05T05:33 success
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-05T14:24 in_progress ، 2026-10-05T05:24 success
+- Sham CI (contract + self-tests, read-only): 2026-10-05T09:51 success ، 2026-10-05T08:50 success ، 2026-10-05T07:11 success ، 2026-10-05T06:52 success
 - Sham Merge + Repair + Eval (free CPU runner): 2026-10-05T06:09 success
-- Sham Collector (free CPU runner): 2026-10-05T05:33 in_progress
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-05T05:24 in_progress
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - لا أخطاء حديثة ✅
@@ -64,7 +64,7 @@
 | sham-chat-checkpoint | 580621375 | 2026-10-03 | chat_stage | نقطة حفظ مرحلة المحادثة والدمج (الخط الرئيسي للنموذج) |
 | sham-cpu-track-checkpoint | 175 | 2026-09-20 | — | قديم (v1) — لا يُكتب |
 | sham-cpu-track-checkpoint-v2 | 2731054018 | 2026-10-04 | track_a | المسار A: تدريب نصي مستمر على CPU |
-| sham-research-track-checkpoint-v2 | 385145782 | 2026-10-04 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
+| sham-research-track-checkpoint-v2 | 385291604 | 2026-10-05 | track_b | المسار B: بحث ذاتي من الإنترنت + تدريب CPU |
 | sham-crawl-checkpoint | 582297996 | 2026-10-03 | live_trainer | المدرّب الحي على Kaggle (نموذج) |
 | sham-crawl-corpus | 16620339 | 2026-10-03 | live_trainer | نصوص المدرّب الحي على Kaggle |
 | sham-crawl-legacy | — | غير موجودة | repair | ما نشره زاحف المهندس الأول داخل مجموعة المرحلة الثانية (يُنقل بالإصلاح) |
@@ -72,7 +72,7 @@
 | sham-crawl-gh | 581139610 | 2026-10-05 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
 | sham-crawl-gh-corpus | 1520107 | 2026-10-05 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
 | sham-crawl-gh-collect-corpus | 39923781 | 2026-10-04 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
-| sham-merged-checkpoint | 0 | 2026-10-05 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
+| sham-merged-checkpoint | 579844679 | 2026-10-05 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
 | sham-reports | 356 | 2026-10-05 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
