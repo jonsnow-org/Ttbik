@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: sham-main   # كود شام من فرعه الخاص؛ الفرع الرئيسي للمستودع (جلسة أثر) لا يُدمج فيه كود النموذج
 
       - name: Free disk (checkpoints are GBs)
         run: |
