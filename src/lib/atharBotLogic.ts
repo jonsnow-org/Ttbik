@@ -127,12 +127,12 @@ export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS
 
 let commandsSet = false;
 /** The commands list (once per server start, in English for everyone) and this person's menu button, in their language. */
-async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang): Promise<void> {
+async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang, owner = false): Promise<void> {
   try {
     if (!commandsSet) { await bot.api.setMyCommands(COMMANDS); commandsSet = true; }
   } catch { /* the list is optional */ }
   try {
-    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });
+    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: owner && ADMIN_URL ? { type: "web_app", text: "🛠 Admin", web_app: { url: ADMIN_URL } } : { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });   // the owner's blue button opens the panel, everyone else's opens the app
   } catch { /* optional on some clients */ }
 }
 
@@ -182,7 +182,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       const lang = data.slice(3) as Lang;
       await setLang(botRow.id, from, lang);
       await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, from)) });
-      await ensureMenu(bot, chatId, lang);
+      await ensureMenu(bot, chatId, lang, isOwner(botRow, from));
     } else if (data === "ao:stats" && isOwner(botRow, from)) {
       await bot.api.sendMessage(chatId, await statsText(botRow.id));
     }
@@ -226,7 +226,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   if (chosen) {
     await setLang(botRow.id, fromId, chosen.code);
     await bot.api.sendMessage(chatId, T[chosen.code].welcome, { reply_markup: menu(chosen.code, owner) });
-    await ensureMenu(bot, chatId, chosen.code);
+    await ensureMenu(bot, chatId, chosen.code, owner);
     return;
   }
   if (LANGS.some((l) => T[l.code].language === text)) {
@@ -245,7 +245,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
   if (cmd === "start") {
     await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
-    await ensureMenu(bot, chatId, lang);
+    await ensureMenu(bot, chatId, lang, owner);
     return;
   }
   if (cmd === "language") {
