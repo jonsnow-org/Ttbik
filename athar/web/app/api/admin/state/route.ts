@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Address } from "@ton/core";
-import { makeClient } from "@/lib/chain";
+import { isActive, makeClient } from "@/lib/chain";
 import { AtharCollection } from "../../../../../build/athar_AtharCollection";
 import { AtharMinter } from "../../../../../build/athar_AtharMinter";
 import { COLLECTION_URI, DELAY_SEC, SITE_URL, getAdmin } from "@/lib/config";
@@ -25,12 +25,14 @@ export async function GET(req: Request) {
   try { out.balance = Number(await client.getBalance(admin)) / 1e9; } catch { out.balance = null; }
   await gap();
   try {
+    if (!(await isActive(collection.address))) throw new Error("not deployed");
     const c = client.open(AtharCollection.fromAddress(collection.address));
     const p = await c.getPayoutAddress();
     out.collectionActive = true; out.payout = p ? p.toString() : null; out.minted = Number(await c.getTotalMinted());
   } catch { /* not deployed */ }
   await gap();
   try {
+    if (!(await isActive(minter.address))) throw new Error("not deployed");
     const m = client.open(AtharMinter.fromAddress(minter.address));
     out.minterActive = true;
     out.status = Number(await m.getStatus());

@@ -52,6 +52,20 @@ export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>
   return v;
 }
 
+/** Is there a contract at this address? Asked first, so a reading of something not deployed (yet) answers at once instead of retrying
+ *  the public node for half a minute (it answers "exit code -13" for an empty address, the same as when it is momentarily overloaded). */
+const activeCache = new Map<string, { at: number; v: boolean }>();
+export async function isActive(addr: Address): Promise<boolean> {
+  const k = addr.toRawString();
+  const h = activeCache.get(k);
+  if (h && Date.now() - h.at < (h.v ? 60000 : 8000)) return h.v;
+  try {
+    const v = (await client.getContractState(addr)).state === "active";
+    activeCache.set(k, { at: Date.now(), v });
+    return v;
+  } catch { return true; }      // the node is in trouble: let the normal (retrying) reads try
+}
+
 export async function addresses(season = 1) {
   const admin = adminAddress();
   if (!admin) return null;
@@ -87,6 +101,7 @@ export async function seasonStatus(season = 1) {
   return cached(`season:${season}`, 8000, async () => {
     const m = client.open(AtharMinter.fromAddress(a.minter.address));
     try {
+      if (!(await isActive(a.minter.address))) throw new Error("not deployed");
       const status = Number(await m.getStatus());
       const [sold, pc, pr, myst, pt, fe] = [await m.getSoldCount(), await m.getPrice(0n), await m.getPrice(1n), await m.getMysteryInfo(), await m.getPrice(3n), await m.getFees()];
       let itemFees = { engrave: 0.1, media: 0.1, change: 0.5 };
@@ -119,6 +134,7 @@ export async function dateInfo(index: number) {
     let taken = false, owner: string | null = null, price: number | null = null;
     let auction: null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean; mediaRef: string } = null;
     try {
+      if (!(await isActive(a.minter.address))) throw new Error("not deployed");
       taken = await m.getIsTaken(BigInt(index));
       if (taken) owner = (await tokenState(index))?.owner ?? null;
       else if (tier < 2 && !isSpecial && !pool.has(index)) price = nano(await m.getPrice(BigInt(tier)));
@@ -136,7 +152,9 @@ export async function tokenState(index: number) {
   if (!a) return null;
   return cached(`token:${index}`, 8000, async () => {
     try {
+      if (!(await isActive(a.collection.address))) return null;
       const itemAddr = await client.open(AtharCollection.fromAddress(a.collection.address)).getGetNftAddressByIndex(BigInt(index));
+      if (!(await isActive(itemAddr))) return null;       // no token on this date yet
       const it = client.open(AtharItem.fromAddress(itemAddr));
       const d = await it.getGetNftData();
       if (!d.isInitialized) return null;
