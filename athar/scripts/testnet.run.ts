@@ -99,7 +99,7 @@ describe("testnet rehearsal", () => {
     };
 
     if (process.env.STAGE === "trade1") {
-      const { buyMsg, ticketMsg, engraveMsg, bidMsg } = await import("../web/lib/tx");
+      const { buyMsg, ticketMsg, engraveMsg, bidMsg, mediaMsg } = await import("../web/lib/tx");
       const { specialAuctionMsg } = await import("../web/lib/launch");
       const { indexOf, ruleTier, TIER } = await import("../web/lib/dates");
       const { AtharCollection } = await import("../build/athar_AtharCollection");
@@ -150,6 +150,15 @@ describe("testnet rehearsal", () => {
       await alice.send([{ address: ia.address.toString(), amount: toNano("0.1").toString(), payload: xfer }]);
       await ok("C: transfer moved ownership to bob", async () => (await ia.getGetNftData()).ownerAddress.equals(bob.address));
       await ok("C: hands counter is 2", async () => Number((await ia.getAthar()).hands) === 2);
+
+      // C2. the owner of the silver token changes its picture: costs the change fee (0.5), both pictures stay in the history
+      const goldForChange = JSON.parse(fs.readFileSync(path.join(DIR, "gold_samples.json"), "utf8"))["1969-7-20"];
+      const upC = await compose(b, goldForChange);
+      const beforeC = await payoutBal();
+      await bob.send([mediaMsg(st.collection, b, 0, upC.ref, 0.5)]);
+      await ok("C2: picture changed to the new one", async () => (await ib.getAthar()).mediaRef === upC.ref);
+      await ok("C2: change fee reached the payout wallet", async () => Math.abs((await payoutBal()) - beforeC - 0.5) < 0.01, "");
+      await ok("C2: the first picture is still in the history", async () => { const lg = (await ib.getAthar()).mediaLog; if (!lg) return false; const sl = lg.beginParse(); sl.loadAddress(); sl.loadUint(32); sl.loadUintBig(256); const prev = sl.loadMaybeRef(); if (!prev) return false; const q = prev.beginParse(); q.loadAddress(); q.loadUint(32); return q.loadUintBig(256) === upB.ref; });
 
         state.abcDone = true; save();
       }
