@@ -15,7 +15,7 @@ describe("photo token", () => {
   });
   it("keeps the date's rosette as a turning, breathing badge at the bottom left; the photo is stored once", () => {
     const svg = badgeMotion(renderPhotoArt(art(0), photo(1000), { w: 400, h: 500 }));
-    expect(svg).toContain('class="ar-bd" transform="translate(166 580)"');
+    expect(svg).toContain('class="ar-bd" transform="translate(126 528)"');
     expect(svg).toContain("ar-spin");
     expect((svg.match(/data:image\/jpeg/g) || []).length).toBe(1);
   });

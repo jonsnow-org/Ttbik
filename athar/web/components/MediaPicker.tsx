@@ -3,13 +3,14 @@ import { useRef, useState } from "react";
 import { renderArt, renderPhotoArt } from "@/lib/art";
 import { OCCASIONS } from "@/lib/occasions";
 import { emblem } from "@/lib/occasions";
-import { compressPhoto } from "@/lib/photo";
+import { compressPhoto, fillSquare } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
 import { useI18n } from "@/lib/i18n";
 
 const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
-export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number; raw?: string | null; style?: "plain" | "silver" };
+// raw: the chosen photo without its empty bars (rw x rh); fit "fill" (default) cuts the square window that fills the circle (fx, fy move it), "whole" keeps the picture uncropped
+export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number; raw?: string | null; rw?: number; rh?: number; style?: "plain" | "silver"; fit?: "fill" | "whole"; fx?: number; fy?: number };
 
 /** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
 export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0, fees }: {
@@ -23,23 +24,36 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
   const base = { index, tier, season, stage, hands, engravings, occasion: value.occasion };
   const preview = value.photo ? renderPhotoArt(base, value.photo, value.w && value.h ? { w: value.w, h: value.h } : undefined) : renderArt(base);
 
+  // The picture that goes on the token is made from: the prepared photo, how it fits (fill / whole), where the window sits, and its style.
+  async function compose(next: Partial<MediaState>) {
+    const v = { ...value, ...next };
+    if (!v.raw) return;
+    setBusy(true); setErr("");
+    try {
+      const fit = v.fit ?? "fill", fx = v.fx ?? 0.5, fy = v.fy ?? 0.32, style = v.style ?? "plain";
+      let base = { uri: v.raw, w: v.rw ?? 0, h: v.rh ?? 0 };
+      if (fit === "fill") { const f = await fillSquare(v.raw, fx, fy); if (!f) { setErr(t("media.tooBig")); return; } base = f; }
+      const uri = style === "silver" ? await waxPhoto(base.uri, "silver") : base.uri;
+      if (!uri) setErr(t("media.tooBig")); else onChange({ ...v, fit, fx, fy, style, photo: uri, w: base.w, h: base.h });
+    } catch { setErr(t("media.tooBig")); }
+    finally { setBusy(false); }
+  }
   async function pick(f: File | undefined) {
     if (!f) return;
     setBusy(true); setErr("");
     try {
       const r = await compressPhoto(f);
-      if (!r) setErr(t("media.tooBig")); else onChange({ ...value, photo: r.uri, raw: r.uri, style: "plain", w: r.w, h: r.h });
+      if (!r) setErr(t("media.tooBig")); else { setBusy(false); await compose({ raw: r.uri, rw: r.w, rh: r.h, fit: "fill", fx: 0.5, fy: 0.32, style: "plain" }); }
     } catch { setErr(t("media.tooBig")); }
     finally { setBusy(false); }
   }
-  async function setStyle(style: "plain" | "silver") {
-    if (!value.raw || busy) return;
-    setBusy(true); setErr("");
-    try {
-      const uri = style === "plain" ? value.raw : await waxPhoto(value.raw, "silver");
-      if (!uri) setErr(t("media.tooBig")); else onChange({ ...value, photo: uri, style });
-    } catch { setErr(t("media.tooBig")); }
-    finally { setBusy(false); }
+  const setStyle = (style: "plain" | "silver") => { if (!busy) void compose({ style }); };
+  const slide = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function move(v: number) {           // the window follows the slider (re-made a moment after the finger stops)
+    const next = value.rw && value.rh && value.rw > value.rh ? { fx: v } : { fy: v };
+    onChange({ ...value, ...next });
+    if (slide.current) clearTimeout(slide.current);
+    slide.current = setTimeout(() => { void compose(next); }, 250);
   }
   return (
     <div className="gap">
@@ -65,6 +79,19 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
         <div className="row" style={{ gap: 8 }}>
           <button type="button" className={`btn sm ${value.style === "silver" ? "ghost" : ""}`} disabled={busy} onClick={() => setStyle("plain")}>{t("media.stylePlain")}{fees && fees.photo > 0 ? ` (+${fees.photo})` : ""}</button>
           <button type="button" className={`btn sm ${value.style === "silver" ? "" : "ghost"}`} disabled={busy} onClick={() => setStyle("silver")}>{t("media.styleSilver")}{fees && fees.silver > 0 ? ` (+${fees.silver})` : ""}</button>
+        </div>
+      )}
+      {value.photo && value.raw && (
+        <div className="gap">
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className={`btn sm ${value.fit === "whole" ? "ghost" : ""}`} disabled={busy} onClick={() => void compose({ fit: "fill" })}>{t("media.fitFill")}</button>
+            <button type="button" className={`btn sm ${value.fit === "whole" ? "" : "ghost"}`} disabled={busy} onClick={() => void compose({ fit: "whole" })}>{t("media.fitWhole")}</button>
+          </div>
+          {value.fit !== "whole" && value.rw && value.rh && value.rw !== value.rh && (
+            <label className="muted">{t("media.fitMove")}
+              <input type="range" min={0} max={100} value={Math.round(((value.rw > value.rh ? value.fx : value.fy) ?? (value.rw > value.rh ? 0.5 : 0.32)) * 100)} onChange={(e) => move(Number(e.target.value) / 100)} style={{ width: "100%" }} />
+            </label>
+          )}
         </div>
       )}
       {err && <div className="bad">{err}</div>}

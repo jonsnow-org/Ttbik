@@ -2,6 +2,8 @@
 // collection = f(admin wallet, collection URL, notice period), minter = f(collection, admin, season range).
 import { Address } from "@ton/core";
 
+// the public places where people can find Athar (they go into the collection metadata that markets read, and into link previews)
+export const BOT_URL = process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot";
 export const NETWORK = process.env.NEXT_PUBLIC_TON_NETWORK === "testnet" ? "testnet" : "mainnet";
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 // Public address of the management wallet. Read at run time on the server (ATHAR_ADMIN), so setting it needs only a restart.

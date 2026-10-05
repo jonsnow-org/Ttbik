@@ -9,7 +9,7 @@ import { SEASON_1, seasonTier, specialIndex } from "./seasons";
 import { tokenState, isBusy } from "./chain";
 import { tokenStory } from "./meta";
 import { occasionById } from "./occasions";
-import { META_BASE, SITE_URL, viewerUrl } from "./config";
+import { BOT_URL, META_BASE, SITE_URL, viewerUrl } from "./config";
 
 const SPECIAL_DATES = new Set(SEASON_1.specials.map(specialIndex));
 const SVG = { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" };
@@ -114,7 +114,9 @@ export function collectionResponse(origin = SITE_URL, imgBase = `${META_BASE}/im
     name: "Athar",
     description: "One token for every day of the calendar (1950–2049). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (1950–2049). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.",
     image: `${imgBase}/collection.svg`,
+    cover_image: `${imgBase}/collection.svg`,
     external_url: origin,
-    social_links: [],
+    // markets and directories ask for the project's public channels in the metadata (up to 10 links)
+    social_links: [BOT_URL],
   });
 }
