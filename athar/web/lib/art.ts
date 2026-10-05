@@ -149,17 +149,31 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
   return { iw: Math.floor(w * k), ih: Math.floor(h * k) };
 }
 
+/** The date's own rosette, shrunk to a small badge (same size as the date seal, on the opposite side) so a token that carries
+ *  a photo keeps the picture it was born with. Returns the badge and the definitions it needs. */
+function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
+  const pal = PALETTES[a.season] || PALETTES[1];
+  const accent = a.tier === 2 || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
+  const ro = rosette(a, accent, pal.ink);
+  const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
+  const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
+  const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;
+  const badge = `<g transform="translate(166 196)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)"><g class="ar-ro">${ro.body}</g></g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
+  return { defs, badge };
+}
+
 export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: number; h: number }): string {
   const PR = 240;
+  const rb = rosetteBadge(a);
   const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 3);
   const ix = Math.round(400 - iw / 2), iy = Math.round(400 - ih / 2);
-  const defs = `<filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
+  const defs = `${rb.defs}<filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
 <image id="ph" href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
 `;
   const centre = `<g clip-path="url(#win)">
 <g filter="url(#soft)">${ix > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use href="#ph" xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
 <use href="#ph" xlink:href="#ph"/>
-</g>`;
+</g>${rb.badge}`;
   return shell(a, centre, defs);
 }
 

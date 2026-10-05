@@ -4,7 +4,7 @@ import { Bar, Top, ton, useApi } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
 import Features from "@/components/Features";
 
-type Season = { configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; prices?: { common: number; rare: number; ticket: number } };
+type Season = { fromYear?: number; toYear?: number; specials?: number; configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; prices?: { common: number; rare: number; ticket: number } };
 
 export default function Home() {
   const { t } = useI18n();
@@ -27,6 +27,7 @@ export default function Home() {
       <div className="card">
         <div className="row between"><h3>{t("home.season")}</h3><span className={`badge ${live ? "t1" : "t0"}`}>{live ? t("home.open") : t("home.soon")}</span></div>
         <p className="muted">{s ? t("home.size", { n: s.size }) : "…"}</p>
+        {s?.fromYear && <p className="muted" style={{ fontSize: 14 }}>{t("date.coverage", { a: s.fromYear, b: s.toYear ?? 0, s: s.specials ?? 0 })}</p>}
         <Bar value={s && s.sold != null ? s.sold / s.size : 0} />
         <div className="row" style={{ marginTop: 14 }}>
           <div className="stat"><b>{s?.sold ?? 0}</b><span>{t("home.minted")}</span></div>
