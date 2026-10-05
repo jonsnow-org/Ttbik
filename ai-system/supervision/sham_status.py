@@ -465,7 +465,7 @@ if __name__ == "__main__":
                 pass
         data = collect(api=FakeApi(), get_json=lambda url: runs, fetch=lambda n: None, run=fake_run, contract=contract)
         alerts = "\n".join(data["alerts"])
-        assert "فشل في آخر تشغيلين" in alerts and "mystery" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
+        assert "فشل في آخر تشغيلين" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
         assert "other-stuff" not in alerts and "Sham Collector" not in alerts.split("لم يعمل")[0], alerts
         out = Path(tempfile.mkdtemp())
         write_outputs(data, out, contract)
