@@ -23,6 +23,7 @@ export default function AdminPanel() {
   const toast = useToast();
   useEffect(() => { document.body.dataset.admin = "1"; return () => { delete document.body.dataset.admin; }; }, []);
   const [st, setSt] = useState<St | null>(null);
+  const [oldMinter, setOldMinter] = useState("EQAE52zCPwprWBpNuKXgzjRIB6MyO86df3N1NdWgCQGIESZ5");   // the seller of the first (test) deployment, kept only to be switched off
   const [payout, setPayout] = useState(() => { try { return localStorage.getItem("athar_payout") || ""; } catch { return ""; } });   // survives a reload or a reconnect
   useEffect(() => { try { localStorage.setItem("athar_payout", payout); } catch { /* private mode */ } }, [payout]);
   type Ov = { deployed?: boolean; minted?: number; size?: number; byTier?: number[]; holders?: number; top?: { owner: string; tokens: number }[]; revenue?: number; salesToday?: number; recent?: { at: number; ton: number }[]; revenueNote?: string; payout?: string; mine?: number[] };
@@ -405,6 +406,12 @@ export default function AdminPanel() {
                 {gmSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(gmSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <button className="btn gold" disabled={running || gmBusy || !gmPhoto} onClick={gmMint}>خزّن الصورة واصكّ الرمز</button>
               </div>
+            </div>
+            <div className="card" style={{ margin: "10px 0" }}>
+              <h4 style={{ margin: "0 0 6px" }}>إيقاف البائع القديم</h4>
+              <p className="muted" style={{ margin: "0 0 8px" }}>يوقف البيع في بائع النشر التجريبي الأول فقط (لا علاقة له بالبائع الحالي). يُرسَل من حساب الإدارة نفسه.</p>
+              <input type="text" dir="ltr" value={oldMinter} onChange={(e) => setOldMinter(e.target.value.trim())} style={{ width: "100%", marginBottom: 8 }} />
+              <button className="btn ghost" disabled={running || !oldMinter || oldMinter === st.minter} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(oldMinter, true)])); })}>أوقف البائع القديم</button>
             </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(st.minter, st.status === 1)])); })}>{st.status === 1 ? "أوقف البيع مؤقتاً" : "استأنف البيع"}</button>
             <button className="btn gold" disabled={running || !secretLocal || (st.revealAt ?? 0) * 1000 > Date.now() || !!st.revealed} onClick={() => run(async () => { await ui.sendTransaction(tx([revealMsg(st.minter, BigInt("0x" + secretLocal!))])); })}>
