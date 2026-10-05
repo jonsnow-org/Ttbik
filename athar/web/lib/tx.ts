@@ -1,6 +1,6 @@
 // Builds the wallet requests (TON Connect). The user always confirms and pays inside their own wallet.
 import { Address, beginCell, Cell, toNano } from "@ton/core";
-import { storeBuy, storeBid, storeBuyTicket, storeClaimTicket, storeSettle, storeUpgradeStart } from "../../build/athar_AtharMinter";
+import { storeAdminMint, storeBuy, storeBid, storeBuyTicket, storeClaimTicket, storeSettle, storeUpgradeStart } from "../../build/athar_AtharMinter";
 import { storeEngraveReq, storeSetMediaReq } from "../../build/athar_AtharCollection";
 
 export type Msg = { address: string; amount: string; payload?: string; stateInit?: string };
@@ -12,6 +12,11 @@ export const SAFETY = toNano("0.08");
 export function buyMsg(minter: string, index: number, priceTon: number, recipient?: string, occasion = 0, mediaRef = 0n, style = 0, extraTon = 0): Msg {
   const amount = toNano((priceTon + extraTon).toFixed(9)) + BUY_FEES + SAFETY + toNano(priceTon * 0.12 + 0.02);   // headroom for a price that moved; change comes back
   return { address: minter, amount: amount.toString(), payload: b64(beginCell().store(storeBuy({ $$type: "Buy", index: BigInt(index), recipient: recipient ? Address.parse(recipient) : null, occasion: BigInt(occasion), mediaRef, style: BigInt(style) })).endCell()) };
+}
+/** The owner's own stock: a date minted to a wallet (default: the sender's) without the sale price; only the network fees, the unused part comes back. */
+export const ADMIN_MINT_VALUE = BUY_FEES + toNano("0.04");
+export function adminMintMsg(minter: string, index: number, recipient?: string, occasion = 0, mediaRef = 0n): Msg {
+  return { address: minter, amount: ADMIN_MINT_VALUE.toString(), payload: b64(beginCell().store(storeAdminMint({ $$type: "AdminMint", index: BigInt(index), recipient: recipient ? Address.parse(recipient) : null, occasion: BigInt(occasion), mediaRef })).endCell()) };
 }
 export function bidMsg(minter: string, index: number, bidTon: number): Msg {
   const amount = toNano(bidTon.toFixed(9)) + BUY_FEES + SAFETY;

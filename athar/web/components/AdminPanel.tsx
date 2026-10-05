@@ -10,7 +10,8 @@ import { waxPhoto } from "@/lib/wax";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
-import { buyMsg, tx } from "@/lib/tx";
+import { adminMintMsg, ADMIN_MINT_VALUE, buyMsg, tx } from "@/lib/tx";
+import { planBatches } from "@/lib/bulk";
 
 type St = { siteUrl: string; envAdmin: string; collection: string; minter: string; collectionActive: boolean; minterActive: boolean; balance: number | null; payout?: string | null; minted?: number; status?: number; soldCount?: number; priceCommon?: number; priceRare?: number; poolSize?: number; poolLoaded?: number; ticketsSold?: number; revealed?: boolean; revealAt?: number; commitSet?: boolean };
 const KEY = "athar_secret_s1";
@@ -111,6 +112,28 @@ export default function AdminPanel() {
     const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
     await ui.sendTransaction(tx([specialAuctionMsg(st!.minter, SEASON_1, spIdx, BigInt(j.ref), spReserve, Number(spDays))]));
     setSpPhoto(null); setSpSvg("");
+  });
+  // The owner's own stock: many dates minted to his wallet in a few confirmations, to be put on sale on a market (no sale price is paid; only fees)
+  const [bkCount, setBkCount] = useState(10), [bkTier, setBkTier] = useState(0), [bkMode, setBkMode] = useState<"spread" | "start">("spread");
+  const [bkPlan, setBkPlan] = useState<{ dates: number[]; available: number; perToken: number; total: number; stays: number } | null>(null), [bkBusy, setBkBusy] = useState(false);
+  async function bkPropose() {
+    setBkBusy(true); setBkPlan(null);
+    try {
+      const r = await fetch(`/api/admin/bulk?count=${bkCount}&tier=${bkTier}&mode=${bkMode}`, { headers: adm(), cache: "no-store" });
+      if (!r.ok) { toast("تعذّر اقتراح التواريخ"); return; }
+      setBkPlan(await r.json());
+    } finally { setBkBusy(false); }
+  }
+  const bkMint = () => run(async () => {
+    if (!bkPlan || !st?.minter) throw new Error("no plan");
+    const batches = planBatches(bkPlan.dates, maxMsgs, BigInt(Math.floor(((st.balance ?? 0) - 0.5) * 1e9)), ADMIN_MINT_VALUE);
+    if (batches.length === 0) { toast("رصيد المحفظة لا يكفي لدفعة واحدة"); throw new Error("balance"); }
+    for (let i = 0; i < batches.length; i++) {
+      toast(`الدفعة ${i + 1} من ${batches.length}`);
+      await ui.sendTransaction(tx(batches[i].map((d) => adminMintMsg(st.minter, d))));
+      if (i < batches.length - 1) await sleep(25000);        // let the unused part of the fees come back before the next confirmation
+    }
+    setBkPlan(null);
   });
   // The owner's own gold-wax mint: any direct-sale date, a photo given the gold-wax treatment, no picture fee (the owner pays none).
   const [gmY, setGmY] = useState(2003), [gmM, setGmM] = useState(3), [gmD, setGmD] = useState(14), [gmTo, setGmTo] = useState("");
@@ -352,6 +375,20 @@ export default function AdminPanel() {
                   <button className="btn gold" disabled={tkBusy || tkIn.trim().length < 16} onClick={() => tkAct(false)}>احفظ المفتاح</button>
                   {tk?.source === "panel" && <button className="btn ghost" disabled={tkBusy} onClick={() => tkAct(true)}>أزل المفتاح</button>}
                 </div>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <h4>مخزوني: صكّ دفعة رموز لمحفظتي لعرضها للبيع</h4>
+              <div className="muted" style={{ fontSize: 12 }}>تصكّ التواريخ لمحفظتك دون دفع سعر البيع. تدفع فقط أجرة الشبكة: نحو 0.15 Gram للرمز، يبقى منها نحو 0.1 داخل الرمز نفسه. بعد الصك تعرضها للبيع دفعة واحدة من Getgems (حسابك ← تحديد متعدد ← عرض للبيع). عند كل بيع ينقص العدد المعروض هناك تلقائياً.</div>
+              <div className="gap">
+                <div className="row" style={{ gap: 8 }}>
+                  <input type="number" min={1} max={1000} value={bkCount} onChange={(e) => { setBkCount(Number(e.target.value)); setBkPlan(null); }} title="العدد" />
+                  <select value={bkTier} onChange={(e) => { setBkTier(Number(e.target.value)); setBkPlan(null); }}><option value={0}>عادي</option><option value={1}>نادر</option></select>
+                  <select value={bkMode} onChange={(e) => { setBkMode(e.target.value as "spread" | "start"); setBkPlan(null); }}><option value="spread">موزّعة على كل المدى</option><option value="start">من بداية الموسم</option></select>
+                </div>
+                <button className="btn ghost" disabled={running || bkBusy} onClick={bkPropose}>اقترح التواريخ وأظهر التكلفة</button>
+                {bkPlan && <div className="muted" style={{ fontSize: 13 }}>{bkPlan.dates.length} رمز (المتاح {bkPlan.available}). التكلفة المتوقعة ≈ {bkPlan.total} Gram، منها ≈ {bkPlan.stays} تبقى داخل الرموز. رصيدك {st?.balance != null ? st.balance.toFixed(2) : "—"} Gram.</div>}
+                <button className="btn gold" disabled={running || bkBusy || !bkPlan || bkPlan.dates.length === 0} onClick={bkMint}>صكّ الآن</button>
               </div>
             </div>
             <div className="card" style={{ margin: 0 }}>
