@@ -1,0 +1,8 @@
+{
+  // Athar's permanent front door (see ../athar-front-worker.js and docs/ATHAR_REDUNDANCY.md).
+  // Cloudflare Workers Builds: root directory = cloudflare/athar-front, deploy command = npx wrangler deploy, production branch = main.
+  "name": "athar-meta",
+  "main": "../athar-front-worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true
+}
