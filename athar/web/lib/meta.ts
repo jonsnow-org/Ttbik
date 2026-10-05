@@ -85,7 +85,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     event ? `في هذا اليوم: ${event}.` : "",
     "رمز حيّ: صورته تومض وتدور وتلمع، وتزداد حياةً وهالةً كلما طال بقاؤه، وفي ذكرى يومه تتوهّج بهالة ذهبية.",
     f ? `يعدّ أصحابه (${f.hands} حتى الآن) ويتذكّر ما نُقش عليه، وعمره الحالي «${STAGE_NAME_AR[stage]}»${heldDays ? ` (${heldDays} يوماً عند مالكه الحالي)` : ""}.` : "يعدّ أصحابه ويتذكّر ما يُنقش عليه وينضج كلما طال احتفاظ مالكه به.",
-    "ينضج بالاحتفاظ: يتغيّر شكله بعد 30 يوماً و6 أشهر وسنة و3 سنوات دون نقل، وأي نقل يعيد العدّاد فيكافئ من يحتفظ به.",
+    "ينضج بالاحتفاظ: يتغيّر شكله في «العرض الحي» (زر Living view وصفحته في أثر) بعد 30 يوماً و6 أشهر وسنة و3 سنوات دون نقل، وأي نقل يعيد العدّاد فيكافئ من يحتفظ به. أما الصورة التي وُلد بها فتبقى كما هي.",
     "يُمكن إهداؤه لشخص آخر عند الصك، ويمكن لكل مالك أن ينقش عليه رسالة حتى 32 حرفاً تبقى مع الرمز.",
     "يمكن لمالكه أن يضع صورته الخاصة عليه ويختار مناسبته (ميلاد، زواج، مولود، تخرّج...).",
     f?.lastEngraving ? `آخر نقش: ${f.lastEngraving}` : "",
@@ -96,7 +96,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     event ? `On this day: ${eventEn}.` : "",
     "A living token: its picture flashes, turns and shines, livelier the longer it is held, and glows gold on the date's own anniversary.",
     f ? `It counts its owners (${f.hands} so far), remembers what is engraved on it, and is now ${STAGE_NAME_EN[stage].toLowerCase()}${heldDays ? ` (${heldDays} days with the current owner)` : ""}.` : "It counts its owners, remembers what is engraved on it and matures the longer it is held.",
-    "It matures with holding: it changes after 30 days, 6 months, 1 year and 3 years without moving, and any transfer resets the clock, rewarding those who keep it.",
+    "It matures with holding: in its living view (the Living view button and its page on Athar) it changes after 30 days, 6 months, 1 year and 3 years without moving, and any transfer resets the clock, rewarding those who keep it. The picture it was born with stays as it is.",
     "It can be gifted to someone else when minted, and each owner can engrave a message of up to 32 characters that stays with the token.",
     "Its owner can add a personal picture and choose its occasion (birthday, wedding, newborn, graduation...).",
   ].filter(Boolean).join("\n");

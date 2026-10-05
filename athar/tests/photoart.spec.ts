@@ -50,3 +50,17 @@ describe("the three tiers are told apart", () => {
     expect(svg).toContain("ar-c1");
   });
 });
+
+describe("the age of a token is visible", () => {
+  const at = (stage: number) => renderArt({ index: 19000, tier: 0, season: 1, stage, hands: 1, engravings: 0 });
+  it("each stage adds a mark and keeps the earlier ones", () => {
+    expect(at(0)).not.toContain("ar-sta");
+    expect(at(2)).toContain("ar-sta");
+    expect(at(2)).not.toContain("ar-st3");
+    expect(at(3)).toContain("ar-st3");
+    expect(at(3)).not.toContain("ar-st4");
+    expect(at(4)).toContain("ar-st4");
+    expect(at(4)).toContain("ar-st3");
+    expect(at(4)).toContain("ar-stb");
+  });
+});
