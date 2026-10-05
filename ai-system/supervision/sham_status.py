@@ -25,6 +25,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -95,10 +96,19 @@ def classify_files(names: list[str]) -> dict[str, int]:
     return out
 
 
-def dataset_status(ref: str, run=subprocess.run) -> str:
-    """Kaggle's own word for the latest version: ready / pending / error ... ('' if unknown)."""
-    r = run(["kaggle", "datasets", "status", ref], capture_output=True, text=True)
-    return ((r.stdout or "") + (r.stderr if r.returncode else "")).strip().splitlines()[0].strip().lower() if (r.stdout or r.stderr) else ""
+_UNKNOWN_WORDS = ("429", "too many", "rate", "timed out", "timeout", "connection", "unauthor", "403", "500", "502", "503")
+
+
+def dataset_status(ref: str, run=subprocess.run, sleep=time.sleep) -> str:
+    """Kaggle's own word for the latest version: ready / pending / error ... ('' if unknown: a rate limit or a network error is NOT a status)."""
+    for attempt in range(3):
+        r = run(["kaggle", "datasets", "status", ref], capture_output=True, text=True)
+        out = ((r.stdout or "") + (r.stderr if r.returncode else "")).strip()
+        word = out.splitlines()[0].strip().lower() if out else ""
+        if not any(w in word for w in _UNKNOWN_WORDS):
+            return word
+        sleep(20 * (attempt + 1) if "429" in word or "too many" in word else 2)
+    return ""
 
 
 def dataset_files(ref: str, run=subprocess.run, limit: int = 200) -> list[dict]:
@@ -119,6 +129,7 @@ def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subpr
         zero = d.get("size", "") in ("", "0", "0B", "0 B")
         if n in MAIN_LINE or zero or not in_contract:
             try:
+                time.sleep(float(os.environ.get("SHAM_STATUS_PAUSE", "1.5")))   # Kaggle answers 429 to bursts of calls
                 files = dataset_files(f"{user}/{n}", run)
                 out[n] = {"status": dataset_status(f"{user}/{n}", run) if (n in MAIN_LINE or zero) else "",
                           "files": len(files), "kinds": classify_files([f["name"] for f in files]),
@@ -264,6 +275,16 @@ def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: d
         registry = reg.build_registry(kernels, datasets_info)
         reg.assign_aliases(registry)
         data["registry_private"] = registry   # never written to the public output
+        # a failed primary notebook with an EMPTY failure text (typical of a scheduled run that could not even start, e.g. the GPU
+        # quota is spent) gets Kaggle's raw status line, so a supervisor can tell "could not start" from "crashed"
+        for k in registry["kernels"]:
+            if k["status"] == "error" and k["role"] == "primary" and not (k.get("failure") or "").strip():
+                try:
+                    r = run(["kaggle", "kernels", "status", k["ref"]], capture_output=True, text=True)
+                    raw = ((r.stdout or "") + (r.stderr or "")).strip().replace(k["ref"], "<notebook>")
+                    k["failure"] = ("(بلا رسالة فشل من Kaggle) الحالة الخام: " + raw[:240]) if raw else ""
+                except Exception:
+                    pass
         pub = reg.public_registry(registry)
         data.update(kernels=pub["kernels"], pipeline=pub["pipeline"], other_notebooks=pub["other_notebooks_count"],
                     engineer_notebooks=pub["engineer_notebooks_count"], public_registry=pub,
