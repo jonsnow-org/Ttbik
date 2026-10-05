@@ -11,6 +11,8 @@ const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: 
 };
 const GOLD = "#ffd36a";
 // Rare tokens have a look of their own (emerald-aqua crystal), so that common (silver-blue), rare (aqua crystal) and mythic (gold) are told apart at a glance.
+// where the small rosette badge sits (left, a little below the middle: inside the gap between the two circles, 302 from the centre)
+const BADGE_AT: [number, number] = [126, 528];
 const RARE_PAL = { bg1: "#04201f", bg2: "#0f5a55", ink: "#eafffa", accent: "#5ff0cf" };
 const palOf = (a: ArtInput) => (a.tier === 1 && !a.gold ? RARE_PAL : PALETTES[a.season] || PALETTES[1]);
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
@@ -185,7 +187,7 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
   // a near-square photo is enlarged less so its corners are not lost. What the photo still does not reach is painted by
   // mirrored, softened copies of its own edges, so there are never black bars.
   const asp = w / h, tall = Math.min(1, Math.abs(Math.log(asp)) / Math.log(2));
-  const L = 2 * r * (0.86 + 0.26 * tall);
+  const L = Math.abs(asp - 1) < 0.02 ? 2 * r : 2 * r * (0.86 + 0.26 * tall);   // a square photo fills the whole circle (the owner cropped it to fit)
   const k = L / Math.max(w, h);
   return { iw: Math.floor(w * k), ih: Math.floor(h * k) };
 }
@@ -207,7 +209,7 @@ function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   if (a.stage >= 3) { let c = ""; for (let i = 0; i < 6; i++) { const an = (i / 6) * Math.PI * 2 + 0.5; c += `<path transform="translate(${(Math.cos(an) * 71).toFixed(1)} ${(Math.sin(an) * 71).toFixed(1)}) scale(${i % 2 ? 0.7 : 1})" d="${sp}" fill="${accent}" opacity="0.9"/>`; } age += `<g class="ar-bst3">${c}</g>`; }
   if (a.stage >= 4) age += `<circle class="ar-bst4" r="75" fill="none" stroke="${accent}" stroke-width="2" stroke-dasharray="2 8" opacity="0.85"/><circle class="ar-bstb" r="75" fill="url(#baura)"/>`;
   const baura = `<radialGradient id="baura"><stop offset="0.6" stop-color="${accent}" stop-opacity="0"/><stop offset="1" stop-color="${accent}" stop-opacity="0.22"/></radialGradient>`;
-  const badge = `<g class="ar-bd" transform="translate(166 580)">${age}<circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)">${a.tier === 1 && !a.gold ? ro.body : `<g class="ar-ro">${ro.body}</g>`}</g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
+  const badge = `<g class="ar-bd" transform="translate(${BADGE_AT[0]} ${BADGE_AT[1]})">${age}<circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)">${a.tier === 1 && !a.gold ? ro.body : `<g class="ar-ro">${ro.body}</g>`}</g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
   return { defs: defs + baura, badge };
 }
 

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastHost, useToast } from "@/components/ui";
 import { applyBaseUriMsg, proposeBaseUriMsg, repriceMsg, setItemFeesMsg, setPhotoFeesMsg, auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, specialAuctionMsg, sweepMsg } from "@/lib/launch";
 import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
-import { compressPhoto } from "@/lib/photo";
+import { compressPhoto, fillSquare } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
@@ -63,7 +63,8 @@ export default function AdminPanel() {
     setSpBusy(true); setSpSvg("");
     try {
       const r = await compressPhoto(f);
-      const gold = r ? await waxPhoto(r.uri, "gold") : null;
+      const sq = r ? await fillSquare(r.uri) : null;          // the person fills the circle (empty bars cut, the frame can be moved later)
+      const gold = sq ? await waxPhoto(sq.uri, "gold") : null;
       if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
       setSpPhoto(gold);
       const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: gold, preview: true }) });
@@ -111,7 +112,7 @@ export default function AdminPanel() {
     if (!f) return;
     setGmBusy(true); setGmSvg(""); setGmPhoto(null);
     try {
-      const c = await compressPhoto(f); const gold = c ? await waxPhoto(c.uri, "gold") : null;
+      const c = await compressPhoto(f); const sq = c ? await fillSquare(c.uri) : null; const gold = sq ? await waxPhoto(sq.uri, "gold") : null;
       if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
       if (await gmPreview(gold)) setGmPhoto(gold);
     } catch { toast("تعذّر تجهيز الصورة"); } finally { setGmBusy(false); }
