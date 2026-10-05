@@ -4156,6 +4156,71 @@ export function dictValueParserRevealPublic(): DictionaryValue<RevealPublic> {
     }
 }
 
+export type AdminMint = {
+    $$type: 'AdminMint';
+    index: bigint;
+    recipient: Address | null;
+    occasion: bigint;
+    mediaRef: bigint;
+}
+
+export function storeAdminMint(src: AdminMint) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024151, 32);
+        b_0.storeUint(src.index, 64);
+        b_0.storeAddress(src.recipient);
+        b_0.storeUint(src.occasion, 8);
+        b_0.storeUint(src.mediaRef, 256);
+    };
+}
+
+export function loadAdminMint(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024151) { throw Error('Invalid prefix'); }
+    const _index = sc_0.loadUintBig(64);
+    const _recipient = sc_0.loadMaybeAddress();
+    const _occasion = sc_0.loadUintBig(8);
+    const _mediaRef = sc_0.loadUintBig(256);
+    return { $$type: 'AdminMint' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadTupleAdminMint(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _recipient = source.readAddressOpt();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'AdminMint' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function loadGetterTupleAdminMint(source: TupleReader) {
+    const _index = source.readBigNumber();
+    const _recipient = source.readAddressOpt();
+    const _occasion = source.readBigNumber();
+    const _mediaRef = source.readBigNumber();
+    return { $$type: 'AdminMint' as const, index: _index, recipient: _recipient, occasion: _occasion, mediaRef: _mediaRef };
+}
+
+export function storeTupleAdminMint(source: AdminMint) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.index);
+    builder.writeAddress(source.recipient);
+    builder.writeNumber(source.occasion);
+    builder.writeNumber(source.mediaRef);
+    return builder.build();
+}
+
+export function dictValueParserAdminMint(): DictionaryValue<AdminMint> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeAdminMint(src)).endCell());
+        },
+        parse: (src) => {
+            return loadAdminMint(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type TransferTicket = {
     $$type: 'TransferTicket';
     ticket: bigint;
@@ -4655,6 +4720,7 @@ export const AtharCollection_errors = {
     6032: { message: "closed" },
     6434: { message: "bad occasion" },
     9254: { message: "only a real item" },
+    9457: { message: "send the fees" },
     9748: { message: "silver includes the photo" },
     10060: { message: "daily limit reached for this wallet" },
     10517: { message: "only the next edition" },
@@ -4761,6 +4827,7 @@ export const AtharCollection_errors_backward = {
     "closed": 6032,
     "bad occasion": 6434,
     "only a real item": 9254,
+    "send the fees": 9457,
     "silver includes the photo": 9748,
     "daily limit reached for this wallet": 10060,
     "only the next edition": 10517,
@@ -4892,6 +4959,7 @@ const AtharCollection_types: ABIType[] = [
     {"name":"Reveal","header":1096024147,"fields":[{"name":"secret","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"ClaimTicket","header":1096024148,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"RevealPublic","header":1096024150,"fields":[]},
+    {"name":"AdminMint","header":1096024151,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolExpected","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"lockedBids","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"ticketsOpen","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"FeeInfo","header":null,"fields":[{"name":"photo","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"silver","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
@@ -4944,6 +5012,7 @@ const AtharCollection_opcodes = {
     "Reveal": 1096024147,
     "ClaimTicket": 1096024148,
     "RevealPublic": 1096024150,
+    "AdminMint": 1096024151,
     "TransferTicket": 1096024149,
 }
 
