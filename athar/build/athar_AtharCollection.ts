@@ -2975,7 +2975,7 @@ export function storeAtharCollection$Data(src: AtharCollection$Data) {
         b_1.storeCoins(src.engraveFee);
         b_1.storeCoins(src.mediaFee);
         b_1.storeCoins(src.changeFee);
-        b_1.storeDict(src.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
+        b_1.storeDict(src.issued, Dictionary.Keys.Uint(32), Dictionary.Values.Bool());
         const b_2 = new Builder();
         if (src.pendingCode !== null && src.pendingCode !== undefined) { b_2.storeBit(true).storeRef(src.pendingCode); } else { b_2.storeBit(false); }
         b_2.storeUint(src.pendingCodeAt, 32);
@@ -3006,7 +3006,7 @@ export function loadAtharCollection$Data(slice: Slice) {
     const _engraveFee = sc_1.loadCoins();
     const _mediaFee = sc_1.loadCoins();
     const _changeFee = sc_1.loadCoins();
-    const _issued = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
+    const _issued = Dictionary.load(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), sc_1);
     const sc_2 = sc_1.loadRef().beginParse();
     const _pendingCode = sc_2.loadBit() ? sc_2.loadRef() : null;
     const _pendingCodeAt = sc_2.loadUintBig(32);
@@ -3034,7 +3034,7 @@ export function loadTupleAtharCollection$Data(source: TupleReader) {
     const _engraveFee = source.readBigNumber();
     const _mediaFee = source.readBigNumber();
     const _changeFee = source.readBigNumber();
-    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
     const _pendingCode = source.readCellOpt();
     const _pendingCodeAt = source.readBigNumber();
     const _ext = source.readCellOpt();
@@ -3060,7 +3060,7 @@ export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
     const _engraveFee = source.readBigNumber();
     const _mediaFee = source.readBigNumber();
     const _changeFee = source.readBigNumber();
-    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
+    const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
     const _pendingCode = source.readCellOpt();
     const _pendingCodeAt = source.readBigNumber();
     const _ext = source.readCellOpt();
@@ -3087,7 +3087,7 @@ export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
     builder.writeNumber(source.engraveFee);
     builder.writeNumber(source.mediaFee);
     builder.writeNumber(source.changeFee);
-    builder.writeCell(source.issued.size > 0 ? beginCell().storeDictDirect(source.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
+    builder.writeCell(source.issued.size > 0 ? beginCell().storeDictDirect(source.issued, Dictionary.Keys.Uint(32), Dictionary.Values.Bool()).endCell() : null);
     builder.writeCell(source.pendingCode);
     builder.writeNumber(source.pendingCodeAt);
     builder.writeCell(source.ext);
@@ -3190,6 +3190,9 @@ export type WalletCount = {
     $$type: 'WalletCount';
     day: bigint;
     count: bigint;
+    k0: bigint;
+    k1: bigint;
+    k2: bigint;
 }
 
 export function storeWalletCount(src: WalletCount) {
@@ -3197,6 +3200,9 @@ export function storeWalletCount(src: WalletCount) {
         const b_0 = builder;
         b_0.storeUint(src.day, 32);
         b_0.storeUint(src.count, 16);
+        b_0.storeUint(src.k0, 16);
+        b_0.storeUint(src.k1, 16);
+        b_0.storeUint(src.k2, 16);
     };
 }
 
@@ -3204,25 +3210,37 @@ export function loadWalletCount(slice: Slice) {
     const sc_0 = slice;
     const _day = sc_0.loadUintBig(32);
     const _count = sc_0.loadUintBig(16);
-    return { $$type: 'WalletCount' as const, day: _day, count: _count };
+    const _k0 = sc_0.loadUintBig(16);
+    const _k1 = sc_0.loadUintBig(16);
+    const _k2 = sc_0.loadUintBig(16);
+    return { $$type: 'WalletCount' as const, day: _day, count: _count, k0: _k0, k1: _k1, k2: _k2 };
 }
 
 export function loadTupleWalletCount(source: TupleReader) {
     const _day = source.readBigNumber();
     const _count = source.readBigNumber();
-    return { $$type: 'WalletCount' as const, day: _day, count: _count };
+    const _k0 = source.readBigNumber();
+    const _k1 = source.readBigNumber();
+    const _k2 = source.readBigNumber();
+    return { $$type: 'WalletCount' as const, day: _day, count: _count, k0: _k0, k1: _k1, k2: _k2 };
 }
 
 export function loadGetterTupleWalletCount(source: TupleReader) {
     const _day = source.readBigNumber();
     const _count = source.readBigNumber();
-    return { $$type: 'WalletCount' as const, day: _day, count: _count };
+    const _k0 = source.readBigNumber();
+    const _k1 = source.readBigNumber();
+    const _k2 = source.readBigNumber();
+    return { $$type: 'WalletCount' as const, day: _day, count: _count, k0: _k0, k1: _k1, k2: _k2 };
 }
 
 export function storeTupleWalletCount(source: WalletCount) {
     const builder = new TupleBuilder();
     builder.writeNumber(source.day);
     builder.writeNumber(source.count);
+    builder.writeNumber(source.k0);
+    builder.writeNumber(source.k1);
+    builder.writeNumber(source.k2);
     return builder.build();
 }
 
@@ -3434,67 +3452,91 @@ export function dictValueParserAuction(): DictionaryValue<Auction> {
 
 export type Configure = {
     $$type: 'Configure';
-    tier: bigint;
+    kind: bigint;
     startPrice: bigint;
     floor: bigint;
     cap: bigint;
     bumpBps: bigint;
     decayBps: bigint;
+    maxSupply: bigint;
+    specialFee: bigint;
+    photoFee: bigint;
+    walletMax: bigint;
 }
 
 export function storeConfigure(src: Configure) {
     return (builder: Builder) => {
         const b_0 = builder;
         b_0.storeUint(1096024128, 32);
-        b_0.storeUint(src.tier, 8);
+        b_0.storeUint(src.kind, 8);
         b_0.storeCoins(src.startPrice);
         b_0.storeCoins(src.floor);
         b_0.storeCoins(src.cap);
         b_0.storeUint(src.bumpBps, 16);
         b_0.storeUint(src.decayBps, 16);
+        b_0.storeUint(src.maxSupply, 32);
+        b_0.storeCoins(src.specialFee);
+        b_0.storeCoins(src.photoFee);
+        b_0.storeUint(src.walletMax, 16);
     };
 }
 
 export function loadConfigure(slice: Slice) {
     const sc_0 = slice;
     if (sc_0.loadUint(32) !== 1096024128) { throw Error('Invalid prefix'); }
-    const _tier = sc_0.loadUintBig(8);
+    const _kind = sc_0.loadUintBig(8);
     const _startPrice = sc_0.loadCoins();
     const _floor = sc_0.loadCoins();
     const _cap = sc_0.loadCoins();
     const _bumpBps = sc_0.loadUintBig(16);
     const _decayBps = sc_0.loadUintBig(16);
-    return { $$type: 'Configure' as const, tier: _tier, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+    const _maxSupply = sc_0.loadUintBig(32);
+    const _specialFee = sc_0.loadCoins();
+    const _photoFee = sc_0.loadCoins();
+    const _walletMax = sc_0.loadUintBig(16);
+    return { $$type: 'Configure' as const, kind: _kind, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps, maxSupply: _maxSupply, specialFee: _specialFee, photoFee: _photoFee, walletMax: _walletMax };
 }
 
 export function loadTupleConfigure(source: TupleReader) {
-    const _tier = source.readBigNumber();
+    const _kind = source.readBigNumber();
     const _startPrice = source.readBigNumber();
     const _floor = source.readBigNumber();
     const _cap = source.readBigNumber();
     const _bumpBps = source.readBigNumber();
     const _decayBps = source.readBigNumber();
-    return { $$type: 'Configure' as const, tier: _tier, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+    const _maxSupply = source.readBigNumber();
+    const _specialFee = source.readBigNumber();
+    const _photoFee = source.readBigNumber();
+    const _walletMax = source.readBigNumber();
+    return { $$type: 'Configure' as const, kind: _kind, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps, maxSupply: _maxSupply, specialFee: _specialFee, photoFee: _photoFee, walletMax: _walletMax };
 }
 
 export function loadGetterTupleConfigure(source: TupleReader) {
-    const _tier = source.readBigNumber();
+    const _kind = source.readBigNumber();
     const _startPrice = source.readBigNumber();
     const _floor = source.readBigNumber();
     const _cap = source.readBigNumber();
     const _bumpBps = source.readBigNumber();
     const _decayBps = source.readBigNumber();
-    return { $$type: 'Configure' as const, tier: _tier, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps };
+    const _maxSupply = source.readBigNumber();
+    const _specialFee = source.readBigNumber();
+    const _photoFee = source.readBigNumber();
+    const _walletMax = source.readBigNumber();
+    return { $$type: 'Configure' as const, kind: _kind, startPrice: _startPrice, floor: _floor, cap: _cap, bumpBps: _bumpBps, decayBps: _decayBps, maxSupply: _maxSupply, specialFee: _specialFee, photoFee: _photoFee, walletMax: _walletMax };
 }
 
 export function storeTupleConfigure(source: Configure) {
     const builder = new TupleBuilder();
-    builder.writeNumber(source.tier);
+    builder.writeNumber(source.kind);
     builder.writeNumber(source.startPrice);
     builder.writeNumber(source.floor);
     builder.writeNumber(source.cap);
     builder.writeNumber(source.bumpBps);
     builder.writeNumber(source.decayBps);
+    builder.writeNumber(source.maxSupply);
+    builder.writeNumber(source.specialFee);
+    builder.writeNumber(source.photoFee);
+    builder.writeNumber(source.walletMax);
     return builder.build();
 }
 
@@ -3792,55 +3834,114 @@ export function dictValueParserStartAuction(): DictionaryValue<StartAuction> {
     }
 }
 
-export type SetFees = {
-    $$type: 'SetFees';
+export type SetKindFees = {
+    $$type: 'SetKindFees';
+    kind: bigint;
     photoFee: bigint;
-    silverFee: bigint;
+    specialFee: bigint;
 }
 
-export function storeSetFees(src: SetFees) {
+export function storeSetKindFees(src: SetKindFees) {
     return (builder: Builder) => {
         const b_0 = builder;
         b_0.storeUint(1096024137, 32);
+        b_0.storeUint(src.kind, 8);
         b_0.storeCoins(src.photoFee);
-        b_0.storeCoins(src.silverFee);
+        b_0.storeCoins(src.specialFee);
     };
 }
 
-export function loadSetFees(slice: Slice) {
+export function loadSetKindFees(slice: Slice) {
     const sc_0 = slice;
     if (sc_0.loadUint(32) !== 1096024137) { throw Error('Invalid prefix'); }
+    const _kind = sc_0.loadUintBig(8);
     const _photoFee = sc_0.loadCoins();
-    const _silverFee = sc_0.loadCoins();
-    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+    const _specialFee = sc_0.loadCoins();
+    return { $$type: 'SetKindFees' as const, kind: _kind, photoFee: _photoFee, specialFee: _specialFee };
 }
 
-export function loadTupleSetFees(source: TupleReader) {
+export function loadTupleSetKindFees(source: TupleReader) {
+    const _kind = source.readBigNumber();
     const _photoFee = source.readBigNumber();
-    const _silverFee = source.readBigNumber();
-    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+    const _specialFee = source.readBigNumber();
+    return { $$type: 'SetKindFees' as const, kind: _kind, photoFee: _photoFee, specialFee: _specialFee };
 }
 
-export function loadGetterTupleSetFees(source: TupleReader) {
+export function loadGetterTupleSetKindFees(source: TupleReader) {
+    const _kind = source.readBigNumber();
     const _photoFee = source.readBigNumber();
-    const _silverFee = source.readBigNumber();
-    return { $$type: 'SetFees' as const, photoFee: _photoFee, silverFee: _silverFee };
+    const _specialFee = source.readBigNumber();
+    return { $$type: 'SetKindFees' as const, kind: _kind, photoFee: _photoFee, specialFee: _specialFee };
 }
 
-export function storeTupleSetFees(source: SetFees) {
+export function storeTupleSetKindFees(source: SetKindFees) {
     const builder = new TupleBuilder();
+    builder.writeNumber(source.kind);
     builder.writeNumber(source.photoFee);
-    builder.writeNumber(source.silverFee);
+    builder.writeNumber(source.specialFee);
     return builder.build();
 }
 
-export function dictValueParserSetFees(): DictionaryValue<SetFees> {
+export function dictValueParserSetKindFees(): DictionaryValue<SetKindFees> {
     return {
         serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeSetFees(src)).endCell());
+            builder.storeRef(beginCell().store(storeSetKindFees(src)).endCell());
         },
         parse: (src) => {
-            return loadSetFees(src.loadRef().beginParse());
+            return loadSetKindFees(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type SetCap = {
+    $$type: 'SetCap';
+    kind: bigint;
+    cap: bigint;
+}
+
+export function storeSetCap(src: SetCap) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024138, 32);
+        b_0.storeUint(src.kind, 8);
+        b_0.storeUint(src.cap, 32);
+    };
+}
+
+export function loadSetCap(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024138) { throw Error('Invalid prefix'); }
+    const _kind = sc_0.loadUintBig(8);
+    const _cap = sc_0.loadUintBig(32);
+    return { $$type: 'SetCap' as const, kind: _kind, cap: _cap };
+}
+
+export function loadTupleSetCap(source: TupleReader) {
+    const _kind = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'SetCap' as const, kind: _kind, cap: _cap };
+}
+
+export function loadGetterTupleSetCap(source: TupleReader) {
+    const _kind = source.readBigNumber();
+    const _cap = source.readBigNumber();
+    return { $$type: 'SetCap' as const, kind: _kind, cap: _cap };
+}
+
+export function storeTupleSetCap(source: SetCap) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.kind);
+    builder.writeNumber(source.cap);
+    return builder.build();
+}
+
+export function dictValueParserSetCap(): DictionaryValue<SetCap> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSetCap(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSetCap(src.loadRef().beginParse());
         }
     }
 }
@@ -3894,7 +3995,7 @@ export function dictValueParserBid(): DictionaryValue<Bid> {
 
 export type Reprice = {
     $$type: 'Reprice';
-    tier: bigint;
+    kind: bigint;
     floor: bigint;
     cap: bigint;
 }
@@ -3903,7 +4004,7 @@ export function storeReprice(src: Reprice) {
     return (builder: Builder) => {
         const b_0 = builder;
         b_0.storeUint(1096024165, 32);
-        b_0.storeUint(src.tier, 8);
+        b_0.storeUint(src.kind, 8);
         b_0.storeCoins(src.floor);
         b_0.storeCoins(src.cap);
     };
@@ -3912,29 +4013,29 @@ export function storeReprice(src: Reprice) {
 export function loadReprice(slice: Slice) {
     const sc_0 = slice;
     if (sc_0.loadUint(32) !== 1096024165) { throw Error('Invalid prefix'); }
-    const _tier = sc_0.loadUintBig(8);
+    const _kind = sc_0.loadUintBig(8);
     const _floor = sc_0.loadCoins();
     const _cap = sc_0.loadCoins();
-    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+    return { $$type: 'Reprice' as const, kind: _kind, floor: _floor, cap: _cap };
 }
 
 export function loadTupleReprice(source: TupleReader) {
-    const _tier = source.readBigNumber();
+    const _kind = source.readBigNumber();
     const _floor = source.readBigNumber();
     const _cap = source.readBigNumber();
-    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+    return { $$type: 'Reprice' as const, kind: _kind, floor: _floor, cap: _cap };
 }
 
 export function loadGetterTupleReprice(source: TupleReader) {
-    const _tier = source.readBigNumber();
+    const _kind = source.readBigNumber();
     const _floor = source.readBigNumber();
     const _cap = source.readBigNumber();
-    return { $$type: 'Reprice' as const, tier: _tier, floor: _floor, cap: _cap };
+    return { $$type: 'Reprice' as const, kind: _kind, floor: _floor, cap: _cap };
 }
 
 export function storeTupleReprice(source: Reprice) {
     const builder = new TupleBuilder();
-    builder.writeNumber(source.tier);
+    builder.writeNumber(source.kind);
     builder.writeNumber(source.floor);
     builder.writeNumber(source.cap);
     return builder.build();
@@ -4048,30 +4149,30 @@ export function storeLoadPool(src: LoadPool) {
     return (builder: Builder) => {
         const b_0 = builder;
         b_0.storeUint(1096024144, 32);
-        b_0.storeDict(src.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+        b_0.storeDict(src.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
     };
 }
 
 export function loadLoadPool(slice: Slice) {
     const sc_0 = slice;
     if (sc_0.loadUint(32) !== 1096024144) { throw Error('Invalid prefix'); }
-    const _items = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), sc_0);
+    const _items = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), sc_0);
     return { $$type: 'LoadPool' as const, items: _items };
 }
 
 export function loadTupleLoadPool(source: TupleReader) {
-    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
     return { $$type: 'LoadPool' as const, items: _items };
 }
 
 export function loadGetterTupleLoadPool(source: TupleReader) {
-    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _items = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
     return { $$type: 'LoadPool' as const, items: _items };
 }
 
 export function storeTupleLoadPool(source: LoadPool) {
     const builder = new TupleBuilder();
-    builder.writeCell(source.items.size > 0 ? beginCell().storeDictDirect(source.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)).endCell() : null);
+    builder.writeCell(source.items.size > 0 ? beginCell().storeDictDirect(source.items, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32)).endCell() : null);
     return builder.build();
 }
 
@@ -4499,13 +4600,18 @@ export type AtharMinter$Data = {
     permA: bigint;
     permB: bigint;
     auctions: Dictionary<number, Auction>;
+    auctionIds: Dictionary<number, number>;
+    auctionCount: bigint;
     wallets: Dictionary<Address, WalletCount>;
     status: bigint;
     startAt: bigint;
     walletDailyCap: bigint;
     soldCount: bigint;
-    photoFee: bigint;
-    silverFee: bigint;
+    caps: Dictionary<number, number>;
+    issuedBy: Dictionary<number, number>;
+    photoFees: Dictionary<number, bigint>;
+    specialFees: Dictionary<number, bigint>;
+    walletMax: Dictionary<number, number>;
     lockedBids: bigint;
     ticketsOpen: bigint;
 }
@@ -4521,11 +4627,11 @@ export function storeAtharMinter$Data(src: AtharMinter$Data) {
         b_0.storeDict(src.tiers, Dictionary.Keys.Uint(8), dictValueParserTierState());
         b_0.storeDict(src.special, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8));
         const b_1 = new Builder();
-        b_1.storeDict(src.sold, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
-        b_1.storeDict(src.pending, Dictionary.Keys.Uint(16), dictValueParserPendingMint());
-        b_1.storeDict(src.reserved, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
+        b_1.storeDict(src.sold, Dictionary.Keys.Uint(32), Dictionary.Values.Bool());
+        b_1.storeDict(src.pending, Dictionary.Keys.Uint(32), dictValueParserPendingMint());
+        b_1.storeDict(src.reserved, Dictionary.Keys.Uint(32), Dictionary.Values.Bool());
         const b_2 = new Builder();
-        b_2.storeDict(src.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+        b_2.storeDict(src.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
         b_2.storeDict(src.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket());
         b_2.storeUint(src.poolSize, 16);
         b_2.storeUint(src.poolExpected, 16);
@@ -4536,16 +4642,25 @@ export function storeAtharMinter$Data(src: AtharMinter$Data) {
         b_2.storeBit(src.revealed);
         b_2.storeUint(src.permA, 32);
         b_2.storeUint(src.permB, 32);
-        b_2.storeDict(src.auctions, Dictionary.Keys.Uint(16), dictValueParserAuction());
-        b_2.storeDict(src.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount());
-        b_2.storeUint(src.status, 8);
-        b_2.storeUint(src.startAt, 32);
-        b_2.storeUint(src.walletDailyCap, 16);
-        b_2.storeUint(src.soldCount, 32);
-        b_2.storeCoins(src.photoFee);
-        b_2.storeCoins(src.silverFee);
-        b_2.storeCoins(src.lockedBids);
-        b_2.storeUint(src.ticketsOpen, 16);
+        b_2.storeDict(src.auctions, Dictionary.Keys.Uint(32), dictValueParserAuction());
+        const b_3 = new Builder();
+        b_3.storeDict(src.auctionIds, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
+        b_3.storeUint(src.auctionCount, 16);
+        b_3.storeDict(src.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount());
+        b_3.storeUint(src.status, 8);
+        b_3.storeUint(src.startAt, 32);
+        b_3.storeUint(src.walletDailyCap, 16);
+        b_3.storeUint(src.soldCount, 32);
+        b_3.storeDict(src.caps, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32));
+        const b_4 = new Builder();
+        b_4.storeDict(src.issuedBy, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32));
+        b_4.storeDict(src.photoFees, Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4));
+        b_4.storeDict(src.specialFees, Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4));
+        b_4.storeDict(src.walletMax, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16));
+        b_4.storeCoins(src.lockedBids);
+        b_4.storeUint(src.ticketsOpen, 16);
+        b_3.storeRef(b_4.endCell());
+        b_2.storeRef(b_3.endCell());
         b_1.storeRef(b_2.endCell());
         b_0.storeRef(b_1.endCell());
     };
@@ -4561,11 +4676,11 @@ export function loadAtharMinter$Data(slice: Slice) {
     const _tiers = Dictionary.load(Dictionary.Keys.Uint(8), dictValueParserTierState(), sc_0);
     const _special = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8), sc_0);
     const sc_1 = sc_0.loadRef().beginParse();
-    const _sold = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
-    const _pending = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), sc_1);
-    const _reserved = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
+    const _sold = Dictionary.load(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), sc_1);
+    const _pending = Dictionary.load(Dictionary.Keys.Uint(32), dictValueParserPendingMint(), sc_1);
+    const _reserved = Dictionary.load(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), sc_1);
     const sc_2 = sc_1.loadRef().beginParse();
-    const _pool = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), sc_2);
+    const _pool = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), sc_2);
     const _tickets = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserTicket(), sc_2);
     const _poolSize = sc_2.loadUintBig(16);
     const _poolExpected = sc_2.loadUintBig(16);
@@ -4576,17 +4691,24 @@ export function loadAtharMinter$Data(slice: Slice) {
     const _revealed = sc_2.loadBit();
     const _permA = sc_2.loadUintBig(32);
     const _permB = sc_2.loadUintBig(32);
-    const _auctions = Dictionary.load(Dictionary.Keys.Uint(16), dictValueParserAuction(), sc_2);
-    const _wallets = Dictionary.load(Dictionary.Keys.Address(), dictValueParserWalletCount(), sc_2);
-    const _status = sc_2.loadUintBig(8);
-    const _startAt = sc_2.loadUintBig(32);
-    const _walletDailyCap = sc_2.loadUintBig(16);
-    const _soldCount = sc_2.loadUintBig(32);
-    const _photoFee = sc_2.loadCoins();
-    const _silverFee = sc_2.loadCoins();
-    const _lockedBids = sc_2.loadCoins();
-    const _ticketsOpen = sc_2.loadUintBig(16);
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
+    const _auctions = Dictionary.load(Dictionary.Keys.Uint(32), dictValueParserAuction(), sc_2);
+    const sc_3 = sc_2.loadRef().beginParse();
+    const _auctionIds = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), sc_3);
+    const _auctionCount = sc_3.loadUintBig(16);
+    const _wallets = Dictionary.load(Dictionary.Keys.Address(), dictValueParserWalletCount(), sc_3);
+    const _status = sc_3.loadUintBig(8);
+    const _startAt = sc_3.loadUintBig(32);
+    const _walletDailyCap = sc_3.loadUintBig(16);
+    const _soldCount = sc_3.loadUintBig(32);
+    const _caps = Dictionary.load(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), sc_3);
+    const sc_4 = sc_3.loadRef().beginParse();
+    const _issuedBy = Dictionary.load(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), sc_4);
+    const _photoFees = Dictionary.load(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), sc_4);
+    const _specialFees = Dictionary.load(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), sc_4);
+    const _walletMax = Dictionary.load(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16), sc_4);
+    const _lockedBids = sc_4.loadCoins();
+    const _ticketsOpen = sc_4.loadUintBig(16);
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, auctionIds: _auctionIds, auctionCount: _auctionCount, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, caps: _caps, issuedBy: _issuedBy, photoFees: _photoFees, specialFees: _specialFees, walletMax: _walletMax, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
 }
 
 export function loadTupleAtharMinter$Data(source: TupleReader) {
@@ -4597,10 +4719,10 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _rangeEnd = source.readBigNumber();
     const _tiers = Dictionary.loadDirect(Dictionary.Keys.Uint(8), dictValueParserTierState(), source.readCellOpt());
     const _special = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8), source.readCellOpt());
-    const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), source.readCellOpt());
-    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(32), dictValueParserPendingMint(), source.readCellOpt());
+    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
     const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
     const _poolSize = source.readBigNumber();
     const _poolExpected = source.readBigNumber();
@@ -4612,18 +4734,23 @@ export function loadTupleAtharMinter$Data(source: TupleReader) {
     const _revealed = source.readBoolean();
     const _permA = source.readBigNumber();
     const _permB = source.readBigNumber();
-    const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserAuction(), source.readCellOpt());
+    const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(32), dictValueParserAuction(), source.readCellOpt());
+    const _auctionIds = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _auctionCount = source.readBigNumber();
     const _wallets = Dictionary.loadDirect(Dictionary.Keys.Address(), dictValueParserWalletCount(), source.readCellOpt());
     const _status = source.readBigNumber();
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
-    const _soldCount = source.readBigNumber();
-    const _photoFee = source.readBigNumber();
     source = source.readTuple();
-    const _silverFee = source.readBigNumber();
+    const _soldCount = source.readBigNumber();
+    const _caps = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _issuedBy = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _photoFees = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), source.readCellOpt());
+    const _specialFees = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), source.readCellOpt());
+    const _walletMax = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16), source.readCellOpt());
     const _lockedBids = source.readBigNumber();
     const _ticketsOpen = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, auctionIds: _auctionIds, auctionCount: _auctionCount, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, caps: _caps, issuedBy: _issuedBy, photoFees: _photoFees, specialFees: _specialFees, walletMax: _walletMax, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
 }
 
 export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
@@ -4634,10 +4761,10 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _rangeEnd = source.readBigNumber();
     const _tiers = Dictionary.loadDirect(Dictionary.Keys.Uint(8), dictValueParserTierState(), source.readCellOpt());
     const _special = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8), source.readCellOpt());
-    const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserPendingMint(), source.readCellOpt());
-    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16), source.readCellOpt());
+    const _sold = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pending = Dictionary.loadDirect(Dictionary.Keys.Uint(32), dictValueParserPendingMint(), source.readCellOpt());
+    const _reserved = Dictionary.loadDirect(Dictionary.Keys.Uint(32), Dictionary.Values.Bool(), source.readCellOpt());
+    const _pool = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
     const _tickets = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserTicket(), source.readCellOpt());
     const _poolSize = source.readBigNumber();
     const _poolExpected = source.readBigNumber();
@@ -4648,17 +4775,22 @@ export function loadGetterTupleAtharMinter$Data(source: TupleReader) {
     const _revealed = source.readBoolean();
     const _permA = source.readBigNumber();
     const _permB = source.readBigNumber();
-    const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(16), dictValueParserAuction(), source.readCellOpt());
+    const _auctions = Dictionary.loadDirect(Dictionary.Keys.Uint(32), dictValueParserAuction(), source.readCellOpt());
+    const _auctionIds = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _auctionCount = source.readBigNumber();
     const _wallets = Dictionary.loadDirect(Dictionary.Keys.Address(), dictValueParserWalletCount(), source.readCellOpt());
     const _status = source.readBigNumber();
     const _startAt = source.readBigNumber();
     const _walletDailyCap = source.readBigNumber();
     const _soldCount = source.readBigNumber();
-    const _photoFee = source.readBigNumber();
-    const _silverFee = source.readBigNumber();
+    const _caps = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _issuedBy = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32), source.readCellOpt());
+    const _photoFees = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), source.readCellOpt());
+    const _specialFees = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4), source.readCellOpt());
+    const _walletMax = Dictionary.loadDirect(Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16), source.readCellOpt());
     const _lockedBids = source.readBigNumber();
     const _ticketsOpen = source.readBigNumber();
-    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, photoFee: _photoFee, silverFee: _silverFee, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
+    return { $$type: 'AtharMinter$Data' as const, collection: _collection, admin: _admin, seasonId: _seasonId, rangeStart: _rangeStart, rangeEnd: _rangeEnd, tiers: _tiers, special: _special, sold: _sold, pending: _pending, reserved: _reserved, pool: _pool, tickets: _tickets, poolSize: _poolSize, poolExpected: _poolExpected, poolLoaded: _poolLoaded, ticketsSold: _ticketsSold, commitHash: _commitHash, revealAt: _revealAt, revealed: _revealed, permA: _permA, permB: _permB, auctions: _auctions, auctionIds: _auctionIds, auctionCount: _auctionCount, wallets: _wallets, status: _status, startAt: _startAt, walletDailyCap: _walletDailyCap, soldCount: _soldCount, caps: _caps, issuedBy: _issuedBy, photoFees: _photoFees, specialFees: _specialFees, walletMax: _walletMax, lockedBids: _lockedBids, ticketsOpen: _ticketsOpen };
 }
 
 export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
@@ -4670,10 +4802,10 @@ export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
     builder.writeNumber(source.rangeEnd);
     builder.writeCell(source.tiers.size > 0 ? beginCell().storeDictDirect(source.tiers, Dictionary.Keys.Uint(8), dictValueParserTierState()).endCell() : null);
     builder.writeCell(source.special.size > 0 ? beginCell().storeDictDirect(source.special, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(8)).endCell() : null);
-    builder.writeCell(source.sold.size > 0 ? beginCell().storeDictDirect(source.sold, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
-    builder.writeCell(source.pending.size > 0 ? beginCell().storeDictDirect(source.pending, Dictionary.Keys.Uint(16), dictValueParserPendingMint()).endCell() : null);
-    builder.writeCell(source.reserved.size > 0 ? beginCell().storeDictDirect(source.reserved, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
-    builder.writeCell(source.pool.size > 0 ? beginCell().storeDictDirect(source.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16)).endCell() : null);
+    builder.writeCell(source.sold.size > 0 ? beginCell().storeDictDirect(source.sold, Dictionary.Keys.Uint(32), Dictionary.Values.Bool()).endCell() : null);
+    builder.writeCell(source.pending.size > 0 ? beginCell().storeDictDirect(source.pending, Dictionary.Keys.Uint(32), dictValueParserPendingMint()).endCell() : null);
+    builder.writeCell(source.reserved.size > 0 ? beginCell().storeDictDirect(source.reserved, Dictionary.Keys.Uint(32), Dictionary.Values.Bool()).endCell() : null);
+    builder.writeCell(source.pool.size > 0 ? beginCell().storeDictDirect(source.pool, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32)).endCell() : null);
     builder.writeCell(source.tickets.size > 0 ? beginCell().storeDictDirect(source.tickets, Dictionary.Keys.Uint(16), dictValueParserTicket()).endCell() : null);
     builder.writeNumber(source.poolSize);
     builder.writeNumber(source.poolExpected);
@@ -4684,14 +4816,19 @@ export function storeTupleAtharMinter$Data(source: AtharMinter$Data) {
     builder.writeBoolean(source.revealed);
     builder.writeNumber(source.permA);
     builder.writeNumber(source.permB);
-    builder.writeCell(source.auctions.size > 0 ? beginCell().storeDictDirect(source.auctions, Dictionary.Keys.Uint(16), dictValueParserAuction()).endCell() : null);
+    builder.writeCell(source.auctions.size > 0 ? beginCell().storeDictDirect(source.auctions, Dictionary.Keys.Uint(32), dictValueParserAuction()).endCell() : null);
+    builder.writeCell(source.auctionIds.size > 0 ? beginCell().storeDictDirect(source.auctionIds, Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32)).endCell() : null);
+    builder.writeNumber(source.auctionCount);
     builder.writeCell(source.wallets.size > 0 ? beginCell().storeDictDirect(source.wallets, Dictionary.Keys.Address(), dictValueParserWalletCount()).endCell() : null);
     builder.writeNumber(source.status);
     builder.writeNumber(source.startAt);
     builder.writeNumber(source.walletDailyCap);
     builder.writeNumber(source.soldCount);
-    builder.writeNumber(source.photoFee);
-    builder.writeNumber(source.silverFee);
+    builder.writeCell(source.caps.size > 0 ? beginCell().storeDictDirect(source.caps, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32)).endCell() : null);
+    builder.writeCell(source.issuedBy.size > 0 ? beginCell().storeDictDirect(source.issuedBy, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(32)).endCell() : null);
+    builder.writeCell(source.photoFees.size > 0 ? beginCell().storeDictDirect(source.photoFees, Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4)).endCell() : null);
+    builder.writeCell(source.specialFees.size > 0 ? beginCell().storeDictDirect(source.specialFees, Dictionary.Keys.Uint(8), Dictionary.Values.BigVarUint(4)).endCell() : null);
+    builder.writeCell(source.walletMax.size > 0 ? beginCell().storeDictDirect(source.walletMax, Dictionary.Keys.Uint(8), Dictionary.Values.Uint(16)).endCell() : null);
     builder.writeNumber(source.lockedBids);
     builder.writeNumber(source.ticketsOpen);
     return builder.build();
@@ -4708,53 +4845,224 @@ export function dictValueParserAtharMinter$Data(): DictionaryValue<AtharMinter$D
     }
 }
 
-export type FeeInfo = {
-    $$type: 'FeeInfo';
-    photo: bigint;
-    silver: bigint;
+export type DateView = {
+    $$type: 'DateView';
+    taken: bigint;
+    auction: bigint;
+    reserved: bigint;
+    p0: bigint;
+    p1: bigint;
+    p2: bigint;
+    special: boolean;
 }
 
-export function storeFeeInfo(src: FeeInfo) {
+export function storeDateView(src: DateView) {
     return (builder: Builder) => {
         const b_0 = builder;
-        b_0.storeInt(src.photo, 257);
-        b_0.storeInt(src.silver, 257);
+        b_0.storeInt(src.taken, 257);
+        b_0.storeInt(src.auction, 257);
+        b_0.storeInt(src.reserved, 257);
+        const b_1 = new Builder();
+        b_1.storeInt(src.p0, 257);
+        b_1.storeInt(src.p1, 257);
+        b_1.storeInt(src.p2, 257);
+        b_1.storeBit(src.special);
+        b_0.storeRef(b_1.endCell());
     };
 }
 
-export function loadFeeInfo(slice: Slice) {
+export function loadDateView(slice: Slice) {
     const sc_0 = slice;
-    const _photo = sc_0.loadIntBig(257);
-    const _silver = sc_0.loadIntBig(257);
-    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+    const _taken = sc_0.loadIntBig(257);
+    const _auction = sc_0.loadIntBig(257);
+    const _reserved = sc_0.loadIntBig(257);
+    const sc_1 = sc_0.loadRef().beginParse();
+    const _p0 = sc_1.loadIntBig(257);
+    const _p1 = sc_1.loadIntBig(257);
+    const _p2 = sc_1.loadIntBig(257);
+    const _special = sc_1.loadBit();
+    return { $$type: 'DateView' as const, taken: _taken, auction: _auction, reserved: _reserved, p0: _p0, p1: _p1, p2: _p2, special: _special };
 }
 
-export function loadTupleFeeInfo(source: TupleReader) {
-    const _photo = source.readBigNumber();
-    const _silver = source.readBigNumber();
-    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+export function loadTupleDateView(source: TupleReader) {
+    const _taken = source.readBigNumber();
+    const _auction = source.readBigNumber();
+    const _reserved = source.readBigNumber();
+    const _p0 = source.readBigNumber();
+    const _p1 = source.readBigNumber();
+    const _p2 = source.readBigNumber();
+    const _special = source.readBoolean();
+    return { $$type: 'DateView' as const, taken: _taken, auction: _auction, reserved: _reserved, p0: _p0, p1: _p1, p2: _p2, special: _special };
 }
 
-export function loadGetterTupleFeeInfo(source: TupleReader) {
-    const _photo = source.readBigNumber();
-    const _silver = source.readBigNumber();
-    return { $$type: 'FeeInfo' as const, photo: _photo, silver: _silver };
+export function loadGetterTupleDateView(source: TupleReader) {
+    const _taken = source.readBigNumber();
+    const _auction = source.readBigNumber();
+    const _reserved = source.readBigNumber();
+    const _p0 = source.readBigNumber();
+    const _p1 = source.readBigNumber();
+    const _p2 = source.readBigNumber();
+    const _special = source.readBoolean();
+    return { $$type: 'DateView' as const, taken: _taken, auction: _auction, reserved: _reserved, p0: _p0, p1: _p1, p2: _p2, special: _special };
 }
 
-export function storeTupleFeeInfo(source: FeeInfo) {
+export function storeTupleDateView(source: DateView) {
     const builder = new TupleBuilder();
-    builder.writeNumber(source.photo);
-    builder.writeNumber(source.silver);
+    builder.writeNumber(source.taken);
+    builder.writeNumber(source.auction);
+    builder.writeNumber(source.reserved);
+    builder.writeNumber(source.p0);
+    builder.writeNumber(source.p1);
+    builder.writeNumber(source.p2);
+    builder.writeBoolean(source.special);
     return builder.build();
 }
 
-export function dictValueParserFeeInfo(): DictionaryValue<FeeInfo> {
+export function dictValueParserDateView(): DictionaryValue<DateView> {
     return {
         serialize: (src, builder) => {
-            builder.storeRef(beginCell().store(storeFeeInfo(src)).endCell());
+            builder.storeRef(beginCell().store(storeDateView(src)).endCell());
         },
         parse: (src) => {
-            return loadFeeInfo(src.loadRef().beginParse());
+            return loadDateView(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type KindInfo = {
+    $$type: 'KindInfo';
+    cap: bigint;
+    issued: bigint;
+    photo: bigint;
+    special: bigint;
+    walletMax: bigint;
+}
+
+export function storeKindInfo(src: KindInfo) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.cap, 257);
+        b_0.storeInt(src.issued, 257);
+        b_0.storeInt(src.photo, 257);
+        const b_1 = new Builder();
+        b_1.storeInt(src.special, 257);
+        b_1.storeInt(src.walletMax, 257);
+        b_0.storeRef(b_1.endCell());
+    };
+}
+
+export function loadKindInfo(slice: Slice) {
+    const sc_0 = slice;
+    const _cap = sc_0.loadIntBig(257);
+    const _issued = sc_0.loadIntBig(257);
+    const _photo = sc_0.loadIntBig(257);
+    const sc_1 = sc_0.loadRef().beginParse();
+    const _special = sc_1.loadIntBig(257);
+    const _walletMax = sc_1.loadIntBig(257);
+    return { $$type: 'KindInfo' as const, cap: _cap, issued: _issued, photo: _photo, special: _special, walletMax: _walletMax };
+}
+
+export function loadTupleKindInfo(source: TupleReader) {
+    const _cap = source.readBigNumber();
+    const _issued = source.readBigNumber();
+    const _photo = source.readBigNumber();
+    const _special = source.readBigNumber();
+    const _walletMax = source.readBigNumber();
+    return { $$type: 'KindInfo' as const, cap: _cap, issued: _issued, photo: _photo, special: _special, walletMax: _walletMax };
+}
+
+export function loadGetterTupleKindInfo(source: TupleReader) {
+    const _cap = source.readBigNumber();
+    const _issued = source.readBigNumber();
+    const _photo = source.readBigNumber();
+    const _special = source.readBigNumber();
+    const _walletMax = source.readBigNumber();
+    return { $$type: 'KindInfo' as const, cap: _cap, issued: _issued, photo: _photo, special: _special, walletMax: _walletMax };
+}
+
+export function storeTupleKindInfo(source: KindInfo) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.cap);
+    builder.writeNumber(source.issued);
+    builder.writeNumber(source.photo);
+    builder.writeNumber(source.special);
+    builder.writeNumber(source.walletMax);
+    return builder.build();
+}
+
+export function dictValueParserKindInfo(): DictionaryValue<KindInfo> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeKindInfo(src)).endCell());
+        },
+        parse: (src) => {
+            return loadKindInfo(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type WalletInfo = {
+    $$type: 'WalletInfo';
+    today: bigint;
+    k0: bigint;
+    k1: bigint;
+    k2: bigint;
+}
+
+export function storeWalletInfo(src: WalletInfo) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.today, 257);
+        b_0.storeInt(src.k0, 257);
+        b_0.storeInt(src.k1, 257);
+        const b_1 = new Builder();
+        b_1.storeInt(src.k2, 257);
+        b_0.storeRef(b_1.endCell());
+    };
+}
+
+export function loadWalletInfo(slice: Slice) {
+    const sc_0 = slice;
+    const _today = sc_0.loadIntBig(257);
+    const _k0 = sc_0.loadIntBig(257);
+    const _k1 = sc_0.loadIntBig(257);
+    const sc_1 = sc_0.loadRef().beginParse();
+    const _k2 = sc_1.loadIntBig(257);
+    return { $$type: 'WalletInfo' as const, today: _today, k0: _k0, k1: _k1, k2: _k2 };
+}
+
+export function loadTupleWalletInfo(source: TupleReader) {
+    const _today = source.readBigNumber();
+    const _k0 = source.readBigNumber();
+    const _k1 = source.readBigNumber();
+    const _k2 = source.readBigNumber();
+    return { $$type: 'WalletInfo' as const, today: _today, k0: _k0, k1: _k1, k2: _k2 };
+}
+
+export function loadGetterTupleWalletInfo(source: TupleReader) {
+    const _today = source.readBigNumber();
+    const _k0 = source.readBigNumber();
+    const _k1 = source.readBigNumber();
+    const _k2 = source.readBigNumber();
+    return { $$type: 'WalletInfo' as const, today: _today, k0: _k0, k1: _k1, k2: _k2 };
+}
+
+export function storeTupleWalletInfo(source: WalletInfo) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.today);
+    builder.writeNumber(source.k0);
+    builder.writeNumber(source.k1);
+    builder.writeNumber(source.k2);
+    return builder.build();
+}
+
+export function dictValueParserWalletInfo(): DictionaryValue<WalletInfo> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeWalletInfo(src)).endCell());
+        },
+        parse: (src) => {
+            return loadWalletInfo(src.loadRef().beginParse());
         }
     }
 }
@@ -4869,7 +5177,7 @@ function initAtharCollection_init_args(src: AtharCollection_init_args) {
 }
 
 async function AtharCollection_init(admin: Address, collectionUri: string, delaySec: bigint) {
-    const __code = Cell.fromHex('b5ee9c7241027301002141000228ff008e88f4a413f4bcf2c80bed5320e303ed43d90121020271020d02012003080201620406028daf8476a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e2b882f87b630c02205001a226e916de022206ef2d080f90002e9adaef6a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186888a888b888a888a088b088a0889888a88898889088a088908888889888888880889088807888887870888072a8eed9e2b882f87b630c02207001831c87101cb075614cf16ccc9020120090b0289b5dafda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61bb678d9e6d8e70220a002c561556126eb398305611206ef2d080de56110156110102e1b4f47da89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61a222a222c222a2228222a22282226222822262224222622242222222422222220222222201e22201eaa1db678ae20be1ed8c30220c0104db3c4c0201200e190201200f170201201012028db36bbb5134348000638cbe903500740060404075c0154800f45622c21b60407d2049c41b5b5c1b485b485c2084017d7840082084077359401b5b499b78c376cf15c417c3db186022110004561102012013150289ac2df6a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e3679b639c02214001cc87101cb075615cf16c9529056170289ad2776a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e3679b639c02216000654765402e1b593dda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61a222a222c222a2228222a22282226222822262224222622242222222422222220222222201e22201eaa1db678ae20be1ed8c302218002e81010b56100280204133f40a6fa19401d70130925b6de20201201a1c028db79cfda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61bb678ae20be1ed8c30221b00022902016a1d1f0294a8a4ed44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30ddb3c571257105f0f50565f05221e0008226eb322028caa7ded44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30ddb3c57105f0f6c61222000022803f63001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30d11178e9f11158020d7217021d749c21f9430d31f01de821041540012bae3025f0f5f08e070561622242601f6fa40d401d001d31fd401d0d401d001d72c01916d93fa4001e201d30fd30ff404d72c01916d93fa4001e201d31fd2000193d401d0916de201d31fd72c01916d93fa4001e201d31fd200d430d0fa00fa00fa00f404f404d31ff4043011131116111311131115111311131114111357161114111511141113111411132300301112111311121111111211111110111111100f11100f550e02fed33f01311114111511141113111411131112111311121111111211111110111111100f11100f10ef10de10cd10bc10ab109a108910781067105610451034111641305616db3c70804070111ac80182104154001558cb1fcb3fc91034413001111a0110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016e4c2501b0b0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001114111511141113111411131112111311121111111211111110111111100f11100f550ec87f01ca00111611151114111311121111111055e0db3cc9ed54710468d74920c21f97311116d31f1117de21821041540022bae30221821041540023bae30221821041540024bae30221821041540025ba27292a2c02fc5b1115fa403081557df8425616c705f2f456106e8ec057101113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e03b3bf8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e7128016410df10ce10ad0c109b108a10791068105710461035440302c87f01ca00111611151114111311121111111055e0db3cc9ed547101e05b5710571481557df8425614c705f2f48200cf3a2b6eb3f2f48137a5f8232bbef2f41112111411121111111311111110111211100f11110f0a11100a10df10ce10bd6d0d10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed547102fe5b1115d430d081557df8425616c705f2f45611d7498ec057111113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e13939f8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e712b016410df10ce10bd10ac108b0a10791068105710461035440302c87f01ca00111611151114111311121111111055e0db3cc9ed547102fe8ef45b5711571481557df8425614c705f2f48200cf3a296eb3f2f48137a5f82329bef2f408206ef2d08011121114111211111113111111101112111011110e11100e10df10ce10bd10ac109b6d0b108a107910681057104610354140c87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540028ba712d03fc8ee95f041113d43081557df8425614c705f2f4f8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce10bd10ac109b108a10791068105710461035410403c87f01ca00111611151114111311121111111055e0db3cc9ed54e02182104154002abae30221821041540029ba712e2f019210235f03571481557df8425614c705f2f41112111411121111111311111110111211100f11110f0e11100e551d6d59c87f01ca00111611151114111311121111111055e0db3cc9ed547104fe8ee85b571581557df8425615c705f2f48200cf3a216eb3f2f48137a5f8235616bef2f4206ef2d0806d01fb041113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540020bae30221821041540021bae3027130323301fe5b1115fa403081557df8425616c705f2f4811790296ef2f4268e1f81010bf8235614a0103f128020216e955b59f4593098c801cf014133f441e28e1f367f81010bf823103f41808020216e955b59f4593098c801cf014133f441e2e21113111511131112111411121111111311111110111211100f11110f0e11100e10df0e31015c10bd10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed547101f85b1115fa403081557df8425616c705f2f41d81010b016d8020216e955b59f4593098c801cf014133f441e21113111511131112111411121111111311111110111211100f11110f0e11100e10df0e10bd10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed5471044c21821041540002bae30221821041540074bae30221821041540070bae30221821041540072ba343a3c3e02fc5b1115d33ffa40d30fd307fa00d307d3fffa0030f8416f24303281565456126ef2f4561681010b2280204133f40a6fa19401d70130925b6de28200ec42216eb39af82302206ef2d08012be923170e2f2f48179332a82008eacbbf2f4816f11561a6eb3f2f48200df8223820b938700a05230bef2f4f8282adb3c1112a40d4d3502f880102c7f71216e955b59f45b3098c801cf004133f443e224c2008ec4561b206ef2d08073708828552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de820898968073700ec80182104154000558cb1fcb3fc9104541301e3637001c0000000061746861722073616c6501fc10246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00205611705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d05023a18208989680a18209312d00a1717ff823106b105a3801f810491038407bc855608210415400015008cb1f16ce14cb0f12cb0701fa02cb1fcb07cbffc91046401504503d10465522c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001113111511131112111411121111111311111110111211100f11110f39016c0e11100e10df10ce10bd10ac109b108a107918105710461035401403c87f01ca00111611151114111311121111111055e0db3cc9ed547101fc5b6c331112fa00fa00fa003081557df8425615c705f2f4814127238209312d00be97228209312d00be9170e2982382112a05f200bb9170e2982282112a05f200bb9170e2982182112a05f200bb9170e2f2f4815e995312bef2f41113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce3b015a10bd10ac109b108a1079106810574614552005c87f01ca00111611151114111311121111111055e0db3cc9ed547102f85b1115d33fd430d0f8416f243032810a682482008eacbb8e1626801026714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8229820afaf080a0820b938700a013be12f2f402111702011118011117db3c70804011197f111b2ac855208210415400715004cb1f12ce01c8cecd01fa02c94430021119024c3d01f201111a0110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed547104b0e30221821041540003ba8f435b57151113111511131112111411121111111311111110111211100f11110f0e11100e10df551cdb3cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540027ba3f43714201fc5b1115d33fd307d3ff30f8416f243032810a682582008eacbb8e1627801027714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8229820afaf080a0820b938700a013be12f2f41116111711161115111711151114111711141113111711131112111711121111111711111110111711100f11170f0e11170e4002fc0d11170d0c11170c0b11170b0a11170a0911170908111708071117070611170605111705041117040311170302111802011119011117db3c7011188040111a7f111c5398c855408210415400735006cb1f14ce12cb07cbff01fa0201fa02c914031118030211190201111a0110246d50436d03c8cf8580ca00cf8440ce014c4101eafa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001112111511121111111411111110111311100f11120f0e11110e0d11100d10cf10be10ad109c108b107a106910581047103645135042c87f01ca00111611151114111311121111111055e0db3cc9ed547104b08f435b57151113111511131112111411121111111311111110111211100f11110f0e11100e10df551cdb3cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540026bae30221821041540011ba4371454601aa816f1156126eb3f2f4820afaf08070fb025611206ef2d08070810082708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0044001200000000617468617201b05b1115fa403081557df8425616c705f2f48200da07096e19f2f41113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed547103c2e30221821041540013bae3025717c0001116c12101111601b08ebe1113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e05f0f5f07f2c082474b7101fe5b1115d33ffa40d30fd307fa00d31fd31ff404d307d3fff40430812426f8421115112011151114111f11141113111e11131112111d11121111111c11111110111b11100f111a0f0e11190e0d11180d0c11170c0b11160b0a11200a09111f0908111e0807111d0706111c0605111b0504111a040311190302111802011121014804fc11225617db3c01112301c70501112101f2f48200d118286eb3f2f427206ef2d080071116070611150605111f0504111e0403111d0302111c0201111b01111a70111a8040111a7f111ac855a0db3cc90411130403111203021111020111100110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a4c495f4a0048821041540012500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff40002888ae2f400c901fb000811150807111407061113060511120504111104031110034f1d0b0950770e0c0a08c87f01ca00111611151114111311121111111055e0db3cc9ed54677103fc5b1115d33f30812915296eb39af8422a206ef2d080c7059170e2f2f41114111611141113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce10bd10ac109b108a10791068105710461035443012db3c708040706f00c8013082104154001401cb1fc910246d50436d03c8cf8580ca00894c6f700164f82801db3c705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d04d011e88c87001ca005a02ce810101cf00c94e0228ff008e88f4a413f4bcf2c80bed5320e303ed43d94f55020271505201d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc510016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c5302c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102545400b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f5603fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae30257585b02d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366656e01f8313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a021a0de028200df8203be12f2f40e206ef2d08024f8230aa424c2005902f28e577170544956c85520821005138d915004cb1f12cb3fcecec92510484513508810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb000393366c21e2226eb394103d6c41e30d10bd10ac0b108a107910681057103644305a6e00e8f8276f10820afaf080a122c2009558a1500da192323de220c2008e5101206ef2d080737005c8018210d53276db58cb1fcb3fc941401510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb009410235f03e20903f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540071bae302216e5c6002fc31fa40d401d001fa0030f8416f2430328200aa5a015611c705f2f4702e6eb38e3f2e206ef2d0805250c705935612b39170e29922820afaf080a012be923170e28e1d5322d749c2009620d7498307bb9170e294d74ac000923070e292307fdede9131e2e30301c823cf16f82301cb1f21d74901cb0801cf1615f400c971705d5e01fa5b708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed546303fe6f00c8013082104154000301cb1fc956100408552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a8a5f676800065bcf81044a821041540073bae3023020821041540010bae30220821041540015bae302821041540014ba61696c6d03fa31fa40d307d3fffa00fa0030f8416f2430328200aa5a015613c705f2f426c3009323c3009170e2935336bd9170e2926c129131e2702f6eb38e2a2f206ef2d0805260c705935613b39170e29324c10a9170e29922820afaf080a012be923170e292307fde9131e2e3033520c300935303bd9170e29130e30d71706f00c862646601fc5f03708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5463002000000000617468617220726566756e64012e3322f82345400311100302111102561059db3c320f50e365001ec85003cf1612cb1fcbff5220f400c902fe013082104154000301cb1fc956100407552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a6768001a58cf8680cf8480f400f400cf81008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd6a6b0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430126e01fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c0826e0078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed540001100186cf16ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00c87f01ca00111611151114111311121111111055e0db3cc9ed547101f6011115011116ce1113c8ce01111301cd01111101cb1fc81110c8ce01111001cd500e206e9430cf84809201cee21ccb0f1acb0f18f4005006206e9430cf84809201cee214cb1f226eb39702c8cec958f40095327058ca00e2cb1f01206e9430cf84809201cee2cb1fca00c858fa0258fa0258fa0213f40013f4001372000ecb1f13f400cdcd1ce8e8f5');
+    const __code = Cell.fromHex('b5ee9c7241027401002159000228ff008e88f4a413f4bcf2c80bed5320e303ed43d90121020271020d02012003080201620406028daf8476a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e2b882f87b630c02205001a226e916de022206ef2d080f90002e9adaef6a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186888a888b888a888a088b088a0889888a88898889088a088908888889888888880889088807888887870888072a8eed9e2b882f87b630c02207001831c87101cb075614cf16ccc9020120090b0289b5dafda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61bb678d9e6d8e70220a002c561556126eb398305611206ef2d080de56110156110102e1b4f47da89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61a222a222c222a2228222a22282226222822262224222622242222222422222220222222201e22201eaa1db678ae20be1ed8c30220c0104db3c4d0201200e190201200f170201201012028db36bbb5134348000638cbe903500740060404075c0154800f45622c21b60407d2049c41b5b5c1b485b485c2084017d7840082084077359401b5b499b78c376cf15c417c3db186022110004561102012013150289ac2df6a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e3679b639c02214001cc87101cb075615cf16c9529056170289ad2776a268690000c7197d206a00e800c08080eb802a9001e8ac458436c080fa40938836b6b83690b690b8410802faf0801041080ee6b28036b69336f186ed9e3679b639c02216000654765402e1b593dda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61a222a222c222a2228222a22282226222822262224222622242222222422222220222222201e22201eaa1db678ae20be1ed8c302218002e81010b56100280204133f40a6fa19401d70130925b6de20201201a1c028db79cfda89a1a400031c65f481a803a003020203ae00aa4007a2b11610db0203e9024e20dadae0da42da42e104200bebc2004104203b9aca00dada4cdbc61bb678ae20be1ed8c30221b00022902016a1d1f0294a8a4ed44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30ddb3c571257105f0f50565f05221e0008226eb322028caa7ded44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30ddb3c57105f0f6c61222000022803f63001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e32fa40d401d001810101d700552003d1588b086d8101f48127106d6d706d216d2170821005f5e1002082101dcd65006d6d266de30d11178e9f11158020d7217021d749c21f9430d31f01de821041540012bae3025f0f5f08e070561622242601f6fa40d401d001d31fd401d0d401d001d72c01916d93fa4001e201d30fd30ff404d72c01916d93fa4001e201d31fd2000193d401d0916de201d31fd72c01916d93fa4001e201d31fd200d430d0fa00fa00fa00f404f404d31ff4043011131116111311131115111311131114111357161114111511141113111411132300301112111311121111111211111110111111100f11100f550e02fed33f01311114111511141113111411131112111311121111111211111110111111100f11100f10ef10de10cd10bc10ab109a108910781067105610451034111641305616db3c70804070111ac80182104154001558cb1fcb3fc91034413001111a0110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016e4d2501b0b0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001114111511141113111411131112111311121111111211111110111111100f11100f550ec87f01ca00111611151114111311121111111055e0db3cc9ed54720468d74920c21f97311116d31f1117de21821041540022bae30221821041540023bae30221821041540024bae30221821041540025ba27292a2c02fc5b1115fa403081557df8425616c705f2f456106e8ec057101113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e03b3bf8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e7228016410df10ce10ad0c109b108a10791068105710461035440302c87f01ca00111611151114111311121111111055e0db3cc9ed547201e05b5710571481557df8425614c705f2f48200cf3a2b6eb3f2f48137a5f8232bbef2f41112111411121111111311111110111211100f11110f0a11100a10df10ce10bd6d0d10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed547202fe5b1115d430d081557df8425616c705f2f45611d7498ec057111113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e13939f8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e722b016410df10ce10bd10ac108b0a10791068105710461035440302c87f01ca00111611151114111311121111111055e0db3cc9ed547202fe8ef45b5711571481557df8425614c705f2f48200cf3a296eb3f2f48137a5f82329bef2f408206ef2d08011121114111211111113111111101112111011110e11100e10df10ce10bd10ac109b6d0b108a107910681057104610354140c87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540028ba722d03fc8ee95f041113d43081557df8425614c705f2f4f8235611a01113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce10bd10ac109b108a10791068105710461035410403c87f01ca00111611151114111311121111111055e0db3cc9ed54e02182104154002abae30221821041540029ba722e2f019210235f03571481557df8425614c705f2f41112111411121111111311111110111211100f11110f0e11100e551d6d59c87f01ca00111611151114111311121111111055e0db3cc9ed547204fe8ee85b571581557df8425615c705f2f48200cf3a216eb3f2f48137a5f8235616bef2f4206ef2d0806d01fb041113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540020bae30221821041540021bae3027230323301fe5b1115fa403081557df8425616c705f2f4811790296ef2f4268e1f81010bf8235614a0103f128020216e955b59f4593098c801cf014133f441e28e1f367f81010bf823103f41808020216e955b59f4593098c801cf014133f441e2e21113111511131112111411121111111311111110111211100f11110f0e11100e10df0e31015c10bd10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed547201f85b1115fa403081557df8425616c705f2f41d81010b016d8020216e955b59f4593098c801cf014133f441e21113111511131112111411121111111311111110111211100f11110f0e11100e10df0e10bd10ac109b108a107910681057104610354403c87f01ca00111611151114111311121111111055e0db3cc9ed5472044c21821041540002bae30221821041540074bae30221821041540070bae30221821041540072ba343a3c3e03fe5b1115d33ffa40d30fd307fa00d307d3fffa0030f8416f24303281565456126ef2f4561681010b2280204133f40a6fa19401d70130925b6de28200ec42216eb39af82302206ef2d08012be923170e2f2f4820081ab2adb3cf2f4816f11561a6eb3f2f48200df8223820b938700a05230bef2f4f8282adb3c1112a40d80202c404e3502f27f71216e955b59f45b3098c801cf004133f443e224c2008ec4561b206ef2d08073708828552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de820898968073700ec80182104154000558cb1fcb3fc9104541301e3637001c0000000061746861722073616c6501fc10246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00205611705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d05023a18208989680a18209312d00a1717ff823106b105a3801f810491038407bc855608210415400015008cb1f16ce14cb0f12cb0701fa02cb1fcb07cbffc91046401504503d10465522c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001113111511131112111411121111111311111110111211100f11110f39016c0e11100e10df10ce10bd10ac109b108a107918105710461035401403c87f01ca00111611151114111311121111111055e0db3cc9ed547201fc5b6c331112fa00fa00fa003081557df8425615c705f2f4814127238209312d00be97228209312d00be9170e2982382112a05f200bb9170e2982282112a05f200bb9170e2982182112a05f200bb9170e2f2f4815e995312bef2f41113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce3b015a10bd10ac109b108a1079106810574614552005c87f01ca00111611151114111311121111111055e0db3cc9ed547203fa5b1115d33fd430d0f8416f243032810a6824db3c8e1626802026714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8229820afaf080a0820b938700a013be12f2f402111702011118011117db3c70804011197f111b2ac855208210415400715004cb1f12ce01c8cecd01fa02c944300211190201111a01404d3d01ea10246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed547204b0e30221821041540003ba8f435b57151113111511131112111411121111111311111110111211100f11110f0e11100e10df551cdb3cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540027ba3f44724302fe5b1115d33fd307d3ff30f8416f243032810a6825db3c8e1627802027714133f40e6fa19401d70030925b6de26eb39170e2f2f48200df8229820afaf080a0820b938700a013be12f2f41116111711161115111711151114111711141113111711131112111711121111111711111110111711100f11170f0e11170e0d11170d4041003620c2ff97208208078eacbb9170e298a9380f82008eacbb923070e202fc0c11170c0b11170b0a11170a0911170908111708071117070611170605111705041117040311170302111802011119011117db3c7011188040111a7f111c5398c855408210415400735006cb1f14ce12cb07cbff01fa0201fa02c914031118030211190201111a0110246d50436d03c8cf8580ca00cf8440ce01fa0280694d4201e2cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb001112111511121111111411111110111311100f11120f0e11110e0d11100d10cf10be10ad109c108b107a106910581047103645135042c87f01ca00111611151114111311121111111055e0db3cc9ed547204b08f435b57151113111511131112111411121111111311111110111211100f11110f0e11100e10df551cdb3cc87f01ca00111611151114111311121111111055e0db3cc9ed54e021821041540026bae30221821041540011ba4472464701aa816f1156126eb3f2f4820afaf08070fb025611206ef2d08070810082708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0045001200000000617468617201b05b1115fa403081557df8425616c705f2f48200da07096e19f2f41113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed547203c2e30221821041540013bae3025717c0001116c12101111601b08ebe1113111511131112111411121111111311111110111211100f11110f0e11100e10df551cc87f01ca00111611151114111311121111111055e0db3cc9ed54e05f0f5f07f2c082484c7201fe5b1115d33ffa40d30fd307fa00d31fd31ff404d307d3fff40430812426f8421115112011151114111f11141113111e11131112111d11121111111c11111110111b11100f111a0f0e11190e0d11180d0c11170c0b11160b0a11200a09111f0908111e0807111d0706111c0605111b0504111a040311190302111802011121014904fc11225617db3c01112301c70501112101f2f48200d118286eb3f2f427206ef2d080071116070611150605111f0504111e0403111d0302111c0201111b01111a70111a8040111a7f111ac855a0db3cc90411130403111203021111020111100110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a4d4a604b0048821041540012500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff40002888ae2f400c901fb000811150807111407061113060511120504111104031110034f1d0b0950770e0c0a08c87f01ca00111611151114111311121111111055e0db3cc9ed54687203fc5b1115d33f30812915296eb39af8422a206ef2d080c7059170e2f2f41114111611141113111511131112111411121111111311111110111211100f11110f0e11100e10df10ce10bd10ac109b108a10791068105710461035443012db3c708040706f00c8013082104154001401cb1fc910246d50436d03c8cf8580ca00894d70710164f82801db3c705920f90022f9005ad76501d76582020134c8cb17cb0fcb0fcbffcbff71f90400c87401cb0212ca07cbffc9d04e011e88c87001ca005a02ce810101cf00c94f0228ff008e88f4a413f4bcf2c80bed5320e303ed43d95056020271515301d7bf786f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e365db61dc520016547a98547a98547a6953ba01d3bc7e7f6a268690000c720fd20699feb9600c8b6c9fd2000f100e987e983fd00698fe98fe98ffa026983ea00e869fffa02690018081f081e881e081d881d081c881c081b881b081a881a360f470bfd20408080eb802c816880b6b82a3800298036a988b6b8716d9e3672c5402c22b6eb353e097302c206ef2d080dec86f00016f8c6d6f8c2f8e22c821c10098802d01cb0701a301de019a7aa90ca630541220c000e63068a592cb07e4da11c9d0db3c8b52e6a736f6e8db3c6f2201c993216eb396016f2259ccc9e8312f02561102555500b620d74a21d7499720c20022c200b18e48036f22807f22cf31ab02a105ab025155b60820c2009a20aa0215d71803ce4014de596f025341a1c20099c8016f025044a1aa028e123133c20099d430d020d74a21d749927020e2e2e85f0301f83001d072d721d200d200fa4021103450666f04f86102f862ed44d0d200018e41fa40d33fd72c01916d93fa4001e201d30fd307fa00d31fd31fd31ff404d307d401d0d3fff404d20030103e103d103c103b103a1039103810371036103510346c1e8e17fa40810101d7005902d1016d7054700053006d53116d70e20f5703fe8e613e0c8020d7217021d749c21f9430d31f309131e2821041540011ba8e4110ac551970c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed54e05f0de00dd70d1ff2e08221821041540001bae3022182105fcc3d14bae30258595c02d6355f0350565f05fa40d30fd307fa00d31fd307d3ff308200aa5af8422cc705f2f481393d096e19f2f45475117153bb8ea40e11100e10df104e109d108c107b103a491544861023db3c320d50cb1a10695e3416430595102c363930e210bd10ac1b106a1059104807054366666f01f8313504d33ffa40d72c01916d93fa4001e201f40431fa00f8416f2481318b56126eb3f2f48200c0805612206ef2d0805240c705f2f48139195616b3f2f443305230fa40fa0071d721fa00fa00306c6170f83a20aa00820afaf080a024c2009424a021a0de028200df8203be12f2f40e206ef2d08024f8230aa424c2005a02f28e577170544956c85520821005138d915004cb1f12cb3fcecec92510484513508810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb000393366c21e2226eb394103d6c41e30d10bd10ac0b108a107910681057103644305b6f00e8f8276f10820afaf080a122c2009558a1500da192323de220c2008e5101206ef2d080737005c8018210d53276db58cb1fcb3fc941401510246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb009410235f03e20903f42182102fcb26a2ba8ee431d33f30f8427080407f514f5611c8552082108b7717355004cb1f12cb3f810101cf00cec91034413010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ae021821041540071bae302216f5d6102fc31fa40d401d001fa0030f8416f2430328200aa5a015611c705f2f4702e6eb38e3f2e206ef2d0805250c705935612b39170e29922820afaf080a012be923170e28e1d5322d749c2009620d7498307bb9170e294d74ac000923070e292307fdede9131e2e30301c823cf16f82301cb1f21d74901cb0801cf1615f400c971705e5f01fa5b708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed546403fe6f00c8013082104154000301cb1fc956100408552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb08a8a60686900065bcf81044a821041540073bae3023020821041540010bae30220821041540015bae302821041540014ba626a6d6e03fa31fa40d307d3fffa00fa0030f8416f2430328200aa5a015613c705f2f426c3009323c3009170e2935336bd9170e2926c129131e2702f6eb38e2a2f206ef2d0805260c705935613b39170e29324c10a9170e29922820afaf080a012be923170e292307fde9131e2e3033520c300935303bd9170e29130e30d71706f00c863656701fc5f03708042708810246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5464002000000000617468617220726566756e64012e3322f82345400311100302111102561059db3c320f50e366001ec85003cf1612cb1fcbff5220f400c902fe013082104154000301cb1fc956100407552010246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb007080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf818a6869001a58cf8680cf8480f400f400cf81008ee2f400c901fb0010bd551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5402fc30f8416f2410235f038200c0802b6eb39a2b206ef2d0805220c7059170e2f2f481386c0fb31ff2f47f7080402d7f1112547dcb547dba53cb5619c855a0db3cc92f0411120110246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010bd6b6c0048821041540011500ccb1f1acb3f18ce16cb0f14cb0758fa02cb1fcb1ff400cb07cbfff400007c551ac87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed5401f2303d8200aa5af8422cc705f2f470296eb38e5029206ef2d0807080427022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00de10bd10ac109b108a107910681057104610354430126f01fe8ef78200aa5af8422dc705f2f4815a9d2ef2f409206ef2d080708100a07022c8018210d53276db58cb1fcb3fc910246d50436d03c8cf8580ca00cf8440ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb0010ac109b6d0b108a10791068105710461035443012e05f0ef2c0826f0078c87f01ca0055d050dece1bcb3f5009206e9430cf84809201cee217cb0f15cb075003fa02cb1fcb1fcb1ff400cb0701c8cbff12f40012ca00cdc9ed540001100186cf16ce01fa028069cf40025c6e016eb0935bcf819d58cf8680cf8480f400f400cf81e2f400c901fb00c87f01ca00111611151114111311121111111055e0db3cc9ed547201f6011115011116ce1113c8ce01111301cd01111101cb1fc81110c8ce01111001cd500e206e9430cf84809201cee21ccb0f1acb0f18f4005006206e9430cf84809201cee214cb1f226eb39702c8cec958f40095327058ca00e2cb1f01206e9430cf84809201cee2cb1fca00c858fa0258fa0258fa0213f40013f4001373000ecb1f13f400cdcdd84d39a6');
     const builder = beginCell();
     builder.storeUint(0, 1);
     initAtharCollection_init_args({ $$type: 'AtharCollection_init_args', admin, collectionUri, delaySec })(builder);
@@ -4914,21 +5222,20 @@ export const AtharCollection_errors = {
     135: { message: "Code of a contract was not found" },
     136: { message: "Invalid standard address" },
     138: { message: "Not a basechain address" },
-    1609: { message: "this date is sold by auction" },
-    1714: { message: "tier is priced by curve: common or rare" },
     2664: { message: "no such token" },
+    3766: { message: "only the classes (bronze to legendary) are auctioned" },
+    4643: { message: "limit of this kind reached for this wallet" },
     5268: { message: "auction not finished" },
     6032: { message: "closed" },
     6434: { message: "bad occasion" },
     9254: { message: "only a real item" },
     9457: { message: "send the fees" },
-    9748: { message: "silver includes the photo" },
     10060: { message: "daily limit reached for this wallet" },
     10517: { message: "only the next edition" },
     12078: { message: "not revealed yet" },
     12332: { message: "mystery pool incomplete" },
     12683: { message: "not minted" },
-    12902: { message: "only mythic or special dates" },
+    12950: { message: "bad token id" },
     13448: { message: "auction already exists" },
     13916: { message: "bad style" },
     14245: { message: "notice period not over" },
@@ -4938,45 +5245,57 @@ export const AtharCollection_errors = {
     14653: { message: "already minted" },
     15521: { message: "no live auction" },
     15525: { message: "already issued" },
+    15981: { message: "direct kinds only" },
     16679: { message: "fee out of range" },
     17529: { message: "bad pool size" },
     20798: { message: "ticket sale is over" },
+    20964: { message: "direct kinds are 0 normal, 1 silver, 2 gold" },
     21885: { message: "only admin" },
+    22001: { message: "bad kind" },
     22100: { message: "minting closed" },
-    22947: { message: "bad tier" },
+    22822: { message: "below what is already issued" },
     23197: { message: "no upgrade pending" },
     23696: { message: "already revealed" },
     23975: { message: "date already taken" },
     24217: { message: "a change costs at least a first picture" },
     24241: { message: "not open yet" },
-    24505: { message: "mythic and special dates are sold by auction" },
     25177: { message: "wrong secret" },
     28276: { message: "sale is not open" },
     28433: { message: "payout not set" },
+    29357: { message: "kind not set" },
     30320: { message: "all tickets sold" },
     30788: { message: "bad special" },
     30889: { message: "bad price bounds" },
-    31027: { message: "date out of range" },
     32956: { message: "set the prices before opening with Configure" },
+    33195: { message: "id out of range" },
     34249: { message: "too early for the public reveal" },
+    35069: { message: "every kind needs a supply cap" },
+    36080: { message: "this token is inside the mystery boxes" },
+    39512: { message: "token already in the pool" },
     39703: { message: "too early" },
     40897: { message: "already settled" },
+    42803: { message: "this kind is sold out" },
     43610: { message: "only collection" },
+    44480: { message: "a supply cap is required" },
     44990: { message: "bid too low" },
     46897: { message: "already open" },
     47192: { message: "date not in this season" },
     47518: { message: "not your open ticket" },
     47787: { message: "this date is inside the mystery boxes" },
     48010: { message: "send price + fees" },
-    48786: { message: "tier not set" },
+    49171: { message: "configure normal, silver and gold first" },
     49280: { message: "not owner" },
+    49724: { message: "bad cap" },
     50514: { message: "no open ticket" },
     50563: { message: "bad rates" },
+    51432: { message: "this token is sold by auction" },
+    52369: { message: "a cap can only be lowered" },
     52892: { message: "fee too high" },
     53050: { message: "nothing proposed" },
     53528: { message: "no next edition yet" },
+    53752: { message: "this kind is not sold directly" },
+    54334: { message: "no supply cap for this kind" },
     55815: { message: "already set" },
-    56586: { message: "configure common and rare first" },
     57218: { message: "not enough value" },
     57326: { message: "position already loaded" },
     57676: { message: "mystery boxes not configured" },
@@ -5021,21 +5340,20 @@ export const AtharCollection_errors_backward = {
     "Code of a contract was not found": 135,
     "Invalid standard address": 136,
     "Not a basechain address": 138,
-    "this date is sold by auction": 1609,
-    "tier is priced by curve: common or rare": 1714,
     "no such token": 2664,
+    "only the classes (bronze to legendary) are auctioned": 3766,
+    "limit of this kind reached for this wallet": 4643,
     "auction not finished": 5268,
     "closed": 6032,
     "bad occasion": 6434,
     "only a real item": 9254,
     "send the fees": 9457,
-    "silver includes the photo": 9748,
     "daily limit reached for this wallet": 10060,
     "only the next edition": 10517,
     "not revealed yet": 12078,
     "mystery pool incomplete": 12332,
     "not minted": 12683,
-    "only mythic or special dates": 12902,
+    "bad token id": 12950,
     "auction already exists": 13448,
     "bad style": 13916,
     "notice period not over": 14245,
@@ -5045,45 +5363,57 @@ export const AtharCollection_errors_backward = {
     "already minted": 14653,
     "no live auction": 15521,
     "already issued": 15525,
+    "direct kinds only": 15981,
     "fee out of range": 16679,
     "bad pool size": 17529,
     "ticket sale is over": 20798,
+    "direct kinds are 0 normal, 1 silver, 2 gold": 20964,
     "only admin": 21885,
+    "bad kind": 22001,
     "minting closed": 22100,
-    "bad tier": 22947,
+    "below what is already issued": 22822,
     "no upgrade pending": 23197,
     "already revealed": 23696,
     "date already taken": 23975,
     "a change costs at least a first picture": 24217,
     "not open yet": 24241,
-    "mythic and special dates are sold by auction": 24505,
     "wrong secret": 25177,
     "sale is not open": 28276,
     "payout not set": 28433,
+    "kind not set": 29357,
     "all tickets sold": 30320,
     "bad special": 30788,
     "bad price bounds": 30889,
-    "date out of range": 31027,
     "set the prices before opening with Configure": 32956,
+    "id out of range": 33195,
     "too early for the public reveal": 34249,
+    "every kind needs a supply cap": 35069,
+    "this token is inside the mystery boxes": 36080,
+    "token already in the pool": 39512,
     "too early": 39703,
     "already settled": 40897,
+    "this kind is sold out": 42803,
     "only collection": 43610,
+    "a supply cap is required": 44480,
     "bid too low": 44990,
     "already open": 46897,
     "date not in this season": 47192,
     "not your open ticket": 47518,
     "this date is inside the mystery boxes": 47787,
     "send price + fees": 48010,
-    "tier not set": 48786,
+    "configure normal, silver and gold first": 49171,
     "not owner": 49280,
+    "bad cap": 49724,
     "no open ticket": 50514,
     "bad rates": 50563,
+    "this token is sold by auction": 51432,
+    "a cap can only be lowered": 52369,
     "fee too high": 52892,
     "nothing proposed": 53050,
     "no next edition yet": 53528,
+    "this kind is not sold directly": 53752,
+    "no supply cap for this kind": 54334,
     "already set": 55815,
-    "configure common and rare first": 56586,
     "not enough value": 57218,
     "position already loaded": 57326,
     "mystery boxes not configured": 57676,
@@ -5141,24 +5471,25 @@ const AtharCollection_types: ABIType[] = [
     {"name":"AtharItem$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":true}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"lastTransferAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"AtharState","header":null,"fields":[{"name":"season","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tier","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"paid","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mintedAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"lastTransferAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"hands","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaRef","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"CodeProposal","header":null,"fields":[{"name":"pending","type":{"kind":"simple","type":"bool","optional":false}},{"name":"applicableAt","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
-    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pendingCode","type":{"kind":"simple","type":"cell","optional":true}},{"name":"pendingCodeAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"ext","type":{"kind":"simple","type":"cell","optional":true}}]},
+    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"bool"}},{"name":"pendingCode","type":{"kind":"simple","type":"cell","optional":true}},{"name":"pendingCodeAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"ext","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
-    {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"k0","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"k1","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"k2","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"Ticket","header":null,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"claimed","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"Auction","header":null,"fields":[{"name":"started","type":{"kind":"simple","type":"bool","optional":false}},{"name":"endAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"highBidder","type":{"kind":"simple","type":"address","optional":true}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
-    {"name":"Configure","header":1096024128,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"Configure","header":1096024128,"fields":[{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"maxSupply","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"specialFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"walletMax","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"AddSpecial","header":1096024129,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}}]},
     {"name":"Open","header":1096024130,"fields":[{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"SetPaused","header":1096024131,"fields":[{"name":"paused","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"Buy","header":1096024132,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"style","type":{"kind":"simple","type":"uint","optional":false,"format":8}}]},
     {"name":"StartAuction","header":1096024133,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"reserve","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"duration","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
-    {"name":"SetFees","header":1096024137,"fields":[{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetKindFees","header":1096024137,"fields":[{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"specialFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"SetCap","header":1096024138,"fields":[{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"Bid","header":1096024134,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
-    {"name":"Reprice","header":1096024165,"fields":[{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
+    {"name":"Reprice","header":1096024165,"fields":[{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"Settle","header":1096024135,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}}]},
     {"name":"Sweep","header":1096024136,"fields":[]},
-    {"name":"LoadPool","header":1096024144,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}}]},
+    {"name":"LoadPool","header":1096024144,"fields":[{"name":"items","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":32}}]},
     {"name":"SetMystery","header":1096024145,"fields":[{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"startPrice","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolExpected","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"BuyTicket","header":1096024146,"fields":[{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}}]},
     {"name":"Reveal","header":1096024147,"fields":[{"name":"secret","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
@@ -5166,8 +5497,10 @@ const AtharCollection_types: ABIType[] = [
     {"name":"RevealPublic","header":1096024150,"fields":[]},
     {"name":"AdminMint","header":1096024151,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
-    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":16}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolExpected","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Auction","valueFormat":"ref"}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"photoFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"silverFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"lockedBids","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"ticketsOpen","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
-    {"name":"FeeInfo","header":null,"fields":[{"name":"photo","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"silver","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
+    {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":32}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolExpected","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"Auction","valueFormat":"ref"}},{"name":"auctionIds","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":32}},{"name":"auctionCount","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"caps","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":32}},{"name":"issuedBy","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":32}},{"name":"photoFees","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":"coins"}},{"name":"specialFees","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":"coins"}},{"name":"walletMax","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":16}},{"name":"lockedBids","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"ticketsOpen","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"DateView","header":null,"fields":[{"name":"taken","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"auction","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"reserved","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p0","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p1","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p2","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"special","type":{"kind":"simple","type":"bool","optional":false}}]},
+    {"name":"KindInfo","header":null,"fields":[{"name":"cap","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"issued","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"photo","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"special","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"walletMax","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
+    {"name":"WalletInfo","header":null,"fields":[{"name":"today","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k0","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k1","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k2","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"MysteryInfo","header":null,"fields":[{"name":"poolSize","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"loaded","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticketsSold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"commitHash","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"a","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"b","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
 ]
 
@@ -5209,7 +5542,8 @@ const AtharCollection_opcodes = {
     "SetPaused": 1096024131,
     "Buy": 1096024132,
     "StartAuction": 1096024133,
-    "SetFees": 1096024137,
+    "SetKindFees": 1096024137,
+    "SetCap": 1096024138,
     "Bid": 1096024134,
     "Reprice": 1096024165,
     "Settle": 1096024135,
@@ -5275,6 +5609,15 @@ const AtharCollection_receivers: ABIReceiver[] = [
 ]
 
 export const MAX_INDEX = 36524n;
+export const ID_SHIFT = 65536n;
+export const MAX_KIND = 7n;
+export const MAX_ID = 495276n;
+export const KIND_NORMAL = 0n;
+export const KIND_SILVER = 1n;
+export const KIND_GOLD = 2n;
+export const KIND_BRONZE = 3n;
+export const KIND_LEGENDARY = 7n;
+export const KEY_TICKETS = 15n;
 export const TIER_COMMON = 0n;
 export const TIER_RARE = 1n;
 export const TIER_MYTHIC = 2n;

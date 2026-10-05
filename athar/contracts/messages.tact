@@ -1,10 +1,29 @@
-// Shared messages and constants for Athar (Edition 1).
-// Date index = days since 1950-01-01 (0 .. 36524). The NFT index IS the date index.
+// Shared messages and constants for Athar.
+// Date index = days since 1950-01-01 (0 .. 36524).
+// A token is a DATE in a KIND: its id (the NFT index) is  kind * 65536 + date.  Kind 0 therefore has id = date.
+// The same date can exist once in every kind, never twice in the same kind (the item address is made from the id).
+//   kinds 0 normal, 1 silver, 2 gold  : sold directly to anyone (price curve, supply cap)
+//   kinds 3 bronze, 4 rare, 5 purple, 6 diamond, 7 legendary : minted by the owner, sold by auction or mystery box
 
-const MAX_INDEX: Int = 36524;
+const MAX_INDEX: Int = 36524;           // last date
+const ID_SHIFT: Int = 65536;
+const MAX_KIND: Int = 7;
+const MAX_ID: Int = 7 * 65536 + 36524;
+const KIND_NORMAL: Int = 0;
+const KIND_SILVER: Int = 1;
+const KIND_GOLD: Int = 2;
+const KIND_BRONZE: Int = 3;             // first of the owner-minted classes
+const KIND_LEGENDARY: Int = 7;
+const KEY_TICKETS: Int = 15;            // the price curve of the mystery tickets lives under this key
+
+// date patterns (tier.tact) only decide a price premium on the direct kinds
 const TIER_COMMON: Int = 0;
 const TIER_RARE: Int = 1;
 const TIER_MYTHIC: Int = 2;
+
+fun idKind(id: Int): Int { return id / 65536; }
+fun idDate(id: Int): Int { return id % 65536; }
+fun validId(id: Int): Bool { return id >= 0 && id <= MAX_ID && id % 65536 <= MAX_INDEX; }
 
 const ITEM_FUND: Int = 30000000;        // 0.03 TON travels with every mint (item deploy + its storage: about 0.0025 TON a year, and every transfer tops it up)
 const MINTER_GAS: Int = 20000000;       // 0.02 TON kept by the minter per purchase

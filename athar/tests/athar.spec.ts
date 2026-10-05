@@ -1,5 +1,5 @@
 import { toNano, Address, beginCell } from "@ton/core";
-import { setup, openSeason, itemOf, S1_START, DELAY } from "./helpers";
+import { setup, openSeason, itemOf, S1_START, DELAY, configureKinds, ID } from "./helpers";
 import { indexOf, ruleTier, TIER } from "../lib/rules";
 
 const BUY_FEES = toNano("0.08");
@@ -43,7 +43,7 @@ describe("Athar season sale", () => {
     expect(r.transactions).toHaveTransaction({ from: minter.address, to: bob.address, inMessageBounced: true });
   });
 
-  it("underpaying is rejected; dates outside the season are rejected; mythic cannot be bought directly", async () => {
+  it("underpaying is rejected; dates outside the season are rejected; a class token cannot be bought directly", async () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, minter } = ctx;
     const idx = find(S1_START, TIER.COMMON);
@@ -51,7 +51,7 @@ describe("Athar season sale", () => {
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
     r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(1990, 5, 5)), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
-    r = await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(indexOf(2000, 11, 11)), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
+    r = await minter.send(alice.getSender(), { value: toNano("20") }, { $$type: "Buy", index: ID(4, indexOf(2000, 5, 5)), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
   });
 
@@ -92,8 +92,7 @@ describe("Athar season sale", () => {
   it("a rejected mint bounces the money back to the buyer (minter not yet active)", async () => {
     const ctx = await setup();
     const { admin, bc, alice, bob, minter, collection } = ctx;
-    await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "Configure", tier: 0n, startPrice: toNano("0.5"), floor: toNano("0.25"), cap: toNano("8"), bumpBps: 16n, decayBps: 1500n });
-    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
+    await configureKinds(ctx);
     await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(bc.now!), walletDailyCap: 0n });
     await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: bob.address });      // takes the "first minter" slot
     await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: minter.address });   // later ones wait: delay not over
@@ -210,7 +209,7 @@ import { MockSuccessor } from "./mock/build/mock_MockSuccessor";
 import { SandboxContract } from "@ton/sandbox";
 
 describe("mythic auction", () => {
-  const mythic = indexOf(2000, 11, 11);
+  const mythic = Number(ID(4, indexOf(2000, 11, 11)));   // a class token (rare, kind 4) on any date
   async function live() {
     const ctx = await setup(); await openSeason(ctx);
     await ctx.minter.send(ctx.admin.getSender(), { value: toNano("0.1") }, { $$type: "StartAuction", index: BigInt(mythic), reserve: toNano("10"), duration: 3600n, mediaRef: 0n });
@@ -235,7 +234,7 @@ describe("mythic auction", () => {
     const item = await itemOf(ctx, mythic);
     expect((await item.getGetNftData()).ownerAddress.equals(bob.address)).toBe(true);
     const st = await item.getAthar();
-    expect(st.tier).toBe(2n); expect(st.paid).toBe(toNano("11"));
+    expect(st.tier).toBe(4n); expect(st.paid).toBe(toNano("11"));
     expect((await payout.getBalance()) - before).toBeGreaterThan(toNano("10.99"));
     expect(await minter.getSoldCount()).toBe(1n);
     r = await minter.send(alice.getSender(), { value: toNano("0.1") }, { $$type: "Settle", index: BigInt(mythic) });
@@ -308,9 +307,9 @@ import { Dictionary } from "@ton/core";
 
 describe("mystery boxes: nobody can block the reveal", () => {
   it("if the admin never reveals, anyone can after 3 days; the boxes are never stuck", async () => {
-    const ctx = await setup();
+    const ctx = await setup(); await configureKinds(ctx);
     const { admin, minter, alice, bc } = ctx;
-    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
     let i = S1_START + 40, n = 0; while (n < 10) { if (ruleTier(i) === TIER.COMMON) items.set(n++, i); i++; }
     await minter.send(admin.getSender(), { value: toNano("0.5") }, { $$type: "LoadPool", items });
     const revealAt = bc.now! + 86400;
@@ -330,12 +329,14 @@ describe("mystery boxes: nobody can block the reveal", () => {
 
 describe("mystery boxes (fair reveal)", () => {
   async function box() {
-    const ctx = await setup();
+    const ctx = await setup(); await configureKinds(ctx);
     const { admin, minter, collection, bc } = ctx;
+    // a mixed box: ten normal dates, six bronze and six rare class tokens (token ids carry their kind)
     const dates: number[] = []; let i = S1_START + 40;
-    while (dates.length < 20) { if (ruleTier(i) === TIER.COMMON) dates.push(i); i++; }
-    for (let k = S1_START; dates.length < 22; k++) if (ruleTier(k) === TIER.RARE && !dates.includes(k)) dates.push(k);
-    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    while (dates.length < 10) { if (ruleTier(i) === TIER.COMMON) dates.push(i); i++; }
+    for (let k = 0; k < 6; k++) dates.push(Number(ID(3, S1_START + 100 + k)));
+    for (let k = 0; k < 6; k++) dates.push(Number(ID(4, S1_START + 200 + k)));
+    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
     dates.forEach((d, pos) => items.set(pos, d));
     const secret = 0x1234567890abcdefn * 0xfedcba0987654321n;
     const buf = Buffer.alloc(32); buf.writeBigUInt64BE(secret >> 64n, 16); buf.writeBigUInt64BE(secret & 0xffffffffffffffffn, 24);
@@ -391,9 +392,8 @@ describe("mystery boxes (fair reveal)", () => {
 describe("safety checks before opening", () => {
   it("the season cannot open while the mystery pool is only partly loaded", async () => {
     const ctx = await setup(); const { admin, minter } = ctx;
-    await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "Configure", tier: 0n, startPrice: toNano("0.5"), floor: toNano("0.25"), cap: toNano("8"), bumpBps: 16n, decayBps: 1500n });
-    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
-    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    await configureKinds(ctx);
+    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
     items.set(0, S1_START + 50); items.set(2, S1_START + 52);               // position 1 is missing
     await minter.send(admin.getSender(), { value: toNano("0.3") }, { $$type: "LoadPool", items });
     const r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: 0n, walletDailyCap: 0n });

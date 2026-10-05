@@ -32,7 +32,7 @@ contract AtharCollection {
     engraveFee: Int as coins = 100000000;      // 0.1 TON; adjustable by the admin (SetItemFees), never above 5 TON
     mediaFee: Int as coins = 100000000;        // first picture / occasion
     changeFee: Int as coins = 500000000;       // replacing a picture that is already there (both the old and the new one stay in the token's history)
-    issued: map<Int as uint16, Bool>;          // which dates have a token (so a request for a missing token is refused at once)
+    issued: map<Int as uint32, Bool>;          // which token ids (kind and date) exist (so a request for a missing token is refused at once)
     pendingCode: Cell? = null;                 // proposed new logic of this collection (its address, its tokens and its money stay; see ProposeCode)
     pendingCodeAt: Int as uint32 = 0;
     ext: Cell? = null;                         // spare room: data that a later version may need without changing the layout above
@@ -117,7 +117,7 @@ contract AtharCollection {
         require(self.successor == null, "minting closed");
         let from: Int? = self.minters.get(ctx.sender);
         require(from != null && now() >= from!!, "minter not authorised");
-        require(msg.index >= 0 && msg.index <= MAX_INDEX, "date out of range");
+        require(validId(msg.index), "id out of range");
         require(self.payout != null, "payout not set");
         require(ctx.value >= msg.remit + MINT_FEES, "not enough value");
         let init: StateInit = initOf AtharItem(myAddress(), msg.index);
@@ -147,13 +147,13 @@ contract AtharCollection {
     // the owner asks HERE (the collection knows the current fees); the item checks ownership and applies it
     receive(msg: EngraveReq) {
         let ctx: Context = context();
-        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.issued.get(msg.index) != null, "no such token");
+        require(validId(msg.index) && self.issued.get(msg.index) != null, "no such token");
         require(ctx.value >= self.engraveFee + MIN_STORAGE + REQ_GAS, "not enough value");
         send(SendParameters{ to: self.itemAddress(msg.index), value: 0, mode: SendRemainingValue, bounce: true, body: EngraveFrom{ owner: ctx.sender, text: msg.text, fee: self.engraveFee }.toCell() });
     }
     receive(msg: SetMediaReq) {
         let ctx: Context = context();
-        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.issued.get(msg.index) != null, "no such token");
+        require(validId(msg.index) && self.issued.get(msg.index) != null, "no such token");
         require(ctx.value >= self.mediaFee + MIN_STORAGE + REQ_GAS, "not enough value");
         send(SendParameters{ to: self.itemAddress(msg.index), value: 0, mode: SendRemainingValue, bounce: true, body: SetMediaFrom{ owner: ctx.sender, occasion: msg.occasion, mediaRef: msg.mediaRef, firstFee: self.mediaFee, changeFee: self.changeFee }.toCell() });
     }
