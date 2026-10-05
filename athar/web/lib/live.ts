@@ -7,8 +7,10 @@
 //               so they move wherever the viewer can play an animated SVG.
 
 const GOLD = "#ffd36a";
-const spark = (x: number, y: number, s: number, fill: string, cls: string, delay: number) =>
-  `<path class="${cls}" style="animation-delay:${delay.toFixed(2)}s" transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s})" fill="${fill}" d="M0-9C1-3 3-1 9 0 3 1 1 3 0 9-1 3-3 1-9 0-3-1-1-3 0-9Z"/>`;
+// A spark is placed by an outer <g> (translate + scale) and animated on the path inside it: a CSS animation on `transform` replaces the
+// transform ATTRIBUTE, so animating the placed element itself would throw every spark to the corner of the picture.
+const spark = (x: number, y: number, s: number, fill: string, cls: string, delay: number, style = "") =>
+  `<g transform="translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s})"><path class="${cls}" style="animation-delay:${delay.toFixed(2)}s${style}" fill="${fill}" d="M0-9C1-3 3-1 9 0 3 1 1 3 0 9-1 3-3 1-9 0-3-1-1-3 0-9Z"/></g>`;
 
 function sparkles(n: number, fill: string, cls: string): string {
   let out = "";
@@ -20,11 +22,27 @@ function sparkles(n: number, fill: string, cls: string): string {
   return out;
 }
 
+/** Sparks inside the inner circle: each one lights up, drifts outward from the centre and fades (the rosette "scatters" light). */
+function innerSparks(n: number, fill: string): string {
+  let out = "";
+  for (let i = 0; i < n; i++) {
+    const an = ((i * 137.508 + 40) % 360) * (Math.PI / 180);
+    const rad = 44 + ((i * 53) % 7) * 24;
+    const dx = Math.cos(an) * 34, dy = Math.sin(an) * 34;
+    out += spark(400 + Math.cos(an) * rad, 400 + Math.sin(an) * rad, 0.55 + ((i * 7) % 3) * 0.2, fill, "ar-sc", (i * 0.71) % 5.5, `;--dx:${dx.toFixed(1)}px;--dy:${dy.toFixed(1)}px`);
+  }
+  return out;
+}
+const hasInnerRosette = (svg: string) => svg.includes('class="ar-rb"') || svg.includes('class="ar-c3"');
+
 // Motion that belongs to the picture itself, in every version of it (live site, stored file):
 //  - the small rosette badge of a photo token turns and breathes
 //  - a RARE token's crystal: petals turn one way, the inner star the other, the jewel pulses, the facets twinkle, a glint passes
 //  - a photo token's picture is alive too: a soft rim light breathes and a faint glint passes now and then
-const BADGE_CSS = `.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}.ar-ro{animation:ar-spin 60s linear infinite}`
+const BADGE_CSS = `.ar-rb{transform-origin:400px 400px;animation:ar-contract 6.5s ease-in-out infinite}.ar-sc{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-scat 5.5s ease-out infinite}`
+  + `@keyframes ar-contract{0%,100%{transform:scale(1);filter:brightness(.92)}50%{transform:scale(.9);filter:brightness(1.35)}}`
+  + `@keyframes ar-scat{0%{opacity:0;transform:translate(0,0) scale(.3)}25%{opacity:1;transform:translate(calc(var(--dx)*.3),calc(var(--dy)*.3)) scale(1)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.4)}}`
+  + `.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}.ar-ro{animation:ar-spin 60s linear infinite}`
   + `@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`
   + `.ar-c1,.ar-c2{transform-origin:400px 400px}.ar-c1{animation:ar-spin 72s linear infinite}.ar-c2{animation:ar-spin-rev 48s linear infinite}`
   + `.ar-c3{transform-box:fill-box;transform-origin:center;animation:ar-corep 3.2s ease-in-out infinite}`
@@ -66,7 +84,7 @@ export function liveArt(svg: string, o: LiveOpts = {}): string {
     + `.ar-rim,.ar-glow{animation:ar-breathe ${pulse}s ease-in-out infinite}`
     + `.ar-rings{animation:ar-breathe ${pulse * 1.6}s ease-in-out infinite}`
     + `.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle ${(pulse * 0.9).toFixed(1)}s ease-in-out infinite}`;
-  let extra = `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${col}" stroke-width="10"/>` + sparkles(n, col, "ar-tw");
+  let extra = `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${col}" stroke-width="10"/>` + sparkles(n, col, "ar-tw") + (hasInnerRosette(svg) ? innerSparks(8 + stage * 2, col) : "");
   if (o.anniversary) {
     css += `@keyframes ar-aura{0%,100%{opacity:.2}50%{opacity:.9}}.ar-aura{animation:ar-aura 2.4s ease-in-out infinite}.ar-orbit{animation:ar-spin 14s linear infinite}`;
     let orb = "";
@@ -83,5 +101,5 @@ export function badgeMotion(svg: string): string {
 
 export function storedMotion(svg: string): string {
   const css = BASE + BADGE_CSS + `.ar-rim,.ar-glow{animation:ar-breathe 7s ease-in-out infinite}.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle 5.5s ease-in-out infinite}`;
-  return inject(svg, css, `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${GOLD}" stroke-width="10"/>` + sparkles(6, GOLD, "ar-tw"));
+  return inject(svg, css, `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${GOLD}" stroke-width="10"/>` + sparkles(6, GOLD, "ar-tw") + (hasInnerRosette(svg) ? innerSparks(8, GOLD) : ""));
 }

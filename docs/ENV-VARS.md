@@ -21,7 +21,7 @@
 `BOT_TOKEN` · `OWNER_ID` · `ARCHIVE_CHANNEL_ID` · `FORCE_SUB_CHANNEL` · `ENABLE_GLOBAL_FEED` · `FEED_API_URL` · `FEED_SECRET` · `YTDLP_COOKIES` · `PROXY_URL` · `COBALT_API_KEY` · `MAX_FILE_BYTES` · `PUBLIC_HOST` · `MAX_CONCURRENT_DOWNLOADS` · `MEDIA_BOT_TOKEN` · `NEXT_PUBLIC_MEDIA_BOT_USERNAME` · `MEDIA_BOT_RENDER_URL` · `NEXT_PUBLIC_MEDIA_STREAM_BASE` · `NEXT_PUBLIC_BASHAR_TG_APP`
 
 ## أثر
-`ATHAR_ADMIN` · `NEXT_PUBLIC_ATHAR_ADMIN` · `ATHAR_ADMIN_PATH` · `NEXT_PUBLIC_ATHAR_META_BASE` · `ATHAR_PRIMARY` · `ATHAR_NETWORK` · `TONCENTER_API_KEY` (اختياري ومجاني)
+`ATHAR_ADMIN` · `NEXT_PUBLIC_ATHAR_ADMIN` · `ATHAR_ADMIN_PATH` · `NEXT_PUBLIC_ATHAR_META_BASE` · `ATHAR_PRIMARY` · `ATHAR_NETWORK` · `TONCENTER_API_KEY` (اختياري ومجاني؛ يمكن أيضاً لصقه في لوحة الإدارة فيُحفظ في مجلد البيانات على الخادم `secrets/` ويُستثنى من النسخ الأسبوعي)
 كلمات محفظة الإدارة: عند مدير كلمات السر فقط. مفتاح كشف صناديق الغموض: ملف `athar-season1-secret.json` أو السطران اللذان نسختَهما.
 
 ## Oracle (`backup.env`)

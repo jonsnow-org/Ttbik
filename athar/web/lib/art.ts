@@ -171,7 +171,7 @@ export function renderArt(a: ArtInput): string {
   const rare = a.tier === 1 && !a.gold;
   const ro = rare ? crystal(a, accent, pal.ink) : rosette(a, accent, pal.ink);
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
-  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${rare ? ro.body + `<rect class="ar-cg" x="180" y="120" width="70" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/>` : `<g class="ar-ro">${ro.body}</g>`}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
+  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${rare ? ro.body + `<rect class="ar-cg" x="180" y="120" width="70" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/>` : `<g class="ar-rb"><g class="ar-ro">${ro.body}</g></g>`}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
 

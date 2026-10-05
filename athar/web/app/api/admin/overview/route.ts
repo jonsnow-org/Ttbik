@@ -1,3 +1,4 @@
+import { toncenterKey } from "@/lib/settings";
 import { NextResponse } from "next/server";
 import { Address } from "@ton/core";
 import { addresses, allTokens, makeClient, tokensOf } from "@/lib/chain";
@@ -25,12 +26,12 @@ export async function GET(req: Request) {
       // the public node answers empty for large pages: ask 20 at a time (up to 10 pages), spaced out
       const txs: { now: number; in_msg?: { source?: string; value?: string } }[] = [];
       for (let page = 0; page < 10; page++) {
-        const r = await fetch(`${TONCENTER_V3}/transactions?account=${encodeURIComponent(payout.toString())}&limit=20&offset=${page * 20}&sort=desc`, { headers: process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {}, cache: "no-store" });
+        const r = await fetch(`${TONCENTER_V3}/transactions?account=${encodeURIComponent(payout.toString())}&limit=20&offset=${page * 20}&sort=desc`, { headers: toncenterKey() ? { "X-API-Key": toncenterKey() } : {}, cache: "no-store" });
         if (!r.ok) break;
         const got = ((await r.json()).transactions || []) as typeof txs;
         txs.push(...got);
         if (got.length < 20) break;
-        await new Promise((x) => setTimeout(x, process.env.TONCENTER_API_KEY ? 150 : 1100));
+        await new Promise((x) => setTimeout(x, toncenterKey() ? 150 : 1100));
       }
       const sales = txs.filter((t) => { try { return !!t.in_msg?.source && Address.parse(t.in_msg.source).equals(a.collection.address) && Number(t.in_msg.value) > 0; } catch { return false; } })
         .map((t) => ({ at: t.now, ton: Number(t.in_msg!.value) / 1e9 }));
