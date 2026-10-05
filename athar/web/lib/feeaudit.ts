@@ -9,6 +9,7 @@
 //   - the token did not come from a direct purchase (auctions and mystery boxes carry pictures chosen by the management).
 // Plain generated pictures (no photo) are free for everybody and always shown.
 // The purchases are read from the seller contract's own transactions (public, on-chain) and kept in a small file.
+import { toncenterKey } from "./settings";
 import fs from "fs";
 import path from "path";
 import { Address, Cell } from "@ton/core";
@@ -50,7 +51,7 @@ export async function buys(): Promise<Book> {
     const a = await addresses(1);
     if (!a) return book;
     const minter = a.minter.address.toString({ bounceable: true });
-    const headers: Record<string, string> = process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {};
+    const headers: Record<string, string> = toncenterKey() ? { "X-API-Key": toncenterKey() } : {};
     let offset = 0, newest = book.lastLt, done = false;
     while (!done && offset < 2000) {
       const r = await fetch(`${TONCENTER_V3}/transactions?account=${encodeURIComponent(minter)}&limit=20&offset=${offset}&sort=desc`, { headers, cache: "no-store", signal: AbortSignal.timeout(15000) });
@@ -64,7 +65,7 @@ export async function buys(): Promise<Book> {
         if (rec) { const k = String(rec.index); (book.byIndex[k] ||= []).push(rec); }
       }
       offset += txs.length;
-      await new Promise((res) => setTimeout(res, process.env.TONCENTER_API_KEY ? 150 : 1100));
+      await new Promise((res) => setTimeout(res, toncenterKey() ? 150 : 1100));
     }
     book.lastLt = newest; saveBook(book); lastScan = Date.now();
     return book;

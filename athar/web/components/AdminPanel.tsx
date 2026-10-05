@@ -44,6 +44,19 @@ export default function AdminPanel() {
     const r = await fetch("/api/admin/hide", { method: "POST", headers: adm(), body: JSON.stringify({ kind, key, note: hNote, action }) });
     if (r.ok) { setHiddenRows((await r.json()).rows); if (action === "hide") { setHKey(""); setHNote(""); } } else toast("مفتاح غير صالح");
   }
+  // the free Toncenter key (write-only: the panel only learns where it comes from and its last four characters)
+  const [tk, setTk] = useState<{ source: string; hint: string } | null>(null), [tkIn, setTkIn] = useState(""), [tkBusy, setTkBusy] = useState(false);
+  const loadTk = useCallback(async () => { const r = await fetch("/api/admin/settings", { headers: adm(), cache: "no-store" }); if (r.ok) setTk(await r.json()); }, []);
+  useEffect(() => { loadTk(); }, [loadTk]);
+  async function tkAct(clear = false) {
+    setTkBusy(true);
+    try {
+      const r = await fetch("/api/admin/settings", { method: "POST", headers: adm(), body: JSON.stringify(clear ? { clear: true } : { key: tkIn }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error === "key refused by Toncenter" ? "رفضت Toncenter هذا المفتاح، تأكد من نسخه كاملاً" : "المفتاح غير صالح"); return; }
+      setTk(j); setTkIn(""); toast(clear ? "أُزيل المفتاح" : "حُفظ المفتاح وبدأ العمل");
+    } finally { setTkBusy(false); }
+  }
   // special (gold) dates: the admin picks the picture, it gets the waxed-gold treatment, is shown for approval, stored for good,
   // and only then is the long auction started with that picture attached
   const [newBase, setNewBase] = useState("");
@@ -328,6 +341,17 @@ export default function AdminPanel() {
                 </div>
                 <button className="btn gold" disabled={running || spBusy || !spPhoto} onClick={spStart}>خزّن الصورة وابدأ المزاد</button>
                 <button className="btn" disabled={running || spBusy} onClick={spAll}>جهّز وابدأ كل التواريخ الخاصة ({SEASON_1.specials.length})</button>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <h4>مفتاح Toncenter (يسرّع قراءة الشبكة)</h4>
+              <div className="muted" style={{ fontSize: 12 }}>{tk?.source === "none" || !tk ? "لا يوجد مفتاح: القراءة بطيئة (طلب في الثانية). الصق المفتاح المجاني من بوت Toncenter هنا." : `المفتاح يعمل (ينتهي بـ ${tk.hint}) ${tk.source === "server" ? "· مضبوط على الخادم نفسه" : "· محفوظ من هذه اللوحة"}.`} لا يُعرض المفتاح بعد الحفظ.</div>
+              <div className="gap">
+                <input type="password" dir="ltr" autoComplete="off" placeholder="الصق مفتاح Toncenter" value={tkIn} onChange={(e) => setTkIn(e.target.value)} />
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn gold" disabled={tkBusy || tkIn.trim().length < 16} onClick={() => tkAct(false)}>احفظ المفتاح</button>
+                  {tk?.source === "panel" && <button className="btn ghost" disabled={tkBusy} onClick={() => tkAct(true)}>أزل المفتاح</button>}
+                </div>
               </div>
             </div>
             <div className="card" style={{ margin: 0 }}>
