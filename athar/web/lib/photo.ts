@@ -4,7 +4,7 @@
 //     "whole": the picture as it is, never cropped.
 import { coverCrop, trimBorders } from "./photoFit";
 
-export const PHOTO_BUDGET = 58_000;   // base64 makes it 1.33x, the frame and badge add ~14 KB: the whole picture must stay under the free 100 KB
+export const PHOTO_BUDGET = 52_000;   // base64 makes it 1.33x; the frame, the outlined lettering, the badge and the full motion add ~25 KB: the whole picture must stay under the free 100 KB
 
 function loadImage(src: string | File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

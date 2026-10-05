@@ -3,6 +3,7 @@
 // the root site compiles this file too and has no "@/" alias into this folder.
 import { renderArt, renderPhotoArt } from "./art";
 import { liveArt, storedMotion } from "./live";
+import { textPaths } from "./glyphs";
 import { renderSpecialLive } from "./specialLive";
 import { TOTAL_DATES, dateLabelAr, stageOf, ymd } from "./dates";
 import { SEASON_1, seasonTier, specialIndex } from "./seasons";
@@ -39,7 +40,7 @@ export type ImgHooks = { isHiddenRef?: (ref: string) => boolean };
 
 export async function imgResponse(idParam: string, reqUrl: string, hooks: ImgHooks = {}): Promise<Response> {
   const idRaw = idParam.replace(/\.svg$/, "");
-  if (idRaw === "hidden") return new Response(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800"><rect width="800" height="800" rx="56" fill="#0b1226"/><circle cx="400" cy="360" r="120" fill="none" stroke="#7aa2ff" stroke-width="5" opacity="0.6"/><path d="M330 360h140" stroke="#7aa2ff" stroke-width="8" stroke-linecap="round"/><text x="400" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="30" letter-spacing="6" fill="#7aa2ff">ATHAR</text></svg>`, { headers: SVG });
+  if (idRaw === "hidden") return new Response(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800"><rect width="800" height="800" rx="56" fill="#0b1226"/><circle cx="400" cy="360" r="120" fill="none" stroke="#7aa2ff" stroke-width="5" opacity="0.6"/><path d="M330 360h140" stroke="#7aa2ff" stroke-width="8" stroke-linecap="round"/>${textPaths("ATHAR", { x: 400, y: 580, size: 30, anchor: "middle", spacing: 6, fill: "#7aa2ff" })}</svg>`, { headers: SVG });
   const q = new URL(reqUrl).searchParams;
   const index = idRaw === "collection" ? 18262 + 1000 : Number(idRaw);
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return new Response("bad id", { status: 400 });

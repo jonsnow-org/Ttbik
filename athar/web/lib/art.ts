@@ -3,6 +3,7 @@
 import { MONTHS_AR, MONTHS_EN, ymd } from "./dates";
 import { emblem, occasionById } from "./occasions";
 import { tierSupply } from "./meta";
+import { textPaths } from "./glyphs";
 
 const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: string }> = {
   1: { bg1: "#0b1226", bg2: "#1a2b5c", ink: "#eaf0ff", accent: "#9dbbff" },
@@ -154,13 +155,13 @@ ${defs}</defs>
 <circle cx="400" cy="400" r="${PR}" fill="${a.tier === 0 ? "#0a1633" : a.tier === 2 || a.gold ? "#2a1c06" : "#04201f"}" stroke="${accent}" stroke-width="${stroke}"/>
 ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
-<text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${dayText}</text>
-<text y="34" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="1" fill="${accent}">${esc(monText)}</text></g>
+${textPaths(dayText, { x: 0, y: 10, size: 50, font: "serif", anchor: "middle", fill: pal.ink })}
+${textPaths(monText, { x: 0, y: 34, size: 15, anchor: "middle", spacing: 1, fill: accent })}</g>
 ${occ ? `<g transform="translate(${emblemAt[0]} ${emblemAt[1]}) scale(0.6)">${emblem(occ.id, accent)}</g>` : ""}
-<text x="400" y="86" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
-<text x="400" y="736" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}${a.engravings ? ` · ✎${a.engravings}` : ""}</text>
-<text x="400" y="764" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="4" fill="${accent}" opacity="0.7">ONE OF ${tierSupply(a.season)[a.tier]}</text>
-<text x="400" y="116" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" letter-spacing="5" fill="${accent}" opacity="0.7">EDITION I</text>
+${textPaths("ATHAR · أثر", { x: 400, y: 86, size: 24, anchor: "middle", spacing: 10, fill: accent })}
+${textPaths(`${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}${a.engravings ? ` · ✎${a.engravings}` : ""}`, { x: 400, y: 736, size: 22, anchor: "middle", spacing: 6, fill: accent, opacity: 0.9 })}
+${textPaths(`ONE OF ${tierSupply(a.season)[a.tier]}`, { x: 400, y: 764, size: 15, anchor: "middle", spacing: 4, fill: accent, opacity: 0.7 })}
+${textPaths("EDITION I", { x: 400, y: 116, size: 13, anchor: "middle", spacing: 5, fill: accent, opacity: 0.7 })}
 </svg>`;
 }
 
@@ -171,7 +172,7 @@ export function renderArt(a: ArtInput): string {
   const rare = a.tier === 1 && !a.gold;
   const ro = rare ? crystal(a, accent, pal.ink) : rosette(a, accent, pal.ink);
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
-  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${rare ? ro.body + `<rect class="ar-cg" x="180" y="120" width="70" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/>` : `<g class="ar-rb"><g class="ar-ro">${ro.body}</g></g>`}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
+  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${rare ? ro.body + `<rect class="ar-cg" x="180" y="120" width="70" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/>` : `<g class="ar-rb"><g class="ar-ro">${ro.body}</g></g>`}</g>${a.sealed ? `${textPaths("؟", { x: 400, y: 470, size: 200, font: "serif", anchor: "middle", fill: accent })}` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
 
