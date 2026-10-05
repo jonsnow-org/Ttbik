@@ -29,6 +29,7 @@ export default function AdminPanel() {
   const [ov, setOv] = useState<Ov | null>(null);
   const [startAt, setStartAt] = useState(() => { const d = new Date(Date.now() + 20 * 60000); d.setSeconds(0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); });
   const [maxMsgs, setMaxMsgs] = useState(4);
+  const maxMsgsPicked = useRef(false);   // once the owner picks a number, the wallet's own value no longer overrides it
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [secretShown, setSecretShown] = useState("");
@@ -114,7 +115,7 @@ export default function AdminPanel() {
   useEffect(() => {
     const f: any = (ui.wallet as any)?.device?.features?.find?.((x: any) => x?.name === "SendTransaction");
     const n = Number(f?.maxMessages);
-    if (n > 0) setMaxMsgs(Math.min(255, n));
+    if (n > 0 && !maxMsgsPicked.current) setMaxMsgs(Math.min(255, n));
   }, [ui.wallet]);
 
   const payoutOk = useMemo(() => { try { Address.parse(payout.trim()); return true; } catch { return false; } }, [payout]);
@@ -221,7 +222,7 @@ export default function AdminPanel() {
             <label className="muted">موعد فتح البيع</label>
             <input type="datetime-local" dir="ltr" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
             <label className="muted">أقصى عدد رسائل في تأكيد واحد (4 للمحافظ القديمة، 255 للحديثة)</label>
-            <select value={maxMsgs} onChange={(e) => setMaxMsgs(Number(e.target.value))}><option value={4}>4</option><option value={1}>1</option><option value={20}>20</option><option value={255}>255</option></select>
+            <select value={maxMsgs} onChange={(e) => { maxMsgsPicked.current = true; setMaxMsgs(Number(e.target.value)); }}><option value={4}>4</option><option value={1}>1</option><option value={20}>20</option><option value={255}>255</option></select>
           </div>
           <div className="steps" style={{ marginTop: 12 }}>{checks.map((c, i) => <div key={i} className={`step ${c.ok ? "done" : ""}`}><i>{c.ok ? "✓" : "•"}</i><span>{c.t}</span></div>)}</div>
           <button className="btn gold" style={{ marginTop: 14 }} disabled={!ready || running} onClick={launch}>{st?.collectionActive ? "تابع الإطلاق" : "أطلق الموسم الأول"}</button>
