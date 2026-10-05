@@ -288,7 +288,8 @@ export default function AdminPanel() {
                   {SEASON_1.specials.map((x) => { const i = specialIndex(x); const q = ymd(i); return <option key={i} value={i}>{q.d}/{q.m}/{q.y} · {x.note}</option>; })}
                 </select>
                 <button className="btn ghost" disabled={spBusy} onClick={spGen}>ارسم الصورة تلقائياً (ملوّنة ومتحركة)</button>
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} title="أو اختر صورة بنفسك" />
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} title="أو اختر صورة بنفسك: تُحوَّل إلى ذهبي شمعي، وتنتقل زخرفة التاريخ الذهبية إلى شارة صغيرة بجوارها" />
+                <div className="muted" style={{ fontSize: 12 }}>صورة شخصية بيدك (مشهور مثلاً) ← تُدمج بالذهبي الشمعي وتبقى زخرفة التاريخ شارة صغيرة تدور وتومض في أسفل اليسار.</div>
                 {spSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(spSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <div className="row" style={{ gap: 8 }}>
                   <input type="number" step="1" min="1" value={spReserve} onChange={(e) => setSpReserve(e.target.value)} title="سعر البداية Gram" />

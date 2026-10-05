@@ -6,7 +6,7 @@ import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { storeNow } from "@/lib/storage";
 import { enqueue } from "@/lib/mediaQueue";
-import { storedMotion } from "@/lib/live";
+import { badgeMotion, storedMotion } from "@/lib/live";
 import { OCCASIONS } from "@/lib/occasions";
 import { imageSize } from "@/lib/imgsize";
 import { tokenState } from "@/lib/chain";
@@ -48,6 +48,7 @@ export async function POST(req: Request) {
     ? { index, tier: st.tier, season: st.season, stage: stageOf(st.lastTransferAt), hands: st.hands, engravings: st.engravings.length, occasion }
     : { index, tier, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion };
   let svg: string;
+  let withBadge = false;
   const notes: string[] = [];
   if (kind === "snapshot") {
     svg = renderArt(base);
@@ -74,8 +75,10 @@ export async function POST(req: Request) {
     if (Math.min(dims.w, dims.h) < 200) notes.push("small");
     if (dims.w / dims.h < 0.25 || dims.w / dims.h > 4) notes.push("shape");
     svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, dims);
+    withBadge = true;
   }
   if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
+  else if (withBadge) svg = badgeMotion(svg);       // a photo token: its small rosette badge keeps turning and breathing
   if (preview) return NextResponse.json({ svg, notes });
   try {
     const st2 = await storeNow(svg);

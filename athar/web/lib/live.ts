@@ -20,6 +20,10 @@ function sparkles(n: number, fill: string, cls: string): string {
   return out;
 }
 
+// The small rosette badge of a token that carries a photo keeps what the big rosette did: it turns and breathes.
+const BADGE_CSS = `.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}.ar-ro{animation:ar-spin 60s linear infinite}`
+  + `@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`;
+
 function inject(svg: string, css: string, extra: string): string {
   return svg.replace("</svg>", `<style>@media (prefers-reduced-motion:no-preference){${css}}</style>${extra}</svg>`);
 }
@@ -41,7 +45,7 @@ export function liveArt(svg: string, o: LiveOpts = {}): string {
   const pulse = 6 - stage * 0.9;           // seconds per breath
   const n = 4 + stage * 3;                 // twinkles
   let css = BASE
-    + `.ar-ro{animation:ar-spin ${turn}s linear infinite}`
+    + `.ar-ro{animation:ar-spin ${turn}s linear infinite}.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`
     + `.ar-rim,.ar-glow{animation:ar-breathe ${pulse}s ease-in-out infinite}`
     + `.ar-rings{animation:ar-breathe ${pulse * 1.6}s ease-in-out infinite}`
     + `.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle ${(pulse * 0.9).toFixed(1)}s ease-in-out infinite}`;
@@ -55,7 +59,12 @@ export function liveArt(svg: string, o: LiveOpts = {}): string {
   return inject(svg, css, extra);
 }
 
+/** Motion for a stored picture that has the badge but needs no shimmer (common and rare photo tokens). */
+export function badgeMotion(svg: string): string {
+  return inject(svg, BASE + BADGE_CSS, "");
+}
+
 export function storedMotion(svg: string): string {
-  const css = BASE + `.ar-rim,.ar-glow{animation:ar-breathe 7s ease-in-out infinite}.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle 5.5s ease-in-out infinite}`;
+  const css = BASE + BADGE_CSS + `.ar-rim,.ar-glow{animation:ar-breathe 7s ease-in-out infinite}.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle 5.5s ease-in-out infinite}`;
   return inject(svg, css, `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${GOLD}" stroke-width="10"/>` + sparkles(6, GOLD, "ar-tw"));
 }

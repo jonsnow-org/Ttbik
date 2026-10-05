@@ -77,7 +77,7 @@ function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body
 }
 
 /** The common shell of every token: a round token on a transparent square canvas, with its provenance around the picture. */
-function shell(a: ArtInput, centre: string, defs: string): string {
+function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, number] = [166, 604]): string {
   const { y, m, d } = ymd(a.index);
   const pal = PALETTES[a.season] || PALETTES[1];
   const occ = occasionById(a.occasion ?? 0);
@@ -114,7 +114,7 @@ ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
 <text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${dayText}</text>
 <text y="34" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="1" fill="${accent}">${esc(monText)}</text></g>
-${occ ? `<g transform="translate(166 604) scale(0.6)">${emblem(occ.id, accent)}</g>` : ""}
+${occ ? `<g transform="translate(${emblemAt[0]} ${emblemAt[1]}) scale(0.6)">${emblem(occ.id, accent)}</g>` : ""}
 <text x="400" y="86" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="24" letter-spacing="10" fill="${accent}">ATHAR · أثر</text>
 <text x="400" y="736" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" letter-spacing="6" fill="${accent}" opacity="0.9">${["COMMON", "RARE", "MYTHIC"][a.tier]} · S${a.season}${a.engravings ? ` · ✎${a.engravings}` : ""}</text>
 <text x="400" y="764" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" letter-spacing="4" fill="${accent}" opacity="0.7">ONE OF ${tierSupply(a.season)[a.tier]}</text>
@@ -149,7 +149,7 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
   return { iw: Math.floor(w * k), ih: Math.floor(h * k) };
 }
 
-/** The date's own rosette, shrunk to a small badge (same size as the date seal, on the opposite side) so a token that carries
+/** The date's own rosette, shrunk to a small badge (same size as the date seal, bottom left, mirroring it) so a token that carries
  *  a photo keeps the picture it was born with. Returns the badge and the definitions it needs. */
 function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const pal = PALETTES[a.season] || PALETTES[1];
@@ -158,7 +158,7 @@ function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;
-  const badge = `<g transform="translate(166 196)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)"><g class="ar-ro">${ro.body}</g></g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
+  const badge = `<g class="ar-bd" transform="translate(166 604)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)"><g class="ar-ro">${ro.body}</g></g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
   return { defs, badge };
 }
 
@@ -174,7 +174,7 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
 <g filter="url(#soft)">${ix > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use href="#ph" xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
 <use href="#ph" xlink:href="#ph"/>
 </g>${rb.badge}`;
-  return shell(a, centre, defs);
+  return shell(a, centre, defs, [166, 196]);   // the occasion emblem moves up to make room for the badge
 }
 
 /** A token whose centre is drawn by the caller (a vector scene): same frame, rim, date seal and texts as every other token. */
