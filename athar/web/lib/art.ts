@@ -162,3 +162,8 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
 </g>`;
   return shell(a, centre, defs);
 }
+
+/** A token whose centre is drawn by the caller (a vector scene): same frame, rim, date seal and texts as every other token. */
+export function renderCustomArt(a: ArtInput, centre: string, defs = ""): string {
+  return shell(a, centre, defs);
+}

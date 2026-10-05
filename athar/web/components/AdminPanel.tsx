@@ -7,7 +7,6 @@ import { applyBaseUriMsg, proposeBaseUriMsg, repriceMsg, setItemFeesMsg, setPhot
 import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
 import { compressPhoto } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
-import { renderSpecialGold } from "@/lib/specialRender";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
@@ -74,11 +73,9 @@ export default function AdminPanel() {
   const spGen = async () => {
     setSpBusy(true); setSpSvg("");
     try {
-      const gold = await renderSpecialGold(spIdx);
-      if (!gold) { toast("تعذّر رسم الصورة"); return; }
-      setSpPhoto(gold);
-      const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: gold, preview: true }) });
-      const pj = await pr.json(); if (pr.ok) setSpSvg(pj.svg); else toast(pj.error || "فشلت المعاينة");
+      const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, auto: true, preview: true }) });
+      const pj = await pr.json(); if (!pr.ok) { toast(pj.error || "تعذّر رسم الصورة"); return; }
+      setSpPhoto("auto"); setSpSvg(pj.svg);
     } catch { toast("تعذّر رسم الصورة"); } finally { setSpBusy(false); }
   };
   // every special date at once: draw, store for good, then send the long auctions in batches
@@ -88,16 +85,15 @@ export default function AdminPanel() {
       const i = specialIndex(x);
       const info = await (await fetch(`/api/date/${i}`, { cache: "no-store" })).json().catch(() => null);
       if (info?.taken || info?.auction?.live || (info?.auction && info.auction.highBid > 0)) continue;       // already sold or running
-      const gold = await renderSpecialGold(i);
-      if (!gold) continue;
-      const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: i, photo: gold }) });
+      const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: i, auto: true }) });
+      if (r.status === 400) continue;      // no drawing of ours for this date
       const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
       msgs.push(specialAuctionMsg(st!.minter, SEASON_1, i, BigInt(j.ref), spReserve, Number(spDays)));
     }
     for (const g of chunk(msgs, maxMsgs)) await ui.sendTransaction(tx(g));
   });
   const spStart = () => run(async () => {
-    const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: spPhoto }) });
+    const r = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify(spPhoto === "auto" ? { index: spIdx, auto: true } : { index: spIdx, photo: spPhoto }) });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
     await ui.sendTransaction(tx([specialAuctionMsg(st!.minter, SEASON_1, spIdx, BigInt(j.ref), spReserve, Number(spDays))]));
     setSpPhoto(null); setSpSvg("");
@@ -291,7 +287,7 @@ export default function AdminPanel() {
                 <select value={spIdx} onChange={(e) => { setSpIdx(Number(e.target.value)); setSpPhoto(null); setSpSvg(""); }}>
                   {SEASON_1.specials.map((x) => { const i = specialIndex(x); const q = ymd(i); return <option key={i} value={i}>{q.d}/{q.m}/{q.y} · {x.note}</option>; })}
                 </select>
-                <button className="btn ghost" disabled={spBusy} onClick={spGen}>ارسم الصورة تلقائياً (ذهبي شمعي)</button>
+                <button className="btn ghost" disabled={spBusy} onClick={spGen}>ارسم الصورة تلقائياً (ملوّنة ومتحركة)</button>
                 <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} title="أو اختر صورة بنفسك" />
                 {spSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(spSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <div className="row" style={{ gap: 8 }}>
