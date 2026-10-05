@@ -1,15 +1,10 @@
-# حالة مشروع شام — 2026-10-05 05:49 UTC
+# حالة مشروع شام — 2026-10-05 06:53 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
 ## التنبيهات (ابدأ منها)
 - ❌ دفتر أساسي فشل: المسار A 1 (cpu_training_track) — Traceback (most recent call last):     raise DeadKernelError("Kernel died") nbclient.exceptions.DeadKernelError: Kernel died
 - ❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
-- ⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)
-- ❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
-- ❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
-- ❓ مجموعة sham-audio-tokenizer-adult-synth-v2 في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
-- ❓ مجموعة sham-orchestrator-state في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)
 
 ## المراحل
 - ✅ المرحلة الأولى — تدريب النص الأساسي (GPU) — دفتر: error
@@ -25,8 +20,8 @@
 
 ## الدفاتر على Kaggle (بأسماء مستعارة)
 - complete | المدرّب الحي 1 | الدور: primary | آخر تشغيل 2026-10-03 | GPU
-- complete | المرحلة الثالثة 5 | الدور: primary | آخر تشغيل 2026-10-02
 - complete | المرحلة الثالثة 2 | الدور: duplicate | آخر تشغيل 2026-09-30
+- complete | المرحلة الثالثة 5 | الدور: primary | آخر تشغيل 2026-10-02
 - complete | المرحلة الثالثة 4 | الدور: duplicate | آخر تشغيل 2026-10-01
 - complete | المرحلة الثالثة 3 | الدور: duplicate | آخر تشغيل 2026-09-30 | GPU
 - complete | مركز تحكم شام 1 | الدور: tool | آخر تشغيل 2026-09-24
@@ -48,8 +43,9 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-05T05:48 in_progress ، 2026-10-05T03:28 success
-- Sham CI (contract + self-tests, read-only): 2026-10-05T05:46 success ، 2026-10-05T05:45 success ، 2026-10-05T05:38 success ، 2026-10-05T05:37 success
+- Sham CI (contract + self-tests, read-only): 2026-10-05T06:52 success ، 2026-10-05T06:51 cancelled ، 2026-10-05T06:51 cancelled ، 2026-10-05T06:47 success
+- Sham Status (supervision snapshot): 2026-10-05T06:52 in_progress ، 2026-10-05T05:48 success
+- Sham Merge + Repair + Eval (free CPU runner): 2026-10-05T06:09 success
 - Sham Collector (free CPU runner): 2026-10-05T05:33 in_progress
 - Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-05T05:24 in_progress
 
@@ -76,24 +72,18 @@
 | sham-crawl-gh | 581139610 | 2026-10-05 | gh_cpu_trainer | مدرّب CPU على GitHub (نموذج) |
 | sham-crawl-gh-corpus | 1520107 | 2026-10-05 | gh_cpu_trainer | نصوص مدرّب CPU على GitHub |
 | sham-crawl-gh-collect-corpus | 39923781 | 2026-10-04 | gh_collector | الزاحف العام على GitHub (نصوص فقط) |
-| sham-merged-checkpoint | — | غير موجودة | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
+| sham-merged-checkpoint | 0 | 2026-10-05 | gh_merge_eval | ناتج الدمج والإصلاح على CPU (يُدمج في مرحلة المحادثة كمصدر) |
 | sham-reports | 356 | 2026-10-05 | any (عبر sham_reports.py من كل دفتر) | نسخة من تقارير الجلسات (للإشراف) |
 | sham-research-track-checkpoint | — | غير موجودة | — | الاسم القديم (v1) للمسار B — يُقرأ احتياطاً فقط |
 | sham-checkpoint-v2 | — | غير موجودة | — | اسم بديل يقترحه الدفتر الأول عند تعارض اسم المجموعة — ليس مجموعة قائمة |
+| sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | — | مُرمِّز صوت (VQ) تجربة قديمة — مرشّح صوتي، تُدمج أوزانه بحسب نوعها (صوت) حين تتوافق البنية، وإلا يبقى مرشّحاً |
+| sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | — | مُرمِّز صوت (VQ) النسخة الثانية للتجربة — مرشّح صوتي (صوت) |
+| sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | — | مُرمِّزا صورة وصوت من مسار الفيديو — مرشّحان لمساري الصورة والصوت بحسب نوع كل ملف |
+| sham-orchestrator-state | 277 | 2026-09-27 | — | حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج |
 | sham-crawl-xlive | 1373973598 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-| sham-audio-tokenizer-adult-synth | 34872718 | 2026-09-24 | ❓ غير معرّف | (ليست في العقد) |
 | sham-crawl-agent-corpus | 65727 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-| sham-video-frames-audio-tokenizers | 178421614 | 2026-09-23 | ❓ غير معرّف | (ليست في العقد) |
 | sham-crawl-agent | 1370230289 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-| sham-audio-tokenizer-adult-synth-v2 | 34872673 | 2026-09-21 | ❓ غير معرّف | (ليست في العقد) |
-| sham-orchestrator-state | 277 | 2026-09-27 | ❓ غير معرّف | (ليست في العقد) |
 | sham-crawl-xlive-corpus | 251624 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
-
-## ما في المجموعات غير الموثّقة (بحسب نوع الملفات — تُدمج وفق نظامنا بحسب نوعها)
-- sham-audio-tokenizer-adult-synth: 2 ملف (model 1، text 1) — مثال: audio_tokenizer.pt | audio_tokenizer_progress.json
-- sham-video-frames-audio-tokenizers: 4 ملف (model 2، text 2) — مثال: audio_tokenizer.pt | audio_tokenizer_progress.json | image_tokenizer.pt
-- sham-audio-tokenizer-adult-synth-v2: 2 ملف (model 1، text 1) — مثال: audio_tokenizer.pt | audio_tokenizer_progress.json
-- sham-orchestrator-state: 1 ملف (text 1) — مثال: accelerator_state.json
 
 ## آخر تقارير الجلسات (الأحدث أولاً)
 ### 2026-10-05 02:11 UTC — 🤖 مدرّب CPU على GitHub: 1,714 خطوة | نُشر: None | نصوص: jonsnowjonsnow/sham-craw

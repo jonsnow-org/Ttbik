@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-05 05:49 UTC",
+ "generated_at": "2026-10-05 06:53 UTC",
  "errors": [],
  "kernels": [
   {
@@ -12,20 +12,20 @@
    "failure": ""
   },
   {
-   "alias": "المرحلة الثالثة 5",
-   "track": "chat_stage",
-   "status": "complete",
-   "role": "primary",
-   "last_run": "2026-10-02",
-   "gpu": false,
-   "failure": ""
-  },
-  {
    "alias": "المرحلة الثالثة 2",
    "track": "chat_stage",
    "status": "complete",
    "role": "duplicate",
    "last_run": "2026-09-30",
+   "gpu": false,
+   "failure": ""
+  },
+  {
+   "alias": "المرحلة الثالثة 5",
+   "track": "chat_stage",
+   "status": "complete",
+   "role": "primary",
+   "last_run": "2026-10-02",
    "gpu": false,
    "failure": ""
   },
@@ -279,55 +279,55 @@
    "name": "sham-audio-tokenizer-checkpoint",
    "size": "34984143",
    "updated": "2026-10-05 00:07:52.660000",
-   "downloads": "21"
+   "downloads": "22"
   },
   {
    "name": "sham-multimodal-checkpoint",
    "size": "577676682",
    "updated": "2026-10-03 15:26:58.047000",
-   "downloads": "30"
+   "downloads": "31"
   },
   {
    "name": "sham-crawl-checkpoint",
    "size": "582297996",
    "updated": "2026-10-03 19:06:37.643000",
-   "downloads": "5"
+   "downloads": "6"
   },
   {
    "name": "sham-cpu-track-checkpoint-v2",
    "size": "2731054018",
    "updated": "2026-10-04 08:28:43.507000",
-   "downloads": "3"
+   "downloads": "4"
   },
   {
    "name": "sham-checkpoint",
    "size": "2776586859",
    "updated": "2026-10-04 06:51:23.393000",
-   "downloads": "5"
+   "downloads": "6"
   },
   {
    "name": "sham-research-track-checkpoint-v2",
    "size": "385145782",
    "updated": "2026-10-04 08:09:34.743000",
-   "downloads": "10"
+   "downloads": "11"
   },
   {
    "name": "sham-crawl-xlive",
    "size": "1373973598",
    "updated": "2026-10-03 02:42:30.113000",
-   "downloads": "3"
+   "downloads": "4"
   },
   {
    "name": "sham-image-tokenizer-checkpoint",
    "size": "144053496",
    "updated": "2026-10-05 00:16:21.950000",
-   "downloads": "17"
+   "downloads": "18"
   },
   {
    "name": "sham-chat-checkpoint",
    "size": "580621375",
    "updated": "2026-10-03 11:47:35.110000",
-   "downloads": "19"
+   "downloads": "21"
   },
   {
    "name": "nova-small-checkpoint",
@@ -339,13 +339,13 @@
    "name": "sham-audio-tokenizer-adult-synth",
    "size": "34872718",
    "updated": "2026-09-24 00:46:59.817000",
-   "downloads": "8"
+   "downloads": "9"
   },
   {
    "name": "sham-cpu-track-checkpoint",
    "size": "175",
    "updated": "2026-09-20 11:58:06.133000",
-   "downloads": "0"
+   "downloads": "1"
   },
   {
    "name": "sham-crawl-agent-corpus",
@@ -357,31 +357,31 @@
    "name": "sham-video-frames-audio-tokenizers",
    "size": "178421614",
    "updated": "2026-09-23 12:22:00.930000",
-   "downloads": "8"
+   "downloads": "9"
   },
   {
    "name": "sham-crawl-agent",
    "size": "1370230289",
    "updated": "2026-10-01 15:31:00.620000",
-   "downloads": "1"
+   "downloads": "2"
   },
   {
    "name": "sham-audio-tokenizer-adult-synth-v2",
    "size": "34872673",
    "updated": "2026-09-21 16:13:15.337000",
-   "downloads": "8"
+   "downloads": "9"
   },
   {
    "name": "sham-video-corpus",
    "size": "768362",
    "updated": "2026-10-01 12:45:55.033000",
-   "downloads": "9"
+   "downloads": "10"
   },
   {
    "name": "sham-orchestrator-state",
    "size": "277",
    "updated": "2026-09-27 18:04:46.037000",
-   "downloads": "0"
+   "downloads": "1"
   },
   {
    "name": "sham-crawl-corpus",
@@ -399,13 +399,13 @@
    "name": "sham-crawl-gh-collect-corpus",
    "size": "39923781",
    "updated": "2026-10-04 22:50:57.733000",
-   "downloads": "0"
+   "downloads": "1"
   },
   {
    "name": "sham-crawl-gh",
    "size": "581139610",
    "updated": "2026-10-05 00:18:38.543000",
-   "downloads": "0"
+   "downloads": "2"
   },
   {
    "name": "sham-crawl-gh-corpus",
@@ -417,7 +417,13 @@
    "name": "sham-reports",
    "size": "356",
    "updated": "2026-10-05 02:11:38.753000",
-   "downloads": "2"
+   "downloads": "4"
+  },
+  {
+   "name": "sham-merged-checkpoint",
+   "size": "0",
+   "updated": "2026-10-05 06:21:52.770000",
+   "downloads": "0"
   }
  ],
  "dataset_diag": {
@@ -466,116 +472,90 @@
    ],
    "documented": true
   },
-  "sham-audio-tokenizer-adult-synth": {
-   "status": "",
-   "files": 2,
+  "sham-merged-checkpoint": {
+   "status": "ready",
+   "files": 5,
    "kinds": {
-    "model": 1,
-    "text": 1
-   },
-   "sample": [
-    "audio_tokenizer.pt",
-    "audio_tokenizer_progress.json"
-   ],
-   "documented": false
-  },
-  "sham-video-frames-audio-tokenizers": {
-   "status": "",
-   "files": 4,
-   "kinds": {
-    "model": 2,
+    "model": 3,
     "text": 2
    },
    "sample": [
     "audio_tokenizer.pt",
-    "audio_tokenizer_progress.json",
+    "final_merged.pt",
     "image_tokenizer.pt",
-    "image_tokenizer_progress.json"
+    "merge_progress.json"
    ],
-   "documented": false
-  },
-  "sham-audio-tokenizer-adult-synth-v2": {
-   "status": "",
-   "files": 2,
-   "kinds": {
-    "model": 1,
-    "text": 1
-   },
-   "sample": [
-    "audio_tokenizer.pt",
-    "audio_tokenizer_progress.json"
-   ],
-   "documented": false
-  },
-  "sham-orchestrator-state": {
-   "status": "",
-   "files": 1,
-   "kinds": {
-    "text": 1
-   },
-   "sample": [
-    "accelerator_state.json"
-   ],
-   "documented": false
+   "documented": true
   }
  },
  "workflows": {
+  "Sham CI (contract + self-tests, read-only)": [
+   {
+    "id": 37274636826,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37274636826",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-05T06:52",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37274572890,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37274572890",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started": "2026-10-05T06:51",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37274533465,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37274533465",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started": "2026-10-05T06:51",
+    "minutes": null,
+    "event": "pull_request"
+   },
+   {
+    "id": 37274253018,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37274253018",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-05T06:47",
+    "minutes": null,
+    "event": "pull_request"
+   }
+  ],
   "Sham Status (supervision snapshot)": [
+   {
+    "id": 37274633740,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37274633740",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-05T06:52",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
    {
     "id": 37269389516,
     "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269389516",
-    "status": "in_progress",
-    "conclusion": null,
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-05T05:48",
     "minutes": null,
     "event": "schedule"
-   },
-   {
-    "id": 37259580633,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37259580633",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-05T03:28",
-    "minutes": null,
-    "event": "workflow_dispatch"
    }
   ],
-  "Sham CI (contract + self-tests, read-only)": [
+  "Sham Merge + Repair + Eval (free CPU runner)": [
    {
-    "id": 37269278856,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269278856",
+    "id": 37271041056,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37271041056",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-05T05:46",
+    "started": "2026-10-05T06:09",
     "minutes": null,
-    "event": "pull_request"
-   },
-   {
-    "id": 37269188660,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269188660",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-05T05:45",
-    "minutes": null,
-    "event": "pull_request"
-   },
-   {
-    "id": 37268653044,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37268653044",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-05T05:38",
-    "minutes": null,
-    "event": "pull_request"
-   },
-   {
-    "id": 37268594318,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37268594318",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-05T05:37",
-    "minutes": null,
-    "event": "pull_request"
+    "event": "schedule"
    }
   ],
   "Sham Collector (free CPU runner)": [
@@ -611,11 +591,6 @@
  ],
  "alerts": [
   "❌ دفتر أساسي فشل: المسار A 1 (cpu_training_track) — Traceback (most recent call last):     raise DeadKernelError(\"Kernel died\") nbclient.exceptions.DeadKernelError: Kernel died",
-  "❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\"",
-  "⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)",
-  "❓ مجموعة sham-audio-tokenizer-adult-synth في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
-  "❓ مجموعة sham-video-frames-audio-tokenizers في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
-  "❓ مجموعة sham-audio-tokenizer-adult-synth-v2 في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)",
-  "❓ مجموعة sham-orchestrator-state في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)"
+  "❌ دفتر أساسي فشل: المرحلة الأولى 2 (text_stage1) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\""
  ]
 }
