@@ -251,12 +251,7 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
                 alerts.append(f"⚠ {name}: حالة Kaggle «{dg['status']}» (النشر لم يكتمل أو فشل؟)")
             if dg.get("files", 1) == 0:
                 alerts.append(f"❌ {name}: آخر نسخة بلا أي ملف (النشر فارغ) — الجلسة القادمة ستبدأ من نقطة أقدم أو من الصفر")
-    known = set(contract["datasets"])
-    import fnmatch
-    for d in data.get("datasets", []):
-        n = d["name"]
-        if n.startswith(("sham", "nova")) and n not in known and not any(fnmatch.fnmatch(n, p) for p in contract["dynamic_dataset_patterns"]):
-            alerts.append(f"❓ مجموعة {n} في حسابك ليست في العقد (منسية؟ أم جديدة تحتاج وصفاً في CONTRACT.json)")
+    # a sham* dataset without a contract entry is NOT an alert: it is classified by its file kinds and merged per modality
     if not data.get("reports"):
         alerts.append("ℹ لا تقارير بعد في sham-reports (تظهر بعد أول جلسة تعمل بالكود الجديد)")
     return alerts
@@ -365,8 +360,8 @@ def render_md(data: dict, contract: dict) -> str:
     for d in extra:
         # same rule as sham_contract.known(): dynamic patterns (sham-crawl-*) are known collectors
         covered = any(fnmatch.fnmatch(d["name"], pat) for pat in contract.get("dynamic_dataset_patterns", []))
-        writer = "زاحف مكتشف تلقائياً" if covered else "❓ غير معرّف"
-        role = "(نمط ديناميكي في العقد)" if covered else "(ليست في العقد)"
+        writer = "زاحف مكتشف تلقائياً" if covered else "يُصنَّف تلقائياً"
+        role = "(نمط ديناميكي في العقد)" if covered else "(تُدمج بحسب نوع ملفاتها)"
         L.append(f"| {d['name']} | {d['size']} | {d['updated'][:10]} | {writer} | {role} |")
     diag = data.get("dataset_diag") or {}
     bad = {n: g for n, g in diag.items() if g.get("documented") and (g.get("files") == 0 or (g.get("status") and g["status"] not in ("ready", "complete")))}
@@ -421,6 +416,11 @@ if __name__ == "__main__":
             {"name": "Sham Merge + Repair + Eval (free CPU runner)", "status": "completed", "conclusion": "failure",
              "run_started_at": "2026-10-03T22:00:00Z", "updated_at": "2026-10-03T22:10:00Z", "event": "schedule"},
             {"name": "CI", "status": "completed", "conclusion": "success", "run_started_at": "2026-10-04T10:00:00Z", "updated_at": "2026-10-04T10:05:00Z"}]}
+        # the fixture times are relative to "now" (they were fixed dates, so the self-test failed once they were >18 h old)
+        _shift = dt.datetime.now(dt.timezone.utc) - dt.datetime(2026, 10, 4, 16, 0, tzinfo=dt.timezone.utc)
+        for _r in runs["workflow_runs"]:
+            for _k in ("run_started_at", "updated_at"):
+                _r[_k] = (dt.datetime.strptime(_r[_k], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc) + _shift).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         class FakeRun:
             stdout = ("ref,title,size,lastUpdated,downloadCount,voteCount,usabilityRating\n"
@@ -470,7 +470,7 @@ if __name__ == "__main__":
                 pass
         data = collect(api=FakeApi(), get_json=lambda url: runs, fetch=lambda n: None, run=fake_run, contract=contract)
         alerts = "\n".join(data["alerts"])
-        assert "فشل في آخر تشغيلين" in alerts and "mystery" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
+        assert "فشل في آخر تشغيلين" in alerts and "sham-multimodal-checkpoint غير موجودة" in alerts, alerts
         assert "other-stuff" not in alerts and "Sham Collector" not in alerts.split("لم يعمل")[0], alerts
         out = Path(tempfile.mkdtemp())
         write_outputs(data, out, contract)
@@ -493,7 +493,7 @@ if __name__ == "__main__":
             ],
         }, contract)
         assert md_dyn.count("زاحف مكتشف تلقائياً") == 3, md_dyn
-        assert "❓ غير معرّف" in md_dyn and md_dyn.count("❓ غير معرّف") == 1
+        assert "❓" not in md_dyn and md_dyn.count("يُصنَّف تلقائياً") == 1
         # the failing run is reported with the step that failed
         jobs = {"jobs": [{"name": "merge", "steps": [{"name": "setup", "conclusion": "success"}, {"name": "Repair, merge", "conclusion": "failure"}]}]}
         runs2 = github_runs(lambda url: dict(runs, workflow_runs=[dict(r, id=7 + i, html_url=f"https://x/{i}") for i, r in enumerate(runs["workflow_runs"])]))
