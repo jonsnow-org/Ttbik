@@ -120,6 +120,12 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
   const stroke = mythic ? 9 : rare ? 6 : 4;
   let rings = "";
   for (let i = 0; i <= a.stage; i++) rings += `<circle cx="400" cy="400" r="${PR + 14 + i * 14}" fill="none" stroke="${accent}" stroke-width="${i === a.stage ? 2.5 : 1.1}" opacity="${(0.25 + i * 0.12).toFixed(2)}"/>`;
+  // The age of the token is visible: after 30 days a ring, after 6 months a halo, after a year a crown of turning sparks,
+  // after 3 years a turning dashed ring and a breathing aura. (Each stage keeps the marks of the stages before it.)
+  const sparkP = "M0-9C1-3 3-1 9 0 3 1 1 3 0 9-1 3-3 1-9 0-3-1-1-3 0-9Z";
+  if (a.stage >= 2) rings += `<circle class="ar-sta" cx="400" cy="400" r="${PR + 40}" fill="none" stroke="${accent}" stroke-width="14" opacity="0.1"/>`;
+  if (a.stage >= 3) { let crown = ""; for (let i = 0; i < 12; i++) { if (i % 6 === 3) continue; const an = (i / 12) * Math.PI * 2; crown += `<path transform="translate(${(400 + Math.cos(an) * 318).toFixed(1)} ${(400 + Math.sin(an) * 318).toFixed(1)}) scale(${i % 2 ? 0.7 : 1})" d="${sparkP}" fill="${accent}" opacity="0.9"/>`; } rings += `<g class="ar-st3">${crown}</g>`; }
+  if (a.stage >= 4) rings += `<circle class="ar-st4" cx="400" cy="400" r="334" fill="none" stroke="${accent}" stroke-width="2.4" stroke-dasharray="3 11" opacity="0.8"/><circle class="ar-sta" cx="400" cy="400" r="300" fill="url(#aura)"/>`;
   let dots = "";
   const hd = Math.min(a.hands, 24);
   for (let i = 0; i < hd; i++) {
@@ -137,6 +143,7 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${W}" width="${W}" height="${W}">
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>
+<radialGradient id="aura"><stop offset="0.6" stop-color="${accent}" stop-opacity="0"/><stop offset="1" stop-color="${accent}" stop-opacity="0.22"/></radialGradient>
 <radialGradient id="halo"><stop offset="0.7" stop-color="${GOLD}" stop-opacity="0"/><stop offset="1" stop-color="${GOLD}" stop-opacity="0.4"/></radialGradient>
 <clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
 ${defs}</defs>
