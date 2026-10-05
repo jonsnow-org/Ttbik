@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-05 03:29 UTC",
+ "generated_at": "2026-10-05 05:49 UTC",
  "errors": [],
  "kernels": [
   {
@@ -279,7 +279,7 @@
    "name": "sham-audio-tokenizer-checkpoint",
    "size": "34984143",
    "updated": "2026-10-05 00:07:52.660000",
-   "downloads": "20"
+   "downloads": "21"
   },
   {
    "name": "sham-multimodal-checkpoint",
@@ -321,7 +321,7 @@
    "name": "sham-image-tokenizer-checkpoint",
    "size": "144053496",
    "updated": "2026-10-05 00:16:21.950000",
-   "downloads": "16"
+   "downloads": "17"
   },
   {
    "name": "sham-chat-checkpoint",
@@ -339,7 +339,7 @@
    "name": "sham-audio-tokenizer-adult-synth",
    "size": "34872718",
    "updated": "2026-09-24 00:46:59.817000",
-   "downloads": "7"
+   "downloads": "8"
   },
   {
    "name": "sham-cpu-track-checkpoint",
@@ -357,7 +357,7 @@
    "name": "sham-video-frames-audio-tokenizers",
    "size": "178421614",
    "updated": "2026-09-23 12:22:00.930000",
-   "downloads": "7"
+   "downloads": "8"
   },
   {
    "name": "sham-crawl-agent",
@@ -369,13 +369,13 @@
    "name": "sham-audio-tokenizer-adult-synth-v2",
    "size": "34872673",
    "updated": "2026-09-21 16:13:15.337000",
-   "downloads": "7"
+   "downloads": "8"
   },
   {
    "name": "sham-video-corpus",
    "size": "768362",
    "updated": "2026-10-01 12:45:55.033000",
-   "downloads": "8"
+   "downloads": "9"
   },
   {
    "name": "sham-orchestrator-state",
@@ -417,7 +417,7 @@
    "name": "sham-reports",
    "size": "356",
    "updated": "2026-10-05 02:11:38.753000",
-   "downloads": "1"
+   "downloads": "2"
   }
  ],
  "dataset_diag": {
@@ -522,98 +522,80 @@
  "workflows": {
   "Sham Status (supervision snapshot)": [
    {
-    "id": 37259580633,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37259580633",
+    "id": 37269389516,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269389516",
     "status": "in_progress",
     "conclusion": null,
-    "started": "2026-10-05T03:28",
-    "minutes": null,
-    "event": "workflow_dispatch"
-   },
-   {
-    "id": 37251442933,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37251442933",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-05T01:26",
-    "minutes": null,
-    "event": "workflow_dispatch"
-   },
-   {
-    "id": 37236574874,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37236574874",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-04T21:33",
+    "started": "2026-10-05T05:48",
     "minutes": null,
     "event": "schedule"
    },
    {
-    "id": 37224681316,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37224681316",
+    "id": 37259580633,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37259580633",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-04T18:30",
+    "started": "2026-10-05T03:28",
     "minutes": null,
     "event": "workflow_dispatch"
    }
   ],
   "Sham CI (contract + self-tests, read-only)": [
    {
-    "id": 37258623997,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37258623997",
+    "id": 37269278856,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269278856",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-05T03:14",
+    "started": "2026-10-05T05:46",
     "minutes": null,
     "event": "pull_request"
    },
    {
-    "id": 37257713145,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37257713145",
+    "id": 37269188660,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37269188660",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-05T03:01",
+    "started": "2026-10-05T05:45",
     "minutes": null,
     "event": "pull_request"
    },
    {
-    "id": 37257367932,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37257367932",
+    "id": 37268653044,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37268653044",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-05T02:56",
+    "started": "2026-10-05T05:38",
     "minutes": null,
     "event": "pull_request"
    },
    {
-    "id": 37256924153,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37256924153",
+    "id": 37268594318,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37268594318",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-05T02:49",
+    "started": "2026-10-05T05:37",
     "minutes": null,
     "event": "pull_request"
    }
   ],
   "Sham Collector (free CPU runner)": [
    {
-    "id": 37235683325,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235683325",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-04T21:20",
+    "id": 37268335609,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37268335609",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-05T05:33",
     "minutes": null,
     "event": "schedule"
    }
   ],
   "Sham CPU Trainer (free CPU runner, slow and continuous)": [
    {
-    "id": 37235302424,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37235302424",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-04T21:14",
+    "id": 37267625605,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37267625605",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-05T05:24",
     "minutes": null,
     "event": "schedule"
    }

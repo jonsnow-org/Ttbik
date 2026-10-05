@@ -1,4 +1,4 @@
-# حالة مشروع شام — 2026-10-05 03:29 UTC
+# حالة مشروع شام — 2026-10-05 05:49 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
@@ -48,10 +48,10 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-05T03:28 in_progress ، 2026-10-05T01:26 success ، 2026-10-04T21:33 success ، 2026-10-04T18:30 success
-- Sham CI (contract + self-tests, read-only): 2026-10-05T03:14 success ، 2026-10-05T03:01 success ، 2026-10-05T02:56 success ، 2026-10-05T02:49 success
-- Sham Collector (free CPU runner): 2026-10-04T21:20 success
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-04T21:14 success
+- Sham Status (supervision snapshot): 2026-10-05T05:48 in_progress ، 2026-10-05T03:28 success
+- Sham CI (contract + self-tests, read-only): 2026-10-05T05:46 success ، 2026-10-05T05:45 success ، 2026-10-05T05:38 success ، 2026-10-05T05:37 success
+- Sham Collector (free CPU runner): 2026-10-05T05:33 in_progress
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-05T05:24 in_progress
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - لا أخطاء حديثة ✅
