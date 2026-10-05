@@ -13,8 +13,9 @@ const svgUri = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURICom
 export type MediaState = { occasion: number; photo: string | null; w?: number; h?: number; raw?: string | null; rw?: number; rh?: number; style?: "plain" | "silver"; fit?: "fill" | "whole"; fx?: number; fy?: number };
 
 /** Occasion chips + photo chooser + live preview of exactly what the token will look like. */
+/** tier is the token's KIND (0 normal, 1 silver, 2 gold ...): a silver token's photo gets the silver wax treatment, a gold token's the gold one, a normal token's none. */
 export default function MediaPicker({ index, tier, season, value, onChange, stage = 0, hands = 1, engravings = 0, fees }: {
-  index: number; tier: number; season: number; value: MediaState; onChange: (v: MediaState) => void; stage?: number; hands?: number; engravings?: number; fees?: { photo: number; silver: number };
+  index: number; tier: number; season: number; value: MediaState; onChange: (v: MediaState) => void; stage?: number; hands?: number; engravings?: number; fees?: { photo: number };
 }) {
   const { t, lang } = useI18n();
   const file = useRef<HTMLInputElement>(null);
@@ -31,9 +32,10 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
     setBusy(true); setErr("");
     try {
       const fit = v.fit ?? "fill", fx = v.fx ?? 0.5, fy = v.fy ?? 0.32, style = v.style ?? "plain";
+      const wax = tier === 1 ? "silver" : tier === 2 ? "gold" : null;
       let base = { uri: v.raw, w: v.rw ?? 0, h: v.rh ?? 0 };
       if (fit === "fill") { const f = await fillSquare(v.raw, fx, fy); if (!f) { setErr(t("media.tooBig")); return; } base = f; }
-      const uri = style === "silver" ? await waxPhoto(base.uri, "silver") : base.uri;
+      const uri = wax ? await waxPhoto(base.uri, wax) : base.uri;
       if (!uri) setErr(t("media.tooBig")); else onChange({ ...v, fit, fx, fy, style, photo: uri, w: base.w, h: base.h });
     } catch { setErr(t("media.tooBig")); }
     finally { setBusy(false); }
@@ -47,7 +49,6 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
     } catch { setErr(t("media.tooBig")); }
     finally { setBusy(false); }
   }
-  const setStyle = (style: "plain" | "silver") => { if (!busy) void compose({ style }); };
   const slide = useRef<ReturnType<typeof setTimeout> | null>(null);
   function move(v: number) {           // the window follows the slider (re-made a moment after the finger stops)
     const next = value.rw && value.rh && value.rw > value.rh ? { fx: v } : { fy: v };
@@ -75,12 +76,7 @@ export default function MediaPicker({ index, tier, season, value, onChange, stag
         {value.photo && <button type="button" className="btn ghost" onClick={() => onChange({ ...value, photo: null })}>{t("media.remove")}</button>}
         <input ref={file} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={(e) => pick(e.target.files?.[0])} />
       </div>
-      {value.photo && value.raw && (
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className={`btn sm ${value.style === "silver" ? "ghost" : ""}`} disabled={busy} onClick={() => setStyle("plain")}>{t("media.stylePlain")}{fees && fees.photo > 0 ? ` (+${fees.photo})` : ""}</button>
-          <button type="button" className={`btn sm ${value.style === "silver" ? "" : "ghost"}`} disabled={busy} onClick={() => setStyle("silver")}>{t("media.styleSilver")}{fees && fees.silver > 0 ? ` (+${fees.silver})` : ""}</button>
-        </div>
-      )}
+      {fees && fees.photo > 0 && <div className="muted">{t("media.photoFee", { p: fees.photo })}</div>}
       {value.photo && value.raw && (
         <div className="gap">
           <div className="row" style={{ gap: 8 }}>

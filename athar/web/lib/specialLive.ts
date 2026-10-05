@@ -4,7 +4,7 @@
 // A one-word caption is printed on it so small that it can only be read when the viewer zooms in a lot.
 import { specialParts } from "./specialArt";
 import { renderCustomArt } from "./art";
-import { SEASON_1, seasonTier } from "./seasons";
+import { SEASON_1 } from "./seasons";
 import { textPaths } from "./glyphs";
 
 type Theme = { w: string; l: string; m: string; d: string; k: string; bg1: string; bg2: string };
@@ -124,7 +124,7 @@ const esc = (s: string) => s.replace(/[<>&"]/g, "");
 export function hasLiveScene(index: number): boolean { return !!specialParts(index); }
 
 /** The finished token picture of a special date (coloured, animated, captioned). Null when the date has no scene of ours. */
-export function renderSpecialLive(index: number): string | null {
+export function renderSpecialLive(index: number, kind = 0): string | null {   // kind: the frame, rim and motion follow the token's kind; the scene is the date's own
   const p = specialParts(index);
   if (!p) return null;
   const t = THEMES[THEME_OF_DATE[p.key] || THEME_OF[p.motif] || "gold"];
@@ -140,6 +140,6 @@ export function renderSpecialLive(index: number): string | null {
     + `</g>`
     + (label ? textPaths(label.toUpperCase(), { x: 400, y: 624, size: 5.2, anchor: "middle", spacing: 1.2, fill: t.l, opacity: 0.85 }) : "")
     + `</g>`;
-  const svg = renderCustomArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, gold: true }, centre);
+  const svg = renderCustomArt({ index, tier: kind, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0 }, centre);
   return svg.replace("</svg>", `<style>${css}</style></svg>`);
 }

@@ -1,31 +1,24 @@
 // What a buyer sees about a token: how rare it really is, what happened on its date, how old it is, how long it has been held.
 // Pure functions so the metadata (what markets show), the token page and the picture itself all say the same thing.
-import { SEASONS, SEASON_1, seasonTier, specialIndex } from "./seasons";
-import { MONTHS_EN, STAGE_DAYS, STAGE_NAME_AR, TIER_NAME_AR, TIER_NAME_EN, ymd } from "./dates";
+import { SEASONS, SEASON_1, capOf, specialIndex } from "./seasons";
+import { MONTHS_EN, STAGE_DAYS, STAGE_NAME_AR, ruleTier, TIER, ymd } from "./dates";
+import { KIND_NAME_AR, KIND_NAME_EN } from "./kinds";
 
 const WEEK_EN = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEK_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 export const STAGE_NAME_EN = ["New", "Mature", "Aged", "Old", "Historic"];
 
-const supplyCache = new Map<number, [number, number, number]>();
-/** How many dates of each rarity the season holds: [common, rare, mythic]. */
-export function tierSupply(seasonId: number): [number, number, number] {
-  const hit = supplyCache.get(seasonId);
-  if (hit) return hit;
-  const def = SEASONS[seasonId] || SEASON_1;
-  const out: [number, number, number] = [0, 0, 0];
-  for (let i = def.rangeStart; i <= def.rangeEnd; i++) out[seasonTier(def, i)]++;
-  for (const s of def.specials) { const i = specialIndex(s); if (i < def.rangeStart || i > def.rangeEnd) out[seasonTier(def, i)]++; }
-  supplyCache.set(seasonId, out);
-  return out;
+/** The most tokens of a kind that will ever exist in the season (its supply cap; the contract only lets it be lowered). */
+export function kindSupply(seasonId: number, kind: number): number {
+  return capOf(SEASONS[seasonId] || SEASON_1, kind);
 }
 
 export const weekdayOf = (index: number) => { const { y, m, d } = ymd(index); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
 import { eventEnOf } from "./specialNames";
 export const eventOf = (index: number, seasonId = 1) => (SEASONS[seasonId] || SEASON_1).specials.find((s) => specialIndex(s) === index)?.note ?? null;
 
-/** Why a date has its rarity, in words: rarity is never luck, it is computed from the date by public rules (the same ones the contract enforces). */
-export function rarityReason(index: number, tier: number, seasonId = 1): { ar: string; en: string } {
+/** Why a date is special (or not), in words: it is computed from the date by public rules (the same ones the contract enforces), never luck. It decides a price premium. */
+export function rarityReason(index: number, _kind = 0, seasonId = 1): { ar: string; en: string } {
   const { y, m, d } = ymd(index);
   if (eventOf(index, seasonId)) return { ar: "تاريخ حدث تاريخي مختار", en: "a hand-picked historic date" };
   const s = String(d).padStart(2, "0") + String(m).padStart(2, "0") + String(y);
@@ -36,7 +29,7 @@ export function rarityReason(index: number, tier: number, seasonId = 1): { ar: s
   if (d === m && y % 100 === d) return { ar: "اليوم والشهر والسنة المختصرة متطابقة", en: "day, month and short year all match" };
   if (d === 1 && m === 1) return { ar: "أول يوم في السنة", en: "the first day of the year" };
   if (d === m) return { ar: "اليوم والشهر متطابقان", en: "day and month are the same number" };
-  if (tier === 1) return { ar: "بداية عشرة أو شهر مستدير", en: "a round day-and-month combination" };
+  if (ruleTier(index) === TIER.RARE) return { ar: "بداية عشرة أو شهر مستدير", en: "a round day-and-month combination" };
   return { ar: "تاريخ عادي", en: "an everyday date" };
 }
 
@@ -46,13 +39,13 @@ export function hijriLabel(index: number, locale = "ar"): string {
   try { return new Intl.DateTimeFormat(`${locale}-u-ca-islamic-umalqura`, { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(y, m - 1, d))); } catch { return ""; }
 }
 
-export type TokenFacts = { season: number; tier: number; hands: number; engravings: number; lastTransferAt: number; mintedAt: number; mediaRef?: string | null; occasion: number; lastEngraving?: string };
+export type TokenFacts = { season: number; tier: number;   /* tier = the token's kind, 0 normal ... 7 legendary */ hands: number; engravings: number; lastTransferAt: number; mintedAt: number; mediaRef?: string | null; occasion: number; lastEngraving?: string };
 
 /** Everything worth saying about a token, as market attributes plus a two-language description. */
 export function tokenStory(index: number, f: TokenFacts | null, tier: number, stage: number, occasionName: (id: number) => string | null, now = Date.now()) {
   const { y, m, d } = ymd(index);
   const season = f?.season ?? 1;
-  const supply = tierSupply(season)[tier];
+  const supply = kindSupply(season, tier);
   const wd = weekdayOf(index);
   const yearsAgo = Math.max(0, new Date(now).getUTCFullYear() - y);
   const event = eventOf(index, season);
@@ -62,12 +55,12 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     { trait_type: "Year", value: y }, { trait_type: "Month", value: MONTHS_EN[m - 1] }, { trait_type: "Weekday", value: WEEK_EN[wd] },
     { trait_type: "Years since the date", value: yearsAgo },
     { trait_type: "Hijri date", value: hijriLabel(index, "en") },
-    { trait_type: "Rarity", value: TIER_NAME_EN[tier] }, { trait_type: "الندرة", value: TIER_NAME_AR[tier] },
-    { trait_type: "Supply in rarity", value: supply }, { trait_type: "Season", value: season },
+    { trait_type: "Kind", value: KIND_NAME_EN[tier] }, { trait_type: "النوع", value: KIND_NAME_AR[tier] },
+    { trait_type: "Supply cap of this kind", value: supply }, { trait_type: "Season", value: season },
     { trait_type: "Living picture", value: "Flashes, turns and shines; livelier with age" },
   ];
   const why = rarityReason(index, tier, season);
-  attrs.push({ trait_type: "Why this rarity", value: why.en });
+  attrs.push({ trait_type: "About this date", value: why.en });
   const eventEn = eventEnOf(y, m, d) || event;
   if (event) { attrs.push({ trait_type: "Historic event", value: eventEn! }); attrs.push({ trait_type: "الحدث التاريخي", value: event }); }
   if (f) {
@@ -80,8 +73,8 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
   const dateAr = `${d} ${["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"][m - 1]} ${y}`;
   const dateEn = `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1]} ${d}, ${y}`;
   const ar = [
-    `رمز يوم ${dateAr} (${hijriLabel(index, "ar")}، ${WEEK_AR[wd]}) — ${TIER_NAME_AR[tier]}، واحد من ${supply} فقط في هذه الفئة.`,
-    `سبب ندرته: ${why.ar}. الندرة محسوبة من التاريخ بقواعد معلنة وليست حظاً.`,
+    `رمز يوم ${dateAr} (${hijriLabel(index, "ar")}، ${WEEK_AR[wd]}) — ${KIND_NAME_AR[tier]}، واحد من ${supply} على الأكثر في هذا النوع.`,
+    `عن هذا التاريخ: ${why.ar}. تُحسب خصوصية التاريخ بقواعد معلنة وليست حظاً.`,
     event ? `في هذا اليوم: ${event}.` : "",
     "رمز حيّ: صورته تومض وتدور وتلمع، وتزداد حياةً وهالةً كلما طال بقاؤه، وفي ذكرى يومه تتوهّج بهالة ذهبية.",
     f ? `يعدّ أصحابه (${f.hands} حتى الآن) ويتذكّر ما نُقش عليه، وعمره الحالي «${STAGE_NAME_AR[stage]}»${heldDays ? ` (${heldDays} يوماً عند مالكه الحالي)` : ""}.` : "يعدّ أصحابه ويتذكّر ما يُنقش عليه وينضج كلما طال احتفاظ مالكه به.",
@@ -91,8 +84,8 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     f?.lastEngraving ? `آخر نقش: ${f.lastEngraving}` : "",
   ].filter(Boolean).join("\n");
   const en = [
-    `The token of ${dateEn} (${hijriLabel(index, "en")}, ${WEEK_EN[wd]}) — ${TIER_NAME_EN[tier]}, one of only ${supply} in its rarity.`,
-    `Why this rarity: ${why.en}. Rarity is computed from the date by public rules, never luck.`,
+    `The token of ${dateEn} (${hijriLabel(index, "en")}, ${WEEK_EN[wd]}) — ${KIND_NAME_EN[tier]}, one of at most ${supply} of its kind.`,
+    `About this date: ${why.en}. A date's pattern is computed by public rules, never luck.`,
     event ? `On this day: ${eventEn}.` : "",
     "A living token: its picture flashes, turns and shines, livelier the longer it is held, and glows gold on the date's own anniversary.",
     f ? `It counts its owners (${f.hands} so far), remembers what is engraved on it, and is now ${STAGE_NAME_EN[stage].toLowerCase()}${heldDays ? ` (${heldDays} days with the current owner)` : ""}.` : "It counts its owners, remembers what is engraved on it and matures the longer it is held.",

@@ -6,6 +6,8 @@
 //   storedMotion a quiet version for the special/mythic pictures we store forever (rim shimmer + halo breathing + one flash),
 //               so they move wherever the viewer can play an animated SVG.
 
+import { lookOf } from "./kinds";
+
 const GOLD = "#ffd36a";
 // A spark is placed by an outer <g> (translate + scale) and animated on the path inside it: a CSS animation on `transform` replaces the
 // transform ATTRIBUTE, so animating the placed element itself would throw every spark to the corner of the picture.
@@ -72,10 +74,37 @@ const BASE = `.ar-ro,.ar-orbit,.ar-ring-flash{transform-origin:400px 400px}`
 
 export type LiveOpts = { stage?: number; tier?: number; anniversary?: boolean };
 
+/** What each kind adds to the common motion (tier = kind): a passing glint on every metal and gem, and one signature movement of its own. */
+function kindFx(kind: number): { css: string; extra: string } {
+  const lk = lookOf(kind);
+  let css = "", extra = "";
+  if (lk.shine) {
+    css += `.ar-ks{animation:ar-ksw 7s ease-in-out infinite}@keyframes ar-ksw{0%,70%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}77%{opacity:.4}92%{opacity:0;transform:translateX(560px) skewX(-18deg)}}`;
+    extra += `<g clip-path="url(#win)"><rect class="ar-ks" x="170" y="120" width="64" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/></g>`;
+  }
+  if (kind === 3) css += `.ar-rim circle{animation:ar-pat 14s ease-in-out infinite}@keyframes ar-pat{0%,100%{stroke:#e08a4a}50%{stroke:#7fbf9a}}`;          // bronze: the patina creeps over the copper and recedes
+  if (kind === 5) {                                                                                                                                       // purple: a royal violet glow that swells
+    css += `.ar-vg{animation:ar-vgl 4.2s ease-in-out infinite}@keyframes ar-vgl{0%,100%{opacity:.08}50%{opacity:.5}}`;
+    extra += `<circle class="ar-vg" cx="400" cy="400" r="252" fill="none" stroke="#c78bff" stroke-width="22" opacity=".08"/>`;
+  }
+  if (kind === 6) {                                                                                                                                       // diamond: a prism of colour slides over the stone
+    css += `.ar-pr{transform-origin:400px 400px;animation:ar-spin 24s linear infinite}`;
+    extra += `<defs><linearGradient id="prm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff7ad9"/><stop offset=".33" stop-color="#7affea"/><stop offset=".66" stop-color="#ffe97a"/><stop offset="1" stop-color="#7a9bff"/></linearGradient></defs><g clip-path="url(#win)"><circle class="ar-pr" cx="400" cy="400" r="236" fill="url(#prm)" opacity=".16"/></g>`;
+  }
+  if (kind === 7) {                                                                                                                                       // legendary: a crown of long rays turns slowly around the token
+    css += `.ar-lr{transform-origin:400px 400px;animation:ar-spin 120s linear infinite}`;
+    let rays = "";
+    for (let i = 0; i < 24; i++) { const an = (i / 24) * Math.PI * 2; rays += `<line x1="${(400 + Math.cos(an) * 372).toFixed(1)}" y1="${(400 + Math.sin(an) * 372).toFixed(1)}" x2="${(400 + Math.cos(an) * (i % 2 ? 392 : 400)).toFixed(1)}" y2="${(400 + Math.sin(an) * (i % 2 ? 392 : 400)).toFixed(1)}" stroke="#fff3c4" stroke-width="${i % 2 ? 3 : 5}" opacity=".85"/>`; }
+    extra += `<g class="ar-lr">${rays}</g>`;
+  }
+  return { css, extra };
+}
+
 export function liveArt(svg: string, o: LiveOpts = {}): string {
   const stage = Math.min(4, Math.max(0, o.stage ?? 0));
-  const gold = o.tier === 2;
-  const col = gold ? GOLD : "#ffffff";
+  const lk = lookOf(o.tier ?? 0);
+  const col = lk.gold ? lk.accent : "#ffffff";
+  const fx = kindFx(o.tier ?? 0);
   const turn = 96 - stage * 15;            // seconds per turn: 96 s when new, 36 s at the oldest stage
   const pulse = 6 - stage * 0.9;           // seconds per breath
   const n = 4 + stage * 3;                 // twinkles
@@ -84,7 +113,8 @@ export function liveArt(svg: string, o: LiveOpts = {}): string {
     + `.ar-rim,.ar-glow{animation:ar-breathe ${pulse}s ease-in-out infinite}`
     + `.ar-rings{animation:ar-breathe ${pulse * 1.6}s ease-in-out infinite}`
     + `.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle ${(pulse * 0.9).toFixed(1)}s ease-in-out infinite}`;
-  let extra = `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${col}" stroke-width="10"/>` + sparkles(n, col, "ar-tw") + (hasInnerRosette(svg) ? innerSparks(8 + stage * 2, col) : "");
+  css += fx.css;
+  let extra = `<circle class="ar-ring-flash" cx="400" cy="400" r="392" fill="none" stroke="${col}" stroke-width="10"/>` + sparkles(n, col, "ar-tw") + (hasInnerRosette(svg) ? innerSparks(8 + stage * 2, col) : "") + fx.extra;
   if (o.anniversary) {
     css += `@keyframes ar-aura{0%,100%{opacity:.2}50%{opacity:.9}}.ar-aura{animation:ar-aura 2.4s ease-in-out infinite}.ar-orbit{animation:ar-spin 14s linear infinite}`;
     let orb = "";

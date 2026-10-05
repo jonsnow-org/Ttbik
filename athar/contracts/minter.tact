@@ -262,6 +262,7 @@ contract AtharMinter {
         require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
         require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
         require(msg.style <= 1, "bad style");
+        require((msg.mediaRef != 0) == (msg.style == 1), "a picture of your own costs its fee: style 1 with a picture, style 0 without");   // so a picture can never be bound for free
         require(msg.occasion <= 9, "bad occasion");
         let t: TierState = self.tiers.get(kind)!!;
         let base: Int = self.priceNow(t);

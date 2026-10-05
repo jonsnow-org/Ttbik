@@ -3,10 +3,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Bar, Top, ton, useApi, useSend } from "@/components/ui";
 import { ymd } from "@/lib/dates";
+import { dateOf } from "@/lib/kinds";
 import { useI18n } from "@/lib/i18n";
 import { claimMsg, ticketMsg } from "@/lib/tx";
 
-type Season = { configured: boolean; deployed?: boolean; status?: number; minter?: string; prices?: { ticket: number }; mystery?: { poolSize: number; ticketsSold: number; revealed: boolean; revealAt: number }; pool: { mythic: number; rare: number; common: number } };
+type Season = { configured: boolean; deployed?: boolean; status?: number; minter?: string; ticketPrice?: number; mystery?: { poolSize: number; ticketsSold: number; revealed: boolean; revealAt: number } };
 type Tickets = { tickets: { ticket: number; claimed: boolean; date: number | null }[] };
 
 function useCountdown(to: number) {
@@ -23,8 +24,6 @@ export default function Mystery() {
   const { data: tk } = useApi<Tickets>(address ? `/api/tickets?address=${encodeURIComponent(address)}` : null, 15000);
   const my = s?.mystery;
   const cd = useCountdown(my?.revealAt ?? 0);
-  const total = s ? s.pool.mythic + s.pool.rare + s.pool.common : 0;
-  const pct = (n: number) => (total ? ((n / total) * 100).toFixed(n / total < 0.02 ? 1 : 0) : "0");
   const open = !!s?.deployed && s.status === 1 && !!my && my.poolSize > 0 && !my.revealed && cd.s > 0 && my.ticketsSold < my.poolSize;
   return (
     <>
@@ -32,19 +31,16 @@ export default function Mystery() {
       <div className="card hero">
         <h1>{t("mys.title")}</h1>
         <p className="muted">{t("mys.sub")}</p>
-        <div className="big">{ton(s?.prices?.ticket)}</div>
+        <div className="big">{ton(s?.ticketPrice)}</div>
         <p className="muted">{t("mys.pnote")}</p>
-        <button className="btn gold" disabled={!open || busy} onClick={async () => { if (s?.minter && s.prices && (await send([ticketMsg(s.minter, s.prices.ticket)], t("mys.sentT")))) reload(); }}>{open ? t("mys.buy") : my?.revealed ? t("mys.revealed") : t("mys.na")}</button>
+        <button className="btn gold" disabled={!open || busy} onClick={async () => { if (s?.minter && s.ticketPrice && (await send([ticketMsg(s.minter, s.ticketPrice)], t("mys.sentT")))) reload(); }}>{open ? t("mys.buy") : my?.revealed ? t("mys.revealed") : t("mys.na")}</button>
         {my && my.poolSize > 0 && <div style={{ marginTop: 14 }}><Bar value={my.ticketsSold / my.poolSize} /><p className="muted">{t("mys.tickets", { a: my.ticketsSold, b: my.poolSize })}</p></div>}
         {my && my.poolSize > 0 && !my.revealed && <p className="note">{t("mys.revealIn")} <b>{cd.text}</b></p>}
       </div>
 
       <div className="card">
         <h3>{t("mys.odds")}</h3>
-        <div className="kv"><span>{t("tier.2")}</span><span>{s?.pool.mythic ?? 0} ({pct(s?.pool.mythic ?? 0)}%)</span></div>
-        <div className="kv"><span>{t("tier.1")}</span><span>{s?.pool.rare ?? 0} ({pct(s?.pool.rare ?? 0)}%)</span></div>
-        <div className="kv"><span>{t("tier.0")}</span><span>{s?.pool.common ?? 0} ({pct(s?.pool.common ?? 0)}%)</span></div>
-        <p className="muted">{t("mys.note1")} <a href="/api/pool" target="_blank" style={{ color: "var(--gold)" }}>{t("mys.noteLink")}</a>. {t("mys.note2")}</p>
+        <p className="muted">{t("mys.note2")}</p>
         <p className="muted">{t("mys.disc")}</p>
       </div>
 
@@ -53,7 +49,7 @@ export default function Mystery() {
         {!address && <p className="muted">{t("mys.connect")}</p>}
         {address && tk && tk.tickets.length === 0 && <p className="muted">{t("mys.noTickets")}</p>}
         {tk?.tickets.map((x) => {
-          const lbl = x.date == null ? "" : (() => { const { y, m, d } = ymd(x.date!); return dateLabel(y, m, d); })();
+          const lbl = x.date == null ? "" : (() => { const { y, m, d } = ymd(dateOf(x.date!)); return dateLabel(y, m, d); })();
           return (
             <div key={x.ticket} className="kv" style={{ alignItems: "center" }}>
               <span>{t("mys.ticket", { n: x.ticket + 1 })}</span>

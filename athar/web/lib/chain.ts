@@ -7,7 +7,8 @@ import { AtharItem } from "../../build/athar_AtharItem";
 import { AtharMinter } from "../../build/athar_AtharMinter";
 import { adminAddress, COLLECTION_URI, DELAY_SEC, TONCENTER_RPC, TONCENTER_V3 } from "./config";
 import { toncenterKey } from "./settings";
-import { SEASONS, SeasonDef, seasonTier, specialIndex, buildPool } from "./seasons";
+import { SEASONS, specialIndex } from "./seasons";
+import { KIND_COUNT, dateOf, kindOf } from "./kinds";
 
 // the pause between calls to the public node: short with a (free) API key, about a second without
 const gapMs = () => (toncenterKey() ? 120 : 1100);
@@ -126,13 +127,17 @@ export async function seasonStatus(season = 1) {
     try {
       if (!(await isActive(a.minter.address))) throw new Error("not deployed");
       const status = Number(await m.getStatus());
-      const [sold, pc, pr, myst, pt, fe] = [await m.getSoldCount(), await m.getPrice(0n), await m.getPrice(1n), await m.getMysteryInfo(), await m.getPrice(3n), await m.getFees()];
+      const [sold, myst] = [await m.getSoldCount(), await m.getMysteryInfo()];
+      // each kind: its curve price now (direct kinds), its cap and how many are issued, its fees
+      const kinds: { kind: number; price: number | null; cap: number; issued: number; photoFee: number; specialFee: number; walletMax: number }[] = [];
+      for (let k = 0; k < KIND_COUNT; k++) {
+        const ki = await m.getKindInfo(BigInt(k));
+        kinds.push({ kind: k, price: k <= 2 ? nano(await m.getPrice(BigInt(k))) : null, cap: Number(ki.cap), issued: Number(ki.issued), photoFee: nano(ki.photo), specialFee: nano(ki.special), walletMax: Number(ki.walletMax) });
+      }
       let itemFees = { engrave: 0.1, media: 0.1, change: 0.5 };
       try { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); itemFees = { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; } catch { /* keep the defaults */ }
       return {
-        configured: true as const, deployed: true, status, sold: Number(sold),
-        prices: { common: nano(pc), rare: nano(pr), ticket: nano(pt) },
-        fees: { photo: nano(fe.photo), silver: nano(fe.silver) },
+        configured: true as const, deployed: true, status, sold: Number(sold), kinds, ticketPrice: nano(await m.getPrice(15n)),
         itemFees,
         mystery: { poolSize: Number(myst.poolSize), ticketsSold: Number(myst.ticketsSold), revealed: myst.revealed, revealAt: Number(myst.revealAt) },
         minter: a.minter.address.toString({ bounceable: true }), collection: a.collection.address.toString({ bounceable: true }),
@@ -143,33 +148,32 @@ export async function seasonStatus(season = 1) {
   });
 }
 
-export async function dateInfo(index: number) {
+export type DateKinds = {
+  date: number; special: boolean; event: string | null;
+  taken: boolean[]; auction: boolean[]; reserved: boolean[];          // by kind 0..7
+  prices: (number | null)[];                                          // TON, direct kinds only (premium and special fee included)
+  onChain: boolean;
+};
+/** Everything about one date in one read: which of its eight kinds are taken, under auction or in the boxes, and what the three direct kinds cost. */
+export async function dateInfo(date: number): Promise<DateKinds> {
   const a = await addresses(1);
   const def = SEASONS[1];
-  const inSeason = (index >= def.rangeStart && index <= def.rangeEnd) || def.specials.some((s) => specialIndex(s) === index);
-  const tier = seasonTier(def, index);
-  const pool = new Set(buildPool(def).dates);
-  const isSpecial = def.specials.some((s) => specialIndex(s) === index);
-  const base = { index, tier, inSeason, reserved: pool.has(index), special: isSpecial };
-  if (!a || !inSeason) return { ...base, taken: false as boolean, owner: null as string | null, price: null as number | null, auction: null as null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean } };
-  return cached(`date:${index}`, 8000, async () => {
+  const special = def.specials.some((s) => specialIndex(s) === date);
+  const empty: DateKinds = { date, special, event: def.specials.find((s) => specialIndex(s) === date)?.note ?? null, taken: Array(KIND_COUNT).fill(false), auction: Array(KIND_COUNT).fill(false), reserved: Array(KIND_COUNT).fill(false), prices: [null, null, null], onChain: false };
+  if (!a) return empty;
+  return cached(`date:${date}`, 8000, async () => {
     const m = client.open(AtharMinter.fromAddress(a.minter.address));
-    let taken = false, owner: string | null = null, price: number | null = null;
-    let auction: null | { endAt: number; reserve: number; highBid: number; highBidder: string | null; live: boolean; mediaRef: string } = null;
     try {
       if (!(await isActive(a.minter.address))) throw new Error("not deployed");
-      taken = await m.getIsTaken(BigInt(index));
-      if (taken) owner = (await tokenState(index))?.owner ?? null;
-      else if (tier < 2 && !isSpecial && !pool.has(index)) price = nano(await m.getPrice(BigInt(tier)));
-      if ((tier === 2 || isSpecial) && !pool.has(index) && !taken) {
-        const au = await auctionOf(a.minter.address, index);
-        if (au) auction = { endAt: Number(au.endAt), reserve: nano(au.reserve), highBid: nano(au.highBid), highBidder: au.highBidder?.toString() ?? null, live: au.started && Number(au.endAt) * 1000 > Date.now(), mediaRef: au.mediaRef.toString() };
-      }
-    } catch { /* contract not deployed yet */ }
-    return { ...base, taken, owner, price, auction };
+      const v = await m.getDateView(BigInt(date));
+      const bit = (mask: bigint) => Array.from({ length: KIND_COUNT }, (_, k) => ((mask >> BigInt(k)) & 1n) === 1n);
+      const prices = [v.p0, v.p1, v.p2].map((p) => (p > 0n ? nano(p) : null));
+      return { ...empty, taken: bit(v.taken), auction: bit(v.auction), reserved: bit(v.reserved), prices, special: v.special, onChain: true };
+    } catch { return empty; }   // contract not deployed yet
   });
 }
 
+/** One token by its id (kind * 65536 + date). */
 export async function tokenState(index: number) {
   const a = await addresses(1);
   if (!a) return null;
@@ -203,7 +207,7 @@ export async function tokenState(index: number) {
       }
       return {
         occasion: Number(st.occasion), mediaRef: st.mediaRef === 0n ? null : arweaveId(st.mediaRef), media,
-        index, address: itemAddr.toString({ bounceable: true }), owner: d.ownerAddress.toString(),
+        index, date: dateOf(index), kind: kindOf(index), address: itemAddr.toString({ bounceable: true }), owner: d.ownerAddress.toString(),
         season: Number(st.season), tier: Number(st.tier), paid: nano(st.paid), mintedAt: Number(st.mintedAt),
         lastTransferAt: Number(st.lastTransferAt), hands: Number(st.hands), locked: st.locked, engravings: notes,
       };
@@ -260,11 +264,16 @@ export async function ticketsOf(owner: string) {
   });
 }
 
-export function liveAuctionDates(def: SeasonDef = SEASONS[1]) {
-  const pool = new Set(buildPool(def).dates);
-  const special = new Set(def.specials.map(specialIndex));
-  const out: number[] = [];
-  for (let i = def.rangeStart; i <= def.rangeEnd; i++) if (seasonTier(def, i) === 2 && !pool.has(i) && !special.has(i)) out.push(i);
-  for (const i of special) if (!pool.has(i)) out.push(i);        // every special date is sold by auction
-  return out;
+/** Every auction the minter ever started (token ids), read from its own list. */
+export async function auctionIds(): Promise<number[]> {
+  const a = await addresses(1);
+  if (!a) return [];
+  return cached("auction-ids", 15000, async () => {
+    if (!(await isActive(a.minter.address))) return [] as number[];
+    const m = client.open(AtharMinter.fromAddress(a.minter.address));
+    const n = Number(await m.getAuctionCount());
+    const out: number[] = [];
+    for (let i = 0; i < n && i < 400; i++) { const id = await m.getAuctionIdAt(BigInt(i)); if (id != null) out.push(Number(id)); }
+    return out;
+  });
 }

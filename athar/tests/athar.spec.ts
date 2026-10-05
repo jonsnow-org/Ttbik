@@ -410,7 +410,7 @@ describe("occasion and permanent picture", () => {
     const ctx = await setup(); await openSeason(ctx);
     const { alice, bob, minter } = ctx;
     const idx = find(S1_START, TIER.COMMON);
-    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 3n, mediaRef: REF, style: 0n });
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 3n, mediaRef: REF, style: 1n });
     const item = await itemOf(ctx, idx);
     let st = await item.getAthar();
     expect(st.occasion).toBe(3n); expect(st.mediaRef).toBe(REF); expect(st.mediaLog).not.toBeNull();
@@ -437,7 +437,7 @@ describe("occasion and permanent picture", () => {
   it("the picture and occasion travel with an upgrade", async () => {
     const ctx = await setup(); await openSeason(ctx);
     const idx = find(S1_START, TIER.COMMON);
-    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 4n, mediaRef: REF, style: 0n });
+    await ctx.minter.send(ctx.alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(idx), recipient: null, occasion: 4n, mediaRef: REF, style: 1n });
     const mock = ctx.bc.openContract(await MockSuccessor.fromInit());
     await mock.send(ctx.admin.getSender(), { value: toNano("0.2") }, { $$type: "SetPrice", price: 0n });
     await ctx.collection.send(ctx.admin.getSender(), { value: toNano("0.05") }, { $$type: "SetSuccessor", successor: mock.address });

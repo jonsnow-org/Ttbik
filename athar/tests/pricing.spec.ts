@@ -67,6 +67,11 @@ describe("per-kind fees", () => {
     const b2 = await payout.getBalance();
     await buy(ctx, "bob", id2, fromNano(p2 + BUY_FEES + toNano("0.2")), 0n);
     expect((await payout.getBalance()) - b2).toBeLessThanOrEqual(p2);
+    // a picture can never be bound for free (style 0 with a picture), and the photo fee is not paid for nothing (style 1 without one)
+    r = await buy(ctx, "bob", ID(1, common(date + 3)), "5", 0n, 9n);
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
+    r = await buy(ctx, "bob", ID(1, common(date + 3)), "5", 1n, 0n);
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
     // a style that no longer exists is refused (the silver treatment is a kind now, not a style)
     r = await buy(ctx, "bob", ID(1, common(date + 5)), "5", 2n);
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });

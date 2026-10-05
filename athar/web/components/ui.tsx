@@ -19,7 +19,8 @@ export function Top() {
     </div>
   );
 }
-export const TierBadge = ({ tier }: { tier: number }) => { const { t } = useI18n(); return <span className={`badge t${tier}`}>{t(`tier.${tier}` as "tier.0")}</span>; };
+/** The badge of a token's kind (0 normal ... 7 legendary). */
+export const KindBadge = ({ kind }: { kind: number }) => { const { t } = useI18n(); return <span className={`badge t${kind}`}>{t(`kind.${kind}` as "kind.0")}</span>; };
 export const Bar = ({ value }: { value: number }) => <div className="bar"><i style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }} /></div>;
 export const ton = (n: number | null | undefined) => (n == null ? "—" : `${n.toFixed(n < 10 ? 2 : 1)} Gram`);
 
