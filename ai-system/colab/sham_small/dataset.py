@@ -62,7 +62,7 @@ class TextSequenceDataset(torch.utils.data.Dataset):
         if any(Path(p).name == "sham_pipeline.json" for p in file_paths):
             try:
                 from sham_text_stream import StreamingWindows
-                self._streaming = StreamingWindows(tokenizer, seq_len)
+                self._streaming = StreamingWindows(tokenizer, seq_len, list(file_paths))
                 return
             except Exception as exc:
                 print(f"⚠ خط النص المتدفق تعذّر ({type(exc).__name__}: {str(exc)[:100]}) — شريحة ثابتة بدلاً منه")
