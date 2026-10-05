@@ -33,6 +33,7 @@ export default function AdminPanel() {
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
   const [secretShown, setSecretShown] = useState("");
+  const [pasted, setPasted] = useState("");
   const [hiddenRows, setHiddenRows] = useState<{ kind: string; key: string; at: number; note: string }[]>([]);
   const [hKind, setHKind] = useState<"token" | "ref">("token");
   const [hKey, setHKey] = useState("");
@@ -189,7 +190,9 @@ export default function AdminPanel() {
     const load = () => fetch("/api/admin/overview", { cache: "no-store", headers: { "x-athar-adm": window.location.pathname.slice(1) } }).then((r) => r.ok ? r.json() : null).then((j) => j && setOv(j)).catch(() => undefined);
     load(); const t = setInterval(load, 60000); return () => clearInterval(t);
   }, [launched]);
-  const secretLocal = typeof window !== "undefined" ? localStorage.getItem(KEY) : null;
+  const savedSecret = typeof window !== "undefined" ? localStorage.getItem(KEY) : null;
+  const pastedClean = pasted.replace(/\s+/g, "").toLowerCase().replace(/^0x/, "");   // the secret copied from the screen wraps over two lines
+  const secretLocal = savedSecret || (/^[0-9a-f]{64}$/.test(pastedClean) ? pastedClean : null);
   async function run(fn: () => Promise<void>) { setRunning(true); try { await fn(); toast("تم الإرسال"); } catch { toast("لم تكتمل العملية"); } finally { setRunning(false); setTimeout(refresh, 8000); } }
 
   const stranger = !!address && !!st?.envAdmin && !checks[2].ok;
@@ -340,6 +343,7 @@ export default function AdminPanel() {
             </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([sweepMsg(st.minter)])); })}>سحب بقايا الغاز من البائع</button>
           </div>
+          {!savedSecret && <div className="note">الصق سرّ الكشف الذي نسخته (يُقبل على سطرين):<textarea className="mono" rows={2} value={pasted} onChange={(e) => setPasted(e.target.value)} style={{ width: "100%" }} /></div>}
           {!secretLocal && <p className="muted bad">سرّ الكشف غير موجود في هذا المتصفح. إن لم تكشف بنفسك، يكشف أي شخص بعد 3 أيام من الموعد بالطريقة العامة.</p>}
         </div>
       )}
