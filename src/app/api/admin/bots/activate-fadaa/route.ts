@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
 export async function POST(req: NextRequest) {
-  if (!isOwnerServer()) {
+  if (!await isOwnerServer()) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const body = await req.json().catch(() => ({}));

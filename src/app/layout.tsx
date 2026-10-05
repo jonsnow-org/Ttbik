@@ -49,8 +49,8 @@ const ORGANIZATION_JSON_LD = {
   sameAs: LIVE_BOTS.map((b) => b.href),
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const pathname = headers().get("x-pathname") || "";
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const pathname = (await headers()).get("x-pathname") || "";
   const isMiniApp = pathname.startsWith("/mini-app") || pathname.startsWith("/fadaa");
 
   // Embeddable widgets (/embed/*) are shown inside other sites' iframes:
@@ -73,7 +73,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     );
   }
 
-  const isOwner = isOwnerServer();
+  const isOwner = await isOwnerServer();
 
   return (
     <html lang="ar" dir="rtl">

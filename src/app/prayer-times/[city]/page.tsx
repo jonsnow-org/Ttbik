@@ -15,7 +15,8 @@ export function generateStaticParams() {
   return PRAYER_CITIES.map((c) => ({ city: c.slug }));
 }
 
-export function generateMetadata({ params }: { params: Params }): Metadata {
+export async function generateMetadata(props: { params: Promise<Params> }): Promise<Metadata> {
+  const params = await props.params;
   const city = getPrayerCity(params.city);
   if (!city) return { title: "مواقيت الصلاة" };
   return {
@@ -33,7 +34,8 @@ export function generateMetadata({ params }: { params: Params }): Metadata {
   };
 }
 
-export default function PrayerCityPage({ params }: { params: Params }) {
+export default async function PrayerCityPage(props: { params: Promise<Params> }) {
+  const params = await props.params;
   const city = getPrayerCity(params.city);
   if (!city) notFound();
   const now = new Date();

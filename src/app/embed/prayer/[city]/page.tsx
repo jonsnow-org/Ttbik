@@ -16,7 +16,11 @@ export const metadata: Metadata = { robots: { index: false, follow: true } };
 
 const NAMES = ["fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"] as const;
 
-export default function PrayerEmbed({ params, searchParams }: { params: { city: string }; searchParams: { theme?: string } }) {
+export default async function PrayerEmbed(
+  props: { params: Promise<{ city: string }>; searchParams: Promise<{ theme?: string }> }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const city = getPrayerCity(params.city);
   if (!city) notFound();
   const r = computePrayerTimes(city, new Date());

@@ -21,7 +21,8 @@ async function load(id: string) {
 
 // Shared link preview (WhatsApp/Telegram show this title). User-written
 // content, so it stays out of search indexes.
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const d = await load(params.id);
   if (!d) return { title: "بَشَر", robots: { index: false } };
   const title = `«${d.q.body.slice(0, 80)}» — أجبني خلال 75 ثانية`;
@@ -37,7 +38,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   };
 }
 
-export default async function BasharQuestionPage({ params }: { params: { id: string } }) {
+export default async function BasharQuestionPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const d = await load(params.id);
   if (!d) notFound();
   const { q } = d;

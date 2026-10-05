@@ -33,7 +33,8 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   ATHAR_BOT: "migration_full_current_schema.sql",
 };
 
-export async function POST(req: NextRequest, { params }: { params: { botId: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ botId: string }> }) {
+  const params = await props.params;
   let botRow: Awaited<ReturnType<typeof prisma.bot.findUnique>> = null;
   let rawBody: any = null;
   try {

@@ -13,7 +13,8 @@ const FINGERPRINT_DISTINCT_USER_LIMIT = 2;
 // surviving long enough to report back (owner report, 2026-09-06: mobile
 // browsers were blocking the page's auto-open as a "popup" before it ever
 // got the chance).
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const click = await prisma.adClick.findUnique({ where: { id: params.token } });
   if (!click) {
     return NextResponse.json({ ok: false }, { status: 404 });

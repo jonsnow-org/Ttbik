@@ -8,8 +8,8 @@ function expectedPassword(): string {
 }
 
 /** Server component usage — reads the same cookie the /admin dashboard sets. */
-export function isOwnerServer(): boolean {
-  const value = cookies().get(COOKIE_NAME)?.value;
+export async function isOwnerServer(): Promise<boolean> {
+  const value = (await cookies()).get(COOKIE_NAME)?.value;
   const expected = expectedPassword();
   return !!value && !!expected && value === expected;
 }

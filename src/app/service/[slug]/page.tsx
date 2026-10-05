@@ -28,7 +28,8 @@ async function getService(slug: string) {
   return data as (Service & { categories: { slug: string } | null }) | null;
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const service = await getService(params.slug);
   if (!service) return {};
   const description = service.short_desc_ar || service.long_desc_ar || undefined;
@@ -39,11 +40,12 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function ServicePage({ params }: { params: { slug: string } }) {
+export default async function ServicePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const service = await getService(params.slug);
   if (!service) notFound();
 
-  const isOwner = isOwnerServer();
+  const isOwner = await isOwnerServer();
   const ownerLink: string | null = null; // hosted /tools/* pages were retired (2026-09-25)
   const categorySlug = service.categories?.slug ?? null;
   const theme = getCategoryTheme(categorySlug);

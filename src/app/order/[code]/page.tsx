@@ -8,7 +8,8 @@ async function getStatus(code: string) {
   return row ?? null;
 }
 
-export default async function OrderStatusPage({ params }: { params: { code: string } }) {
+export default async function OrderStatusPage(props: { params: Promise<{ code: string }> }) {
+  const params = await props.params;
   const initial = await getStatus(params.code);
 
   return (

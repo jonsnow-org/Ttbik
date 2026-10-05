@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { decideOrder } from "@/lib/orders";
 import { isOwnerRequest } from "@/lib/isOwner";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   // middleware.ts already blocks /api/admin/* without the owner cookie; this
   // check is a second, independent layer so this sensitive route (approve/
   // reject a paid order) stays protected even if the middleware matcher is

@@ -12,7 +12,8 @@ export function generateStaticParams() {
   return NEWS_ITEMS.map((n) => ({ slug: n.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const item = getNewsItem(params.slug);
   if (!item) return { title: "خبر" };
   const url = `${SITE}/news/${item.slug}`;
@@ -32,7 +33,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function NewsArticlePage({ params }: { params: { slug: string } }) {
+export default async function NewsArticlePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const item = getNewsItem(params.slug);
   if (!item) notFound();
 

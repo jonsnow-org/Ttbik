@@ -1,5 +1,6 @@
 import ConfessionPayClient from "./ConfessionPayClient";
 
-export default function ConfessionPayPage({ searchParams }: { searchParams: { uid?: string; paid?: string } }) {
+export default async function ConfessionPayPage(props: { searchParams: Promise<{ uid?: string; paid?: string }> }) {
+  const searchParams = await props.searchParams;
   return <ConfessionPayClient uid={String(searchParams.uid || "")} justPaid={searchParams.paid === "1"} />;
 }
