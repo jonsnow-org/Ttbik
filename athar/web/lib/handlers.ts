@@ -113,9 +113,10 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
 }
 
 export function collectionResponse(origin = SITE_URL, imgBase = `${META_BASE}/img`): Response {
+  const range = `${ymd(SEASON_1.rangeStart).y}–${ymd(SEASON_1.rangeEnd).y}`;   // what exists now, stated as it is
   return Response.json({
     name: "Athar",
-    description: `One token for every day of the calendar (1950–2049). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (1950–2049). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.\n\n🛒 Buy any date directly / اشترِ أي تاريخ مباشرة: ${BOT_URL}`,
+    description: `One token for every day of the calendar (available now: ${range}). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (المتاح حالياً: ${range}). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.\n\n🛒 Buy any date directly / اشترِ أي تاريخ مباشرة: ${BOT_URL}`,
     image: `${imgBase}/collection.svg`,
     cover_image: `${imgBase}/collection.svg`,
     external_url: origin,
