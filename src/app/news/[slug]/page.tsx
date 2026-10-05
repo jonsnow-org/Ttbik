@@ -19,7 +19,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const url = `${SITE}/news/${item.slug}`;
   const image = item.imageUrl || `${SITE}/og/news.jpg`;
   return {
-    title: `${item.title} | سوق تولز`,
+    title: `${item.title} | شام AI`,
     description: item.description,
     alternates: { canonical: url },
     openGraph: {
@@ -57,8 +57,8 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
     inLanguage: "ar",
     url,
     image,
-    author: { "@type": "Organization", name: "سوق تولز" },
-    publisher: { "@type": "Organization", name: "سوق تولز" },
+    author: { "@type": "Organization", name: "شام AI" },
+    publisher: { "@type": "Organization", name: "شام AI" },
     citation: item.sources.map((s) => s.href),
   };
   const desk = LIVE_DESKS[0];

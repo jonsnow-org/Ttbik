@@ -12,13 +12,13 @@ const PATH = "/news";
 export const revalidate = 600;
 
 export const metadata: Metadata = {
-  title: "أخبار وأحداث | سوق تولز",
+  title: "أخبار وأحداث | شام AI",
   description:
     "شريط عاجل من مصادر عربية موثوقة، بطاقات بصور، وبث رسمي للأحداث الكبرى. لا نسخ للمقالات.",
-  keywords: ["أخبار عربية", "خبر اليوم", "سوق تولز", "بث مباشر"],
+  keywords: ["أخبار عربية", "خبر اليوم", "شام AI", "بث مباشر"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل بصور وبث رسمي للأحداث الكبرى.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل بصور وبث رسمي.",
     images: [`${SITE}/og/news.jpg`],
   },
@@ -80,7 +80,7 @@ export default async function NewsHubPage() {
             بث الأحداث الكبرى
           </h2>
           <p className="mb-3 text-xs leading-6 text-slate-500">
-            بث القناة الرسمي على يوتيوب. ليس إعادة بث من سوق تولز. إن لم تكن القناة على الهواء الآن يظهر آخر بث متاح.
+            بث القناة الرسمي على يوتيوب. ليس إعادة بث من شام AI. إن لم تكن القناة على الهواء الآن يظهر آخر بث متاح.
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {LIVE_DESKS.map((desk) => (
