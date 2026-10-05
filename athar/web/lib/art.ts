@@ -195,7 +195,7 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
 function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const pal = palOf(a);
   const accent = a.tier === 2 || a.gold || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
-  const ro = a.tier === 1 && !a.gold ? crystal(a, accent, pal.ink, true) : rosette(a, accent, pal.ink, true);
+  const ro = a.tier === 1 && !a.gold ? crystal(a, accent, pal.ink, true) : rosette(a.gold ? { ...a, tier: 2 } : a, accent, pal.ink, true);   // a gold-wax token keeps a GOLD badge
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;

@@ -37,7 +37,7 @@ export function imgResponse(idParam: string, reqUrl: string): Response {
 }
 
 /** Hooks only our own server has (its takedown list and its picture queue); the mirror has neither and uses the defaults. */
-export type MetaHooks = { isHiddenToken?: (index: number) => boolean; isHiddenRef?: (ref: string | null | undefined) => boolean; available?: (ref: string) => Promise<boolean> };
+export type MetaHooks = { isHiddenToken?: (index: number) => boolean; isHiddenRef?: (ref: string | null | undefined) => boolean; available?: (ref: string) => Promise<boolean>; pictureAllowed?: (t: { index: number; mediaRef: string | null; media: { ref: string }[] }) => Promise<boolean> };
 const gatewayHas = async (ref: string) => { try { const r = await fetch(`https://turbo-gateway.com/${ref}`, { method: "HEAD", signal: AbortSignal.timeout(4000) }); return r.ok; } catch { return false; } };
 
 export async function metaResponse(idParam: string, origin = SITE_URL, imgBase = `${META_BASE}/img`, hooks: MetaHooks = {}): Promise<Response> {
@@ -46,7 +46,8 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return Response.json({ error: "bad id" }, { status: 400 });
   const { y, m, d } = ymd(index);
   let st: Awaited<ReturnType<typeof tokenState>>;
-  try { st = await tokenState(index); } catch (e) { if (isBusy(e)) return Response.json({ error: "busy, try again in a moment" }, { status: 503, headers: { "Retry-After": "5" } }); throw e; }
+  try { st = await tokenState(index); if (st && st.mediaRef && hooks.pictureAllowed && !(await hooks.pictureAllowed(st))) st = { ...st, mediaRef: null }; }   // a custom picture whose fee was not paid is not shown
+   catch (e) { if (isBusy(e)) return Response.json({ error: "busy, try again in a moment" }, { status: 503, headers: { "Retry-After": "5" } }); throw e; }
   const tier = st ? st.tier : seasonTier(SEASON_1, index);
   const stage = st ? stageOf(st.lastTransferAt) : 0;
   const story = tokenStory(index, st ? { season: st.season, tier, hands: st.hands, engravings: st.engravings.length, lastTransferAt: st.lastTransferAt, mintedAt: st.mintedAt, mediaRef: st.mediaRef, occasion: st.occasion, lastEngraving: st.engravings[0]?.text } : null, tier, stage, (id) => occasionById(id)?.names.en ?? null);

@@ -10,7 +10,7 @@ import { waxPhoto } from "@/lib/wax";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
-import { tx } from "@/lib/tx";
+import { buyMsg, tx } from "@/lib/tx";
 
 type St = { siteUrl: string; envAdmin: string; collection: string; minter: string; collectionActive: boolean; minterActive: boolean; balance: number | null; payout?: string | null; minted?: number; status?: number; soldCount?: number; priceCommon?: number; priceRare?: number; poolSize?: number; poolLoaded?: number; ticketsSold?: number; revealed?: boolean; revealAt?: number; commitSet?: boolean };
 const KEY = "athar_secret_s1";
@@ -97,6 +97,36 @@ export default function AdminPanel() {
     const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
     await ui.sendTransaction(tx([specialAuctionMsg(st!.minter, SEASON_1, spIdx, BigInt(j.ref), spReserve, Number(spDays))]));
     setSpPhoto(null); setSpSvg("");
+  });
+  // The owner's own gold-wax mint: any direct-sale date, a photo given the gold-wax treatment, no picture fee (the owner pays none).
+  const [gmY, setGmY] = useState(2003), [gmM, setGmM] = useState(3), [gmD, setGmD] = useState(14), [gmTo, setGmTo] = useState("");
+  const [gmPhoto, setGmPhoto] = useState<string | null>(null), [gmSvg, setGmSvg] = useState(""), [gmBusy, setGmBusy] = useState(false);
+  const gmIndex = () => { const i = Date.UTC(gmY, gmM - 1, Math.min(gmD, new Date(Date.UTC(gmY, gmM, 0)).getUTCDate())) / 86400000 - Date.UTC(1950, 0, 1) / 86400000; return i; };
+  const gmPreview = async (photo: string) => {
+    const r = await fetch("/api/admin/goldmint", { method: "POST", headers: adm(), body: JSON.stringify({ index: gmIndex(), photo, preview: true }) });
+    const j = await r.json(); if (!r.ok) { toast(j.error || "فشلت المعاينة"); return false; }
+    setGmSvg(j.svg); return true;
+  };
+  const gmPick = async (f: File | undefined) => {
+    if (!f) return;
+    setGmBusy(true); setGmSvg(""); setGmPhoto(null);
+    try {
+      const c = await compressPhoto(f); const gold = c ? await waxPhoto(c.uri, "gold") : null;
+      if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
+      if (await gmPreview(gold)) setGmPhoto(gold);
+    } catch { toast("تعذّر تجهيز الصورة"); } finally { setGmBusy(false); }
+  };
+  const gmMint = () => run(async () => {
+    const index = gmIndex();
+    const info = await (await fetch(`/api/date/${index}`, { cache: "no-store" })).json();
+    if (info.taken) throw new Error("taken");
+    if (info.price == null) { toast("هذا التاريخ ليس للبيع المباشر (مزاد أو صندوق غموض أو خارج الموسم)"); throw new Error("not direct"); }
+    const r = await fetch("/api/admin/goldmint", { method: "POST", headers: adm(), body: JSON.stringify({ index, photo: gmPhoto }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || "store failed");
+    let to: string | undefined; const t = gmTo.trim();
+    if (t) { try { Address.parse(t); to = t; } catch { toast("عنوان المستلم غير صالح"); throw new Error("bad address"); } }
+    await ui.sendTransaction(tx([buyMsg(st!.minter, index, info.price, to, 0, BigInt(j.ref), 0, 0)]));
+    setGmPhoto(null); setGmSvg("");
   });
   const stRef = useRef<St | null>(null);
   stRef.current = st;
@@ -297,6 +327,21 @@ export default function AdminPanel() {
                 </div>
                 <button className="btn gold" disabled={running || spBusy || !spPhoto} onClick={spStart}>خزّن الصورة وابدأ المزاد</button>
                 <button className="btn" disabled={running || spBusy} onClick={spAll}>جهّز وابدأ كل التواريخ الخاصة ({SEASON_1.specials.length})</button>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <h4>صكّ رمز بصورة ذهبية شمعية (لشخصية مشهورة مثلاً)</h4>
+              <div className="muted" style={{ fontSize: 12 }}>أي تاريخ للبيع المباشر. أنت لا تدفع رسم الصورة. تُدمج الصورة بالذهبي الشمعي وتبقى زخرفة التاريخ شارة صغيرة. للتواريخ الأسطورية والخاصة استخدم المزاد أعلاه بسعر مرتفع.</div>
+              <div className="gap">
+                <div className="row" style={{ gap: 8 }}>
+                  <input type="number" min={1} max={31} value={gmD} onChange={(e) => { setGmD(Number(e.target.value)); setGmPhoto(null); setGmSvg(""); }} title="اليوم" />
+                  <input type="number" min={1} max={12} value={gmM} onChange={(e) => { setGmM(Number(e.target.value)); setGmPhoto(null); setGmSvg(""); }} title="الشهر" />
+                  <input type="number" min={1950} max={2049} value={gmY} onChange={(e) => { setGmY(Number(e.target.value)); setGmPhoto(null); setGmSvg(""); }} title="السنة" />
+                </div>
+                <input type="text" dir="ltr" placeholder="عنوان المستلم (اختياري، وإلا لمحفظتك)" value={gmTo} onChange={(e) => setGmTo(e.target.value)} />
+                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={gmBusy} onChange={(e) => gmPick(e.target.files?.[0])} />
+                {gmSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(gmSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
+                <button className="btn gold" disabled={running || gmBusy || !gmPhoto} onClick={gmMint}>خزّن الصورة واصكّ الرمز</button>
               </div>
             </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(st.minter, st.status === 1)])); })}>{st.status === 1 ? "أوقف البيع مؤقتاً" : "استأنف البيع"}</button>

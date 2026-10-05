@@ -64,3 +64,11 @@ describe("the age of a token is visible", () => {
     expect(at(4)).toContain("ar-stb");
   });
 });
+
+describe("gold-wax tokens", () => {
+  it("keep a gold badge and a gold frame whatever the date's rarity", () => {
+    const svg = renderPhotoArt({ index: 18900, tier: 0, season: 1, stage: 0, hands: 1, engravings: 0, gold: true }, photo(1000), { w: 400, h: 400 });
+    expect(svg).toContain("#ffd25a");           // the gold guilloche of the badge
+    expect(svg).toContain("COMMON · S1");       // the rarity text stays true
+  });
+});
