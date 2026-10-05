@@ -1,6 +1,6 @@
 // Runs in the browser: shrinks any photo (face, full figure, group) until it fits the free permanent-storage budget.
 // Nothing is cropped: the picture keeps its own shape and is shown whole inside the frame.
-export const PHOTO_BUDGET = 66_000;
+export const PHOTO_BUDGET = 58_000;   // base64 makes it 1.33x, the frame and badge add ~14 KB: the whole picture must stay under the free 100 KB
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {

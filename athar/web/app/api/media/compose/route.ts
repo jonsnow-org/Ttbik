@@ -4,7 +4,7 @@ import path from "path";
 import { renderArt, renderPhotoArt } from "@/lib/art";
 import { TOTAL_DATES, ymd } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
-import { storeNow } from "@/lib/storage";
+import { MAX_BYTES, storeNow } from "@/lib/storage";
 import { enqueue } from "@/lib/mediaQueue";
 import { badgeMotion, storedMotion } from "@/lib/live";
 import { OCCASIONS } from "@/lib/occasions";
@@ -79,6 +79,7 @@ export async function POST(req: Request) {
   }
   if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
   else if (withBadge) svg = badgeMotion(svg);       // a photo token: its small rosette badge keeps turning and breathing
+  if (Buffer.byteLength(svg) > MAX_BYTES) return NextResponse.json({ error: "picture too large for free permanent storage, choose a smaller photo" }, { status: 413 });
   if (preview) return NextResponse.json({ svg, notes });
   try {
     const st2 = await storeNow(svg);

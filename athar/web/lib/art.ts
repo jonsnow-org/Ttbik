@@ -20,9 +20,9 @@ const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 const PAIRS: [number, number][] = [[7, 2], [8, 3], [9, 4], [10, 3], [11, 4], [12, 5], [13, 4], [11, 3], [9, 2], [13, 5], [7, 3], [10, 7]];
 
 /** One closed spirograph curve (hypotrochoid), scaled so its widest point reaches `reach`. */
-function spiro(R: number, r: number, dRatio: number, reach: number, rot: number): string {
+function spiro(R: number, r: number, dRatio: number, reach: number, rot: number, density = 160): string {
   const d = r * dRatio, period = (2 * Math.PI * r) / gcd(R, r);
-  const steps = Math.min(720, Math.round((period / (2 * Math.PI)) * 160));
+  const steps = Math.min(720, Math.round((period / (2 * Math.PI)) * density));
   const k = reach / (R - r + d);
   let path = "";
   for (let i = 0; i <= steps; i++) {
@@ -37,19 +37,19 @@ function spiro(R: number, r: number, dRatio: number, reach: number, rot: number)
 
 /** The picture at the heart of a token that carries no photo: a guilloche rosette that belongs to its date alone.
  *  Common dates get two curves, rare three and fine rays, mythic ones add a golden halo; the date itself sits in the badge. */
-function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body: string } {
+function rosette(a: ArtInput, accent: string, ink: string, mini = false): { defs: string; body: string } {   // mini: the small badge on a photo token (lighter, so the photo keeps the storage budget)
   const r = rng(a.index * 7919 + 13);
-  const layers = 3, copies = [2, 3, 4][a.tier];
-  const dim = a.tier !== 1; // plain dates read dark on the navy: draw their lines thicker and brighter
+  const layers = mini ? 2 : 3, copies = mini ? [1, 2, 2][a.tier] : [2, 3, 4][a.tier];
+  const dim = mini || a.tier !== 1; // plain dates read dark on the navy: draw their lines thicker and brighter
   let body = `<circle cx="400" cy="400" r="236" fill="url(#core)"/>`;
   // a ring of beads and, for rarer dates, fine rays: the "banknote" border of the picture
-  const beads = 90;
+  const beads = mini ? 36 : 90;
   for (let i = 0; i < beads; i++) {
     const an = (i / beads) * Math.PI * 2;
     body += `<circle cx="${(400 + Math.cos(an) * 222).toFixed(1)}" cy="${(400 + Math.sin(an) * 222).toFixed(1)}" r="${i % 5 === 0 ? 2.8 : 1.6}" fill="${accent}" opacity="${i % 5 === 0 ? 1 : dim ? 0.8 : 0.55}"/>`;
   }
   if (a.tier >= 1) {
-    const n = a.tier === 2 ? 96 : 60;
+    const n = mini ? 30 : a.tier === 2 ? 96 : 60;
     for (let i = 0; i < n; i++) {
       const an = (i / n) * Math.PI * 2;
       body += `<line x1="${(400 + Math.cos(an) * 196).toFixed(1)}" y1="${(400 + Math.sin(an) * 196).toFixed(1)}" x2="${(400 + Math.cos(an) * 212).toFixed(1)}" y2="${(400 + Math.sin(an) * 212).toFixed(1)}" stroke="${accent}" stroke-width="${i % 4 === 0 ? 1.8 : 0.9}" opacity="${a.tier === 2 ? 0.85 : 0.55}"/>`;
@@ -62,9 +62,9 @@ function rosette(a: ArtInput, accent: string, ink: string): { defs: string; body
     const reach = 188 - k * 40;
     const dRatio = 0.55 + r() * 0.42;
     const col = dim ? (a.tier === 2 ? (k === 1 ? "#fff6d6" : "#ffd25a") : k === 1 ? "#ffffff" : "#c4d7ff") : k === 1 ? ink : accent;
-    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0)}" fill="none" stroke="${col}" stroke-width="${(k === 2 ? 1.5 : 1.1) + (dim ? (a.tier === 2 ? 1.5 : 1.9) : 0)}" stroke-linejoin="round"/>`;
+    defs += `<path id="sp${k}" d="${spiro(R, q, dRatio, reach, 0, mini ? 34 : 160)}" fill="none" stroke="${col}" stroke-width="${(k === 2 ? 1.5 : 1.1) + (dim ? (a.tier === 2 ? 1.5 : 1.9) : 0)}" stroke-linejoin="round"/>`;
     for (let c = 0; c < copies; c++) {
-      body += `<use href="#sp${k}" xlink:href="#sp${k}" transform="rotate(${((c / copies) * (360 / (R - q)) + k * 7).toFixed(2)} 400 400)" opacity="${(dim ? (a.tier === 2 ? 1 - k * 0.06 : 0.97 - k * 0.07) : 0.7 - k * 0.12).toFixed(2)}"/>`;
+      body += `<use xlink:href="#sp${k}" transform="rotate(${((c / copies) * (360 / (R - q)) + k * 7).toFixed(2)} 400 400)" opacity="${(dim ? (a.tier === 2 ? 1 - k * 0.06 : 0.97 - k * 0.07) : 0.7 - k * 0.12).toFixed(2)}"/>`;
     }
   }
   const c = 13 + a.tier * 5;
@@ -154,7 +154,7 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
 function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const pal = PALETTES[a.season] || PALETTES[1];
   const accent = a.tier === 2 || a.gold || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
-  const ro = rosette(a, accent, pal.ink);
+  const ro = rosette(a, accent, pal.ink, true);
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;
@@ -168,11 +168,11 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
   const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 3);
   const ix = Math.round(400 - iw / 2), iy = Math.round(400 - ih / 2);
   const defs = `${rb.defs}<filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
-<image id="ph" href="${photoDataUri}" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
+<image id="ph" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
 `;
   const centre = `<g clip-path="url(#win)">
-<g filter="url(#soft)">${ix > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use href="#ph" xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use href="#ph" xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
-<use href="#ph" xlink:href="#ph"/>
+<g filter="url(#soft)">${ix > 400 - PR ? `<use xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
+<use xlink:href="#ph"/>
 </g>${rb.badge}`;
   return shell(a, centre, defs, [166, 196]);   // the occasion emblem moves up to make room for the badge
 }
