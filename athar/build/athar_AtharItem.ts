@@ -2095,6 +2095,135 @@ export function dictValueParserWithdraw(): DictionaryValue<Withdraw> {
     }
 }
 
+export type ProposeCode = {
+    $$type: 'ProposeCode';
+    code: Cell;
+}
+
+export function storeProposeCode(src: ProposeCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024104, 32);
+        b_0.storeRef(src.code);
+    };
+}
+
+export function loadProposeCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024104) { throw Error('Invalid prefix'); }
+    const _code = sc_0.loadRef();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function loadTupleProposeCode(source: TupleReader) {
+    const _code = source.readCell();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function loadGetterTupleProposeCode(source: TupleReader) {
+    const _code = source.readCell();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function storeTupleProposeCode(source: ProposeCode) {
+    const builder = new TupleBuilder();
+    builder.writeCell(source.code);
+    return builder.build();
+}
+
+export function dictValueParserProposeCode(): DictionaryValue<ProposeCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeProposeCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadProposeCode(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type ApplyCode = {
+    $$type: 'ApplyCode';
+}
+
+export function storeApplyCode(src: ApplyCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024105, 32);
+    };
+}
+
+export function loadApplyCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024105) { throw Error('Invalid prefix'); }
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function loadTupleApplyCode(source: TupleReader) {
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function loadGetterTupleApplyCode(source: TupleReader) {
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function storeTupleApplyCode(source: ApplyCode) {
+    const builder = new TupleBuilder();
+    return builder.build();
+}
+
+export function dictValueParserApplyCode(): DictionaryValue<ApplyCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeApplyCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadApplyCode(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type CancelCode = {
+    $$type: 'CancelCode';
+}
+
+export function storeCancelCode(src: CancelCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024106, 32);
+    };
+}
+
+export function loadCancelCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024106) { throw Error('Invalid prefix'); }
+    return { $$type: 'CancelCode' as const };
+}
+
+export function loadTupleCancelCode(source: TupleReader) {
+    return { $$type: 'CancelCode' as const };
+}
+
+export function loadGetterTupleCancelCode(source: TupleReader) {
+    return { $$type: 'CancelCode' as const };
+}
+
+export function storeTupleCancelCode(source: CancelCode) {
+    const builder = new TupleBuilder();
+    return builder.build();
+}
+
+export function dictValueParserCancelCode(): DictionaryValue<CancelCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeCancelCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadCancelCode(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type EngraveReq = {
     $$type: 'EngraveReq';
     index: bigint;
@@ -2747,6 +2876,57 @@ export function dictValueParserAtharState(): DictionaryValue<AtharState> {
     }
 }
 
+export type CodeProposal = {
+    $$type: 'CodeProposal';
+    pending: boolean;
+    applicableAt: bigint;
+}
+
+export function storeCodeProposal(src: CodeProposal) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeBit(src.pending);
+        b_0.storeInt(src.applicableAt, 257);
+    };
+}
+
+export function loadCodeProposal(slice: Slice) {
+    const sc_0 = slice;
+    const _pending = sc_0.loadBit();
+    const _applicableAt = sc_0.loadIntBig(257);
+    return { $$type: 'CodeProposal' as const, pending: _pending, applicableAt: _applicableAt };
+}
+
+export function loadTupleCodeProposal(source: TupleReader) {
+    const _pending = source.readBoolean();
+    const _applicableAt = source.readBigNumber();
+    return { $$type: 'CodeProposal' as const, pending: _pending, applicableAt: _applicableAt };
+}
+
+export function loadGetterTupleCodeProposal(source: TupleReader) {
+    const _pending = source.readBoolean();
+    const _applicableAt = source.readBigNumber();
+    return { $$type: 'CodeProposal' as const, pending: _pending, applicableAt: _applicableAt };
+}
+
+export function storeTupleCodeProposal(source: CodeProposal) {
+    const builder = new TupleBuilder();
+    builder.writeBoolean(source.pending);
+    builder.writeNumber(source.applicableAt);
+    return builder.build();
+}
+
+export function dictValueParserCodeProposal(): DictionaryValue<CodeProposal> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeCodeProposal(src)).endCell());
+        },
+        parse: (src) => {
+            return loadCodeProposal(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type AtharCollection$Data = {
     $$type: 'AtharCollection$Data';
     admin: Address;
@@ -2768,6 +2948,9 @@ export type AtharCollection$Data = {
     mediaFee: bigint;
     changeFee: bigint;
     issued: Dictionary<number, boolean>;
+    pendingCode: Cell | null;
+    pendingCodeAt: bigint;
+    ext: Cell | null;
 }
 
 export function storeAtharCollection$Data(src: AtharCollection$Data) {
@@ -2793,6 +2976,11 @@ export function storeAtharCollection$Data(src: AtharCollection$Data) {
         b_1.storeCoins(src.mediaFee);
         b_1.storeCoins(src.changeFee);
         b_1.storeDict(src.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool());
+        const b_2 = new Builder();
+        if (src.pendingCode !== null && src.pendingCode !== undefined) { b_2.storeBit(true).storeRef(src.pendingCode); } else { b_2.storeBit(false); }
+        b_2.storeUint(src.pendingCodeAt, 32);
+        if (src.ext !== null && src.ext !== undefined) { b_2.storeBit(true).storeRef(src.ext); } else { b_2.storeBit(false); }
+        b_1.storeRef(b_2.endCell());
         b_0.storeRef(b_1.endCell());
     };
 }
@@ -2819,7 +3007,11 @@ export function loadAtharCollection$Data(slice: Slice) {
     const _mediaFee = sc_1.loadCoins();
     const _changeFee = sc_1.loadCoins();
     const _issued = Dictionary.load(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), sc_1);
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
+    const sc_2 = sc_1.loadRef().beginParse();
+    const _pendingCode = sc_2.loadBit() ? sc_2.loadRef() : null;
+    const _pendingCodeAt = sc_2.loadUintBig(32);
+    const _ext = sc_2.loadBit() ? sc_2.loadRef() : null;
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued, pendingCode: _pendingCode, pendingCodeAt: _pendingCodeAt, ext: _ext };
 }
 
 export function loadTupleAtharCollection$Data(source: TupleReader) {
@@ -2843,7 +3035,10 @@ export function loadTupleAtharCollection$Data(source: TupleReader) {
     const _mediaFee = source.readBigNumber();
     const _changeFee = source.readBigNumber();
     const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
+    const _pendingCode = source.readCellOpt();
+    const _pendingCodeAt = source.readBigNumber();
+    const _ext = source.readCellOpt();
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued, pendingCode: _pendingCode, pendingCodeAt: _pendingCodeAt, ext: _ext };
 }
 
 export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
@@ -2866,7 +3061,10 @@ export function loadGetterTupleAtharCollection$Data(source: TupleReader) {
     const _mediaFee = source.readBigNumber();
     const _changeFee = source.readBigNumber();
     const _issued = Dictionary.loadDirect(Dictionary.Keys.Uint(16), Dictionary.Values.Bool(), source.readCellOpt());
-    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued };
+    const _pendingCode = source.readCellOpt();
+    const _pendingCodeAt = source.readBigNumber();
+    const _ext = source.readCellOpt();
+    return { $$type: 'AtharCollection$Data' as const, admin: _admin, collectionUri: _collectionUri, delaySec: _delaySec, baseUri: _baseUri, payout: _payout, royaltyNum: _royaltyNum, royaltyDen: _royaltyDen, minters: _minters, pendingPayout: _pendingPayout, pendingPayoutAt: _pendingPayoutAt, pendingBaseUri: _pendingBaseUri, pendingBaseUriAt: _pendingBaseUriAt, successor: _successor, minted: _minted, firstMinterDone: _firstMinterDone, engraveFee: _engraveFee, mediaFee: _mediaFee, changeFee: _changeFee, issued: _issued, pendingCode: _pendingCode, pendingCodeAt: _pendingCodeAt, ext: _ext };
 }
 
 export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
@@ -2890,6 +3088,9 @@ export function storeTupleAtharCollection$Data(source: AtharCollection$Data) {
     builder.writeNumber(source.mediaFee);
     builder.writeNumber(source.changeFee);
     builder.writeCell(source.issued.size > 0 ? beginCell().storeDictDirect(source.issued, Dictionary.Keys.Uint(16), Dictionary.Values.Bool()).endCell() : null);
+    builder.writeCell(source.pendingCode);
+    builder.writeNumber(source.pendingCodeAt);
+    builder.writeCell(source.ext);
     return builder.build();
 }
 
@@ -4925,6 +5126,9 @@ const AtharItem_types: ABIType[] = [
     {"name":"ApplyBaseUri","header":1096024101,"fields":[]},
     {"name":"SetSuccessor","header":1096024102,"fields":[{"name":"successor","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"Withdraw","header":1096024103,"fields":[]},
+    {"name":"ProposeCode","header":1096024104,"fields":[{"name":"code","type":{"kind":"simple","type":"cell","optional":false}}]},
+    {"name":"ApplyCode","header":1096024105,"fields":[]},
+    {"name":"CancelCode","header":1096024106,"fields":[]},
     {"name":"EngraveReq","header":1096024176,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
     {"name":"EngraveFrom","header":1096024177,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}},{"name":"fee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"SetMediaReq","header":1096024178,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
@@ -4934,7 +5138,8 @@ const AtharItem_types: ABIType[] = [
     {"name":"Ymd","header":null,"fields":[{"name":"y","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"m","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"d","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"AtharItem$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"owner","type":{"kind":"simple","type":"address","optional":true}},{"name":"season","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"tier","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"paid","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mintedAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"lastTransferAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"hands","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"AtharState","header":null,"fields":[{"name":"season","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tier","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"paid","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mintedAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"lastTransferAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"hands","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"engravings","type":{"kind":"simple","type":"cell","optional":true}},{"name":"locked","type":{"kind":"simple","type":"bool","optional":false}},{"name":"occasion","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaRef","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"mediaLog","type":{"kind":"simple","type":"cell","optional":true}}]},
-    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}}]},
+    {"name":"CodeProposal","header":null,"fields":[{"name":"pending","type":{"kind":"simple","type":"bool","optional":false}},{"name":"applicableAt","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
+    {"name":"AtharCollection$Data","header":null,"fields":[{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"collectionUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"delaySec","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"baseUri","type":{"kind":"simple","type":"string","optional":false}},{"name":"payout","type":{"kind":"simple","type":"address","optional":true}},{"name":"royaltyNum","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"royaltyDen","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"minters","type":{"kind":"dict","key":"address","value":"uint","valueFormat":32}},{"name":"pendingPayout","type":{"kind":"simple","type":"address","optional":true}},{"name":"pendingPayoutAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"pendingBaseUri","type":{"kind":"simple","type":"string","optional":true}},{"name":"pendingBaseUriAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"successor","type":{"kind":"simple","type":"address","optional":true}},{"name":"minted","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"firstMinterDone","type":{"kind":"simple","type":"bool","optional":false}},{"name":"engraveFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"mediaFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"changeFee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"issued","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"bool"}},{"name":"pendingCode","type":{"kind":"simple","type":"cell","optional":true}},{"name":"pendingCodeAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"ext","type":{"kind":"simple","type":"cell","optional":true}}]},
     {"name":"TierState","header":null,"fields":[{"name":"price","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"floor","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"cap","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"bumpBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"decayBps","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"lastDecayAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"sold","type":{"kind":"simple","type":"uint","optional":false,"format":32}}]},
     {"name":"WalletCount","header":null,"fields":[{"name":"day","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"count","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
     {"name":"PendingMint","header":null,"fields":[{"name":"buyer","type":{"kind":"simple","type":"address","optional":false}},{"name":"amount","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"kind","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
@@ -4988,6 +5193,9 @@ const AtharItem_opcodes = {
     "ApplyBaseUri": 1096024101,
     "SetSuccessor": 1096024102,
     "Withdraw": 1096024103,
+    "ProposeCode": 1096024104,
+    "ApplyCode": 1096024105,
+    "CancelCode": 1096024106,
     "EngraveReq": 1096024176,
     "EngraveFrom": 1096024177,
     "SetMediaReq": 1096024178,
@@ -5039,12 +5247,12 @@ export const MAX_INDEX = 36524n;
 export const TIER_COMMON = 0n;
 export const TIER_RARE = 1n;
 export const TIER_MYTHIC = 2n;
-export const ITEM_FUND = 80000000n;
+export const ITEM_FUND = 30000000n;
 export const MINTER_GAS = 20000000n;
 export const OK_VALUE = 10000000n;
 export const COLL_GAS = 20000000n;
-export const MINT_FEES = 130000000n;
-export const BUY_FEES = 150000000n;
+export const MINT_FEES = 60000000n;
+export const BUY_FEES = 80000000n;
 export const ENGRAVE_FEE = 100000000n;
 export const MEDIA_FEE = 100000000n;
 export const MIN_STORAGE = 50000000n;

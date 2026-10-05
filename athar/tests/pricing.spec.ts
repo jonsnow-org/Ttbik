@@ -1,8 +1,8 @@
-import { toNano, Dictionary } from "@ton/core";
+import { fromNano, toNano, Dictionary } from "@ton/core";
 import { setup, itemOf, S1_START } from "./helpers";
 import { indexOf, ruleTier, TIER } from "../lib/rules";
 
-const BUY_FEES = toNano("0.15");
+const BUY_FEES = toNano("0.08");
 const common = () => { for (let i = S1_START; ; i++) if (ruleTier(i) === TIER.COMMON) return i; };
 const SPECIAL = indexOf(1969, 7, 20);        // outside the 2000-2007 range, a "special" date
 
@@ -50,7 +50,7 @@ describe("feature prices", () => {
     expect(await minter.getIsTaken(BigInt(idx))).toBe(false);
     // exact amount for style 2
     const before = await payout.getBalance();
-    r = await buy(ctx, "alice", idx, ((Number(price + toNano("0.3") + BUY_FEES) / 1e9) + 0.5).toString(), 2n, 7n);
+    r = await buy(ctx, "alice", idx, fromNano(price + toNano("0.3") + BUY_FEES + toNano("0.5")), 2n, 7n);
     expect(await minter.getIsTaken(BigInt(idx))).toBe(true);
     const got = (await payout.getBalance()) - before;
     expect(got).toBeGreaterThan(price + toNano("0.3") - toNano("0.001"));
@@ -62,7 +62,7 @@ describe("feature prices", () => {
     const idx2 = idx + 1; let j = idx2; while (ruleTier(j) !== TIER.COMMON) j++;
     const p2 = await minter.getPrice(0n);
     const b2 = await payout.getBalance();
-    await buy(ctx, "bob", j, ((Number(p2 + BUY_FEES) / 1e9) + 0.2).toString(), 0n);
+    await buy(ctx, "bob", j, fromNano(p2 + BUY_FEES + toNano("0.2")), 0n);
     expect((await payout.getBalance()) - b2).toBeLessThanOrEqual(p2);
     // an unknown style is refused
     let k = j + 1; while (ruleTier(k) !== TIER.COMMON) k++;

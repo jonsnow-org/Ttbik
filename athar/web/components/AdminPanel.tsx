@@ -115,7 +115,7 @@ export default function AdminPanel() {
   });
   // The owner's own stock: many dates minted to his wallet in a few confirmations, to be put on sale on a market (no sale price is paid; only fees)
   const [bkCount, setBkCount] = useState(10), [bkTier, setBkTier] = useState(0), [bkMode, setBkMode] = useState<"spread" | "start">("spread");
-  const [bkPlan, setBkPlan] = useState<{ dates: number[]; available: number; perToken: number; total: number; stays: number } | null>(null), [bkBusy, setBkBusy] = useState(false);
+  const [bkPlan, setBkPlan] = useState<{ dates: number[]; available: number; perToken: number; total: number; stays: number; net: number } | null>(null), [bkBusy, setBkBusy] = useState(false);
   async function bkPropose() {
     setBkBusy(true); setBkPlan(null);
     try {
@@ -379,7 +379,7 @@ export default function AdminPanel() {
             </div>
             <div className="card" style={{ margin: 0 }}>
               <h4>مخزوني: صكّ دفعة رموز لمحفظتي لعرضها للبيع</h4>
-              <div className="muted" style={{ fontSize: 12 }}>تصكّ التواريخ لمحفظتك دون دفع سعر البيع. تدفع فقط أجرة الشبكة: نحو 0.15 Gram للرمز، يبقى منها نحو 0.1 داخل الرمز نفسه. بعد الصك تعرضها للبيع دفعة واحدة من Getgems (حسابك ← تحديد متعدد ← عرض للبيع). عند كل بيع ينقص العدد المعروض هناك تلقائياً.</div>
+              <div className="muted" style={{ fontSize: 12 }}>تصكّ التواريخ لمحفظتك دون دفع سعر البيع. تدفع مقدماً نحو 0.08 Gram للرمز، يعود منها نحو 0.04 إلى محفظتك لاحقاً (من «سحب بقايا الغاز»)، وتبقى نحو 0.03 داخل الرمز نفسه، ويُحرق نحو 0.01 أجرة شبكة. بعد الصك تعرضها للبيع دفعة واحدة من Getgems (حسابك ← تحديد متعدد ← عرض للبيع). عند كل بيع ينقص العدد المعروض هناك تلقائياً.</div>
               <div className="gap">
                 <div className="row" style={{ gap: 8 }}>
                   <input type="number" min={1} max={1000} value={bkCount} onChange={(e) => { setBkCount(Number(e.target.value)); setBkPlan(null); }} title="العدد" />
@@ -387,7 +387,7 @@ export default function AdminPanel() {
                   <select value={bkMode} onChange={(e) => { setBkMode(e.target.value as "spread" | "start"); setBkPlan(null); }}><option value="spread">موزّعة على كل المدى</option><option value="start">من بداية الموسم</option></select>
                 </div>
                 <button className="btn ghost" disabled={running || bkBusy} onClick={bkPropose}>اقترح التواريخ وأظهر التكلفة</button>
-                {bkPlan && <div className="muted" style={{ fontSize: 13 }}>{bkPlan.dates.length} رمز (المتاح {bkPlan.available}). التكلفة المتوقعة ≈ {bkPlan.total} Gram، منها ≈ {bkPlan.stays} تبقى داخل الرموز. رصيدك {st?.balance != null ? st.balance.toFixed(2) : "—"} Gram.</div>}
+                {bkPlan && <div className="muted" style={{ fontSize: 13 }}>{bkPlan.dates.length} رمز (المتاح {bkPlan.available}). تدفع مقدماً ≈ {bkPlan.total} Gram، والتكلفة الفعلية بعد استرجاع البقايا ≈ {bkPlan.net} Gram (منها ≈ {bkPlan.stays} تبقى داخل الرموز). رصيدك {st?.balance != null ? st.balance.toFixed(2) : "—"} Gram.</div>}
                 <button className="btn gold" disabled={running || bkBusy || !bkPlan || bkPlan.dates.length === 0} onClick={bkMint}>صكّ الآن</button>
               </div>
             </div>

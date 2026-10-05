@@ -2,8 +2,8 @@ import { toNano, Dictionary } from "@ton/core";
 import { setup, openSeason, itemOf, S1_START } from "./helpers";
 import { indexOf, ruleTier, TIER } from "../lib/rules";
 
-const BUY_FEES = toNano("0.15");
-const MINT_FEES = toNano("0.1");     // the minter keeps at least this per unclaimed ticket (constant in messages.tact is the real bound; see below)
+const BUY_FEES = toNano("0.08");
+const MINT_FEES = toNano("0.06");     // the minter keeps at least this per unclaimed ticket (constant in messages.tact is the real bound; see below)
 const balanceOf = async (ctx: Awaited<ReturnType<typeof setup>>, a: any) => (await ctx.bc.getContract(a)).balance;
 
 describe("Sweep can never take money that is owed", () => {

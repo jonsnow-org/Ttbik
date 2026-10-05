@@ -25,6 +25,11 @@ export function planBatches(dates: number[], maxMsgs: number, balance: bigint, p
   return out;
 }
 
-/** What the owner really spends: per token about 0.15 in fees (of which about 0.1 stays inside the token as its storage), the sale price is not paid. */
-export const FEE_PER_TOKEN = 0.15;
-export const estimate = (n: number) => ({ perToken: FEE_PER_TOKEN, total: Math.round(n * FEE_PER_TOKEN * 100) / 100, stays: Math.round(n * 0.1 * 100) / 100 });
+/** What the owner really spends per token (measured on the real contracts in the test chain): about 0.08 is paid in advance; about 0.03 stays inside the
+ *  token for good, about 0.04 is parked in the collection and the minter and comes back to him (Withdraw / Sweep), about 0.008 is burned as network fee.
+ *  The sale price is not paid. */
+export const PAID_PER_TOKEN = 0.08;
+export const STAYS_PER_TOKEN = 0.03;
+export const NET_PER_TOKEN = 0.0375;
+const r2 = (x: number) => Math.round(x * 100) / 100;
+export const estimate = (n: number) => ({ perToken: PAID_PER_TOKEN, total: r2(n * PAID_PER_TOKEN), stays: r2(n * STAYS_PER_TOKEN), net: r2(n * NET_PER_TOKEN) });

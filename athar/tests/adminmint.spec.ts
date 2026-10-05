@@ -25,7 +25,7 @@ describe("AdminMint (the owner's stock)", () => {
     expect(await minter.getIsTaken(BigInt(dates[0]))).toBe(true);
     expect((await payout.getBalance()) - payoutBefore).toBeLessThan(toNano("0.001"));      // no sale money moved
     const spent = adminBefore - (await admin.getBalance());
-    expect(spent).toBeGreaterThan(toNano("0.7")); expect(spent).toBeLessThan(toNano("0.8"));   // 5 x about 0.15 (0.1 of it stays inside each token as its storage)
+    expect(spent).toBeGreaterThan(toNano("0.38")); expect(spent).toBeLessThan(toNano("0.45"));   // 5 x about 0.08 (0.03 of it stays inside each token as its storage)
   });
   it("can go to another wallet, with an occasion, and past the wallet limit", async () => {
     const ctx = await setup(); await openSeason(ctx, { walletCap: 1 });
@@ -47,7 +47,7 @@ describe("AdminMint (the owner's stock)", () => {
     await openSeason(ctx);
     r = await minter.send(alice.getSender(), { value: toNano("0.2") }, MINT(d1));
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                    // not the admin
-    r = await minter.send(admin.getSender(), { value: toNano("0.1") }, MINT(d1));
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, MINT(d1));
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                    // fees not covered
     r = await minter.send(admin.getSender(), { value: toNano("0.2") }, MINT(d1));
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });

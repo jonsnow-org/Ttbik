@@ -25,6 +25,6 @@ describe("planning the owner's stock", () => {
     expect(planBatches(dates, 100, toNano("0.1"), toNano("0.19"))).toEqual([]);        // cannot fund even one
   });
   it("tells the real cost, not zero", () => {
-    expect(estimate(100)).toEqual({ perToken: 0.15, total: 15, stays: 10 });
+    expect(estimate(100)).toEqual({ perToken: 0.08, total: 8, stays: 3, net: 3.75 });
   });
 });
