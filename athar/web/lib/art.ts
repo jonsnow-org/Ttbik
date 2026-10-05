@@ -125,7 +125,7 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
   const sparkP = "M0-9C1-3 3-1 9 0 3 1 1 3 0 9-1 3-3 1-9 0-3-1-1-3 0-9Z";
   if (a.stage >= 2) rings += `<circle class="ar-sta" cx="400" cy="400" r="${PR + 40}" fill="none" stroke="${accent}" stroke-width="14" opacity="0.1"/>`;
   if (a.stage >= 3) { let crown = ""; for (let i = 0; i < 12; i++) { if (i % 6 === 3) continue; const an = (i / 12) * Math.PI * 2; crown += `<path transform="translate(${(400 + Math.cos(an) * 318).toFixed(1)} ${(400 + Math.sin(an) * 318).toFixed(1)}) scale(${i % 2 ? 0.7 : 1})" d="${sparkP}" fill="${accent}" opacity="0.9"/>`; } rings += `<g class="ar-st3">${crown}</g>`; }
-  if (a.stage >= 4) rings += `<circle class="ar-st4" cx="400" cy="400" r="334" fill="none" stroke="${accent}" stroke-width="2.4" stroke-dasharray="3 11" opacity="0.8"/><circle class="ar-sta" cx="400" cy="400" r="300" fill="url(#aura)"/>`;
+  if (a.stage >= 4) rings += `<circle class="ar-st4" cx="400" cy="400" r="334" fill="none" stroke="${accent}" stroke-width="2.4" stroke-dasharray="3 11" opacity="0.8"/><circle class="ar-stb" cx="400" cy="400" r="300" fill="url(#aura)"/>`;
   let dots = "";
   const hd = Math.min(a.hands, 24);
   for (let i = 0; i < hd; i++) {

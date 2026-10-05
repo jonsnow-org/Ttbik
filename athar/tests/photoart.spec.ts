@@ -61,5 +61,6 @@ describe("the age of a token is visible", () => {
     expect(at(3)).not.toContain("ar-st4");
     expect(at(4)).toContain("ar-st4");
     expect(at(4)).toContain("ar-st3");
+    expect(at(4)).toContain("ar-stb");
   });
 });
