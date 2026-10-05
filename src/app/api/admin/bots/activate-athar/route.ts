@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const token = String(body.token || "").trim();
   const ownerId = String(body.ownerId || "").replace(/\D/g, "");
-  const botName = String(body.botName || "أثر").trim().slice(0, 64);
+  const botName = String(body.botName || "Athar").trim().slice(0, 64);
 
   if (!/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(token)) {
     return NextResponse.json({ error: "توكن غير صالح" }, { status: 400 });
@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
     await temp.api.setChatMenuButton({
       menu_button: {
         type: "web_app",
-        text: "أثر",
-        web_app: { url: ATHAR_URL },
+        text: "Athar",
+        web_app: { url: `${ATHAR_URL}?lang=en` },
       },
     });
   } catch {

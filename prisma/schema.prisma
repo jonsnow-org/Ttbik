@@ -73,6 +73,17 @@ model BotVisit {
   @@index([botId])
 }
 
+// Language chosen by each person in the Athar bot (English until they choose). Created by deploy/oracle/migrations/002_athar_bot_user.sql.
+model AtharBotUser {
+  botId    String   @map("bot_id")
+  tgUserId String   @map("tg_user_id")
+  lang     String   @default("en")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([botId, tgUserId])
+  @@map("athar_bot_user")
+}
+
 // Owner directive 2026-09-22: after a real bot update ships, the bot
 // itself should tell its users what changed -- automatically, not via
 // the owner pressing the manual "إذاعة" broadcast button each time (that

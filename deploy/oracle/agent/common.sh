@@ -70,7 +70,7 @@ out={
  "load": sh("cut -d' ' -f1-3 /proc/loadavg"),
  "update": {"last": rd(f"{STATE}/last_update").strip(), "tail": mask(rd(f"{STATE}/update.log",12))},
  "backup": {"exists": os.path.exists(bk), "age_h": round((time.time()-os.path.getmtime(bk))/3600,1) if os.path.exists(bk) else None,
-            "size_mb": round(os.path.getsize(bk)/1048576,1) if os.path.exists(bk) else None, "note": rd(f"{STATE}/backup_note").strip()},
+            "size_mb": round(os.path.getsize(bk)/1048576,1) if os.path.exists(bk) else None, "note": rd(f"{STATE}/backup_note").strip(), "repo": rd(f"{STATE}/repo_backup_note").strip()},
  "watchdog": rd(f"{STATE}/watchdog_note").strip(),
  "sweeper": rd(f"{STATE}/sweeper_note").strip(),
  "athar": rd(f"{STATE}/athar_status").strip(),

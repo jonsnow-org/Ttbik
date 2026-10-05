@@ -230,6 +230,8 @@ export const DICT = {
 export type Key = keyof typeof DICT;
 
 export function detectLang(): Lang {
+  // a language chosen in the Telegram bot arrives as ?lang=xx and wins over everything (and is remembered)
+  try { const q = new URLSearchParams(window.location.search).get("lang"); if (q && LANGS.some((l) => l.code === q)) { try { localStorage.setItem("athar_lang", q); } catch { /* private mode */ } return q as Lang; } } catch { /* no window */ }
   try { const saved = localStorage.getItem("athar_lang"); if (saved && LANGS.some((l) => l.code === saved)) return saved as Lang; } catch { /* private mode */ }
   const tg = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.language_code as string | undefined;
   const raw = (tg || navigator.language || "en").toLowerCase().split("-")[0];
