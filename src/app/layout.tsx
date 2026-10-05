@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: SITE_TITLE, template: "%s | شام AI" },
   description: SITE_DESCRIPTION,
-  keywords: ["شام AI", "Sham AI", "سوق تولز", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
+  keywords: ["شام AI", "Sham AI", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
   alternates: { canonical: "/" },
   openGraph: {
     type: "website",
@@ -43,7 +43,7 @@ const ORGANIZATION_JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebSite",
   name: "شام AI",
-  alternateName: ["Sham AI", "سوق تولز"],
+  alternateName: ["Sham AI"],
   url: SITE_URL,
   description: SITE_DESCRIPTION,
   sameAs: LIVE_BOTS.map((b) => b.href),
