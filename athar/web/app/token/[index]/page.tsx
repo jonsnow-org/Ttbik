@@ -86,7 +86,7 @@ export default function Token({ params }: { params: { index: string } }) {
         <div className="kv"><span>{tr("tok.owner")}</span><span className="mono">{short(t.owner)}</span></div>
         <div className="kv"><span>{tr("tok.hands")}</span><span>{t.hands}</span></div>
         <div className="kv"><span>{tr("tok.season")}</span><span>{t.season}</span></div>
-        <div className="kv"><span>{tr("tok.paid")}</span><span>{t.paid.toFixed(2)} TON</span></div>
+        <div className="kv"><span>{tr("tok.paid")}</span><span>{t.paid.toFixed(2)} Gram</span></div>
         <div className="kv"><span>{tr("tok.minted")}</span><span>{new Date(t.mintedAt * 1000).toLocaleDateString(lang)}</span></div>
         <div className="kv"><span>{tr("tok.since")}</span><span>{tr("tok.days", { n: Math.floor((Date.now() / 1000 - t.lastTransferAt) / 86400) })}</span></div>
       </div>

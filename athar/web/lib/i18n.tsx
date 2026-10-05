@@ -33,7 +33,7 @@ export const DICT = {
 
   "ui.cancelled": r("لم تكتمل العملية (أُلغيت أو رُفضت من المحفظة).", "The action was not completed (cancelled or rejected in the wallet).", "Действие не завершено (отменено или отклонено в кошельке).", "İşlem tamamlanmadı (cüzdanda iptal edildi veya reddedildi).", "عملیات کامل نشد (در کیف پول لغو یا رد شد)."),
   "ui.sent": r("تم الإرسال. سيظهر الأثر خلال لحظات.", "Sent. Your mark will appear in moments.", "Отправлено. Ваш след появится через несколько секунд.", "Gönderildi. İzin birkaç saniye içinde görünecek.", "ارسال شد. ردّ شما تا لحظاتی دیگر نمایان می‌شود."),
-  "ui.ton": r("TON", "TON", "TON", "TON", "TON"),
+  "ui.ton": r("Gram", "Gram", "Gram", "Gram", "Gram"),
 
   "feat.title": r("ما الذي يجعل هذا الرمز مختلفاً؟", "What makes this token different?", "Чем этот токен особенный?", "Bu token neden farklı?", "چه چیزی این توکن را متفاوت می‌کند؟"),
   "feat.event": r("حدث تاريخي في هذا اليوم", "A historic event on this day", "Историческое событие в этот день", "Bu günün tarihi olayı", "رویدادی تاریخی در این روز"),
@@ -145,8 +145,8 @@ export const DICT = {
   "media.pvShape": r("شكل الصورة غير معتاد (طويلة جداً أو عريضة جداً) وقد تبدو صغيرة داخل الإطار.", "The photo has an unusual shape (very tall or very wide) and may look small inside the frame.", "Необычная форма фото (очень высокое или очень широкое), оно может выглядеть маленьким в рамке.", "Fotoğrafın şekli alışılmadık (çok uzun veya çok geniş) ve çerçevede küçük görünebilir.", "شکل عکس غیرمعمول است (بسیار بلند یا بسیار پهن) و ممکن است داخل قاب کوچک دیده شود."),
   "media.saving": r("جارٍ التجهيز…", "Preparing…", "Подготовка…", "Hazırlanıyor…", "در حال آماده‌سازی…"),
   "media.fail": r("تعذر التجهيز الآن. يمكنك المتابعة بدونه وإضافة الصورة لاحقاً.", "Not available right now. You can continue without it and add the picture later.", "Сейчас недоступно. Можно продолжить без этого и добавить картинку позже.", "Şu an kullanılamıyor. Onsuz devam edip resmi sonra ekleyebilirsin.", "اکنون ممکن نیست. می‌توانید بدون آن ادامه دهید و بعداً عکس را اضافه کنید."),
-  "media.save": r("احفظ الصورة والمناسبة ({p} TON)", "Save picture and occasion ({p} TON)", "Сохранить картинку и повод ({p} TON)", "Resmi ve vesileyi kaydet ({p} TON)", "ذخیرهٔ عکس و مناسبت ({p} TON)"),
-  "media.freeze": r("ثبّت صورة رمزي الحالية ({p} TON)", "Pin my token's current picture ({p} TON)", "Закрепить текущую картинку токена ({p} TON)", "Token'ın mevcut resmini sabitle ({p} TON)", "عکس فعلی توکن را ثابت کنید ({p} TON)"),
+  "media.save": r("احفظ الصورة والمناسبة ({p} Gram)", "Save picture and occasion ({p} Gram)", "Сохранить картинку и повод ({p} Gram)", "Resmi ve vesileyi kaydet ({p} Gram)", "ذخیرهٔ عکس و مناسبت ({p} Gram)"),
+  "media.freeze": r("ثبّت صورة رمزي الحالية ({p} Gram)", "Pin my token's current picture ({p} Gram)", "Закрепить текущую картинку токена ({p} Gram)", "Token'ın mevcut resmini sabitle ({p} Gram)", "عکس فعلی توکن را ثابت کنید ({p} Gram)"),
   "media.sent": r("تم إرسال تحديث الصورة.", "Picture update sent.", "Обновление картинки отправлено.", "Resim güncellemesi gönderildi.", "به‌روزرسانی تصویر ارسال شد."),
   "media.permBadge": r("صورة خاصة", "Personal picture", "Личная картинка", "Kişisel resim", "تصویر شخصی"),
   "media.history": r("صور سابقة", "Earlier pictures", "Прежние картинки", "Önceki resimler", "تصاویر پیشین"),
@@ -168,7 +168,7 @@ export const DICT = {
   "board.free": r("ما زال متاحاً: اذهب لشرائه", "Still free: go and get it", "Свободно: перейти к покупке", "Hâlâ boş: almaya git", "هنوز آزاد است: برای خرید بروید"),
   "perks.title": r("مزايا حملك لرموز أثر في بوتاتنا (تُفعَّل تباعاً)", "What holding Athar tokens will unlock in our bots (rolling out)", "Что дадут токены Athar в наших ботах (включается поэтапно)", "Athar tokenları botlarımızda neler açacak (kademeli)", "امتیازهای نگهداری توکن‌های اثر در رباتهای ما (به‌تدریج فعال می‌شود)"),
   "media.changeTitle": r("غيّر صورة الرمز", "Change the token's picture", "Сменить картинку токена", "Token resmini değiştir", "تغییر عکس توکن"),
-  "media.change": r("غيّر الصورة ({p} TON)", "Change the picture ({p} TON)", "Сменить картинку ({p} TON)", "Resmi değiştir ({p} TON)", "تغییر عکس ({p} TON)"),
+  "media.change": r("غيّر الصورة ({p} Gram)", "Change the picture ({p} Gram)", "Сменить картинку ({p} Gram)", "Resmi değiştir ({p} Gram)", "تغییر عکس ({p} Gram)"),
   "media.changeNote": r("الصورة الحالية تبقى في سجل الرمز ويُسجَّل معها التغيير الجديد، فهذان ميزتان تُحفظان للمالكين القادمين: لذلك سعر التغيير أعلى من سعر الصورة الأولى. الأسعار تتبع السوق وقد تتغيّر.", "The current picture stays in the token's history and the new one is recorded beside it: two things kept for every later owner, which is why a change costs more than a first picture. Prices follow the market and may change.", "Текущая картинка остаётся в истории токена, новая записывается рядом: поэтому смена дороже первой картинки. Цены следуют за рынком и могут меняться.", "Mevcut resim token geçmişinde kalır, yenisi yanına kaydedilir; bu yüzden değişiklik ilk resimden pahalıdır. Fiyatlar piyasayı izler ve değişebilir.", "عکس فعلی در تاریخچهٔ توکن می‌ماند و عکس جدید کنارش ثبت می‌شود؛ به همین دلیل تغییر گران‌تر از اولین عکس است. قیمت‌ها با بازار تغییر می‌کنند."),
   "tok.live": r("عرض حي", "Live view", "Живой просмотр", "Canlı görünüm", "نمای زنده"),
   "tok.shareText": r("أثري: {d}", "My Athar: {d}", "Мой Athar: {d}", "Athar'ım: {d}", "اثر من: {d}"),
@@ -183,7 +183,7 @@ export const DICT = {
   "tok.memory": r("ذاكرة الرمز", "The token's memory", "Память токена", "Token'ın hafızası", "حافظهٔ توکن"),
   "tok.noEngr": r("لا نقوش بعد. أول من يكتب يترك أثره الأول.", "No engravings yet. The first to write leaves the first mark.", "Гравировок пока нет. Первый, кто напишет, оставит первый след.", "Henüz kazıma yok. İlk yazan ilk izi bırakır.", "هنوز حکاکی‌ای نیست. اولین نویسنده اولین ردّ را می‌گذارد."),
   "tok.engrPh": r("اكتب سطراً (حتى 32 بايتاً)", "Write a line (up to 32 bytes)", "Напишите строку (до 32 байт)", "Bir satır yaz (en fazla 32 bayt)", "یک سطر بنویسید (تا ۳۲ بایت)"),
-  "tok.engrBtn": r("انقش ({p} TON)", "Engrave ({p} TON)", "Выгравировать ({p} TON)", "Kazı ({p} TON)", "حک کنید ({p} TON)"),
+  "tok.engrBtn": r("انقش ({p} Gram)", "Engrave ({p} Gram)", "Выгравировать ({p} Gram)", "Kazı ({p} Gram)", "حک کنید ({p} Gram)"),
   "tok.engrHelp": r("الحد 32 بايتاً: نحو 16 حرفاً عربياً أو 32 حرفاً لاتينياً. النقش يبقى للأبد ويقرؤه كل من يملك الرمز بعدك.", "Limit 32 bytes: about 16 Arabic letters or 32 Latin letters. The engraving stays forever and every later owner can read it.", "Лимит 32 байта: около 16 арабских или 32 латинских букв. Гравировка остаётся навсегда, её прочтёт каждый следующий владелец.", "Sınır 32 bayt: yaklaşık 16 Arapça veya 32 Latin harf. Kazıma sonsuza dek kalır, sonraki her sahip okuyabilir.", "حداکثر ۳۲ بایت: حدود ۱۶ حرف عربی یا ۳۲ حرف لاتین. حکاکی برای همیشه می‌ماند و هر مالک بعدی آن را می‌خواند."),
   "tok.engrSent": r("تم إرسال النقش.", "Engraving sent.", "Гравировка отправлена.", "Kazıma gönderildi.", "حکاکی ارسال شد."),
 
