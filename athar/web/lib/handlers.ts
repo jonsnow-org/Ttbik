@@ -105,7 +105,7 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     external_url: `${origin}/token/${index}`,
     // the picture markets show: an SVG with its motion built in (Getgems lists svg among its image formats): browsers play it, apps
     // that only draw still pictures show the first frame. A picture the owner chose is shown as it was stored.
-    image: hidden ? `${imgBase}/hidden.svg` : permanent ?? `${imgBase}/${index}.svg${q}&live=1`,
+    image: hidden ? `${imgBase}/hidden.svg` : permanent && st?.mediaRef ? `${imgBase}/${index}.svg${q}&p=${st.mediaRef}&live=1` : `${imgBase}/${index}.svg${q}&live=1`,   // always the living picture (motion, age, colours), a photo included
     // Getgems shows these as buttons on the token's page (label up to 24 characters)
     ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${index}` }, { label: "Living view", uri: livingView }] } : {}),
     attributes: [...story.attrs, { trait_type: "Name (Arabic)", value: `أثر · ${dateLabelAr(y, m, d)}` }],

@@ -113,8 +113,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
           <MediaPicker index={index} tier={t.tier} season={t.season} value={media} onChange={setMedia} stage={stage} hands={t.hands} engravings={t.engravings.length} />
           <p className="muted">{t.mediaRef ? tr("media.changeNote") : tr("media.permNote")}</p>
           <div className="gap">
-            <button className="btn gold" disabled={busy || storing || (!!t.mediaRef && !media.photo)} onClick={() => storeAndSet(media.photo ? "photo" : "snapshot")}>{t.mediaRef ? tr("media.change", { p: mediaFee }) : media.photo ? tr("media.save", { p: mediaFee }) : tr("media.freeze", { p: mediaFee })}</button>
-            {t.mediaRef && <button className="btn ghost" disabled={busy || storing} onClick={() => storeAndSet("snapshot")}>{tr("media.revert", { p: mediaFee })}</button>}
+            {media.photo && <button className="btn gold" disabled={busy || storing} onClick={() => storeAndSet("photo")}>{t.mediaRef ? tr("media.change", { p: mediaFee }) : tr("media.save", { p: mediaFee })}</button>}
           </div>
         </div>
       )}
