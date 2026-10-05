@@ -30,7 +30,8 @@
 عنوان البيانات المكتوب في العقد لا يُغيَّر إلا بإشعار 48 ساعة، لذلك يجب أن يكون **عنواناً لا يعتمد على مضيف واحد**. الحل: Worker على حساب Cloudflare (مجاني، ملك صاحب الحساب، عنوانه `https://<الاسم>.<الحساب>.workers.dev`):
 1. يسأل خادم Oracle أولاً، وإن لم يجب خلال 4 ثوانٍ يسأل مرآة Vercel، وإن سقط الاثنان يقدّم **آخر نسخة جيدة** حفظها (حتى 7 أيام).
 2. الشيفرة: `cloudflare/athar-front-worker.js` (جُرِّبت محلياً: الرد الحي، والتحويل إلى Vercel، والنسخة المحفوظة، و503 عند غياب كل شيء).
-3. النشر (أربع نقرات): Cloudflare > Workers & Pages > Create > Create Worker > سمِّه `athar-meta` > Deploy > Edit code > الصق محتوى الملف > Deploy. انسخ العنوان.
+3. **النشر بالربط مع المستودع (الأفضل: يتحدّث وحده عند كل دمج على الرئيسي):** في Cloudflare اختر Workers & Pages > Create > Import a repository (Connect to Git) > ثبّت تطبيق Cloudflare على حساب `jonsnow-org` واختر «Only select repositories» ثم `Ttbik` فقط > اختر المستودع > الاسم `athar-meta` > Root directory = `cloudflare/athar-front` > Production branch = `main` > أمر النشر `npx wrangler deploy` > Save and Deploy. (ملف الإعداد `cloudflare/athar-front/wrangler.jsonc`.)
+   **النشر اليدوي (بديل بأربع نقرات)**: Cloudflare > Workers & Pages > Create > Create Worker > سمِّه `athar-meta` > Deploy > Edit code > الصق محتوى الملف > Deploy. انسخ العنوان.
 4. يوضع العنوان في ثلاثة أماكن بالقيمة نفسها: ملف `deploy/oracle/agent/ATHAR_META_BASE` (أضعه أنا)، ومتغير Vercel `NEXT_PUBLIC_ATHAR_META_BASE`، ثم الإطلاق. (عنوان المجموعة المشتق يتغير بتغيّره، فيُحسم قبل أول إطلاق.)
 5. بعد ذلك: سقوط Oracle أو Vercel أو الاثنين لا يغيّر شيئاً للمستخدم، ولا يلزم أي معاملة على السلسلة.
 
