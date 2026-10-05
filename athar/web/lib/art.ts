@@ -14,7 +14,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 
 function rng(seed: number) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 
-export type ArtInput = { index: number; tier: number; season: number; stage: number; hands: number; engravings: number; sealed?: boolean; occasion?: number };
+export type ArtInput = { index: number; tier: number; season: number; stage: number; hands: number; engravings: number; sealed?: boolean; occasion?: number; gold?: boolean };   // gold: a special date: gold frame whatever its rarity (the rarity text stays true)
 
 const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
 const PAIRS: [number, number][] = [[7, 2], [8, 3], [9, 4], [10, 3], [11, 4], [12, 5], [13, 4], [11, 3], [9, 2], [13, 5], [7, 3], [10, 7]];
@@ -81,7 +81,7 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
   const { y, m, d } = ymd(a.index);
   const pal = PALETTES[a.season] || PALETTES[1];
   const occ = occasionById(a.occasion ?? 0);
-  const mythic = a.tier === 2, rare = a.tier === 1;
+  const mythic = a.tier === 2 || !!a.gold, rare = a.tier === 1 && !a.gold;
   const accent = mythic || occ?.gold ? GOLD : pal.accent;
   const W = 800, PR = 240;
   const stroke = mythic ? 9 : rare ? 6 : 4;
@@ -125,7 +125,7 @@ ${occ ? `<g transform="translate(${emblemAt[0]} ${emblemAt[1]}) scale(0.6)">${em
 export function renderArt(a: ArtInput): string {
   const pal = PALETTES[a.season] || PALETTES[1];
   const occ = occasionById(a.occasion ?? 0);
-  const accent = a.tier === 2 || occ?.gold ? GOLD : pal.accent;
+  const accent = a.tier === 2 || a.gold || occ?.gold ? GOLD : pal.accent;
   const ro = rosette(a, accent, pal.ink);
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}><g class="ar-ro">${ro.body}</g></g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
@@ -153,7 +153,7 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
  *  a photo keeps the picture it was born with. Returns the badge and the definitions it needs. */
 function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const pal = PALETTES[a.season] || PALETTES[1];
-  const accent = a.tier === 2 || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
+  const accent = a.tier === 2 || a.gold || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
   const ro = rosette(a, accent, pal.ink);
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;

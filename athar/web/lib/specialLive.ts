@@ -4,7 +4,7 @@
 // A one-word caption is printed on it so small that it can only be read when the viewer zooms in a lot.
 import { specialParts } from "./specialArt";
 import { renderCustomArt } from "./art";
-import { SEASON_1 } from "./seasons";
+import { SEASON_1, seasonTier } from "./seasons";
 
 type Theme = { w: string; l: string; m: string; d: string; k: string; bg1: string; bg2: string };
 const THEMES: Record<string, Theme> = {
@@ -139,6 +139,6 @@ export function renderSpecialLive(index: number): string | null {
     + `</g>`
     + (label ? `<text x="400" y="624" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="5.2" letter-spacing="1.2" fill="${t.l}" opacity="0.85">${esc(label.toUpperCase())}</text>` : "")
     + `</g>`;
-  const svg = renderCustomArt({ index, tier: 2, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0 }, centre);
+  const svg = renderCustomArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, gold: true }, centre);
   return svg.replace("</svg>", `<style>${css}</style></svg>`);
 }
