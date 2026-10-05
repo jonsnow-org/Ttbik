@@ -416,6 +416,11 @@ if __name__ == "__main__":
             {"name": "Sham Merge + Repair + Eval (free CPU runner)", "status": "completed", "conclusion": "failure",
              "run_started_at": "2026-10-03T22:00:00Z", "updated_at": "2026-10-03T22:10:00Z", "event": "schedule"},
             {"name": "CI", "status": "completed", "conclusion": "success", "run_started_at": "2026-10-04T10:00:00Z", "updated_at": "2026-10-04T10:05:00Z"}]}
+        # the fixture times are relative to "now" (they were fixed dates, so the self-test failed once they were >18 h old)
+        _shift = dt.datetime.now(dt.timezone.utc) - dt.datetime(2026, 10, 4, 16, 0, tzinfo=dt.timezone.utc)
+        for _r in runs["workflow_runs"]:
+            for _k in ("run_started_at", "updated_at"):
+                _r[_k] = (dt.datetime.strptime(_r[_k], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc) + _shift).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         class FakeRun:
             stdout = ("ref,title,size,lastUpdated,downloadCount,voteCount,usabilityRating\n"
