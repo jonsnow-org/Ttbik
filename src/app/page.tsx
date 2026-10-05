@@ -23,7 +23,7 @@ export const revalidate = 30;
 
 // Athar (the token project): its app on our server, and its Telegram bot once one is created (NEXT_PUBLIC_ATHAR_BOT_URL=https://t.me/<bot>)
 const ATHAR_APP_URL = (process.env.NEXT_PUBLIC_ATHAR_URL || "https://athar.89-168-89-15.sslip.io").replace(/\/$/, "");
-const ATHAR_BOT_URL = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "").trim();
+const ATHAR_BOT_URL = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot").trim();
 
 export default async function HomePage() {
   const news = latestNewsItem();

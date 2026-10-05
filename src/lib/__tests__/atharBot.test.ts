@@ -7,11 +7,12 @@ jest.mock("@/lib/prisma", () => ({
   } },
 }));
 jest.mock("@/lib/botVisit", () => ({ recordBotVisit: async () => undefined }));
-import { handleAtharBotUpdate, LANGS } from "../atharBotLogic";
+import { handleAtharBotUpdate, LANGS, COMMANDS } from "../atharBotLogic";
 
 function fakeBot() {
   const sent: { chat: number; text: string; kb?: any }[] = [];
-  return { sent, api: { sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); }, answerCallbackQuery: async () => undefined } } as any;
+  const calls: string[] = [];
+  return { sent, calls, api: { sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); return { message_id: 1 }; }, answerCallbackQuery: async () => undefined, setMyCommands: async (c: any) => { calls.push("commands:" + c.map((x: any) => x.command).join(",")); }, setChatMenuButton: async (o: any) => { calls.push("menu:" + o.menu_button.web_app.url); }, deleteMessage: async () => undefined } } as any;
 }
 const row = { id: "bot1", ownerId: "555001" } as any;
 const ARABIC = /[؀-ۿ]/;
@@ -65,5 +66,21 @@ describe("Athar bot", () => {
     const ask = fakeBot();
     await handleAtharBotUpdate(ask, row, { callback_query: { id: "c", from: { id: 555001 }, message: { chat: { id: 1 } }, data: "ao:stats" } });
     expect(ask.sent.length).toBe(1);
+  });
+
+  it("keeps the chat tidy and puts the sections in the bot's menu", async () => {
+    const bot = fakeBot();
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "/start" } });
+    const kb = JSON.stringify(bot.sent[0].kb);
+    expect(kb).not.toContain("/mystery");            // no section buttons under the message any more
+    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,language");   // set once per server start
+    expect(bot.calls.some((c: string) => c.includes("menu:") && c.includes("lang=en"))).toBe(true);
+    const sec = fakeBot();
+    await handleAtharBotUpdate(sec, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "/mystery" } });
+    expect(sec.sent[0].text).toBe("🎁 Mystery boxes");
+    expect(JSON.stringify(sec.sent[0].kb)).toContain("/mystery?lang=en");
+    const old = fakeBot();
+    await handleAtharBotUpdate(old, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "🕰 Athar" } });
+    expect(JSON.stringify(old.sent[0].kb)).toContain("lang=en");
   });
 });

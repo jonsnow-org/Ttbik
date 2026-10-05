@@ -87,9 +87,11 @@ const isOwner = (botRow: BotRow, tgId: string) => !!tgId && (tgId === String(bot
 // optional: the secret address of the management panel, shown as a button to the owner only (set ATHAR_ADMIN_URL in Vercel)
 const ADMIN_URL = (process.env.ATHAR_ADMIN_URL || "").trim();
 
+// In the chat only the essentials stay under the message; every section lives in the bot's own menu (the commands list and the
+// menu button next to the message box), which is set up for each person in their language.
 function menu(lang: Lang, owner = false): InlineKeyboard {
   const t = T[lang];
-  const kb = menuBase(lang, t);
+  const kb = new InlineKeyboard().webApp(t.open, withLang("", lang)).text(t.language, "al:menu");
   if (owner) {
     kb.row().text("📊 Stats", "ao:stats");
     if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
@@ -97,17 +99,25 @@ function menu(lang: Lang, owner = false): InlineKeyboard {
   return kb;
 }
 
-function menuBase(lang: Lang, t: Text): InlineKeyboard {
-  return new InlineKeyboard()
-    .webApp(t.open, withLang("", lang))
-    .row()
-    .webApp(t.mystery, withLang("/mystery", lang))
-    .webApp(t.auctions, withLang("/auctions", lang))
-    .row()
-    .webApp(t.mine, withLang("/mine", lang))
-    .webApp(t.board, withLang("/board", lang))
-    .row()
-    .text(t.language, "al:menu");
+/** What each menu command opens inside the mini app. */
+const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions" | "mine" | "board"; en: string }[] = [
+  { cmd: "open", path: "", key: "open", en: "Open Athar" },
+  { cmd: "mystery", path: "/mystery", key: "mystery", en: "Mystery boxes" },
+  { cmd: "auctions", path: "/auctions", key: "auctions", en: "Auctions" },
+  { cmd: "mine", path: "/mine", key: "mine", en: "My tokens" },
+  { cmd: "board", path: "/board", key: "board", en: "Calendar board" },
+];
+export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "language", description: "Language" }];
+
+let commandsSet = false;
+/** The commands list (once per server start, in English for everyone) and this person's menu button, in their language. */
+async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang): Promise<void> {
+  try {
+    if (!commandsSet) { await bot.api.setMyCommands(COMMANDS); commandsSet = true; }
+  } catch { /* the list is optional */ }
+  try {
+    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });
+  } catch { /* optional on some clients */ }
 }
 
 function languageKeyboard(): InlineKeyboard {
@@ -155,6 +165,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       const lang = data.slice(3) as Lang;
       await setLang(botRow.id, from, lang);
       await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, from)) });
+      await ensureMenu(bot, chatId, lang);
     } else if (data === "ao:stats" && isOwner(botRow, from)) {
       await bot.api.sendMessage(chatId, await statsText(botRow.id));
     }
@@ -169,14 +180,27 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     try { await recordBotVisit(botRow.id, fromId); } catch { /* visit counting is optional */ }
   }
   const lang = fromId ? await getLang(botRow.id, fromId) : "en";
-  if (text.startsWith("/start") || text === "🕰 Athar") {
-    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, fromId)) });
-    await bot.api.sendMessage(chatId, "🕰", { reply_markup: new Keyboard().text("🕰 Athar").resized().persistent() }).catch(() => null);
+  const owner = isOwner(botRow, fromId);
+  const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
+  if (cmd === "start") {
+    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
+    await ensureMenu(bot, chatId, lang);
+    // earlier versions left a keyboard under the message box: remove it quietly
+    try { const m = await bot.api.sendMessage(chatId, "·", { reply_markup: { remove_keyboard: true } }); await bot.api.deleteMessage(chatId, m.message_id); } catch { /* nothing to remove */ }
     return;
   }
-  if (text.startsWith("/language")) {
+  if (cmd === "language") {
     await bot.api.sendMessage(chatId, T[lang].pick, { reply_markup: languageKeyboard() });
     return;
   }
-  await bot.api.sendMessage(chatId, T[lang].help, { reply_markup: menu(lang, isOwner(botRow, fromId)) });
+  if (cmd === "stats" && owner) {
+    await bot.api.sendMessage(chatId, await statsText(botRow.id));
+    return;
+  }
+  const section = SECTIONS.find((x) => x.cmd === cmd);
+  if (section) {
+    await bot.api.sendMessage(chatId, T[lang][section.key], { reply_markup: new InlineKeyboard().webApp(T[lang][section.key], withLang(section.path, lang)) });
+    return;
+  }
+  await bot.api.sendMessage(chatId, T[lang].help, { reply_markup: menu(lang, owner) });
 }
