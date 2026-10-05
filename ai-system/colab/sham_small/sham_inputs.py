@@ -482,12 +482,25 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
     upload_dir = Path(upload_dir)
     (upload_dir / "dataset-metadata.json").write_text(
         json.dumps({"title": name, "id": slug, "licenses": [{"name": "unknown"}]}))
-    listed = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv"], capture_output=True, text=True)
-    exists = slug in (listed.stdout or "")
-    cmd = (["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"] if exists
-           else ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"])
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # `datasets list` returns ONE page (20 rows): with more datasets than that an existing one looked absent and "create" failed
+    # ("title already in use") — so read every page, and below fall back to a new version if create says the title exists
+    exists = False
+    for page in range(1, 11):
+        listed = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)], capture_output=True, text=True)
+        rows = (listed.stdout or "").strip().splitlines()
+        if slug in (listed.stdout or ""):
+            exists = True
+            break
+        if len(rows) < 2:
+            break
+    version_cmd = ["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"]
+    create_cmd = ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"]
+    r = subprocess.run(version_cmd if exists else create_cmd, capture_output=True, text=True)
     out = (r.stdout or "") + (r.stderr or "")
+    if not exists and "already in use" in out.lower():
+        exists = True
+        r = subprocess.run(version_cmd, capture_output=True, text=True)
+        out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "error" not in out.lower():
         print(f"{'نُشرت نسخة جديدة إلى' if exists else 'أُنشئت'} {slug} — التشغيل القادم يلتقطها تلقائياً.")
         return slug
