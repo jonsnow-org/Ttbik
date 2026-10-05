@@ -44,13 +44,25 @@ async function paced<T>(fn: () => Promise<T>): Promise<T> {
   chain = run.then(() => new Promise((r) => setTimeout(r, GAP)), () => new Promise((r) => setTimeout(r, GAP)));
   return run;
 }
+// Same question asked by many visitors at once is asked of the node once; when the queue to the node is long, an older answer is
+// served instead of making everybody wait longer (and a request that would only lengthen an already huge queue is refused), so a
+// crowd, or a script walking through every date, can slow the pages down but never lock the site.
+const inflight = new Map<string, Promise<unknown>>();
+let waiting = 0;
+const BUSY_SERVE_STALE = 10, BUSY_REFUSE = 60;
 export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.v as T;
-  const v = await paced(fn);
-  cache.set(key, { at: Date.now(), v });
-  return v;
+  const same = inflight.get(key);
+  if (same) return same as Promise<T>;
+  if (hit && waiting >= BUSY_SERVE_STALE) return hit.v as T;
+  if (waiting >= BUSY_REFUSE) throw new Error("busy");
+  waiting++;
+  const run = paced(fn).then((v) => { cache.set(key, { at: Date.now(), v }); return v; }).finally(() => { waiting--; inflight.delete(key); });
+  inflight.set(key, run);
+  return run;
 }
+export const isBusy = (e: unknown) => String((e as Error)?.message) === "busy";
 
 /** Is there a contract at this address? Asked first, so a reading of something not deployed (yet) answers at once instead of retrying
  *  the public node for half a minute (it answers "exit code -13" for an empty address, the same as when it is momentarily overloaded). */
