@@ -15,6 +15,10 @@ const THEMES: Record<string, Theme> = {
   green:  { w: "#f0ffe0", l: "#9ae890", m: "#44ab60", d: "#1f6038", k: "#06200f", bg1: "#10442a", bg2: "#02120a" },
   purple: { w: "#f4e9ff", l: "#c9a2ff", m: "#8d5fe0", d: "#472a86", k: "#140826", bg1: "#2c1458", bg2: "#07030f" },
   fire:   { w: "#fff3d1", l: "#ffb84d", m: "#ff6b2d", d: "#9c2c0e", k: "#2a0c03", bg1: "#4a1806", bg2: "#0e0401" },
+  btc:    { w: "#fff1d6", l: "#ffb347", m: "#f7931a", d: "#8a4a06", k: "#2a1602", bg1: "#442808", bg2: "#0d0601" },
+  tg:     { w: "#f2fbff", l: "#8ad8ff", m: "#2aabee", d: "#14608f", k: "#04182a", bg1: "#0e3b60", bg2: "#02101a" },
+  mars:   { w: "#ffeadf", l: "#ffb391", m: "#d96a3e", d: "#7a2c14", k: "#2a0e05", bg1: "#5e2813", bg2: "#150703" },
+  moon:   { w: "#f6f3ec", l: "#d9d5ca", m: "#928d83", d: "#4f4c46", k: "#14130f", bg1: "#1d2c4d", bg2: "#04070f" },
   stone:  { w: "#f7ead4", l: "#e0bd8c", m: "#ae7e4c", d: "#5f3e24", k: "#22140a", bg1: "#42301c", bg2: "#0f0a05" },
 };
 const THEME_OF: Record<string, string> = {
@@ -29,9 +33,15 @@ const THEME_OF: Record<string, string> = {
   wall: "stone", wallbreak: "stone", tunnel: "stone", gate: "stone", arch: "stone", guitar: "stone",
 };
 
+// a few dates need their own colours (Bitcoin is orange, Telegram is blue, Mars is red, the Webb mirrors are gold, the Moon is silver...)
+const THEME_OF_DATE: Record<string, string> = {
+  "2008-10-31": "btc", "2009-01-03": "btc", "2013-08-14": "tg", "2012-08-06": "mars", "2021-02-18": "mars", "2021-12-25": "gold",
+  "2019-04-10": "fire", "1969-07-20": "moon", "2023-08-23": "moon", "1986-04-26": "gold",
+};
+
 // how each subject moves
 const ANIM_OF: Record<string, string> = {
-  heart: "beat", heartpulse: "beat", cells: "beat", virus: "beat", shield: "beat",
+  heart: "beat", heartpulse: "beat", cells: "beat", virus: "beat", shield: "pop",
   paperplane: "dart", jet: "dart", bird: "dart", falcon: "dart", comet: "dart",
   shuttle: "launch",
   satellite: "float", panelsat: "float", probe: "float", station: "float", rover: "float", moonlander: "float", capsule: "float",
@@ -39,7 +49,7 @@ const ANIM_OF: Record<string, string> = {
   torch: "flicker", flame: "flicker",
   football: "bounce", trophy: "shine", diamond: "shine", crowd: "bounce",
   coin: "flip", euro: "flip", blocks: "stack",
-  dna: "twist",
+  dna: "twist", sheep: "bob", earthrise: "rise",
   mic: "bob", music: "bob", guitar: "sway", bus: "roll", phone: "buzz", chat: "pop", book: "page",
   wave: "swell", wallbreak: "shake", wall: "shake", brokenstar: "shake", tunnel: "zoom", gate: "zoom", arch: "zoom", mountain: "rise",
   stopwatch: "tick", magnifier: "sweep", chartdown: "drop", network: "glow", chip: "glow", ballot: "pop",
@@ -94,6 +104,8 @@ const MOVES = `.mo{transform-box:fill-box;transform-origin:center}`
   + `@keyframes m-glow{0%,100%{filter:brightness(1)}50%{filter:brightness(1.55) drop-shadow(0 0 14px currentColor)}}`
   + `@keyframes m-flutter{0%,100%{transform:skewX(0) scale(1)}25%{transform:skewX(-3deg) scale(1.02)}75%{transform:skewX(3deg) scale(.99)}}`
   + `@keyframes m-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}`
+  + `@keyframes m-ring{0%{transform:scale(.3);opacity:.8}100%{transform:scale(7);opacity:0}}`
+  + `@keyframes m-halo{0%,100%{opacity:.25}50%{opacity:.75}}`
   + `@keyframes m-glint{0%,82%,100%{opacity:0;transform:translateX(-340px) skewX(-18deg)}90%{opacity:.55}98%{opacity:0;transform:translateX(340px) skewX(-18deg)}}`;
 const DUR: Record<string, string> = {
   beat: "1.3s ease-in-out", dart: "7s ease-in-out", launch: "8s ease-in-out", float: "6s ease-in-out", spin: "46s linear", flicker: "1.6s ease-in-out",
@@ -102,6 +114,10 @@ const DUR: Record<string, string> = {
   zoom: "6s ease-in-out", rise: "7s ease-in-out", tick: "2.4s steps(4,end)", sweep: "6s ease-in-out", drop: "7s ease-in-out", glow: "3.4s ease-in-out",
   flutter: "3.2s ease-in-out", breathe: "6s ease-in-out",
 };
+// the flash of each subject: a glint for what is shiny, an expanding ring for what sends signals, a breathing glow for the rest
+const GLINT = new Set(["trophy", "diamond", "coin", "euro", "blocks", "mic", "music", "book", "bus"]);
+const RING = new Set(["satellite", "panelsat", "phone", "network", "chat", "paperplane", "probe", "station", "chip"]);
+const HALO: Record<string, string> = { beat: "1.3s", flicker: "1.6s", shine: "5s", glow: "3.4s", spin: "9s" };
 const esc = (s: string) => s.replace(/[<>&"]/g, "");
 
 export function hasLiveScene(index: number): boolean { return !!specialParts(index); }
@@ -110,15 +126,17 @@ export function hasLiveScene(index: number): boolean { return !!specialParts(ind
 export function renderSpecialLive(index: number): string | null {
   const p = specialParts(index);
   if (!p) return null;
-  const t = THEMES[THEME_OF[p.motif] || "gold"];
+  const t = THEMES[THEME_OF_DATE[p.key] || THEME_OF[p.motif] || "gold"];
   const anim = ANIM_OF[p.motif] && DUR[ANIM_OF[p.motif]] ? ANIM_OF[p.motif] : "breathe";
-  const css = `@media (prefers-reduced-motion:no-preference){${MOVES}.mo{animation:m-${anim} ${DUR[anim]} infinite}.glint{animation:m-glint 9s ease-in-out infinite}}`;
-  const bg = `<defs><radialGradient id="sbg" cx="50%" cy="46%" r="70%"><stop offset="0" stop-color="${t.bg1}"/><stop offset="1" stop-color="${t.bg2}"/></radialGradient></defs><rect width="800" height="800" fill="url(#sbg)"/>`;
+  const css = `@media (prefers-reduced-motion:no-preference){${MOVES}.mo{animation:m-${anim} ${DUR[anim]} infinite}.glint{animation:m-glint 9s ease-in-out infinite}.fxring{transform-box:fill-box;transform-origin:center;animation:m-ring 3.4s ease-out infinite}.fxhalo{animation:m-halo ${HALO[anim] || "5s"} ease-in-out infinite}}`;
+  const bg = `<defs><radialGradient id="sbg" cx="50%" cy="46%" r="70%"><stop offset="0" stop-color="${t.bg1}"/><stop offset="1" stop-color="${t.bg2}"/></radialGradient></defs><rect width="800" height="800" fill="url(#sbg)"/><radialGradient id="shl"><stop offset="0" stop-color="${t.l}" stop-opacity="0.55"/><stop offset="0.6" stop-color="${t.m}" stop-opacity="0.18"/><stop offset="1" stop-color="${t.m}" stop-opacity="0"/></radialGradient>`;
   const body = tint(p.inner, t);
   const label = LABEL[p.key];
   // larger than the plain pictures: the scene fills the window (its corners only are lost to the circle)
-  const centre = `<g clip-path="url(#win)"><g transform="translate(400 400) scale(0.6) translate(-400 -400)">${bg}<g class="mo">${body}</g>${p.overlay ? `<g class="mo">${p.overlay}</g>` : ""}`
-    + `<rect class="glint" x="400" y="0" width="70" height="800" fill="#fff" opacity="0"/></g>`
+  const centre = `<g clip-path="url(#win)"><g transform="translate(400 400) scale(0.6) translate(-400 -400)">${bg}${GLINT.has(p.motif) || RING.has(p.motif) ? "" : `<circle class="fxhalo" cx="400" cy="400" r="330" fill="url(#shl)" opacity="0"/>`}<g class="mo">${body}</g>${p.overlay ? `<g class="mo">${p.overlay}</g>` : ""}`
+    + (GLINT.has(p.motif) ? `<rect class="glint" x="400" y="0" width="70" height="800" fill="#fff" opacity="0"/>` : "")
+    + (RING.has(p.motif) ? `<circle class="fxring" cx="400" cy="400" r="40" fill="none" stroke="${t.l}" stroke-width="7" opacity="0"/>` : "")
+    + `</g>`
     + (label ? `<text x="400" y="624" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="5.2" letter-spacing="1.2" fill="${t.l}" opacity="0.85">${esc(label.toUpperCase())}</text>` : "")
     + `</g>`;
   const svg = renderCustomArt({ index, tier: 2, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0 }, centre);
