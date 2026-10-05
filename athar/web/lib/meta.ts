@@ -98,5 +98,5 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
     "It can be gifted to someone else when minted, and each owner can engrave a message of up to 32 characters that stays with the token.",
     "Its owner can add a personal picture and choose its occasion (birthday, wedding, newborn, graduation...).",
   ].filter(Boolean).join("\n");
-  return { attrs, description: `${ar}\n\n${en}`, supply, event };
+  return { attrs, description: `${en}\n\n${ar}`, supply, event, dateEn };
 }

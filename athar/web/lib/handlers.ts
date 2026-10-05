@@ -47,7 +47,8 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
   const permanent = st?.mediaRef && !hidden && (await available(st.mediaRef)) ? `https://turbo-gateway.com/${st.mediaRef}` : null;
   const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}` : `?t=${tier}`;
   return Response.json({
-    name: `أثر · ${dateLabelAr(y, m, d)}`,
+    // one name for every viewer (markets index the file once): English first, the community that trades tokens; the Arabic name sits in the attributes
+    name: `Athar · ${story.dateEn}`,
     description: story.description,
     // markets that play animated pages show the living picture; the rest keep using `image`
     ...(!st?.mediaRef && !hidden ? { animation_url: viewerUrl({ i: index, t: tier, s: st?.season ?? 1, g: stage, h: st?.hands ?? 1, e: st?.engravings.length ?? 0, o: st?.occasion ?? 0 }) } : {}),
@@ -57,14 +58,14 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     image: hidden ? `${imgBase}/hidden.svg` : permanent ?? `${imgBase}/${index}.svg${q}&live=1`,
     // Getgems shows these as buttons on the token's page (label up to 24 characters)
     ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${index}` }, { label: "Living view", uri: viewerUrl({ i: index, t: tier, s: st?.season ?? 1, g: stage, h: st?.hands ?? 1, e: st?.engravings.length ?? 0, o: st?.occasion ?? 0 }) }] } : {}),
-    attributes: story.attrs,
+    attributes: [...story.attrs, { trait_type: "Name (Arabic)", value: `أثر · ${dateLabelAr(y, m, d)}` }],
   }, { headers: { "Cache-Control": "public, max-age=60" } });
 }
 
 export function collectionResponse(origin = SITE_URL, imgBase = `${META_BASE}/img`): Response {
   return Response.json({
-    name: "أثر · Athar",
-    description: "رمز لكل يوم في التقويم (1950–2049). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.",
+    name: "Athar",
+    description: "One token for every day of the calendar (1950–2049). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (1950–2049). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.",
     image: `${imgBase}/collection.svg`,
     external_url: origin,
     social_links: [],
