@@ -5,6 +5,7 @@
 import { specialParts } from "./specialArt";
 import { renderCustomArt } from "./art";
 import { SEASON_1, seasonTier } from "./seasons";
+import { textPaths } from "./glyphs";
 
 type Theme = { w: string; l: string; m: string; d: string; k: string; bg1: string; bg2: string };
 const THEMES: Record<string, Theme> = {
@@ -137,7 +138,7 @@ export function renderSpecialLive(index: number): string | null {
     + (GLINT.has(p.motif) ? `<rect class="glint" x="400" y="0" width="70" height="800" fill="#fff" opacity="0"/>` : "")
     + (RING.has(p.motif) ? `<circle class="fxring" cx="400" cy="400" r="40" fill="none" stroke="${t.l}" stroke-width="7" opacity="0"/>` : "")
     + `</g>`
-    + (label ? `<text x="400" y="624" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="5.2" letter-spacing="1.2" fill="${t.l}" opacity="0.85">${esc(label.toUpperCase())}</text>` : "")
+    + (label ? textPaths(label.toUpperCase(), { x: 400, y: 624, size: 5.2, anchor: "middle", spacing: 1.2, fill: t.l, opacity: 0.85 }) : "")
     + `</g>`;
   const svg = renderCustomArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, gold: true }, centre);
   return svg.replace("</svg>", `<style>${css}</style></svg>`);

@@ -2,7 +2,7 @@ import { toNano, Address, beginCell } from "@ton/core";
 import { setup, openSeason, itemOf, S1_START, DELAY } from "./helpers";
 import { indexOf, ruleTier, TIER } from "../lib/rules";
 
-const BUY_FEES = toNano("0.15");
+const BUY_FEES = toNano("0.08");
 const find = (from: number, tier: number) => { for (let i = from; i < from + 4000; i++) if (ruleTier(i) === tier) return i; throw new Error("none"); };
 
 describe("Athar season sale", () => {

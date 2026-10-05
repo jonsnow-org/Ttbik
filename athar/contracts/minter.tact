@@ -49,6 +49,7 @@ message(0x41540052) BuyTicket { recipient: Address?; }
 message(0x41540053) Reveal { secret: Int as uint256; }
 message(0x41540054) ClaimTicket { ticket: Int as uint16; }
 message(0x41540056) RevealPublic { }
+message(0x41540057) AdminMint { index: Int as uint64; recipient: Address?; occasion: Int as uint8; mediaRef: Int as uint256; }   // admin: a date minted straight to a wallet (his stock for a market), no sale price
 message(0x41540055) TransferTicket { ticket: Int as uint16; newOwner: Address; }
 
 contract AtharMinter {
@@ -237,6 +238,35 @@ contract AtharMinter {
         let refund: Int = ctx.value - price - extra - BUY_FEES;
         if (refund > 10000000) {
             send(SendParameters{ to: buyer, value: refund, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar change".asComment() });
+        }
+    }
+
+    // ---------- the owner's own stock ----------
+    // A date minted straight to a wallet of the admin's choice (normally his own, to list on a market) without paying the sale price: it does not
+    // move the price curve and does not count against the wallet limit. The same rules decide which dates can be taken as in Buy (no mythic,
+    // special, mystery or taken date). The admin pays only the network fees (BUY_FEES; what is not used comes back).
+    receive(msg: AdminMint) {
+        let ctx: Context = context();
+        require(sender() == self.admin, "only admin");
+        require(self.isOpenNow(), "sale is not open");
+        require(msg.index >= 0 && msg.index <= MAX_INDEX && self.inSeason(msg.index), "date not in this season");
+        require(self.sold.get(msg.index) == null && self.pending.get(msg.index) == null, "date already taken");
+        require(self.auctions.get(msg.index) == null, "this date is sold by auction");
+        require(self.reserved.get(msg.index) == null, "this date is inside the mystery boxes");
+        let tier: Int = self.tierOfIndex(msg.index);
+        require(tier != TIER_MYTHIC && self.special.get(msg.index) == null, "mythic and special dates are sold by auction");
+        require(msg.occasion <= 9, "bad occasion");
+        require(ctx.value >= BUY_FEES, "send the fees");
+        let recipient: Address = ctx.sender;
+        if (msg.recipient != null) { recipient = msg.recipient!!; }
+        self.pending.set(msg.index, PendingMint{ buyer: ctx.sender, amount: MINT_FEES, kind: 0, ticket: 0 });
+        send(SendParameters{
+            to: self.collection, value: MINT_FEES, mode: SendPayGasSeparately, bounce: true,
+            body: MintItem{ index: msg.index, newOwner: recipient, season: self.seasonId, tier: tier, paid: 0, occasion: msg.occasion, mediaRef: msg.mediaRef, remit: 0 }.toCell()
+        });
+        let refund: Int = ctx.value - BUY_FEES;
+        if (refund > 10000000) {
+            send(SendParameters{ to: ctx.sender, value: refund, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false, body: "athar change".asComment() });
         }
     }
 

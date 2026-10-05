@@ -6,12 +6,12 @@ const TIER_COMMON: Int = 0;
 const TIER_RARE: Int = 1;
 const TIER_MYTHIC: Int = 2;
 
-const ITEM_FUND: Int = 80000000;        // 0.08 TON travels with every mint (item deploy + its storage)
+const ITEM_FUND: Int = 30000000;        // 0.03 TON travels with every mint (item deploy + its storage: about 0.0025 TON a year, and every transfer tops it up)
 const MINTER_GAS: Int = 20000000;       // 0.02 TON kept by the minter per purchase
 const OK_VALUE: Int = 10000000;         // 0.01 TON: collection -> minter "mint done" notice
 const COLL_GAS: Int = 20000000;         // 0.02 TON kept by the collection per mint
-const MINT_FEES: Int = 130000000;       // ITEM_FUND + OK_VALUE + COLL_GAS (collection side)
-const BUY_FEES: Int = 150000000;        // MINT_FEES + MINTER_GAS: what a buyer pays on top of the price
+const MINT_FEES: Int = 60000000;        // ITEM_FUND + OK_VALUE + COLL_GAS (collection side)
+const BUY_FEES: Int = 80000000;         // MINT_FEES + MINTER_GAS: what a buyer pays on top of the price
 const ENGRAVE_FEE: Int = 100000000;     // 0.1 TON per engraving
 const MEDIA_FEE: Int = 100000000;       // 0.1 TON to attach or change the token's picture / occasion
 const MIN_STORAGE: Int = 50000000;      // 0.05 TON stays in contracts for storage
@@ -121,6 +121,9 @@ message(0x41540024) ProposeBaseUri { uri: String; }
 message(0x41540025) ApplyBaseUri { }
 message(0x41540026) SetSuccessor { successor: Address; }
 message(0x41540027) Withdraw { }
+message(0x41540028) ProposeCode { code: Cell; }      // admin: new logic for the collection (same data layout); applies only after the public notice period
+message(0x41540029) ApplyCode { }
+message(0x4154002a) CancelCode { }
 
 // ---- engraving and picture changes go through the collection, which holds the (adjustable) fees ----
 message(0x41540070) EngraveReq { index: Int as uint64; text: String; }                                    // owner -> collection (value >= engraveFee + gas)
