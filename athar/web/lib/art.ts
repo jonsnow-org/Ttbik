@@ -199,8 +199,16 @@ function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;
-  const badge = `<g class="ar-bd" transform="translate(166 580)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)">${a.tier === 1 && !a.gold ? ro.body : `<g class="ar-ro">${ro.body}</g>`}</g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
-  return { defs, badge };
+  // The age shows on the badge too (the picture itself is a photo now): ring, halo, a few turning sparks, a dashed ring and an aura.
+  const sp = "M0-7C1-2 2-1 7 0 2 1 1 2 0 7-1 2-2 1-7 0-2-1-1-2 0-7Z";
+  let age = "";
+  if (a.stage >= 1) age += `<circle r="63" fill="none" stroke="${accent}" stroke-width="1.6" opacity="0.55"/>`;
+  if (a.stage >= 2) age += `<circle class="ar-bsta" r="67" fill="none" stroke="${accent}" stroke-width="6" opacity="0.12"/>`;
+  if (a.stage >= 3) { let c = ""; for (let i = 0; i < 6; i++) { const an = (i / 6) * Math.PI * 2 + 0.5; c += `<path transform="translate(${(Math.cos(an) * 71).toFixed(1)} ${(Math.sin(an) * 71).toFixed(1)}) scale(${i % 2 ? 0.7 : 1})" d="${sp}" fill="${accent}" opacity="0.9"/>`; } age += `<g class="ar-bst3">${c}</g>`; }
+  if (a.stage >= 4) age += `<circle class="ar-bst4" r="75" fill="none" stroke="${accent}" stroke-width="2" stroke-dasharray="2 8" opacity="0.85"/><circle class="ar-bstb" r="75" fill="url(#baura)"/>`;
+  const baura = `<radialGradient id="baura"><stop offset="0.6" stop-color="${accent}" stop-opacity="0"/><stop offset="1" stop-color="${accent}" stop-opacity="0.22"/></radialGradient>`;
+  const badge = `<g class="ar-bd" transform="translate(166 580)">${age}<circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)">${a.tier === 1 && !a.gold ? ro.body : `<g class="ar-ro">${ro.body}</g>`}</g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
+  return { defs: defs + baura, badge };
 }
 
 export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: number; h: number }): string {

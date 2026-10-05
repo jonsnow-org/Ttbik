@@ -36,6 +36,7 @@ const BADGE_CSS = `.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}.ar-ro{anim
   + `@keyframes ar-glint{0%,80%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}86%{opacity:.34}97%{opacity:0;transform:translateX(560px) skewX(-18deg)}}`
   + `.ar-st3,.ar-st4{transform-origin:400px 400px}.ar-st3{animation:ar-spin 90s linear infinite}.ar-st4{animation:ar-spin-rev 60s linear infinite}.ar-sta{animation:ar-stah 5s ease-in-out infinite}.ar-stb{animation:ar-breathe 5s ease-in-out infinite}`
   + `@keyframes ar-stah{0%,100%{opacity:.05}50%{opacity:.2}}`
+  + `.ar-bst3,.ar-bst4,.ar-bsta,.ar-bstb{transform-box:fill-box;transform-origin:center}.ar-bst3{animation:ar-spin 40s linear infinite}.ar-bst4{animation:ar-spin-rev 28s linear infinite}.ar-bsta{animation:ar-stah 5s ease-in-out infinite}.ar-bstb{animation:ar-breathe 5s ease-in-out infinite}`
   + `.ar-pv{animation:ar-pvp 4.6s ease-in-out infinite}.ar-pg{animation:ar-pgs 9s ease-in-out infinite}`
   + `@keyframes ar-pvp{0%,100%{opacity:.3}50%{opacity:.95}}`
   + `@keyframes ar-pgs{0%,76%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}83%{opacity:.26}95%{opacity:0;transform:translateX(520px) skewX(-18deg)}}`;

@@ -44,7 +44,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
   const stage = stageOf(t.lastTransferAt);
   const today = new Date(), anniv = today.getMonth() + 1 === m && today.getDate() === d;   // the date's own day: a golden aura
   const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}&live=1${anniv ? "&ann=1" : ""}`;
-  const shown = t.pictureUnpaid ? `/api/img/${index}.svg${q}` : t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
+  const shown = t.pictureUnpaid ? `/api/img/${index}.svg${q}` : t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `/api/img/${index}.svg${q}&p=${t.mediaRef}` : `/api/img/${index}.svg${q}`;   // a photo token is shown live: its age keeps showing
   const tokAddr = t.address;
   const fees = season?.itemFees ?? { engrave: 0.1, media: 0.1, change: 0.5 };
   const collectionAddr = season?.collection ?? "";
@@ -73,7 +73,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
     <>
       <Top />
       <div className="card" style={{ textAlign: "center" }}>
-        <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = "1"; el.src = `/api/img/${index}.svg${q}`; } }} />
+        <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = "1"; el.src = t.mediaRef && !t.pictureHidden ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`; } else if (el.dataset.fb === "1") { el.dataset.fb = "2"; el.src = `/api/img/${index}.svg${q}`; } }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, d)}</h2>
         <div className="muted" style={{ marginBottom: 6 }}>🌙 {tr("tok.hijri", { h: hijriLabel(index, lang) })}</div>
         {anniv && <p className="note">{tr("tok.annivToday")}</p>}
