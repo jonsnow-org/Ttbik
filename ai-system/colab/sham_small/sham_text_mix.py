@@ -55,9 +55,9 @@ MIN_CHARS = 200  # a stub is not worth a training window
 
 
 def pipeline_enabled() -> bool:
-    """The endless pipeline (sham_text_stream) is for GPU sessions, which consume ~100M tokens each. A CPU session consumes a few
-    million, a fixed fresh slice of the same mixture is enough for it and needs no background readers (the first scheduled
-    CPU run with the pipeline died of memory). SHAM_PIPELINE=1/0 forces it on/off."""
+    """The endless pipeline (sham_text_stream) feeds GPU sessions by default. CPU sessions use a fixed fresh slice of the same
+    mixture until the pipeline's new safeguards (reader process, memory guard, fallback) have been verified on a real CPU run:
+    the first scheduled CPU run with the pipeline died of memory (2026-10-05). SHAM_PIPELINE=1 / 0 forces it on / off."""
     v = os.environ.get("SHAM_PIPELINE")
     if v in ("0", "1"):
         return v == "1"
@@ -146,6 +146,58 @@ def stream_mix(output_dir: str, max_documents: int = 50_000, documents_per_file:
             "dataset": "wikimedia/wikipedia", "config": "20231101.ar", "split": "train",
             "documents_consumed": 0, "mix": True, "seed": seed, "documents": len(docs)}), encoding="utf-8")
     return files
+
+
+def _mix_main(kwargs: dict, q) -> None:
+    try:
+        q.put(("ok", stream_mix(**kwargs)))
+    except BaseException as exc:   # noqa: BLE001 - reported to the parent, never raised in the child
+        q.put(("error", f"{type(exc).__name__}: {str(exc)[:200]}"))
+
+
+def stream_mix_isolated(timeout: float = 1800.0, **kwargs) -> list[str]:
+    """stream_mix in a short-lived CHILD process. The HF streaming libraries leave several GB resident (malloc arenas, a
+    background I/O thread that crashes the interpreter at exit); in the child they die with it, so the notebook's own process
+    stays small. Any failure falls back to running stream_mix in-process."""
+    import multiprocessing as mp
+    import sys
+    try:
+        ctx = mp.get_context("spawn")
+        q = ctx.Queue()
+        proc = ctx.Process(target=_mix_main, args=(kwargs, q), daemon=True)
+        main = sys.modules.get("__main__")      # keep spawn from re-importing the caller's __main__ (notebook kernel / script)
+        saved = {k: getattr(main, k) for k in ("__file__", "__spec__") if main is not None and hasattr(main, k)}
+        try:
+            for k in saved:
+                setattr(main, k, None)
+            proc.start()
+        finally:
+            for k, v in saved.items():
+                setattr(main, k, v)
+        deadline = time.time() + timeout
+        status = payload = None
+        while time.time() < deadline:          # poll, so a child that dies silently (OOM kill) never blocks us for the whole timeout
+            try:
+                status, payload = q.get(timeout=2.0)
+                break
+            except Exception:
+                if not proc.is_alive():
+                    try:
+                        status, payload = q.get(timeout=1.0)
+                    except Exception:
+                        status, payload = "error", f"العملية الفرعية انتهت (رمز {proc.exitcode}) بلا نتيجة"
+                    break
+        if status is None:
+            status, payload = "error", "انتهت المهلة"
+        proc.join(timeout=10)
+        if proc.is_alive():
+            proc.terminate()
+        if status == "ok":
+            return payload
+        print(f"⚠ المزيج في عملية منفصلة فشل ({payload}) — يُعاد داخل العملية الحالية")
+    except Exception as exc:
+        print(f"⚠ تعذّر عزل تحميل المزيج ({type(exc).__name__}: {str(exc)[:100]}) — يُعاد داخل العملية الحالية")
+    return stream_mix(**kwargs)
 
 
 if __name__ == "__main__":

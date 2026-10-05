@@ -184,7 +184,7 @@ def stream_hf_text_corpus(
     if (dataset_name, config_name) == ("wikimedia/wikipedia", "20231101.ar") and not os.environ.get("SHAM_ARABIC_WIKI_ONLY"):
         try:
             import sham_text_mix
-            files = sham_text_mix.stream_mix(output_dir, max_documents=(600 if sham_text_mix.pipeline_enabled() else int(max_documents * 3)),
+            files = sham_text_mix.stream_mix_isolated(output_dir=output_dir, max_documents=(600 if sham_text_mix.pipeline_enabled() else int(max_documents * 3)),
                                              documents_per_file=documents_per_file, progress_path=progress_path)
             if files:
                 return files
