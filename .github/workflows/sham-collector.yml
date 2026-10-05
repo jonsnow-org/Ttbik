@@ -28,6 +28,8 @@ jobs:
     timeout-minutes: 345
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: sham-main   # كود شام من فرعه الخاص؛ الفرع الرئيسي للمستودع (جلسة أثر) لا يُدمج فيه كود النموذج
 
       - uses: actions/setup-python@v5
         with:
