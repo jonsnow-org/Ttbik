@@ -94,4 +94,15 @@ export const setPhotoFeesMsg = (minter: string, photo: string, silver: string): 
 /** Moves the price band (floor and cap, TON) of a tier after opening: 0 common, 1 rare, 3 mystery tickets. */
 export const repriceMsg = (minter: string, tier: number, floor: string, cap: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeReprice({ $$type: "Reprice", tier: BigInt(tier), floor: nano(floor), cap: nano(cap) })) });
 export const sweepMsg = (minter: string): Msg => ({ address: minter, amount: nano("0.05").toString(), payload: body(storeSweep({ $$type: "Sweep" })) });
-export const chunk = <T,>(a: T[], n: number) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+/** Groups of at most n messages. A message that deploys a contract (carries a stateInit) is always sent alone: some wallets cannot preview a big deploy next to other messages and never leave the loading screen. */
+export const chunk = <T extends { stateInit?: unknown }>(a: T[], n: number) => {
+  const out: T[][] = [];
+  let cur: T[] = [];
+  for (const m of a) {
+    if (m.stateInit) { if (cur.length) out.push(cur); out.push([m]); cur = []; continue; }
+    cur.push(m);
+    if (cur.length >= n) { out.push(cur); cur = []; }
+  }
+  if (cur.length) out.push(cur);
+  return out;
+};
