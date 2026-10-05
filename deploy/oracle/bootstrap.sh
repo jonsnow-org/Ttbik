@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One-shot, re-runnable setup for an Oracle Ubuntu (arm64/amd64) VM.
-#   curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/main/deploy/oracle/bootstrap.sh | bash
 set -euo pipefail
 # Works both from an SSH session and from Oracle's "Run command" (no HOME/USER there).
 export HOME="${HOME:-/root}"
@@ -13,7 +13,7 @@ export DEBIAN_FRONTEND=noninteractive
 # (a command that reads stdin can otherwise swallow the rest of a `curl | bash`).
 main() {
 REPO="https://github.com/jonsnow-org/Ttbik.git"
-BRANCH="${BRANCH:-claude/free-services-marketplace-h6rwk2}"
+BRANCH="${BRANCH:-main}"
 DIR="${DIR:-/opt/ttbik}"
 log() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi

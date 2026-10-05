@@ -33,7 +33,7 @@ Networking ← Virtual Cloud Networks ← شبكتك ← Subnet ← Security Lis
 ### 3) تشغيل الإعداد — الطريقة الأسهل: Run command (بلا SSH وبلا تطبيقات)
 من صفحة الجهاز في Oracle: **Run command** (غالباً ضمن تبويب Management أو Oracle Cloud Agent) ← **Create command**، والصق في خانة النص:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | BOT_TOKEN='...' OWNER_ID='...' ARCHIVE_CHANNEL_ID='...' FEED_SECRET='...' bash
+curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/main/deploy/oracle/bootstrap.sh | BOT_TOKEN='...' OWNER_ID='...' ARCHIVE_CHANNEL_ID='...' FEED_SECRET='...' bash
 ```
 (ضع القيم من لوحة Render بين علامتي الاقتباس.) يستغرق عدة دقائق، ونتيجته تظهر في صفحة التنفيذ.
 
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-servi
 من جوالك (Termux أو Termius) أو حاسوبك:
 ```bash
 ssh -i ملف_المفتاح.key ubuntu@عنوان_IP
-curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/main/deploy/oracle/bootstrap.sh | bash
 ```
 السكربت يثبّت Docker ويفتح الجدار الناري ويسحب الكود وينشئ ملفات الإعداد. ثم يتوقف ويطلب منك ملء الإعدادات:
 ```bash
@@ -51,7 +51,7 @@ sudo nano /opt/ttbik/deploy/oracle/media.env
 
 ثم أعد تشغيل السكربت (آمن للتكرار):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/deploy/oracle/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/jonsnow-org/Ttbik/main/deploy/oracle/bootstrap.sh | bash
 ```
 
 ### 4) التحقق

@@ -5,7 +5,9 @@
 set -uo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 exec 9>/var/lock/ttbik-updater.lock; flock -n 9 || exit 0
-BR="${BRANCH:-claude/free-services-marketplace-h6rwk2}"
+# The production line is `main` (the same one Vercel and Cloudflare deploy), never a working branch: the file agent/BRANCH can name another
+# branch for an emergency (e.g. to pin an older fix), and deleting it falls back to main.
+BR="${BRANCH:-$(tr -d ' \n' < "$OR/agent/BRANCH" 2>/dev/null)}"; BR="${BR:-main}"
 cd /opt/ttbik || exit 0
 if ! git fetch -q --depth 1 origin "$BR" 2>/dev/null; then echo "$(now) fetch failed" > "$STATE/last_update"; report; exit 0; fi
 NEW=$(git rev-parse FETCH_HEAD); CUR=$(git rev-parse HEAD)

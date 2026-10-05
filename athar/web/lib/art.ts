@@ -10,6 +10,9 @@ const PALETTES: Record<number, { bg1: string; bg2: string; ink: string; accent: 
   3: { bg1: "#0b2620", bg2: "#145a4a", ink: "#eafff6", accent: "#6af0c0" },
 };
 const GOLD = "#ffd36a";
+// Rare tokens have a look of their own (emerald-aqua crystal), so that common (silver-blue), rare (aqua crystal) and mythic (gold) are told apart at a glance.
+const RARE_PAL = { bg1: "#04201f", bg2: "#0f5a55", ink: "#eafffa", accent: "#5ff0cf" };
+const palOf = (a: ArtInput) => (a.tier === 1 && !a.gold ? RARE_PAL : PALETTES[a.season] || PALETTES[1]);
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
 function rng(seed: number) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
@@ -76,10 +79,40 @@ function rosette(a: ArtInput, accent: string, ink: string, mini = false): { defs
   return { defs, body };
 }
 
+
+/** The picture at the heart of a RARE token: a crystal bloom (kite petals, two star polygons, a jewel core). It has its own motion: the
+ *  petals turn one way, the inner star the other, the jewel pulses and a glint passes. Same date, same bloom (the number of petals follows it). */
+function crystal(a: ArtInput, accent: string, ink: string, mini = false): { defs: string; body: string } {
+  const r = rng(a.index * 104729 + 7);
+  const petals = mini ? 8 : 12 + 2 * Math.floor(r() * 3);                 // 12, 14 or 16 petals
+  const kite = (rot: number, tip: number, base: number, half: number, fill: string, stroke: string, sw: number, extra = "") =>
+    `<path d="M0 ${-tip}L${half} ${-(tip + base) / 2}L0 ${-base}L${-half} ${-(tip + base) / 2}Z" transform="rotate(${rot.toFixed(2)} 0 0)" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${extra}/>`;
+  const star = (n: number, k: number, R: number) => { let d = ""; for (let i = 0; i < n; i++) { const an = ((i * k) / n) * Math.PI * 2 - Math.PI / 2; d += `${i ? "L" : "M"}${(Math.cos(an) * R).toFixed(1)} ${(Math.sin(an) * R).toFixed(1)}`; } return d + "Z"; };
+  const defs = `<linearGradient id="crf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${accent}" stop-opacity="0.75"/><stop offset="1" stop-color="${ink}" stop-opacity="0.12"/></linearGradient>`
+    + `<radialGradient id="crc"><stop offset="0" stop-color="${ink}"/><stop offset="0.55" stop-color="${accent}"/><stop offset="1" stop-color="${accent}" stop-opacity="0.2"/></radialGradient>`
+    + `<filter id="crg" x="-15%" y="-15%" width="130%" height="130%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  let body = `<circle cx="400" cy="400" r="236" fill="url(#core)"/>`;
+  // border of beads: the family mark shared with the other tiers
+  const beads = mini ? 28 : 72;
+  for (let i = 0; i < beads; i++) { const an = (i / beads) * Math.PI * 2; body += `<circle cx="${(400 + Math.cos(an) * 222).toFixed(1)}" cy="${(400 + Math.sin(an) * 222).toFixed(1)}" r="${i % 6 === 0 ? 3 : 1.5}" fill="${accent}" opacity="${i % 6 === 0 ? 1 : 0.7}"/>`; }
+  let outer = "", inner = "";
+  for (let i = 0; i < petals; i++) {
+    const rot = (i * 360) / petals;
+    outer += `<g class="ar-cf" style="animation-delay:${((i * 0.37) % 4).toFixed(2)}s" transform="translate(400 400)">${kite(rot, 212, 132, mini ? 40 : 30, "url(#crf)", accent, mini ? 3 : 1.6)}${mini ? "" : kite(rot, 128, 74, 15, ink, "none", 0, 'opacity="0.55"')}</g>`;
+  }
+  const n2 = mini ? 6 : 8;
+  for (let i = 0; i < n2; i++) inner += `<g transform="translate(400 400)">${kite((i * 360) / n2 + 180 / n2, 118, 54, mini ? 30 : 22, ink, "none", 0, 'opacity="0.22"')}</g>`;
+  body += `<g class="ar-c1">${outer}</g>`;
+  body += `<g class="ar-c2" transform="translate(0 0)"><g transform="translate(400 400)"><path d="${star(petals, 5, 150)}" fill="none" stroke="${accent}" stroke-width="${mini ? 3 : 1.4}" opacity="0.85"/>${mini ? "" : `<path d="${star(petals, 2, 112)}" fill="none" stroke="${ink}" stroke-width="1.1" opacity="0.7"/>`}</g>${inner}</g>`;
+  body += `<g class="ar-c3"><polygon points="${Array.from({ length: 8 }, (_, i) => { const an = (i / 8) * Math.PI * 2 + Math.PI / 8; return `${(400 + Math.cos(an) * 36).toFixed(1)},${(400 + Math.sin(an) * 36).toFixed(1)}`; }).join(" ")}" fill="url(#crc)" stroke="${ink}" stroke-width="2"/><path d="M400 372L418 400L400 428L382 400Z" fill="${ink}" opacity="0.9"/></g>`;
+  body = `<g filter="url(#crg)">${body}</g>`;
+  return { defs, body };
+}
+
 /** The common shell of every token: a round token on a transparent square canvas, with its provenance around the picture. */
 function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, number] = [166, 604]): string {
   const { y, m, d } = ymd(a.index);
-  const pal = PALETTES[a.season] || PALETTES[1];
+  const pal = palOf(a);
   const occ = occasionById(a.occasion ?? 0);
   const mythic = a.tier === 2 || !!a.gold, rare = a.tier === 1 && !a.gold;
   const accent = mythic || occ?.gold ? GOLD : pal.accent;
@@ -109,7 +142,7 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
 ${defs}</defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
 <g class="ar-rings">${rings}</g><g class="ar-rim">${rim}</g><g class="ar-dots">${dots}</g><g class="ar-glow">${glow}</g>
-<circle cx="400" cy="400" r="${PR}" fill="${a.tier === 0 ? "#0a1633" : a.tier === 2 ? "#2a1c06" : "#050914"}" stroke="${accent}" stroke-width="${stroke}"/>
+<circle cx="400" cy="400" r="${PR}" fill="${a.tier === 0 ? "#0a1633" : a.tier === 2 || a.gold ? "#2a1c06" : "#04201f"}" stroke="${accent}" stroke-width="${stroke}"/>
 ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>
 <text y="10" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="50" font-weight="700" fill="${pal.ink}">${dayText}</text>
@@ -123,12 +156,13 @@ ${occ ? `<g transform="translate(${emblemAt[0]} ${emblemAt[1]}) scale(0.6)">${em
 }
 
 export function renderArt(a: ArtInput): string {
-  const pal = PALETTES[a.season] || PALETTES[1];
+  const pal = palOf(a);
   const occ = occasionById(a.occasion ?? 0);
   const accent = a.tier === 2 || a.gold || occ?.gold ? GOLD : pal.accent;
-  const ro = rosette(a, accent, pal.ink);
+  const rare = a.tier === 1 && !a.gold;
+  const ro = rare ? crystal(a, accent, pal.ink) : rosette(a, accent, pal.ink);
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
-  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}><g class="ar-ro">${ro.body}</g></g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
+  const centre = `<g clip-path="url(#win)" ${a.sealed ? 'opacity="0.35"' : ""}>${rare ? ro.body + `<rect class="ar-cg" x="180" y="120" width="70" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/>` : `<g class="ar-ro">${ro.body}</g>`}</g>${a.sealed ? `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="200" font-weight="700" fill="${accent}">؟</text>` : ""}`;
   return shell(a, centre, core + ro.defs);
 }
 
@@ -152,13 +186,13 @@ export function photoBox(w: number, h: number, r: number): { iw: number; ih: num
 /** The date's own rosette, shrunk to a small badge (same size as the date seal, bottom left, mirroring it) so a token that carries
  *  a photo keeps the picture it was born with. Returns the badge and the definitions it needs. */
 function rosetteBadge(a: ArtInput): { defs: string; badge: string } {
-  const pal = PALETTES[a.season] || PALETTES[1];
+  const pal = palOf(a);
   const accent = a.tier === 2 || a.gold || occasionById(a.occasion ?? 0)?.gold ? GOLD : pal.accent;
-  const ro = rosette(a, accent, pal.ink, true);
+  const ro = a.tier === 1 && !a.gold ? crystal(a, accent, pal.ink, true) : rosette(a, accent, pal.ink, true);
   const stroke = a.tier === 2 ? 9 : a.tier === 1 ? 6 : 4;
   const core = `<radialGradient id="core"><stop offset="0" stop-color="${accent}" stop-opacity="${a.tier === 2 ? 0.55 : a.tier === 1 ? 0.26 : 0.55}"/><stop offset="0.75" stop-color="${accent}" stop-opacity="0.05"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs = `${core}${ro.defs}<clipPath id="bdg"><circle r="58"/></clipPath>`;
-  const badge = `<g class="ar-bd" transform="translate(166 604)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)"><g class="ar-ro">${ro.body}</g></g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
+  const badge = `<g class="ar-bd" transform="translate(166 580)"><circle r="58" fill="#050914"/><g clip-path="url(#bdg)"><g transform="scale(0.26) translate(-400 -400)">${a.tier === 1 && !a.gold ? ro.body : `<g class="ar-ro">${ro.body}</g>`}</g></g><circle r="58" fill="none" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/></g>`;
   return { defs, badge };
 }
 
@@ -167,12 +201,15 @@ export function renderPhotoArt(a: ArtInput, photoDataUri: string, dims?: { w: nu
   const rb = rosetteBadge(a);
   const { iw, ih } = photoBox(dims && dims.w > 0 && dims.h > 0 ? dims.w : 1, dims && dims.h > 0 ? dims.h : 1, PR - 3);
   const ix = Math.round(400 - iw / 2), iy = Math.round(400 - ih / 2);
-  const defs = `${rb.defs}<filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
+  const pvAccent = a.tier === 2 || a.gold ? GOLD : palOf(a).accent;
+  const defs = `${rb.defs}<radialGradient id="pvg"><stop offset="0.8" stop-color="${pvAccent}" stop-opacity="0"/><stop offset="1" stop-color="${pvAccent}" stop-opacity="0.34"/></radialGradient><filter id="soft" filterUnits="userSpaceOnUse" x="0" y="0" width="800" height="800"><feGaussianBlur stdDeviation="7"/></filter>
 <image id="ph" xlink:href="${photoDataUri}" x="${ix}" y="${iy}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"/>
 `;
   const centre = `<g clip-path="url(#win)">
 <g filter="url(#soft)">${ix > 400 - PR ? `<use xlink:href="#ph" transform="translate(${2 * ix} 0) scale(-1 1)"/><use xlink:href="#ph" transform="translate(${2 * (ix + iw)} 0) scale(-1 1)"/>` : ""}${iy > 400 - PR ? `<use xlink:href="#ph" transform="translate(0 ${2 * iy}) scale(1 -1)"/><use xlink:href="#ph" transform="translate(0 ${2 * (iy + ih)}) scale(1 -1)"/>` : ""}</g>
 <use xlink:href="#ph"/>
+<circle class="ar-pv" cx="400" cy="400" r="${PR - 3}" fill="url(#pvg)" opacity="0.3"/>
+<rect class="ar-pg" x="190" y="170" width="46" height="460" fill="#fff" opacity="0" transform="skewX(-18)"/>
 </g>${rb.badge}`;
   return shell(a, centre, defs, [166, 196]);   // the occasion emblem moves up to make room for the badge
 }
