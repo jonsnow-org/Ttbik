@@ -10,6 +10,15 @@ for d in athar athar-test; do
   [ -d "/var/lib/ttbik/$d" ] && tar -czf "$BK/$d-data.tgz.tmp" -C "/var/lib/ttbik/$d" . 2>/dev/null && [ -s "$BK/$d-data.tgz.tmp" ] && mv -f "$BK/$d-data.tgz.tmp" "$BK/$d-data.tgz"
   rm -f "$BK/$d-data.tgz.tmp"
 done
+# Weekly: a full copy of the whole project source (every branch and tag, as one git bundle). The old copy is replaced only by a new one that verifies.
+WKF="$STATE/last_repo_bundle"
+if [ ! -f "$WKF" ] || [ $(( $(date +%s) - $(stat -c %Y "$WKF") )) -gt 604800 ]; then
+  if ( cd /opt/ttbik && git fetch -q origin 2>/dev/null; git bundle create "$BK/repo.bundle.tmp" --all >/dev/null 2>&1 && git bundle verify "$BK/repo.bundle.tmp" >/dev/null 2>&1 ); then
+    mv -f "$BK/repo.bundle.tmp" "$BK/repo-latest.bundle"; now > "$WKF"; echo "$(now) OK $(du -m "$BK/repo-latest.bundle" | cut -f1) MB" > "$STATE/repo_backup_note"
+  else
+    rm -f "$BK/repo.bundle.tmp"; echo "$(now) FAILED, kept the previous copy" > "$STATE/repo_backup_note"
+  fi
+fi
 [ -n "$PGURL" ] || { note "not configured (backup.env missing DATABASE_URL)"; report; exit 0; }
 FP=$(db_fingerprint) || { note "database unreachable, kept previous backup"; report; exit 0; }
 set -- $FP; T=$1; R=$2

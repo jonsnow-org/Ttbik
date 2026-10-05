@@ -1,27 +1,27 @@
-# بوت أثر في تيليجرام: القيم الجاهزة
+# بوت أثر في تيليجرام: القيم الجاهزة (بالإنكليزية أولاً)
 
-أنشئ البوت من @BotFather بالأوامر التالية والقيم الآتية. رسالة «البدء» وأزرار القائمة مكتوبة في الكود (`src/lib/atharBotLogic.ts`)، ولا تضعها في BotFather.
+البوت يستقبل **الجميع بالإنكليزية** مهما كانت لغة تيليجرام عندهم، وفيه زر «🌐 Language» لتغيير اللغة بين: English، العربية، Русский، Türkçe، فارسی (يُحفظ الاختيار لكل شخص ويُمرَّر إلى التطبيق المصغر). رسالة «Start» وأزرار القائمة في الكود (`src/lib/atharBotLogic.ts`) ولا تُوضع في BotFather.
 
 | الأمر في BotFather | القيمة |
 |---|---|
-| `/newbot` (الاسم) | `أثر · Athar` |
-| `/newbot` (اسم المستخدم، يجب أن ينتهي بـ bot) | `AtharDaysBot` (بدائل: `athar_days_bot` أو `AtharGramBot`) |
-| `/setabouttext` (يظهر في صفحة البوت، حتى 120 حرفاً) | `رمز واحد لكل يوم في التقويم (1950–2049) على شبكة TON: حيّ، ينضج، ويحفظ ذاكرة من امتلكه. من شام AI.` |
-| `/setdescription` (يظهر فوق زر Start، حتى 512 حرفاً) | انظر أدناه |
-| `/setuserpic` | الصورة: `https://ttbik.vercel.app/athar-bot-avatar.png` (نزّلها وارفعها) |
-| `/setcommands` | `start - ابدأ مع أثر` |
+| `/newbot` (الاسم) | `Athar` |
+| `/newbot` (اسم المستخدم، ينتهي بـ bot) | `AtharDaysBot` (بدائل: `athar_days_bot` أو `AtharGramBot`) |
+| `/setabouttext` (حتى 120 حرفاً) | `One token for every day of the calendar (1950–2049) on TON: alive, matures with time, remembers its owners.` |
+| `/setdescription` (حتى 512 حرفاً) | انظر أدناه |
+| `/setuserpic` | الصورة: `https://ttbik.vercel.app/athar-bot-avatar.png` (نزّلها وارفعها). بلا أي نص عربي |
+| `/setcommands` | `start - Start`  ثم سطر ثانٍ `language - Language` |
 
 **الوصف (`/setdescription`):**
 ```
-🕰 أثر: لكل يوم في التقويم رمز واحد فقط (1950–2049).
-اختر يوم ميلادك أو زواجك أو يوماً تحبه واجعله رمزاً يخصّك وحدك.
-✨ رمز حيّ يومض ويدور، وينضج كلما طال بقاؤه عندك.
-📜 يعدّ أصحابه ويحفظ ما يُنقش عليه، ويمكنك وضع صورتك عليه وإهداؤه لمن تحب.
-🔨 تواريخ أسطورية وتاريخية تُباع بالمزاد، وصناديق غموض مفاجئة.
-على شبكة TON، وتدفع بعملة Gram. من شام AI.
+🕰 Athar: one token for every day of the calendar (1950–2049).
+Pick your birthday, your wedding or a day you love and make it yours alone.
+✨ A living token that flashes and turns, and matures the longer you hold it.
+📜 It counts its owners and remembers what is engraved on it. Put your own picture on it, or gift it.
+🔨 Legendary and historic dates are auctioned; mystery boxes hold surprises.
+On the TON network, paid in Gram.
 ```
 
 ## التفعيل
 1. افتح صفحة الإدارة `/admin-tools/athar-bot` على الموقع الرئيسي والصق توكن البوت هناك (لا ترسله لأحد).
-2. بعد التفعيل أرسل `/start` للبوت لتجرب الرسالة.
-3. ضع في Vercel المتغير `NEXT_PUBLIC_ATHAR_BOT_URL` = `https://t.me/<اسم_البوت>` ثم أعد النشر، فيظهر زر «بوت تيليجرام» في بطاقة أثر على الصفحة الرئيسية للموقع.
+2. أرسل `/start` للبوت لتجربة الرسالة، وجرّب زر «🌐 Language».
+3. ضع في Vercel المتغير `NEXT_PUBLIC_ATHAR_BOT_URL` = `https://t.me/<اسم_البوت>` ثم أعد النشر، فيظهر زر «بوت تيليجرام» في بطاقة أثر على الصفحة الرئيسية.
