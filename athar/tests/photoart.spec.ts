@@ -50,7 +50,6 @@ describe("the three tiers are told apart", () => {
     expect(svg).toContain("ar-c1");
   });
 });
-<<<<<<< HEAD
 
 describe("the age of a token is visible", () => {
   const at = (stage: number) => renderArt({ index: 19000, tier: 0, season: 1, stage, hands: 1, engravings: 0 });
@@ -65,5 +64,3 @@ describe("the age of a token is visible", () => {
     expect(at(4)).toContain("ar-stb");
   });
 });
-=======
->>>>>>> origin/main
