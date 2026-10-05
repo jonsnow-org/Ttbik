@@ -57,11 +57,18 @@ contract AtharItem {
                 body: OwnershipAssigned{ queryId: msg.queryId, prevOwner: prev, forwardPayload: msg.forwardPayload }.toCell()
             });
         }
+        // TEP-62: what is left of the incoming value goes back to the response destination, whatever the forward amount was. It is counted
+        // from the balance (as the reference implementation does): "send the remaining incoming value" would count the forwarded part
+        // twice, fail silently, and marketplaces (which always forward) would refuse the token for sending nothing back to its owner.
         if (msg.responseDestination != null) {
-            send(SendParameters{
-                to: msg.responseDestination!!, value: 0, mode: SendRemainingValue | SendIgnoreErrors, bounce: false,
-                body: Excesses{ queryId: msg.queryId }.toCell()
-            });
+            let rest: Int = myBalance() - MIN_STORAGE;
+            if (msg.forwardAmount > 0) { rest = rest - msg.forwardAmount - fwd; }
+            if (rest > 0) {
+                send(SendParameters{
+                    to: msg.responseDestination!!, value: rest, mode: SendPayGasSeparately | SendIgnoreErrors, bounce: false,
+                    body: Excesses{ queryId: msg.queryId }.toCell()
+                });
+            }
         }
     }
 
