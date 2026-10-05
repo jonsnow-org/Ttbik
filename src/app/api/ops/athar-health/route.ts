@@ -1,4 +1,5 @@
 import { PRIMARY } from "@/lib/atharMirror";
+import { addresses } from "../../../../../athar/web/lib/chain";
 export const dynamic = "force-dynamic";
 // Is every layer that keeps Athar's tokens alive answering? (primary server, this mirror, the permanent viewer on the gateways)
 const VIEWER_ID = "OLetZ3Dc82VnoqYZEFWs2fL9RO37NUfglvkKPh2gl_c";
@@ -21,8 +22,11 @@ export async function GET(req: Request) {
     probe(`https://turbo-gateway.com/${VIEWER_ID}`, /<!doctype html>/i),
     probe(`https://arweave.net/${VIEWER_ID}`, /<!doctype html>/i),
   ]);
+  // the contract addresses this mirror derives from its own settings: they must equal the ones the main server shows (/api/season there)
+  let derived: { collection?: string; minter?: string } = {};
+  try { const a = await addresses(1); if (a) derived = { collection: a.collection.address.toString({ bounceable: true }), minter: a.minter.address.toString({ bounceable: true }) }; } catch { /* settings missing */ }
   const checks = { primaryImg, primaryMeta, mirrorImg, viewerTurbo: turbo, viewerArweave: arweave };
   // the tokens survive as long as the mirror or the primary answers pictures and one gateway holds the viewer
   const alive = (primaryImg.ok || mirrorImg.ok) && (turbo.ok || arweave.ok);
-  return Response.json({ alive, checks, at: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ alive, derived, checks, at: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });
 }
