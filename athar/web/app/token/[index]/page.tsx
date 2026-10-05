@@ -14,7 +14,7 @@ import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { persistPicture } from "@/lib/mediaFlow";
 import { useToast } from "@/components/ui";
 
-type Tok = { pictureHidden?: boolean; occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
+type Tok = { pictureHidden?: boolean; pictureUnpaid?: boolean; occasion: number; mediaRef: string | null; media: { owner: string; at: number; ref: string }[]; index: number; address: string; owner: string; season: number; tier: number; paid: number; mintedAt: number; lastTransferAt: number; hands: number; locked: boolean; engravings: { owner: string; at: number; text: string }[] };
 
 /** A token may carry the id of a picture that is still on its way to the permanent network: say so, and it fixes itself. */
 function PendingNote({ id }: { id: string }) {
@@ -44,11 +44,11 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
   const stage = stageOf(t.lastTransferAt);
   const today = new Date(), anniv = today.getMonth() + 1 === m && today.getDate() === d;   // the date's own day: a golden aura
   const q = `?s=${t.season}&g=${stage}&h=${t.hands}&e=${t.engravings.length}&t=${t.tier}&o=${t.occasion}&live=1${anniv ? "&ann=1" : ""}`;
-  const shown = t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
+  const shown = t.pictureUnpaid ? `/api/img/${index}.svg${q}` : t.pictureHidden ? "/api/img/hidden.svg" : t.mediaRef ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`;
   const tokAddr = t.address;
   const fees = season?.itemFees ?? { engrave: 0.1, media: 0.1, change: 0.5 };
   const collectionAddr = season?.collection ?? "";
-  const mediaFee = t.mediaRef ? fees.change : fees.media;
+  const mediaFee = t.mediaRef || t.pictureUnpaid ? fees.change : fees.media;   // an unpaid picture is still bound to the token: replacing it is a change
   async function storeAndSet(kind: "photo" | "snapshot") {
     setStoring(true); toast(tr("media.saving"));
     try {
@@ -80,6 +80,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
         <TierBadge tier={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
         {stage < 4 && <div className="muted" style={{ marginTop: 6 }}>⏳ {tr("tok.nextStage", { n: Math.max(0, STAGE_DAYS[stage + 1] - Math.floor((Date.now() / 1000 - t.lastTransferAt) / 86400)) })}</div>}
         <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{!t.mediaRef && !t.pictureHidden && <a className="btn ghost" target="_blank" rel="noreferrer" href={viewerUrl({ i: index, t: t.tier, s: t.season, g: stage, h: t.hands, e: t.engravings.length, o: t.occasion })}>{tr("tok.live")}</a>}{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
+        {t.pictureUnpaid && <p className="note" style={{ marginTop: 10 }}>{tr("media.unpaid")}</p>}
         {t.mediaRef && <p className="muted" style={{ marginTop: 10 }}>🔒 {tr("media.permBadge")}</p>}
         {t.mediaRef && <PendingNote id={t.mediaRef} />}
       </div>
