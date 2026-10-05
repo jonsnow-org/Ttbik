@@ -48,7 +48,6 @@ export async function POST(req: Request) {
     ? { index, tier: st.tier, season: st.season, stage: stageOf(st.lastTransferAt), hands: st.hands, engravings: st.engravings.length, occasion }
     : { index, tier, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion };
   let svg: string;
-  let withBadge = false;
   const notes: string[] = [];
   if (kind === "snapshot") {
     svg = renderArt(base);
@@ -75,10 +74,9 @@ export async function POST(req: Request) {
     if (Math.min(dims.w, dims.h) < 200) notes.push("small");
     if (dims.w / dims.h < 0.25 || dims.w / dims.h > 4) notes.push("shape");
     svg = renderPhotoArt(base, `data:${mime};base64,${buf.toString("base64")}`, dims);
-    withBadge = true;
   }
   if (base.tier === 2) svg = storedMotion(svg);     // special/mythic pictures are stored with a quiet shimmer
-  else if (withBadge) svg = badgeMotion(svg);       // a photo token: its small rosette badge keeps turning and breathing
+  else svg = badgeMotion(svg);                      // every stored picture moves: the rosette or crystal, the photo's light, the badge
   if (Buffer.byteLength(svg) > MAX_BYTES) return NextResponse.json({ error: "picture too large for free permanent storage, choose a smaller photo" }, { status: 413 });
   if (preview) return NextResponse.json({ svg, notes });
   try {

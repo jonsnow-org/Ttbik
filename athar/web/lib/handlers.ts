@@ -25,8 +25,9 @@ export function imgResponse(idParam: string, reqUrl: string): Response {
     index, tier: idRaw === "collection" ? 2 : num("t", seasonTier(SEASON_1, index)), season: num("s", 1), stage: Math.min(4, Math.max(0, num("g", idRaw === "collection" ? 4 : 0))),
     hands: Math.min(60, Math.max(0, num("h", idRaw === "collection" ? 12 : 0))), engravings: Math.min(99, Math.max(0, num("e", 0))), sealed: q.get("sealed") === "1", occasion: Math.min(9, Math.max(0, num("o", 0))),
   };
-  // the 78 special dates have a drawing of their own (coloured, moving): that is also what a visitor sees before the date is sold
-  if (idRaw !== "collection" && SPECIAL_DATES.has(index) && q.get("plain") !== "1") {
+  // The 78 special dates have a drawing of their own (coloured, moving). It is kept secret until the date's auction starts (it travels with
+  // the auction) and is asked for only by tokens that already exist (sp=1: the fallback when their stored picture cannot be reached).
+  if (idRaw !== "collection" && SPECIAL_DATES.has(index) && q.get("sp") === "1") {
     const sp = renderSpecialLive(index);
     if (sp) return new Response(storedMotion(sp), { headers: SVG });
   }
@@ -53,7 +54,7 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
   // a token may carry the id of a picture that is still on its way to the permanent network: until a gateway really serves it,
   // the token shows its default picture (and switches to the real one by itself)
   const permanent = st?.mediaRef && !hidden && (await available(st.mediaRef)) ? `https://turbo-gateway.com/${st.mediaRef}` : null;
-  const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}` : `?t=${tier}`;
+  const q = st ? `?s=${st.season}&g=${stage}&h=${st.hands}&e=${st.engravings.length}&t=${tier}&o=${st.occasion}${SPECIAL_DATES.has(index) ? "&sp=1" : ""}` : `?t=${tier}`;
   return Response.json({
     // one name for every viewer (markets index the file once): English first, the community that trades tokens; the Arabic name sits in the attributes
     name: `Athar · ${story.dateEn}`,

@@ -15,7 +15,6 @@ import Features from "@/components/Features";
 import { eventOf, hijriLabel, tierSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
-import { SEASON_1, specialIndex } from "@/lib/seasons";
 
 type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; special?: boolean; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number; mediaRef?: string } };
 type Season = { fromYear?: number; toYear?: number; specials?: number; configured: boolean; minter?: string; deployed?: boolean; status?: number; fees?: { photo: number; silver: number } };
@@ -38,12 +37,10 @@ export default function DatePage() {
   const toast = useToast();
   const { confirm, node: previewNode } = useConfirmPreview();
   const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
-  const [perm, setPerm] = useState(true);
   const [showMedia, setShowMedia] = useState(false);
   const [storing, setStoring] = useState(false);
   const [gift, setGift] = useState(false);
   const [wantN, setWantN] = useState<number | null>(null), [wantTg, setWantTg] = useState(""), [wantDone, setWantDone] = useState(false);
-  const specialsList = useMemo(() => SEASON_1.specials.map((x) => ({ i: specialIndex(x), y: x.y, m: x.m, d: x.d, note: x.note })).sort((a, b) => a.i - b.i), []);
   const [to, setTo] = useState("");
   const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
   const years = useMemo(() => Array.from({ length: 100 }, (_, i) => 2049 - i), []);
@@ -72,24 +69,24 @@ export default function DatePage() {
     // The picture is made safe BEFORE the purchase, so the token is born holding its final id (see lib/mediaFlow).
     //   stored  -> normal purchase
     //   queued  -> purchase as usual, fees included: the token shows its default picture until the file is confirmed, by itself
-    //   failed  -> only if even our server is unreachable: no picture is bound, no picture fee is taken
-    let ref = 0n, buyStyle = style, buyExtra = extra;
-    if (perm) {
-      setStoring(true);
-      try {
-        const kind = media.photo ? "photo" : "snapshot";
-        const body = { index, kind, occasion: media.occasion, photo: media.photo };
-        const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
-        const pj = await pr.json();
-        if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
-        if (!(await confirm(pj.svg, pj.notes || []))) { setStoring(false); return; }      // the user must approve the exact final picture
-        toast(t("media.saving"));
-        const p = await persistPicture(pj.svg);
-        if (p.state === "failed") { toast(t("media.failedFree")); buyStyle = 0; buyExtra = 0; }
-        else { ref = p.ref; if (p.state === "queued") toast(t("media.queued")); }
-      } catch { toast(t("media.fail")); setStoring(false); return; }
-      setStoring(false);
-    }
+    //   failed  -> only if even our server is unreachable: nothing is bought (the picture is mandatory), nothing is charged
+    let ref = 0n;
+    const buyStyle = style, buyExtra = extra;
+    // The picture is part of the token: saving it for good is always done, never optional.
+    setStoring(true);
+    try {
+      const kind = media.photo ? "photo" : "snapshot";
+      const body = { index, kind, occasion: media.occasion, photo: media.photo };
+      const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
+      const pj = await pr.json();
+      if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
+      if (!(await confirm(pj.svg, pj.notes || []))) { setStoring(false); return; }      // the user must approve the exact final picture
+      toast(t("media.saving"));
+      const p = await persistPicture(pj.svg);
+      if (p.state === "failed") { toast(t("media.mustSave")); setStoring(false); return; }   // nothing is bought without its picture saved
+      ref = p.ref; if (p.state === "queued") toast(t("media.queued"));
+    } catch { toast(t("media.fail")); setStoring(false); return; }
+    setStoring(false);
     if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, buyStyle, buyExtra)], t("date.sent"))) reload();
   }
 
@@ -111,10 +108,6 @@ export default function DatePage() {
           <select value={m} onChange={(e) => setM(Number(e.target.value))}>{monthNames.map((n, i) => <option key={i} value={i + 1}>{n}</option>)}</select>
           <select value={y} onChange={(e) => setY(Number(e.target.value))}>{years.map((v) => <option key={v} value={v}>{v}</option>)}</select>
         </div>
-        <select style={{ marginTop: 10, width: "100%" }} value="" onChange={(e) => { const v = specialsList.find((x) => x.i === Number(e.target.value)); if (v) { setY(v.y); setM(v.m); setD(v.d); } }}>
-          <option value="">⭐ {t("date.history")} ({specialsList.length})</option>
-          {specialsList.map((x) => <option key={x.i} value={x.i}>{`${x.d}/${x.m}/${x.y}`}{` · ${lang === "ar" ? x.note : (eventEnOf(x.y, x.m, x.d) || x.note)}`}</option>)}
-        </select>
       </div>
 
       <div className="card" style={{ textAlign: "center" }}>
@@ -150,8 +143,7 @@ export default function DatePage() {
                 <div className="gap" style={{ textAlign: "start" }}>
                   <label className="muted"><input type="checkbox" checked={showMedia} onChange={(e) => setShowMedia(e.target.checked)} /> {t("media.title")}</label>
                   {showMedia && <MediaPicker index={index} tier={info!.tier} season={1} value={media} onChange={setMedia} fees={season?.fees} />}
-                  <label className="muted"><input type="checkbox" checked={perm} onChange={(e) => setPerm(e.target.checked)} /> {t("media.perm")}</label>
-                  {perm && <span className="muted">{t("media.permNote")}</span>}
+                  <p className="muted">🔒 {t("media.always")}</p>
                   <label className="muted"><input type="checkbox" checked={gift} onChange={(e) => setGift(e.target.checked)} /> {t("gift.toggle")}</label>
                   {gift && <input type="text" dir="ltr" placeholder={t("gift.ph")} value={to} onChange={(e) => setTo(e.target.value)} />}
                   {gift && to && !toOk && <span className="bad">{t("gift.bad")}</span>}

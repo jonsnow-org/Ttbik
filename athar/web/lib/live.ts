@@ -20,9 +20,23 @@ function sparkles(n: number, fill: string, cls: string): string {
   return out;
 }
 
-// The small rosette badge of a token that carries a photo keeps what the big rosette did: it turns and breathes.
+// Motion that belongs to the picture itself, in every version of it (live site, stored file):
+//  - the small rosette badge of a photo token turns and breathes
+//  - a RARE token's crystal: petals turn one way, the inner star the other, the jewel pulses, the facets twinkle, a glint passes
+//  - a photo token's picture is alive too: a soft rim light breathes and a faint glint passes now and then
 const BADGE_CSS = `.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}.ar-ro{animation:ar-spin 60s linear infinite}`
-  + `@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`;
+  + `@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`
+  + `.ar-c1,.ar-c2{transform-origin:400px 400px}.ar-c1{animation:ar-spin 72s linear infinite}.ar-c2{animation:ar-spin-rev 48s linear infinite}`
+  + `.ar-c3{transform-box:fill-box;transform-origin:center;animation:ar-corep 3.2s ease-in-out infinite}`
+  + `.ar-cf{animation:ar-facet 5s ease-in-out infinite}`
+  + `.ar-cg{animation:ar-glint 8s ease-in-out infinite}`
+  + `@keyframes ar-spin-rev{to{transform:rotate(-360deg)}}`
+  + `@keyframes ar-corep{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.2);filter:brightness(1.7)}}`
+  + `@keyframes ar-facet{0%,100%{opacity:.55}50%{opacity:1}}`
+  + `@keyframes ar-glint{0%,80%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}86%{opacity:.34}97%{opacity:0;transform:translateX(560px) skewX(-18deg)}}`
+  + `.ar-pv{animation:ar-pvp 4.6s ease-in-out infinite}.ar-pg{animation:ar-pgs 9s ease-in-out infinite}`
+  + `@keyframes ar-pvp{0%,100%{opacity:.3}50%{opacity:.95}}`
+  + `@keyframes ar-pgs{0%,76%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}83%{opacity:.26}95%{opacity:0;transform:translateX(520px) skewX(-18deg)}}`;
 
 function inject(svg: string, css: string, extra: string): string {
   return svg.replace("</svg>", `<style>@media (prefers-reduced-motion:no-preference){${css}}</style>${extra}</svg>`);
@@ -45,7 +59,7 @@ export function liveArt(svg: string, o: LiveOpts = {}): string {
   const pulse = 6 - stage * 0.9;           // seconds per breath
   const n = 4 + stage * 3;                 // twinkles
   let css = BASE
-    + `.ar-ro{animation:ar-spin ${turn}s linear infinite}.ar-bd{animation:ar-bdp 3.4s ease-in-out infinite}@keyframes ar-bdp{0%,100%{opacity:.72}50%{opacity:1}}`
+    + BADGE_CSS + `.ar-ro{animation:ar-spin ${turn}s linear infinite}`
     + `.ar-rim,.ar-glow{animation:ar-breathe ${pulse}s ease-in-out infinite}`
     + `.ar-rings{animation:ar-breathe ${pulse * 1.6}s ease-in-out infinite}`
     + `.ar-tw{transform-box:fill-box;transform-origin:center;opacity:0;animation:ar-twinkle ${(pulse * 0.9).toFixed(1)}s ease-in-out infinite}`;

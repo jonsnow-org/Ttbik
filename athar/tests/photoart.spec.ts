@@ -15,7 +15,7 @@ describe("photo token", () => {
   });
   it("keeps the date's rosette as a turning, breathing badge at the bottom left; the photo is stored once", () => {
     const svg = badgeMotion(renderPhotoArt(art(0), photo(1000), { w: 400, h: 500 }));
-    expect(svg).toContain('class="ar-bd" transform="translate(166 604)"');
+    expect(svg).toContain('class="ar-bd" transform="translate(166 580)"');
     expect(svg).toContain("ar-spin");
     expect((svg.match(/data:image\/jpeg/g) || []).length).toBe(1);
   });
@@ -26,5 +26,27 @@ describe("photo token", () => {
     const svg = renderPhotoArt({ ...art(1), gold: true }, photo(1000), { w: 400, h: 400 });
     expect(svg).toContain("RARE · S1");
     expect(svg).toContain("#ffd36a");
+  });
+});
+
+describe("the three tiers are told apart", () => {
+  const a = (tier: number) => renderArt({ index: 19000 + tier, tier, season: 1, stage: 0, hands: 1, engravings: 0 });
+  it("rare has its own crystal and its own colours, neither the guilloche nor the gold", () => {
+    const common = a(0), rare = a(1), mythic = a(2);
+    expect(rare).toContain("ar-c1");
+    expect(rare).toContain("#5ff0cf");
+    expect(common).not.toContain("ar-c1");
+    expect(common).not.toContain("#5ff0cf");
+    expect(mythic).not.toContain("#5ff0cf");
+    expect(mythic).toContain("#ffd36a");
+  });
+  it("every stored version moves (crystal, badge, photo light)", () => {
+    const css = badgeMotion(renderArt({ index: 19001, tier: 1, season: 1, stage: 0, hands: 1, engravings: 0 }));
+    for (const k of ["ar-c1", "ar-c2", "ar-c3", "ar-cg", "ar-bdp", "ar-pgs"]) expect(css).toContain(k);
+  });
+  it("a rare photo token keeps a crystal badge", () => {
+    const svg = renderPhotoArt(art(1), photo(1000), { w: 400, h: 500 });
+    expect(svg).toContain('class="ar-bd"');
+    expect(svg).toContain("ar-c1");
   });
 });
