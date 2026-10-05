@@ -21,6 +21,7 @@ export function tierSupply(seasonId: number): [number, number, number] {
 }
 
 export const weekdayOf = (index: number) => { const { y, m, d } = ymd(index); return new Date(Date.UTC(y, m - 1, d)).getUTCDay(); };
+import { eventEnOf } from "./specialNames";
 export const eventOf = (index: number, seasonId = 1) => (SEASONS[seasonId] || SEASON_1).specials.find((s) => specialIndex(s) === index)?.note ?? null;
 
 /** Why a date has its rarity, in words: rarity is never luck, it is computed from the date by public rules (the same ones the contract enforces). */
@@ -67,7 +68,8 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
   ];
   const why = rarityReason(index, tier, season);
   attrs.push({ trait_type: "Why this rarity", value: why.en });
-  if (event) attrs.push({ trait_type: "Historic event", value: event });
+  const eventEn = eventEnOf(y, m, d) || event;
+  if (event) { attrs.push({ trait_type: "Historic event", value: eventEn! }); attrs.push({ trait_type: "الحدث التاريخي", value: event }); }
   if (f) {
     if (stage < 4) attrs.push({ trait_type: "Days to next age stage", value: Math.max(0, STAGE_DAYS[stage + 1] - heldDays) });
     attrs.push({ trait_type: "Age stage", value: `${STAGE_NAME_EN[stage]} · ${STAGE_NAME_AR[stage]}` }, { trait_type: "Owners so far", value: f.hands }, { trait_type: "Days held by current owner", value: heldDays }, { trait_type: "Engravings", value: f.engravings }, { trait_type: "Edition", value: 1 });
@@ -91,7 +93,7 @@ export function tokenStory(index: number, f: TokenFacts | null, tier: number, st
   const en = [
     `The token of ${dateEn} (${hijriLabel(index, "en")}, ${WEEK_EN[wd]}) — ${TIER_NAME_EN[tier]}, one of only ${supply} in its rarity.`,
     `Why this rarity: ${why.en}. Rarity is computed from the date by public rules, never luck.`,
-    event ? `On this day: ${event}.` : "",
+    event ? `On this day: ${eventEn}.` : "",
     "A living token: its picture flashes, turns and shines, livelier the longer it is held, and glows gold on the date's own anniversary.",
     f ? `It counts its owners (${f.hands} so far), remembers what is engraved on it, and is now ${STAGE_NAME_EN[stage].toLowerCase()}${heldDays ? ` (${heldDays} days with the current owner)` : ""}.` : "It counts its owners, remembers what is engraved on it and matures the longer it is held.",
     "It matures with holding: it changes after 30 days, 6 months, 1 year and 3 years without moving, and any transfer resets the clock, rewarding those who keep it.",

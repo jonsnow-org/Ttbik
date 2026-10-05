@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 import { SEASON_1, specialIndex } from "./seasons";
 import { ymd } from "./dates";
+import { eventEnOf } from "./specialNames";
 
 const EN: Record<string, string> = {
   "1953-4-25": "The structure of DNA is published", "1957-10-4": "Sputnik, the first satellite", "1961-4-12": "Gagarin, the first human in space",
@@ -23,5 +24,5 @@ export function specialOf(index: number) {
   const { y, m, d } = ymd(index);
   const stem = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
   const hasArt = ["webp", "jpg", "png"].some((e) => fs.existsSync(path.join(process.cwd(), "special", `${stem}.${e}`)));
-  return { ar: s.note, en: EN[`${y}-${m}-${d}`] || s.note, tier: s.tier, hasArt };
+  return { ar: s.note, en: eventEnOf(y, m, d) || EN[`${y}-${m}-${d}`] || s.note, tier: s.tier, hasArt };
 }

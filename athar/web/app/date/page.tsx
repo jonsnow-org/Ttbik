@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Address } from "@ton/core";
 import { Top, TierBadge, ton, useApi, useSend } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
+import { eventEnOf } from "@/lib/specialNames";
 import { useI18n } from "@/lib/i18n";
 import { buyMsg, short } from "@/lib/tx";
 import { arweaveId } from "@/lib/ids";
@@ -112,7 +113,7 @@ export default function DatePage() {
         </div>
         <select style={{ marginTop: 10, width: "100%" }} value="" onChange={(e) => { const v = specialsList.find((x) => x.i === Number(e.target.value)); if (v) { setY(v.y); setM(v.m); setD(v.d); } }}>
           <option value="">⭐ {t("date.history")} ({specialsList.length})</option>
-          {specialsList.map((x) => <option key={x.i} value={x.i}>{`${x.d}/${x.m}/${x.y}`}{lang === "ar" ? ` · ${x.note}` : ""}</option>)}
+          {specialsList.map((x) => <option key={x.i} value={x.i}>{`${x.d}/${x.m}/${x.y}`}{` · ${lang === "ar" ? x.note : (eventEnOf(x.y, x.m, x.d) || x.note)}`}</option>)}
         </select>
       </div>
 
@@ -168,7 +169,7 @@ export default function DatePage() {
           </div>
         )}
       </div>
-      <Features supply={info?.tier != null ? tierSupply(1)[info.tier] : undefined} event={eventOf(index)} />
+      <Features supply={info?.tier != null ? tierSupply(1)[info.tier] : undefined} event={eventOf(index)} eventEn={eventEnOf(y, m, dd)} />
       <Born index={index} />
       {previewNode}
       <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/mystery" style={{ color: "var(--gold)" }}>{t("home.mbtn")}</Link>.</p>

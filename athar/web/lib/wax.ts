@@ -60,7 +60,7 @@ export function waxPixels(d: Uint8ClampedArray, W: number, H: number, mode: WaxM
 }
 
 /** Browser wrapper: data URI in, waxed JPEG data URI out (kept under `budget` bytes). */
-export async function waxPhoto(uri: string, mode: WaxMode, budget = 66_000): Promise<string | null> {
+export async function waxPhoto(uri: string, mode: WaxMode, budget = 58_000): Promise<string | null> {
   const img = new Image();
   img.src = uri;
   await img.decode();

@@ -6,7 +6,7 @@ import { liveArt, storedMotion } from "./live";
 import { renderSpecialLive } from "./specialLive";
 import { TOTAL_DATES, dateLabelAr, stageOf, ymd } from "./dates";
 import { SEASON_1, seasonTier, specialIndex } from "./seasons";
-import { tokenState } from "./chain";
+import { tokenState, isBusy } from "./chain";
 import { tokenStory } from "./meta";
 import { occasionById } from "./occasions";
 import { META_BASE, SITE_URL, viewerUrl } from "./config";
@@ -44,7 +44,8 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
   const index = Number(idParam.replace(/\.json$/, ""));
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return Response.json({ error: "bad id" }, { status: 400 });
   const { y, m, d } = ymd(index);
-  const st = await tokenState(index);
+  let st: Awaited<ReturnType<typeof tokenState>>;
+  try { st = await tokenState(index); } catch (e) { if (isBusy(e)) return Response.json({ error: "busy, try again in a moment" }, { status: 503, headers: { "Retry-After": "5" } }); throw e; }
   const tier = st ? st.tier : seasonTier(SEASON_1, index);
   const stage = st ? stageOf(st.lastTransferAt) : 0;
   const story = tokenStory(index, st ? { season: st.season, tier, hands: st.hands, engravings: st.engravings.length, lastTransferAt: st.lastTransferAt, mintedAt: st.mintedAt, mediaRef: st.mediaRef, occasion: st.occasion, lastEngraving: st.engravings[0]?.text } : null, tier, stage, (id) => occasionById(id)?.names.en ?? null);

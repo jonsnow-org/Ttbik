@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
+  images: { unoptimized: true },   // no next/image anywhere: the image optimizer (a known attack surface of Next 14) is off
   // Self-hosting (Oracle, see deploy/oracle): NEXT_OUTPUT=standalone builds a
   // small self-contained server. Unset on Vercel, so nothing changes there.
   ...(process.env.NEXT_OUTPUT === "standalone" ? { output: "standalone" } : {}),

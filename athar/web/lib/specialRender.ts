@@ -10,7 +10,7 @@ const loadSvg = (svg: string) => new Promise<HTMLImageElement>((res, rej) => {
   i.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 });
 
-export async function renderSpecialGold(index: number, budget = 66_000): Promise<string | null> {
+export async function renderSpecialGold(index: number, budget = 58_000): Promise<string | null> {
   const a = specialScene(index);
   if (!a) return null;
   const S = 640;
