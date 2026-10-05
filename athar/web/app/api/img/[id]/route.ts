@@ -8,5 +8,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   // the same picture as a still PNG (link previews, directories, raster-only wallets)
   const r = await imgResponse(id.replace(/\.png$/, ".svg"), req.url, { isHiddenRef });
   if (!r.ok) return r;
-  return new Response(new Uint8Array(await svgToPng(await r.text())), { headers: PNG_HEADERS });
+  const px = Math.min(800, Math.max(64, Number(new URL(req.url).searchParams.get("px")) || 800));
+  return new Response(new Uint8Array(await svgToPng(await r.text(), px)), { headers: PNG_HEADERS });
 }

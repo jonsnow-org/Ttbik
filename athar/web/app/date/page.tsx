@@ -80,7 +80,7 @@ export default function DatePage() {
       const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
       const pj = await pr.json();
       if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
-      if (!(await confirm(pj.svg, pj.notes || []))) { setStoring(false); return; }      // the user must approve the exact final picture
+      if (!(await confirm(pj.svg, pj.notes || [], !media.photo))) { setStoring(false); return; }      // the user must approve the exact final picture
       toast(t("media.saving"));
       const p = await persistPicture(pj.svg);
       if (p.state === "failed") { toast(t("media.mustSave")); setStoring(false); return; }   // nothing is bought without its picture saved

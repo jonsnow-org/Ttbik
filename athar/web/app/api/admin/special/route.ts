@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { renderPhotoArt } from "@/lib/art";
 import { renderSpecialLive } from "@/lib/specialLive";
-import { storedMotion } from "@/lib/live";
+import { liveArt, storedMotion } from "@/lib/live";
 import { TOTAL_DATES } from "@/lib/dates";
 import { SEASON_1, seasonTier, specialIndex } from "@/lib/seasons";
 import { storeNow } from "@/lib/storage";
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     if (buf.length > MAX_PHOTO) return NextResponse.json({ error: `photo too large (${Math.round(buf.length / 1024)} KB, max ${Math.round(MAX_PHOTO / 1024)} KB)` }, { status: 413 });
     const dims = imageSize(buf);
     if (!dims) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
-    svg = storedMotion(renderPhotoArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, gold: true }, `data:image/jpeg;base64,${m[1]}`, dims));
+    svg = liveArt(renderPhotoArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, gold: true }, `data:image/jpeg;base64,${m[1]}`, dims), { stage: 0, tier: 2 });
   }
   if (Buffer.byteLength(svg) > 98_000) return NextResponse.json({ error: "picture too large for free permanent storage" }, { status: 413 });
   if (preview) return NextResponse.json({ svg });
