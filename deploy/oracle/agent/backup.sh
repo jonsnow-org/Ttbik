@@ -17,8 +17,8 @@ if [ ! -f "$WKF" ] || [ ! -f "$BK/ttbik-full-latest.tar.gz" ] || [ $(( $(date +%
     mv -f "$BK/repo.bundle.tmp" "$BK/repo-latest.bundle"; now > "$WKF"; echo "$(now) OK $(du -m "$BK/repo-latest.bundle" | cut -f1) MB" > "$STATE/repo_backup_note"
     # One compressed file of ALL our work, rebuilt weekly; the old one is replaced only by a new one that reads back correctly.
     #   ttbik-full-latest.tar.gz  (stays on this machine, mode 600): the whole project history + the database dump + Athar's data
-    #   ttbik-code-latest.tar.gz  (also sent to the owner on Telegram, replacing last week's message): the same WITHOUT the database,
-    #                             because the database holds other people's personal data and must not leave this machine
+    #   ttbik-code-latest.tar.gz  (also sent to the owner on Telegram, replacing last week's message): the same WITH the database dump
+    #                             (the owner asked for it on 2026-10-05; BACKUP_DB_OFFSITE=0 in backup.env switches it off once real users exist)
     # Neither holds passwords or tokens; the manifest lists where those live.
     FT="$BK/full.tmp"; rm -rf "$FT"; mkdir -p "$FT/ttbik"
     cp "$BK/repo-latest.bundle" "$FT/ttbik/" 2>/dev/null
@@ -27,14 +27,16 @@ if [ ! -f "$WKF" ] || [ ! -f "$BK/ttbik-full-latest.tar.gz" ] || [ $(( $(date +%
 Our whole work, saved $(now)
 - repo-latest.bundle   every branch and tag of the project (restore: git clone repo-latest.bundle ttbik)
 - athar*-data.tgz      Athar's own files (takedown list, copies of pictures)
-- database.dump        (only in the full file on the server) restore: pg_restore --no-owner -d <database> database.dump
+- database.dump        the platform database (restore: pg_restore --no-owner -d <database> database.dump); step-by-step in RESTORE.md, variable names in ENV-VARS.md
 NOT inside (secrets, keep them in your own password manager): bot tokens, DATABASE_URL, Vercel variables (ATHAR_PRIMARY,
 NEXT_PUBLIC_ATHAR_META_BASE, ATHAR_ADMIN, ...), Cloudflare account, wallet words, Telegram bot tokens.
 Where things run: site on Vercel (main branch), server on Oracle (deploy/oracle), Athar front door on Cloudflare (Worker athar-meta,
 deployed from cloudflare/athar-front), token pictures on Arweave.
 MAN
+    cp /opt/ttbik/deploy/oracle/agent/RESTORE.md "$FT/ttbik/RESTORE.md" 2>/dev/null; cp /opt/ttbik/docs/ENV-VARS.md "$FT/ttbik/ENV-VARS.md" 2>/dev/null
+    if [ "$(getkv "$OR/backup.env" BACKUP_DB_OFFSITE)" != 0 ] && [ -f "$BK/latest.dump" ]; then cp "$BK/latest.dump" "$FT/ttbik/database.dump"; fi
     if tar -czf "$BK/ttbik-code.tmp.tgz" -C "$FT" ttbik 2>/dev/null && tar -tzf "$BK/ttbik-code.tmp.tgz" >/dev/null 2>&1; then
-      mv -f "$BK/ttbik-code.tmp.tgz" "$BK/ttbik-code-latest.tar.gz"
+      mv -f "$BK/ttbik-code.tmp.tgz" "$BK/ttbik-code-latest.tar.gz"; chmod 600 "$BK/ttbik-code-latest.tar.gz"
       [ -f "$BK/latest.dump" ] && cp "$BK/latest.dump" "$FT/ttbik/database.dump"
       if tar -czf "$BK/ttbik-full.tmp.tgz" -C "$FT" ttbik 2>/dev/null && tar -tzf "$BK/ttbik-full.tmp.tgz" >/dev/null 2>&1; then
         mv -f "$BK/ttbik-full.tmp.tgz" "$BK/ttbik-full-latest.tar.gz"; chmod 600 "$BK/ttbik-full-latest.tar.gz"
@@ -42,7 +44,7 @@ MAN
       # the code copy goes to the owner on Telegram (limit 50 MB), and last week's message is deleted
       SZ=$(stat -c %s "$BK/ttbik-code-latest.tar.gz")
       if [ -n "$BOT_TOKEN" ] && [ -n "$OWNER_ID" ] && [ "$SZ" -lt 47000000 ]; then
-        R=$(curl -s -m 120 "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" -F "chat_id=$OWNER_ID" -F "document=@$BK/ttbik-code-latest.tar.gz;filename=ttbik-code-$(date -u +%F).tar.gz" -F "caption=🗄 Weekly copy of all our work (code + Athar data). The previous one is deleted." 2>/dev/null)
+        R=$(curl -s -m 120 "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" -F "chat_id=$OWNER_ID" -F "document=@$BK/ttbik-code-latest.tar.gz;filename=ttbik-code-$(date -u +%F).tar.gz" -F "caption=🗄 Weekly copy of all our work (code + Athar data + database). The previous one is deleted." 2>/dev/null)
         NEWID=$(echo "$R" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['message_id'])" 2>/dev/null)
         if [ -n "$NEWID" ]; then
           OLDID=$(cat "$STATE/tg_backup_msg" 2>/dev/null)
