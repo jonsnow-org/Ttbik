@@ -5,6 +5,17 @@ set -uo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 exec 9>/var/lock/ttbik-watchdog.lock; flock -n 9 || exit 0
 wd() { echo "$(now) $1" > "$STATE/watchdog_note"; }
+# Disk guard: the server builds containers all day, and a full disk stops everything. At 85% old build cache and unused images go;
+# at 90% the owner is told (at most once a day).
+USED=$(df / | awk 'NR==2{gsub("%","",$5); print $5}')
+if [ -n "$USED" ] && [ "$USED" -ge 85 ]; then
+  docker builder prune -f --filter "until=72h" >/dev/null 2>&1 || true
+  docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
+  USED2=$(df / | awk 'NR==2{gsub("%","",$5); print $5}')
+  if [ -n "$USED2" ] && [ "$USED2" -ge 90 ] && [ -z "$(find "$STATE/disk_warned" -mmin -1440 2>/dev/null)" ]; then
+    touch "$STATE/disk_warned"; tg_notify "⚠️ قرص الخادم امتلأ بنسبة ${USED2}%. نظّفتُ ما أمكن، وقد تحتاج إلى تنظيف يدوي أو توسيع."
+  fi
+fi
 [ -n "$PGURL" ] || { wd "not configured"; exit 0; }
 [ -f "$STATE/good_fingerprint" ] || { wd "waiting for the first good backup"; exit 0; }
 FP=$(db_fingerprint) || { wd "database unreachable (outage: no action)"; exit 0; }

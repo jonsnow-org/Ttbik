@@ -29,7 +29,11 @@ export default {
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("method not allowed", { status: 405, headers: cors });
     const u = new URL(request.url);
     if (!ok.test(u.pathname)) return new Response("not found", { status: 404, headers: cors });
-    const path = u.pathname + u.search;
+    // only the parameters the pictures understand are passed on (and in a fixed order): nobody can make us draw or keep endless variants
+    const allowed = ["live", "ann", "t", "s", "g", "h", "e", "o", "sealed", "plain"], keep = new URLSearchParams();
+    for (const k of allowed) { const v = u.searchParams.get(k); if (v !== null && /^[0-9A-Za-z_-]{1,12}$/.test(v)) keep.set(k, v); }
+    const qs = keep.toString();
+    const path = u.pathname + (qs ? "?" + qs : "");
     const cache = caches.default;
     const key = new Request("https://athar-keep.invalid" + path);
 
