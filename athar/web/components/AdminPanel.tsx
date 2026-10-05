@@ -126,7 +126,7 @@ export default function AdminPanel() {
     { ok: SITE_URL.startsWith("https://"), t: "عنوان الموقع مضبوط وبـHTTPS" },
     { ok: !!st && (!st.envAdmin || st.envAdmin === address || (() => { try { return Address.parse(st.envAdmin).equals(Address.parse(address)); } catch { return false; } })()), t: "محفظة الإدارة تطابق إعداد الموقع" },
     { ok: payoutOk, t: "عنوان استلام الأرباح صحيح" },
-    { ok: !!st && (st.balance ?? 0) >= 3.5 || !!st?.collectionActive, t: "رصيد محفظة الإدارة 3.5 TON على الأقل (يعود منه نحو 2 TON)" },
+    { ok: !!st && (st.balance ?? 0) >= 3.5 || !!st?.collectionActive, t: "رصيد محفظة الإدارة 3.5 Gram على الأقل (يعود منه نحو 2 Gram)" },
   ];
   const ready = checks.every((c) => c.ok);
 
@@ -225,7 +225,7 @@ export default function AdminPanel() {
           </div>
           <div className="steps" style={{ marginTop: 12 }}>{checks.map((c, i) => <div key={i} className={`step ${c.ok ? "done" : ""}`}><i>{c.ok ? "✓" : "•"}</i><span>{c.t}</span></div>)}</div>
           <button className="btn gold" style={{ marginTop: 14 }} disabled={!ready || running} onClick={launch}>{st?.collectionActive ? "تابع الإطلاق" : "أطلق الموسم الأول"}</button>
-          <p className="muted">سيطلب منك المحفظة الدفع والتأكيد بضع مرات (حسب أقصى عدد رسائل). يلزم نحو 3.5 TON في المحفظة، يعود منها نحو 2 TON، فالتكلفة الفعلية قرابة 1 TON. لا يُحفظ أي مفتاح هنا.</p>
+          <p className="muted">سيطلب منك المحفظة الدفع والتأكيد بضع مرات (حسب أقصى عدد رسائل). يلزم نحو 3.5 Gram في المحفظة، يعود منها نحو 2 Gram، فالتكلفة الفعلية قرابة 1 Gram. لا يُحفظ أي مفتاح هنا.</p>
           {log.map((l, i) => <div className="note" key={i}>{l}</div>)}
           {secretShown && <div className="note">سرّ الكشف (احفظه). حُمّل ملف نسخة احتياطية:<div className="mono">{secretShown}</div></div>}
         </div>
@@ -240,7 +240,7 @@ export default function AdminPanel() {
           <div className="kv"><span>حالة البيع</span><span>{st.status === 1 ? "مفتوح" : st.status === 2 ? "متوقف" : "مسودة"}</span></div>
           <div className="kv"><span>المُصكوك</span><span>{st.soldCount ?? 0}</span></div>
           <div className="kv"><span>تذاكر الغموض</span><span>{st.ticketsSold ?? 0} / {st.poolSize ?? 0}</span></div>
-          <div className="kv"><span>رصيد الإدارة</span><span>{st.balance != null ? st.balance.toFixed(2) : "—"} TON</span></div>
+          <div className="kv"><span>رصيد الإدارة</span><span>{st.balance != null ? st.balance.toFixed(2) : "—"} Gram</span></div>
           <p className="muted">الأرباح تصل إلى عنوان الاستلام فور كل عملية بيع، ولا تُحفظ في العقود.</p>
         </div>
       )}
@@ -268,10 +268,10 @@ export default function AdminPanel() {
           <div className="kv"><span>المُصكوك</span><span>{ov.minted} / {ov.size}</span></div>
           <div className="kv"><span>عادي · نادر · أسطوري</span><span>{ov.byTier?.join(" · ")}</span></div>
           <div className="kv"><span>عدد الحاملين</span><span>{ov.holders}</span></div>
-          <div className="kv"><span>وصل إلى محفظة الأرباح</span><span>{ov.revenue != null ? `${ov.revenue.toFixed(2)} TON` : "..."}</span></div>
+          <div className="kv"><span>وصل إلى محفظة الأرباح</span><span>{ov.revenue != null ? `${ov.revenue.toFixed(2)} Gram` : "..."}</span></div>
           <div className="kv"><span>عمليات اليوم</span><span>{ov.salesToday ?? "..."}</span></div>
           {ov.revenueNote && <p className="muted">{ov.revenueNote}</p>}
-          {!!ov.recent?.length && <><b>آخر العمليات</b>{ov.recent.map((x, i) => <div className="kv" key={i}><span>{new Date(x.at * 1000).toLocaleString("ar")}</span><span>{x.ton.toFixed(2)} TON</span></div>)}</>}
+          {!!ov.recent?.length && <><b>آخر العمليات</b>{ov.recent.map((x, i) => <div className="kv" key={i}><span>{new Date(x.at * 1000).toLocaleString("ar")}</span><span>{x.ton.toFixed(2)} Gram</span></div>)}</>}
           {!!ov.top?.length && <><b>أكبر الحاملين</b>{ov.top.map((x) => <div className="kv" key={x.owner}><span className="mono">{x.owner.slice(0, 6)}…{x.owner.slice(-4)}</span><span>{x.tokens}</span></div>)}</>}
           {!!ov.mine?.length && <><b>رموزك أنت</b><div className="row" style={{ flexWrap: "wrap", gap: 8 }}>{ov.mine.map((i) => <a key={i} className="btn sm ghost" href={`/token/${i}`}>{i}</a>)}</div></>}
         </div>
@@ -291,7 +291,7 @@ export default function AdminPanel() {
                 <input type="file" accept="image/jpeg,image/png,image/webp" disabled={spBusy} onChange={(e) => spPick(e.target.files?.[0])} title="أو اختر صورة بنفسك" />
                 {spSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(spSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <div className="row" style={{ gap: 8 }}>
-                  <input type="number" step="1" min="1" value={spReserve} onChange={(e) => setSpReserve(e.target.value)} title="سعر البداية TON" />
+                  <input type="number" step="1" min="1" value={spReserve} onChange={(e) => setSpReserve(e.target.value)} title="سعر البداية Gram" />
                   <input type="number" step="1" min="1" max="365" value={spDays} onChange={(e) => setSpDays(e.target.value)} title="المدة بالأيام" />
                 </div>
                 <button className="btn gold" disabled={running || spBusy || !spPhoto} onClick={spStart}>خزّن الصورة وابدأ المزاد</button>
@@ -304,14 +304,14 @@ export default function AdminPanel() {
             </button>
             <div className="card" style={{ margin: 0 }}>
               <b>الأسعار تتبع السوق: رسوم النقش والصورة</b>
-              <p className="muted">الحالي: نقش {feeSeen?.itemFees?.engrave ?? "…"} · أول صورة {feeSeen?.itemFees?.media ?? "…"} · تغيير الصورة {feeSeen?.itemFees?.change ?? "…"} TON. عدّلها عندما يتغيّر سعر TON أو التضخم. الحد الأعلى 5 TON لكل رسم، وتغيير الصورة لا ينقص عن الأولى.</p>
+              <p className="muted">الحالي: نقش {feeSeen?.itemFees?.engrave ?? "…"} · أول صورة {feeSeen?.itemFees?.media ?? "…"} · تغيير الصورة {feeSeen?.itemFees?.change ?? "…"} Gram. عدّلها عندما يتغيّر سعر Gram أو التضخم. الحد الأعلى 5 Gram لكل رسم، وتغيير الصورة لا ينقص عن الأولى.</p>
               <div className="row" style={{ gap: 8 }}>
                 <input type="number" step="0.01" min="0.02" value={feeE} onChange={(e) => setFeeE(e.target.value)} title="نقش" />
                 <input type="number" step="0.01" min="0.02" value={feeM} onChange={(e) => setFeeM(e.target.value)} title="أول صورة" />
                 <input type="number" step="0.01" min="0.02" value={feeC} onChange={(e) => setFeeC(e.target.value)} title="تغيير الصورة" />
               </div>
               <button className="btn ghost" disabled={running || Number(feeC) < Number(feeM)} onClick={() => run(async () => { await ui.sendTransaction(tx([setItemFeesMsg(st.collection, feeE, feeM, feeC)])); })}>حدّث رسوم النقش والصورة</button>
-              <p className="muted">عند الشراء: صورة شخصية {feeSeen?.fees?.photo ?? "…"} · فضية {feeSeen?.fees?.silver ?? "…"} TON (الفضية تشمل الصورة، فلا تقلّ عنها، وكلاهما حتى 2 TON).</p>
+              <p className="muted">عند الشراء: صورة شخصية {feeSeen?.fees?.photo ?? "…"} · فضية {feeSeen?.fees?.silver ?? "…"} Gram (الفضية تشمل الصورة، فلا تقلّ عنها، وكلاهما حتى 2 Gram).</p>
               <div className="row" style={{ gap: 8 }}>
                 <input type="number" step="0.01" min="0" value={feeP} onChange={(e) => setFeeP(e.target.value)} title="صورة شخصية" />
                 <input type="number" step="0.01" min="0" value={feeS} onChange={(e) => setFeeS(e.target.value)} title="فضية" />
@@ -320,7 +320,7 @@ export default function AdminPanel() {
             </div>
             <div className="card" style={{ margin: 0 }}>
               <b>تحريك نطاق سعر فئة</b>
-              <p className="muted">الأسعار الحالية: عادي {feeSeen?.prices?.common ?? "…"} · نادر {feeSeen?.prices?.rare ?? "…"} · تذكرة {feeSeen?.prices?.ticket ?? "…"} TON. الأرضية والسقف الجديدان يسحبان السعر الحالي إلى داخلهما (الحدود 0.05 – 2000 TON).</p>
+              <p className="muted">الأسعار الحالية: عادي {feeSeen?.prices?.common ?? "…"} · نادر {feeSeen?.prices?.rare ?? "…"} · تذكرة {feeSeen?.prices?.ticket ?? "…"} Gram. الأرضية والسقف الجديدان يسحبان السعر الحالي إلى داخلهما (الحدود 0.05 – 2000 Gram).</p>
               <select value={bandTier} onChange={(e) => setBandTier(Number(e.target.value))}><option value={0}>عادي</option><option value={1}>نادر</option><option value={3}>تذاكر الغموض</option></select>
               <div className="row" style={{ gap: 8 }}>
                 <input type="number" step="0.05" min="0.05" value={bandFloor} onChange={(e) => setBandFloor(e.target.value)} title="الأرضية" />
