@@ -13,7 +13,7 @@ function fakeBot() {
   const sent: { chat: number; text: string; kb?: any }[] = [];
   return { sent, api: { sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); }, answerCallbackQuery: async () => undefined } } as any;
 }
-const row = { id: "bot1" } as any;
+const row = { id: "bot1", ownerId: "555001" } as any;
 const ARABIC = /[؀-ۿ]/;
 
 describe("Athar bot", () => {
@@ -50,5 +50,20 @@ describe("Athar bot", () => {
     const bot = fakeBot();
     await handleAtharBotUpdate(bot, row, { callback_query: { id: "c", from: { id: 7 }, message: { chat: { id: 1 } }, data: "al:xx" } });
     expect(bot.sent.length).toBe(0);
+  });
+
+  it("the owner gets a Stats button, nobody else does", async () => {
+    const owner = fakeBot();
+    await handleAtharBotUpdate(owner, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "/start" } });
+    expect(JSON.stringify(owner.sent[0].kb)).toContain("ao:stats");
+    const user = fakeBot();
+    await handleAtharBotUpdate(user, row, { message: { chat: { id: 2 }, from: { id: 9 }, text: "/start" } });
+    expect(JSON.stringify(user.sent[0].kb)).not.toContain("ao:stats");
+    const sneaky = fakeBot();
+    await handleAtharBotUpdate(sneaky, row, { callback_query: { id: "c", from: { id: 9 }, message: { chat: { id: 2 } }, data: "ao:stats" } });
+    expect(sneaky.sent.length).toBe(0);
+    const ask = fakeBot();
+    await handleAtharBotUpdate(ask, row, { callback_query: { id: "c", from: { id: 555001 }, message: { chat: { id: 1 } }, data: "ao:stats" } });
+    expect(ask.sent.length).toBe(1);
   });
 });
