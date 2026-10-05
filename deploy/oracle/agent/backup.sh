@@ -12,7 +12,7 @@ for d in athar athar-test; do
 done
 # Weekly: a full copy of the whole project source (every branch and tag, as one git bundle). The old copy is replaced only by a new one that verifies.
 WKF="$STATE/last_full_archive"
-if [ ! -f "$WKF" ] || [ $(( $(date +%s) - $(stat -c %Y "$WKF") )) -gt 604800 ]; then
+if [ ! -f "$WKF" ] || [ ! -f "$BK/ttbik-full-latest.tar.gz" ] || [ $(( $(date +%s) - $(stat -c %Y "$WKF") )) -gt 604800 ]; then   # also: the first full archive is built at once, not a week later
   if ( cd /opt/ttbik && git fetch -q origin 2>/dev/null; [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = true ] && git fetch -q --unshallow origin 2>/dev/null; git bundle create "$BK/repo.bundle.tmp" --all >/dev/null 2>&1 && git bundle verify "$BK/repo.bundle.tmp" >/dev/null 2>&1 ); then
     mv -f "$BK/repo.bundle.tmp" "$BK/repo-latest.bundle"; now > "$WKF"; echo "$(now) OK $(du -m "$BK/repo-latest.bundle" | cut -f1) MB" > "$STATE/repo_backup_note"
     # One compressed file of ALL our work, rebuilt weekly; the old one is replaced only by a new one that reads back correctly.
