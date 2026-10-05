@@ -2,14 +2,16 @@
 // served by every host we run: our own server, and the Vercel mirror (root site: /api/athar/*). Imports are relative on purpose:
 // the root site compiles this file too and has no "@/" alias into this folder.
 import { renderArt } from "./art";
-import { liveArt } from "./live";
+import { liveArt, storedMotion } from "./live";
+import { renderSpecialLive } from "./specialLive";
 import { TOTAL_DATES, dateLabelAr, stageOf, ymd } from "./dates";
-import { SEASON_1, seasonTier } from "./seasons";
+import { SEASON_1, seasonTier, specialIndex } from "./seasons";
 import { tokenState } from "./chain";
 import { tokenStory } from "./meta";
 import { occasionById } from "./occasions";
 import { META_BASE, SITE_URL, viewerUrl } from "./config";
 
+const SPECIAL_DATES = new Set(SEASON_1.specials.map(specialIndex));
 const SVG = { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" };
 
 export function imgResponse(idParam: string, reqUrl: string): Response {
@@ -23,6 +25,11 @@ export function imgResponse(idParam: string, reqUrl: string): Response {
     index, tier: idRaw === "collection" ? 2 : num("t", seasonTier(SEASON_1, index)), season: num("s", 1), stage: Math.min(4, Math.max(0, num("g", idRaw === "collection" ? 4 : 0))),
     hands: Math.min(60, Math.max(0, num("h", idRaw === "collection" ? 12 : 0))), engravings: Math.min(99, Math.max(0, num("e", 0))), sealed: q.get("sealed") === "1", occasion: Math.min(9, Math.max(0, num("o", 0))),
   };
+  // the 78 special dates have a drawing of their own (coloured, moving): that is also what a visitor sees before the date is sold
+  if (idRaw !== "collection" && SPECIAL_DATES.has(index) && q.get("plain") !== "1") {
+    const sp = renderSpecialLive(index);
+    if (sp) return new Response(storedMotion(sp), { headers: SVG });
+  }
   // ?live=1 is the site's moving version (?ann=1 on the date's anniversary); without it the plain picture wallets and markets show
   const svg = q.get("live") === "1" ? liveArt(renderArt(art), { stage: art.stage, tier: art.tier, anniversary: q.get("ann") === "1" }) : renderArt(art);
   return new Response(svg, { headers: SVG });
