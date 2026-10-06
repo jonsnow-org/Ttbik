@@ -48,6 +48,7 @@ export const DICT = {
   "stage.4": r("تاريخي", "Historic", "Исторический", "Tarihî", "تاریخی"),
 
   "ui.cancelled": r("لم تكتمل العملية (أُلغيت أو رُفضت من المحفظة).", "The action was not completed (cancelled or rejected in the wallet).", "Действие не завершено (отменено или отклонено в кошельке).", "İşlem tamamlanmadı (cüzdanda iptal edildi veya reddedildi).", "عملیات کامل نشد (در کیف پول لغو یا رد شد)."),
+  "ui.walletWait": r("أكّد في محفظتك. إن بقيت المعاينة رمادية أكثر من 10 ثوانٍ فألغِ وأعد المحاولة، فتظهر فوراً.", "Confirm in your wallet. If the preview stays grey for more than 10 seconds, cancel and try again: it then shows at once.", "Подтвердите в кошельке. Если предпросмотр остаётся серым дольше 10 секунд, отмените и повторите: он появится сразу.", "Cüzdanında onayla. Önizleme 10 saniyeden uzun gri kalırsa iptal edip yeniden dene: hemen görünür.", "در کیف‌پول تأیید کنید. اگر پیش‌نمایش بیش از ۱۰ ثانیه خاکستری ماند، لغو کنید و دوباره امتحان کنید؛ فوراً نمایش داده می‌شود."),
   "ui.sent": r("تم الإرسال. سيظهر الأثر خلال لحظات.", "Sent. Your mark will appear in moments.", "Отправлено. Ваш след появится через несколько секунд.", "Gönderildi. İzin birkaç saniye içinde görünecek.", "ارسال شد. ردّ شما تا لحظاتی دیگر نمایان می‌شود."),
   "ui.ton": r("Gram", "Gram", "Gram", "Gram", "Gram"),
 

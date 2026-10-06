@@ -42,9 +42,10 @@ export function useSend() {
   const send = useCallback(async (messages: Msg[], okText?: string) => {
     if (!address) { ui.openModal(); return false; }
     setBusy(true);
+    const hint = setTimeout(() => toast(t("ui.walletWait")), 9000);      // the wallet prepares its own preview first (it simulates the purchase); a second try is instant
     try { await ui.sendTransaction(tx(messages)); toast(okText ?? t("ui.sent")); return true; }
     catch { toast(t("ui.cancelled")); return false; }
-    finally { setBusy(false); }
+    finally { clearTimeout(hint); setBusy(false); }
   }, [address, ui, toast, t]);
   return { send, busy, address };
 }
