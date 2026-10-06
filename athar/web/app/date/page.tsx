@@ -2,36 +2,43 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Address } from "@ton/core";
-import { Top, TierBadge, ton, useApi, useSend } from "@/components/ui";
+import { Top, KindBadge, ton, useApi, useSend } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { eventEnOf } from "@/lib/specialNames";
 import { useI18n } from "@/lib/i18n";
-import { buyMsg, short } from "@/lib/tx";
-import { arweaveId } from "@/lib/ids";
+import { buyMsg } from "@/lib/tx";
 import { persistPicture } from "@/lib/mediaFlow";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import Features from "@/components/Features";
-import { eventOf, hijriLabel, tierSupply } from "@/lib/meta";
+import { eventOf, hijriLabel, kindSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { useToast } from "@/components/ui";
+import { CLASS_KINDS, DIRECT_KINDS, idOf, ID_SHIFT } from "@/lib/kinds";
+import { premiumOf } from "@/lib/seasons";
 
-type Info = { index: number; tier: number; inSeason: boolean; reserved: boolean; taken: boolean; owner: string | null; price: number | null; special?: boolean; auction: null | { live: boolean; endAt: number; highBid: number; reserve: number; mediaRef?: string } };
-type Season = { fromYear?: number; toYear?: number; specials?: number; configured: boolean; minter?: string; deployed?: boolean; status?: number; fees?: { photo: number; silver: number } };
+// One date in all its kinds (see lib/kinds.ts): taken[k] / auction[k] / reserved[k] by kind, and the price of the three direct kinds now.
+type Info = { date: number; special: boolean; onChain: boolean; taken: boolean[]; auction: boolean[]; reserved: boolean[]; prices: (number | null)[] };
+type KindRow = { kind: number; price: number | null; cap: number; issued: number; photoFee: number; specialFee: number; walletMax: number };
+type Season = { specials?: number; configured: boolean; minter?: string; deployed?: boolean; status?: number; kinds?: KindRow[] };
 
 const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 export default function DatePage() {
   const { t, dateLabel, monthNames, lang } = useI18n();
   const [y, setY] = useState(2003), [m, setM] = useState(3), [d, setD] = useState(14);
+  const [kind, setKind] = useState<number>(0);
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search).get("i");
-    if (q) { const i = Number(q); if (i >= 0 && i < TOTAL_DATES) { const t = ymd(i); setY(t.y); setM(t.m); setD(t.d); } }
+    const q = new URLSearchParams(window.location.search);
+    const i = q.get("i");
+    if (i) { const n = Number(i) % ID_SHIFT; if (n >= 0 && n < TOTAL_DATES) { const x = ymd(n); setY(x.y); setM(x.m); setD(x.d); } }
+    const k = Number(q.get("k")); if (Number.isInteger(k) && k >= 0 && k <= 2) setKind(k);
   }, []);
   const maxD = daysIn(y, m);
   const dd = Math.min(d, maxD);
-  const index = indexOf(y, m, dd);
-  const { data: info, reload } = useApi<Info>(`/api/date/${index}`, 12000);
+  const date = indexOf(y, m, dd);
+  const id = idOf(kind, date);
+  const { data: info, reload } = useApi<Info>(`/api/date/${date}`, 12000);
   const { data: season } = useApi<Season>("/api/season", 20000);
   const { send, busy } = useSend();
   const toast = useToast();
@@ -40,43 +47,30 @@ export default function DatePage() {
   const [showMedia, setShowMedia] = useState(false);
   const [storing, setStoring] = useState(false);
   const [gift, setGift] = useState(false);
-  const [wantN, setWantN] = useState<number | null>(null), [wantTg, setWantTg] = useState(""), [wantDone, setWantDone] = useState(false);
   const [to, setTo] = useState("");
   const toOk = useMemo(() => { try { Address.parse(to.trim()); return true; } catch { return false; } }, [to]);
   const years = useMemo(() => Array.from({ length: 100 }, (_, i) => 2049 - i), []);
-  const fresh = info && info.index === index;
-  const outside = !!fresh && !info!.inSeason;
-  useEffect(() => {
-    setWantDone(false); setWantN(null);
-    if (!outside) return;
-    try { if (JSON.parse(localStorage.getItem("athar_want") || "[]").includes(index)) setWantDone(true); } catch { /* private mode */ }
-    fetch(`/api/waitlist?index=${index}`).then((r) => r.json()).then((j) => setWantN(typeof j.n === "number" ? j.n : null)).catch(() => undefined);
-  }, [outside, index]);
-  async function want() {
-    try {
-      const r = await fetch("/api/waitlist", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ index, contact: wantTg }) });
-      const j = await r.json(); if (!r.ok) return;
-      setWantN(j.n); setWantDone(true); toast(t("date.wantDone"));
-      try { const a = JSON.parse(localStorage.getItem("athar_want") || "[]"); a.push(index); localStorage.setItem("athar_want", JSON.stringify(a)); } catch { /* private mode */ }
-    } catch { /* offline: the button stays */ }
-  }
-
-  const style = media.photo ? (media.style === "silver" ? 2 : 1) : 0;
-  const extra = style === 1 ? season?.fees?.photo ?? 0 : style === 2 ? season?.fees?.silver ?? 0 : 0;
+  const fresh = !!info && info.date === date;
+  const row = season?.kinds?.[kind];
+  const price = fresh ? info!.prices[kind] : null;
+  const takenHere = fresh && info!.taken[kind];
+  const soldOut = !!row && row.cap > 0 && row.issued >= row.cap;
+  const extra = media.photo ? row?.photoFee ?? 0 : 0;
+  const premium = premiumOf(date)[0] > premiumOf(date)[1];
 
   async function buy() {
-    if (!season?.minter || info?.price == null) return;
+    if (!season?.minter || price == null) return;
     // The picture is made safe BEFORE the purchase, so the token is born holding its final id (see lib/mediaFlow).
     //   stored  -> normal purchase
     //   queued  -> purchase as usual, fees included: the token shows its default picture until the file is confirmed, by itself
     //   failed  -> only if even our server is unreachable: nothing is bought (the picture is mandatory), nothing is charged
     let ref = 0n;
-    const buyStyle = style, buyExtra = extra;
+    const buyStyle = media.photo ? 1 : 0, buyExtra = extra;
     // A photo is part of the token and saved for good; the generated art is not stored at all (the token keeps drawing it live).
     setStoring(true);
     try {
-      const kind = media.photo ? "photo" : "snapshot";   // "snapshot" here is only the preview shown for approval; it is not stored
-      const body = { index, kind, occasion: media.occasion, photo: media.photo };
+      const what = media.photo ? "photo" : "snapshot";   // "snapshot" here is only the preview shown for approval; it is not stored
+      const body = { id, kind: what, occasion: media.occasion, photo: media.photo };
       const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
       const pj = await pr.json();
       if (!pr.ok) { toast(pj.error || t("media.fail")); setStoring(false); return; }
@@ -89,7 +83,7 @@ export default function DatePage() {
       }
     } catch { toast(t("media.fail")); setStoring(false); return; }
     setStoring(false);
-    if (await send([buyMsg(season.minter, index, info.price, gift && toOk ? to.trim() : undefined, media.occasion, ref, buyStyle, buyExtra)], t("date.sent"))) reload();
+    if (await send([buyMsg(season.minter, id, price, gift && toOk ? to.trim() : undefined, media.occasion, ref, buyStyle, buyExtra)], t("date.sent"))) reload();
   }
 
   return (
@@ -97,14 +91,6 @@ export default function DatePage() {
       <Top />
       <div className="card">
         <h3>{t("date.title")}</h3>
-        {season?.fromYear && <p className="muted" style={{ margin: "6px 0 0" }}>{t("date.coverage", { a: season.fromYear, b: season.toYear ?? 0, s: season.specials ?? 0 })}</p>}
-        {season?.fromYear && (
-          <div className="row" style={{ marginTop: 10, flexWrap: "wrap", gap: 6 }}>
-            {Array.from({ length: (season.toYear ?? 0) - season.fromYear + 1 }, (_, k) => season.fromYear! + k).map((v) => (
-              <button key={v} type="button" className={`btn sm ${y === v ? "" : "ghost"}`} onClick={() => setY(v)}>{v}</button>
-            ))}
-          </div>
-        )}
         <div className="row" style={{ marginTop: 10 }}>
           <select value={dd} onChange={(e) => setD(Number(e.target.value))}>{Array.from({ length: maxD }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}</option>)}</select>
           <select value={m} onChange={(e) => setM(Number(e.target.value))}>{monthNames.map((n, i) => <option key={i} value={i + 1}>{n}</option>)}</select>
@@ -113,60 +99,72 @@ export default function DatePage() {
       </div>
 
       <div className="card" style={{ textAlign: "center" }}>
-        <img src={`/api/img/${index}.svg?live=1${fresh ? `&t=${info!.tier}` : ""}`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
+        <img src={`/api/img/${id}.svg?live=1`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, dd)}</h2>
-        <div className="muted" style={{ marginBottom: 6 }}>🌙 {t("tok.hijri", { h: hijriLabel(index, lang) })}</div>
-        {fresh && <TierBadge tier={info!.tier} />}
+        <div className="muted" style={{ marginBottom: 6 }}>🌙 {t("tok.hijri", { h: hijriLabel(date, lang) })}</div>
         {!fresh && <p className="muted">…</p>}
         {fresh && (
-          <div style={{ marginTop: 14 }}>
-            {!info!.inSeason && (
-              <>
-                <p className="muted">{t("date.notSeason")}</p>
-                <p className="muted" style={{ fontSize: 13 }}>{t("date.wantHint")}</p>
-                {!wantDone && <input type="text" dir="ltr" placeholder={t("date.wantTg")} value={wantTg} onChange={(e) => setWantTg(e.target.value)} style={{ width: "100%", marginBottom: 8 }} />}
-                <button className="btn gold" disabled={wantDone} onClick={want}>{wantDone ? `✓ ${t("date.wantDone")}` : t("date.want")}</button>
-                {wantN != null && wantN > 0 && <p className="muted" style={{ marginTop: 8 }}>{t("date.wantCount", { n: wantN })}</p>}
-              </>
-            )}
-            {info!.inSeason && info!.reserved && !info!.taken && <p className="muted">{t("date.inBox")}</p>}
-            {info!.taken && (
+          <>
+            {info!.special && <p className="muted">{t("date.special")}</p>}
+            {premium && !info!.special && <p className="muted">{t("kind.premium")}</p>}
+            <div className="muted" style={{ marginTop: 8 }}>{t("kind.choose")}</div>
+            <div className="kinds">
+              {DIRECT_KINDS.map((k) => {
+                const kr = season?.kinds?.[k];
+                const taken = info!.taken[k], out = !!kr && kr.cap > 0 && kr.issued >= kr.cap;
+                return (
+                  <div key={k} className={`kindcard ${kind === k ? "on" : ""} ${taken || out ? "off" : ""}`} onClick={() => setKind(k)}>
+                    <KindBadge kind={k} />
+                    <b>{taken ? t("kind.taken") : out ? t("kind.soldout") : ton(info!.prices[k])}</b>
+                    {kr && kr.cap > 0 && !taken && <span>{t("kind.left", { n: Math.max(0, kr.cap - kr.issued), c: kr.cap })}</span>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {takenHere && (
               <>
                 <p className="bad"><b>{t("date.taken")}</b></p>
-                <p className="muted">{t("date.owner")}: <span className="mono">{info!.owner ? short(info!.owner) : "—"}</span></p>
-                <Link className="btn ghost" href={`/token/${index}`}>{t("date.view")}</Link>
+                <Link className="btn ghost" href={`/token/${id}`}>{t("date.view")}</Link>
               </>
             )}
-            {info!.inSeason && !info!.taken && !info!.reserved && info!.tier < 2 && !info!.special && (
+            {!takenHere && info!.reserved[kind] && <p className="muted">{t("date.inBox")}</p>}
+            {!takenHere && !info!.reserved[kind] && (
               <>
-                <div className="big">{ton((info!.price ?? 0) + extra)}</div>
-                {extra > 0 && <p className="muted">{t("date.incl", { base: ton(info!.price), extra: ton(extra) })}</p>}
+                <div className="big">{ton((price ?? 0) + extra)}</div>
+                {extra > 0 && <p className="muted">{t("date.incl", { base: ton(price), extra: ton(extra) })}</p>}
+                {info!.special && row && row.specialFee > 0 && <p className="muted">{t("kind.special", { p: row.specialFee })}</p>}
                 <p className="muted">{t("date.fees")}</p>
                 <div className="gap" style={{ textAlign: "start" }}>
                   <label className="muted"><input type="checkbox" checked={showMedia} onChange={(e) => setShowMedia(e.target.checked)} /> {t("media.title")}</label>
-                  {showMedia && <MediaPicker index={index} tier={info!.tier} season={1} value={media} onChange={setMedia} fees={season?.fees} />}
+                  {showMedia && <MediaPicker index={date} tier={kind} season={1} value={media} onChange={setMedia} fees={row ? { photo: row.photoFee } : undefined} />}
                   <p className="muted">🔒 {t("media.always")}</p>
                   <label className="muted"><input type="checkbox" checked={gift} onChange={(e) => setGift(e.target.checked)} /> {t("gift.toggle")}</label>
                   {gift && <input type="text" dir="ltr" placeholder={t("gift.ph")} value={to} onChange={(e) => setTo(e.target.value)} />}
                   {gift && to && !toOk && <span className="bad">{t("gift.bad")}</span>}
-                  <button className="btn gold" disabled={busy || storing || !season?.deployed || season.status !== 1 || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : gift ? t("gift.buy") : t("date.buy")}</button>
+                  <button className="btn gold" disabled={busy || storing || !season?.deployed || season.status !== 1 || soldOut || price == null || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : soldOut ? t("kind.soldout") : gift ? t("gift.buy") : t("date.buy")}</button>
                 </div>
               </>
             )}
-            {info!.inSeason && !info!.taken && !info!.reserved && (info!.tier === 2 || info!.special) && (
-              <>
-                {info!.auction?.mediaRef && info!.auction.mediaRef !== "0" && <img src={`https://turbo-gateway.com/${arweaveId(BigInt(info!.auction.mediaRef))}`} alt="" style={{ width: "100%", maxWidth: 300, borderRadius: 24, margin: "0 auto 10px", display: "block" }} />}
-                <p className="muted">{info!.special ? t("date.special") : t("date.mythic")}</p>
-                <Link className="btn gold" href="/auctions">{t("date.toAuctions")}</Link>
-              </>
-            )}
-          </div>
+
+            <div className="muted" style={{ marginTop: 18 }}>{t("kind.classes")}</div>
+            <div className="gap" style={{ textAlign: "start", marginTop: 6 }}>
+              {CLASS_KINDS.map((k) => (
+                <div className="kv" key={k}>
+                  <span><KindBadge kind={k} /></span>
+                  {info!.taken[k] ? <Link href={`/token/${idOf(k, date)}`} style={{ color: "var(--gold)" }}>{t("kind.taken")} ›</Link>
+                    : info!.auction[k] ? <Link href="/auctions" style={{ color: "var(--gold)" }}>{t("kind.classAuction")} ›</Link>
+                    : <span className="muted">{t("kind.classNone")}</span>}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
-      <Features supply={info?.tier != null ? tierSupply(1)[info.tier] : undefined} event={eventOf(index)} eventEn={eventEnOf(y, m, dd)} />
-      <Born index={index} />
+      <Features supply={kindSupply(1, kind)} event={eventOf(date)} eventEn={eventEnOf(y, m, dd)} />
+      <Born index={date} />
       {previewNode}
-      <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/mystery" style={{ color: "var(--gold)" }}>{t("home.mbtn")}</Link>.</p>
+      <p className="muted" style={{ textAlign: "center" }}>{t("date.cant")} <Link href="/auctions" style={{ color: "var(--gold)" }}>{t("home.abtn")}</Link>.</p>
     </>
   );
 }

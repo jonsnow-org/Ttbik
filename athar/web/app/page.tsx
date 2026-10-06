@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
-import { Bar, Top, ton, useApi } from "@/components/ui";
+import { Top, KindBadge, ton, useApi } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
 import Features from "@/components/Features";
+import { DIRECT_KINDS } from "@/lib/kinds";
 
-type Season = { fromYear?: number; toYear?: number; specials?: number; configured: boolean; deployed?: boolean; status?: number; sold?: number; size: number; prices?: { common: number; rare: number; ticket: number } };
+type Season = { specials?: number; configured: boolean; deployed?: boolean; status?: number; sold?: number; kinds?: { kind: number; price: number | null; cap: number; issued: number }[] };
 
 export default function Home() {
   const { t } = useI18n();
@@ -16,7 +17,7 @@ export default function Home() {
     <>
       <Top />
       <div className="card hero">
-        <img src="/api/img/18262.svg?t=2&g=3&h=7&live=1" alt="Athar" />
+        <img src="/api/img/149334.svg?g=3&h=7&live=1" alt="Athar" />
         <h1>{t("home.title")}</h1>
         <p className="muted">{t("home.sub")}</p>
         <Link href="/date" className="btn gold">{t("home.cta")}</Link>
@@ -26,13 +27,15 @@ export default function Home() {
 
       <div className="card">
         <div className="row between"><h3>{t("home.season")}</h3><span className={`badge ${live ? "t1" : "t0"}`}>{live ? t("home.open") : t("home.soon")}</span></div>
-        <p className="muted">{s ? t("home.size", { n: s.size }) : "…"}</p>
-        {s?.fromYear && <p className="muted" style={{ fontSize: 14 }}>{t("date.coverage", { a: s.fromYear, b: s.toYear ?? 0, s: s.specials ?? 0 })}</p>}
-        <Bar value={s && s.sold != null ? s.sold / s.size : 0} />
-        <div className="row" style={{ marginTop: 14 }}>
-          <div className="stat"><b>{s?.sold ?? 0}</b><span>{t("home.minted")}</span></div>
-          <div className="stat"><b>{ton(s?.prices?.common)}</b><span>{t("home.pcommon")}</span></div>
-          <div className="stat"><b>{ton(s?.prices?.rare)}</b><span>{t("home.prare")}</span></div>
+        <p className="muted">{s?.kinds ? t("home.minted") + ": " + (s.sold ?? 0) : "…"}</p>
+        <div className="kinds">
+          {DIRECT_KINDS.map((k) => { const kr = s?.kinds?.[k]; return (
+            <div className="kindcard" key={k}>
+              <KindBadge kind={k} />
+              <b>{ton(kr?.price)}</b>
+              {kr && kr.cap > 0 && <span>{t("kind.left", { n: Math.max(0, kr.cap - kr.issued), c: kr.cap })}</span>}
+            </div>
+          ); })}
         </div>
         <p className="muted" style={{ marginTop: 10 }}>{t("home.pnote")}</p>
       </div>

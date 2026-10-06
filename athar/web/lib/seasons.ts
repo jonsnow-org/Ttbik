@@ -1,26 +1,25 @@
-// Season definitions. A season is a plain description: which dates, how they are priced, which are held back for
-// mystery boxes. The launch panel turns it into transactions; the contracts enforce it.
-import { createHash } from "crypto";
-import { indexOf, ruleTier, TIER } from "./dates";
+// Season definitions. A season is a plain description: which dates are on sale, how each direct kind is priced and capped, the caps of the
+// owner's classes. The launch panel turns it into transactions; the contracts enforce it.
+import { indexOf, ruleTier, TIER, TOTAL_DATES } from "./dates";
 
-export type Special = { y: number; m: number; d: number; tier: 1 | 2; note: string };
+export type Special = { y: number; m: number; d: number; tier: 1 | 2; note: string };   // a designed date; `tier` is only a flag kept for the contract's list
+export type Curve = { start: string; floor: string; cap: string; bumpBps: number; decayBps: number };
+export type KindDef = Curve & {
+  maxSupply: number;       // the most tokens of this kind that will ever exist (the contract only lets it be lowered)
+  specialFee: string;      // TON on top of the price for a designed (special) date
+  photoFee: string;        // TON on top of the price for putting an own photo on the token
+  walletMax: number;       // most tokens of this kind one wallet may buy from us (0 = no limit)
+};
 export type SeasonDef = {
   id: number;
   name: string;
-  rangeStart: number;
+  rangeStart: number;              // the dates on sale: the whole calendar, nothing fixed in the past or the future
   rangeEnd: number;
   specials: Special[];
-  poolSize: number;                // mystery pool: composition = 1% mythic, 12% rare, rest common
-  common: { start: string; floor: string; cap: string; bumpBps: number; decayBps: number };
-  rare: { start: string; floor: string; cap: string; bumpBps: number; decayBps: number };
-  ticket: { start: string; floor: string; cap: string; bumpBps: number; decayBps: number };
+  kinds: [KindDef, KindDef, KindDef];   // normal, silver, gold: each its own price curve
+  classCaps: [number, number, number, number, number];   // supply caps of bronze, rare, purple, diamond, legendary
   walletDailyCap: number;
-  auctionReserve: string;          // TON, mythic dates
-  auctionHours: number;
-  mysteryDays: number;             // ticket sale length before the reveal
-  fees: { photo: string; silver: string };   // extra price (TON) of an own photo / of the waxed-silver treatment; the generated art is free
-  specialReserve: string;          // TON, opening bid of a special (gold) date
-  specialDays: number;             // auction length of a special date: long while the community is small, shorter later
+  classAuction: { reserve: [string, string, string, string, string]; hours: number };   // suggested opening bids and length of the owner's class auctions
 };
 
 // Notable dates outside the 2000-2007 range that belong to Season 1 (neutral, widely known).
@@ -109,55 +108,27 @@ const HIST: Special[] = [
 export const SEASON_1: SeasonDef = {
   id: 1,
   name: "الموسم الأول",
-  rangeStart: indexOf(2000, 1, 1),
-  rangeEnd: indexOf(2007, 12, 31),
+  rangeStart: 0,
+  rangeEnd: TOTAL_DATES - 1,
   specials: HIST,
-  poolSize: 500,
-  common: { start: "0.5", floor: "0.25", cap: "8", bumpBps: 16, decayBps: 1500 },
-  rare: { start: "3", floor: "1.5", cap: "40", bumpBps: 200, decayBps: 1500 },
-  ticket: { start: "1.1", floor: "0.6", cap: "20", bumpBps: 60, decayBps: 1500 },
+  kinds: [
+    { start: "0.5", floor: "0.25", cap: "8", bumpBps: 16, decayBps: 1500, maxSupply: TOTAL_DATES, specialFee: "1", photoFee: "0.15", walletMax: 0 },
+    { start: "1.5", floor: "0.75", cap: "24", bumpBps: 16, decayBps: 1500, maxSupply: 900, specialFee: "3", photoFee: "0.3", walletMax: 20 },
+    { start: "5", floor: "2.5", cap: "80", bumpBps: 16, decayBps: 1500, maxSupply: 300, specialFee: "10", photoFee: "0.6", walletMax: 5 },
+  ],
+  classCaps: [1000, 500, 150, 50, 10],
   walletDailyCap: 10,
-  auctionReserve: "10",
-  auctionHours: 48,
-  mysteryDays: 7,
-  fees: { photo: "0.15", silver: "0.3" },
-  specialReserve: "25",
-  specialDays: 90,
+  classAuction: { reserve: ["5", "10", "25", "60", "150"], hours: 72 },
 };
 
 export const SEASONS: Record<number, SeasonDef> = { 1: SEASON_1 };
 
-const h = (n: number, salt: string) => createHash("sha256").update(`athar:${salt}:${n}`).digest().readUInt32BE(0);
-
 export function specialIndex(s: Special) { return indexOf(s.y, s.m, s.d); }
 
-/** Tier the contract will compute for a date of this season (special overrides win). */
-export function seasonTier(def: SeasonDef, index: number) {
-  const sp = def.specials.find((s) => specialIndex(s) === index);
-  return sp ? sp.tier : ruleTier(index);
+/** The price premium of a patterned date (palindromes, 11/11, 29 Feb, ...), as a fraction: rare pattern x3/2, mythic pattern x2. Same as the contract. */
+export function premiumOf(date: number): [number, number] {
+  const r = ruleTier(date);
+  return r === TIER.MYTHIC ? [2, 1] : r === TIER.RARE ? [3, 2] : [1, 1];
 }
-
-/** The mystery pool: published composition, picked by hash so anyone can recompute it. */
-export function buildPool(def: SeasonDef) {
-  const mythic: number[] = [], rare: number[] = [], common: number[] = [];
-  const special = new Set(def.specials.map(specialIndex));
-  for (let i = def.rangeStart; i <= def.rangeEnd; i++) {
-    if (special.has(i)) continue;
-    const t = ruleTier(i);
-    (t === TIER.MYTHIC ? mythic : t === TIER.RARE ? rare : common).push(i);
-  }
-  const pick = (arr: number[], n: number, salt: string) => [...arr].sort((a, b) => h(a, salt) - h(b, salt)).slice(0, n);
-  const nM = Math.max(1, Math.round(def.poolSize * 0.01));
-  const nR = Math.round(def.poolSize * 0.12);
-  const nC = def.poolSize - nM - nR;
-  const dates = [...pick(mythic, nM, `${def.id}m`), ...pick(rare, nR, `${def.id}r`), ...pick(common, nC, `${def.id}c`)];
-  // deterministic shuffle of positions (the reveal permutation does the real mixing)
-  dates.sort((a, b) => h(a, `${def.id}pos`) - h(b, `${def.id}pos`));
-  return { dates, composition: { mythic: nM, rare: nR, common: nC } };
-}
-
-export function seasonSize(def: SeasonDef) {
-  const inRange = def.rangeEnd - def.rangeStart + 1;
-  const outside = def.specials.filter((s) => { const i = specialIndex(s); return i < def.rangeStart || i > def.rangeEnd; }).length;
-  return inRange + outside;
-}
+/** The supply cap of any kind in this season (the three direct kinds have their own, the classes a cap each). */
+export function capOf(def: SeasonDef, kind: number): number { return kind <= 2 ? def.kinds[kind].maxSupply : def.classCaps[kind - 3]; }

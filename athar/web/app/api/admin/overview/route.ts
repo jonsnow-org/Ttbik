@@ -4,7 +4,7 @@ import { Address } from "@ton/core";
 import { addresses, allTokens, makeClient, tokensOf } from "@/lib/chain";
 import { AtharCollection } from "../../../../../build/athar_AtharCollection";
 import { TONCENTER_V3, getAdmin } from "@/lib/config";
-import { SEASON_1, seasonTier, seasonSize } from "@/lib/seasons";
+import { kindOf, KIND_COUNT } from "@/lib/kinds";
 export const dynamic = "force-dynamic";
 
 // The owner's overview after launch: how much sold, to whom (counts only), what reached the payout wallet and when. All from public chain data.
@@ -14,11 +14,11 @@ export async function GET(req: Request) {
   const a = await addresses(1);
   if (!a) return NextResponse.json({ deployed: false });
   const tokens = await allTokens();
-  const byTier = [0, 0, 0];
+  const byKind = Array<number>(KIND_COUNT).fill(0);
   const owners = new Map<string, number>();
-  for (const t of tokens) { byTier[seasonTier(SEASON_1, t.index)]++; owners.set(t.owner, (owners.get(t.owner) || 0) + 1); }
+  for (const t of tokens) { byKind[kindOf(t.index)]++; owners.set(t.owner, (owners.get(t.owner) || 0) + 1); }
   const top = [...owners.entries()].sort((x, y) => y[1] - x[1]).slice(0, 5).map(([o, n]) => ({ owner: o, tokens: n }));
-  const out: Record<string, unknown> = { deployed: true, minted: tokens.length, size: seasonSize(SEASON_1), byTier, holders: owners.size, top };
+  const out: Record<string, unknown> = { deployed: true, minted: tokens.length, byKind, holders: owners.size, top };
   try {
     const payout = await makeClient().open(AtharCollection.fromAddress(a.collection.address)).getPayoutAddress();
     if (payout) {

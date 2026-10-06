@@ -19,7 +19,10 @@ a { color: inherit; text-decoration: none; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; } .btn.sm { padding: 10px 14px; font-size: 14px; width: auto; }
 .row { display: flex; gap: 10px; align-items: center; } .row > * { flex: 1; } .between { justify-content: space-between; } .gap { display: grid; gap: 10px; }
 .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; border: 1px solid var(--line); }
-.t0 { color: #a9b8e8; } .t1 { color: #6fb7ff; border-color: #2f5ea8; } .t2 { color: var(--gold); border-color: #8a6a1c; background: #ffd36a14; }
+.t0 { color: #a9b8e8; } .t1 { color: #e3e9f7; border-color: #7b86a3; background: #d5dcec14; } .t2 { color: var(--gold); border-color: #8a6a1c; background: #ffd36a14; }
+.t3 { color: #e8955a; border-color: #8a4a1c; background: #e08a4a14; } .t4 { color: #5ff0cf; border-color: #1d7a6b; background: #5ff0cf12; } .t5 { color: #c78bff; border-color: #6a3aa8; background: #c78bff14; }
+.t6 { color: #bfe9ff; border-color: #4a89b0; background: #bfe9ff14; } .t7 { color: #ffe07a; border-color: #b8891c; background: #ffe07a1c; }
+.kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; } .kindcard { border: 1px solid var(--line); border-radius: 14px; padding: 10px 6px; text-align: center; cursor: pointer; background: #0c1226; } .kindcard.on { border-color: var(--gold); background: #ffd36a12; } .kindcard.off { opacity: .55; cursor: default; } .kindcard b { display: block; font-size: 15px; } .kindcard span { display: block; font-size: 12px; color: var(--muted); }
 .bar { height: 10px; background: #1b2757; border-radius: 99px; overflow: hidden; } .bar > i { display: block; height: 100%; background: linear-gradient(90deg, #5c86ff, var(--gold)); border-radius: 99px; transition: width .6s; }
 .stat { text-align: center; } .stat b { display: block; font-size: 22px; } .stat span { color: var(--muted); font-size: 12px; }
 select, input[type=text], input[type=number], input[type=datetime-local] { width: 100%; background: var(--panel2); color: var(--ink); border: 1px solid var(--line); border-radius: 14px; padding: 12px; font: inherit; font-size: 16px; }

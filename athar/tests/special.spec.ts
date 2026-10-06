@@ -1,14 +1,13 @@
-import { SEASON_1, seasonSize, specialIndex } from "../web/lib/seasons";
+import { SEASON_1, specialIndex } from "../web/lib/seasons";
 import { specialScene, specialKey } from "../web/lib/specialArt";
 import { indexOf } from "../web/lib/dates";
 
 describe("special dates", () => {
-  it("make the first season exactly 3000 dates, with no duplicates and none inside the plain 2000-2007 range", () => {
-    expect(seasonSize(SEASON_1)).toBe(3000);
+  it("are 78 hand-picked dates, with no duplicates, all inside the calendar", () => {
+    expect(SEASON_1.specials.length).toBe(78);
     const idx = SEASON_1.specials.map(specialIndex);
     expect(new Set(idx).size).toBe(idx.length);
-    for (const i of idx) expect(i < SEASON_1.rangeStart || i > SEASON_1.rangeEnd).toBe(true);
-    for (const i of idx) expect(i).toBeGreaterThanOrEqual(0);
+    for (const i of idx) { expect(i).toBeGreaterThanOrEqual(0); expect(i).toBeLessThan(36525); }
   });
   it("every special date has its own original artwork; only the two Syrian dates carry the flag overlay in colour", () => {
     for (const s of SEASON_1.specials) {

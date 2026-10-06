@@ -1,5 +1,5 @@
 import { toNano } from "@ton/core";
-import { setup, openSeason, itemOf, S1_START } from "./helpers";
+import { setup, openSeason, itemOf, S1_START, ID } from "./helpers";
 import { ruleTier, TIER } from "../lib/rules";
 
 // The owner's own stock: dates minted to his wallet without the sale price, without moving the price curve or the wallet limit.
@@ -38,7 +38,7 @@ describe("AdminMint (the owner's stock)", () => {
     const r = await minter.send(admin.getSender(), { value: toNano("0.2") }, MINT(c));       // the limit of 1 per day does not apply to the admin's stock
     expect(r.transactions).toHaveTransaction({ from: admin.address, to: minter.address, success: true });
   });
-  it("only the admin; not before opening; the same date never twice; not a mythic date (those go by auction); not outside the season; not with too little", async () => {
+  it("only the admin; not before opening; the same token never twice; not past its kind's cap; not outside the season; not with too little", async () => {
     const ctx = await setup();
     const { admin, alice, minter } = ctx;
     const [d1] = find(S1_START, TIER.COMMON, 1);
@@ -53,9 +53,14 @@ describe("AdminMint (the owner's stock)", () => {
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
     r = await minter.send(admin.getSender(), { value: toNano("0.2") }, MINT(d1));
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                    // taken
-    const [m1] = find(S1_START, TIER.MYTHIC, 1);
-    r = await minter.send(admin.getSender(), { value: toNano("0.2") }, MINT(m1));
-    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                    // mythic: by auction
+    // the same date can be minted again in another kind, never twice in the same kind
+    r = await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "AdminMint", index: ID(2, d1), recipient: null, occasion: 0n, mediaRef: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });                       // gold of the same date
+    r = await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "AdminMint", index: ID(2, d1), recipient: null, occasion: 0n, mediaRef: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                       // gold of that date is taken
+    for (let k = 0; k < 10; k++) await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "AdminMint", index: ID(7, S1_START + k), recipient: null, occasion: 0n, mediaRef: 0n });
+    r = await minter.send(admin.getSender(), { value: toNano("0.2") }, { $$type: "AdminMint", index: ID(7, S1_START + 10), recipient: null, occasion: 0n, mediaRef: 0n });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                       // legendary cap (10) reached
     r = await minter.send(admin.getSender(), { value: toNano("0.2") }, MINT(S1_START - 400));
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });                    // outside the season
   });

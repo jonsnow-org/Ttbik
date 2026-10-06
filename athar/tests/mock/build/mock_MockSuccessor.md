@@ -3,7 +3,7 @@ Contract: MockSuccessor
 BoC Size: 223 bytes
 
 ## Structures (Structs and Messages)
-Total structures: 44
+Total structures: 47
 
 ### DataSize
 TL-B: `_ cells:int257 bits:int257 refs:int257 = DataSize`
@@ -148,6 +148,18 @@ Signature: `SetSuccessor{successor:address}`
 ### Withdraw
 TL-B: `withdraw#41540027  = Withdraw`
 Signature: `Withdraw{}`
+
+### ProposeCode
+TL-B: `propose_code#41540028 code:^cell = ProposeCode`
+Signature: `ProposeCode{code:^cell}`
+
+### ApplyCode
+TL-B: `apply_code#41540029  = ApplyCode`
+Signature: `ApplyCode{}`
+
+### CancelCode
+TL-B: `cancel_code#4154002a  = CancelCode`
+Signature: `CancelCode{}`
 
 ### EngraveReq
 TL-B: `engrave_req#41540070 index:uint64 text:^string = EngraveReq`
