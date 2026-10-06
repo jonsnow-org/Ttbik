@@ -1,7 +1,7 @@
 import "./messages";
 import "./item";
 
-// Athar collection (Edition 1). It is the registry of tokens. It knows nothing about prices:
+// Athar collection. It is the registry of tokens (id = kind * 65536 + date). It knows nothing about prices:
 // sales are done by season "minters" that the admin authorises with a public delay.
 // Money is never kept here: every sale is forwarded to `payout` immediately.
 @name(set_code)

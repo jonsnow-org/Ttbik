@@ -82,7 +82,7 @@ function kindFx(kind: number): { css: string; extra: string } {
     css += `.ar-ks{animation:ar-ksw 7s ease-in-out infinite}@keyframes ar-ksw{0%,70%,100%{opacity:0;transform:translateX(0) skewX(-18deg)}77%{opacity:.4}92%{opacity:0;transform:translateX(560px) skewX(-18deg)}}`;
     extra += `<g clip-path="url(#win)"><rect class="ar-ks" x="170" y="120" width="64" height="560" fill="#fff" opacity="0" transform="skewX(-18)"/></g>`;
   }
-  if (kind === 3) css += `.ar-rim circle{animation:ar-pat 14s ease-in-out infinite}@keyframes ar-pat{0%,100%{stroke:#e08a4a}50%{stroke:#7fbf9a}}`;          // bronze: the patina creeps over the copper and recedes
+  if (kind === 3) css += `.ar-patina circle{animation:ar-pat 14s ease-in-out infinite}@keyframes ar-pat{0%,100%{stroke:#e08a4a}50%{stroke:#7fbf9a}}`;          // bronze: the patina creeps over the copper and recedes
   if (kind === 5) {                                                                                                                                       // purple: a royal violet glow that swells
     css += `.ar-vg{animation:ar-vgl 4.2s ease-in-out infinite}@keyframes ar-vgl{0%,100%{opacity:.08}50%{opacity:.5}}`;
     extra += `<circle class="ar-vg" cx="400" cy="400" r="252" fill="none" stroke="#c78bff" stroke-width="22" opacity=".08"/>`;

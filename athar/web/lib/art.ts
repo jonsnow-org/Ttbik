@@ -155,7 +155,7 @@ function shell(a: ArtInput, centre: string, defs: string, emblemAt: [number, num
 <clipPath id="win"><circle cx="400" cy="400" r="${PR - 3}"/></clipPath>
 ${defs}</defs>
 <circle cx="400" cy="400" r="392" fill="url(#bg)"/>
-<g class="ar-rings">${rings}</g><g class="ar-rim">${rim}</g><g class="ar-dots">${dots}</g><g class="ar-glow">${glow}</g>
+<g class="ar-rings">${rings}</g><g class="ar-rim${a.tier === 3 ? " ar-patina" : ""}">${rim}</g><g class="ar-dots">${dots}</g><g class="ar-glow">${glow}</g>
 <circle cx="400" cy="400" r="${PR}" fill="${lk.disc}" stroke="${accent}" stroke-width="${stroke}"/>
 ${centre}
 <g transform="translate(634 604)"><circle r="58" fill="${pal.bg1}" stroke="${accent}" stroke-width="${Math.max(3, stroke - 2)}"/>

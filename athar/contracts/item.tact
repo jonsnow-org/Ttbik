@@ -1,6 +1,6 @@
 import "./messages";
 
-// One Athar token. The token index is the date (days since 1950-01-01).
+// One Athar token. The token index is its id: kind * 65536 + date (days since 1950-01-01); kind 0 (normal) has id = date. The kind is kept in `tier`.
 // The token remembers: who minted it, what was paid, how many hands it passed through,
 // the last transfer time (drives the visual "age" stages off-chain) and every owner's engraving.
 contract AtharItem {
