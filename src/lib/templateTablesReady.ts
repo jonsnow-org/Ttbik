@@ -148,13 +148,14 @@ export async function whichTablesExist(tableNames: string[]): Promise<{
     const missing = tableNames.filter((t) => !existingSet.has(t));
     return { existing, missing };
   } catch {
-    // Fall back to per-table Prisma probes (P2021).
+    // Fall back to per-table Prisma probes (P2021) — parallel to cut latency.
+    const flags = await Promise.all(tableNames.map((name) => probePrismaTable(name)));
     const existing: string[] = [];
     const missing: string[] = [];
-    for (const name of tableNames) {
-      if (await probePrismaTable(name)) existing.push(name);
+    tableNames.forEach((name, i) => {
+      if (flags[i]) existing.push(name);
       else missing.push(name);
-    }
+    });
     return { existing, missing };
   }
 }
