@@ -45,7 +45,13 @@ const BREADCRUMB = {
 };
 
 export default async function NewsHubPage() {
-  const all = await fetchAllNews();
+  let all: RssItem[] = [];
+  try {
+    all = await fetchAllNews();
+  } catch {
+    // allSettled normally prevents throws; keep hub renderable if something else fails.
+    all = [];
+  }
   const ticker = interleaveNews(all, 12);
   const stories = clusterHeadlines(all).slice(0, 6);
   const now = Date.now();
