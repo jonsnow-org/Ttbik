@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS "YoutubeLink" (
+  "tgUserId" TEXT PRIMARY KEY,
+  "googleSub" TEXT,
+  "refreshToken" TEXT NOT NULL,
+  "channelId" TEXT,
+  "linkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

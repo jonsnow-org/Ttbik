@@ -1,3 +1,4 @@
+import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -369,7 +370,9 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnCreateAd")).text(t(lang, "btnMyAds")).row()
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
-    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row();
+    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
+    .text(t(lang, "btnYoutubeLink")).row()
+    .text(t(lang, "btnYoutubeLink")).row();
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -734,6 +737,20 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === t(lang, "btnStats")) {
     await sendStats(bot, chatId, user.id, lang);
+    return;
+  }
+  if (text === t(lang, "btnYoutubeLink") || text === t("ar", "btnYoutubeLink") || text === t("en", "btnYoutubeLink")) {
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const link = youtubeStartUrl(site, user.id);
+    if (!link) {
+      await bot.api.sendMessage(chatId, t(lang, "youtubeLinkUnconfigured"), {
+        reply_markup: tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang),
+      });
+      return;
+    }
+    await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), {
+      reply_markup: tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang),
+    });
     return;
   }
   if (text === t(lang, "btnLanguage")) {
@@ -1886,6 +1903,9 @@ async function isAdClickTimeVerified(adId: string, tgUserId: string): Promise<bo
 }
 
 async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
+  if (ad.type === "YOUTUBE") {
+    return verifyYoutubeSubscription(tgUserId, String(ad.content || ""));
+  }
   if (ad.type === "TELEGRAM") {
     const handle = normalizeChannelHandle(String(ad.content));
     if (isBotHandle(handle)) {
@@ -2009,6 +2029,17 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     }
     const verified = await isAdVerifiedByUser(bot, ad, tgUserId);
     if (!verified) {
+      if (ad.type === "YOUTUBE") {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        const link = youtubeStartUrl(site, tgUserId);
+        const linked = await hasYoutubeLink(tgUserId);
+        const alert = !linked ? t(lang, "youtubeNeedLinkAlert") : t(lang, "youtubeNotSubscribedAlert");
+        await bot.api.answerCallbackQuery(cq.id, { text: alert, show_alert: true }).catch(() => null);
+        if (!linked && link) {
+          await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link })).catch(() => null);
+        }
+        return;
+      }
       await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "carouselNotDoneAlert"), show_alert: true }).catch(() => null);
       return;
     }

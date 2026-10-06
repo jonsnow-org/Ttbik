@@ -20,6 +20,17 @@ export const STR: Dict = {
   btnReferrals: { ar: "🙌 الإحالات", en: "🙌 Referrals" },
   btnStats: { ar: "📊 إحصائيات", en: "📊 Stats" },
   btnLanguage: { ar: "🌐 اللغة", en: "🌐 Language" },
+  btnYoutubeLink: { ar: "▶️ ربط يوتيوب", en: "▶️ Link YouTube" },
+  youtubeLinkPrompt: {
+    ar: "اربط حساب يوتيوب مرة واحدة. بعدها يتحقق البوت من الاشتراك تلقائياً.\n\n{link}",
+    en: "Link YouTube once. The bot then checks the subscription automatically.\n\n{link}",
+  },
+  youtubeLinkUnconfigured: {
+    ar: "ربط يوتيوب غير مفعّل بعد على الخادم.",
+    en: "YouTube linking is not configured on the server yet.",
+  },
+  youtubeNeedLinkAlert: { ar: "اربط يوتيوب أولاً", en: "Link YouTube first" },
+  youtubeNotSubscribedAlert: { ar: "لم يظهر اشتراك في هذه القناة", en: "No subscription to this channel" },
   btnFaq: { ar: "❓ الأسئلة الشائعة", en: "❓ FAQ" },
   btnAskNova: { ar: "✨ اسأل نوفا (ذكاء اصطناعي)", en: "✨ Ask Nova (AI)" },
   askNovaPrompt: {
