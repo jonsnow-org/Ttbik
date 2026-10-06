@@ -1,1 +1,1 @@
-$file:/workspace/bots_hcform_content_only.txt
+$file:/workspace/bots_hcform_content.b64
