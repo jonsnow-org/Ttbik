@@ -147,11 +147,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         </header>
         <div className="mx-auto max-w-6xl px-4 py-2">
-          <AdSlot position="header-banner" label="أعلى الصفحة" />
+          <AdSlot position="header-banner" label="أعلى الصفحة" isOwner={isOwner} />
         </div>
         <main>{children}</main>
         <div className="mx-auto max-w-6xl px-4 py-2">
-          <AdSlot position="footer-banner" label="أسفل الصفحة قبل الفوتر" />
+          <AdSlot position="footer-banner" label="أسفل الصفحة قبل الفوتر" isOwner={isOwner} />
         </div>
         <footer className="mt-20 border-t border-slate-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-10">
