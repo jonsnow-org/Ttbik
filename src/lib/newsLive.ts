@@ -8,10 +8,7 @@ export type LiveDesk = {
 
 /**
  * Desks verified for Arabic news live embeds.
- * - الجزيرة: بث حي معروف ومستمر على يوتيوب
- * - بي بي سي عربي: بث القناة الرسمي /live
- * - فرانس 24 عربي: بث القناة الرسمي /live
- * videoId يُحدَّث عند الحاجة؛ liveWatchUrl يبقى يعمل دائماً.
+ * videoId يُحدَّث عند الحاجة؛ liveWatchUrl يبقى يعمل دائماً على يوتيوب.
  */
 export const LIVE_DESKS: LiveDesk[] = [
   {
@@ -23,11 +20,6 @@ export const LIVE_DESKS: LiveDesk[] = [
     name: "بي بي سي عربي",
     channelId: "UCelk6aHijZq-GJBBB9YpReA",
     videoId: "ieHD2KktCZA",
-  },
-  {
-    name: "فرانس 24 عربي",
-    channelId: "UCQdkRB6zr5k9vBxOGAzWB5A",
-    videoId: "A40HmRVHm6E",
   },
 ];
 
