@@ -1,19 +1,26 @@
-# قوالب المنتجات — Product Templates
+# templates/ — legacy samples (not a paid code catalog)
 
-هذا المجلد يحتوي المنتجات الفعلية التي تُسلَّم للعملاء بعد الموافقة على طلبهم
-(قسمي "بوتات تليجرام" و"الأتمتة والمواقع" في المتجر). كل قالب مستقل، خفيف،
-وبدون أي تبعيات مدفوعة.
+> **Product policy (see `docs/AGENT_BUS.md`):** Sham does **not** sell source code, ZIP packs, or “buy this file” products. Locked-code catalog items were permanently removed (`migration_remove_locked_code_products.sql` / `migration_hard_delete_locked_code_products.sql`). Do not re-add delivery links that treat these folders as paid downloadables.
 
-| القالب | الوصف |
+## What this folder is
+
+| Role | Meaning |
 |---|---|
-| [`auto-reply-bot`](./auto-reply-bot) | بوت تليجرام رد آلي بكلمات مفتاحية |
-| [`faq-bot`](./faq-bot) | بوت تليجرام يجيب من قائمة أسئلة شائعة |
-| [`order-manager-bot`](./order-manager-bot) | نموذج طلب + موافقة/رفض عبر تليجرام (بدون قاعدة بيانات) |
-| [`landing-page-template`](./landing-page-template) | صفحة هبوط قابلة للتخصيص، ملف واحد |
-| [`automation-recipes`](./automation-recipes) | وصفات أتمتة بـ Google Apps Script (بديل Zapier مجاني) |
-| [`invoice-generator`](./invoice-generator) | مولد فواتير يعمل بالكامل في المتصفح |
-| [`whatsapp-catalog`](./whatsapp-catalog) | صفحة كتالوج منتجات مع طلب مباشر عبر واتساب |
-| [`ad-slot-bot`](./ad-slot-bot) | بوت بيع مساحات إعلانية بنظام رصيد آمن (بدون إيداع/سحب حقيقي) |
+| **Hosted bots (real product)** | Customers activate a bot that **runs on our servers** via `/bots` + their BotFather token. Template logic stays on the platform — it is **not** handed over as a downloadable product. |
+| **Free FAQ / auto-reply samples** | Some simple bots under here deliberately ship readable source as **free examples / education**, not as a paid SKU. |
+| **Studio / browser tools** | In-browser utilities (e.g. invoice generator) may live nearby as demos; monetization (if any) is access/unlock of a **hosted or browser tool**, not selling a code archive. |
 
-روابط التسليم في `supabase/schema.sql` تشير مباشرة لهذه المجلدات داخل هذا
-المستودع نفسه — لا حاجة لأي مستودع خارجي أو حساب إضافي.
+## Folders (reference only)
+
+| Folder | Notes |
+|---|---|
+| `auto-reply-bot` | Free-style sample Telegram keyword bot |
+| `faq-bot` | Free-style FAQ sample |
+| `order-manager-bot` | Legacy sample — **not** a sellable locked-code product |
+| `landing-page-template` | Legacy sample page |
+| `automation-recipes` | Free Apps Script recipe notes |
+| `invoice-generator` | Browser demo / tool sample |
+| `whatsapp-catalog` | Legacy sample |
+| `ad-slot-bot` | Legacy sample — ads/slots product path is hosted, not ZIP delivery |
+
+If a service page or seed SQL still points at `templates/` as “delivery after payment”, treat that as **outdated**; align copy with hosted bots + free tools + Done-for-you services reviewed in `/admin`.
