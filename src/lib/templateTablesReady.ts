@@ -1,1 +1,1 @@
-placeholder
+@file:///workspace/phase1/src/lib/templateTablesReady.ts
