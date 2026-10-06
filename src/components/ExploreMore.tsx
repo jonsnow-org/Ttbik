@@ -11,6 +11,7 @@ const ITEMS: Item[] = [
   { href: "/bashar", label: "💬 بَشَر", hint: "يجيبك إنسان لا ذكاء اصطناعي" },
   { href: "/guess-word", label: "🔤 خمّن الكلمة", hint: "لغز يومي جديد للجميع", section: "tools" },
   { href: "/prayer-times", label: "🕌 مواقيت الصلاة", hint: "مدينتك + عدّاد الصلاة القادمة", section: "prayer" },
+  { href: "/digest", label: "☀️ ملخص اليوم", hint: "خبر + حدث + مقال في صفحة" },
   { href: "/news", label: "📰 خبر اليوم", hint: "بمصدرين + شريط عاجل", section: "news" },
   { href: "/events", label: "🗓️ أحداث ومقالات", hint: "شروحات قصيرة بمصادر", section: "events" },
   { href: "/free-tools/hijri-converter", label: "📅 محوّل الهجري والميلادي", hint: "أي تاريخ في ثانية", section: "tools" },

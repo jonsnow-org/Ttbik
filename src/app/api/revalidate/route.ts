@@ -82,14 +82,31 @@ export async function GET(request: NextRequest) {
   if (!checkSecret(request)) return unauthorized();
 
   const { searchParams } = new URL(request.url);
+  const tag = searchParams.get("tag");
+  if (tag) {
+    // Next.js 16: profile required (e.g. "max") — same as POST
+    revalidateTag(tag, "max");
+    return NextResponse.json({
+      revalidated: true,
+      method: "GET",
+      type: "tag",
+      target: tag,
+      timestamp: Date.now(),
+    });
+  }
+
   const path = searchParams.get("path") || "/";
 
   revalidatePath(path);
   revalidatePath("/");
+  if (path.startsWith("/articles")) revalidatePath("/articles");
+  if (path.startsWith("/news")) revalidatePath("/news");
+  if (path.startsWith("/events")) revalidatePath("/events");
 
   return NextResponse.json({
     revalidated: true,
     method: "GET",
+    type: "path",
     path,
     timestamp: Date.now(),
   });
