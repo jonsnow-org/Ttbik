@@ -55,11 +55,17 @@ export function useApi<T>(url: string | null, refreshMs = 0) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!url) return;
-    let live = true;
-    const run = () => fetch(url, { cache: "no-store" }).then((r) => r.json()).then((j) => live && setData(j)).catch(() => {});
+    let live = true, retry: ReturnType<typeof setTimeout> | undefined;
+    // An error reply (node busy, server hiccup) is never taken as data: the last good answer stays and we ask again in a few seconds.
+    const run = (): void => { fetch(url, { cache: "no-store" }).then(async (r) => {
+      const j = await r.json();
+      if (!live) return;
+      if (!r.ok || (j && typeof j === "object" && "error" in j && !Array.isArray(j))) { retry = setTimeout(run, 4000); return; }
+      setData(j);
+    }).catch(() => { if (live) retry = setTimeout(run, 4000); }); };
     run();
     const t = refreshMs ? setInterval(run, refreshMs) : undefined;
-    return () => { live = false; if (t) clearInterval(t); };
+    return () => { live = false; if (t) clearInterval(t); if (retry) clearTimeout(retry); };
   }, [url, refreshMs, tick]);
   return { data, reload: () => setTimeout(() => setTick((x) => x + 1), 7000) };
 }
