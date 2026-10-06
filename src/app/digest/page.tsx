@@ -5,7 +5,7 @@ import EditorialHero from "@/components/editorial/EditorialHero";
 import { latestArticles } from "@/lib/articlesIndex";
 import { latestEvent } from "@/lib/eventsIndex";
 import { latestNewsItem } from "@/lib/newsItems";
-import { interleaveNews, fetchAllNews } from "@/lib/newsRss";
+import { interleaveNews, fetchAllNews, type RssItem } from "@/lib/newsRss";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -32,7 +32,12 @@ export default async function DigestPage() {
   const event = latestEvent();
   const news = latestNewsItem();
   const article = latestArticles(1)[0];
-  const rss = interleaveNews(await fetchAllNews(), 8);
+  let rss: RssItem[] = [];
+  try {
+    rss = interleaveNews(await fetchAllNews(), 8);
+  } catch {
+    rss = [];
+  }
   const today = new Intl.DateTimeFormat("ar-EG", {
     timeZone: "Asia/Riyadh",
     weekday: "long",
