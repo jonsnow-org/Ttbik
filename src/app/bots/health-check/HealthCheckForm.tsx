@@ -1,1 +1,1 @@
-FILE_CONTENT_PLACEHOLDER_WILL_FAIL
+@/workspace/Ttbik-squash/src/app/bots/health-check/HealthCheckForm.tsx
