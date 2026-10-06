@@ -338,7 +338,7 @@ def render_md(data: dict, contract: dict) -> str:
     L += ["", "## الدفاتر على Kaggle (بأسماء مستعارة)"]
     for k in data.get("kernels", []):
         L.append(f"- {k['status']} | {k['alias']} | الدور: {k['role']} | آخر تشغيل {k['last_run']}" + (f" | GPU" if k["gpu"] else "")
-                 + (f" | الخطأ: {k['failure'][:200]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
+                 + (f" | الخطأ: {k['failure'][:(700 if k.get('role') == 'primary' else 200)]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
     L += [f"- (+{data.get('other_notebooks', 0)} دفتراً غير تابع لشام، +{data.get('engineer_notebooks', 0)} من دفاتر المهندس — مخفية)"]
     L += ["", "## مصنع GitHub المجاني (آخر التشغيلات)"]
     for name, runs in data.get("workflows", {}).items():
