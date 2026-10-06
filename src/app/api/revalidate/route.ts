@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (tag) {
-      revalidateTag(tag);
+      // Next.js 16: profile required (e.g. "max")
+      revalidateTag(tag, "max");
       return NextResponse.json({
         revalidated: true,
         type: "tag",
