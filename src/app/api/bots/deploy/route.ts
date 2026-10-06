@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { Bot } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  getTemplateReadyInfo,
+  missingTablesArabicError,
+  templateNeedsTableCheck,
+} from "@/lib/templateTablesReady";
 
 const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT", "QUIZ_BOT", "STREAK_BOT", "PRAYER_BOT", "CAPSULE_BOT"];
 
@@ -59,6 +64,20 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: false, error: "كود التفعيل غير صالح أو غير مطابق لآيدي المالك المُدخل." }, { status: 400 });
         }
         purchase = found;
+      }
+    }
+
+    // Refuse deploy when this template's Prisma tables were never created
+    // in Supabase (owner must run prisma/migration_37|38|39|40_*.sql).
+    // Check BEFORE setWebhook / Bot.create so we never leave a half-wired bot.
+    const tpl = String(template || "AD_BOT");
+    if (templateNeedsTableCheck(tpl)) {
+      const readyInfo = await getTemplateReadyInfo(tpl);
+      if (!readyInfo.ready) {
+        return NextResponse.json(
+          { success: false, error: missingTablesArabicError(readyInfo), missingTables: readyInfo.missingTables, migrationFile: readyInfo.migrationFile },
+          { status: 400 }
+        );
       }
     }
 
