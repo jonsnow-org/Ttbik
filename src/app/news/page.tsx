@@ -10,7 +10,8 @@ import { SITE_URL } from "@/lib/siteUrl";
 const SITE = SITE_URL;
 const PATH = "/news";
 
-export const revalidate = 600;
+/** شريط عاجل — تحديث أسرع من 10 دقائق السابقة */
+export const revalidate = 120;
 
 export const metadata: Metadata = {
   title: "أخبار وأحداث | شام AI",
@@ -75,7 +76,7 @@ export default async function NewsHubPage() {
 
         <h1 className="mb-2 text-2xl font-extrabold text-slate-900">مركز الأخبار</h1>
         <p className="mb-6 text-sm leading-7 text-slate-600">
-          العناوين من الموجزات الرسمية كل عشر دقائق. الصورة من المصدر إن وُجدت، وإلا غلاف ثابت للبطاقة. الرابط يفتح المقال الأصلي. لا نسخ للمقالات.
+          العناوين من الموجزات الرسمية. الصورة من المصدر إن وُجدت، وإلا غلاف ثابت للبطاقة. الرابط يفتح المقال الأصلي. لا نسخ للمقالات.
         </p>
 
         <section className="mb-8" aria-labelledby="live-desk">
