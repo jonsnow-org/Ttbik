@@ -9,6 +9,9 @@ import { SITE_URL } from "@/lib/siteUrl";
 const SITE = SITE_URL;
 const PATH = "/articles";
 
+/** تحديث دوري + دعم /api/revalidate عند إضافة مقالات */
+export const revalidate = 300;
+
 export const metadata: Metadata = {
   title: "مقالات مفيدة | شام AI",
   description:
