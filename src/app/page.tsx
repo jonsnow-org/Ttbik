@@ -146,7 +146,7 @@ export default async function HomePage() {
         <div className="mt-5 grid gap-4 sm:grid-cols-3">
           {[
             { img: "/img/community.jpg", alt: "أصدقاء يعملون معاً", t: "مجاني وبلا تسجيل", d: "أدوات حسابية وتصميمية تعمل فوراً داخل المتصفح، بدون حساب وبدون حدود استخدام." },
-            { img: "/img/analytics.jpg", alt: "لوحة إحصائيات", t: "عربية وسريعة على أي هاتف، مع نتائج فورية ومشاركة بضغطة واحدة." },
+            { img: "/img/analytics.jpg", alt: "لوحة إحصائيات", t: "عربية وسريعة على الجوال", d: "واجهات عربية بالكامل تعمل بسلاسة على أي هاتف، مع نتائج فورية ومشاركة بضغطة واحدة." },
             { img: "/img/payment.jpg", alt: "دفع إلكتروني", t: "دفع موحّد وواضح", d: "عملات رقمية أو نجوم تليجرام بخطوات واحدة في كل البوتات، ويُضاف الرصيد تلقائياً." },
           ].map((f) => (
             <div key={f.t} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
