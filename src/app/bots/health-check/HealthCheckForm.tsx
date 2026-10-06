@@ -1,1 +1,1 @@
-LOAD_FROM_DISK_PUSH_F
+$file:/workspace/PUSH_F.txt
