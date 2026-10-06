@@ -119,6 +119,7 @@ export async function auctionOf(minter: Address, index: number): Promise<RawAuct
   return { started: int(it[0]) !== 0n, endAt: int(it[1]), reserve: int(it[2]), highBid: int(it[3]), highBidder: hb, mediaRef: int(it[5]) };
 }
 
+let feesCache: { at: number; v: { engrave: number; media: number; change: number } } | null = null;
 export async function seasonStatus(season = 1) {
   const a = await addresses(season);
   if (!a) return { configured: false as const };
@@ -131,8 +132,11 @@ export async function seasonStatus(season = 1) {
       const all = [v.k0, v.k1, v.k2, v.k3, v.k4, v.k5, v.k6, v.k7];
       const curve = [v.p0, v.p1, v.p2];
       const kinds = all.map((ki, k) => ({ kind: k, price: k <= 2 ? nano(curve[k]) : null, cap: Number(ki.cap), issued: Number(ki.issued), photoFee: nano(ki.photo), specialFee: nano(ki.special), walletMax: Number(ki.walletMax) }));
-      let itemFees = { engrave: 0.1, media: 0.1, change: 0.5 };
-      try { itemFees = await cached(`itemfees:${season}`, 120000, async () => { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); return { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; }); } catch { /* keep the defaults */ }
+      // read inside this same turn at the node (never through cached() again: a second turn queued behind the one we are in would wait for us forever)
+      let itemFees = feesCache?.v ?? { engrave: 0.1, media: 0.1, change: 0.5 };
+      if (!feesCache || Date.now() - feesCache.at > 120000) {
+        try { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); itemFees = { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; feesCache = { at: Date.now(), v: itemFees }; } catch { /* keep the last known or the defaults */ }
+      }
       return {
         configured: true as const, deployed: true, status, sold: Number(v.sold), kinds, ticketPrice: nano(v.ticket),
         itemFees,
