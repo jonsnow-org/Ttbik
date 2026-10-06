@@ -74,6 +74,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           activationCode: activationCode || undefined,
           password: password || undefined,
         }),
+        signal: AbortSignal.timeout(45_000),
       });
 
       const data = await res.json();
@@ -82,10 +83,18 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
         const match = String(data.message || "").match(/@([A-Za-z0-9_]+)/);
         if (match) setBotUsername(match[1]);
       } else {
-        setStatus(`❌ خطأ: ${data.error}`);
+        let msg = `❌ خطأ: ${data.error || "فشل التفعيل"}`;
+        if (data.migrationFile) {
+          msg += `\n⚠️ شغّل في Supabase SQL Editor: prisma/${data.migrationFile}`;
+        }
+        if (Array.isArray(data.missingTables) && data.missingTables.length) {
+          msg += `\nجداول ناقصة: ${data.missingTables.join(", ")}`;
+        }
+        setStatus(msg);
       }
     } catch (err: any) {
-      setStatus(`❌ فشل الاتصال بالخادم: ${err.message}`);
+      const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+      setStatus(timedOut ? "❌ انتهت مهلة الاتصال بالخادم — حاول مجدداً." : `❌ فشل الاتصال بالخادم: ${err.message}`);
     } finally {
       setLoading(false);
     }
