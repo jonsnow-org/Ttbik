@@ -21,7 +21,6 @@ import { latestNewsItem } from "@/lib/newsItems";
 
 export const revalidate = 30;
 
-// Athar (the token project): its app on our server, and its Telegram bot once one is created (NEXT_PUBLIC_ATHAR_BOT_URL=https://t.me/<bot>)
 const ATHAR_APP_URL = (process.env.NEXT_PUBLIC_ATHAR_URL || "https://athar.89-168-89-15.sslip.io").replace(/\/$/, "");
 const ATHAR_BOT_URL = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot").trim();
 
@@ -35,19 +34,24 @@ export default async function HomePage() {
         latestNews={news && { slug: news.slug, title: news.title }}
       />
       <section className="mx-auto max-w-6xl px-4 pt-4">
-        <Link
-          href="/news"
-          className="flex items-center justify-between gap-4 rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 text-white shadow-lg transition hover:-translate-y-0.5"
-        >
-          <div>
-            <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · مقالات</span>
-            <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
-            <p className="mt-1 text-xs text-white/80 sm:text-sm">
-              أخبار عاجلة، أحداث يومية، ومقالات هادفة — كل المحتوى التحريري في مكان واحد.
-            </p>
+        <div className="rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 text-white shadow-lg">
+          <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · أحداث · مقالات</span>
+          <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
+          <p className="mt-1 text-xs text-white/80 sm:text-sm">
+            أخبار عاجلة، أحداث يومية، ومقالات هادفة — اختر القسم مباشرة.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href="/news" className="rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">
+              📰 الأخبار
+            </Link>
+            <Link href="/events" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">
+              🗓️ الأحداث
+            </Link>
+            <Link href="/articles" className="rounded-full border border-white/50 bg-white/10 px-4 py-2 text-sm font-bold text-white hover:bg-white/20">
+              ✍️ المقالات
+            </Link>
           </div>
-          <span className="shrink-0 rounded-full bg-white px-4 py-2 text-sm font-extrabold text-slate-900">افتح ←</span>
-        </Link>
+        </div>
       </section>
 
       <section className="mx-auto max-w-6xl px-4 pt-4">
