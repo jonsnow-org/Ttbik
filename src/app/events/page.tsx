@@ -10,6 +10,8 @@ import { SITE_URL } from "@/lib/siteUrl";
 const SITE = SITE_URL;
 const PATH = "/events";
 
+export const revalidate = 300;
+
 export const metadata: Metadata = {
   title: "أحداث عالمية | شام AI",
   description:
