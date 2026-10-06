@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import { latestNewsItem } from "@/lib/newsItems";
-import { LIVE_DESKS, isMajorStory, liveEmbedSrc } from "@/lib/newsLive";
+import { LIVE_DESKS, isMajorStory, liveEmbedSrc, liveWatchUrl } from "@/lib/newsLive";
 import { clusterHeadlines, coverFor, fetchAllNews, interleaveNews, type NewsCluster, type RssItem } from "@/lib/newsRss";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -80,26 +80,41 @@ export default async function NewsHubPage() {
             بث الأحداث الكبرى
           </h2>
           <p className="mb-3 text-xs leading-6 text-slate-500">
-            بث القناة الرسمي على يوتيوب. ليس إعادة بث من شام AI. إن لم تكن القناة على الهواء الآن يظهر آخر بث متاح.
+            بث رسمي من يوتيوب للقنوات أدناه — ليس إعادة بث من شام AI. إن توقف التضمين اضغط «فتح على يوتيوب».
           </p>
           <div className="grid gap-3 sm:grid-cols-2">
             {LIVE_DESKS.map((desk) => (
               <figure key={desk.channelId} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950">
-                <div className="aspect-video w-full">
+                <div className="aspect-video w-full bg-black">
                   <iframe
                     title={`بث ${desk.name}`}
                     src={liveEmbedSrc(desk)}
                     className="h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     allowFullScreen
                     loading="lazy"
+                    referrerPolicy="strict-origin-when-cross-origin"
                   />
                 </div>
-                <figcaption className="px-3 py-2 text-xs font-bold text-white">مباشر · {desk.name}</figcaption>
+                <figcaption className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-white">
+                  <span>مباشر · {desk.name}</span>
+                  <a
+                    href={liveWatchUrl(desk)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-extrabold text-white hover:bg-red-500"
+                  >
+                    فتح على يوتيوب
+                  </a>
+                </figcaption>
               </figure>
             ))}
           </div>
         </section>
+
+        <div className="mb-8">
+          <AdSlot position="in-content" label="بعد قسم البث المباشر" />
+        </div>
 
         {stories.length > 0 && (
           <section className="mb-8" aria-labelledby="top-stories">
@@ -165,7 +180,7 @@ export default async function NewsHubPage() {
           {" · "}
           <Link href="/bots" className="font-bold text-indigo-800 hover:underline">أدوات البوتات ←</Link>
         </p>
-        <AdSlot position="in-content" label="أسفل مركز الأخبار" />
+        <AdSlot position="footer-banner" label="أسفل مركز الأخبار" />
       </main>
     </>
   );
