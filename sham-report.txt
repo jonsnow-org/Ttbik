@@ -1,12 +1,12 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-05 22:07 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-06 06:31 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
    الخطوة التالية: تشغيل خادم شام (serve.py) على النقطة final_multimodal.pt وربطه بالموقع/البوت. أخبري Claude: «لنكمل شام».
 
 ✅ المرحلة الأولى — تدريب النص الأساسي (GPU)
-✅ مسار ترميز الصورة (VQ-VAE) — samples_consumed=1541 · step=46
-✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=2370 · step=130
+✅ مسار ترميز الصورة (VQ-VAE) — samples_consumed=1601 · step=50
+✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=2457 · step=148
 ✅ مسار جمع وترميز الفيديو
 ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)
 ✅ المسار A — التدريب النصي المستمر (CPU)
@@ -29,11 +29,11 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ✅ اكتمل | مسار ترميز الصوت 3 | primary
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-✅ اكتمل | المسار B 1 | primary
-❌ فشل | المسار A 1 | primary | الخطأ: Traceback (most recent call last):
+⏳ يعمل الآن | المسار B 1 | primary
+⏳ يعمل الآن | المسار A 1 | primary
+❌ فشل | المرحلة الأولى 2 | primary | الخطأ: Traceback (most recent call last):
     raise DeadKernelError("Kernel died")
 nbclient.exceptions.DeadKernelError: Kernel died
-❌ فشل | المرحلة الأولى 2 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | المرحلة الثانية 1 | duplicate
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
 ❌ فشل | مسار ترميز الصوت 1 | duplicate

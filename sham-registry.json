@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-05 22:07 UTC",
+  "generated_at": "2026-10-06 06:31 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -115,7 +115,7 @@
       "track": "audio_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-04",
+      "last_run": "2026-10-05",
       "gpu": false,
       "failure": ""
     },
@@ -124,27 +124,27 @@
       "track": "image_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-04",
+      "last_run": "2026-10-05",
       "gpu": true,
       "failure": ""
     },
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-04",
+      "last_run": "2026-10-05",
       "gpu": false,
       "failure": ""
     },
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "error",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-04",
+      "last_run": "2026-10-05",
       "gpu": false,
-      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
+      "failure": ""
     },
     {
       "alias": "المرحلة الأولى 2",
@@ -153,7 +153,7 @@
       "role": "primary",
       "last_run": "2026-10-04",
       "gpu": true,
-      "failure": "(بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\""
+      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
     },
     {
       "alias": "المرحلة الثانية 1",
@@ -201,27 +201,42 @@
       "size_mb": 35.0,
       "last_updated": "2026-10-05",
       "progress": {
-        "samples_consumed": 2370,
-        "step": 130,
+        "samples_consumed": 2457,
+        "step": 148,
         "last_run_sources": {
-          "x": 117
+          "x": 87
         }
       },
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثانية 1",
-      "track": "stage2_multimodal",
-      "size_mb": 577.7,
-      "last_updated": "2026-10-03",
+      "alias": "نتائج المسار B 1",
+      "track": "research_track",
+      "size_mb": 385.3,
+      "last_updated": "2026-10-05",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
-      "size_mb": 582.3,
-      "last_updated": "2026-10-03",
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
+      "size_mb": 144.1,
+      "last_updated": "2026-10-06",
+      "progress": {
+        "samples_consumed": 1601,
+        "step": 50,
+        "last_run_sources": {
+          "x": 48,
+          "web_fallback": 12
+        }
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 2776.6,
+      "last_updated": "2026-10-04",
       "progress": {},
       "has_key_files": true
     },
@@ -234,48 +249,25 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الأولى 1",
-      "track": "text_stage1",
-      "size_mb": 2776.6,
-      "last_updated": "2026-10-04",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المسار B 1",
-      "track": "research_track",
-      "size_mb": 385.3,
-      "last_updated": "2026-10-05",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 1374.0,
+      "alias": "نتائج المرحلة الثانية 1",
+      "track": "stage2_multimodal",
+      "size_mb": 577.7,
       "last_updated": "2026-10-03",
       "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار ترميز الصورة 1",
-      "track": "image_tokenizer",
-      "size_mb": 144.1,
-      "last_updated": "2026-10-05",
-      "progress": {
-        "samples_consumed": 1541,
-        "step": 46,
-        "last_run_sources": {
-          "x": 62,
-          "web_fallback": 16
-        }
-      },
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
       "size_mb": 580.6,
+      "last_updated": "2026-10-03",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 582.3,
       "last_updated": "2026-10-03",
       "progress": {},
       "has_key_files": true
@@ -293,6 +285,14 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 1374.0,
+      "last_updated": "2026-10-03",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "size_mb": 178.4,
@@ -304,14 +304,6 @@
         "num_videos": 62,
         "num_frames": 489
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 3",
-      "track": "live_trainer",
-      "size_mb": 1370.2,
-      "last_updated": "2026-10-01",
-      "progress": {},
       "has_key_files": true
     },
     {
@@ -335,6 +327,14 @@
         "videos_consumed": 568
       },
       "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 3",
+      "track": "live_trainer",
+      "size_mb": 1370.2,
+      "last_updated": "2026-10-01",
+      "progress": {},
+      "has_key_files": true
     }
   ],
   "pipeline": {
@@ -356,11 +356,11 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 1541,
-          "step": 46,
+          "samples_consumed": 1601,
+          "step": 50,
           "last_run_sources": {
-            "x": 62,
-            "web_fallback": 16
+            "x": 48,
+            "web_fallback": 12
           }
         },
         "dataset": "نتائج مسار ترميز الصورة 1"
@@ -370,10 +370,10 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 2370,
-          "step": 130,
+          "samples_consumed": 2457,
+          "step": 148,
           "last_run_sources": {
-            "x": 117
+            "x": 87
           }
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
@@ -397,14 +397,14 @@
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "error",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
