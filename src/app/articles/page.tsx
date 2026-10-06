@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -27,6 +28,8 @@ export const metadata: Metadata = {
 export default function ArticlesHubPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHubNav active="articles" />
+
       <EditorialHero
         crumbs={[{ href: "/", label: "الرئيسة" }, { label: "مقالات" }]}
         title="مقالات مفيدة"
