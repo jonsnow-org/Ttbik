@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-06 06:31 UTC",
+  "generated_at": "2026-10-06 09:20 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -72,7 +72,7 @@
       "role": "duplicate",
       "last_run": "2026-09-23",
       "gpu": false,
-      "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service."
+      "failure": "---> 58             raise ConnectionError(\n     60         except HTTPError as e:\nConnectionError: Connection error trying to communicate with service.\nقبل الفشل: 0.00s - to python to disable frozen modules. | 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this"
     },
     {
       "alias": "المرحلة الثالثة 1",
@@ -131,7 +131,7 @@
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-05",
       "gpu": false,
@@ -140,7 +140,7 @@
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-05",
       "gpu": false,
@@ -153,7 +153,7 @@
       "role": "primary",
       "last_run": "2026-10-04",
       "gpu": true,
-      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died"
+      "failure": "Traceback (most recent call last):\n    raise DeadKernelError(\"Kernel died\")\nnbclient.exceptions.DeadKernelError: Kernel died\nقبل الفشل: عدد خطوات واقعي يمكن إنجازه ضمن 8.5 ساعة (بهامش أمان): 22,470 خطوة | 🔄 هذه الخلية نسخة قديمة — شُغِّلت نسخة المستودع الحالية منها (مزامنة الخلايا) | خط نص متدفق: تد"
     },
     {
       "alias": "المرحلة الثانية 1",
@@ -212,8 +212,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 385.3,
-      "last_updated": "2026-10-05",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-06",
       "progress": {},
       "has_key_files": true
     },
@@ -243,8 +243,8 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 2731.1,
-      "last_updated": "2026-10-04",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-06",
       "progress": {},
       "has_key_files": true
     },
@@ -397,14 +397,14 @@
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },

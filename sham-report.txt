@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-06 06:31 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-06 09:20 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -29,11 +29,12 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ✅ اكتمل | مسار ترميز الصوت 3 | primary
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-⏳ يعمل الآن | المسار B 1 | primary
-⏳ يعمل الآن | المسار A 1 | primary
+✅ اكتمل | المسار B 1 | primary
+✅ اكتمل | المسار A 1 | primary
 ❌ فشل | المرحلة الأولى 2 | primary | الخطأ: Traceback (most recent call last):
     raise DeadKernelError("Kernel died")
 nbclient.exceptions.DeadKernelError: Kernel died
+قبل الفشل: عدد خطوات واقع
 ✅ اكتمل | المرحلة الثانية 1 | duplicate
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
 ❌ فشل | مسار ترميز الصوت 1 | duplicate
