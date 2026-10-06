@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getCategoryTheme } from "@/lib/categoryTheme";
 import SectionBackdrop from "@/components/SectionBackdrop";
+import { useTemplateReady } from "./useTemplateReady";
 
 const theme = getCategoryTheme("bots");
 
@@ -29,6 +30,8 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
   const [botUsername, setBotUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const { gatedOption, notReadyHints } = useTemplateReady(isOwner, setTemplate);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -105,8 +108,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
       </span>
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">تفعيل بوت تليجرام</h1>
       <p className="mb-6 text-sm text-slate-600">
-        ضع توكن بوتك من BotFather ويعمل بوت الإعلانات والمهام فوراً على خوادمنا — بلا استضافة ولا برمجة.
-        وأنت صاحب البوت تربح <strong>20%</strong> من قيمة كل مهمة إعلانية يُنجزها مستخدمو بوتك (50% للمستخدم المنفّذ، 30% للمنصة).
+        ضع توكن بوتك من BotFather ويعمل بوت الإعلانات والمهام فوراً على خوادمنا — بلا استضافة ولا برمجة.\n        وأنت صاحب البوت تربح <strong>20%</strong> من قيمة كل مهمة إعلانية يُنجزها مستخدمو بوتك (50% للمستخدم المنفّذ، 30% للمنصة).
       </p>
 
       <form onSubmit={handleDeploy} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -156,10 +158,10 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             {isOwner && <option value="NOVA_BOT">Nova AI (مساعد ذكاء اصطناعي مجاني)</option>}
             {isOwner && <option value="CONFESSION_BOT">بوت الاعترافات المجهولة</option>}
             {isOwner && <option value="NAME_COMPAT_BOT">بوت نسبة التوافق بين الأسماء</option>}
-            {isOwner && <option value="QUIZ_BOT">بوت اختبارات الشخصية</option>}
-            {isOwner && <option value="STREAK_BOT">بوت السلاسل اليومية</option>}
-            {isOwner && <option value="PRAYER_BOT">بوت مواقيت الصلاة</option>}
-            {isOwner && <option value="CAPSULE_BOT">بوت كبسولة الزمن</option>}
+            {gatedOption("QUIZ_BOT", "بوت اختبارات الشخصية")}
+            {gatedOption("STREAK_BOT", "بوت السلاسل اليومية")}
+            {gatedOption("PRAYER_BOT", "بوت مواقيت الصلاة")}
+            {gatedOption("CAPSULE_BOT", "بوت كبسولة الزمن")}
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
@@ -169,6 +171,18 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
               </a>
               .
             </p>
+          )}
+          {notReadyHints.length > 0 && (
+            <div className="mt-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              <p className="font-bold">قوالب مخفية لأن جداولها غير موجودة بعد — شغّل SQL في Supabase:</p>
+              <ul className="list-inside list-disc">
+                {notReadyHints.map((h) => (
+                  <li key={h.id}>
+                    {h.label}: <code className="font-mono">prisma/{h.file}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
         {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
