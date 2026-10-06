@@ -125,12 +125,27 @@ const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions
 ];
 export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "language", description: "Language" }];
 
-let commandsSet = false;
+// What Telegram shows on the bot's page before the first message, in search results and next to a shared link (short: up to 120 characters, long: up to 512).
+const ABOUT: Record<Lang, { short: string; long: string }> = {
+  en: { short: "A living token for every day of the calendar. Find your birthday on TON.", long: "Athar: one token for every day of the calendar (1950–2049). Your birthday, your wedding, a day you love. A living token whose picture moves and matures the longer you hold it. Normal, Silver and Gold for everyone, rarer classes by auction. Tap Start." },
+  ar: { short: "رمز حيّ لكل يوم في التقويم. اعثر على يوم ميلادك على TON.", long: "أثر: رمز واحد لكل يوم في التقويم (1950–2049): يوم ميلادك أو زواجك أو يوم تحبه. رمز حيّ صورته تتحرك وتنضج كلما طال بقاؤه عندك. عادي وفضي وذهبي للجميع، وفئات نادرة بالمزاد. اضغط ابدأ." },
+  ru: { short: "Живой токен на каждый день календаря. Найдите свой день рождения в TON.", long: "Athar: один токен на каждый день календаря (1950–2049): день рождения, свадьба, любимая дата. Живой токен: картинка движется и взрослеет, пока вы его храните. Обычный, Серебряный и Золотой для всех, редкие классы на аукционе. Нажмите Start." },
+  tr: { short: "Takvimin her günü için canlı bir token. Doğum gününü TON'da bul.", long: "Athar: takvimin her günü (1950–2049) için tek bir token: doğum günün, düğünün ya da sevdiğin bir gün. Resmi hareket eden, elinde tuttukça olgunlaşan canlı token. Herkese Normal, Gümüş ve Altın, nadir sınıflar müzayedeyle. Başlat'a dokun." },
+  fa: { short: "توکنی زنده برای هر روز تقویم. روز تولدتان را در TON پیدا کنید.", long: "اثر: یک توکن برای هر روز تقویم (۱۹۵۰–۲۰۴۹): تولد، عروسی یا روزی که دوست دارید. توکنی زنده که تصویرش حرکت می‌کند و با نگه‌داشتن بالغ می‌شود. عادی، نقره‌ای و طلایی برای همه و ردهٔ کمیاب با حراج. Start را بزنید." },
+};
+let commandsSet = false, aboutSet = false;
 /** The commands list (once per server start, in English for everyone) and this person's menu button, in their language. */
 async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang, owner = false): Promise<void> {
   try {
     if (!commandsSet) { await bot.api.setMyCommands(COMMANDS); commandsSet = true; }
   } catch { /* the list is optional */ }
+  try {
+    if (!aboutSet) {
+      aboutSet = true;
+      await bot.api.setMyShortDescription(ABOUT.en.short); await bot.api.setMyDescription(ABOUT.en.long);   // English for everyone without a language of their own
+      for (const l of LANGS) { if (l.code === "en") continue; await bot.api.setMyShortDescription(ABOUT[l.code].short, { language_code: l.code }); await bot.api.setMyDescription(ABOUT[l.code].long, { language_code: l.code }); }
+    }
+  } catch { /* the bot page text is optional */ }
   try {
     await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: owner && ADMIN_URL ? { type: "web_app", text: "🛠 Admin", web_app: { url: ADMIN_URL } } : { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });   // the owner's blue button opens the panel, everyone else's opens the app
   } catch { /* optional on some clients */ }
