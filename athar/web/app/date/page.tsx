@@ -58,6 +58,13 @@ export default function DatePage() {
   const extra = media.photo ? row?.photoFee ?? 0 : 0;
   const premium = premiumOf(date)[0] > premiumOf(date)[1];
 
+  const shareDate = () => {
+    const url = `${location.origin}/date?i=${date}`;
+    const tg = (window as any).Telegram?.WebApp;
+    const msg = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(t("date.shareText", { d: dateLabel(y, m, dd) }))}`;
+    tg?.openTelegramLink ? tg.openTelegramLink(msg) : window.open(msg, "_blank");
+  };
+
   async function buy() {
     if (!season?.minter || price == null) return;
     // The picture is made safe BEFORE the purchase, so the token is born holding its final id (see lib/mediaFlow).
@@ -101,6 +108,7 @@ export default function DatePage() {
       <div className="card" style={{ textAlign: "center" }}>
         <img src={`/api/img/${id}.svg?live=1`} alt="" style={{ width: "70%", maxWidth: 280, borderRadius: 24 }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, dd)}</h2>
+        <button className="btn ghost" onClick={shareDate}>{t("date.share")}</button>
         <div className="muted" style={{ marginBottom: 6 }}>🌙 {t("tok.hijri", { h: hijriLabel(date, lang) })}</div>
         {!fresh && <p className="muted">…</p>}
         {fresh && (

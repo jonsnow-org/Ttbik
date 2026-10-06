@@ -4,11 +4,13 @@ import { Top, KindBadge, ton, useApi } from "@/components/ui";
 import { useI18n } from "@/lib/i18n";
 import Features from "@/components/Features";
 import { DIRECT_KINDS } from "@/lib/kinds";
+import { indexOf } from "@/lib/dates";
 
 type Season = { specials?: number; configured: boolean; deployed?: boolean; status?: number; sold?: number; kinds?: { kind: number; price: number | null; cap: number; issued: number }[] };
 
 export default function Home() {
-  const { t } = useI18n();
+  const { t, dateLabel } = useI18n();
+  const now = new Date(), todayIdx = indexOf(now.getFullYear(), now.getMonth() + 1, now.getDate());
   const { data: s } = useApi<Season>("/api/season", 15000);
   const live = s?.configured && s.deployed && s.status === 1;
   const steps = [["home.s1t", "home.s1d"], ["home.s2t", "home.s2d"], ["home.s3t", "home.s3d"]] as const;
@@ -22,6 +24,13 @@ export default function Home() {
         <p className="muted">{t("home.sub")}</p>
         <Link href="/date" className="btn gold">{t("home.cta")}</Link>
         <p style={{ marginTop: 10 }}><Link href="/market" className="muted" style={{ textDecoration: "underline" }}>{t("home.market")}</Link></p>
+      </div>
+
+      <div className="card" style={{ textAlign: "center" }}>
+        <h3>{t("home.today")}</h3>
+        <img src={`/api/img/${todayIdx}.svg?live=1`} alt="" style={{ width: "50%", maxWidth: 200, borderRadius: 20, margin: "8px auto", display: "block" }} />
+        <p className="muted">{dateLabel(now.getFullYear(), now.getMonth() + 1, now.getDate())}</p>
+        <Link href={`/date?i=${todayIdx}`} className="btn gold">{t("home.todayCta")}</Link>
       </div>
 
       <Features />
