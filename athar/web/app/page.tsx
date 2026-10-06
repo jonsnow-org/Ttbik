@@ -21,6 +21,7 @@ export default function Home() {
         <h1>{t("home.title")}</h1>
         <p className="muted">{t("home.sub")}</p>
         <Link href="/date" className="btn gold">{t("home.cta")}</Link>
+        <p style={{ marginTop: 10 }}><Link href="/market" className="muted" style={{ textDecoration: "underline" }}>{t("home.market")}</Link></p>
       </div>
 
       <Features />
