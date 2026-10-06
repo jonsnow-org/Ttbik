@@ -7,6 +7,9 @@ import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 
+/** ISR — static editorial body; refresh periodically */
+export const revalidate = 3600;
+
 export function generateStaticParams() {
   return EVENT_ITEMS.map((e) => ({ slug: e.slug }));
 }
