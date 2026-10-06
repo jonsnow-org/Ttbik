@@ -26,10 +26,31 @@ export const ton = (n: number | null | undefined) => (n == null ? "—" : `${n.t
 
 const ToastCtx = createContext<(m: string) => void>(() => {});
 export function useToast() { return useContext(ToastCtx); }
+type Reopen = (() => void) | null;
+const StuckCtx = createContext<(f: Reopen) => void>(() => {});
 export function ToastHost({ children }: { children: React.ReactNode }) {
   const [msg, setMsg] = useState("");
+  const [stuck, setStuck] = useState<Reopen>(null);
+  const { t } = useI18n();
   const show = useCallback((m: string) => { setMsg(m); setTimeout(() => setMsg(""), 6000); }, []);
-  return <ToastCtx.Provider value={show}>{children}{msg && <div className="toast">{msg}</div>}</ToastCtx.Provider>;
+  const setStuckFn = useCallback((f: Reopen) => setStuck(f ? () => f : null), []);
+  return (
+    <ToastCtx.Provider value={show}>
+      <StuckCtx.Provider value={setStuckFn}>
+        {children}
+        {msg && <div className="toast">{msg}</div>}
+        {stuck && (
+          <div className="toast" style={{ top: "auto", bottom: 86 }}>
+            <div>{t("ui.stuck")}</div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button className="btn gold" onClick={() => { try { stuck(); } catch { /* the wallet link could not be opened */ } }}>{t("ui.reopen")}</button>
+              <button className="btn ghost" onClick={() => setStuck(null)}>{t("ui.dismiss")}</button>
+            </div>
+          </div>
+        )}
+      </StuckCtx.Provider>
+    </ToastCtx.Provider>
+  );
 }
 
 /** Send one wallet request: opens the wallet to confirm and pay. Returns true if the user approved. */
@@ -39,14 +60,23 @@ export function useSend() {
   const toast = useToast();
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const setStuck = useContext(StuckCtx);
   const send = useCallback(async (messages: Msg[], okText?: string) => {
     if (!address) { ui.openModal(); return false; }
     setBusy(true);
     const hint = setTimeout(() => toast(t("ui.walletWait")), 9000);      // the wallet prepares its own preview first (it simulates the purchase); a second try is instant
-    try { await ui.sendTransaction(tx(messages)); toast(okText ?? t("ui.sent")); return true; }
+    // A wallet that was not running can open blank and never show the request (seen with MyTonWallet); when the user comes back to the page with the
+    // request still waiting, offer to open the wallet again (the SDK re-opens its link, no second request is made) and say what else to do.
+    let reopen: (() => void) | null = null, sentAt = 0, finished = false;
+    const onBack = () => { if (!finished && reopen && document.visibilityState === "visible") setTimeout(() => { if (!finished && reopen && Date.now() - sentAt > 4000) setStuck(reopen); }, 1500); };
+    document.addEventListener("visibilitychange", onBack);
+    try {
+      await ui.sendTransaction(tx(messages), { onRequestSent: (re: () => void) => { reopen = re; sentAt = Date.now(); } } as any);
+      toast(okText ?? t("ui.sent")); return true;
+    }
     catch { toast(t("ui.cancelled")); return false; }
-    finally { clearTimeout(hint); setBusy(false); }
-  }, [address, ui, toast, t]);
+    finally { finished = true; document.removeEventListener("visibilitychange", onBack); setStuck(null); clearTimeout(hint); setBusy(false); }
+  }, [address, ui, toast, t, setStuck]);
   return { send, busy, address };
 }
 
