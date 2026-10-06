@@ -4845,6 +4845,184 @@ export function dictValueParserAtharMinter$Data(): DictionaryValue<AtharMinter$D
     }
 }
 
+export type SeasonView = {
+    $$type: 'SeasonView';
+    status: bigint;
+    sold: bigint;
+    ticket: bigint;
+    pool: bigint;
+    tickets: bigint;
+    revealed: boolean;
+    revealAt: bigint;
+    p0: bigint;
+    p1: bigint;
+    p2: bigint;
+    k0: KindInfo;
+    k1: KindInfo;
+    k2: KindInfo;
+    k3: KindInfo;
+    k4: KindInfo;
+    k5: KindInfo;
+    k6: KindInfo;
+    k7: KindInfo;
+}
+
+export function storeSeasonView(src: SeasonView) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeInt(src.status, 257);
+        b_0.storeInt(src.sold, 257);
+        b_0.storeInt(src.ticket, 257);
+        const b_1 = new Builder();
+        b_1.storeInt(src.pool, 257);
+        b_1.storeInt(src.tickets, 257);
+        b_1.storeBit(src.revealed);
+        b_1.storeInt(src.revealAt, 257);
+        const b_2 = new Builder();
+        b_2.storeInt(src.p0, 257);
+        b_2.storeInt(src.p1, 257);
+        b_2.storeInt(src.p2, 257);
+        const b_3 = new Builder();
+        b_3.store(storeKindInfo(src.k0));
+        const b_4 = new Builder();
+        b_4.store(storeKindInfo(src.k1));
+        const b_5 = new Builder();
+        b_5.store(storeKindInfo(src.k2));
+        const b_6 = new Builder();
+        b_6.store(storeKindInfo(src.k3));
+        const b_7 = new Builder();
+        b_7.store(storeKindInfo(src.k4));
+        const b_8 = new Builder();
+        b_8.store(storeKindInfo(src.k5));
+        const b_9 = new Builder();
+        b_9.store(storeKindInfo(src.k6));
+        const b_10 = new Builder();
+        b_10.store(storeKindInfo(src.k7));
+        b_9.storeRef(b_10.endCell());
+        b_8.storeRef(b_9.endCell());
+        b_7.storeRef(b_8.endCell());
+        b_6.storeRef(b_7.endCell());
+        b_5.storeRef(b_6.endCell());
+        b_4.storeRef(b_5.endCell());
+        b_3.storeRef(b_4.endCell());
+        b_2.storeRef(b_3.endCell());
+        b_1.storeRef(b_2.endCell());
+        b_0.storeRef(b_1.endCell());
+    };
+}
+
+export function loadSeasonView(slice: Slice) {
+    const sc_0 = slice;
+    const _status = sc_0.loadIntBig(257);
+    const _sold = sc_0.loadIntBig(257);
+    const _ticket = sc_0.loadIntBig(257);
+    const sc_1 = sc_0.loadRef().beginParse();
+    const _pool = sc_1.loadIntBig(257);
+    const _tickets = sc_1.loadIntBig(257);
+    const _revealed = sc_1.loadBit();
+    const _revealAt = sc_1.loadIntBig(257);
+    const sc_2 = sc_1.loadRef().beginParse();
+    const _p0 = sc_2.loadIntBig(257);
+    const _p1 = sc_2.loadIntBig(257);
+    const _p2 = sc_2.loadIntBig(257);
+    const sc_3 = sc_2.loadRef().beginParse();
+    const _k0 = loadKindInfo(sc_3);
+    const sc_4 = sc_3.loadRef().beginParse();
+    const _k1 = loadKindInfo(sc_4);
+    const sc_5 = sc_4.loadRef().beginParse();
+    const _k2 = loadKindInfo(sc_5);
+    const sc_6 = sc_5.loadRef().beginParse();
+    const _k3 = loadKindInfo(sc_6);
+    const sc_7 = sc_6.loadRef().beginParse();
+    const _k4 = loadKindInfo(sc_7);
+    const sc_8 = sc_7.loadRef().beginParse();
+    const _k5 = loadKindInfo(sc_8);
+    const sc_9 = sc_8.loadRef().beginParse();
+    const _k6 = loadKindInfo(sc_9);
+    const sc_10 = sc_9.loadRef().beginParse();
+    const _k7 = loadKindInfo(sc_10);
+    return { $$type: 'SeasonView' as const, status: _status, sold: _sold, ticket: _ticket, pool: _pool, tickets: _tickets, revealed: _revealed, revealAt: _revealAt, p0: _p0, p1: _p1, p2: _p2, k0: _k0, k1: _k1, k2: _k2, k3: _k3, k4: _k4, k5: _k5, k6: _k6, k7: _k7 };
+}
+
+export function loadTupleSeasonView(source: TupleReader) {
+    const _status = source.readBigNumber();
+    const _sold = source.readBigNumber();
+    const _ticket = source.readBigNumber();
+    const _pool = source.readBigNumber();
+    const _tickets = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _revealAt = source.readBigNumber();
+    const _p0 = source.readBigNumber();
+    const _p1 = source.readBigNumber();
+    const _p2 = source.readBigNumber();
+    const _k0 = loadTupleKindInfo(source);
+    const _k1 = loadTupleKindInfo(source);
+    const _k2 = loadTupleKindInfo(source);
+    const _k3 = loadTupleKindInfo(source);
+    source = source.readTuple();
+    const _k4 = loadTupleKindInfo(source);
+    const _k5 = loadTupleKindInfo(source);
+    const _k6 = loadTupleKindInfo(source);
+    const _k7 = loadTupleKindInfo(source);
+    return { $$type: 'SeasonView' as const, status: _status, sold: _sold, ticket: _ticket, pool: _pool, tickets: _tickets, revealed: _revealed, revealAt: _revealAt, p0: _p0, p1: _p1, p2: _p2, k0: _k0, k1: _k1, k2: _k2, k3: _k3, k4: _k4, k5: _k5, k6: _k6, k7: _k7 };
+}
+
+export function loadGetterTupleSeasonView(source: TupleReader) {
+    const _status = source.readBigNumber();
+    const _sold = source.readBigNumber();
+    const _ticket = source.readBigNumber();
+    const _pool = source.readBigNumber();
+    const _tickets = source.readBigNumber();
+    const _revealed = source.readBoolean();
+    const _revealAt = source.readBigNumber();
+    const _p0 = source.readBigNumber();
+    const _p1 = source.readBigNumber();
+    const _p2 = source.readBigNumber();
+    const _k0 = loadGetterTupleKindInfo(source);
+    const _k1 = loadGetterTupleKindInfo(source);
+    const _k2 = loadGetterTupleKindInfo(source);
+    const _k3 = loadGetterTupleKindInfo(source);
+    const _k4 = loadGetterTupleKindInfo(source);
+    const _k5 = loadGetterTupleKindInfo(source);
+    const _k6 = loadGetterTupleKindInfo(source);
+    const _k7 = loadGetterTupleKindInfo(source);
+    return { $$type: 'SeasonView' as const, status: _status, sold: _sold, ticket: _ticket, pool: _pool, tickets: _tickets, revealed: _revealed, revealAt: _revealAt, p0: _p0, p1: _p1, p2: _p2, k0: _k0, k1: _k1, k2: _k2, k3: _k3, k4: _k4, k5: _k5, k6: _k6, k7: _k7 };
+}
+
+export function storeTupleSeasonView(source: SeasonView) {
+    const builder = new TupleBuilder();
+    builder.writeNumber(source.status);
+    builder.writeNumber(source.sold);
+    builder.writeNumber(source.ticket);
+    builder.writeNumber(source.pool);
+    builder.writeNumber(source.tickets);
+    builder.writeBoolean(source.revealed);
+    builder.writeNumber(source.revealAt);
+    builder.writeNumber(source.p0);
+    builder.writeNumber(source.p1);
+    builder.writeNumber(source.p2);
+    builder.writeTuple(storeTupleKindInfo(source.k0));
+    builder.writeTuple(storeTupleKindInfo(source.k1));
+    builder.writeTuple(storeTupleKindInfo(source.k2));
+    builder.writeTuple(storeTupleKindInfo(source.k3));
+    builder.writeTuple(storeTupleKindInfo(source.k4));
+    builder.writeTuple(storeTupleKindInfo(source.k5));
+    builder.writeTuple(storeTupleKindInfo(source.k6));
+    builder.writeTuple(storeTupleKindInfo(source.k7));
+    return builder.build();
+}
+
+export function dictValueParserSeasonView(): DictionaryValue<SeasonView> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeSeasonView(src)).endCell());
+        },
+        parse: (src) => {
+            return loadSeasonView(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type DateView = {
     $$type: 'DateView';
     taken: bigint;
@@ -5498,6 +5676,7 @@ const AtharItem_types: ABIType[] = [
     {"name":"AdminMint","header":1096024151,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"recipient","type":{"kind":"simple","type":"address","optional":true}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
     {"name":"TransferTicket","header":1096024149,"fields":[{"name":"ticket","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"newOwner","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"AtharMinter$Data","header":null,"fields":[{"name":"collection","type":{"kind":"simple","type":"address","optional":false}},{"name":"admin","type":{"kind":"simple","type":"address","optional":false}},{"name":"seasonId","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"rangeStart","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"rangeEnd","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"tiers","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"TierState","valueFormat":"ref"}},{"name":"special","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":8}},{"name":"sold","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"bool"}},{"name":"pending","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"PendingMint","valueFormat":"ref"}},{"name":"reserved","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"bool"}},{"name":"pool","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":32}},{"name":"tickets","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"Ticket","valueFormat":"ref"}},{"name":"poolSize","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolExpected","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"poolLoaded","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"ticketsSold","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"commitHash","type":{"kind":"simple","type":"uint","optional":false,"format":256}},{"name":"revealAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"permA","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"permB","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"auctions","type":{"kind":"dict","key":"uint","keyFormat":32,"value":"Auction","valueFormat":"ref"}},{"name":"auctionIds","type":{"kind":"dict","key":"uint","keyFormat":16,"value":"uint","valueFormat":32}},{"name":"auctionCount","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"wallets","type":{"kind":"dict","key":"address","value":"WalletCount","valueFormat":"ref"}},{"name":"status","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"startAt","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"walletDailyCap","type":{"kind":"simple","type":"uint","optional":false,"format":16}},{"name":"soldCount","type":{"kind":"simple","type":"uint","optional":false,"format":32}},{"name":"caps","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":32}},{"name":"issuedBy","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":32}},{"name":"photoFees","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":"coins"}},{"name":"specialFees","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":"coins"}},{"name":"walletMax","type":{"kind":"dict","key":"uint","keyFormat":8,"value":"uint","valueFormat":16}},{"name":"lockedBids","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}},{"name":"ticketsOpen","type":{"kind":"simple","type":"uint","optional":false,"format":16}}]},
+    {"name":"SeasonView","header":null,"fields":[{"name":"status","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"sold","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"ticket","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"pool","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"tickets","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"revealed","type":{"kind":"simple","type":"bool","optional":false}},{"name":"revealAt","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p0","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p1","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p2","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k0","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k1","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k2","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k3","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k4","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k5","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k6","type":{"kind":"simple","type":"KindInfo","optional":false}},{"name":"k7","type":{"kind":"simple","type":"KindInfo","optional":false}}]},
     {"name":"DateView","header":null,"fields":[{"name":"taken","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"auction","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"reserved","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p0","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p1","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"p2","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"special","type":{"kind":"simple","type":"bool","optional":false}}]},
     {"name":"KindInfo","header":null,"fields":[{"name":"cap","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"issued","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"photo","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"special","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"walletMax","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},
     {"name":"WalletInfo","header":null,"fields":[{"name":"today","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k0","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k1","type":{"kind":"simple","type":"int","optional":false,"format":257}},{"name":"k2","type":{"kind":"simple","type":"int","optional":false,"format":257}}]},

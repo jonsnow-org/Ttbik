@@ -118,6 +118,7 @@ contract AtharCollection {
         let from: Int? = self.minters.get(ctx.sender);
         require(from != null && now() >= from!!, "minter not authorised");
         require(validId(msg.index), "id out of range");
+        require(self.issued.get(msg.index) == null, "already issued");      // whatever minter asks: an id is minted once, and the buyer of a second sale is refunded by the bounce
         require(self.payout != null, "payout not set");
         require(ctx.value >= msg.remit + MINT_FEES, "not enough value");
         let init: StateInit = initOf AtharItem(myAddress(), msg.index);

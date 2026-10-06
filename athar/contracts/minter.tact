@@ -595,7 +595,8 @@ contract AtharMinter {
         }
         return DateView{ taken: taken, auction: auction, reserved: reserved, p0: self.price_of(date), p1: self.price_of(65536 + date), p2: self.price_of(131072 + date), special: self.special.get(date) != null };
     }
-    get fun kind_info(kind: Int): KindInfo {
+    get fun kind_info(kind: Int): KindInfo { return self.kindInfoOf(kind); }
+    fun kindInfoOf(kind: Int): KindInfo {
         let cap: Int = 0;
         let c: Int? = self.caps.get(kind);
         if (c != null) { cap = c!!; }
@@ -613,6 +614,17 @@ contract AtharMinter {
         if (wv != null) { wm = wv!!; }
         return KindInfo{ cap: cap, issued: used, photo: photo, special: spec, walletMax: wm };
     }
+    // The whole state the app shows on its front pages, in ONE read (the public node answers about a call a second without a key, so the app asks as little as it can).
+    get fun season_view(): SeasonView {
+        let t: TierState? = self.tiers.get(KEY_TICKETS);
+        let tp: Int = 0;
+        if (t != null) { tp = self.priceNow(t!!); }
+        return SeasonView{
+            status: self.status, sold: self.soldCount, ticket: tp, pool: self.poolSize, tickets: self.ticketsSold, revealed: self.revealed, revealAt: self.revealAt, p0: self.price(0), p1: self.price(1), p2: self.price(2),
+            k0: self.kindInfoOf(0), k1: self.kindInfoOf(1), k2: self.kindInfoOf(2), k3: self.kindInfoOf(3),
+            k4: self.kindInfoOf(4), k5: self.kindInfoOf(5), k6: self.kindInfoOf(6), k7: self.kindInfoOf(7)
+        };
+    }
     get fun wallet_info(who: Address): WalletInfo {
         let w: WalletCount? = self.wallets.get(who);
         if (w == null) { return WalletInfo{ today: 0, k0: 0, k1: 0, k2: 0 }; }
@@ -622,6 +634,7 @@ contract AtharMinter {
     }
 }
 
+struct SeasonView { status: Int; sold: Int; ticket: Int; pool: Int; tickets: Int; revealed: Bool; revealAt: Int; p0: Int; p1: Int; p2: Int; k0: KindInfo; k1: KindInfo; k2: KindInfo; k3: KindInfo; k4: KindInfo; k5: KindInfo; k6: KindInfo; k7: KindInfo; }
 struct DateView { taken: Int; auction: Int; reserved: Int; p0: Int; p1: Int; p2: Int; special: Bool; }
 struct KindInfo { cap: Int; issued: Int; photo: Int; special: Int; walletMax: Int; }
 struct WalletInfo { today: Int; k0: Int; k1: Int; k2: Int; }

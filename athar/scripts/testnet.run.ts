@@ -2,6 +2,7 @@
 //   TN_DIR=<folder with mnemonic.txt, payout_addr.txt> STAGE=launch npx jest --config jest.testnet.config.js    (publish + open the sale)
 //   TN_DIR=... STAGE=trade  ...                                                                                (every kind, one date, a class, caps)
 //   TN_DIR=... STAGE=auction ...                                                                               (a class auction and a bid)
+//   TN_DIR=... STAGE=sweep ...                                                                                 (take back what the rehearsal parked in the contracts)
 //   TN_DIR=... STAGE=settle ...                                                                                (after the class auction has ended)
 process.env.NEXT_PUBLIC_TON_NETWORK = "testnet";
 process.env.NEXT_PUBLIC_SITE_URL = process.env.TN_SITE || "https://athar-test.89-168-89-15.sslip.io";
@@ -171,6 +172,14 @@ describe("testnet rehearsal", () => {
       await ok("bob's bid is the highest", async () => { const a = await auctionOf(Address.parse(st.minter), id); return !!a && a.highBidder?.equals(bob.address) === true; });
       state.auctionId = id; state.auctionEnds = Math.floor(Date.now() / 1000) + 3600 + 60; save();
       log("AUCTION DONE; settle after", new Date(state.auctionEnds * 1000).toISOString(), "bob", await bob.balance(), "admin", await bal());
+      return;
+    }
+
+    if (process.env.STAGE === "sweep") {
+      // give back what the rehearsal parked: the collection's surplus goes to the payout wallet (anyone may ask), the minter's dust to the admin
+      const { sweepMsg } = await import("../web/lib/launch");
+      await adminSend([{ address: st.collection, amount: toNano("0.05").toString(), payload: beginCell().storeUint(0x41540027, 32).endCell().toBoc().toString("base64") }, sweepMsg(st.minter)]);
+      log("SWEEP DONE; admin", await bal(), "payout", await payoutBal());
       return;
     }
 

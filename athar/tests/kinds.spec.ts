@@ -4,6 +4,38 @@ import { ruleTier, TIER } from "../lib/rules";
 
 const common = () => { for (let i = S1_START; ; i++) if (ruleTier(i) === TIER.COMMON) return i; };
 
+describe("the front-page state in one read", () => {
+  it("season_view agrees with the individual getters", async () => {
+    const ctx = await setup(); await openSeason(ctx);
+    const { minter, alice } = ctx;
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: BigInt(common()), recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
+    const v = await minter.getSeasonView();
+    expect(v.status).toBe(1n); expect(v.sold).toBe(1n);
+    expect(v.p0).toBe(await minter.getPrice(0n)); expect(v.p1).toBe(await minter.getPrice(1n)); expect(v.p2).toBe(await minter.getPrice(2n));
+    const all = [v.k0, v.k1, v.k2, v.k3, v.k4, v.k5, v.k6, v.k7];
+    for (let k = 0; k < 8; k++) { const ki = await minter.getKindInfo(BigInt(k)); expect(all[k].cap).toBe(ki.cap); expect(all[k].issued).toBe(ki.issued); expect(all[k].photo).toBe(ki.photo); }
+    expect(all[0].issued).toBe(1n);
+    expect(v.revealed).toBe(false); expect(v.pool).toBe(0n);
+  });
+});
+
+describe("an id is minted once, whichever minter asks", () => {
+  it("a second minter selling an id that already exists is refused by the collection, and the buyer gets the money back", async () => {
+    const ctx = await setup(); await openSeason(ctx);
+    const { minter, collection, admin, alice, bob, bc } = ctx;
+    const id = BigInt(common());
+    await minter.send(alice.getSender(), { value: toNano("1") }, { $$type: "Buy", index: id, recipient: null, occasion: 0n, mediaRef: 0n, style: 0n });
+    expect(await collection.getTotalMinted()).toBe(1n);
+    // the owner authorises a second seller (here: his own wallet, standing in for a new minter) after the notice period
+    await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: bob.address });
+    bc.now = bc.now! + 3700;
+    const r = await collection.send(bob.getSender(), { value: toNano("1") }, { $$type: "MintItem", index: id, newOwner: bob.address, season: 1n, tier: 0n, paid: 0n, occasion: 0n, mediaRef: 0n, remit: 0n });
+    expect(r.transactions).toHaveTransaction({ from: bob.address, to: collection.address, success: false });
+    expect(r.transactions).toHaveTransaction({ from: collection.address, to: bob.address, inMessageBounced: true });
+    expect(await collection.getTotalMinted()).toBe(1n);
+  });
+});
+
 describe("one date, many kinds", () => {
   it("the same date can be bought as normal, silver and gold, each once; the app reads it all in one call", async () => {
     const ctx = await setup(); await openSeason(ctx);

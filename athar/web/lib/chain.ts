@@ -126,20 +126,17 @@ export async function seasonStatus(season = 1) {
     const m = client.open(AtharMinter.fromAddress(a.minter.address));
     try {
       if (!(await isActive(a.minter.address))) throw new Error("not deployed");
-      const status = Number(await m.getStatus());
-      const [sold, myst] = [await m.getSoldCount(), await m.getMysteryInfo()];
-      // each kind: its curve price now (direct kinds), its cap and how many are issued, its fees
-      const kinds: { kind: number; price: number | null; cap: number; issued: number; photoFee: number; specialFee: number; walletMax: number }[] = [];
-      for (let k = 0; k < KIND_COUNT; k++) {
-        const ki = await m.getKindInfo(BigInt(k));
-        kinds.push({ kind: k, price: k <= 2 ? nano(await m.getPrice(BigInt(k))) : null, cap: Number(ki.cap), issued: Number(ki.issued), photoFee: nano(ki.photo), specialFee: nano(ki.special), walletMax: Number(ki.walletMax) });
-      }
+      const v = await m.getSeasonView();           // everything in one read
+      const status = Number(v.status);
+      const all = [v.k0, v.k1, v.k2, v.k3, v.k4, v.k5, v.k6, v.k7];
+      const curve = [v.p0, v.p1, v.p2];
+      const kinds = all.map((ki, k) => ({ kind: k, price: k <= 2 ? nano(curve[k]) : null, cap: Number(ki.cap), issued: Number(ki.issued), photoFee: nano(ki.photo), specialFee: nano(ki.special), walletMax: Number(ki.walletMax) }));
       let itemFees = { engrave: 0.1, media: 0.1, change: 0.5 };
-      try { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); itemFees = { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; } catch { /* keep the defaults */ }
+      try { itemFees = await cached(`itemfees:${season}`, 120000, async () => { const f = await client.open(AtharCollection.fromAddress(a.collection.address)).getItemFees(); return { engrave: nano(f.engrave), media: nano(f.media), change: nano(f.change) }; }); } catch { /* keep the defaults */ }
       return {
-        configured: true as const, deployed: true, status, sold: Number(sold), kinds, ticketPrice: nano(await m.getPrice(15n)),
+        configured: true as const, deployed: true, status, sold: Number(v.sold), kinds, ticketPrice: nano(v.ticket),
         itemFees,
-        mystery: { poolSize: Number(myst.poolSize), ticketsSold: Number(myst.ticketsSold), revealed: myst.revealed, revealAt: Number(myst.revealAt) },
+        mystery: { poolSize: Number(v.pool), ticketsSold: Number(v.tickets), revealed: v.revealed, revealAt: Number(v.revealAt) },
         minter: a.minter.address.toString({ bounceable: true }), collection: a.collection.address.toString({ bounceable: true }),
       };
     } catch {
