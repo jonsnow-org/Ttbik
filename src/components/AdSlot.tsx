@@ -13,8 +13,17 @@ const HAS_CODE: Record<string, boolean> = {
   "footer-banner": true,
 };
 
-export default async function AdSlot({ position, label }: { position: keyof typeof HAS_CODE; label: string }) {
-  const isOwner = await isOwnerServer();
+export default async function AdSlot({
+  position,
+  label,
+  isOwner: isOwnerProp,
+}: {
+  position: keyof typeof HAS_CODE;
+  label: string;
+  /** Optional: skip a cookies() round-trip when the parent already resolved owner. */
+  isOwner?: boolean;
+}) {
+  const isOwner = isOwnerProp ?? (await isOwnerServer());
 
   if (HAS_CODE[position]) {
     // Owner navigates the site ad-free (real complaint: live ads were
