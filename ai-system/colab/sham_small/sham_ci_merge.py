@@ -197,6 +197,11 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
 
 def main():
     res = run()
+    try:   # real-source soak of the endless text pipeline on this (small, 7 GB) runner: evidence before CPU sessions may use it
+        import sham_pipeline_soak
+        res["soak"] = sham_pipeline_soak.soak(float(os.environ.get("SHAM_SOAK_SECONDS", "420")))
+    except Exception as exc:
+        print(f"soak: {exc}")
     try:
         from telegram_report import send_telegram_message
         send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), res["report"][:4000])
