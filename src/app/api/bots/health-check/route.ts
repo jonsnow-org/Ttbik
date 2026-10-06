@@ -11,6 +11,8 @@ import { NextRequest, NextResponse } from "next/server";
 // to a channel or bot (owner-analysis idea, 2026-09-16: "فاحص صحة
 // البوتات والقنوات").
 export const dynamic = "force-dynamic";
+/** Many parallel Telegram probes; wall-clock ~TG_MS + photos. */
+export const maxDuration = 30;
 
 function extractToken(raw: string): string {
   const trimmed = raw.trim();
