@@ -3,6 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -29,6 +30,8 @@ export default function EventsHubPage() {
   const featured = EVENT_ITEMS[0];
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHubNav active="events" />
+
       <EditorialHero
         crumbs={[{ href: "/", label: "الرئيسة" }, { label: "أحداث" }]}
         title="أحداث عالمية"
