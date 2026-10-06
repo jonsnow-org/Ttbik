@@ -7,6 +7,7 @@ import {
 } from "@/lib/templateTablesReady";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 20;
 
 /**
  * GET /api/bots/template-ready
