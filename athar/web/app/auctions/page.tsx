@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Top, KindBadge, ton, useApi, useSend } from "@/components/ui";
+import { Top, KindBadge, ton, useApi, useSend, WalletTip } from "@/components/ui";
 import { ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { bidMsg, settleMsg, short } from "@/lib/tx";
@@ -31,6 +31,7 @@ function Card({ a, minter, onDone }: { a: A; minter?: string; onDone: () => void
         <div className="gap" style={{ marginTop: 10 }}>
           <input type="number" step="0.1" min={min} value={bid} onChange={(e) => setBid(e.target.value)} />
           <button className="btn gold" disabled={busy || Number(bid) < min} onClick={async () => { if (minter && (await send([bidMsg(minter, a.id, Number(bid))], t("auc.sentB")))) onDone(); }}>{t("auc.bid")}</button>
+          <WalletTip />
           <p className="muted">{t("auc.bidNote")}</p>
         </div>
       ) : (

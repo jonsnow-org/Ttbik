@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Bar, Top, ton, useApi, useSend } from "@/components/ui";
+import { Bar, Top, ton, useApi, useSend, WalletTip } from "@/components/ui";
 import { ymd } from "@/lib/dates";
 import { dateOf } from "@/lib/kinds";
 import { useI18n } from "@/lib/i18n";
@@ -34,6 +34,7 @@ export default function Mystery() {
         <div className="big">{ton(s?.ticketPrice)}</div>
         <p className="muted">{t("mys.pnote")}</p>
         <button className="btn gold" disabled={!open || busy} onClick={async () => { if (s?.minter && s.ticketPrice && (await send([ticketMsg(s.minter, s.ticketPrice)], t("mys.sentT")))) reload(); }}>{open ? t("mys.buy") : my?.revealed ? t("mys.revealed") : t("mys.na")}</button>
+        <WalletTip />
         {my && my.poolSize > 0 && <div style={{ marginTop: 14 }}><Bar value={my.ticketsSold / my.poolSize} /><p className="muted">{t("mys.tickets", { a: my.ticketsSold, b: my.poolSize })}</p></div>}
         {my && my.poolSize > 0 && !my.revealed && <p className="note">{t("mys.revealIn")} <b>{cd.text}</b></p>}
       </div>

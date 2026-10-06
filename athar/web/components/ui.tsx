@@ -53,6 +53,12 @@ export function ToastHost({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** The note shown under every button that opens the wallet to pay. */
+export function WalletTip() {
+  const { t } = useI18n();
+  return <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>{t("ui.walletTip")}</p>;
+}
+
 /** Send one wallet request: opens the wallet to confirm and pay. Returns true if the user approved. */
 export function useSend() {
   const [ui] = useTonConnectUI();

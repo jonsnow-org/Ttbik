@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Address } from "@ton/core";
-import { Top, KindBadge, ton, useApi, useSend } from "@/components/ui";
+import { Top, KindBadge, ton, useApi, useSend, WalletTip } from "@/components/ui";
 import { indexOf, TOTAL_DATES, ymd } from "@/lib/dates";
 import { eventEnOf } from "@/lib/specialNames";
 import { useI18n } from "@/lib/i18n";
@@ -143,6 +143,7 @@ export default function DatePage() {
                   {gift && <input type="text" dir="ltr" placeholder={t("gift.ph")} value={to} onChange={(e) => setTo(e.target.value)} />}
                   {gift && to && !toOk && <span className="bad">{t("gift.bad")}</span>}
                   <button className="btn gold" disabled={busy || storing || !season?.deployed || season.status !== 1 || soldOut || price == null || (gift && !toOk)} onClick={buy}>{season?.status !== 1 ? t("date.notStarted") : soldOut ? t("kind.soldout") : gift ? t("gift.buy") : t("date.buy")}</button>
+                  <WalletTip />
                 </div>
               </>
             )}
