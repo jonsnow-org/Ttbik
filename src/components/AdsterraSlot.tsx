@@ -9,26 +9,19 @@ const KEY_728x90 = "4f06d38f318a4c96638f8e2289f8ca0c";
 
 /**
  * Renders the right Adsterra unit for a given AdSlot position.
- * header-banner/footer-banner are responsive: a slim 320x50 on mobile
- * (most of this site's traffic — shared Telegram/WhatsApp links open on
- * phones) and the wider 728x90 from `sm:` up, so a fixed 728px-wide
- * iframe never overflows a ~360-400px mobile viewport. in-content uses
- * the 300x250 rectangle — Adsterra's highest-demand size, and safe to
- * repeat on pages that place two in-content slots (each AdsterraBanner is
- * its own isolated iframe, so there's no id collision like the Native
- * Banner has — see AdsterraNative.tsx).
+ * Fixed min-heights reserve layout space before the iframe paints (CLS).
  */
 export default function AdsterraSlot({ position }: { position: "header-banner" | "in-content" | "footer-banner" }) {
   if (position === "in-content") {
     return (
-      <div className="flex justify-center">
+      <div className="flex min-h-[250px] items-center justify-center">
         <AdsterraBanner adKey={KEY_300x250} width={300} height={250} />
       </div>
     );
   }
 
   return (
-    <div className="flex justify-center">
+    <div className="flex min-h-[50px] justify-center sm:min-h-[90px]">
       <div className="sm:hidden">
         <AdsterraBanner adKey={KEY_320x50} width={320} height={50} />
       </div>
