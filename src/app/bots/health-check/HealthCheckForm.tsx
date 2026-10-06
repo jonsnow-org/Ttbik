@@ -1,1 +1,80 @@
-InVzZSBjbGllbnQiOwoKaW1wb3J0IHsgdXNlU3RhdGUgfSBmcm9tICJyZWFjdCI7CmltcG9ydCBTZWN0aW9uQmFja2Ryb3AgZnJvbSAiQC9jb21wb25lbnRzL1NlY3Rpb25CYWNrZHJvcCI7Cgpjb25zdCBUT0tFTl9SRSA9IC9eXGR7NiwxMn06W0EtWmEtejAtOV8tXXszMCx9JC87Cgp0eXBlIEJvdENvbW1hbmQgPSB7IGNvbW1hbmQ6IHN0cmluZzsgZGVzY3JpcHRpb246IHN0cmluZyB9Owp0eXBlIE1lbnVCdXR0b24gPSB7IHR5cGU/OiBzdHJpbmc7IHRleHQ/OiBzdHJpbmc7IHdlYkFwcFVybD86IHN0cmluZyB9Owp0eXBlIFJlc3VsdCA9IHsKICBib3Q/OiB7CiAgICBpZD86IG51bWJlcjsKICAgIHVzZXJuYW1lOiBzdHJpbmc7CiAgICBmaXJzdE5hbWU6IHN0cmluZzsKICAgIGJvdEZhdGhlck5hbWU/OiBzdHJpbmc7CiAgICBib3RGYXRoZXJOYW1lQXI/OiBzdHJpbmc7CiAgICBjYW5Kb2luR3JvdXBzOiBib29sZWFuOwogICAgY2FuUmVhZEFsbEdyb3VwTWVzc2FnZXM6IGJvb2xlYW47CiAgICBzdXBwb3J0c0lubGluZVF1ZXJpZXM/OiBib29sZWFuOwogICAgaGFzTWFpbldlYkFwcD86IGJvb2xlYW47CiAgICBjYW5Db25uZWN0VG9CdXNpbmVzcz86IGJvb2xlYW47CiAgICBhZGRlZFRvQXR0YWNobWVudE1lbnU/OiBib29sZWFuOwogICAgcHJvZmlsZVBob3RvQ291bnQ/OiBudW1iZXI7CiAgICBjb21tYW5kcz86IEJvdENvbW1hbmRbXTsKICAgIGNvbW1hbmRzQXI/OiBCb3RDb21tYW5kW107CiAgICBjb21tYW5kc1ByaXZhdGU/OiBCb3RDb21tYW5kW107CiAgICBjb21tYW5kc0dyb3Vwcz86IEJvdENvbW1hbmRbXTsKICAgIGNvbW1hbmRzQWRtaW5zPzogQm90Q29tbWFuZFtdOwogICAgZGVzY3JpcHRpb24/OiBzdHJpbmc7CiAgICBzaG9ydERlc2NyaXB0aW9uPzogc3RyaW5nOwogICAgZGVzY3JpcHRpb25Bcj86IHN0cmluZzsKICAgIHNob3J0RGVzY3JpcHRpb25Bcj86IHN0cmluZzsKICAgIG1lbnVCdXR0b24/OiBNZW51QnV0dG9uOwogICAgZ3JvdXBBZG1pblJpZ2h0cz86IFJlY29yZDxzdHJpbmcsIGJvb2xlYW4+OwogICAgY2hhbm5lbEFkbWluUmlnaHRzPzogUmVjb3JkPHN0cmluZywgYm9vbGVhbj47CiAgfTsKICB3ZWJob29rPzogewogICAgdXJsOiBzdHJpbmcgfCBudWxsOwogICAgcGVuZGluZ1VwZGF0ZUNvdW50OiBudW1iZXI7CiAgICBsYXN0RXJyb3JNZXNzYWdlOiBzdHJpbmcgfCBudWxsOwogICAgbGFzdEVycm9yRGF0ZT86IHN0cmluZyB8IG51bGw7CiAgICBsYXN0U3luY0Vycm9yRGF0ZT86IHN0cmluZyB8IG51bGw7CiAgICBwb3J0PzogbnVtYmVyIHwgbnVsbDsKICAgIHBvcnRBbGxvd2VkPzogYm9vbGVhbjsKICAgIG1heENvbm5lY3Rpb25zPzogbnVtYmVyIHwgbnVsbDsKICAgIGlzSHR0cHM/OiBib29sZWFuOwogICAgaG9zdElzSXA/OiBib29sZWFuOwogICAgaG9zdElzUHJpdmF0ZT86IGJvb2xlYW47CiAgICB0b2tlbkVtYmVkZGVkSW5Vcmw/OiBib29sZWFuOwogICAgaGFzQ3VzdG9tQ2VydGlmaWNhdGU/OiBib29sZWFuOwogICAgaG9zdD86IHN0cmluZyB8IG51bGw7CiAgICBpcEFkZHJlc3M/OiBzdHJpbmcgfCBudWxsOwogICAgYWxsb3dlZFVwZGF0ZXM/OiBzdHJpbmdbXTsKICB9OwogIGVycm9yPzogc3RyaW5nOwp9OwoKZnVuY3Rpb24gcmlnaHRzVHJ1ZShyaWdodHM/OiBSZWNvcmQ8c3RyaW5nLCBib29sZWFuPik6IHN0cmluZ1tdIHsKICBpZiAoIXJpZ2h0cykgcmV0dXJuIFtdOwogIHJldHVybiBPYmplY3QuZW50cmllcyhyaWdodHMpCiAgICAuZmlsdGVyKChbLCB2XSkgPT4gdikKICAgIC5tYXAoKFtrXSkgPT4gayk7Cn0KCmZ1bmN0aW9uIG5hbWVzRGlmZmVyKGE/OiBzdHJpbmcsIGI/OiBzdHJpbmcpOiBib29sZWFuIHsKICBjb25zdCB4ID0gKGEgPz8gIiIpLnRyaW0oKS50b0xvd2VyQ2FzZSgpOwogIGNvbnN0IHkgPSAoYiA/PyAiIikudHJpbSgpLnRvTG93ZXJDYXNlKCk7CiAgcmV0dXJuIEJvb2xlYW4oeCAmJiB5ICYmIHggIT09IHkpOwp9CgpmdW5jdGlvbiBtYXNrV2ViaG9va1VybCh1cmw/OiBzdHJpbmcgfCBudWxsKTogc3RyaW5nIHwgbnVsbCB7CiAgaWYgKCF1cmwpIHJldHVybiBudWxsOwogIHRyeSB7CiAgICBjb25zdCB1ID0gbmV3IFVSTCh1cmwpOwogICAgY29uc3QgcGF0aCA9IHUucGF0aG5hbWUucmVwbGFjZSgvXGR7NiwxMn06W0EtWmEtejAtOV8tXXsyMCx9L2csICJbdG9rZW5dIik7CiAgICByZXR1cm4gYCR7dS5vcmlnaW59JHtwYXRofSR7dS5zZWFyY2ggPyAiP+KApiIgOiAiIn1gOwogIH0gY2F0Y2ggewogICAgcmV0dXJuIHVybC5yZXBsYWNlKC9cZHs2LDEyfTpbQS1aYS16MC05Xy1dezIwLH0vZywgIlt0b2tlbl0iKS5zbGljZSgwLCA4MCk7CiAgfQp9Cg==
+"use client";
+
+import { useState } from "react";
+import SectionBackdrop from "@/components/SectionBackdrop";
+
+const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
+
+type BotCommand = { command: string; description: string };
+type MenuButton = { type?: string; text?: string; webAppUrl?: string };
+type Result = {
+  bot?: {
+    id?: number;
+    username: string;
+    firstName: string;
+    botFatherName?: string;
+    botFatherNameAr?: string;
+    canJoinGroups: boolean;
+    canReadAllGroupMessages: boolean;
+    supportsInlineQueries?: boolean;
+    hasMainWebApp?: boolean;
+    canConnectToBusiness?: boolean;
+    addedToAttachmentMenu?: boolean;
+    profilePhotoCount?: number;
+    commands?: BotCommand[];
+    commandsAr?: BotCommand[];
+    commandsPrivate?: BotCommand[];
+    commandsGroups?: BotCommand[];
+    commandsAdmins?: BotCommand[];
+    description?: string;
+    shortDescription?: string;
+    descriptionAr?: string;
+    shortDescriptionAr?: string;
+    menuButton?: MenuButton;
+    groupAdminRights?: Record<string, boolean>;
+    channelAdminRights?: Record<string, boolean>;
+  };
+  webhook?: {
+    url: string | null;
+    pendingUpdateCount: number;
+    lastErrorMessage: string | null;
+    lastErrorDate?: string | null;
+    lastSyncErrorDate?: string | null;
+    port?: number | null;
+    portAllowed?: boolean;
+    maxConnections?: number | null;
+    isHttps?: boolean;
+    hostIsIp?: boolean;
+    hostIsPrivate?: boolean;
+    tokenEmbeddedInUrl?: boolean;
+    hasCustomCertificate?: boolean;
+    host?: string | null;
+    ipAddress?: string | null;
+    allowedUpdates?: string[];
+  };
+  error?: string;
+};
+
+function rightsTrue(rights?: Record<string, boolean>): string[] {
+  if (!rights) return [];
+  return Object.entries(rights)
+    .filter(([, v]) => v)
+    .map(([k]) => k);
+}
+
+function namesDiffer(a?: string, b?: string): boolean {
+  const x = (a ?? "").trim().toLowerCase();
+  const y = (b ?? "").trim().toLowerCase();
+  return Boolean(x && y && x !== y);
+}
+
+function maskWebhookUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/\d{6,12}:[A-Za-z0-9_-]{20,}/g, "[token]");
+    return `${u.origin}${path}${u.search ? "?…" : ""}`;
+  } catch {
+    return url.replace(/\d{6,12}:[A-Za-z0-9_-]{20,}/g, "[token]").slice(0, 80);
+  }
+}
