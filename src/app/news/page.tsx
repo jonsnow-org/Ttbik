@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { latestNewsItem } from "@/lib/newsItems";
 import { LIVE_DESKS, isMajorStory, liveEmbedSrc, liveWatchUrl } from "@/lib/newsLive";
 import { clusterHeadlines, coverFor, fetchAllNews, interleaveNews, type NewsCluster, type RssItem } from "@/lib/newsRss";
@@ -69,6 +70,8 @@ export default async function NewsHubPage() {
             <li className="font-semibold text-slate-800">أخبار</li>
           </ol>
         </nav>
+
+        <EditorialHubNav active="news" />
 
         <h1 className="mb-2 text-2xl font-extrabold text-slate-900">مركز الأخبار</h1>
         <p className="mb-6 text-sm leading-7 text-slate-600">
@@ -178,7 +181,7 @@ export default async function NewsHubPage() {
           {" · "}
           <Link href="/events" className="font-bold text-indigo-800 hover:underline">الأحداث ←</Link>
           {" · "}
-          <Link href="/bots" className="font-bold text-indigo-800 hover:underline">أدوات البوتات ←</Link>
+          <Link href="/articles" className="font-bold text-indigo-800 hover:underline">المقالات ←</Link>
         </p>
         <AdSlot position="footer-banner" label="أسفل مركز الأخبار" />
       </main>
