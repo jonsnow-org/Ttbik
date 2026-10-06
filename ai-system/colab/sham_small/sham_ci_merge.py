@@ -101,7 +101,8 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
                 media = []
                 for kind, manifest in fixed.items():
                     pairs = _pairs(kind, manifest, tokenizer, itok if kind == "image" else atok)
-                    media += _examples(kind, pairs, True, tokenizer)
+                    gen, und = _examples(kind, pairs, True, tokenizer)   # returns (generation, understanding) lists, not one list
+                    media += gen + und
                 if media:
                     gate["media"] = batch_examples(media, 4)[:6]
         except Exception as exc:
