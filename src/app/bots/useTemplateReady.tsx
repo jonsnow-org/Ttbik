@@ -14,7 +14,10 @@ const LABELS: Record<GatedTemplate, string> = {
 };
 
 /** Fetch /api/bots/template-ready and expose gated <option>s + Arabic migration hints. */
-export function useTemplateReady(isOwner: boolean, setTemplate: (fn: (prev: string) => string) => void) {
+export function useTemplateReady(
+  isOwner: boolean,
+  setTemplate: (value: string | ((prev: string) => string)) => void
+) {
   const [templateReady, setTemplateReady] = useState<Partial<Record<GatedTemplate, ReadyEntry>> | null>(null);
 
   useEffect(() => {

@@ -189,11 +189,7 @@ export async function getTemplateReadyInfo(template: string): Promise<TemplateRe
 export async function getTemplatesTablesReady(
   templates: readonly string[] = TEMPLATES_NEEDING_TABLE_CHECK
 ): Promise<TemplateReadyInfo[]> {
-  const results: TemplateReadyInfo[] = [];
-  for (const template of templates) {
-    results.push(await getTemplateReadyInfo(template));
-  }
-  return results;
+  return Promise.all(templates.map((template) => getTemplateReadyInfo(template)));
 }
 
 /**
