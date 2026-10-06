@@ -88,10 +88,13 @@ export function parseFeed(xml: string, source: string): RssItem[] {
 
 /** All recent headlines from every feed, newest first, de-duplicated by link. */
 export async function fetchAllNews(): Promise<RssItem[]> {
+  // Align data cache with /news revalidate=120; tag enables /api/revalidate?tag=news-rss.
+  // Per-feed timeout keeps a hung publisher from blocking the whole hub render.
   const settled = await Promise.allSettled(
     FEEDS.map(async (f) => {
       const res = await fetch(f.url, {
-        next: { revalidate: 600 },
+        next: { revalidate: 120, tags: ["news-rss"] },
+        signal: AbortSignal.timeout(8_000),
         headers: { Accept: "application/rss+xml, application/xml, text/xml", "User-Agent": "Mozilla/5.0 (compatible; SouqToolsNews/1.0)" },
       });
       if (!res.ok) throw new Error(String(res.status));
