@@ -71,6 +71,15 @@ function isPrivateHost(hostRaw: string): boolean {
   return false;
 }
 
+
+const TG_MS = 8_000;
+
+async function tgGet(token: string, method: string): Promise<Response> {
+  return fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    signal: AbortSignal.timeout(TG_MS),
+  });
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? extractToken(body.token) : "";
@@ -98,30 +107,22 @@ export async function POST(req: NextRequest) {
       commandsGroupRes,
       commandsAdminRes,
     ] = await Promise.all([
-      fetch(`https://api.telegram.org/bot${token}/getMe`),
-      fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`),
-      fetch(`https://api.telegram.org/bot${token}/getMyCommands`),
-      fetch(`https://api.telegram.org/bot${token}/getMyCommands?language_code=ar`),
-      fetch(`https://api.telegram.org/bot${token}/getMyDescription`),
-      fetch(`https://api.telegram.org/bot${token}/getMyShortDescription`),
-      fetch(`https://api.telegram.org/bot${token}/getMyName`),
-      fetch(`https://api.telegram.org/bot${token}/getMyDescription?language_code=ar`),
-      fetch(`https://api.telegram.org/bot${token}/getMyShortDescription?language_code=ar`),
-      fetch(`https://api.telegram.org/bot${token}/getMyName?language_code=ar`),
-      fetch(`https://api.telegram.org/bot${token}/getChatMenuButton`),
-      fetch(`https://api.telegram.org/bot${token}/getMyDefaultAdministratorRights`),
-      fetch(
-        `https://api.telegram.org/bot${token}/getMyDefaultAdministratorRights?for_channels=true`,
-      ),
-      fetch(
-        `https://api.telegram.org/bot${token}/getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_private_chats" }))}`,
-      ),
-      fetch(
-        `https://api.telegram.org/bot${token}/getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_group_chats" }))}`,
-      ),
-      fetch(
-        `https://api.telegram.org/bot${token}/getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_chat_administrators" }))}`,
-      ),
+      tgGet(token, "getMe"),
+      tgGet(token, "getWebhookInfo"),
+      tgGet(token, "getMyCommands"),
+      tgGet(token, "getMyCommands?language_code=ar"),
+      tgGet(token, "getMyDescription"),
+      tgGet(token, "getMyShortDescription"),
+      tgGet(token, "getMyName"),
+      tgGet(token, "getMyDescription?language_code=ar"),
+      tgGet(token, "getMyShortDescription?language_code=ar"),
+      tgGet(token, "getMyName?language_code=ar"),
+      tgGet(token, "getChatMenuButton"),
+      tgGet(token, "getMyDefaultAdministratorRights"),
+      tgGet(token, "getMyDefaultAdministratorRights?for_channels=true"),
+      tgGet(token, `getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_private_chats" }))}`),
+      tgGet(token, `getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_group_chats" }))}`),
+      tgGet(token, `getMyCommands?scope=${encodeURIComponent(JSON.stringify({ type: "all_chat_administrators" }))}`),
     ]);
     const me = await meRes.json();
     const webhook = await webhookRes.json();
@@ -146,9 +147,7 @@ export async function POST(req: NextRequest) {
 
     let profilePhotoCount = 0;
     try {
-      const photosRes = await fetch(
-        `https://api.telegram.org/bot${token}/getUserProfilePhotos?user_id=${me.result.id}&limit=1`,
-      );
+      const photosRes = await tgGet(token, `getUserProfilePhotos?user_id=${me.result.id}&limit=1`);
       const photosJson = await photosRes.json();
       if (photosJson?.ok && typeof photosJson.result?.total_count === "number") {
         profilePhotoCount = photosJson.result.total_count;
