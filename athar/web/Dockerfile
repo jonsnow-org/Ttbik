@@ -16,6 +16,8 @@ RUN npx next build --webpack
 
 FROM node:22-alpine
 WORKDIR /app/athar/web
+# fonts for the still PNG pictures (link previews, directories): the pictures have texts
+RUN apk add --no-cache fontconfig ttf-dejavu
 ENV NODE_ENV=production PORT=3100 HOSTNAME=0.0.0.0
 COPY --from=build /app/athar/web/.next ./.next
 COPY --from=build /app/athar/web/node_modules ./node_modules

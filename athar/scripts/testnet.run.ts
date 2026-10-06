@@ -187,12 +187,117 @@ describe("testnet rehearsal", () => {
 
       // F. mystery tickets
       if (!state.ticketsDone) {
-        await alice.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
-        await bob.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
+        // idempotent, and the buyers are topped up first: a wallet that has spent its test coins on the earlier steps cannot pay for a ticket
+        for (const a of [alice, bob]) { const have = await a.balance(); if (have < 1.8) { await sendGroup([{ address: a.address.toString({ testOnly: true, bounceable: false }), amount: toNano((2.5 - have).toFixed(2)).toString() }]); await sleep(20000); } }
+        let sold = Number((await retry(() => Mn.getMysteryInfo())).ticketsSold);
+        if (sold < 1) { await alice.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]); sold++; }
+        if (sold < 2) await bob.send([ticketMsg(st.minter, Number(await retry(() => Mn.getPrice(3n))) / 1e9)]);
         state.ticketsDone = true; save();
       }
-      await ok("F: two tickets sold", async () => Number((await Mn.getMysteryInfo()).ticketsSold) === 2);
+      await ok("F: at least one ticket sold (the ticket window of this rehearsal is 20 minutes, so a late second buyer is refused by design)", async () => Number((await Mn.getMysteryInfo()).ticketsSold) >= 1);
       log("TRADE1 DONE; balances admin/alice/bob", await bal(), await alice.balance(), await bob.balance());
+      return;
+    }
+
+    if (process.env.STAGE === "v2") {        // what Edition 2 added: the owner's stock, a sale on Getgems' real sale contract, the collection's code upgrade
+      const { adminMintMsg, buyMsg } = await import("../web/lib/tx");
+      const { indexOf, ruleTier, TIER } = await import("../web/lib/dates");
+      const seasons = require("../web/lib/seasons") as any;
+      const { AtharCollection } = await import("../build/athar_AtharCollection");
+      const { AtharItem, storeTransfer } = await import("../build/athar_AtharItem");
+      const { AtharMinter } = await import("../build/athar_AtharMinter");
+      const { beginCell, contractAddress, storeStateInit } = await import("@ton/core");
+      const { compileFunc } = await import("@ton-community/func-js");
+      const cp = await import("child_process");
+      const os = await import("os");
+      const st = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+      const Mn = client.open(AtharMinter.fromAddress(Address.parse(st.minter)));
+      const Co = client.open(AtharCollection.fromAddress(Address.parse(st.collection)));
+      const itemOf = async (i: number) => client.open(AtharItem.fromAddress(await retry(() => Co.getGetNftAddressByIndex(BigInt(i)))));
+      const alice = await actor("alice");
+      const pool = new Set<number>(seasons.buildPool(seasons.SEASON_1).dates);
+      const pickFree = async (n: number, from: number) => { const out: number[] = []; for (let d = from; out.length < n && d <= seasons.SEASON_1.rangeEnd; d++) { if (pool.has(d) || ruleTier(d) !== TIER.COMMON) continue; if (!(await retry(() => Mn.getIsTaken(BigInt(d))))) out.push(d); } return out; };
+      const payoutBal = async () => Number(await retry(() => client.getBalance(payout))) / 1e9;
+      if (await bal() < 1.2) throw new Error("the admin test wallet needs more test coins for this stage");
+      if ((await alice.balance()) < 2.6) { await sendGroup([{ address: alice.address.toString({ testOnly: true, bounceable: false }), amount: toNano("3").toString() }]); await sleep(20000); }
+
+      // 1. the owner's stock: minted to the admin wallet, no sale price, the price curve does not move
+      if (!state.stockDone) {
+        const dates = await pickFree(3, indexOf(2006, 3, 1));
+        const priceBefore = await retry(() => Mn.getPrice(0n)), soldBefore = await retry(() => Mn.getSoldCount());
+        const payoutBefore = await payoutBal();
+        for (const d of dates) await sendGroup([adminMintMsg(st.minter, d)]);
+        for (const d of dates) { const it = await itemOf(d); await ok(`stock ${d} belongs to the admin wallet`, async () => (await it.getGetNftData()).ownerAddress.equals(wallet.address)); }
+        await ok("stock: the price did not move", async () => (await Mn.getPrice(0n)) === priceBefore);
+        await ok("stock: they count as sold", async () => (await Mn.getSoldCount()) === soldBefore + 3n);
+        await ok("stock: no sale money moved to the payout wallet", async () => (await payoutBal()) - payoutBefore < 0.05);
+        state.stock = dates; state.stockDone = true; save();
+      }
+
+      // 2. a sale on Getgems' own fixed-price contract (their open source, compiled here): list, transfer into it, a buyer pays
+      if (!state.saleDone) {
+        const D = path.join(__dirname, "../tests/getgems");
+        const rd = (f: string) => fs.readFileSync(path.join(D, f), "utf8");
+        const comp: any = await compileFunc({ targets: ["nft-fixprice-sale-v4r1.fc"], sources: { "nft-fixprice-sale-v4r1.fc": rd("nft-fixprice-sale-v4r1.fc"), "op-codes.fc": rd("op-codes.fc"), "imports/stdlib.fc": rd("imports/stdlib.fc") } });
+        if (comp.status !== "ok") throw new Error(comp.message);
+        const code = Cell.fromBase64(comp.codeBoc);
+        const stockItem = await itemOf(state.stock[0]);
+        const price = toNano("2");
+        const statics = beginCell().storeAddress(wallet.address).storeAddress(payout).storeUint(5000, 17).storeUint(5000, 17).storeAddress(stockItem.address).storeUint(Math.floor(Date.now() / 1000), 32).endCell();
+        const data = beginCell().storeUint(0, 1).storeAddress(wallet.address).storeAddress(null).storeCoins(price).storeUint(0, 32).storeUint(0, 64).storeRef(statics).storeDict(null).storeBit(0).endCell();
+        const init = { code, data }; const sale = state.saleAddr ? Address.parse(state.saleAddr) : contractAddress(0, init);
+        if (!state.saleAddr) {
+        const initB64 = beginCell().store(storeStateInit(init)).endCell().toBoc().toString("base64");
+        await sendGroup([{ address: sale.toString({ testOnly: true }), amount: toNano("0.05").toString(), stateInit: initB64, payload: beginCell().storeUint(0x664c0905, 32).storeUint(0, 64).endCell().toBoc().toString("base64") }]);
+        await waitFor("the sale contract is deployed", async () => client.isContractDeployed(sale));
+        const xfer = beginCell().store(storeTransfer({ $$type: "Transfer", queryId: 5n, newOwner: sale, responseDestination: wallet.address, customPayload: null, forwardAmount: toNano("0.1"), forwardPayload: beginCell().storeUint(0, 1).endCell().asSlice() })).endCell().toBoc().toString("base64");
+        await sendGroup([{ address: stockItem.address.toString({ testOnly: true }), amount: toNano("0.3").toString(), payload: xfer }]);
+        state.saleAddr = sale.toString(); save();
+        }
+        await ok("sale: the token is now held by the sale contract", async () => (await stockItem.getGetNftData()).ownerAddress.equals(sale));
+        await ok("sale: the sale contract knows its seller (ownership assigned)", async () => { const r = await client.runMethod(sale, "get_fix_price_data_v4"); r.stack.readBigNumber(); r.stack.readBigNumber(); r.stack.readAddress(); r.stack.readAddress(); return r.stack.readAddress().equals(wallet.address); });
+        // the message that Getgems insists on: the unused value comes back to the owner, sent by the token (read from the chain's own transaction list)
+        await ok("sale: the token sent the unused value back to its owner (Getgems' check)", async () => {
+          const r = await fetch(`https://testnet.toncenter.com/api/v2/getTransactions?address=${stockItem.address.toRawString()}&limit=10`); if (!r.ok) return false;
+          const txs = ((await r.json()).result || []) as any[];
+          const opOf = (m: any) => { try { const sl = Cell.fromBase64(m.msg_data.body).beginParse(); return sl.remainingBits >= 32 ? sl.loadUint(32) : -1; } catch { return -1; } };
+          return txs.some((t) => (t.out_msgs || []).some((m: any) => { try { return Address.parse(m.destination).equals(wallet.address) && opOf(m) === 0xd53276db; } catch { return false; } }));
+        });
+        const royaltyBefore = await payoutBal();
+        await alice.send([{ address: sale.toString({ testOnly: true }), amount: (price + toNano("0.2")).toString() }]);
+        await ok("sale: the token moved to the buyer", async () => (await stockItem.getGetNftData()).ownerAddress.equals(alice.address));
+        await ok("sale: the royalty (5%) reached the payout wallet", async () => (await payoutBal()) - royaltyBefore > 0.09);
+        state.saleDone = true; save();
+      }
+
+      // 3. the collection's code upgrade on the real network: the real source plus a version getter, proposed, waited out, applied
+      if (!state.upgradeDone) {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "athar-variant-"));
+        fs.cpSync(path.join(__dirname, "../contracts"), path.join(tmp, "contracts"), { recursive: true });
+        const f = path.join(tmp, "contracts/collection.tact");
+        fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("get fun total_minted(): Int { return self.minted; }", "get fun total_minted(): Int { return self.minted; }\n    get fun version(): Int { return 2; }"));
+        fs.writeFileSync(path.join(tmp, "tact.config.json"), JSON.stringify({ projects: [{ name: "athar", path: "./contracts/athar.tact", output: "./build", options: { debug: false } }] }));
+        cp.execSync(`${path.join(__dirname, "../node_modules/.bin/tact")} --config tact.config.json`, { cwd: tmp, stdio: "pipe" });
+        const variant = Cell.fromBoc(fs.readFileSync(path.join(tmp, "build/athar_AtharCollection.code.boc")))[0];
+        const firstItem = (await Co.getGetNftAddressByIndex(BigInt(state.stock[0]))).toString();
+        const mintedBefore = await retry(() => Co.getTotalMinted());
+        const { storeProposeCode, storeApplyCode } = await import("../build/athar_AtharCollection");
+        await sendGroup([{ address: st.collection, amount: toNano("0.1").toString(), payload: beginCell().store(storeProposeCode({ $$type: "ProposeCode", code: variant })).endCell().toBoc().toString("base64") }]);
+        await ok("upgrade: the proposal is public", async () => (await Co.getCodeProposal()).pending);
+        await ok("upgrade: its hash is readable by anyone", async () => (await Co.getPendingCodeHash()) === BigInt("0x" + variant.hash().toString("hex")));
+        const at = Number((await retry(() => Co.getCodeProposal())).applicableAt); log("  upgrade applicable at", new Date(at * 1000).toISOString());
+        while (Math.floor(Date.now() / 1000) < at + 20) await sleep(10000);
+        await sendGroup([{ address: st.collection, amount: toNano("0.1").toString(), payload: beginCell().store(storeApplyCode({ $$type: "ApplyCode" })).endCell().toBoc().toString("base64") }]);
+        await ok("upgrade: the new logic is live (version getter answers 2)", async () => { const r = await client.runMethod(Address.parse(st.collection), "version"); return r.stack.readNumber() === 2; });
+        await ok("upgrade: the address of an existing token is unchanged", async () => (await Co.getGetNftAddressByIndex(BigInt(state.stock[0]))).toString() === firstItem);
+        await ok("upgrade: the minted count is unchanged", async () => (await Co.getTotalMinted()) === mintedBefore);
+        const [d] = await pickFree(1, indexOf(2007, 1, 1)); const p0 = Number(await retry(() => Mn.getPrice(0n))) / 1e9;
+        await alice.send([buyMsg(st.minter, d, p0)]);
+        await ok("upgrade: selling still works through the upgraded collection", () => Mn.getIsTaken(BigInt(d)));
+        await ok("upgrade: the new token belongs to the buyer", async () => (await (await itemOf(d)).getGetNftData()).ownerAddress.equals(alice.address));
+        state.upgradeDone = true; save();
+      }
+      log("V2 DONE; admin balance", await bal());
       return;
     }
 

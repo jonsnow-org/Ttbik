@@ -3,13 +3,14 @@
 // the root site compiles this file too and has no "@/" alias into this folder.
 import { renderArt, renderPhotoArt } from "./art";
 import { liveArt, storedMotion } from "./live";
+import { textPaths } from "./glyphs";
 import { renderSpecialLive } from "./specialLive";
 import { TOTAL_DATES, dateLabelAr, stageOf, ymd } from "./dates";
 import { SEASON_1, seasonTier, specialIndex } from "./seasons";
 import { tokenState, isBusy } from "./chain";
 import { tokenStory } from "./meta";
 import { occasionById } from "./occasions";
-import { META_BASE, SITE_URL, viewerUrl } from "./config";
+import { BOT_URL, META_BASE, SITE_URL, viewerUrl } from "./config";
 
 const SPECIAL_DATES = new Set(SEASON_1.specials.map(specialIndex));
 const SVG = { "Content-Type": "image/svg+xml; charset=utf-8", "Cache-Control": "public, max-age=300" };
@@ -39,7 +40,7 @@ export type ImgHooks = { isHiddenRef?: (ref: string) => boolean };
 
 export async function imgResponse(idParam: string, reqUrl: string, hooks: ImgHooks = {}): Promise<Response> {
   const idRaw = idParam.replace(/\.svg$/, "");
-  if (idRaw === "hidden") return new Response(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800"><rect width="800" height="800" rx="56" fill="#0b1226"/><circle cx="400" cy="360" r="120" fill="none" stroke="#7aa2ff" stroke-width="5" opacity="0.6"/><path d="M330 360h140" stroke="#7aa2ff" stroke-width="8" stroke-linecap="round"/><text x="400" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="30" letter-spacing="6" fill="#7aa2ff">ATHAR</text></svg>`, { headers: SVG });
+  if (idRaw === "hidden") return new Response(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="800" height="800"><rect width="800" height="800" rx="56" fill="#0b1226"/><circle cx="400" cy="360" r="120" fill="none" stroke="#7aa2ff" stroke-width="5" opacity="0.6"/><path d="M330 360h140" stroke="#7aa2ff" stroke-width="8" stroke-linecap="round"/>${textPaths("ATHAR", { x: 400, y: 580, size: 30, anchor: "middle", spacing: 6, fill: "#7aa2ff" })}</svg>`, { headers: SVG });
   const q = new URL(reqUrl).searchParams;
   const index = idRaw === "collection" ? 18262 + 1000 : Number(idRaw);
   if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return new Response("bad id", { status: 400 });
@@ -64,7 +65,9 @@ export async function imgResponse(idParam: string, reqUrl: string, hooks: ImgHoo
       const svg = renderPhotoArt({ ...art, gold: sp.gold }, sp.uri, { w: sp.w, h: sp.h });
       return new Response(q.get("live") === "1" ? liveArt(svg, { stage: art.stage, tier: art.tier, anniversary: q.get("ann") === "1" }) : svg, { headers: SVG });
     }
-    if (sp && sp.raw) return new Response(sp.raw, { headers: SVG });          // not a photo picture (a drawing): shown as it was stored
+    // a drawing that is not a photo: a special date's own artwork is shown as it was stored; the saved copy of an ordinary token's generated art
+    // is not shown (it is frozen at the day of purchase, with the motion of that day): the site draws it live from the token's numbers instead
+    if (sp && sp.raw && SPECIAL_DATES.has(index)) return new Response(sp.raw, { headers: SVG });
   }
   // ?live=1 is the site's moving version (?ann=1 on the date's anniversary); without it the plain picture wallets and markets show
   const svg = q.get("live") === "1" ? liveArt(renderArt(art), { stage: art.stage, tier: art.tier, anniversary: q.get("ann") === "1" }) : renderArt(art);
@@ -102,7 +105,7 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     external_url: `${origin}/token/${index}`,
     // the picture markets show: an SVG with its motion built in (Getgems lists svg among its image formats): browsers play it, apps
     // that only draw still pictures show the first frame. A picture the owner chose is shown as it was stored.
-    image: hidden ? `${imgBase}/hidden.svg` : permanent ?? `${imgBase}/${index}.svg${q}&live=1`,
+    image: hidden ? `${imgBase}/hidden.svg` : permanent && st?.mediaRef ? `${imgBase}/${index}.svg${q}&p=${st.mediaRef}&live=1` : `${imgBase}/${index}.svg${q}&live=1`,   // always the living picture (motion, age, colours), a photo included
     // Getgems shows these as buttons on the token's page (label up to 24 characters)
     ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${index}` }, { label: "Living view", uri: livingView }] } : {}),
     attributes: [...story.attrs, { trait_type: "Name (Arabic)", value: `أثر · ${dateLabelAr(y, m, d)}` }],
@@ -110,11 +113,14 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
 }
 
 export function collectionResponse(origin = SITE_URL, imgBase = `${META_BASE}/img`): Response {
+  const range = `${ymd(SEASON_1.rangeStart).y}–${ymd(SEASON_1.rangeEnd).y}`;   // what exists now, stated as it is
   return Response.json({
     name: "Athar",
-    description: "One token for every day of the calendar (1950–2049). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (1950–2049). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.",
+    description: `One token for every day of the calendar (available now: ${range}). It remembers everyone who owned it and matures the longer it is held. By Sham AI.\n\nرمز لكل يوم في التقويم (المتاح حالياً: ${range}). يحفظ ذاكرة كل من امتلكه، ويكبر شكله بطول الاحتفاظ به. من شام AI.\n\n🛒 Buy any date directly / اشترِ أي تاريخ مباشرة: ${BOT_URL}`,
     image: `${imgBase}/collection.svg`,
+    cover_image: `${imgBase}/collection.svg`,
     external_url: origin,
-    social_links: [],
+    // markets and directories ask for the project's public channels in the metadata (up to 10 links)
+    social_links: [BOT_URL],
   });
 }

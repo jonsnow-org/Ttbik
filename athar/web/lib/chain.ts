@@ -6,16 +6,18 @@ import { AtharCollection } from "../../build/athar_AtharCollection";
 import { AtharItem } from "../../build/athar_AtharItem";
 import { AtharMinter } from "../../build/athar_AtharMinter";
 import { adminAddress, COLLECTION_URI, DELAY_SEC, TONCENTER_RPC, TONCENTER_V3 } from "./config";
+import { toncenterKey } from "./settings";
 import { SEASONS, SeasonDef, seasonTier, specialIndex, buildPool } from "./seasons";
 
-const GAP = process.env.TONCENTER_API_KEY ? 120 : 1100;
+// the pause between calls to the public node: short with a (free) API key, about a second without
+const gapMs = () => (toncenterKey() ? 120 : 1100);
 // Every call to the node, however many a page makes at once, goes through one gate: spaced out, and retried when the free
 // public API answers "too many requests" (found on the test network: a burst of reads made the whole app look undeployed).
 let gate: Promise<void> = Promise.resolve();
 async function throttled<T>(fn: () => Promise<T>): Promise<T> {
   let last: unknown;
   for (let i = 0; i < 6; i++) {
-    const turn = gate.then(() => new Promise<void>((r) => setTimeout(r, GAP)));
+    const turn = gate.then(() => new Promise<void>((r) => setTimeout(r, gapMs())));
     gate = turn.catch(() => undefined);
     await turn;
     try { return await fn(); } catch (e: any) {
@@ -34,14 +36,23 @@ export class PacedClient extends TonClient {
   getContractState(...a: Parameters<TonClient["getContractState"]>) { return throttled(() => super.getContractState(...a)); }
   getBalance(...a: Parameters<TonClient["getBalance"]>) { return throttled(() => super.getBalance(...a)); }
 }
-export const makeClient = () => new PacedClient({ endpoint: TONCENTER_RPC, apiKey: process.env.TONCENTER_API_KEY });
-const client = makeClient();
+export const makeClient = () => new PacedClient({ endpoint: TONCENTER_RPC, apiKey: toncenterKey() || undefined });
+// the shared client follows the key: when the owner saves or removes it in the panel, the next call already uses the new one
+let shared: PacedClient | null = null, sharedKey = "";
+const client = new Proxy({} as PacedClient, {
+  get: (_t, prop) => {
+    const k = toncenterKey();
+    if (!shared || k !== sharedKey) { shared = makeClient(); sharedKey = k; }
+    const v = (shared as any)[prop];
+    return typeof v === "function" ? v.bind(shared) : v;
+  },
+});
 const cache = new Map<string, { at: number; v: unknown }>();
 let chain: Promise<unknown> = Promise.resolve();
 
 async function paced<T>(fn: () => Promise<T>): Promise<T> {
   const run = chain.then(() => fn());
-  chain = run.then(() => new Promise((r) => setTimeout(r, GAP)), () => new Promise((r) => setTimeout(r, GAP)));
+  chain = run.then(() => new Promise((r) => setTimeout(r, gapMs())), () => new Promise((r) => setTimeout(r, gapMs())));
   return run;
 }
 // Same question asked by many visitors at once is asked of the node once; when the queue to the node is long, an older answer is
@@ -49,7 +60,7 @@ async function paced<T>(fn: () => Promise<T>): Promise<T> {
 // crowd, or a script walking through every date, can slow the pages down but never lock the site.
 const inflight = new Map<string, Promise<unknown>>();
 let waiting = 0;
-const BUSY_SERVE_STALE = 10, BUSY_REFUSE = 60;
+const BUSY_SERVE_STALE = 10, BUSY_REFUSE = 24;   // with the public node at about one call a second, a longer queue only means waiting minutes: refuse early, the caller retries
 export async function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.v as T;
@@ -205,7 +216,7 @@ export async function tokensOf(owner: string) {
   if (!a) return [];
   return cached(`mine:${owner}`, 10000, async () => {
     const url = `${TONCENTER_V3}/nft/items?owner_address=${encodeURIComponent(owner)}&collection_address=${encodeURIComponent(a.collection.address.toString())}&limit=200`;
-    const r = await fetch(url, { headers: process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {}, cache: "no-store" });
+    const r = await fetch(url, { headers: toncenterKey() ? { "X-API-Key": toncenterKey() } : {}, cache: "no-store" });
     if (!r.ok) return [] as number[];
     const j = await r.json();
     return (j.nft_items || []).map((x: { index: string }) => Number(x.index)).filter((n: number) => Number.isFinite(n)) as number[];
@@ -220,7 +231,7 @@ export async function allTokens(): Promise<{ index: number; owner: string }[]> {
     const out: { index: number; owner: string }[] = [];
     for (let offset = 0; offset < 40000; offset += 1000) {
       const url = `${TONCENTER_V3}/nft/items?collection_address=${encodeURIComponent(a.collection.address.toString())}&limit=1000&offset=${offset}`;
-      const r = await fetch(url, { headers: process.env.TONCENTER_API_KEY ? { "X-API-Key": process.env.TONCENTER_API_KEY } : {}, cache: "no-store" });
+      const r = await fetch(url, { headers: toncenterKey() ? { "X-API-Key": toncenterKey() } : {}, cache: "no-store" });
       if (!r.ok) break;
       const items = ((await r.json()).nft_items || []) as { index: string; owner_address?: string }[];
       for (const x of items) { const n = Number(x.index); if (Number.isFinite(n)) out.push({ index: n, owner: String(x.owner_address || "") }); }
