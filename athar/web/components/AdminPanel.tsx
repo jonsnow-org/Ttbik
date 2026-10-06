@@ -5,12 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ToastHost, useToast } from "@/components/ui";
 import { applyBaseUriMsg, proposeBaseUriMsg, repriceMsg, setItemFeesMsg, setPhotoFeesMsg, auctionMsgs, chunk, commitOf, launchSteps, newSecret, pauseMsg, revealMsg, specialAuctionMsg, sweepMsg } from "@/lib/launch";
 import { buildPool, SEASON_1, seasonSize, specialIndex } from "@/lib/seasons";
-import { compressPhoto } from "@/lib/photo";
+import { compressPhoto, fillSquare } from "@/lib/photo";
 import { waxPhoto } from "@/lib/wax";
 import { ymd } from "@/lib/dates";
 import { SITE_URL } from "@/lib/config";
 import { ruleTier } from "@/lib/dates";
-import { buyMsg, tx } from "@/lib/tx";
+import { adminMintMsg, ADMIN_MINT_VALUE, buyMsg, tx } from "@/lib/tx";
+import { planBatches } from "@/lib/bulk";
 
 type St = { siteUrl: string; envAdmin: string; collection: string; minter: string; collectionActive: boolean; minterActive: boolean; balance: number | null; payout?: string | null; minted?: number; status?: number; soldCount?: number; priceCommon?: number; priceRare?: number; poolSize?: number; poolLoaded?: number; ticketsSold?: number; revealed?: boolean; revealAt?: number; commitSet?: boolean };
 const KEY = "athar_secret_s1";
@@ -22,6 +23,7 @@ export default function AdminPanel() {
   const toast = useToast();
   useEffect(() => { document.body.dataset.admin = "1"; return () => { delete document.body.dataset.admin; }; }, []);
   const [st, setSt] = useState<St | null>(null);
+  const [oldMinter, setOldMinter] = useState("EQAE52zCPwprWBpNuKXgzjRIB6MyO86df3N1NdWgCQGIESZ5");   // the seller of the first (test) deployment, kept only to be switched off
   const [payout, setPayout] = useState(() => { try { return localStorage.getItem("athar_payout") || ""; } catch { return ""; } });   // survives a reload or a reconnect
   useEffect(() => { try { localStorage.setItem("athar_payout", payout); } catch { /* private mode */ } }, [payout]);
   type Ov = { deployed?: boolean; minted?: number; size?: number; byTier?: number[]; holders?: number; top?: { owner: string; tokens: number }[]; revenue?: number; salesToday?: number; recent?: { at: number; ton: number }[]; revenueNote?: string; payout?: string; mine?: number[] };
@@ -44,6 +46,19 @@ export default function AdminPanel() {
     const r = await fetch("/api/admin/hide", { method: "POST", headers: adm(), body: JSON.stringify({ kind, key, note: hNote, action }) });
     if (r.ok) { setHiddenRows((await r.json()).rows); if (action === "hide") { setHKey(""); setHNote(""); } } else toast("مفتاح غير صالح");
   }
+  // the free Toncenter key (write-only: the panel only learns where it comes from and its last four characters)
+  const [tk, setTk] = useState<{ source: string; hint: string } | null>(null), [tkIn, setTkIn] = useState(""), [tkBusy, setTkBusy] = useState(false);
+  const loadTk = useCallback(async () => { const r = await fetch("/api/admin/settings", { headers: adm(), cache: "no-store" }); if (r.ok) setTk(await r.json()); }, []);
+  useEffect(() => { loadTk(); }, [loadTk]);
+  async function tkAct(clear = false) {
+    setTkBusy(true);
+    try {
+      const r = await fetch("/api/admin/settings", { method: "POST", headers: adm(), body: JSON.stringify(clear ? { clear: true } : { key: tkIn }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(j.error === "key refused by Toncenter" ? "رفضت Toncenter هذا المفتاح، تأكد من نسخه كاملاً" : "المفتاح غير صالح"); return; }
+      setTk(j); setTkIn(""); toast(clear ? "أُزيل المفتاح" : "حُفظ المفتاح وبدأ العمل");
+    } finally { setTkBusy(false); }
+  }
   // special (gold) dates: the admin picks the picture, it gets the waxed-gold treatment, is shown for approval, stored for good,
   // and only then is the long auction started with that picture attached
   const [newBase, setNewBase] = useState("");
@@ -63,7 +78,8 @@ export default function AdminPanel() {
     setSpBusy(true); setSpSvg("");
     try {
       const r = await compressPhoto(f);
-      const gold = r ? await waxPhoto(r.uri, "gold") : null;
+      const sq = r ? await fillSquare(r.uri) : null;          // the person fills the circle (empty bars cut, the frame can be moved later)
+      const gold = sq ? await waxPhoto(sq.uri, "gold") : null;
       if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
       setSpPhoto(gold);
       const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ index: spIdx, photo: gold, preview: true }) });
@@ -98,6 +114,28 @@ export default function AdminPanel() {
     await ui.sendTransaction(tx([specialAuctionMsg(st!.minter, SEASON_1, spIdx, BigInt(j.ref), spReserve, Number(spDays))]));
     setSpPhoto(null); setSpSvg("");
   });
+  // The owner's own stock: many dates minted to his wallet in a few confirmations, to be put on sale on a market (no sale price is paid; only fees)
+  const [bkCount, setBkCount] = useState(10), [bkTier, setBkTier] = useState(0), [bkMode, setBkMode] = useState<"spread" | "start">("spread");
+  const [bkPlan, setBkPlan] = useState<{ dates: number[]; available: number; perToken: number; total: number; stays: number; net: number } | null>(null), [bkBusy, setBkBusy] = useState(false);
+  async function bkPropose() {
+    setBkBusy(true); setBkPlan(null);
+    try {
+      const r = await fetch(`/api/admin/bulk?count=${bkCount}&tier=${bkTier}&mode=${bkMode}`, { headers: adm(), cache: "no-store" });
+      if (!r.ok) { toast("تعذّر اقتراح التواريخ"); return; }
+      setBkPlan(await r.json());
+    } finally { setBkBusy(false); }
+  }
+  const bkMint = () => run(async () => {
+    if (!bkPlan || !st?.minter) throw new Error("no plan");
+    const batches = planBatches(bkPlan.dates, maxMsgs, BigInt(Math.floor(((st.balance ?? 0) - 0.5) * 1e9)), ADMIN_MINT_VALUE);
+    if (batches.length === 0) { toast("رصيد المحفظة لا يكفي لدفعة واحدة"); throw new Error("balance"); }
+    for (let i = 0; i < batches.length; i++) {
+      toast(`الدفعة ${i + 1} من ${batches.length}`);
+      await ui.sendTransaction(tx(batches[i].map((d) => adminMintMsg(st.minter, d))));
+      if (i < batches.length - 1) await sleep(25000);        // let the unused part of the fees come back before the next confirmation
+    }
+    setBkPlan(null);
+  });
   // The owner's own gold-wax mint: any direct-sale date, a photo given the gold-wax treatment, no picture fee (the owner pays none).
   const [gmY, setGmY] = useState(2003), [gmM, setGmM] = useState(3), [gmD, setGmD] = useState(14), [gmTo, setGmTo] = useState("");
   const [gmPhoto, setGmPhoto] = useState<string | null>(null), [gmSvg, setGmSvg] = useState(""), [gmBusy, setGmBusy] = useState(false);
@@ -111,7 +149,7 @@ export default function AdminPanel() {
     if (!f) return;
     setGmBusy(true); setGmSvg(""); setGmPhoto(null);
     try {
-      const c = await compressPhoto(f); const gold = c ? await waxPhoto(c.uri, "gold") : null;
+      const c = await compressPhoto(f); const sq = c ? await fillSquare(c.uri) : null; const gold = sq ? await waxPhoto(sq.uri, "gold") : null;
       if (!gold) { toast("تعذّر تجهيز الصورة"); return; }
       if (await gmPreview(gold)) setGmPhoto(gold);
     } catch { toast("تعذّر تجهيز الصورة"); } finally { setGmBusy(false); }
@@ -330,6 +368,31 @@ export default function AdminPanel() {
               </div>
             </div>
             <div className="card" style={{ margin: 0 }}>
+              <h4>مفتاح Toncenter (يسرّع قراءة الشبكة)</h4>
+              <div className="muted" style={{ fontSize: 12 }}>{tk?.source === "none" || !tk ? "لا يوجد مفتاح: القراءة بطيئة (طلب في الثانية). الصق المفتاح المجاني من بوت Toncenter هنا." : `المفتاح يعمل (ينتهي بـ ${tk.hint}) ${tk.source === "server" ? "· مضبوط على الخادم نفسه" : "· محفوظ من هذه اللوحة"}.`} لا يُعرض المفتاح بعد الحفظ.</div>
+              <div className="gap">
+                <input type="password" dir="ltr" autoComplete="off" placeholder="الصق مفتاح Toncenter" value={tkIn} onChange={(e) => setTkIn(e.target.value)} />
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn gold" disabled={tkBusy || tkIn.trim().length < 16} onClick={() => tkAct(false)}>احفظ المفتاح</button>
+                  {tk?.source === "panel" && <button className="btn ghost" disabled={tkBusy} onClick={() => tkAct(true)}>أزل المفتاح</button>}
+                </div>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
+              <h4>مخزوني: صكّ دفعة رموز لمحفظتي لعرضها للبيع</h4>
+              <div className="muted" style={{ fontSize: 12 }}>تصكّ التواريخ لمحفظتك دون دفع سعر البيع. تدفع مقدماً نحو 0.08 Gram للرمز، يعود منها نحو 0.04 إلى محفظتك لاحقاً (من «سحب بقايا الغاز»)، وتبقى نحو 0.03 داخل الرمز نفسه، ويُحرق نحو 0.01 أجرة شبكة. بعد الصك تعرضها للبيع دفعة واحدة من Getgems (حسابك ← تحديد متعدد ← عرض للبيع). عند كل بيع ينقص العدد المعروض هناك تلقائياً.</div>
+              <div className="gap">
+                <div className="row" style={{ gap: 8 }}>
+                  <input type="number" min={1} max={1000} value={bkCount} onChange={(e) => { setBkCount(Number(e.target.value)); setBkPlan(null); }} title="العدد" />
+                  <select value={bkTier} onChange={(e) => { setBkTier(Number(e.target.value)); setBkPlan(null); }}><option value={0}>عادي</option><option value={1}>نادر</option></select>
+                  <select value={bkMode} onChange={(e) => { setBkMode(e.target.value as "spread" | "start"); setBkPlan(null); }}><option value="spread">موزّعة على كل المدى</option><option value="start">من بداية الموسم</option></select>
+                </div>
+                <button className="btn ghost" disabled={running || bkBusy} onClick={bkPropose}>اقترح التواريخ وأظهر التكلفة</button>
+                {bkPlan && <div className="muted" style={{ fontSize: 13 }}>{bkPlan.dates.length} رمز (المتاح {bkPlan.available}). تدفع مقدماً ≈ {bkPlan.total} Gram، والتكلفة الفعلية بعد استرجاع البقايا ≈ {bkPlan.net} Gram (منها ≈ {bkPlan.stays} تبقى داخل الرموز). رصيدك {st?.balance != null ? st.balance.toFixed(2) : "—"} Gram.</div>}
+                <button className="btn gold" disabled={running || bkBusy || !bkPlan || bkPlan.dates.length === 0} onClick={bkMint}>صكّ الآن</button>
+              </div>
+            </div>
+            <div className="card" style={{ margin: 0 }}>
               <h4>صكّ رمز بصورة ذهبية شمعية (لشخصية مشهورة مثلاً)</h4>
               <div className="muted" style={{ fontSize: 12 }}>أي تاريخ للبيع المباشر. أنت لا تدفع رسم الصورة. تُدمج الصورة بالذهبي الشمعي وتبقى زخرفة التاريخ شارة صغيرة. للتواريخ الأسطورية والخاصة استخدم المزاد أعلاه بسعر مرتفع.</div>
               <div className="gap">
@@ -343,6 +406,12 @@ export default function AdminPanel() {
                 {gmSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(gmSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <button className="btn gold" disabled={running || gmBusy || !gmPhoto} onClick={gmMint}>خزّن الصورة واصكّ الرمز</button>
               </div>
+            </div>
+            <div className="card" style={{ margin: "10px 0" }}>
+              <h4 style={{ margin: "0 0 6px" }}>إيقاف البائع القديم</h4>
+              <p className="muted" style={{ margin: "0 0 8px" }}>يوقف البيع في بائع النشر التجريبي الأول فقط (لا علاقة له بالبائع الحالي). يُرسَل من حساب الإدارة نفسه.</p>
+              <input type="text" dir="ltr" value={oldMinter} onChange={(e) => setOldMinter(e.target.value.trim())} style={{ width: "100%", marginBottom: 8 }} />
+              <button className="btn ghost" disabled={running || !oldMinter || oldMinter === st.minter} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(oldMinter, true)])); })}>أوقف البائع القديم</button>
             </div>
             <button className="btn ghost" disabled={running} onClick={() => run(async () => { await ui.sendTransaction(tx([pauseMsg(st.minter, st.status === 1)])); })}>{st.status === 1 ? "أوقف البيع مؤقتاً" : "استأنف البيع"}</button>
             <button className="btn gold" disabled={running || !secretLocal || (st.revealAt ?? 0) * 1000 > Date.now() || !!st.revealed} onClick={() => run(async () => { await ui.sendTransaction(tx([revealMsg(st.minter, BigInt("0x" + secretLocal!))])); })}>

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { renderPhotoArt } from "@/lib/art";
-import { badgeMotion } from "@/lib/live";
+import { liveArt } from "@/lib/live";
 import { TOTAL_DATES } from "@/lib/dates";
 import { SEASON_1, seasonTier } from "@/lib/seasons";
 import { MAX_BYTES, storeNow } from "@/lib/storage";
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   const buf = Buffer.from(m[1], "base64");
   const dims = imageSize(buf);
   if (!dims) return NextResponse.json({ error: "not a valid image" }, { status: 400 });
-  const svg = badgeMotion(renderPhotoArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion, gold: true }, `data:image/jpeg;base64,${m[1]}`, dims));
+  const svg = liveArt(renderPhotoArt({ index, tier: seasonTier(SEASON_1, index), season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion, gold: true }, `data:image/jpeg;base64,${m[1]}`, dims), { stage: 0, tier: 2 });
   if (Buffer.byteLength(svg) > MAX_BYTES) return NextResponse.json({ error: `picture too large (${Math.round(Buffer.byteLength(svg) / 1024)} KB), choose a smaller photo` }, { status: 413 });
   if (preview) return NextResponse.json({ svg });
   try {

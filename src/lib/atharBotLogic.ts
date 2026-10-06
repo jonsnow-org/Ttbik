@@ -20,7 +20,7 @@ export const LANGS = [
 type Lang = (typeof LANGS)[number]["code"];
 const isLang = (x: string): x is Lang => LANGS.some((l) => l.code === x);
 
-type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; language: string; pick: string; changed: string; help: string };
+type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; language: string; pick: string; changed: string; help: string; join: string; joined: string; back: string };
 const T: Record<Lang, Text> = {
   en: {
     welcome:
@@ -32,6 +32,7 @@ const T: Record<Lang, Text> = {
       "ℹ️ Tokens are for memory and collecting. No profit or price increase is promised.",
     open: "🕰 Open Athar", mystery: "🎁 Mystery boxes", auctions: "🔨 Auctions", mine: "🖼 My tokens", board: "🗓 Calendar board", language: "🌐 Language",
     pick: "Choose your language:", changed: "Language changed.", help: "Tap “Open Athar” to start.",
+    join: "📢 Please join our channel first, then tap “✅ I joined”:", joined: "✅ I joined", back: "⬅️ Back",
   },
   ar: {
     welcome:
@@ -43,6 +44,7 @@ const T: Record<Lang, Text> = {
       "ℹ️ الرموز للذكرى والاقتناء، ولا وعد بأي ربح أو ارتفاع سعر.",
     open: "🕰 فتح أثر", mystery: "🎁 صندوق الغموض", auctions: "🔨 المزادات", mine: "🖼 رموزي", board: "🗓 لوحة التقويم", language: "🌐 اللغة",
     pick: "اختر لغتك:", changed: "تم تغيير اللغة.", help: "اضغط «فتح أثر» للبدء.",
+    join: "📢 انضم إلى قناتنا أولاً ثم اضغط «✅ انضممت»:", joined: "✅ انضممت", back: "⬅️ رجوع",
   },
   ru: {
     welcome:
@@ -54,6 +56,7 @@ const T: Record<Lang, Text> = {
       "ℹ️ Токены — для памяти и коллекции. Прибыль и рост цены не обещаются.",
     open: "🕰 Открыть Athar", mystery: "🎁 Мистери-боксы", auctions: "🔨 Аукционы", mine: "🖼 Мои токены", board: "🗓 Календарная доска", language: "🌐 Язык",
     pick: "Выберите язык:", changed: "Язык изменён.", help: "Нажмите «Открыть Athar», чтобы начать.",
+    join: "📢 Сначала подпишитесь на наш канал, затем нажмите «✅ Я подписался»:", joined: "✅ Я подписался", back: "⬅️ Назад",
   },
   tr: {
     welcome:
@@ -65,6 +68,7 @@ const T: Record<Lang, Text> = {
       "ℹ️ Tokenlar anı ve koleksiyon içindir. Kâr veya fiyat artışı vaat edilmez.",
     open: "🕰 Athar'ı aç", mystery: "🎁 Gizem kutuları", auctions: "🔨 Müzayedeler", mine: "🖼 Tokenlarım", board: "🗓 Takvim panosu", language: "🌐 Dil",
     pick: "Dilini seç:", changed: "Dil değiştirildi.", help: "Başlamak için “Athar'ı aç”a dokun.",
+    join: "📢 Önce kanalımıza katıl, sonra “✅ Katıldım”a dokun:", joined: "✅ Katıldım", back: "⬅️ Geri",
   },
   fa: {
     welcome:
@@ -76,6 +80,7 @@ const T: Record<Lang, Text> = {
       "ℹ️ توکن‌ها برای یادگاری و کلکسیون‌اند. هیچ سود یا افزایش قیمتی وعده داده نمی‌شود.",
     open: "🕰 باز کردن اثر", mystery: "🎁 جعبه‌های اسرار", auctions: "🔨 حراج‌ها", mine: "🖼 توکن‌های من", board: "🗓 تابلوی تقویم", language: "🌐 زبان",
     pick: "زبان خود را انتخاب کنید:", changed: "زبان تغییر کرد.", help: "برای شروع «باز کردن اثر» را بزنید.",
+    join: "📢 ابتدا در کانال ما عضو شوید، سپس «✅ عضو شدم» را بزنید:", joined: "✅ عضو شدم", back: "⬅️ بازگشت",
   },
 };
 
@@ -87,16 +92,27 @@ const isOwner = (botRow: BotRow, tgId: string) => !!tgId && (tgId === String(bot
 // optional: the secret address of the management panel, shown as a button to the owner only (set ATHAR_ADMIN_URL in Vercel)
 const ADMIN_URL = (process.env.ATHAR_ADMIN_URL || "").trim();
 
-// In the chat only the essentials stay under the message; every section lives in the bot's own menu (the commands list and the
-// menu button next to the message box), which is set up for each person in their language.
-function menu(lang: Lang, owner = false): InlineKeyboard {
+// The bot's menu is a button panel under the message box (a reply keyboard, always there), not buttons inside the conversation.
+// The sections open the mini app directly; 🌐 changes the language; the owner has two more buttons.
+const OWNER_STATS = "📊 Stats", OWNER_CHANNEL = "📢 قناة الاشتراك الإجباري";
+function menu(lang: Lang, owner = false): Keyboard {
   const t = T[lang];
-  const kb = new InlineKeyboard().webApp(t.open, withLang("", lang)).text(t.language, "al:menu");
+  const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
+    .webApp(t.mystery, withLang("/mystery", lang)).webApp(t.auctions, withLang("/auctions", lang)).row()
+    .webApp(t.mine, withLang("/mine", lang)).webApp(t.board, withLang("/board", lang)).row()
+    .text(t.language);
   if (owner) {
-    kb.row().text("📊 Stats", "ao:stats");
+    kb.row().text(OWNER_STATS).text(OWNER_CHANNEL);
     if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
   }
-  return kb;
+  return kb.resized().persistent();
+}
+
+// mandatory-subscription channel (Bot.requiredChannel, the same field the other bots use): the owner sets it from the panel and people must join it first
+const CHANNEL_ASK = "📢 أرسل معرّف القناة أو رابطها (مثل @MyChannel أو https://t.me/MyChannel) ردّاً على هذه الرسالة.\nأرسل «إلغاء» لإيقاف الاشتراك الإجباري.";
+const normChannel = (x: string) => x.trim().replace(/^@/, "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/^(t\.me|telegram\.me)\//i, "").replace(/^@/, "").replace(/\/+$/, "").split(/[?#]/)[0];
+async function isMember(bot: TelegramBot, channel: string, tgId: string): Promise<boolean> {
+  try { const m = await bot.api.getChatMember(`@${normChannel(channel)}`, Number(tgId)); return ["creator", "administrator", "member"].includes(m.status); } catch { return false; }
 }
 
 /** What each menu command opens inside the mini app. */
@@ -111,19 +127,20 @@ export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS
 
 let commandsSet = false;
 /** The commands list (once per server start, in English for everyone) and this person's menu button, in their language. */
-async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang): Promise<void> {
+async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang, owner = false): Promise<void> {
   try {
     if (!commandsSet) { await bot.api.setMyCommands(COMMANDS); commandsSet = true; }
   } catch { /* the list is optional */ }
   try {
-    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });
+    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: owner && ADMIN_URL ? { type: "web_app", text: "🛠 Admin", web_app: { url: ADMIN_URL } } : { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });   // the owner's blue button opens the panel, everyone else's opens the app
   } catch { /* optional on some clients */ }
 }
 
-function languageKeyboard(): InlineKeyboard {
-  const kb = new InlineKeyboard();
-  LANGS.forEach((l, i) => { kb.text(l.name, `al:${l.code}`); if (i % 2 === 1) kb.row(); });
-  return kb;
+function languageKeyboard(lang: Lang): Keyboard {
+  const kb = new Keyboard();
+  LANGS.forEach((l, i) => { kb.text(l.name); if (i % 2 === 1) kb.row(); });
+  kb.row().text(T[lang].back);
+  return kb.resized().oneTime();
 }
 
 async function getLang(botId: string, tgUserId: string): Promise<Lang> {
@@ -152,7 +169,7 @@ async function statsText(botId: string): Promise<string> {
 }
 
 export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
-  // 🌐 language button and the language list
+  // buttons of older messages (inline) still work
   const cb = body.callback_query;
   if (cb?.id) {
     const from = String(cb.from?.id || ""), chatId = cb.message?.chat?.id, data = String(cb.data || "");
@@ -160,12 +177,12 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     if (!chatId || !from) return;
     if (data === "al:menu") {
       const cur = await getLang(botRow.id, from);
-      await bot.api.sendMessage(chatId, T[cur].pick, { reply_markup: languageKeyboard() });
+      await bot.api.sendMessage(chatId, T[cur].pick, { reply_markup: languageKeyboard(cur) });
     } else if (data.startsWith("al:") && isLang(data.slice(3))) {
       const lang = data.slice(3) as Lang;
       await setLang(botRow.id, from, lang);
       await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, from)) });
-      await ensureMenu(bot, chatId, lang);
+      await ensureMenu(bot, chatId, lang, isOwner(botRow, from));
     } else if (data === "ao:stats" && isOwner(botRow, from)) {
       await bot.api.sendMessage(chatId, await statsText(botRow.id));
     }
@@ -181,16 +198,58 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   }
   const lang = fromId ? await getLang(botRow.id, fromId) : "en";
   const owner = isOwner(botRow, fromId);
+
+  // the owner sets (or stops) the mandatory channel: the answer to our question
+  if (owner && msg.reply_to_message?.text === CHANNEL_ASK) {
+    const channel = /^(إلغاء|cancel)$/i.test(text) ? null : normChannel(text);
+    await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
+    if (!channel) { await bot.api.sendMessage(chatId, "✅ تم إيقاف الاشتراك الإجباري.", { reply_markup: menu(lang, true) }); return; }
+    const found = await bot.api.getChat(`@${channel}`).catch(() => null);
+    let warning = "";
+    if (!found) warning = "\n⚠️ لم أجد هذه القناة، تأكد من المعرّف.";
+    else if (!(await bot.api.getChatMember(`@${channel}`, Number(fromId)).catch(() => null))) warning = "\n⚠️ أضف البوت إلى القناة كمشرف (Admin) وإلا لن يستطيع التحقق من المشتركين.";
+    await bot.api.sendMessage(chatId, `✅ فُعّل الاشتراك الإجباري في @${channel}.${warning}`, { reply_markup: menu(lang, true) });
+    return;
+  }
+  if (owner && text === OWNER_CHANNEL) {
+    await bot.api.sendMessage(chatId, CHANNEL_ASK, { reply_markup: { force_reply: true, input_field_placeholder: "@MyChannel" } });
+    return;
+  }
+  // people who are not the owner must have joined the channel (when one is set)
+  if (!owner && botRow.requiredChannel && !(await isMember(bot, botRow.requiredChannel, fromId))) {
+    await bot.api.sendMessage(chatId, `${T[lang].join}\nhttps://t.me/${normChannel(botRow.requiredChannel)}`, { reply_markup: new Keyboard().text(T[lang].joined).resized().persistent() });
+    return;
+  }
+
+  // the language panel: a name from the list changes the language, ⬅️ goes back
+  const chosen = LANGS.find((l) => l.name === text);
+  if (chosen) {
+    await setLang(botRow.id, fromId, chosen.code);
+    await bot.api.sendMessage(chatId, T[chosen.code].welcome, { reply_markup: menu(chosen.code, owner) });
+    await ensureMenu(bot, chatId, chosen.code, owner);
+    return;
+  }
+  if (LANGS.some((l) => T[l.code].language === text)) {
+    await bot.api.sendMessage(chatId, T[lang].pick, { reply_markup: languageKeyboard(lang) });
+    return;
+  }
+  if (text === T[lang].back || text === T[lang].joined) {
+    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
+    return;
+  }
+  if (owner && text === OWNER_STATS) {
+    await bot.api.sendMessage(chatId, await statsText(botRow.id), { reply_markup: menu(lang, true) });
+    return;
+  }
+
   const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
   if (cmd === "start") {
     await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
-    await ensureMenu(bot, chatId, lang);
-    // earlier versions left a keyboard under the message box: remove it quietly
-    try { const m = await bot.api.sendMessage(chatId, "·", { reply_markup: { remove_keyboard: true } }); await bot.api.deleteMessage(chatId, m.message_id); } catch { /* nothing to remove */ }
+    await ensureMenu(bot, chatId, lang, owner);
     return;
   }
   if (cmd === "language") {
-    await bot.api.sendMessage(chatId, T[lang].pick, { reply_markup: languageKeyboard() });
+    await bot.api.sendMessage(chatId, T[lang].pick, { reply_markup: languageKeyboard(lang) });
     return;
   }
   if (cmd === "stats" && owner) {

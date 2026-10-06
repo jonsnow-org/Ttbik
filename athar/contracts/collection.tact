@@ -4,6 +4,10 @@ import "./item";
 // Athar collection (Edition 1). It is the registry of tokens. It knows nothing about prices:
 // sales are done by season "minters" that the admin authorises with a public delay.
 // Money is never kept here: every sale is forwarded to `payout` immediately.
+@name(set_code)
+native nativeSetCode(code: Cell);
+struct CodeProposal { pending: Bool; applicableAt: Int; }
+
 contract AtharCollection {
     admin: Address;
     collectionUri: String;         // collection metadata URL (name, image, description)
@@ -29,6 +33,9 @@ contract AtharCollection {
     mediaFee: Int as coins = 100000000;        // first picture / occasion
     changeFee: Int as coins = 500000000;       // replacing a picture that is already there (both the old and the new one stay in the token's history)
     issued: map<Int as uint16, Bool>;          // which dates have a token (so a request for a missing token is refused at once)
+    pendingCode: Cell? = null;                 // proposed new logic of this collection (its address, its tokens and its money stay; see ProposeCode)
+    pendingCodeAt: Int as uint32 = 0;
+    ext: Cell? = null;                         // spare room: data that a later version may need without changing the layout above
 
     receive() { }                                // plain TON (not expected): forwarded by Withdraw
 
@@ -61,6 +68,30 @@ contract AtharCollection {
         require(now() >= self.pendingBaseUriAt, "notice period not over");
         self.baseUri = self.pendingBaseUri!!;
         self.pendingBaseUri = null;
+    }
+
+    // ---- fixing the collection's own logic in place (owner's decision, 2026-10-05) ----
+    // A mistake in the collection can be corrected without a new collection (which would have a new address and lose its history on every
+    // market): the admin proposes new code, it waits out the same public notice period as every sensitive change (48h in production), anyone
+    // can see the proposal on the chain, and it can be cancelled meanwhile. The tokens themselves are never changed by this: their code is
+    // fixed, and a mistake in a token is handled by the opt-in upgrade of its holder (UpgradeStart). The new code must keep the data layout of
+    // this one (new data goes into `ext`) and the same token code, so that every token's address stays what it was.
+    receive(msg: ProposeCode) {
+        require(sender() == self.admin, "only admin");
+        self.pendingCode = msg.code;
+        self.pendingCodeAt = now() + self.delaySec;
+    }
+    receive(msg: CancelCode) {
+        require(sender() == self.admin, "only admin");
+        self.pendingCode = null;
+    }
+    receive(msg: ApplyCode) {
+        require(sender() == self.admin, "only admin");
+        require(self.pendingCode != null, "nothing proposed");
+        require(now() >= self.pendingCodeAt, "notice period not over");
+        let code: Cell = self.pendingCode!!;
+        self.pendingCode = null;
+        nativeSetCode(code);
     }
 
     receive(msg: ProposeMinter) {
@@ -198,4 +229,9 @@ contract AtharCollection {
     get fun successor_address(): Address? { return self.successor; }
     get fun minter_active_at(minter: Address): Int? { return self.minters.get(minter); }
     get fun total_minted(): Int { return self.minted; }
+    get fun code_proposal(): CodeProposal { return CodeProposal{ pending: self.pendingCode != null, applicableAt: self.pendingCodeAt }; }
+    get fun pending_code_hash(): Int? {                     // anyone can compare it with the hash of the code they audited
+        if (self.pendingCode == null) { return null; }
+        return self.pendingCode!!.hash();
+    }
 }

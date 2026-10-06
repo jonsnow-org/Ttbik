@@ -1,3 +1,4 @@
+import { toncenterKey } from "@/lib/settings";
 import { NextResponse } from "next/server";
 import { Address } from "@ton/core";
 import { isActive, makeClient } from "@/lib/chain";
@@ -15,7 +16,7 @@ export async function GET(req: Request) {
   let admin: Address;
   try { admin = Address.parse(adminStr); } catch { return NextResponse.json({ error: "bad admin" }, { status: 400 }); }
   const client = makeClient();
-  const gap = () => new Promise((r) => setTimeout(r, process.env.TONCENTER_API_KEY ? 100 : 1100));
+  const gap = () => new Promise((r) => setTimeout(r, toncenterKey() ? 100 : 1100));
   const collection = await AtharCollection.fromInit(admin, COLLECTION_URI, BigInt(DELAY_SEC));
   const minter = await AtharMinter.fromInit(collection.address, admin, BigInt(SEASON_1.id), BigInt(SEASON_1.rangeStart), BigInt(SEASON_1.rangeEnd));
   const out: Record<string, unknown> = {

@@ -2,6 +2,7 @@
 // shapes on a dark ground: the brightness is what the waxed-gold treatment turns into metal. The two Syrian dates add an
 // overlay (the revolution flag in its real colours) that is drawn AFTER the gold step so its colours stay readable.
 import { ymd } from "./dates";
+import { textPaths } from "./glyphs";
 
 const W = "#f4f1ea", L = "#cfc9bc", M = "#948e82", D = "#5a564e", K = "#1b1a18";
 const P = (n: number) => n.toFixed(1);
@@ -70,8 +71,8 @@ const MOTIFS: Record<string, Motif> = {
   network: () => { const pts: [number, number][] = [[400, 400], [250, 280], [560, 270], [610, 450], [450, 590], [260, 520], [180, 400]]; let s = ""; pts.slice(1).forEach(([x, y], i) => { s += ln(400, 400, x, y, 4, M) + ln(x, y, pts[((i + 1) % 6) + 1][0], pts[((i + 1) % 6) + 1][1], 3, M); }); return s + pts.map(([x, y], i) => circ(x, y, i ? 26 : 40, i ? L : W)).join(""); },
   globeweb: () => ring(400, 400, 190, 8) + `<ellipse cx="400" cy="400" rx="90" ry="190" fill="none" stroke="${W}" stroke-width="5"/>` + ln(210, 400, 590, 400, 5) + `<ellipse cx="400" cy="400" rx="190" ry="90" fill="none" stroke="${L}" stroke-width="4"/>` + ln(400, 210, 400, 590, 5) + ring(400, 400, 190, 3, M),
   chip: () => rect(300, 300, 200, 200, W, 16) + rect(340, 340, 120, 120, K, 8) + [0, 1, 2, 3, 4].map((i) => rect(318 + i * 40, 260, 16, 38, L) + rect(318 + i * 40, 502, 16, 38, L) + rect(260, 318 + i * 40, 38, 16, L) + rect(502, 318 + i * 40, 38, 16, L)).join("") + circ(400, 400, 28, W),
-  coin: () => circ(400, 400, 190, W) + ring(400, 400, 170, 8, M) + ring(400, 400, 150, 3, D) + `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="210" font-weight="700" fill="${K}">₿</text>`,
-  euro: () => circ(400, 400, 190, W) + ring(400, 400, 170, 8, M) + `<text x="400" y="470" text-anchor="middle" font-family="Georgia, serif" font-size="230" font-weight="700" fill="${K}">€</text>`,
+  coin: () => circ(400, 400, 190, W) + ring(400, 400, 170, 8, M) + ring(400, 400, 150, 3, D) + textPaths("₿", { x: 400, y: 470, size: 210, font: "serif", anchor: "middle", fill: K }),
+  euro: () => circ(400, 400, 190, W) + ring(400, 400, 170, 8, M) + textPaths("€", { x: 400, y: 470, size: 230, font: "serif", anchor: "middle", fill: K }),
   blocks: () => [[250, 450], [400, 450], [550, 450], [325, 320], [475, 320], [400, 190]].map(([x, y], i) => rect(x - 60, y - 60, 120, 120, i % 2 ? L : W, 10) + ring(x, y, 22, 4, M)).join("") + ln(250, 450, 325, 320, 4, M) + ln(325, 320, 400, 190, 4, M) + ln(400, 190, 475, 320, 4, M) + ln(475, 320, 550, 450, 4, M),
   diamond: () => path("M400 130L560 400L400 480L240 400Z", W) + path("M400 130L240 400L400 480Z", L) + path("M400 510L560 430L400 670L240 430Z", M) + path("M400 510L240 430L400 670Z", D),
   chat: () => path("M240 260Q240 220 280 220H520Q560 220 560 260V430Q560 470 520 470H400L300 560V470H280Q240 470 240 430Z", W) + [0, 1, 2].map((i) => circ(330 + i * 70, 345, 20, K)).join(""),

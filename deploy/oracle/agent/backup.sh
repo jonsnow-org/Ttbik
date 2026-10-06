@@ -7,7 +7,7 @@ exec 9>/var/lock/ttbik-backup.lock; flock -n 9 || exit 0
 note() { echo "$(now) $1" > "$STATE/backup_note"; }
 # Athar's own files (the copies of every picture and the takedown list): one tarball each, replaced only by a good one
 for d in athar athar-test; do
-  [ -d "/var/lib/ttbik/$d" ] && tar -czf "$BK/$d-data.tgz.tmp" -C "/var/lib/ttbik/$d" . 2>/dev/null && [ -s "$BK/$d-data.tgz.tmp" ] && mv -f "$BK/$d-data.tgz.tmp" "$BK/$d-data.tgz"
+  [ -d "/var/lib/ttbik/$d" ] && tar -czf "$BK/$d-data.tgz.tmp" --exclude=./secrets -C "/var/lib/ttbik/$d" . 2>/dev/null && [ -s "$BK/$d-data.tgz.tmp" ] && mv -f "$BK/$d-data.tgz.tmp" "$BK/$d-data.tgz"
   rm -f "$BK/$d-data.tgz.tmp"
 done
 # Weekly: a full copy of the whole project source (every branch and tag, as one git bundle). The old copy is replaced only by a new one that verifies.
