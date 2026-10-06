@@ -1,1 +1,1 @@
-PLACEHOLDER_WILL_FAIL_VERIFY
+$file:/workspace/bots_hcform_content_only.txt
