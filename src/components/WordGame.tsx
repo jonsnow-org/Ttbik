@@ -174,14 +174,15 @@ export default function WordGame({ answer, dayIndex, siteUrl }: { answer: string
 
   const filledRows = [...rows];
   const displayRows: (string | null)[][] = [];
-  for (let i = 0; i < MAX_GUESSES; i++) {
+  const visible = Math.min(MAX_GUESSES, guesses.length + (done ? 0 : 1));
+  for (let i = 0; i < visible; i++) {
     if (i < guesses.length) displayRows.push([...guesses[i]]);
-    else if (i === guesses.length) displayRows.push(Array.from({ length: WORD_LEN }, (_, j) => current[j] ?? null));
-    else displayRows.push(Array(WORD_LEN).fill(null));
+    else displayRows.push(Array.from({ length: WORD_LEN }, (_, j) => current[j] ?? null));
   }
 
   return (
     <div className="flex flex-col items-center gap-4" dir="rtl">
+      <p className="text-xs font-bold text-slate-500">{guesses.length}/{MAX_GUESSES}</p>
       <div className="flex flex-col gap-1.5">
         {displayRows.map((row, i) => (
           <div key={i} className={`flex gap-1.5 ${i === guesses.length && shake ? "animate-[shake_0.4s]" : ""}`}>
