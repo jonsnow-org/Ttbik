@@ -10,8 +10,9 @@ export function generateStaticParams() {
   return EN_EVENTS.map((item) => ({ slug: item.slug }));
 }
 
-export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
-  const item = bySlug(EN_EVENTS, params.slug);
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const { slug } = await props.params;
+  const item = bySlug(EN_EVENTS, slug);
   if (!item) return {};
   const url = `${SITE_URL}/en/events/${item.slug}`;
   return {
@@ -21,8 +22,9 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function Page({ params }: { params: { slug: string } }) {
-  const item = bySlug(EN_EVENTS, params.slug);
+export default async function Page(props: { params: Promise<{ slug: string }> }) {
+  const { slug } = await props.params;
+  const item = bySlug(EN_EVENTS, slug);
   if (!item) notFound();
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
