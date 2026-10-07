@@ -80,6 +80,9 @@ export default function AdminDashboard() {
           <Link href="/admin/platform" className="text-sm font-semibold text-brand-700 hover:underline">
             🖥️ تتبع البوتات المُنشأة ←
           </Link>
+          <Link href="/admin/telegram-grok" className="text-sm font-semibold text-slate-900 hover:underline">
+            ربط تلجرام لجروك ←
+          </Link>
         </div>
       </div>
       <p className="mb-4 text-xs text-slate-500">
