@@ -4,6 +4,7 @@
   "private": true,
   "description": "Free Telegram FAQ bot — answers from a simple JSON list, zero hosting cost",
   "main": "index.js",
+  "engines": { "node": ">=18" },
   "scripts": { "start": "node index.js" },
   "dependencies": {}
 }
