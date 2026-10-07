@@ -20,7 +20,7 @@ if __name__ == "__main__":
     # --- 2. Image generation: exact length, exact range, real decode -
     from image_tokenizer import build_default_tokenizer as build_image_tokenizer
 
-    image_tokenizer = build_default_tokenizer()
+    image_tokenizer = build_image_tokenizer()
     tokens_per_image = image_tokenizer.cfg.tokens_per_image
     text_prompt = torch.randint(0, TEXT_VOCAB_SIZE, (1, 4))
     image_sequence = generate_image(model, text_prompt, tokens_per_image=tokens_per_image, top_k=40)
