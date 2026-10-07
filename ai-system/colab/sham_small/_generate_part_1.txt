@@ -1,0 +1,174 @@
+per_image real sampled
+    tokens constrained to the image codebook's vocabulary range, then a
+    forced <IMAGE_END> — never a token count the caller has to hope is
+    right, and never a token from outside image_tokenizer.py's own
+    range no matter what the model's logits look like. Returns the
+    prompt plus this whole span; slice out just the image tokens with
+    extract_image_tokens() below before handing them to
+    image_tokenizer.decode()."""
+    batch = prompt_ids.shape[0]
+    device = prompt_ids.device
+    image_start = torch.full((batch, 1), SpecialTokens.IMAGE_START, dtype=torch.long, device=device)
+    with_start = torch.cat([prompt_ids, image_start], dim=1)
+
+    total_steps = tokens_per_image + 1  # + 1 for the forced IMAGE_END
+    allowed_ranges = [(IMAGE_VOCAB_BASE, IMAGE_VOCAB_BASE + IMAGE_VOCAB_SIZE)] * tokens_per_image + [None]
+    forced_ids = [None] * tokens_per_image + [SpecialTokens.IMAGE_END]
+
+    return generate_tokens(
+        model, with_start, total_steps, temperature=temperature, top_k=top_k,
+        forced_ids=forced_ids, allowed_ranges=allowed_ranges,
+    )
+
+
+@torch.no_grad()
+def generate_audio(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    tokens_per_segment: int,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+) -> torch.Tensor:
+    """The audio counterpart to generate_image() — same mechanism,
+    audio_tokenizer.py's own vocabulary range instead."""
+    batch = prompt_ids.shape[0]
+    device = prompt_ids.device
+    audio_start = torch.full((batch, 1), SpecialTokens.AUDIO_START, dtype=torch.long, device=device)
+    with_start = torch.cat([prompt_ids, audio_start], dim=1)
+
+    total_steps = tokens_per_segment + 1
+    allowed_ranges = [(AUDIO_VOCAB_BASE, AUDIO_VOCAB_BASE + AUDIO_VOCAB_SIZE)] * tokens_per_segment + [None]
+    forced_ids = [None] * tokens_per_segment + [SpecialTokens.AUDIO_END]
+
+    return generate_tokens(
+        model, with_start, total_steps, temperature=temperature, top_k=top_k,
+        forced_ids=forced_ids, allowed_ranges=allowed_ranges,
+    )
+
+
+@torch.no_grad()
+def generate_video(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    num_frames: int,
+    tokens_per_image: int,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+) -> torch.Tensor:
+    """Video reuses the image codebook per frame (per owner spec, and
+    exactly what video_tokenizer.py's own encode_video()/decode_video()
+    expect): <VIDEO_START>, then num_frames repetitions of
+    (<IMAGE_START>, tokens_per_image real image-range tokens,
+    <IMAGE_END>), then <VIDEO_END> — every delimiter forced, every
+    frame's tokens range-constrained, exactly like generate_image()
+    but repeated and wrapped."""
+    batch = prompt_ids.shape[0]
+    device = prompt_ids.device
+    video_start = torch.full((batch, 1), SpecialTokens.VIDEO_START, dtype=torch.long, device=device)
+    with_start = torch.cat([prompt_ids, video_start], dim=1)
+
+    forced_ids: list[int | None] = []
+    allowed_ranges: list[tuple[int, int] | None] = []
+    for _ in range(num_frames):
+        forced_ids.append(SpecialTokens.IMAGE_START)
+        allowed_ranges.append(None)
+        forced_ids.extend([None] * tokens_per_image)
+        allowed_ranges.extend([(IMAGE_VOCAB_BASE, IMAGE_VOCAB_BASE + IMAGE_VOCAB_SIZE)] * tokens_per_image)
+        forced_ids.append(SpecialTokens.IMAGE_END)
+        allowed_ranges.append(None)
+    forced_ids.append(SpecialTokens.VIDEO_END)
+    allowed_ranges.append(None)
+
+    return generate_tokens(
+        model, with_start, len(forced_ids), temperature=temperature, top_k=top_k,
+        forced_ids=forced_ids, allowed_ranges=allowed_ranges,
+    )
+
+
+def build_image_understanding_prompt(
+    image_tokenizer, image: torch.Tensor, question_ids: list[int]
+) -> torch.Tensor:
+    """The reverse direction of generate_image(): given a REAL image
+    (not one the model made up) plus an optional real question already
+    encoded by the caller's text tokenizer, builds the exact prompt
+    shape dataset.py's own build_understanding_sequence() trains the
+    model to continue from — <BOS><IMAGE_START>[real image
+    tokens]<IMAGE_END>[question text]. Hand the result to
+    generate_text() for the actual free-form answer generation; this
+    function only builds the prompt. Batch size 1 only (matches
+    tool_use.py's own restriction, for the same reason: a single live
+    request, not a training batch)."""
+    if image.shape[0] != 1:
+        raise ValueError("build_image_understanding_prompt only supports batch size 1")
+    device = image.device
+    token_grid = image_tokenizer.encode(image)
+    offset_tokens = image_token_id_to_vocab_id(token_grid.view(1, -1))
+    prefix = torch.tensor(
+        [[SpecialTokens.BOS, SpecialTokens.IMAGE_START]], dtype=torch.long, device=device
+    )
+    suffix = torch.tensor(
+        [[SpecialTokens.IMAGE_END] + question_ids], dtype=torch.long, device=device
+    )
+    return torch.cat([prefix, offset_tokens, suffix], dim=1)
+
+
+
+def build_audio_understanding_prompt(
+    audio_tokenizer, mel: torch.Tensor, question_ids: list[int]
+) -> torch.Tensor:
+    """Audio → text prompt: <BOS><AUDIO_START>[offset audio tokens]<AUDIO_END>[question].
+    mel: (1, 1, n_mels, segment_frames) or whatever audio_tokenizer.encode expects."""
+    if mel.shape[0] != 1:
+        raise ValueError("build_audio_understanding_prompt only supports batch size 1")
+    device = mel.device
+    token_grid = audio_tokenizer.encode(mel)
+    offset_tokens = audio_token_id_to_vocab_id(token_grid.view(1, -1))
+    prefix = torch.tensor(
+        [[SpecialTokens.BOS, SpecialTokens.AUDIO_START]], dtype=torch.long, device=device
+    )
+    suffix = torch.tensor(
+        [[SpecialTokens.AUDIO_END] + question_ids], dtype=torch.long, device=device
+    )
+    return torch.cat([prefix, offset_tokens, suffix], dim=1)
+
+
+def build_video_understanding_prompt(image_tokenizer, video: torch.Tensor, question_ids: list[int]) -> torch.Tensor:
+    """The video counterpart — video: (1, num_frames, 3, H, W). Reuses
+    video_tokenizer.encode_video() exactly as training does, so the
+    prompt this builds is identical in shape to what
+    MedicalVideoCollator.build_understanding_sequence() (and the
+    general-purpose video collator, were one built) trains the model
+    on: <BOS><VIDEO_START>[per-frame image spans]<VIDEO_END>[question]."""
+    if video.shape[0] != 1:
+        raise ValueError("build_video_understanding_prompt only supports batch size 1")
+    from video_tokenizer import encode_video
+
+    device = video.device
+    video_span = encode_video(image_tokenizer, video)  # already includes VIDEO_START/END + per-frame IMAGE_START/END
+    bos = torch.tensor([[SpecialTokens.BOS]], dtype=torch.long, device=device)
+    question = torch.tensor([question_ids], dtype=torch.long, device=device)
+    return torch.cat([bos, video_span, question], dim=1)
+
+
+def extract_image_tokens(sequence: torch.Tensor, tokens_per_image: int) -> torch.Tensor:
+    """Finds the LAST <IMAGE_START> ... <IMAGE_END> span in a generated
+    sequence and returns its tokens_per_image tokens, converted back to
+    raw image_tokenizer.py codebook ids, ready for .decode()."""
+    return _extract_single_span(sequence, SpecialTokens.IMAGE_START, tokens_per_image, vocab_id_to_image_token_id)
+
+
+def extract_audio_tokens(sequence: torch.Tensor, tokens_per_segment: int) -> torch.Tensor:
+    return _extract_single_span(sequence, SpecialTokens.AUDIO_START, tokens_per_segment, vocab_id_to_audio_token_id)
+
+
+def _extract_single_span(sequence: torch.Tensor, start_id: int, span_len: int, to_raw_id_fn) -> torch.Tensor:
+    batch = sequence.shape[0]
+    results = []
+    for b in range(batch):
+        row = sequence[b]
+        start_positions = (row == start_id).nonzero(as_tuple=True)[0]
+        if len(start_positions) == 0:
+            raise ValueError(f"no start token {start_id} found in sequence row {b}")
+        start = start_positions[-1].item() + 1
+        results.append(row[start : start + span_len])
+ 
