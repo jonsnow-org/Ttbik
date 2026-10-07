@@ -57,6 +57,14 @@ export default function PlatformDashboard() {
     load();
   }, []);
 
+  async function removeBot(bot: Bot) {
+    if (!confirm(`حذف ${bot.username || bot.id} نهائياً مع بقاياه؟`)) return;
+    setBusyId(bot.id);
+    await fetch(`/api/admin/bots/${bot.id}`, { method: "DELETE" });
+    setBusyId(null);
+    await load();
+  }
+
   async function toggleActive(bot: Bot) {
     setBusyId(bot.id);
     try {
