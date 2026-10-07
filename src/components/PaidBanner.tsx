@@ -14,8 +14,8 @@ export default function PaidBanner() {
     return <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="block bg-amber-400 px-4 py-3 text-center text-sm font-extrabold text-slate-950">{ad.bannerUrl}</a>;
   }
   if (ad.kind === "video" && ad.bannerUrl) {
-    return <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="block bg-black text-center"><video src={ad.bannerUrl} className="mx-auto mt-10 h-36 max-w-sm" autoPlay muted loop playsInline /></a>;
+    return <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="block bg-black text-center"><video src={ad.bannerUrl} className="mx-auto h-28 max-w-sm" autoPlay muted loop playsInline /></a>;
   }
   if (!ad.bannerUrl) return null;
-  return <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="block bg-white text-center"><img src={ad.bannerUrl} alt={ad.altText || "إعلان"} className="mx-auto mt-10 h-32 w-auto max-w-xs object-contain" /></a>;
+  return <a href={ad.targetUrl} target="_blank" rel="sponsored noopener" className="block bg-white text-center"><img src={ad.bannerUrl} alt={ad.altText || "إعلان"} className="mx-auto h-24 w-auto max-w-xs object-contain" /></a>;
 }
