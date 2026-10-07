@@ -10,6 +10,7 @@ import MobileNav from "@/components/MobileNav";
 import MarketTickers from "@/components/MarketTickers";
 import PaidBanner from "@/components/PaidBanner";
 import StickyBottomAd from "@/components/StickyBottomAd";
+import TelegramSwipeLock from "@/components/TelegramSwipeLock";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
 import { SITE_URL } from "@/lib/siteUrl";
@@ -69,6 +70,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     return (
       <html lang="ar" dir="rtl">
               <body className="min-h-screen bg-[#e3f2fd] font-sans text-slate-800 antialiased">
+          <TelegramSwipeLock />
           {children}
         </body>
       </html>
@@ -88,6 +90,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             registering the ad network's service worker at all). Anyone who
             got it installed on a previous visit, owner included, needs it
             actively removed, not just skipped going forward. */}
+        <TelegramSwipeLock />
         <AdServiceWorker />
         {/* Intrusive ad formats removed site-wide (owner directive
             2026-09-24): Monetag In-Page Push (notification-style popups)
