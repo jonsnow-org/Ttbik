@@ -29,6 +29,9 @@ export default async function HomePage() {
 
   return (
     <div>
+      <a href="/advertise" className="mx-auto mt-3 block max-w-6xl rounded-2xl bg-amber-400 px-4 py-4 text-center text-base font-extrabold text-slate-950">
+        أعلن هنا — احجز ظهور بنرك في كل الصفحات
+      </a>
       <TodayStrip
         latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
         latestNews={news && { slug: news.slug, title: news.title }}
