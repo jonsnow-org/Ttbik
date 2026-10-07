@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyIpnSignature } from "@/lib/nowpayments";
+import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
 import { actionUrl, notifyAdmin } from "@/lib/siteAds";
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
   const signature = req.headers.get("x-nowpayments-sig");
-  if (!verifyIpnSignature(raw, signature)) return NextResponse.json({ error: "bad sig" }, { status: 401 });
+  if (!verifyNowPaymentsSignature(JSON.parse(raw), signature || "")) return NextResponse.json({ error: "bad sig" }, { status: 401 });
   const body = JSON.parse(raw);
   const code = String(body.order_id || "").toUpperCase();
   if (!code.startsWith("ADV-")) return NextResponse.json({ ok: true });
