@@ -1,1 +1,1 @@
-__LOAD_FROM__/workspace/Ttbik-sham/ai-system/colab/sham_small/generate.py
+__FILE__:/workspace/Ttbik-sham/ai-system/colab/sham_small/generate.py
