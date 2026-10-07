@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { NEWS_ITEMS } from "@/lib/newsItems";
+import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "@/lib/enDesk";
 import { PRAYER_CITIES } from "@/lib/prayerCities";
 
 export const revalidate = 30;
@@ -18,6 +19,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/en/news`, changeFrequency: "daily", priority: 0.6 },
     { url: `${base}/en/articles`, changeFrequency: "weekly", priority: 0.6 },
     { url: `${base}/en/events`, changeFrequency: "weekly", priority: 0.6 },
+    ...EN_NEWS.map((n) => ({ url: `${base}/en/news/${n.slug}`, changeFrequency: "weekly" as const, priority: 0.65 })),
+    ...EN_ARTICLES.map((n) => ({ url: `${base}/en/articles/${n.slug}`, changeFrequency: "monthly" as const, priority: 0.7 })),
+    ...EN_EVENTS.map((n) => ({ url: `${base}/en/events/${n.slug}`, changeFrequency: "monthly" as const, priority: 0.6 })),
     ...NEWS_ITEMS.map((n) => ({
       url: `${base}/news/${n.slug}`,
       changeFrequency: "daily" as const,
