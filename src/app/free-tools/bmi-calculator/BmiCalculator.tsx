@@ -1,3 +1,4 @@
+import ShareCard from "@/components/ShareCard";
 "use client";
 
 import { useMemo, useState } from "react";
@@ -143,6 +144,7 @@ export default function BmiCalculator() {
           <div className="rounded-xl bg-slate-50 p-4 text-center">
             <p className="text-xs font-semibold text-slate-500">مؤشر كتلة الجسم (BMI)</p>
             <p className="mt-1 text-3xl font-extrabold text-slate-900">{fmt(result.bmi, 1)}</p>
+            <div className="mt-3 text-right"><ShareCard kicker="حاسبة الوزن" title={fmt(result.bmi, 1)} lines={[{ label: "التصنيف", value: result.cat.label }]} path="/free-tools/bmi-calculator" /></div>
             <span
               className={`mt-2 inline-block rounded-full px-3 py-1 text-xs font-bold ${result.cat.color}`}
             >

@@ -5,6 +5,7 @@ import { useState } from "react";
 const TOOLS = [
   { id: "bmi-calculator", label: "حاسبة الوزن" },
   { id: "qr-generator", label: "مولّد الرمز" },
+  { id: "guess-word", label: "تحدي الكلمة" },
 ];
 
 export default function SponsorForm({ initial }: { initial: string }) {

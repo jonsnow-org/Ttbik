@@ -1,3 +1,4 @@
+import ShareCard from "@/components/ShareCard";
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -216,6 +217,7 @@ export default function WordGame({ answer, dayIndex, siteUrl }: { answer: string
               لعبت {stats.played} · فزت {stats.won} · سلسلة حالية {stats.streak} · أفضل سلسلة {stats.maxStreak}
             </p>
           )}
+          <ShareCard kicker="تحدي اليوم" title={won ? "حللت اللغز" : "لم تكتمل المحاولة"} lines={[{ label: "المحاولات", value: String(guesses.length) }, { label: "السلسلة", value: String(stats?.streak || 0) }]} path="/guess-word" />
           <button type="button" onClick={share} className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
             {copied ? "✓ نُسخت النتيجة" : "📤 شارك نتيجتك"}
           </button>
