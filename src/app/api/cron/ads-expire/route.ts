@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { bindAdmenBot } from "@/lib/siteAds";
 
 export async function GET() {
   const now = new Date();
@@ -7,5 +8,6 @@ export async function GET() {
     where: { adStatus: "ACTIVE", endsAt: { lte: now } },
     data: { adStatus: "EXPIRED" },
   });
-  return NextResponse.json({ expired: result.count });
+  const bound = await bindAdmenBot().catch(() => ({ ok: false }));
+  return NextResponse.json({ expired: result.count, admen: bound.ok });
 }

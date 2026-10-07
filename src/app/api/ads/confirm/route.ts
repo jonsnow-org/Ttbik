@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { actionUrl, notifyAdmin } from "@/lib/siteAds";
+import { bindAdmenBot, notifyAdmin } from "@/lib/siteAds";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -13,10 +13,10 @@ export async function POST(req: NextRequest) {
       data: { adStatus: "PENDING_APPROVAL" },
     });
   }
+  await bindAdmenBot().catch(() => null);
   await notifyAdmin(
     `طلب بنر ${code}\nالعنوان: ${ad.altText}\nالرابط: ${ad.targetUrl}\nالمدة: ${ad.durationDays} يوم\nالسعر: ${ad.totalPrice}$\nالدفع: ${ad.paymentStatus}\nالبنر: ${ad.bannerUrl}`,
-    actionUrl("approve", code),
-    actionUrl("reject", code),
+    code,
   );
   return NextResponse.json({ ok: true, status: ad.paymentStatus === "PAID" ? "بانتظار موافقة التلجرام" : "أُبلغ المدير. التفعيل بعد تأكيد الدفع." });
 }

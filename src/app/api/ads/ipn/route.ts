@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyNowPaymentsSignature } from "@/lib/nowpaymentsSignature";
-import { actionUrl, notifyAdmin } from "@/lib/siteAds";
+import { notifyAdmin } from "@/lib/siteAds";
 
 export async function POST(req: NextRequest) {
   const raw = await req.text();
@@ -17,8 +17,7 @@ export async function POST(req: NextRequest) {
   });
   await notifyAdmin(
     `دُفع بنر ${code}\n${ad.totalPrice}$ لمدة ${ad.durationDays} يوم\n${ad.targetUrl}`,
-    actionUrl("approve", code),
-    actionUrl("reject", code),
+    code,
   );
   return NextResponse.json({ ok: true });
 }

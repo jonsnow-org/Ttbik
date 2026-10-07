@@ -6,6 +6,8 @@ export const AD_PLANS = [
   { days: 30, price: 40, label: "30 يوماً" },
 ] as const;
 
+const ADMEN = "admen10bot";
+
 export function planFor(days: number) {
   return AD_PLANS.find((p) => p.days === days) || null;
 }
@@ -17,8 +19,49 @@ export function makeCode() {
   return `ADV-${new Date().getFullYear()}-${tail}`;
 }
 
-export async function notifyAdmin(text: string, approveUrl: string, rejectUrl: string) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+export async function findAdmenBot() {
+  const bots = await prisma.bot.findMany({ select: { id: true, token: true, isActive: true, template: true } });
+  for (const bot of bots) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${bot.token}/getMe`, { signal: AbortSignal.timeout(6000) });
+      const data = await res.json();
+      if (String(data?.result?.username || "").toLowerCase() === ADMEN) return bot;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+export async function bindAdmenBot() {
+  const bot = await findAdmenBot();
+  if (!bot) return { ok: false, error: "البوت @Admen10bot غير موجود في جدول البوتات" };
+  await prisma.bot.update({
+    where: { id: bot.id },
+    data: { isActive: false, template: "SITE_BANNER_ADMIN" },
+  });
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+  const hook = await fetch(`https://api.telegram.org/bot${bot.token}/setWebhook`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      url: `${base}/api/ads/telegram`,
+      secret_token: secret,
+      allowed_updates: ["message", "callback_query"],
+    }),
+  });
+  const hookData = await hook.json().catch(() => null);
+  return { ok: Boolean(hookData?.ok), id: bot.id, detached: true, webhook: hookData?.description || "" };
+}
+
+async function admenToken() {
+  const bot = await findAdmenBot();
+  return bot?.token || process.env.TELEGRAM_BOT_TOKEN || "";
+}
+
+export async function notifyAdmin(text: string, code: string) {
+  const token = await admenToken();
   const chat = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID;
   if (!token || !chat) return { ok: false, error: "telegram-not-configured" };
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -29,8 +72,8 @@ export async function notifyAdmin(text: string, approveUrl: string, rejectUrl: s
       text,
       reply_markup: {
         inline_keyboard: [[
-          { text: "موافقة وتفعيل", url: approveUrl },
-          { text: "رفض", url: rejectUrl },
+          { text: "موافقة وتفعيل", callback_data: `approve:${code}` },
+          { text: "رفض", callback_data: `reject:${code}` },
         ]],
       },
     }),
@@ -48,10 +91,4 @@ export async function activateAd(code: string) {
     where: { reservationCode: code },
     data: { adStatus: "ACTIVE", startsAt: start, endsAt: end },
   });
-}
-
-export function actionUrl(kind: "approve" | "reject", code: string) {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-  const key = process.env.TELEGRAM_WEBHOOK_SECRET || process.env.NOWPAYMENTS_IPN_SECRET || "";
-  return `${base}/api/ads/${kind}?code=${encodeURIComponent(code)}&key=${encodeURIComponent(key)}`;
 }
