@@ -35,7 +35,7 @@ export default async function HomePage() {
         latestNews={news && { slug: news.slug, title: news.title }}
       />
       <section className="mx-auto max-w-6xl px-4 pt-4">
-        <div className="rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 text-white shadow-lg">
+        <div className="relative rounded-2xl bg-gradient-to-l from-sky-700 to-indigo-900 p-5 pb-12 text-white shadow-lg">
           <span className="rounded-full bg-sky-300/25 px-2.5 py-0.5 text-[11px] font-bold text-sky-100">مدونة · أخبار · أحداث · مقالات</span>
           <h2 className="mt-2 text-lg font-extrabold sm:text-xl">مركز المدونة والأخبار</h2>
           <p className="mt-1 text-xs text-white/80 sm:text-sm">
@@ -55,6 +55,7 @@ export default async function HomePage() {
               ☀️ ملخص اليوم
             </Link>
           </div>
+          <Link href="/en" className="absolute bottom-3 left-3 rounded-full bg-white px-2.5 py-1 text-[11px] font-extrabold text-slate-900">EN</Link>
         </div>
       </section>
 
