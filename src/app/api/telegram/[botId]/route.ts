@@ -14,6 +14,7 @@ import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
+import { bannerBalance } from "@/lib/siteAds";
 
 import { createHmac, randomUUID } from "crypto";
 
@@ -106,8 +107,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const chatId = body.message?.chat?.id;
         if (chatId) {
           const keyboard = { keyboard: [[{ text: "الرصيد" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
-          const reply = text === "الرصيد" || text.startsWith("/balance")
-            ? "زر الرصيد يعرض حصيلة بنر الموقع بعد ربط الدفع."
+          const balance = text === "الرصيد" || text.startsWith("/balance") ? await bannerBalance() : null;
+          const reply = balance
+            ? `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`
             : "بوت الموقع. زر الرصيد للحصيلة، وزر الموقع يفتح التطبيق المصغر.";
           await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
         }
