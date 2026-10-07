@@ -120,6 +120,16 @@ model YoutubeLink {
   updatedAt    DateTime @updatedAt
 }
 
+model SocialLink {
+  id         String   @id @default(uuid())
+  tgUserId   String
+  platform   String
+  profileUrl String
+  handle     String?
+  linkedAt   DateTime @default(now())
+  @@unique([tgUserId, platform])
+}
+
 model User {
   id             String        @id // Telegram User ID
   botId          String

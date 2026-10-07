@@ -24,6 +24,12 @@ export const STR: Dict = {
   accountsTitle: { ar: "حساباتك المرتبطة. من هنا تربط يوتيوب أو تغيّره.", en: "Linked accounts. Link or change YouTube here." },
   btnYoutubeLink: { ar: "▶️ تسجيل يوتيوب", en: "▶️ Sign in to YouTube" },
   btnYoutubeChange: { ar: "✏️ تغيير يوتيوب", en: "✏️ Change YouTube" },
+  btnXLink: { ar: "𝕏 تحقق تويتر", en: "𝕏 Verify X" },
+  btnTiktokLink: { ar: "🎵 تحقق تيك توك", en: "🎵 Verify TikTok" },
+  btnFacebookLink: { ar: "📘 تحقق فيسبوك", en: "📘 Verify Facebook" },
+  btnInstagramLink: { ar: "📸 تحقق إنستغرام", en: "📸 Verify Instagram" },
+  btnSiteLink: { ar: "🔗 تحقق الرابط", en: "🔗 Verify link" },
+  socialNeedCode: { ar: "ضع كود التحقق في وصف الحساب ثم أعد الضغط.", en: "Put the code in the account bio, then press again." },
   youtubeLinkPrompt: {
     ar: "افتح الرابط، ضع الكود في وصف قناتك، ثم الصق رابط القناة. بلا مفاتيح.\n\n{link}",
     en: "Link YouTube once. The bot then checks the subscription automatically.\n\n{link}",
