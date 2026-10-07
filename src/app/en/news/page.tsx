@@ -12,11 +12,6 @@ export const metadata: Metadata = {
 
 const ITEMS = [
   {
-    href: "/en/free-tools/qr-generator",
-    title: "QR codes people generate in the browser",
-    text: "Searchers want a code for a link or a Wi-Fi name without uploading the text to an account. A local generator answers that query.",
-  },
-  {
     href: "/en/free-tools/image-optimizer",
     title: "Smaller images before a page goes live",
     text: "A page that ships oversized images loads slowly. Compressing in the browser is the check before publish.",
