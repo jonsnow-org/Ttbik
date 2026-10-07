@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { activateAd, bannerBalance, findAdmenBot } from "@/lib/siteAds";
 
-const KEYBOARD = { keyboard: [[{ text: "الرصيد" }]], resize_keyboard: true };
+const SITE = "https://ttbik.vercel.app";
+const KEYBOARD = { keyboard: [[{ text: "الرصيد" }], [{ text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
-  if (!process.env.TELEGRAM_WEBHOOK_SECRET || secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expected && secret !== expected) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
   const update = await req.json().catch(() => null);
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
     } else if (chatId) {
-      await send(chatId, "بوت موافقة إعلانات الموقع. زر الرصيد يعرض حصيلة البنر المدفوعة.");
+      await send(chatId, "بوت إعلانات الموقع. زر الرصيد يعرض الحصيلة، وزر الموقع يفتح التطبيق المصغر.");
     }
     return NextResponse.json({ ok: true });
   }
