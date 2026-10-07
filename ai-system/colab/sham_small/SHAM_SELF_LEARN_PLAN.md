@@ -28,9 +28,10 @@ serve.py  ──search──►  self_learn.search_hits()   (إعادة استخ
 ## ملفات تُلمس / Files to touch
 | ملف | تغيير |
 |-----|--------|
-| `ai-system/colab/sham_small/self_learn.py` | **جديد** — بحث، دفعة تدريب، خطوة واحدة، حفظ |
-| `ai-system/colab/sham_small/serve.py` | `POST /ask/web` (+ حالة تعلّم في `/health`)؛ الإبقاء على كل المسارات الحالية |
-| `ai-system/colab/sham_small/web/telegram_bot.py` | أمر `/web` يستدعي `/ask/web` |
+| `ai-system/colab/sham_small/self_learn.py` | بحث + تعلّم نص/وسائط (create+understand) → `final_chat_self.pt` |
+| `ai-system/colab/sham_small/serve.py` | `/ask/web|/image|/video|/audio` + generate learn؛ `/health.self_learn` |
+| `ai-system/colab/sham_small/generate.py` | `build_audio_understanding_prompt` |
+| `ai-system/colab/sham_small/web/telegram_bot.py` | `/web` `/weblearn` + media learn commands |
 | `ai-system/colab/sham_small/SHAM_SELF_LEARN_PLAN.md` | هذه الخطة |
 
 لا تُلمس: Athar / Nova / main / marketplace / `medical_dataset.py`.
@@ -43,13 +44,14 @@ serve.py  ──search──►  self_learn.search_hits()   (إعادة استخ
 5. `save_checkpoint` → مسار جديد؛ نسخ `sham_small_tokenizer.json` بجانبه إن وُجد.
 
 ## الوسائط المتعددة / Multimodal
-- **نص + بحث:** كامل في MVP (`/ask/web`).
-- **صورة/فيديو ask:** المسارات الحالية تبقى؛ التعلّم منها **مُعطّل عمداً** (الملفات لا تُخزَّن ولا تُدرَّب عليها — سياسة serve الحالية).
-- إدخال عيّنات وسائط للتدريب يبقى عبر مسارات track_b / sham_chat الموجودة (ليس عبر رفع المستخدم الحي).
+- **نص + بحث:** `/ask/web` (+ `learn=true`).
+- **توليد Text→image/audio/video:** `/generate/{image,audio,video}` مع `learn=true` — يبني زوج (prompt + media tokens) وخطوة خفيفة → `final_chat_self.pt`.
+- **فهم Image/audio/video→text:** `/ask/image`, `/ask/video`, `/ask/audio` مع `learn=true` — يدرّب على (وسائط+سؤال → إجابة) ثم يحفظ.
+- الحفظ دائماً `final_chat_self.pt` / `SHAM_SELF_LEARN_SAVE_PATH` — **لا** يُلمس `final_chat.pt`.
 
 ## السلامة / Safety
 - **لا كتابة فوق** `final_chat.pt` أبداً. الافتراضي: `final_chat_self.pt` أو مسار `SHAM_SELF_LEARN_SAVE_PATH`.
-- التعلّم يتطلب: `SHAM_SELF_LEARN=1` + `learn=true` + نتائج بحث غير فارغة.
+- التعلّم يتطلب: `SHAM_SELF_LEARN=1` + `learn=true`؛ لـ `/ask/web` أيضاً نتائج بحث غير فارغة؛ للوسائط span غير فارغ.
 - رفض المسارات التي تنتهي بـ `final_chat.pt` / `final.pt` بدون لاحقة `_self`.
 - قفل بسيط أثناء خطوة التعلّم حتى لا تتداخل طلبات متزامنة.
 
@@ -65,14 +67,17 @@ serve.py  ──search──►  self_learn.search_hits()   (إعادة استخ
 
 ## Telegram / البوت
 ```
-/web ما ارتفاع جبل قاسيون؟
-→ POST /ask/web {"question":"...", "learn": false}
-/weblearn سؤال...
-→ learn=true (إن كان SHAM_SELF_LEARN=1 على الخادم)
+/web سؤال…          → /ask/web learn=false
+/weblearn سؤال…     → /ask/web learn=true
+/image|/audio|/video وصف…
+/imagelearn|/audiolearn|/videolearn وصف…  → generate + learn
+أرسل صورة/صوت/فيديو مع تعليق سؤال → /ask/*
+/askimglearn ثم صورة · /askaudiolearn ثم صوت · /askvidlearn ثم فيديو
 ```
 
-## معايير النجاح MVP / Done when
+## معايير النجاح / Done when
 - [x] خطة مكتوبة
-- [x] `self_learn.py` + `/ask/web` يعملان محلياً
-- [x] smoke: خطوة واحدة دون OOM على final_chat.pt
-- [x] دفعة واحدة إلى `sham-main` برسالة واضحة
+- [x] `self_learn.py` + `/ask/web` + multimodal create/understand
+- [x] `/ask/audio` + learn على image/audio/video generate و ask
+- [x] smoke محلي (tiny و/أو checkpoint)
+- [x] دفعة إلى `sham-main` — بدون تجربة بوت حية هنا (الأب ينسّق)
