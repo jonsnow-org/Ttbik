@@ -104,6 +104,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <a href="/" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
               <Logo className="h-7 w-7" /> شام AI
             </a>
+            <a href="/advertise" className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950">أعلن</a>
             <nav className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap text-sm font-semibold text-slate-600 lg:flex">
               <a href="/#categories" className="rounded-full px-3 py-1.5 transition hover:bg-brand-50 hover:text-brand-700">
                 الأقسام
