@@ -159,6 +159,7 @@ export default function PlatformDashboard() {
                     >
                       {busyId === bot.id ? "..." : bot.isActive ? "تعطيل" : "تفعيل"}
                     </button>
+                    <button onClick={() => removeBot(bot)} disabled={busyId === bot.id} className="mr-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">حذف</button>
                   </td>
                 </tr>
               ))}
