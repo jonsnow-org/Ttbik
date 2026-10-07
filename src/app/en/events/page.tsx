@@ -12,12 +12,12 @@ export const metadata: Metadata = {
 
 export default function EnglishEvents() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
+    <main className="mx-auto max-w-5xl px-4 py-8" lang="en">
       <EnglishDeskNav />
-      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">Events</h1>
+      <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-slate-900">Events</h1>
       <p className="mb-6 text-sm leading-7 text-slate-600">Public dates an English reader can verify. Each card names the date, the source, and a related tool.</p>
       <AdSlot position="in-content" label="English section" />
-      <article className="rounded-3xl border border-slate-200 p-4">
+      <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">World Space Week, 4–10 October</h2>
         <p className="mt-2 text-sm leading-7 text-slate-700">The United Nations marks World Space Week each October. A short link or poster is easier to share as a QR code.</p>
         <a className="mt-3 block text-sm font-bold" href="https://www.worldspaceweek.org/">Official source</a>

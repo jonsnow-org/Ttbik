@@ -20,14 +20,14 @@ const ITEMS = [
 
 export default function EnglishNews() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
+    <main className="mx-auto max-w-5xl px-4 py-8" lang="en">
       <EnglishDeskNav />
-      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">News</h1>
+      <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-slate-900">News</h1>
       <p className="mb-6 text-sm leading-7 text-slate-600">Short English notes for people searching tools and web practice. The Arabic desk keeps its own headlines.</p>
       <AdSlot position="in-content" label="English section" />
       <div className="grid gap-3">
         {ITEMS.map((item) => (
-          <article key={item.href} className="rounded-3xl border border-slate-200 p-4">
+          <article key={item.href} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-bold">{item.title}</h2>
             <p className="mt-2 text-sm leading-7 text-slate-700">{item.text}</p>
             <Link className="mt-3 inline-block text-sm font-bold" href={item.href}>Open the tool</Link>

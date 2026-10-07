@@ -12,12 +12,12 @@ export const metadata: Metadata = {
 
 export default function EnglishArticles() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
+    <main className="mx-auto max-w-5xl px-4 py-8" lang="en">
       <EnglishDeskNav />
-      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">Articles</h1>
+      <h1 className="mb-2 text-4xl font-extrabold tracking-tight text-slate-900">Articles</h1>
       <p className="mb-6 text-sm leading-7 text-slate-600">How-to pages for English searches. They explain a task, then open the tool.</p>
       <AdSlot position="in-content" label="English section" />
-      <article className="rounded-3xl border border-slate-200 p-4">
+      <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">Make a QR code without an account</h2>
         <p className="mt-2 text-sm leading-7 text-slate-700">Paste the link, check the preview, and download the image. The text stays in the browser. Use it for a menu, a Wi-Fi card, or a product page.</p>
         <Link className="mt-3 inline-block text-sm font-bold" href="/en/free-tools/qr-generator">Open the QR generator</Link>

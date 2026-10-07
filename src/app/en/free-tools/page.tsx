@@ -13,14 +13,14 @@ export const metadata: Metadata = {
 
 export default function EnglishTools() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
+    <main className="mx-auto max-w-5xl px-4 py-8" lang="en">
       <EnglishDeskNav />
-      <h1 className="mb-2 text-2xl font-extrabold">Tools</h1>
+      <h1 className="mb-2 text-4xl font-extrabold tracking-tight">Tools</h1>
       <p className="mb-6 text-sm leading-7 text-slate-600">Browser tools for English searches. Each one runs without an account.</p>
       <AdSlot position="in-content" label="English section" />
       <div className="grid gap-3">
         {EN_FREE_TOOLS.map((tool) => (
-          <Link key={tool.href} href={tool.href} className="rounded-3xl border border-slate-200 p-4">
+          <Link key={tool.href} href={tool.href} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-lg font-bold">{tool.title}</h2>
             <p className="mt-1 text-sm text-slate-700">{tool.text}</p>
           </Link>
