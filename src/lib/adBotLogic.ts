@@ -371,8 +371,7 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
-    .text(t(lang, "btnYoutubeLink")).row()
-    .text(t(lang, "btnYoutubeLink")).row();
+    .text(t(lang, "btnAccounts")).row();
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -380,6 +379,12 @@ function mainMenu(lang: Lang): Keyboard {
   // those genuinely need a way back.
   if (novaAssistConfigured()) kb.text(t(lang, "btnAskNova")).row();
   return kb.resized();
+}
+function accountsMenu(lang: Lang, linked: boolean): Keyboard {
+  return new Keyboard()
+    .text(t(lang, linked ? "btnYoutubeChange" : "btnYoutubeLink")).row()
+    .text(backLabel(lang))
+    .resized();
 }
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
@@ -459,6 +464,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
+    .text(t(lang, "btnAccounts")).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -739,18 +745,20 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await sendStats(bot, chatId, user.id, lang);
     return;
   }
-  if (text === t(lang, "btnYoutubeLink") || text === t("ar", "btnYoutubeLink") || text === t("en", "btnYoutubeLink")) {
+  if (text === t(lang, "btnAccounts") || text === t("ar", "btnAccounts") || text === t("en", "btnAccounts")) {
+    const linked = await hasYoutubeLink(String(tgUserId));
+    await bot.api.sendMessage(chatId, t(lang, "accountsTitle"), { reply_markup: accountsMenu(lang, linked) });
+    return;
+  }
+  if ([t(lang, "btnYoutubeLink"), t("ar", "btnYoutubeLink"), t("en", "btnYoutubeLink"), t(lang, "btnYoutubeChange"), t("ar", "btnYoutubeChange"), t("en", "btnYoutubeChange")].includes(text)) {
     const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
     const link = youtubeStartUrl(site, user.id);
+    const linked = await hasYoutubeLink(String(tgUserId));
     if (!link) {
-      await bot.api.sendMessage(chatId, t(lang, "youtubeLinkUnconfigured"), {
-        reply_markup: tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang),
-      });
+      await bot.api.sendMessage(chatId, t(lang, "youtubeLinkUnconfigured"), { reply_markup: accountsMenu(lang, linked) });
       return;
     }
-    await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), {
-      reply_markup: tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang),
-    });
+    await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), { reply_markup: accountsMenu(lang, linked) });
     return;
   }
   if (text === t(lang, "btnLanguage")) {
