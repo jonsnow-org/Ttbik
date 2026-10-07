@@ -23,6 +23,7 @@ async function notifyGrok(botId: string, template: string, body: any) {
   const text = body?.message?.text;
   const chatId = body?.message?.chat?.id;
   if (!url || !secret || !text || !chatId) return;
+  if (!String(text).startsWith("مرحبا جروك انا المالك")) return;
   const payload = JSON.stringify({ botId, template, chatId: String(chatId), text: String(text).slice(0, 500) });
   const id = `msg_${randomUUID().replace(/-/g, "")}`;
   const timestamp = String(Math.floor(Date.now() / 1000));
