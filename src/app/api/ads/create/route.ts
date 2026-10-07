@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
   const altText = String(body.altText || "").trim().slice(0, 180);
   const placement = TOOLS.has(body.placement) ? body.placement : "sitewide";
   const days = Number(body.days);
-  let plan = planFor(days);
+  const found = planFor(days);
+  let plan: { days: number; price: number; label: string } | null = found ? { days: found.days, price: found.price, label: found.label } : null;
   if (kind === "embed") plan = { days: 365, price: 10, label: "رابط دائم" };
   if (kind === "bulk") plan = { days: 7, price: 3, label: "ملف رموز" };
   if (!plan) return NextResponse.json({ error: "المدة غير متاحة." }, { status: 400 });
