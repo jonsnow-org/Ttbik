@@ -1,0 +1,13 @@
+name: channel-post
+on:
+  schedule:
+    - cron: "0 5,7,9,11,13,15,17,19 * * *"
+  workflow_dispatch:
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: publish
+        run: curl -fsS "https://ttbik.vercel.app/api/cron/telegram-post?secret=${CRON_SECRET}"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
