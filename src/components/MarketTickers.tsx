@@ -49,6 +49,11 @@ export default function MarketTickers({ initial }: { initial?: MarketSnapshot | 
   const gold = [
     `ذهب الأونصة ${money(data?.goldUsd ?? null, 0)} $`,
     `غرام 24 ${money(data?.goldGram24 ?? null)} $`,
+    `غرام 21 ${money(data?.goldGram21 ?? null)} $`,
+    `غرام 21 سوري ${money(data?.goldGram21Syp ?? null, 0)} ل.س`,
+    `غرام 21 تركي ${money(data?.goldGram21Try ?? null, 0)} ₺`,
+    `دولار/ليرة سورية ${money(data?.sypPerUsd ?? null, 2)}`,
+    `دولار/ليرة تركية ${money(data?.tryPerUsd ?? null, 2)}`,
     `بتكوين ${money(data?.btc ?? null, 0)} $`,
     `إيثيريوم ${money(data?.eth ?? null, 0)} $`,
     `سولانا ${money(data?.sol ?? null)} $`,

@@ -3,6 +3,11 @@ export type MarketSnapshot = {
   updatedAt: string;
   goldUsd: number | null;
   goldGram24: number | null;
+  goldGram21: number | null;
+  goldGram21Syp: number | null;
+  goldGram21Try: number | null;
+  sypPerUsd: number | null;
+  tryPerUsd: number | null;
   btc: number | null;
   eth: number | null;
   sol: number | null;
@@ -78,10 +83,19 @@ export async function fetchMarkets(): Promise<MarketSnapshot> {
   });
 
   const goldUsd = typeof gold?.price === "number" ? gold.price : null;
+  const gram24 = goldUsd ? goldUsd / TROY : null;
+  const gram21 = gram24 ? gram24 * (21 / 24) : null;
+  const syp = fx.find((row) => row.code === "SYP")?.rate ?? null;
+  const tryRate = fx.find((row) => row.code === "TRY")?.rate ?? null;
   return {
     updatedAt: new Date().toISOString(),
     goldUsd,
-    goldGram24: goldUsd ? goldUsd / TROY : null,
+    goldGram24: gram24,
+    goldGram21: gram21,
+    goldGram21Syp: gram21 && syp ? gram21 * syp : null,
+    goldGram21Try: gram21 && tryRate ? gram21 * tryRate : null,
+    sypPerUsd: syp,
+    tryPerUsd: tryRate,
     btc,
     eth,
     sol,

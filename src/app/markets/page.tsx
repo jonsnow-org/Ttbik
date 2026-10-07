@@ -59,6 +59,11 @@ export default async function MarketsPage() {
         {[
           ["أونصة الذهب", cell(data.goldUsd, 0) + " $"],
           ["غرام 24", cell(data.goldGram24) + " $"],
+          ["غرام 21", cell(data.goldGram21) + " $"],
+          ["غرام 21 بالليرة السورية", cell(data.goldGram21Syp, 0) + " ل.س"],
+          ["غرام 21 بالليرة التركية", cell(data.goldGram21Try, 0) + " ₺"],
+          ["دولار / ليرة سورية", cell(data.sypPerUsd, 2)],
+          ["دولار / ليرة تركية", cell(data.tryPerUsd, 2)],
           ["بتكوين", cell(data.btc, 0) + " $"],
           ["إيثيريوم", cell(data.eth, 0) + " $"],
           ["سولانا", cell(data.sol) + " $"],
