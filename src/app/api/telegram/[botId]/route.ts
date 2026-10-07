@@ -106,15 +106,24 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const text = String(body.message?.text || "");
         const chatId = body.message?.chat?.id;
         if (chatId) {
-          const keyboard = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
-          const balance = text === "الرصيد" || text.startsWith("/balance") ? await bannerBalance() : null;
-          const reply = balance
-            ? `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`
-            : text === "المحفظة"
-            ? "المحفظة تُفتح من التطبيق المصغر. الشراء والدفع على الموقع يُخصمان منها لاحقاً."
-            : text === "شراء"
-            ? "الشراء يتم داخل التطبيق المصغر بعد فتح زر الموقع."
-            : "بوت الموقع: الرصيد، المحفظة، الشراء، وزر الموقع يفتح التطبيق المصغر.";
+          const adminIds = [botRow.ownerId, process.env.TELEGRAM_ADMIN_CHAT_ID, process.env.SUPER_ADMIN_TELEGRAM_ID].filter(Boolean).map(String);
+          const isAdmin = adminIds.includes(String(chatId));
+          const keyboard = isAdmin
+            ? { keyboard: [[{ text: "حصيلة البنر" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true }
+            : { keyboard: [[{ text: "محفظتي" }, { text: "شراء" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
+          let reply = isAdmin
+            ? "لوحة الأدمن. حصيلة البنر لا تظهر للمستخدمين."
+            : "افتح الموقع من زر التطبيق. محفظتك والشراء داخل التطبيق المصغر.";
+          if (isAdmin && (text === "حصيلة البنر" || text === "الرصيد" || text.startsWith("/balance"))) {
+            const balance = await bannerBalance();
+            reply = `حصيلة البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`;
+          } else if (!isAdmin && (text === "الرصيد" || text === "حصيلة البنر")) {
+            reply = "هذه الحصيلة للأدمن فقط. محفظتك تُفتح من زر الموقع.";
+          } else if (text === "محفظتي") {
+            reply = "محفظتك تُفتح من التطبيق المصغر، ولا تعرض حصيلة الموقع.";
+          } else if (text === "شراء") {
+            reply = "الشراء يتم داخل التطبيق المصغر بعد فتح زر الموقع.";
+          }
           await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
         }
         return NextResponse.json({ status: "ok" });
