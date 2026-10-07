@@ -1507,3 +1507,20 @@ model MatchProfilePrivacy {
   countryOnly Boolean  @default(false)
   updated_at  DateTime @default(now()) @updatedAt
 }
+
+
+model SiteBannerAd {
+  id              String   @id @default(uuid())
+  reservationCode String   @unique
+  bannerUrl       String
+  targetUrl       String
+  altText         String
+  placement       String   @default("sitewide")
+  durationDays    Int
+  totalPrice      Float
+  paymentStatus   String   @default("PENDING")
+  adStatus        String   @default("PENDING_PAYMENT")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  createdAt       DateTime @default(now())
+}

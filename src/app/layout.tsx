@@ -8,6 +8,7 @@ import AdSlot from "@/components/AdSlot";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import MarketTickers from "@/components/MarketTickers";
+import PaidBanner from "@/components/PaidBanner";
 import StickyBottomAd from "@/components/StickyBottomAd";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
@@ -148,6 +149,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         </header>
         <MarketTickers />
+        <PaidBanner />
         <div className="mx-auto max-w-6xl px-4 py-2">
           <AdSlot position="header-banner" label="أعلى الصفحة" isOwner={isOwner} />
         </div>
@@ -164,6 +166,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-slate-500">
                 <a href="/prayer-times" className="hover:text-brand-700">مواقيت الصلاة</a>
                 <a href="/news" className="hover:text-brand-700">الأخبار</a>
+                <a href="/advertise" className="hover:text-brand-700">الإعلان على الموقع</a>
+                <a href="/en/advertise" className="hover:text-brand-700">Advertise</a>
                 <a href="/events" className="hover:text-brand-700">الأحداث</a>
                 <a href="/bots" className="hover:text-brand-700">منشئ البوتات</a>
                 <a href="/how-it-works" className="hover:text-brand-700">كيف يعمل الموقع؟</a>
