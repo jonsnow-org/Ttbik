@@ -32,6 +32,7 @@ const PASSWORD_TEMPLATES = [
   "STREAK_BOT",
   "PRAYER_BOT",
   "CAPSULE_BOT",
+  "SITE_BANNER_ADMIN",
 ] as const;
 
 const ALLOWED_TEMPLATES = new Set<string>([...PUBLIC_TEMPLATES, ...PASSWORD_TEMPLATES]);
@@ -201,6 +202,9 @@ export async function POST(req: NextRequest) {
       TG_CALL_MS,
       "انتهت مهلة ربط الويبهوك مع تليجرام — حاول مجدداً."
     );
+    if (tpl === "SITE_BANNER_ADMIN") {
+      await tempBot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: siteUrl } } }).catch(() => null);
+    }
 
     let newBot;
     try {

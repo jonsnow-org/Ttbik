@@ -98,6 +98,21 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (chatType && chatType !== "private") {
         return NextResponse.json({ status: "ignored", reason: "non-private chat" });
       }
+
+      if (botRow.template === "SITE_BANNER_ADMIN") {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: site } } }).catch(() => null);
+        const text = String(body.message?.text || "");
+        const chatId = body.message?.chat?.id;
+        if (chatId) {
+          const keyboard = { keyboard: [[{ text: "الرصيد" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
+          const reply = text === "الرصيد" || text.startsWith("/balance")
+            ? "زر الرصيد يعرض حصيلة بنر الموقع بعد ربط الدفع."
+            : "بوت الموقع. زر الرصيد للحصيلة، وزر الموقع يفتح التطبيق المصغر.";
+          await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
+        }
+        return NextResponse.json({ status: "ok" });
+      }
       if (botRow.template === "AD_BOT") {
         await handleAdBotUpdate(bot, botRow, body);
       } else if (botRow.template === "MARRIAGE_BOT") {

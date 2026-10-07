@@ -23,6 +23,7 @@ type Bot = {
 
 const TEMPLATE_LABELS: Record<string, string> = {
   AD_BOT: "الإعلانات والمهام",
+  SITE_BANNER_ADMIN: "بوت الموقع",
   MARRIAGE_BOT: "التعارف والزواج",
   JOBS_BOT: "فرص العمل والمتجر",
   MEDICAL_BOT: "الطبي",

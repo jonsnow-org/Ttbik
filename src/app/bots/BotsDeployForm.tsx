@@ -165,6 +165,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
           >
             <option value="AD_BOT">بوت الإعلانات والمهام</option>
+            {isOwner && <option value="SITE_BANNER_ADMIN">بوت الموقع: البنر والرصيد والتطبيق</option>}
             {isOwner && <option value="MARRIAGE_BOT">بوت التعارف والزواج الشرعي</option>}
             {isOwner && <option value="JOBS_BOT">بوت فرص العمل والمتجر</option>}
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
