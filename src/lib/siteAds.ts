@@ -22,6 +22,7 @@ export function makeCode() {
 export async function findAdmenBot() {
   const bots = await prisma.bot.findMany({ select: { id: true, token: true, isActive: true, template: true } });
   for (const bot of bots) {
+    if (bot.template === "SITE_BANNER_ADMIN") return bot;
     try {
       const res = await fetch(`https://api.telegram.org/bot${bot.token}/getMe`, { signal: AbortSignal.timeout(6000) });
       const data = await res.json();
@@ -30,16 +31,20 @@ export async function findAdmenBot() {
       continue;
     }
   }
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (token) return { id: "env", token, isActive: true, template: "SITE_BANNER_ADMIN" };
   return null;
 }
 
 export async function bindAdmenBot() {
   const bot = await findAdmenBot();
   if (!bot) return { ok: false, error: "البوت @Admen10bot غير موجود في جدول البوتات" };
-  await prisma.bot.update({
-    where: { id: bot.id },
-    data: { isActive: false, template: "SITE_BANNER_ADMIN" },
-  });
+  if (bot.id !== "env") {
+    await prisma.bot.update({
+      where: { id: bot.id },
+      data: { isActive: false, template: "SITE_BANNER_ADMIN" },
+    }).catch(() => null);
+  }
   const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
   await fetch(`https://api.telegram.org/bot${bot.token}/setChatMenuButton`, {
