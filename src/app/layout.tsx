@@ -150,8 +150,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             )}
           </div>
         </header>
-        <MarketTickers />
-        <PaidBanner />
+        <div className="relative z-20 bg-white">
+          <MarketTickers />
+          <PaidBanner />
+        </div>
         <div className="mx-auto max-w-6xl px-4 py-2">
           <AdSlot position="header-banner" label="أعلى الصفحة" isOwner={isOwner} />
         </div>
