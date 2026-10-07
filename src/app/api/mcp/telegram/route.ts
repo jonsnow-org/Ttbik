@@ -1,18 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findAdmenBot } from "@/lib/siteAds";
+import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-async function token() {
-  const bot = await findAdmenBot();
-  return bot?.token || "";
+async function bots() {
+  return prisma.bot.findMany({ select: { id: true, token: true, template: true, isActive: true } });
 }
 
-async function tg(method: string) {
-  const key = await token();
-  if (!key) return { ok: false, error: "البوت غير مربوط" };
-  const res = await fetch(`https://api.telegram.org/bot${key}/${method}`);
+async function byId(id: string) {
+  const all = await bots();
+  return all.find((b) => b.id === id) || null;
+}
+
+async function tg(token: string, method: string, payload?: object) {
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, payload ? {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  } : undefined);
   return res.json();
+}
+
+function reply(id: unknown, text: string) {
+  return NextResponse.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
 }
 
 export async function GET() {
@@ -23,7 +33,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const id = body.id ?? null;
   if (body.method === "initialize") {
-    return NextResponse.json({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "sham-telegram", version: "1" } } });
+    return NextResponse.json({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "sham-telegram", version: "2" } } });
   }
   if (body.method === "tools/list") {
     return NextResponse.json({
@@ -31,28 +41,35 @@ export async function POST(req: NextRequest) {
       id,
       result: {
         tools: [
-          { name: "bot_status", description: "اسم بوت الإعلان وحالة الويب هوك", inputSchema: { type: "object", properties: {} } },
-          { name: "ping_admin", description: "رسالة اختبار إلى إدارة البوت فقط", inputSchema: { type: "object", properties: { text: { type: "string" } } } },
+          { name: "list_bots", description: "كل البوتات المخزنة بلا عرض التوكن", inputSchema: { type: "object", properties: {} } },
+          { name: "bot_status", description: "حالة بوت واحد", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+          { name: "send_as_bot", description: "إرسال رسالة باسم بوت مخزن إلى محادثة معروفة", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, text: { type: "string" } }, required: ["botId", "chatId", "text"] } },
         ],
       },
     });
   }
-  if (body.method === "tools/call" && body.params?.name === "bot_status") {
-    const me = await tg("getMe");
-    const hook = await tg("getWebhookInfo");
-    const text = `البوت: @${me?.result?.username || "غير معروف"}\nالويب هوك: ${hook?.result?.url || "فارغ"}`;
-    return NextResponse.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+  if (body.method !== "tools/call") return NextResponse.json({ jsonrpc: "2.0", id, result: {} });
+  const name = body.params?.name;
+  const args = body.params?.arguments || {};
+  if (name === "list_bots") {
+    const rows = await bots();
+    const lines = [];
+    for (const bot of rows) {
+      const me = await tg(bot.token, "getMe");
+      lines.push(`${bot.id} | @${me?.result?.username || "غير معروف"} | ${bot.template} | ${bot.isActive ? "نشط" : "موقوف"}`);
+    }
+    return reply(id, lines.join("\n") || "لا بوتات");
   }
-  if (body.method === "tools/call" && body.params?.name === "ping_admin") {
-    const key = await token();
-    const chat = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.SUPER_ADMIN_TELEGRAM_ID || "";
-    if (!key || !chat) return NextResponse.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "إدارة البوت غير مضبوطة" }] } });
-    await fetch(`https://api.telegram.org/bot${key}/sendMessage`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: chat, text: String(body.params?.arguments?.text || "اختبار ربط جروك") }),
-    });
-    return NextResponse.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "أُرسلت إلى الإدارة فقط" }] } });
+  const bot = await byId(String(args.botId || ""));
+  if (!bot) return reply(id, "البوت غير موجود في الجدول");
+  if (name === "bot_status") {
+    const me = await tg(bot.token, "getMe");
+    const hook = await tg(bot.token, "getWebhookInfo");
+    return reply(id, `@${me?.result?.username || "غير معروف"}\nالويب هوك: ${hook?.result?.url || "فارغ"}`);
   }
-  return NextResponse.json({ jsonrpc: "2.0", id, result: {} });
+  if (name === "send_as_bot") {
+    const sent = await tg(bot.token, "sendMessage", { chat_id: String(args.chatId || ""), text: String(args.text || "") });
+    return reply(id, sent?.ok ? "أُرسلت" : "فشل الإرسال");
+  }
+  return reply(id, "أمر غير معروف");
 }
