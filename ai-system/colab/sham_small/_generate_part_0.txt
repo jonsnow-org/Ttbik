@@ -1,0 +1,194 @@
+"""
+Sham — real autoregressive generation. Everything built so far
+(model.py, image_tokenizer.py, audio_tokenizer.py, video_tokenizer.py)
+proves the model can be TRAINED on multimodal sequences; nothing so far
+lets it actually be USED to produce new text/images/audio/video one
+token at a time. This file is that missing piece.
+
+Two real correctness problems specific to generation (not training),
+both solved here and both verified for real in this file's own
+__main__ block, not assumed:
+
+  1. Efficiency: naively re-running the full sequence through the model
+     for every new token is O(n^2) in the number of generated tokens.
+     generate_tokens() below uses model.py's KV-cache path
+     (verify_scalability.py already proved that cache is numerically
+     exact) so each new token costs O(n), not O(n^2).
+
+  2. Correctness of modality spans: nothing stops an untrained (or even
+     a trained but imperfect) model from writing 200 or 300 image
+     tokens after <IMAGE_START> instead of exactly
+     image_tokenizer.tokens_per_image (256), or from emitting a text
+     token id in the middle of what should be a pure image span —
+     either failure would silently corrupt decode() without ever
+     raising an error. generate_image()/generate_audio()/
+     generate_video() below enforce both the exact count AND the valid
+     id range at generation time, by masking every logit outside the
+     allowed range to -inf before sampling and by emitting the closing
+     delimiter as a forced token rather than a sampled one.
+"""
+
+import torch
+import torch.nn.functional as F
+
+from model import (
+    AUDIO_VOCAB_BASE,
+    AUDIO_VOCAB_SIZE,
+    IMAGE_VOCAB_BASE,
+    IMAGE_VOCAB_SIZE,
+    ShamSmall,
+    SpecialTokens,
+    TEXT_VOCAB_SIZE,
+    audio_token_id_to_vocab_id,
+    image_token_id_to_vocab_id,
+    vocab_id_to_audio_token_id,
+    vocab_id_to_image_token_id,
+)
+
+
+def _sample_from_logits(
+    logits: torch.Tensor,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    allowed_range: tuple[int, int] | None = None,
+) -> torch.Tensor:
+    """logits: (batch, vocab_size) — the distribution for the NEXT
+    token only (already sliced from the last position). Returns
+    (batch, 1) sampled token ids. allowed_range=(lo, hi) masks every id
+    outside [lo, hi) to -inf first — how generate_image()/
+    generate_audio() keep sampling inside their own codebook's range
+    without touching the model's weights or training."""
+    if allowed_range is not None:
+        lo, hi = allowed_range
+        mask = torch.full_like(logits, float("-inf"))
+        mask[:, lo:hi] = 0.0
+        logits = logits + mask
+
+    if temperature <= 0.0:
+        return logits.argmax(dim=-1, keepdim=True)
+
+    logits = logits / temperature
+
+    if top_k is not None:
+        top_k = min(top_k, logits.size(-1))
+        kth_value = torch.topk(logits, top_k, dim=-1).values[:, -1, None]
+        logits = torch.where(logits < kth_value, torch.full_like(logits, float("-inf")), logits)
+
+    if top_p is not None:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted_mask = cumulative_probs - F.softmax(sorted_logits, dim=-1) > top_p
+        sorted_logits = sorted_logits.masked_fill(sorted_mask, float("-inf"))
+        logits = torch.full_like(logits, float("-inf")).scatter(-1, sorted_indices, sorted_logits)
+
+    probs = F.softmax(logits, dim=-1)
+    return torch.multinomial(probs, num_samples=1)
+
+
+@torch.no_grad()
+def generate_tokens(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+    top_p: float | None = None,
+    eos_id: int | None = None,
+    forced_ids: list[int | None] | None = None,
+    allowed_ranges: list[tuple[int, int] | None] | None = None,
+    stop_ids: set[int] | None = None,
+) -> torch.Tensor:
+    """The one real generation loop everything else in this file is
+    built on. prompt_ids: (batch, prompt_len). Returns (batch,
+    prompt_len + num_generated) — the prompt plus whatever was
+    generated (shorter than max_new_tokens if every sequence in the
+    batch hit eos_id first).
+
+    forced_ids/allowed_ranges (each, if given, a list of length
+    max_new_tokens) let a caller override individual generation steps:
+    forced_ids[i] is not None -> that exact id is appended at step i
+    with NO sampling at all (how the closing <IMAGE_END>/<AUDIO_END>/
+    <VIDEO_END> token is emitted below — deterministic, not left to
+    chance). allowed_ranges[i] restricts step i's sampling to that
+    (lo, hi) id range when forced_ids[i] is None (how an image/audio
+    span's tokens are kept inside their own codebook's range)."""
+    model.eval()
+    batch = prompt_ids.shape[0]
+    device = prompt_ids.device
+
+    generated = prompt_ids
+    past_key_values = None
+    finished = torch.zeros(batch, dtype=torch.bool, device=device)
+
+    # Prime the cache with the whole prompt in one forward pass, then
+    # generate one real new token per step from here on.
+    next_input = prompt_ids
+    for step in range(max_new_tokens):
+        logits, _, past_key_values = model(next_input, past_key_values=past_key_values, use_cache=True)
+        last_logits = logits[:, -1, :]
+
+        forced = forced_ids[step] if forced_ids is not None else None
+        if forced is not None:
+            next_token = torch.full((batch, 1), forced, dtype=torch.long, device=device)
+        else:
+            allowed_range = allowed_ranges[step] if allowed_ranges is not None else None
+            next_token = _sample_from_logits(
+                last_logits, temperature=temperature, top_k=top_k, top_p=top_p, allowed_range=allowed_range
+            )
+
+        # Once a sequence hits EOS, keep padding it with EOS instead of
+        # letting it keep generating — batches shorter than
+        # max_new_tokens differ per-row otherwise, which real batched
+        # generation must handle explicitly, not by accident.
+        if eos_id is not None:
+            next_token = torch.where(finished.unsqueeze(1), torch.full_like(next_token, eos_id), next_token)
+            finished = finished | (next_token.squeeze(1) == eos_id)
+
+        # stop_ids generalizes the same idea to any other id that should
+        # halt generation — tool_use.py's own loop stops on
+        # SpecialTokens.SEARCH_END this way, to pause and run a real
+        # search before resuming, rather than needing its own separate
+        # generation loop reimplementing everything above.
+        if stop_ids:
+            is_stop = torch.isin(next_token.squeeze(1), torch.tensor(sorted(stop_ids), device=device))
+            finished = finished | is_stop
+
+        generated = torch.cat([generated, next_token], dim=1)
+        next_input = next_token
+
+        if (eos_id is not None or stop_ids) and bool(finished.all()):
+            break
+
+    return generated
+
+
+@torch.no_grad()
+def generate_text(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    max_new_tokens: int,
+    temperature: float = 0.8,
+    top_k: int | None = 50,
+    top_p: float | None = 0.95,
+) -> torch.Tensor:
+    """Plain next-token text generation, stopping early at
+    SpecialTokens.EOS. prompt_ids must contain only real text-range ids
+    (or a leading BOS) — this function does not itself restrict
+    sampling to the text range, since a well-trained model choosing to
+    open an <IMAGE_START>/<AUDIO_START>/<VIDEO_START> mid-reply is the
+    real, intended multimodal behavior, not a bug to mask."""
+    return generate_tokens(
+        model, prompt_ids, max_new_tokens, temperature=temperature, top_k=top_k, top_p=top_p, eos_id=SpecialTokens.EOS
+    )
+
+
+@torch.no_grad()
+def generate_image(
+    model: ShamSmall,
+    prompt_ids: torch.Tensor,
+    tokens_per_image: int,
+    temperature: float = 1.0,
+    top_k: int | None = None,
+) -> torch.Tensor:
+    """Appends <IMAGE_START>, exactly tokens_
