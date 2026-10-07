@@ -1,7 +1,7 @@
-import ShareCard from "@/components/ShareCard";
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ShareCard from "@/components/ShareCard";
 import {
   MAX_GUESSES,
   WORD_LEN,
