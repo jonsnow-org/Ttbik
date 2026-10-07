@@ -7,6 +7,7 @@ import AdServiceWorker from "@/components/AdServiceWorker";
 import AdSlot from "@/components/AdSlot";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
+import MarketTickers from "@/components/MarketTickers";
 import StickyBottomAd from "@/components/StickyBottomAd";
 import { LIVE_BOTS } from "@/lib/liveBots";
 
@@ -146,6 +147,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             )}
           </div>
         </header>
+        <MarketTickers />
         <div className="mx-auto max-w-6xl px-4 py-2">
           <AdSlot position="header-banner" label="أعلى الصفحة" isOwner={isOwner} />
         </div>
