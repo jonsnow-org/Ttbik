@@ -21,10 +21,12 @@ checkpoint). If any of them is missing the server refuses to start instead of
 falling back to random weights. An untrained model is available for plumbing
 diagnostics only, behind SHAM_DIAGNOSTIC_UNTRAINED=1 (verify_serve.py).
 
-/generate/medical/image, /ask/image, and /ask/video are open endpoints
+/generate/medical/image, /ask/image, /ask/video, and /ask/web are open endpoints
 (no organization API key, no fixed medical category gate). Callers send a
 free-form prompt or question; uploaded ask media is used once for one answer
-and is not stored or trained on.
+and is not stored or trained on. /ask/web may optionally run one self-learn
+weight step when SHAM_SELF_LEARN=1 and learn=true (saves a NEW checkpoint,
+never overwrites final_chat.pt).
 """
 
 import io
@@ -101,6 +103,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     if not real and not diagnostic:
         raise RuntimeError(f"لا توجد نقطة حفظ مدرّبة لشام في {checkpoint_path!r} — الخادم يعمل بنموذج مدرّب فقط.")
 
+    step = 0
     if real:
         model, step, _ = load_checkpoint(checkpoint_path)
         _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
@@ -146,6 +149,9 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     _state["text_tokenizer"] = text_tokenizer
     _state["image_tokenizer"] = image_tokenizer
     _state["audio_tokenizer"] = audio_tokenizer
+    _state["checkpoint_path"] = checkpoint_path
+    _state["tokenizer_path"] = tokenizer_path
+    _state["train_step"] = step if real else 0
 
 
 @app.on_event("startup")
@@ -185,10 +191,14 @@ class MedicalGenerationRequest(BaseModel):
 @app.get("/health")
 def health() -> dict:
     model: ShamSmall = _state["model"]
+    from self_learn import self_learn_enabled
+
     return {
         "status": "ok",
         "model_params": model.count_parameters(),
         "note": f"شام: {_state.get('source', '')}",
+        "train_step": _state.get("train_step", 0),
+        "self_learn": self_learn_enabled(),
     }
 
 
@@ -382,6 +392,12 @@ async def ask_video_endpoint(
 
     return {"answer": answer}
 
+
+
+# Self-learn live web ask (POST /ask/web) — see ask_web_api.py / self_learn.py
+from ask_web_api import register_ask_web
+
+register_ask_web(app, _state)
 
 if __name__ == "__main__":
     import uvicorn
