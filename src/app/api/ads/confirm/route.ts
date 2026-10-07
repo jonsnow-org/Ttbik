@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { bindAdmenBot, notifyAdmin } from "@/lib/siteAds";
+import { bindAdmenBot, creditBanner, notifyAdmin } from "@/lib/siteAds";
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
     });
   }
   await bindAdmenBot().catch(() => null);
+  await creditBanner(code).catch(() => null);
   await notifyAdmin(
     `طلب بنر ${code}\nالعنوان: ${ad.altText}\nالرابط: ${ad.targetUrl}\nالمدة: ${ad.durationDays} يوم\nالسعر: ${ad.totalPrice}$\nالدفع: ${ad.paymentStatus}\nالبنر: ${ad.bannerUrl}`,
     code,

@@ -92,3 +92,24 @@ export async function activateAd(code: string) {
     data: { adStatus: "ACTIVE", startsAt: start, endsAt: end },
   });
 }
+
+export async function creditBanner(code: string) {
+  const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
+  if (!ad || ad.paymentStatus !== "PAID" || ad.credited) return ad;
+  const bot = await findAdmenBot();
+  if (bot) {
+    await prisma.bot.update({
+      where: { id: bot.id },
+      data: { totalRevenue: { increment: ad.totalPrice }, ownerBalance: { increment: ad.totalPrice } },
+    });
+  }
+  return prisma.siteBannerAd.update({ where: { reservationCode: code }, data: { credited: true } });
+}
+
+export async function bannerBalance() {
+  const paid = await prisma.siteBannerAd.findMany({ where: { paymentStatus: "PAID" } });
+  const total = paid.reduce((sum, ad) => sum + ad.totalPrice, 0);
+  const active = paid.filter((ad) => ad.adStatus === "ACTIVE").length;
+  const bot = await findAdmenBot();
+  return { total, count: paid.length, active, botBalance: bot ? (await prisma.bot.findUnique({ where: { id: bot.id } }))?.ownerBalance ?? total : total };
+}

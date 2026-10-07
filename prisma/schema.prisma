@@ -1522,5 +1522,6 @@ model SiteBannerAd {
   adStatus        String   @default("PENDING_PAYMENT")
   startsAt        DateTime?
   endsAt          DateTime?
+  credited        Boolean  @default(false)
   createdAt       DateTime @default(now())
 }
