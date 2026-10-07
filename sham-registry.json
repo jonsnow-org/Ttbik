@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-07 06:09 UTC",
+  "generated_at": "2026-10-07 13:33 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -95,7 +95,7 @@
     {
       "alias": "المرحلة الثانية 2",
       "track": "stage2_multimodal",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-07",
       "gpu": false,
@@ -131,7 +131,7 @@
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-07",
       "gpu": false,
@@ -140,7 +140,7 @@
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-06",
       "gpu": false,
@@ -149,7 +149,7 @@
     {
       "alias": "المرحلة الأولى 2",
       "track": "text_stage1",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-07",
       "gpu": false,
@@ -212,8 +212,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 385.7,
-      "last_updated": "2026-10-06",
+      "size_mb": 385.8,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
@@ -235,24 +235,24 @@
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-06",
+      "size_mb": 2731.8,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-06",
+      "size_mb": 1588.3,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الثانية 1",
       "track": "stage2_multimodal",
-      "size_mb": 577.9,
-      "last_updated": "2026-10-06",
+      "size_mb": 580.5,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
@@ -283,8 +283,8 @@
     {
       "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
-      "size_mb": 581.7,
-      "last_updated": "2026-10-06",
+      "size_mb": 582.0,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
@@ -363,7 +363,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
@@ -406,21 +406,21 @@
       "stage2_multimodal": {
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الثانية 1"
       },
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
