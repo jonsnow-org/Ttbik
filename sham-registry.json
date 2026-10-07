@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-07 13:33 UTC",
+  "generated_at": "2026-10-07 20:41 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -283,7 +283,7 @@
     {
       "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
-      "size_mb": 582.0,
+      "size_mb": 0.0,
       "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
@@ -339,8 +339,8 @@
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 580.0,
-      "last_updated": "2026-10-06",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
     },
