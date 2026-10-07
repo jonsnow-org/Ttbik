@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-06 22:43 UTC",
+  "generated_at": "2026-10-07 06:09 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -86,7 +86,7 @@
     {
       "alias": "تجربة بوت شام 1",
       "track": "bot_test",
-      "status": "running",
+      "status": "complete",
       "role": "tool",
       "last_run": "2026-10-06",
       "gpu": false,
@@ -97,7 +97,7 @@
       "track": "stage2_multimodal",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-06",
+      "last_run": "2026-10-07",
       "gpu": false,
       "failure": ""
     },
@@ -115,7 +115,7 @@
       "track": "audio_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-05",
+      "last_run": "2026-10-06",
       "gpu": false,
       "failure": ""
     },
@@ -124,16 +124,16 @@
       "track": "image_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-05",
+      "last_run": "2026-10-06",
       "gpu": true,
       "failure": ""
     },
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-05",
+      "last_run": "2026-10-07",
       "gpu": false,
       "failure": ""
     },
@@ -151,8 +151,8 @@
       "track": "text_stage1",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-06",
-      "gpu": true,
+      "last_run": "2026-10-07",
+      "gpu": false,
       "failure": ""
     },
     {
@@ -199,12 +199,12 @@
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
       "size_mb": 35.0,
-      "last_updated": "2026-10-05",
+      "last_updated": "2026-10-07",
       "progress": {
-        "samples_consumed": 2457,
-        "step": 148,
+        "samples_consumed": 2508,
+        "step": 197,
         "last_run_sources": {
-          "x": 87
+          "x": 51
         }
       },
       "has_key_files": true
@@ -221,29 +221,29 @@
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
       "size_mb": 144.1,
-      "last_updated": "2026-10-06",
+      "last_updated": "2026-10-07",
       "progress": {
-        "samples_consumed": 1601,
-        "step": 50,
+        "samples_consumed": 1684,
+        "step": 53,
         "last_run_sources": {
-          "x": 48,
-          "web_fallback": 12
+          "x": 74,
+          "web_fallback": 9
         }
       },
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الأولى 1",
-      "track": "text_stage1",
-      "size_mb": 2776.6,
-      "last_updated": "2026-10-04",
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-06",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 2739.3,
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 0.0,
       "last_updated": "2026-10-06",
       "progress": {},
       "has_key_files": true
@@ -251,7 +251,15 @@
     {
       "alias": "نتائج المرحلة الثانية 1",
       "track": "stage2_multimodal",
-      "size_mb": 577.7,
+      "size_mb": 577.9,
+      "last_updated": "2026-10-06",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 582.3,
       "last_updated": "2026-10-03",
       "progress": {},
       "has_key_files": true
@@ -265,10 +273,18 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
+      "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
-      "size_mb": 582.3,
+      "size_mb": 1374.0,
       "last_updated": "2026-10-03",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 3",
+      "track": "live_trainer",
+      "size_mb": 581.7,
+      "last_updated": "2026-10-06",
       "progress": {},
       "has_key_files": true
     },
@@ -282,14 +298,6 @@
         "step": 9,
         "type": "adult_synthesized"
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 1374.0,
-      "last_updated": "2026-10-03",
-      "progress": {},
       "has_key_files": true
     },
     {
@@ -329,7 +337,15 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 3",
+      "alias": "نتائج مسار ترميز الصورة 3",
+      "track": "image_tokenizer",
+      "size_mb": 580.0,
+      "last_updated": "2026-10-06",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 4",
       "track": "live_trainer",
       "size_mb": 1370.2,
       "last_updated": "2026-10-01",
@@ -356,11 +372,11 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 1601,
-          "step": 50,
+          "samples_consumed": 1684,
+          "step": 53,
           "last_run_sources": {
-            "x": 48,
-            "web_fallback": 12
+            "x": 74,
+            "web_fallback": 9
           }
         },
         "dataset": "نتائج مسار ترميز الصورة 1"
@@ -370,10 +386,10 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 2457,
-          "step": 148,
+          "samples_consumed": 2508,
+          "step": 197,
           "last_run_sources": {
-            "x": 87
+            "x": 51
           }
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
@@ -404,7 +420,7 @@
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
