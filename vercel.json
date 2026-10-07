@@ -1,8 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/telegram-post",
-      "schedule": "0 */2 * * *"
+      "path": "/api/cron/telegram-post?slot=1",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/telegram-post?slot=2",
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/cron/anti-cheat-retention",
@@ -62,7 +66,7 @@
     },
     {
       "path": "/api/cron/ads-expire",
-      "schedule": "0 * * * *"
+      "schedule": "0 1 * * *"
     }
   ],
   "git": {
