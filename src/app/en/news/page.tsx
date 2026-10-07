@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import EnglishDeskNav from "@/components/EnglishDeskNav";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
@@ -24,10 +25,7 @@ const ITEMS = [
 export default function EnglishNews() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
-      <nav className="mb-5 text-sm text-slate-500" aria-label="Breadcrumb">
-        <Link href="/en" className="hover:text-slate-800">Home</Link>
-        <span> / News</span>
-      </nav>
+      <EnglishDeskNav />
       <h1 className="mb-2 text-2xl font-extrabold text-slate-900">News</h1>
       <p className="mb-6 text-sm leading-7 text-slate-600">Short English notes for people searching tools and web practice. The Arabic desk keeps its own headlines.</p>
       <div className="grid gap-3">
