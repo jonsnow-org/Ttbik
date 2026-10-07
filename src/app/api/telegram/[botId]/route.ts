@@ -106,11 +106,15 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const text = String(body.message?.text || "");
         const chatId = body.message?.chat?.id;
         if (chatId) {
-          const keyboard = { keyboard: [[{ text: "الرصيد" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
+          const keyboard = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
           const balance = text === "الرصيد" || text.startsWith("/balance") ? await bannerBalance() : null;
           const reply = balance
             ? `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`
-            : "بوت الموقع. زر الرصيد للحصيلة، وزر الموقع يفتح التطبيق المصغر.";
+            : text === "المحفظة"
+            ? "المحفظة تُفتح من التطبيق المصغر. الشراء والدفع على الموقع يُخصمان منها لاحقاً."
+            : text === "شراء"
+            ? "الشراء يتم داخل التطبيق المصغر بعد فتح زر الموقع."
+            : "بوت الموقع: الرصيد، المحفظة، الشراء، وزر الموقع يفتح التطبيق المصغر.";
           await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
         }
         return NextResponse.json({ status: "ok" });

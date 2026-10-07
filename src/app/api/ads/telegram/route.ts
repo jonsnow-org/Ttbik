@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { activateAd, bannerBalance, findAdmenBot } from "@/lib/siteAds";
 
 const SITE = "https://ttbik.vercel.app";
-const KEYBOARD = { keyboard: [[{ text: "الرصيد" }], [{ text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
+const KEYBOARD = { keyboard: [[{ text: "الرصيد" }, { text: "المحفظة" }], [{ text: "شراء" }, { text: "الموقع", web_app: { url: SITE } }]], resize_keyboard: true };
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-telegram-bot-api-secret-token");
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       const balance = await bannerBalance();
       await send(chatId, `رصيد البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}\nرصيد البوت: ${balance.botBalance}$`);
     } else if (chatId) {
-      await send(chatId, "بوت إعلانات الموقع. زر الرصيد يعرض الحصيلة، وزر الموقع يفتح التطبيق المصغر.");
+      await send(chatId, text === "المحفظة" ? "المحفظة تُفتح من التطبيق المصغر." : text === "شراء" ? "الشراء يتم داخل التطبيق المصغر." : "بوت الموقع: الرصيد، المحفظة، الشراء، وزر الموقع.");
     }
     return NextResponse.json({ ok: true });
   }
