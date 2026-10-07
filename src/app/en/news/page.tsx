@@ -3,27 +3,42 @@ import Link from "next/link";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "Practical tech news",
-  description: "Short English news notes about tools and the open web. Written for international readers, not translated from Arabic desks.",
-  alternates: { canonical: `${SITE_URL}/en/news`, languages: { en: `${SITE_URL}/en/news` } },
+  title: "Tech news for tool searches",
+  description: "English news notes on browser tools, open formats, and practical web changes. Written for international search, not translated from another desk.",
+  alternates: { canonical: `${SITE_URL}/en/news`, languages: { en: `${SITE_URL}/en/news`, "x-default": `${SITE_URL}/en/news` } },
 };
 
 const ITEMS = [
-  { href: "/free-tools", title: "Browser tools that need no account", text: "People search for converters and calculators they can use once and close. The free tools desk answers that search." },
+  {
+    href: "/en/free-tools/qr-generator",
+    title: "QR codes people generate in the browser",
+    text: "Searchers want a code for a link or a Wi-Fi name without uploading the text to an account. A local generator answers that query.",
+  },
+  {
+    href: "/en/free-tools/image-optimizer",
+    title: "Smaller images before a page goes live",
+    text: "A page that ships oversized images loads slowly. Compressing in the browser is the check before publish.",
+  },
 ];
 
 export default function EnglishNews() {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
-      <h1 className="text-3xl font-extrabold">News</h1>
-      <p className="mt-2 text-slate-600">Global practical notes. Local Arabic headlines stay on the Arabic desk.</p>
-      {ITEMS.map((item) => (
-        <article key={item.href} className="mt-6 rounded-2xl border p-4">
-          <h2 className="text-xl font-bold">{item.title}</h2>
-          <p className="mt-2 text-slate-700">{item.text}</p>
-          <Link className="mt-3 inline-block font-bold" href={item.href}>Open the tool</Link>
-        </article>
-      ))}
+    <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
+      <nav className="mb-5 text-sm text-slate-500" aria-label="Breadcrumb">
+        <Link href="/en" className="hover:text-slate-800">Home</Link>
+        <span> / News</span>
+      </nav>
+      <h1 className="mb-2 text-2xl font-extrabold text-slate-900">News</h1>
+      <p className="mb-6 text-sm leading-7 text-slate-600">Short English notes for people searching tools and web practice. The Arabic desk keeps its own headlines.</p>
+      <div className="grid gap-3">
+        {ITEMS.map((item) => (
+          <article key={item.href} className="rounded-3xl border border-slate-200 p-4">
+            <h2 className="text-lg font-bold">{item.title}</h2>
+            <p className="mt-2 text-sm leading-7 text-slate-700">{item.text}</p>
+            <Link className="mt-3 inline-block text-sm font-bold" href={item.href}>Open the tool</Link>
+          </article>
+        ))}
+      </div>
     </main>
   );
 }
