@@ -200,7 +200,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           )}
         </div>
         {template === "SITE_BANNER_ADMIN" ? (
-          <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل.</p>
+          <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل. </p>
         ) : template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>
