@@ -13,7 +13,7 @@ const PATH = "/articles";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "مقالات مفيدة | شام AI",
+  title: "مقالات مفيدة",
   description:
     "مقالات عربية هادفة: محو أمية رقمية، ثقافة مالية، أمن حسابات، ومهارات عملية — قيمة حقيقية بلا حشو.",
   keywords: ["مقالات عربية", "محو الأمية الرقمية", "أمن رقمي", "شام AI"],

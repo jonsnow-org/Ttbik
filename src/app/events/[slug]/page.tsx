@@ -19,7 +19,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const e = getEvent(params.slug);
   if (!e) return { title: "حدث" };
   return {
-    title: `${e.title} | شام AI`,
+    title: e.title,
     description: e.description,
     alternates: { canonical: `${SITE}/events/${e.slug}` },
     openGraph: {

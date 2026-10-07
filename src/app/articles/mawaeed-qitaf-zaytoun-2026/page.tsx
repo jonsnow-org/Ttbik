@@ -11,7 +11,7 @@ const DESCRIPTION =
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: `${TITLE} | شام AI`,
+  title: TITLE,
   description: DESCRIPTION,
   keywords: [
     "مواعيد قطاف الزيتون 2026",

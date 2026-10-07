@@ -13,7 +13,7 @@ const PATH = "/events";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "أحداث عالمية | شام AI",
+  title: "أحداث عالمية",
   description:
     "حدث عالمي كل يوم: مناسبات فلكية وثقافية موثّقة بمصادر، مع أسئلة شائعة وملخص واضح بالعربية.",
   keywords: ["أحداث عالمية", "حدث اليوم", "شام AI", "مناسبات"],

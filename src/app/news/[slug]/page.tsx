@@ -22,7 +22,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const url = `${SITE}/news/${item.slug}`;
   const image = item.imageUrl || `${SITE}/og/news.jpg`;
   return {
-    title: `${item.title} | شام AI`,
+    title: item.title,
     description: item.description,
     alternates: { canonical: url },
     openGraph: {

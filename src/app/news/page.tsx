@@ -14,7 +14,7 @@ const PATH = "/news";
 export const revalidate = 120;
 
 export const metadata: Metadata = {
-  title: "أخبار وأحداث | شام AI",
+  title: "أخبار وأحداث",
   description:
     "شريط عاجل من مصادر عربية موثوقة، بطاقات بصور، وبث رسمي للأحداث الكبرى. لا نسخ للمقالات.",
   keywords: ["أخبار عربية", "خبر اليوم", "شام AI", "بث مباشر"],
