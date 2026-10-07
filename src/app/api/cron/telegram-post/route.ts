@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publishRotation } from "@/lib/channelRotation";
+import { publishRotation, type RotationResult } from "@/lib/channelRotation";
 import { isSafeForChannel } from "@/lib/channelPublisher";
 import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
 
@@ -32,10 +32,13 @@ export async function GET(req: NextRequest) {
   await ensureFrontDoor().catch(() => null);
 
   const slot = Math.min(3, Math.max(1, Number(req.nextUrl.searchParams.get("slot") || "2") || 2));
-  const result = await publishRotation(slot).catch((e) => {
+  let result: RotationResult;
+  try {
+    result = await publishRotation(slot);
+  } catch (e) {
     console.error("[telegram-post] publishRotation failed", e);
-    return { ok: false, slot, reason: "exception" };
-  });
+    result = { ok: false, slot, reason: "exception" };
+  }
   if (result.ok && result.text && !isSafeForChannel(result.text)) {
     return NextResponse.json({ ok: false, slot, topic: result.topic, blocked: true });
   }
