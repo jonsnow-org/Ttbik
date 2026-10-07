@@ -6,7 +6,7 @@ import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
 export const maxDuration = 60;
 
 /**
- * Channel cron (vercel.json, three slots/day).
+ * Channel cron every 2 hours. Quiet hours 23:00-07:00 Istanbul are skipped.
  * Owner list, 2026-10-07: Sham AI news, events, articles and tools,
  * Literium (https://literium.ai.studio/) once every 2 days, Athar on
  * Getgems once every 3 days. No title/link repeat inside 2 days.
@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
 
   await ensureFrontDoor().catch(() => null);
 
-  const slot = Math.min(3, Math.max(1, Number(req.nextUrl.searchParams.get("slot") || "2") || 2));
+  const hourIstanbul = (new Date().getUTCHours() + 3) % 24;
+  if (hourIstanbul < 7 || hourIstanbul >= 23) {
+    return NextResponse.json({ ok: true, skipped: "quiet-hours", hourIstanbul });
+  }
+  const slot = ((hourIstanbul - 7) % 3) + 1;
   let result: RotationResult;
   try {
     result = await publishRotation(slot);
