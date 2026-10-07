@@ -60,7 +60,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (pathname.startsWith("/embed")) {
     return (
       <html lang="ar" dir="rtl">
-        <body className="bg-transparent font-sans text-slate-800 antialiased">{children}</body>
+              <body className="bg-transparent font-sans text-slate-800 antialiased">{children}</body>
       </html>
     );
   }
@@ -68,7 +68,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   if (isMiniApp) {
     return (
       <html lang="ar" dir="rtl">
-        <body className="min-h-screen bg-[#e3f2fd] font-sans text-slate-800 antialiased">
+              <body className="min-h-screen bg-[#e3f2fd] font-sans text-slate-800 antialiased">
           {children}
         </body>
       </html>
@@ -79,7 +79,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="ar" dir="rtl">
-      <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
+            <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
+        <script src="https://telegram.org/js/telegram-web-app.js" async />
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ORGANIZATION_JSON_LD) }} />
         {/* Unconditional, for every visitor including the owner -- this now
             only unregisters any stale service worker + clears Cache Storage
@@ -159,6 +160,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <AdSlot position="footer-banner" label="أسفل الصفحة قبل الفوتر" isOwner={isOwner} />
         </div>
         <footer className="mt-20 border-t border-slate-200 bg-white">
+          <a href="https://t.me/Admen10bot?startapp=site" className="block bg-slate-950 px-4 py-3 text-center text-sm font-extrabold text-white">تطبيق @Admen10bot — افتح الموقع من البوت</a>
           <div className="mx-auto max-w-6xl px-4 py-10">
             <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-right">
               <a href="/" className="flex items-center gap-2 text-base font-extrabold text-brand-800">
