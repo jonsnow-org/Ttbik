@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: sham-main   # كود شام من فرعه الخاص؛ الفرع الرئيسي للمستودع (جلسة أثر) لا يُدمج فيه كود النموذج
 
@@ -33,7 +33,7 @@ jobs:
           sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
           df -h / | tail -1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip

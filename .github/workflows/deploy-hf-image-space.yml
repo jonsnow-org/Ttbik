@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Ttbik
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Clone the Hugging Face Space git repo
         env:
