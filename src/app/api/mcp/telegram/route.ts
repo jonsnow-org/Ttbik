@@ -3,14 +3,6 @@ import { findAdmenBot } from "@/lib/siteAds";
 
 export const dynamic = "force-dynamic";
 
-function allowed(req: NextRequest) {
-  const expected = (process.env.ADMIN_PASSWORD || "").trim();
-  if (!expected) return false;
-  const header = req.headers.get("authorization") || "";
-  const cookie = req.cookies.get("ttbik_admin")?.value || "";
-  return header === `Bearer ${expected}` || cookie === expected;
-}
-
 async function token() {
   const bot = await findAdmenBot();
   return bot?.token || "";
@@ -29,8 +21,6 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const open = body.method === "initialize" || body.method === "notifications/initialized" || body.method === "tools/list";
-  if (!open && !allowed(req)) return NextResponse.json({ error: "forbidden" }, { status: 401 });
   const id = body.id ?? null;
   if (body.method === "initialize") {
     return NextResponse.json({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "sham-telegram", version: "1" } } });
