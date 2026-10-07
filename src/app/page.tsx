@@ -29,7 +29,7 @@ export default async function HomePage() {
 
   return (
     <div>
-      <a href="/advertise" className="mx-auto mt-2 block max-w-6xl truncate rounded-md bg-amber-400 px-3 py-1 text-center text-xs font-bold text-slate-950">أعلن هنا — احجز ظهور بنرك في كل الصفحات</a>
+      <a href="/advertise" className="mx-auto mt-2 block max-w-6xl truncate rounded-md bg-amber-400 px-3 py-1 text-center text-xs font-bold text-slate-950">أعلن هنا Advertise — احجز ظهور بنرك في كل الصفحات</a>
       <TodayStrip
         latestEvent={EVENT_ITEMS[0] && { slug: EVENT_ITEMS[0].slug, title: EVENT_ITEMS[0].title }}
         latestNews={news && { slug: news.slug, title: news.title }}

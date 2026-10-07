@@ -63,7 +63,7 @@ export default function MarketTickers({ initial }: { initial?: MarketSnapshot | 
 
   return (
     <div>
-    <a href="/advertise" className="block bg-amber-400 px-4 py-2 text-center text-sm font-extrabold text-slate-950">أعلن هنا — احجز البنر في كل الصفحات</a>
+    <a href="/advertise" className="block bg-amber-400 px-4 py-2 text-center text-sm font-extrabold text-slate-950">أعلن هنا Advertise — احجز البنر في كل الصفحات</a>
     <a href="/markets" className="block border-b border-slate-800 bg-slate-900" aria-label="شريط أسعار الذهب والعملات">
       <style>{`@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(50%)}}`}</style>
       <div className="border-b border-white/10 bg-amber-700/90 py-1.5">
