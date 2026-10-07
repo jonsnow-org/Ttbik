@@ -3,14 +3,13 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
 import { SITE_URL } from "@/lib/siteUrl";
+import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 
 export const metadata: Metadata = {
   title: { absolute: "Free Browser Tools — No Signup | Sham AI" },
   description: "English browser tools for QR codes, short links, and image size checks. No account, no upload required.",
   alternates: { canonical: `${SITE_URL}/en/free-tools`, languages: { en: `${SITE_URL}/en/free-tools` } },
 };
-
-import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 
 export default function EnglishTools() {
   return (
