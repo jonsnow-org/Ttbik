@@ -1,3 +1,1 @@
-"""
-test
-"""
+LOAD_FROM:/workspace/serve_raw.py
