@@ -25,11 +25,21 @@ function reply(id: unknown, text: string) {
   return NextResponse.json({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
 }
 
-export async function GET() {
+function allowed(req: NextRequest) {
+  const expected = (process.env.ADMIN_PASSWORD || "").trim();
+  if (!expected) return false;
+  const header = req.headers.get("authorization") || "";
+  const key = req.nextUrl.searchParams.get("key") || "";
+  return header === `Bearer ${expected}` || key === expected;
+}
+
+export async function GET(req: NextRequest) {
+  if (!allowed(req)) return NextResponse.json({ error: "forbidden" }, { status: 401 });
   return NextResponse.json({ name: "sham-telegram", ok: true });
 }
 
 export async function POST(req: NextRequest) {
+  if (!allowed(req)) return NextResponse.json({ error: "forbidden" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
   const id = body.id ?? null;
   if (body.method === "initialize") {
