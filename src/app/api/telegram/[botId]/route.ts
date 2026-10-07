@@ -15,6 +15,32 @@ import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
 
+import { createHmac, randomUUID } from "crypto";
+
+async function notifyGrok(botId: string, template: string, body: any) {
+  const url = process.env.GROK_BOT_WEBHOOK_URL;
+  const secret = process.env.GROK_BOT_WEBHOOK_SECRET;
+  const text = body?.message?.text;
+  const chatId = body?.message?.chat?.id;
+  if (!url || !secret || !text || !chatId) return;
+  const payload = JSON.stringify({ botId, template, chatId: String(chatId), text: String(text).slice(0, 500) });
+  const id = `msg_${randomUUID().replace(/-/g, "")}`;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+  const signature = createHmac("sha256", key).update(`${id}.${timestamp}.${payload}`).digest("base64");
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": id,
+      "webhook-timestamp": timestamp,
+      "webhook-signature": `v1,${signature}`,
+    },
+    body: payload,
+  }).catch(() => null);
+}
+
+
 export const maxDuration = 60;
 
 // The SQL file (in prisma/) that creates each owner-only template's tables.
@@ -53,6 +79,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
+      void notifyGrok(botRow.id, botRow.template, body);
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a
       // balance top-up. Must be answered within 10s, so this skips the
