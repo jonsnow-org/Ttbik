@@ -32,7 +32,17 @@ export async function findAdmenBot() {
     }
   }
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (token) return { id: "env", token, isActive: true, template: "SITE_BANNER_ADMIN" };
+  if (token) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(6000) });
+      const data = await res.json();
+      if (String(data?.result?.username || "").toLowerCase() === ADMEN) {
+        return { id: "env", token, isActive: true, template: "SITE_BANNER_ADMIN" };
+      }
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
