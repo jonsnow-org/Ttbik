@@ -14,6 +14,23 @@ export type NewsItem = {
 /** Authored news only. Newest first. Ticker RSS stays out. */
 export const NEWS_ITEMS: NewsItem[] = [
   {
+    slug: "mistral-large-4-preview-2026",
+    title: "ميسترال تنشر معاينة Large 4: تريليون معامل والأوزان لاحقاً",
+    dateIso: "2026-10-07",
+    dateLabel: "7 أكتوبر 2026",
+    imageUrl: "https://images.unsplash.com/photo-1620712943543-bcc4688e7485?auto=format&fit=crop&w=1200&q=80",
+    description: "خبر قصير: معاينة نموذج فرنسي وُعدت أوزانه لاحقاً، بحجم إجمالي قرب تريليون معامل ونحو 49 ملياراً نشطة.",
+    paragraphs: [
+      "ماذا حدث: في 6 أكتوبر 2026 أطلق مختبر ميسترال معاينة Large 4، نموذجاً متعدد الوسائط من نوع خليط خبراء. التغطيات التقنية حددت الحجم الإجمالي قرب تريليون معامل، والمعاملات النشطة قرب 49 ملياراً، بعد تدريب من الصفر لنحو شهرين على قرابة 4000 وحدة Grace Blackwell في أوروبا.",
+      "لماذا يهم: الأوزان وُعدت لنهاية أكتوبر ولم تُنشر مع المعاينة. من يبني أداة عربية لا يغيّر المزوّد قبل أن يرى الترخيص وسعر الطلب الفعلي.",
+      "ماذا تفعل: اقرأ الملخص ثم افتح المصدر. الشرح الأطول في مقال شام AI المنفصل.",
+    ],
+    sources: [
+      { href: "https://aiweekly.co/ai-news-today", label: "AI Weekly — 7 أكتوبر 2026" },
+      { href: "https://ttbik.vercel.app/articles/mistral-large-4-open-weight-preview", label: "مقال شام AI — معاينة Large 4" },
+    ],
+  },
+  {
     slug: "oct-7-2026-what-sources-say",
     title: "ماذا نتابع في 7 أكتوبر 2026؟ ملخص المصادر قبل الخروج",
     dateIso: "2026-10-07",
