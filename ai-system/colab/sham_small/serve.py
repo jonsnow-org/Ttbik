@@ -1,1 +1,3 @@
-PLACEHOLDER_LOAD_FROM_DISK
+"""
+test
+"""
