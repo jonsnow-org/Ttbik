@@ -121,7 +121,11 @@ export async function POST(req: NextRequest) {
     }
 
     let purchase: { id: string } | null = null;
-    if ((PASSWORD_TEMPLATES as readonly string[]).includes(tpl)) {
+    if (tpl === "SITE_BANNER_ADMIN") {
+      if (ownerId !== "420066855" && ownerId !== process.env.SUPER_ADMIN_TELEGRAM_ID) {
+        return NextResponse.json({ success: false, error: "هذا القالب للمالك فقط." }, { status: 403 });
+      }
+    } else if ((PASSWORD_TEMPLATES as readonly string[]).includes(tpl)) {
       // Private, owner-only templates — static creator password is the whole gate.
       if (!creatorPasswordOk(tpl, password)) {
         return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
