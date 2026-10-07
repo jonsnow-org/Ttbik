@@ -23,9 +23,14 @@ async function tg(method: string) {
   return res.json();
 }
 
+export async function GET() {
+  return NextResponse.json({ name: "sham-telegram", ok: true });
+}
+
 export async function POST(req: NextRequest) {
-  if (!allowed(req)) return NextResponse.json({ error: "forbidden" }, { status: 401 });
   const body = await req.json().catch(() => ({}));
+  const open = body.method === "initialize" || body.method === "notifications/initialized" || body.method === "tools/list";
+  if (!open && !allowed(req)) return NextResponse.json({ error: "forbidden" }, { status: 401 });
   const id = body.id ?? null;
   if (body.method === "initialize") {
     return NextResponse.json({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "sham-telegram", version: "1" } } });
