@@ -42,6 +42,11 @@ export async function bindAdmenBot() {
   });
   const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+  await fetch(`https://api.telegram.org/bot${bot.token}/setChatMenuButton`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: base } } }),
+  }).catch(() => null);
   const hook = await fetch(`https://api.telegram.org/bot${bot.token}/setWebhook`, {
     method: "POST",
     headers: { "content-type": "application/json" },
