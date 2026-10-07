@@ -166,6 +166,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           >
             <option value="AD_BOT">بوت الإعلانات والمهام</option>
             {isOwner && <option value="SITE_BANNER_ADMIN">بوت الموقع: البنر والرصيد والتطبيق</option>}
+            {isOwner && <option value="CHANNEL_PUBLISH_BOT">بوت النشر في قناة الموقع</option>}
             {isOwner && <option value="MARRIAGE_BOT">بوت التعارف والزواج الشرعي</option>}
             {isOwner && <option value="JOBS_BOT">بوت فرص العمل والمتجر</option>}
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
@@ -199,8 +200,8 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             </div>
           )}
         </div>
-        {template === "SITE_BANNER_ADMIN" ? (
-          <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل. </p>
+        {template === "SITE_BANNER_ADMIN" || template === "CHANNEL_PUBLISH_BOT" ? (
+          <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل.</p>
         ) : template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>

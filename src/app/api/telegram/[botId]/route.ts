@@ -100,6 +100,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         return NextResponse.json({ status: "ignored", reason: "non-private chat" });
       }
 
+
+      if (botRow.template === "CHANNEL_PUBLISH_BOT") {
+        const chatId = body.message?.chat?.id;
+        if (chatId) {
+          await bot.api.sendMessage(chatId, "بوت نشر قناة الموقع. لا لوحة مستخدم هنا، والمنشورات تخرج إلى القناة حسب الجدولة.");
+        }
+        return NextResponse.json({ status: "ok" });
+      }
       if (botRow.template === "SITE_BANNER_ADMIN") {
         const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
         await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: site } } }).catch(() => null);

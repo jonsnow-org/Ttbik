@@ -1,3 +1,4 @@
+import { channelBotToken } from "@/lib/channelPublisher";
 import { callGroq } from "@/lib/groq";
 import { fetchTopStories } from "@/lib/newsRss";
 import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
@@ -218,7 +219,7 @@ function imageUrl(item: Item, seed: number): string {
 }
 
 async function sendPhoto(captionText: string, url: string): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const token = await channelBotToken();
   const channel = process.env.TELEGRAM_CHANNEL_ID;
   if (!token || !channel) return false;
   const img = await fetch(url, { signal: AbortSignal.timeout(22_000) }).catch(() => null);

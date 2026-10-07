@@ -33,6 +33,7 @@ const PASSWORD_TEMPLATES = [
   "PRAYER_BOT",
   "CAPSULE_BOT",
   "SITE_BANNER_ADMIN",
+  "CHANNEL_PUBLISH_BOT",
 ] as const;
 
 const ALLOWED_TEMPLATES = new Set<string>([...PUBLIC_TEMPLATES, ...PASSWORD_TEMPLATES]);
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
 
     let purchase: { id: string } | null = null;
-    if (tpl === "SITE_BANNER_ADMIN") {
+    if (tpl === "SITE_BANNER_ADMIN" || tpl === "CHANNEL_PUBLISH_BOT") {
       if (ownerId !== "420066855" && ownerId !== process.env.SUPER_ADMIN_TELEGRAM_ID) {
         return NextResponse.json({ success: false, error: "هذا القالب للمالك فقط." }, { status: 403 });
       }
