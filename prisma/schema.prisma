@@ -1516,6 +1516,7 @@ model SiteBannerAd {
   targetUrl       String
   altText         String
   placement       String   @default("sitewide")
+  kind            String   @default("image")
   durationDays    Int
   totalPrice      Float
   paymentStatus   String   @default("PENDING")

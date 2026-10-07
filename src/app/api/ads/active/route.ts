@@ -19,6 +19,7 @@ export async function GET() {
     bannerUrl: ad.bannerUrl,
     targetUrl: ad.targetUrl,
     altText: ad.altText,
+    kind: ad.kind,
     endsAt: ad.endsAt,
   });
 }

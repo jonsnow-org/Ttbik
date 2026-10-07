@@ -5,16 +5,23 @@ import { createInvoice, isNowPaymentsConfigured } from "@/lib/nowpayments";
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const code = String(body.code || "").trim().toUpperCase();
+  const method = body.method === "usdt" ? "usdt" : "nowpayments";
   const ad = await prisma.siteBannerAd.findUnique({ where: { reservationCode: code } });
   if (!ad) return NextResponse.json({ error: "الكود غير موجود." }, { status: 404 });
   if (ad.paymentStatus === "PAID") return NextResponse.json({ error: "هذا الحجز مدفوع." }, { status: 400 });
-  if (!isNowPaymentsConfigured()) {
+
+  if (method === "usdt") {
     return NextResponse.json({
-      error: "الدفع الآلي غير مفعّل. أرسل المبلغ إلى محفظة USDT الظاهرة في الصفحة ثم أكّد بالكود.",
       manual: true,
+      method: "usdt",
+      amount: ad.totalPrice,
       usdt: process.env.USDT_ADDRESS || "",
       network: process.env.USDT_NETWORK || "TRC20",
-    }, { status: 200 });
+      note: "حوّل المبلغ ثم أدخل كود الحجز في الخانة السفلية.",
+    });
+  }
+  if (!isNowPaymentsConfigured()) {
+    return NextResponse.json({ error: "فاتورة العملات غير مفعّلة. اختر تحويل USDT." }, { status: 400 });
   }
   const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
   const result = await createInvoice({
