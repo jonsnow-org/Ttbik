@@ -25,7 +25,7 @@ export const STR: Dict = {
   btnYoutubeLink: { ar: "▶️ تسجيل يوتيوب", en: "▶️ Sign in to YouTube" },
   btnYoutubeChange: { ar: "✏️ تغيير يوتيوب", en: "✏️ Change YouTube" },
   youtubeLinkPrompt: {
-    ar: "اربط حساب يوتيوب مرة واحدة. بعدها يتحقق البوت من الاشتراك تلقائياً.\n\n{link}",
+    ar: "افتح الرابط، ضع الكود في وصف قناتك، ثم الصق رابط القناة. بلا مفاتيح.\n\n{link}",
     en: "Link YouTube once. The bot then checks the subscription automatically.\n\n{link}",
   },
   youtubeLinkUnconfigured: {
