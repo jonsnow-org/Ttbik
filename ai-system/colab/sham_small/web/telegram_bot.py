@@ -32,6 +32,8 @@ WELCOME = (
     "هذه نسخة اختبار قبل التدريب الفعلي الكبير: تختبر أن كل شيء متصل "
     "ويعمل تقنياً، وليس جودة الناتج بعد.\n\n"
     "• أرسل أي رسالة نصية مباشرة لتوليد نص.\n"
+    "• /web سؤالك — بحث حي ثم إجابة\n"
+    "• /weblearn سؤالك — بحث + خطوة تعلّم (إن فُعّل على الخادم)\n"
     "• /image وصف الصورة\n"
     "• /audio نص ليتحول لصوت\n"
     "• /video وصف الفيديو\n"
@@ -141,6 +143,49 @@ async def generate_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
 
 
+async def ask_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    question = " ".join(context.args or []).strip()
+    if not question:
+        await update.message.reply_text("استخدم: /web سؤالك هنا")
+        return
+    learn = (context.user_data or {}).get("_learn_flag", False)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    try:
+        r = await _post(
+            "/ask/web",
+            {"question": question, "max_new_tokens": 60, "learn": bool(learn)},
+            timeout=120,
+        )
+        if r.status_code >= 400:
+            await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.text[:200]}")
+            return
+        data = r.json()
+        answer = (data.get("answer") or "").strip() or "(لم تُرجع شام رداً)"
+        hits = data.get("hits", 0)
+        footer = f"\n\n🔎 مصادر: {hits}"
+        if data.get("learned"):
+            learn_info = data.get("learn") or {}
+            footer += f"\n🧬 تعلّم: خسارة {learn_info.get('loss', '?')} · خطوة {learn_info.get('step', '?')}"
+        elif learn:
+            footer += f"\n🧬 لم يُحفظ تعلّم: {data.get('reason', '')}"
+        # لا روابط في الرد للمستخدم — لا نرفق sources/href
+        await update.message.reply_text(answer[:3500] + footer)
+    except Exception as e:
+        await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
+
+
+async def ask_web_learn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    context.user_data["_learn_flag"] = True
+    try:
+        await ask_web(update, context)
+    finally:
+        context.user_data["_learn_flag"] = False
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("SHAM_TELEGRAM_BOT_TOKEN is required — create a bot via @BotFather and set it.")
@@ -150,6 +195,8 @@ def main() -> None:
     app.add_handler(CommandHandler("image", generate_image))
     app.add_handler(CommandHandler("audio", generate_audio))
     app.add_handler(CommandHandler("video", generate_video))
+    app.add_handler(CommandHandler("web", ask_web))
+    app.add_handler(CommandHandler("weblearn", ask_web_learn))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_text))
     print(f"Sham Telegram bot starting — backend at {BACKEND_URL}")
     app.run_polling(drop_pending_updates=True)
