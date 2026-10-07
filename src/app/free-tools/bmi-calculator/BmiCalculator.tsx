@@ -1,7 +1,7 @@
-import ShareCard from "@/components/ShareCard";
 "use client";
 
 import { useMemo, useState } from "react";
+import ShareCard from "@/components/ShareCard";
 
 function parseNum(v: string): number {
   const n = parseFloat(v.replace(/,/g, "").replace(/[^0-9.-]/g, ""));
