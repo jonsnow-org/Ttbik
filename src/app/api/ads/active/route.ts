@@ -10,7 +10,7 @@ export async function GET() {
     data: { adStatus: "EXPIRED" },
   }).catch(() => null);
   const ad = await prisma.siteBannerAd.findFirst({
-    where: { adStatus: "ACTIVE", endsAt: { gt: now } },
+    where: { adStatus: "ACTIVE", endsAt: { gt: now }, placement: "sitewide", kind: { in: ["image", "video", "code"] } },
     orderBy: { startsAt: "desc" },
   }).catch(() => null);
   if (!ad) return NextResponse.json({ active: false });

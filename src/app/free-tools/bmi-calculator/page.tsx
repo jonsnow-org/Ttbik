@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import BmiCalculator from "./BmiCalculator";
+import ToolSponsor from "@/components/ToolSponsor";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
@@ -30,9 +31,11 @@ export default function BmiCalculatorPage() {
         (نحافة / طبيعي / زيادة / سمنة)، والوزن المثالي التقريبي. مناسبة للبالغين،
         بلا تسجيل وبلا حدود.
       </p>
+      <ToolSponsor tool="bmi-calculator" />
       <div className="mt-6">
         <BmiCalculator />
       </div>
+      <a href="/sponsor?tool=bmi-calculator" className="mt-3 block text-center text-xs font-bold text-slate-500">رعاية هذه الأداة</a>
       <div className="mt-8">
         <AdSlot position="in-content" label="أسفل حاسبة BMI" />
       </div>
