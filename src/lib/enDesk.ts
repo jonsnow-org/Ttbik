@@ -9,6 +9,19 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    slug: "anne-carson-nobel-literature-2026",
+    title: "Anne Carson wins 2026 Nobel Prize in Literature",
+    dek: "The Swedish Academy named Canadian poet Anne Carson on 8 October 2026 for work that recasts classical forms. Medal ceremony is 10 December in Stockholm.",
+    date: "2026-10-08",
+    body: [
+      "The Swedish Academy awarded the 2026 Nobel Prize in Literature to Anne Carson, the Canadian poet, essayist, and translator. The announcement was made in Stockholm on 8 October 2026.",
+      "The official citation is for her bold and inventive oeuvre that, in playful dialogue with the classical tradition, has created new forms for contemporary literature. Carson was born in Toronto in 1950. Her first book, Eros the Bittersweet, appeared in 1986.",
+      "The medal and diploma are presented in Stockholm on 10 December, the anniversary of Alfred Nobel's death. This note uses the Academy citation and the public announcement; it is not a review of her books.",
+      "Primary source: the Nobel Prize page for Literature 2026. A same-day report is on The Guardian.",
+    ],
+    tool: "/en/articles",
+  },
+  {
     slug: "browser-tools-keep-files-local",
     title: "Browser tools that never upload the file",
     dek: "A size check, a QR code, and an invoice can run on the device. The useful part is what does not leave the tab.",

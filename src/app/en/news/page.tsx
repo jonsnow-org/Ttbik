@@ -6,9 +6,10 @@ import { EN_NEWS } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: { absolute: "English tool news | Sham AI" },
-  description: "Short English notes on browser tools, QR codes, short links, and tax prices.",
+  title: { absolute: "English tech news and browser tool notes | Sham AI" },
+  description: "Documented English notes for a global reader: Nobel literature 2026, browser tools, QR codes, short links, and tax-inclusive prices. Sources named.",
   alternates: { canonical: `${SITE_URL}/en/news`, languages: { en: `${SITE_URL}/en/news` } },
+  openGraph: { title: "English tech news and browser tool notes | Sham AI", description: "Documented English notes for a global reader: Nobel literature 2026, browser tools, QR codes, short links, and tax-inclusive prices. Sources named.", url: `${SITE_URL}/en/news`, locale: "en_US", type: "website" },
 };
 
 export default function Page() {
@@ -16,7 +17,7 @@ export default function Page() {
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
       <EnglishDeskNav />
       <h1 className="text-4xl font-extrabold tracking-tight">News</h1>
-      <p className="mt-2 text-sm leading-7 text-slate-600">Notes for people searching in English. Each one points at a tool.</p>
+      <p className="mt-2 text-sm leading-7 text-slate-600">Notes for an English search: a documented story, or a tool that runs in the browser.</p>
       <AdSlot position="in-content" label="English news" />
       <div className="mt-6 grid gap-3">
         {EN_NEWS.map((item) => (

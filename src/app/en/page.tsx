@@ -7,9 +7,10 @@ import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: { absolute: "Sham AI English: Free Tools, Guides, and Public Dates" },
-  description: "English browser tools, how-to guides, and public dates. QR codes, VAT, BMI, invoices, and short links. No account.",
+  title: { absolute: "Sham AI English: free tools, guides, and public dates" },
+  description: "English desk for browser tools, how-to guides, and public dates. QR codes, VAT, BMI, invoices, and short links. No account required to use them.",
   alternates: { canonical: `${SITE_URL}/en`, languages: { en: `${SITE_URL}/en`, ar: SITE_URL } },
+  openGraph: { title: "Sham AI English: free tools, guides, and public dates", description: "English desk for browser tools, how-to guides, and public dates. QR codes, VAT, BMI, invoices, and short links. No account required to use them.", url: `${SITE_URL}/en`, locale: "en_US", type: "website" },
 };
 
 export default function EnglishHome() {

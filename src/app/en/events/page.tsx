@@ -6,9 +6,10 @@ import { EN_EVENTS } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: { absolute: "Public dates | Sham AI English" },
-  description: "Public international dates: World Standards Day, Public Domain Day, and Safer Internet Day.",
+  title: { absolute: "International public dates in English | Sham AI" },
+  description: "International dates with a public source: World Standards Day, Public Domain Day, and Safer Internet Day. Written for an English search, not a local calendar.",
   alternates: { canonical: `${SITE_URL}/en/events`, languages: { en: `${SITE_URL}/en/events` } },
+  openGraph: { title: "International public dates in English | Sham AI", description: "International dates with a public source: World Standards Day, Public Domain Day, and Safer Internet Day. Written for an English search, not a local calendar.", url: `${SITE_URL}/en/events`, locale: "en_US", type: "website" },
 };
 
 export default function Page() {

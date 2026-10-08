@@ -6,9 +6,10 @@ import { EN_ARTICLES } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: { absolute: "English how-to guides | Sham AI" },
-  description: "How to calculate BMI, add VAT, make a WhatsApp link, and keep a CV to one page.",
+  title: { absolute: "English how-to guides for free browser tools | Sham AI" },
+  description: "Practical English guides: calculate BMI, add or remove VAT, build a WhatsApp click-to-chat link, and keep a CV to one page. No account needed.",
   alternates: { canonical: `${SITE_URL}/en/articles`, languages: { en: `${SITE_URL}/en/articles` } },
+  openGraph: { title: "English how-to guides for free browser tools | Sham AI", description: "Practical English guides: calculate BMI, add or remove VAT, build a WhatsApp click-to-chat link, and keep a CV to one page. No account needed.", url: `${SITE_URL}/en/articles`, locale: "en_US", type: "website" },
 };
 
 export default function Page() {
