@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-08 01:07 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-08 10:43 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -14,26 +14,28 @@
 ✅ المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)
 
 ✅ اكتمل | المدرّب الحي 1 | primary
-✅ اكتمل | المرحلة الثالثة 4 | primary
+✅ اكتمل | المرحلة الثالثة 4 | duplicate
 ✅ اكتمل | المرحلة الثالثة 3 | duplicate
 ✅ اكتمل | المرحلة الثالثة 2 | duplicate
 ✅ اكتمل | مركز تحكم شام 1 | tool
-❌ فشل | المرحلة الثالثة 5 | duplicate
+⏳ يعمل الآن | المرحلة الثالثة 5 | primary
 ⛔ أُوقف | مسار ترميز الصورة 2 | duplicate
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate
-✅ اكتمل | تجربة بوت شام 1 | tool
+⛔ أُوقف | تجربة بوت شام 1 | tool
 ✅ اكتمل | المرحلة الثانية 2 | primary
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ✅ اكتمل | مسار ترميز الصوت 3 | primary
 ✅ اكتمل | مسار ترميز الصورة 3 | primary
-⏳ يعمل الآن | المسار B 1 | primary
-⏳ يعمل الآن | المسار A 1 | primary
+✅ اكتمل | المسار B 1 | primary
+✅ اكتمل | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | duplicate
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
 ❌ فشل | مسار ترميز الصوت 1 | duplicate | الخطأ:     494     except FileNotFoundError:
 --> 495         raise EmptyDatasetError(f"The directory at {base_path} doesn't contain any data files") from Non
-❌ فشل | المرحلة الأولى 1 | duplicate
+❌ فشل | المرحلة الأولى 1 | duplicate | الخطأ: Exception encountered at "In [9]":
+NameError                                 Traceback (most recent call last)
+NameError: name 'realistic_steps' is no
