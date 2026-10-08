@@ -20,6 +20,31 @@ export type EventItem = {
 
 export const EVENT_ITEMS: EventItem[] = [
   {
+    slug: "microsoft-surface-sf-event-2026",
+    title: "حدث مايكروسوفت في سان فرانسيسكو: Surface Laptop Ultra يُشحن 16 أكتوبر",
+    dateIso: "2026-10-07",
+    dateLabel: "7 أكتوبر 2026",
+    category: "تقنية",
+    imageUrl: "https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=1200&q=80",
+    blurb: "مايكروسوفت ختمت في 7 أكتوبر حدث ويندوز وسيرفس في سان فرانسيسكو، وأعلنت شحن Surface Laptop Ultra في 16 أكتوبر.",
+    description: "بطاقة عن حدث 7 أكتوبر 2026 في سان فرانسيسكو: موعد الشحن وسعر البداية كما نقلته The Verge، بلا توصية شراء.",
+    paragraphs: [
+      "في 7 أكتوبر 2026 عقدت مايكروسوفت حدث ويندوز وسيرفس في سان فرانسيسكو، بحضور ساتيا ناديلا وجنسن هوانغ وبافان دافولوري. The Verge نشرت في اليوم نفسه حصراً لما أُعلن بعد انتهاء الكلمة.",
+      "أبرز الجهاز: Surface Laptop Ultra بمعالج Nvidia RTX Spark. الشحن يبدأ 16 أكتوبر، وسعر البداية 2599 دولاراً لتكوين بمعالج 8 أنوية و24 غيغابايت ذاكرة و512 غيغابايت تخزين، وفق ما لخصته The Verge. Windows Central ذكرت تكويناً أساسياً بمعالج 18 نواة. الفرق في وصف الأنوية من المصدرين، لذلك لا نثبت رقماً واحداً للمعالج.",
+      "مايكروسوفت فتحت أيضاً الطلب المسبق لصندوق Surface RTX Spark Dev Box بسعر 5999 دولاراً، والشحن المتوقع في نوفمبر. على ويندوز، النقل عن ميزات Hybrid Intelligence تتيح لكوبايلوت استخدام ملفات الجهاز، مع بحث ينفّذ إجراءات من الشريط.",
+      "ذكر السعر هنا نقل عن تغطية الحدث، لا دعوة للشراء. المناسبة ليست عطلة، وهي منفصلة عن اليوم العالمي للإبصار في 8 أكتوبر.",
+    ],
+    faq: [
+      { q: "متى وأين كان الحدث؟", a: "7 أكتوبر 2026 في سان فرانسيسكو، ونقلته The Verge بعد الكلمة." },
+      { q: "متى يُشحن Surface Laptop Ultra؟", a: "16 أكتوبر 2026، والطلب متاح حسب التغطية، بسعر بداية 2599 دولاراً." },
+      { q: "هل هذا توصية شراء؟", a: "لا. البطاقة تنقل ما أُعلن في الحدث." },
+    ],
+    sources: [
+      { href: "https://www.theverge.com/tech/1007147/microsoft-surface-laptop-ultra-windows-event-everything-announced", label: "The Verge — 7 أكتوبر 2026، حصيلة الحدث" },
+      { href: "https://www.windowscentral.com/hardware/surface/microsoft-finally-confirms-surface-laptop-ultra-pricing-and-release-date", label: "Windows Central — 7 أكتوبر 2026" },
+    ],
+  },
+  {
     slug: "world-sight-day-2026",
     title: "اليوم العالمي للإبصار 2026: لماذا يوافق الخميس 8 أكتوبر؟",
     dateIso: "2026-10-08",

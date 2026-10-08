@@ -14,6 +14,23 @@ export type NewsItem = {
 /** Authored news only. Newest first. Ticker RSS stays out. */
 export const NEWS_ITEMS: NewsItem[] = [
   {
+    slug: "claude-haiku-55-oct-2026",
+    title: "أنثروبيك تطلق Claude Haiku 5.5: نموذج سريع أرخص بنحو 75٪",
+    dateIso: "2026-10-08",
+    dateLabel: "8 أكتوبر 2026",
+    imageUrl: "https://images.unsplash.com/photo-1677442136019-21780ecad995?auto=format&fit=crop&w=1200&q=80",
+    description: "ملخص عن إطلاق Haiku 5.5 في 7 أكتوبر 2026: سعر أقل للمهام السريعة، وفق رويترز وإعلان أنثروبيك. ليس توصية شراء.",
+    paragraphs: [
+      "ماذا حدث: في 7 أكتوبر 2026 أطلقت أنثروبيك Claude Haiku 5.5، ثالث نموذج في عائلة 5.5 خلال شهر واحد. رويترز نقلت أن النموذج مخصص لمهام التصنيف والتلخيص والاستخراج، بما فيها الدعم المباشر ووكلاء الصوت والمساعدات داخل التطبيقات.",
+      "لماذا يهم: الشركة قالت إن التشغيل أرخص بنحو 75٪ من Haiku 4.5. السعر المعلن للطلبات تحت 100 ألف رمز: 0.10 دولار لكل مليون رمز إدخال و0.50 دولار للإخراج، ويرتفع إلى 0.50 و2.50 للطلبات الأطول. أمازون أعلنت توفره في Bedrock في اليوم نفسه.",
+      "ماذا تفعل: اقرأ الملخص ثم افتح المصدر. السعر نقل عن الإعلان، وليس توصية باشتراك أو شراء رصيد.",
+    ],
+    sources: [
+      { href: "https://www.reuters.com/business/anthropic-launches-third-claude-55-model-expanding-ai-lineup-before-planned-ipo-2026-10-07/", label: "رويترز — 7 أكتوبر 2026" },
+      { href: "https://www.anthropic.com/claude-haiku-5-5", label: "أنثروبيك — صفحة Haiku 5.5، 7 أكتوبر 2026" },
+    ],
+  },
+  {
     slug: "mistral-large-4-preview-2026",
     title: "ميسترال تنشر معاينة Large 4: تريليون معامل والأوزان لاحقاً",
     dateIso: "2026-10-07",
