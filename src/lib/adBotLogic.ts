@@ -494,6 +494,9 @@ function topLevelTexts(lang: Lang): string[] {
     t(lang, "btnStats"),
     t(lang, "btnLanguage"),
     t(lang, "btnFaq"),
+    t(lang, "btnAccounts"),
+    t("ar", "btnAccounts"),
+    t("en", "btnAccounts"),
     t(lang, "btnWantOwnBot"),
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
@@ -691,6 +694,12 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await setPending(user.id, null);
   }
 
+  if (text === t(lang, "btnAccounts") || text === t("ar", "btnAccounts") || text === t("en", "btnAccounts") || text === "حساباتي") {
+    const linked = await hasYoutubeLink(String(tgUserId)).catch(() => false);
+    await bot.api.sendMessage(chatId, t(lang, "accountsTitle"), { reply_markup: accountsMenu(lang, linked) });
+    return;
+  }
+
   if (text === t(lang, "btnCreateAd")) {
     await setPending(user.id, { mode: "platform_pick", intent: "create" });
     await bot.api.sendMessage(chatId, t(lang, "createAdTitle"), { reply_markup: typeMenu(lang) });
@@ -747,11 +756,6 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === t(lang, "btnStats")) {
     await sendStats(bot, chatId, user.id, lang);
-    return;
-  }
-  if (text === t(lang, "btnAccounts") || text === t("ar", "btnAccounts") || text === t("en", "btnAccounts")) {
-    const linked = await hasYoutubeLink(String(tgUserId));
-    await bot.api.sendMessage(chatId, t(lang, "accountsTitle"), { reply_markup: accountsMenu(lang, linked) });
     return;
   }
   const socialButtons: Record<string, SocialPlatform> = {
