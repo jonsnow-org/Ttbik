@@ -28,8 +28,25 @@ export const metadata: Metadata = {
   },
 };
 
+function istanbulToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export default function EventsHubPage() {
-  const featured = EVENT_ITEMS[0];
+  const today = istanbulToday();
+  const byDate = [...EVENT_ITEMS].sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+  const featured =
+    byDate.find((e) => e.dateIso === today && !e.slug.includes("microsoft")) ||
+    byDate.find((e) => e.dateIso === today) ||
+    byDate.find((e) => !e.slug.includes("microsoft")) ||
+    byDate[0];
+  const isToday = featured?.dateIso === today;
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
       <EditorialHubNav active="events" />
@@ -61,7 +78,7 @@ export default function EventsHubPage() {
             </div>
           )}
           <div className="p-5 sm:p-6">
-            <p className="text-[11px] font-black tracking-wide text-indigo-600">حدث اليوم</p>
+            <p className="text-[11px] font-black tracking-wide text-indigo-600">{isToday ? "حدث اليوم" : "أحدث حدث"}</p>
             <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
               <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">
                 {featured.title}
@@ -88,14 +105,14 @@ export default function EventsHubPage() {
       </div>
 
       <ul className="space-y-4">
-        {EVENT_ITEMS.map((e) => (
+        {byDate.map((e) => (
           <ContentCard
             key={e.slug}
             href={`/events/${e.slug}`}
             title={e.title}
             blurb={e.blurb}
             dateLabel={e.dateLabel}
-            badge={e.category || "حدث"}
+            badge={e.dateIso === today ? "اليوم" : e.category || "حدث"}
             badgeTone="indigo"
             imageUrl={e.imageUrl}
             imageAlt={e.title}
