@@ -8,16 +8,19 @@ import { isSafeForChannel } from "@/lib/channelPublisher";
 import { supabaseAdmin } from "@/lib/supabase";
 
 /**
- * Channel rotation. Owner list, 2026-10-07:
+ * Channel rotation. Owner list, 2026-10-08:
  *   1. Sham AI news, events, articles, tools (one per cron slot)
- *   2. Literium once every 2 days
+ *   2. Literium https://literium.ai.studio/ once every 2 days
  *   3. Athar on Getgems once every 3 days
- * No title or link repeated inside 46 hours (the 2-day window, with a
- * small gap so the every-48h Literium post is not blocked by itself).
+ * No title or link repeated inside 46 hours (just under 2 days, so the
+ * 48h Literium post is not blocked by its own previous link).
  * Athar text must not promise profit, price growth, or returns.
- * Media is a generated still (man or woman explaining). Free video lanes
- * do not finish inside the Vercel cron budget, so a failed still skips
- * the post instead of shipping text-only.
+ * Each post is a generated still of an adult man or woman explaining the
+ * item, plus Arabic caption and the link. Free video lanes do not finish
+ * inside the 60s Vercel cron budget, so a failed still skips the post
+ * instead of shipping text-only.
+ * Vercel cron and the GitHub workflow can hit the same minute; a 90-minute
+ * gap stops that overlap from publishing twice.
  */
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
@@ -27,6 +30,7 @@ const ATHAR_GETGEMS = "https://getgems.io/collection/EQAuIOwjzSmGQfL925LjD5eG0Qk
 const TWO_DAYS_MS = 46 * 3600 * 1000;
 const LITERIUM_EVERY_MS = 48 * 3600 * 1000;
 const ATHAR_EVERY_MS = 72 * 3600 * 1000;
+const MIN_GAP_MS = 90 * 60 * 1000;
 
 const TOOLS: { title: string; blurb: string; url: string }[] = [
   { title: "بطاقة أعمال رقمية", blurb: "صفحة روابط مجانية مع عداد مشاهدات حقيقي.", url: `${SITE_URL}/free-tools/digital-card` },
@@ -51,6 +55,7 @@ type State = {
   recent: Recent[];
   lastLiteriumAt: string;
   lastAtharAt: string;
+  lastPostAt: string;
   cursor: number;
   postedChangelog: string[];
 };
@@ -65,7 +70,7 @@ export type RotationResult = {
 };
 
 function emptyState(): State {
-  return { recent: [], lastLiteriumAt: "", lastAtharAt: "", cursor: 0, postedChangelog: [] };
+  return { recent: [], lastLiteriumAt: "", lastAtharAt: "", lastPostAt: "", cursor: 0, postedChangelog: [] };
 }
 
 async function loadState(): Promise<State> {
@@ -76,6 +81,7 @@ async function loadState(): Promise<State> {
       recent: Array.isArray(v.recent) ? v.recent : [],
       lastLiteriumAt: typeof v.lastLiteriumAt === "string" ? v.lastLiteriumAt : "",
       lastAtharAt: typeof v.lastAtharAt === "string" ? v.lastAtharAt : "",
+      lastPostAt: typeof v.lastPostAt === "string" ? v.lastPostAt : "",
       cursor: typeof v.cursor === "number" ? v.cursor : 0,
       postedChangelog: Array.isArray(v.postedChangelog) ? v.postedChangelog : [],
     };
@@ -116,12 +122,12 @@ function due(iso: string, every: number): boolean {
   return !t || Date.now() - t >= every;
 }
 
-type Item = { kind: string; title: string; blurb: string; url: string; athar?: boolean };
+type Item = { kind: string; title: string; blurb: string; url: string; athar?: boolean; visual: string };
 
 function changelogItem(state: State): Item | null {
   const entry = CHANNEL_CHANGELOG.find((e) => !state.postedChangelog.includes(e.id) && !seen(state, e.title, e.url));
   if (!entry) return null;
-  return { kind: "tool", title: entry.title, blurb: entry.body, url: entry.url };
+  return { kind: "tool", title: entry.title, blurb: entry.body, url: entry.url, visual: "a browser tool on a laptop" };
 }
 
 async function shamItem(state: State): Promise<Item | null> {
@@ -139,24 +145,29 @@ async function shamItem(state: State): Promise<Item | null> {
             title: top.title,
             blurb: `${top.source}. عنوان من تغطية شام AI، بلا نسخ للمقال.`,
             url,
+            visual: "a news desk with a laptop, no readable text",
           };
         }
       }
     } else if (kind === "event") {
       for (const e of EVENT_ITEMS) {
         const url = `${SITE_URL}/events/${e.slug}`;
-        if (!seen(state, e.title, url)) return { kind, title: e.title, blurb: e.blurb || e.description, url };
+        if (!seen(state, e.title, url)) {
+          return { kind, title: e.title, blurb: e.blurb || e.description, url, visual: "a calendar and a quiet event briefing" };
+        }
       }
     } else if (kind === "article") {
       for (const a of ARTICLE_ITEMS) {
         const url = `${SITE_URL}/articles/${a.slug}`;
-        if (!seen(state, a.title, url)) return { kind, title: a.title, blurb: a.description, url };
+        if (!seen(state, a.title, url)) {
+          return { kind, title: a.title, blurb: a.description, url, visual: "an open notebook and a laptop" };
+        }
       }
     } else {
       const freshTool = changelogItem(state);
       if (freshTool) return freshTool;
       for (const t of TOOLS) {
-        if (!seen(state, t.title, t.url)) return { kind, title: t.title, blurb: t.blurb, url: t.url };
+        if (!seen(state, t.title, t.url)) return { kind, title: t.title, blurb: t.blurb, url: t.url, visual: "a laptop showing a simple web tool" };
       }
     }
   }
@@ -169,6 +180,7 @@ function literiumItem(): Item {
     title: "ليتيريوم",
     blurb: "تطبيق ليتيريوم للكتابة والقراءة بمساعدة الذكاء الاصطناعي، يعمل من المتصفح.",
     url: LITERIUM_URL,
+    visual: "a person reading and writing on a laptop in a studio",
   };
 }
 
@@ -179,14 +191,23 @@ function atharItem(): Item {
     blurb: "مجموعة أثر على شبكة TON: رمز لكل يوم في التقويم بين 1950 و2049. الرمز يتذكّر من امتلكه. الصفحة على Getgems للعرض فقط، بلا وعد ربح.",
     url: ATHAR_GETGEMS,
     athar: true,
+    visual: "a calendar page and a small collectible card on a desk, no coins, no chart",
   };
 }
 
+function plainCaption(item: Item): string {
+  return `${item.title}\n\n${item.blurb}\n\n🔗 ${item.url}`;
+}
+
+function captionOk(item: Item, text: string): boolean {
+  return Boolean(text) && text.includes(item.url) && isSafeForChannel(text) && !(item.athar && ATHAR_BANNED.test(text));
+}
+
 async function caption(item: Item): Promise<string> {
+  const fallback = plainCaption(item);
   const rules = item.athar
     ? "ممنوع أي وعد ربح أو استثمار أو عائد أو ارتفاع سعر. صِف المجموعة فقط: رمز لكل يوم، ذاكرة المالكين، ورابط Getgems."
     : "لا تخترع أرقاماً ولا أسعاراً.";
-  const fallback = `${item.title}\n\n${item.blurb}\n\n🔗 ${item.url}`;
   try {
     const hook = await callGroq(
       `اكتب منشوراً عربياً لقناة تليجرام، 4 إلى 6 أسطر، إيموجيان كحد أقصى، بلا هاشتاق. ${rules} ضع هذا الرابط حرفياً في السطر الأخير دون تعديل: ${item.url}`,
@@ -194,7 +215,7 @@ async function caption(item: Item): Promise<string> {
       280
     );
     const text = hook.trim();
-    if (text && text.includes(item.url)) return text.slice(0, 900);
+    if (captionOk(item, text)) return text.slice(0, 900);
   } catch {
     /* fallback */
   }
@@ -205,7 +226,7 @@ function imageUrl(item: Item, seed: number): string {
   const person = seed % 2 === 0 ? "adult Arab woman" : "adult Arab man";
   const prompt = [
     `Photorealistic ${person} presenter, modest clothing, waist-up, looking at camera,`,
-    `explaining ${item.kind} in a quiet studio, soft light, no text, no letters, no logo, no money, no chart`,
+    `explaining ${item.visual}, quiet studio, soft light, no text, no letters, no logo, no money, no chart`,
   ].join(" ");
   const q = new URLSearchParams({
     width: "1024",
@@ -238,6 +259,9 @@ async function sendPhoto(captionText: string, url: string): Promise<boolean> {
 export async function publishRotation(slot: number): Promise<RotationResult> {
   const state = await loadState();
   state.recent = fresh(state);
+  if (state.lastPostAt && Date.now() - Date.parse(state.lastPostAt) < MIN_GAP_MS) {
+    return { ok: false, slot, reason: "too-soon" };
+  }
 
   let item: Item | null = null;
   if (due(state.lastLiteriumAt, LITERIUM_EVERY_MS) && !seen(state, "ليتيريوم", LITERIUM_URL)) item = literiumItem();
@@ -250,7 +274,7 @@ export async function publishRotation(slot: number): Promise<RotationResult> {
   }
 
   const text = await caption(item);
-  if (!isSafeForChannel(text) || (item.athar && ATHAR_BANNED.test(text)) || !text.includes(item.url)) {
+  if (!captionOk(item, text)) {
     return { ok: false, slot, topic: item.title, kind: item.kind, reason: "blocked" };
   }
 
@@ -258,9 +282,11 @@ export async function publishRotation(slot: number): Promise<RotationResult> {
   const posted = (await sendPhoto(text, imageUrl(item, seed))) || (await sendPhoto(text, imageUrl(item, seed + 1)));
   if (!posted) return { ok: false, slot, topic: item.title, kind: item.kind, reason: "media-failed" };
 
-  state.recent.push({ title: item.title, link: item.url, at: new Date().toISOString() });
-  if (item.kind === "literium") state.lastLiteriumAt = new Date().toISOString();
-  if (item.kind === "athar") state.lastAtharAt = new Date().toISOString();
+  const now = new Date().toISOString();
+  state.recent.push({ title: item.title, link: item.url, at: now });
+  state.lastPostAt = now;
+  if (item.kind === "literium") state.lastLiteriumAt = now;
+  if (item.kind === "athar") state.lastAtharAt = now;
   if (item.kind !== "literium" && item.kind !== "athar") state.cursor += 1;
   const changelog = CHANNEL_CHANGELOG.find((e) => e.title === item!.title && e.url === item!.url);
   if (changelog) state.postedChangelog.push(changelog.id);
