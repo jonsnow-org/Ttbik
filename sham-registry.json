@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-07 20:41 UTC",
+  "generated_at": "2026-10-08 01:07 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -15,7 +15,7 @@
       "alias": "المرحلة الثالثة 4",
       "track": "chat_stage",
       "status": "complete",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-10-02",
       "gpu": false,
       "failure": ""
@@ -50,9 +50,9 @@
     {
       "alias": "المرحلة الثالثة 5",
       "track": "chat_stage",
-      "status": "complete",
-      "role": "primary",
-      "last_run": "2026-10-03",
+      "status": "error",
+      "role": "duplicate",
+      "last_run": "2026-10-07",
       "gpu": false,
       "failure": ""
     },
@@ -115,7 +115,7 @@
       "track": "audio_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-06",
+      "last_run": "2026-10-07",
       "gpu": false,
       "failure": ""
     },
@@ -124,14 +124,14 @@
       "track": "image_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-06",
+      "last_run": "2026-10-07",
       "gpu": true,
       "failure": ""
     },
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-07",
       "gpu": false,
@@ -140,9 +140,9 @@
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-06",
+      "last_run": "2026-10-07",
       "gpu": false,
       "failure": ""
     },
@@ -189,7 +189,7 @@
       "role": "duplicate",
       "last_run": "2026-09-22",
       "gpu": false,
-      "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined\nقبل الفشل: عدد ملفات الشحنات: 4 | أعيد استخدام: /kaggle/… (vocab=32000) | عدد النوافذ: 31,153 | استؤنف من /kaggle/… عند الخطوة 36,963 — 107,"
+      "failure": ""
     }
   ],
   "other_notebooks_count": 4,
@@ -199,12 +199,12 @@
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
       "size_mb": 35.0,
-      "last_updated": "2026-10-07",
+      "last_updated": "2026-10-08",
       "progress": {
-        "samples_consumed": 2508,
-        "step": 197,
+        "samples_consumed": 2609,
+        "step": 218,
         "last_run_sources": {
-          "x": 51
+          "x": 101
         }
       },
       "has_key_files": true
@@ -221,13 +221,13 @@
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
       "size_mb": 144.1,
-      "last_updated": "2026-10-07",
+      "last_updated": "2026-10-08",
       "progress": {
-        "samples_consumed": 1684,
-        "step": 53,
+        "samples_consumed": 1739,
+        "step": 58,
         "last_run_sources": {
-          "x": 74,
-          "web_fallback": 9
+          "x": 52,
+          "web_fallback": 3
         }
       },
       "has_key_files": true
@@ -283,7 +283,7 @@
     {
       "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
-      "size_mb": 0.0,
+      "size_mb": 582.2,
       "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
@@ -339,7 +339,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 579.8,
       "last_updated": "2026-10-07",
       "progress": {},
       "has_key_files": true
@@ -372,11 +372,11 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 1684,
-          "step": 53,
+          "samples_consumed": 1739,
+          "step": 58,
           "last_run_sources": {
-            "x": 74,
-            "web_fallback": 9
+            "x": 52,
+            "web_fallback": 3
           }
         },
         "dataset": "نتائج مسار ترميز الصورة 1"
@@ -386,10 +386,10 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 2508,
-          "step": 197,
+          "samples_consumed": 2609,
+          "step": 218,
           "last_run_sources": {
-            "x": 51
+            "x": 101
           }
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
@@ -413,14 +413,14 @@
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
