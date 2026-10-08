@@ -21,5 +21,8 @@ export type EditorialTabId = (typeof EDITORIAL_TABS)[number]["id"];
 /** قسم القائمة الجانبية (MobileNav) */
 export const SIDEBAR_EDITORIAL_SECTION: NavSection = {
   label: "المدونة والأخبار",
-  links: EDITORIAL_TABS.map((t) => ({ id: t.id, href: t.href, label: t.label })),
+  links: [
+    ...EDITORIAL_TABS.map((t) => ({ id: t.id, href: t.href, label: t.label })),
+    { id: "coffee", href: "/coffee", label: "☕ قهوة للموقع" },
+  ],
 };
