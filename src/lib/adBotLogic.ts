@@ -1424,7 +1424,6 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await sendSuperAdminPanel(bot, chatId);
     return;
   }
-  if (text.startsWith("مرحبا جروك انا المالك")) return;
   const fallbackMenu = tgUserId === botRow.ownerId ? ownerMainMenu(lang) : mainMenu(lang);
   await bot.api.sendMessage(chatId, t(lang, "chooseUnknown"), { reply_markup: fallbackMenu });
 }
