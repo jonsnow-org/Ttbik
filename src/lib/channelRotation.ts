@@ -12,15 +12,10 @@ import { supabaseAdmin } from "@/lib/supabase";
  *   1. Sham AI news, events, articles, tools (one per cron slot)
  *   2. Literium https://literium.ai.studio/ once every 2 days
  *   3. Athar on Getgems once every 3 days
- * No title or link repeated inside 46 hours (just under 2 days, so the
- * 48h Literium post is not blocked by its own previous link).
+ * No title or link repeated inside 46 hours.
  * Athar text must not promise profit, price growth, or returns.
- * Each post is a generated still of an adult man or woman explaining the
- * item, plus Arabic caption and the link. Free video lanes do not finish
- * inside the 60s Vercel cron budget, so a failed still skips the post
- * instead of shipping text-only.
- * Vercel cron and the GitHub workflow can hit the same minute; a 90-minute
- * gap stops that overlap from publishing twice.
+ * Pollinations is banned: it ignored the prompt and posted an unrelated
+ * photo of a child. Cards are drawn here so the picture matches the tool.
  */
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
@@ -122,12 +117,12 @@ function due(iso: string, every: number): boolean {
   return !t || Date.now() - t >= every;
 }
 
-type Item = { kind: string; title: string; blurb: string; url: string; athar?: boolean; visual: string };
+type Item = { kind: string; title: string; blurb: string; url: string; athar?: boolean; label: string };
 
 function changelogItem(state: State): Item | null {
   const entry = CHANNEL_CHANGELOG.find((e) => !state.postedChangelog.includes(e.id) && !seen(state, e.title, e.url));
   if (!entry) return null;
-  return { kind: "tool", title: entry.title, blurb: entry.body, url: entry.url, visual: "a browser tool on a laptop" };
+  return { kind: "tool", title: entry.title, blurb: entry.body, url: entry.url, label: entry.title };
 }
 
 async function shamItem(state: State): Promise<Item | null> {
@@ -140,34 +135,24 @@ async function shamItem(state: State): Promise<Item | null> {
         const top = s.items[0];
         const url = top.link;
         if (!seen(state, top.title, url)) {
-          return {
-            kind,
-            title: top.title,
-            blurb: `${top.source}. عنوان من تغطية شام AI، بلا نسخ للمقال.`,
-            url,
-            visual: "a news desk with a laptop, no readable text",
-          };
+          return { kind, title: top.title, blurb: `${top.source}. عنوان من تغطية شام AI، بلا نسخ للمقال.`, url, label: "خبر" };
         }
       }
     } else if (kind === "event") {
       for (const e of EVENT_ITEMS) {
         const url = `${SITE_URL}/events/${e.slug}`;
-        if (!seen(state, e.title, url)) {
-          return { kind, title: e.title, blurb: e.blurb || e.description, url, visual: "a calendar and a quiet event briefing" };
-        }
+        if (!seen(state, e.title, url)) return { kind, title: e.title, blurb: e.blurb || e.description, url, label: "حدث" };
       }
     } else if (kind === "article") {
       for (const a of ARTICLE_ITEMS) {
         const url = `${SITE_URL}/articles/${a.slug}`;
-        if (!seen(state, a.title, url)) {
-          return { kind, title: a.title, blurb: a.description, url, visual: "an open notebook and a laptop" };
-        }
+        if (!seen(state, a.title, url)) return { kind, title: a.title, blurb: a.description, url, label: "مقال" };
       }
     } else {
       const freshTool = changelogItem(state);
       if (freshTool) return freshTool;
       for (const t of TOOLS) {
-        if (!seen(state, t.title, t.url)) return { kind, title: t.title, blurb: t.blurb, url: t.url, visual: "a laptop showing a simple web tool" };
+        if (!seen(state, t.title, t.url)) return { kind, title: t.title, blurb: t.blurb, url: t.url, label: t.title };
       }
     }
   }
@@ -180,7 +165,7 @@ function literiumItem(): Item {
     title: "ليتيريوم",
     blurb: "تطبيق ليتيريوم للكتابة والقراءة بمساعدة الذكاء الاصطناعي، يعمل من المتصفح.",
     url: LITERIUM_URL,
-    visual: "a person reading and writing on a laptop in a studio",
+    label: "ليتيريوم · قراءة وكتابة",
   };
 }
 
@@ -188,10 +173,10 @@ function atharItem(): Item {
   return {
     kind: "athar",
     title: "أثر على Getgems",
-    blurb: "مجموعة أثر على شبكة TON: رمز لكل يوم في التقويم بين 1950 و2049. الرمز يتذكّر من امتلكه. الصفحة على Getgems للعرض فقط، بلا وعد ربح.",
+    blurb: "مجموعة أثر على شبكة TON: رمز لكل يوم في التقويم بين 1950 و2049. الصفحة للعرض فقط، بلا وعد ربح.",
     url: ATHAR_GETGEMS,
     athar: true,
-    visual: "a calendar page and a small collectible card on a desk, no coins, no chart",
+    label: "أثر · رمز لكل يوم",
   };
 }
 
@@ -206,7 +191,7 @@ function captionOk(item: Item, text: string): boolean {
 async function caption(item: Item): Promise<string> {
   const fallback = plainCaption(item);
   const rules = item.athar
-    ? "ممنوع أي وعد ربح أو استثمار أو عائد أو ارتفاع سعر. صِف المجموعة فقط: رمز لكل يوم، ذاكرة المالكين، ورابط Getgems."
+    ? "ممنوع أي وعد ربح أو استثمار أو عائد أو ارتفاع سعر. صِف المجموعة فقط."
     : "لا تخترع أرقاماً ولا أسعاراً.";
   try {
     const hook = await callGroq(
@@ -222,35 +207,30 @@ async function caption(item: Item): Promise<string> {
   return fallback;
 }
 
-function imageUrl(item: Item, seed: number): string {
-  const person = seed % 2 === 0 ? "adult Arab woman" : "adult Arab man";
-  const prompt = [
-    `Photorealistic ${person} presenter, modest clothing, waist-up, looking at camera,`,
-    `explaining ${item.visual}, quiet studio, soft light, no text, no letters, no logo, no money, no chart`,
-  ].join(" ");
-  const q = new URLSearchParams({
-    width: "1024",
-    height: "1024",
-    nologo: "true",
-    model: "flux",
-    seed: String(seed),
-    safe: "true",
-  });
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${q.toString()}`;
+function xml(s: string): string {
+  return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
 }
 
-async function sendPhoto(captionText: string, url: string): Promise<boolean> {
+function cardSvg(item: Item): string {
+  const title = xml(item.label.slice(0, 42));
+  const line = xml(item.blurb.slice(0, 70));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080">
+  <rect width="1080" height="1080" fill="#0f2744"/>
+  <rect x="70" y="180" width="940" height="720" rx="36" fill="#16375f"/>
+  <text x="540" y="430" text-anchor="middle" fill="#f8fafc" font-size="64" font-family="Tahoma, Arial">${title}</text>
+  <text x="540" y="530" text-anchor="middle" fill="#dbeafe" font-size="32" font-family="Tahoma, Arial">${line}</text>
+  <text x="540" y="640" text-anchor="middle" fill="#93c5fd" font-size="28" font-family="Tahoma, Arial">Sham AI</text>
+</svg>`;
+}
+
+async function sendPhoto(captionText: string, svg: string): Promise<boolean> {
   const token = await channelBotToken();
   const channel = process.env.TELEGRAM_CHANNEL_ID;
   if (!token || !channel) return false;
-  const img = await fetch(url, { signal: AbortSignal.timeout(22_000) }).catch(() => null);
-  if (!img?.ok) return false;
-  const bytes = Buffer.from(await img.arrayBuffer());
-  if (bytes.length < 2000) return false;
   const form = new FormData();
   form.append("chat_id", channel);
   form.append("caption", captionText.slice(0, 1000));
-  form.append("photo", new Blob([new Uint8Array(bytes)], { type: "image/jpeg" }), "post.jpg");
+  form.append("photo", new Blob([svg], { type: "image/svg+xml" }), "card.svg");
   const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: "POST", body: form }).catch(() => null);
   const data = res ? await res.json().catch(() => null) : null;
   return data?.ok === true;
@@ -278,8 +258,7 @@ export async function publishRotation(slot: number): Promise<RotationResult> {
     return { ok: false, slot, topic: item.title, kind: item.kind, reason: "blocked" };
   }
 
-  const seed = Math.floor(Date.now() / 1000) % 100000;
-  const posted = (await sendPhoto(text, imageUrl(item, seed))) || (await sendPhoto(text, imageUrl(item, seed + 1)));
+  const posted = await sendPhoto(text, cardSvg(item));
   if (!posted) return { ok: false, slot, topic: item.title, kind: item.kind, reason: "media-failed" };
 
   const now = new Date().toISOString();
