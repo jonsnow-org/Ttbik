@@ -1,21 +1,21 @@
 {
-  "generated_at": "2026-10-08 10:43 UTC",
+  "generated_at": "2026-10-08 18:55 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
       "alias": "المدرّب الحي 1",
       "track": "live_trainer",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-03",
-      "gpu": true,
+      "last_run": "2026-10-08",
+      "gpu": false,
       "failure": ""
     },
     {
       "alias": "المرحلة الثالثة 4",
       "track": "chat_stage",
       "status": "complete",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-10-02",
       "gpu": false,
       "failure": ""
@@ -50,8 +50,8 @@
     {
       "alias": "المرحلة الثالثة 5",
       "track": "chat_stage",
-      "status": "running",
-      "role": "primary",
+      "status": "error",
+      "role": "duplicate",
       "last_run": "2026-10-08",
       "gpu": false,
       "failure": ""
@@ -214,7 +214,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 0.0,
+      "size_mb": 581.3,
       "last_updated": "2026-10-08",
       "progress": {},
       "has_key_files": true
@@ -283,8 +283,8 @@
     {
       "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
-      "size_mb": 582.3,
-      "last_updated": "2026-10-03",
+      "size_mb": 582.4,
+      "last_updated": "2026-10-08",
       "progress": {},
       "has_key_files": true
     },
@@ -303,8 +303,8 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 579.8,
-      "last_updated": "2026-10-07",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-08",
       "progress": {},
       "has_key_files": true
     },
@@ -427,7 +427,7 @@
       "chat_stage": {
         "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الثالثة 1"
       }
