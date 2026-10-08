@@ -82,14 +82,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     rawBody = body;
     if (body) {
       void notifyGrok(botRow.id, botRow.template, body);
-      const ownerText = String(body.message?.text || "");
-      const ownerChat = body.message?.chat?.id;
-      if (ownerChat && ownerText.startsWith("مرحبا جروك انا المالك")) {
-        const ownerIds = [botRow.ownerId, process.env.TELEGRAM_ADMIN_CHAT_ID, process.env.SUPER_ADMIN_TELEGRAM_ID, "420066855"].filter(Boolean).map(String);
-        if (ownerIds.includes(String(ownerChat))) {
-          await bot.api.sendMessage(ownerChat, "وصلت عبارة المالك. الأمر يُعالج من هذا البوت، وليس من البوت الطبي فقط.").catch(() => null);
-        }
-      }
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a
       // balance top-up. Must be answered within 10s, so this skips the
