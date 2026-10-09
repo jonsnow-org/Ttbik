@@ -1,31 +1,27 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
+import EnglishStoryCard from "@/components/EnglishStoryCard";
 import { EN_ARTICLES } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: { absolute: "English how-to guides for free browser tools | Sham AI" },
-  description: "Practical English guides: calculate BMI, add or remove VAT, build a WhatsApp click-to-chat link, and keep a CV to one page. No account needed.",
-  alternates: { canonical: `${SITE_URL}/en/articles`, languages: { en: `${SITE_URL}/en/articles` } },
-  openGraph: { title: "English how-to guides for free browser tools | Sham AI", description: "Practical English guides: calculate BMI, add or remove VAT, build a WhatsApp click-to-chat link, and keep a CV to one page. No account needed.", url: `${SITE_URL}/en/articles`, locale: "en_US", type: "website" },
+  title: { absolute: "English how-to guides | Sham AI" },
+  description: "Practical English guides with a cover image and a tool at the end.",
+  alternates: { canonical: `${SITE_URL}/en/articles`, languages: { en: `${SITE_URL}/en/articles`, ar: `${SITE_URL}/articles` } },
+  openGraph: { title: "English how-to guides | Sham AI", description: "Practical English guides.", url: `${SITE_URL}/en/articles`, locale: "en_US", type: "website" },
 };
 
 export default function Page() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" lang="en">
       <EnglishDeskNav />
-      <h1 className="text-4xl font-extrabold tracking-tight">Guides</h1>
-      <p className="mt-2 text-sm leading-7 text-slate-600">How-to pages written for an English search. Each guide ends at the tool.</p>
-      <AdSlot position="in-content" label="English articles" />
-      <div className="mt-6 grid gap-3">
+      <h1 className="text-4xl font-black tracking-tight text-slate-950">Guides</h1>
+      <p className="mt-2 text-sm leading-7 text-slate-600">A short how-to, then the browser tool. No account.</p>
+      <div className="mt-6"><AdSlot position="in-content" label="English guides" /></div>
+      <div className="mt-6 grid gap-4">
         {EN_ARTICLES.map((item) => (
-          <Link key={item.slug} href={`/en/articles/${item.slug}`} className="rounded-3xl border border-slate-200 bg-white p-5">
-            <p className="text-xs text-slate-400">{item.date}</p>
-            <h2 className="mt-1 text-xl font-bold">{item.title}</h2>
-            <p className="mt-1 text-sm leading-6 text-slate-600">{item.dek}</p>
-          </Link>
+          <EnglishStoryCard key={item.slug} href={`/en/articles/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} badge="Guide" />
         ))}
       </div>
     </main>

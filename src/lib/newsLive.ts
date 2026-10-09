@@ -2,14 +2,9 @@
 export type LiveDesk = {
   name: string;
   channelId: string;
-  /** Prefer a stable/current live video id when the channel keeps one; else channel live_stream. */
   videoId?: string;
 };
 
-/**
- * Desks verified for Arabic news live embeds.
- * videoId يُحدَّث عند الحاجة؛ liveWatchUrl يبقى يعمل دائماً على يوتيوب.
- */
 export const LIVE_DESKS: LiveDesk[] = [
   {
     name: "الجزيرة",
@@ -23,7 +18,20 @@ export const LIVE_DESKS: LiveDesk[] = [
   },
 ];
 
-/** Embed on youtube.com (nocookie often shows «غير متوفّر» for live). */
+/** English desks. Embed only; Sham AI does not rebroadcast. */
+export const EN_LIVE_DESKS: LiveDesk[] = [
+  {
+    name: "Al Jazeera English",
+    channelId: "UCNye-wNBqNL5ZzHSJj3l8Bg",
+    videoId: "gCNeDWCI0vo",
+  },
+  {
+    name: "BBC News",
+    channelId: "UC16niRr50-MSBwiO3YDb3RA",
+    videoId: "9Auq9mYxFEE",
+  },
+];
+
 export function liveEmbedSrc(desk: LiveDesk) {
   if (desk.videoId) {
     return `https://www.youtube.com/embed/${desk.videoId}?rel=0&modestbranding=1`;
@@ -31,7 +39,6 @@ export function liveEmbedSrc(desk: LiveDesk) {
   return `https://www.youtube.com/embed/live_stream?channel=${desk.channelId}&rel=0&modestbranding=1`;
 }
 
-/** Always-working fallback: open the official live page on YouTube. */
 export function liveWatchUrl(desk: LiveDesk) {
   if (desk.videoId) return `https://www.youtube.com/watch?v=${desk.videoId}`;
   return `https://www.youtube.com/channel/${desk.channelId}/live`;
