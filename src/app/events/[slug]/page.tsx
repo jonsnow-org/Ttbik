@@ -2,21 +2,25 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
+import { getExtraEvent, EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { EVENT_ITEMS, getEvent } from "@/lib/eventsIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
-
-/** ISR — static editorial body; refresh periodically */
 export const revalidate = 3600;
 
+function resolve(slug: string) {
+  return getEvent(slug) || getExtraEvent(slug);
+}
+
 export function generateStaticParams() {
-  return EVENT_ITEMS.map((e) => ({ slug: e.slug }));
+  const slugs = new Set([...EVENT_ITEMS, ...EVENT_EXTRAS].map((e) => e.slug));
+  return [...slugs].map((slug) => ({ slug }));
 }
 
 export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const params = await props.params;
-  const e = getEvent(params.slug);
+  const e = resolve(params.slug);
   if (!e) return { title: "حدث" };
   return {
     title: e.title,
@@ -35,7 +39,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
 
 export default async function EventArticlePage(props: { params: Promise<{ slug: string }> }) {
   const params = await props.params;
-  const e = getEvent(params.slug);
+  const e = resolve(params.slug);
   if (!e) notFound();
 
   const articleLd = {
@@ -85,14 +89,11 @@ export default async function EventArticlePage(props: { params: Promise<{ slug: 
             <li className="line-clamp-1 font-semibold text-slate-800">{e.title}</li>
           </ol>
         </nav>
-
         <article className="overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm">
           <div className="h-2 bg-gradient-to-l from-sky-500 to-indigo-500" />
           <div className="p-5 sm:p-7">
             <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] font-bold">
-              {e.category && (
-                <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 ring-1 ring-indigo-100">{e.category}</span>
-              )}
+              {e.category && <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-indigo-800 ring-1 ring-indigo-100">{e.category}</span>}
               <span className="rounded-full bg-sky-50 px-2.5 py-0.5 text-sky-800 ring-1 ring-sky-100">حدث</span>
               <span className="text-slate-500">{e.dateLabel}</span>
             </div>
@@ -100,25 +101,17 @@ export default async function EventArticlePage(props: { params: Promise<{ slug: 
             <p className="mt-3 text-sm leading-7 text-slate-600">{e.description}</p>
             <div className="my-6 border-t border-slate-100" />
             <div className="space-y-4 text-[15px] leading-8 text-slate-800">
-              {e.paragraphs.map((p, i) => (
-                <p key={i}>{p}</p>
-              ))}
+              {e.paragraphs.map((p, i) => <p key={i}>{p}</p>)}
             </div>
             <p className="mt-6 text-xs font-bold text-slate-600">المصادر:</p>
             <ul className="mt-1 list-disc space-y-1 pr-5 text-xs text-sky-800">
               {e.sources.map((s) => (
-                <li key={s.href}>
-                  <a href={s.href} target="_blank" rel="noopener noreferrer" className="hover:underline">{s.label}</a>
-                </li>
+                <li key={s.href}><a href={s.href} target="_blank" rel="noopener noreferrer" className="hover:underline">{s.label}</a></li>
               ))}
             </ul>
           </div>
         </article>
-
-        <div className="mt-6">
-          <AdSlot position="in-content" label="بين المقال والأسئلة" />
-        </div>
-
+        <div className="mt-6"><AdSlot position="in-content" label="بين المقال والأسئلة" /></div>
         <section className="mt-6 rounded-3xl border border-sky-100 bg-gradient-to-b from-sky-50/80 to-white p-5 shadow-sm">
           <h2 className="mb-3 text-base font-extrabold text-slate-900">أسئلة قصيرة</h2>
           <dl className="space-y-4 text-sm leading-7">
@@ -130,7 +123,6 @@ export default async function EventArticlePage(props: { params: Promise<{ slug: 
             ))}
           </dl>
         </section>
-
         <p className="mt-6 text-xs leading-6 text-slate-500">
           إعداد فريق التحرير بمساعدة أدوات ذكاء اصطناعي، مع ذكر المصادر.{" "}
           <Link href="/editorial-policy" className="font-bold text-sky-800 hover:underline">سياسة التحرير</Link>
