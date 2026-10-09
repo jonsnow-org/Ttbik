@@ -13,6 +13,7 @@ export interface NavSection {
 export const EDITORIAL_TABS = [
   { id: "news", href: "/news", label: "📰 الأخبار" },
   { id: "events", href: "/events", label: "🗓️ الأحداث" },
+  { id: "upcoming", href: "/events/upcoming", label: "⏳ القادمة" },
   { id: "articles", href: "/articles", label: "✍️ المقالات" },
 ] as const;
 
