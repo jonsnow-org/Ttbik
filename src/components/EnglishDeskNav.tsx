@@ -3,8 +3,9 @@ import Link from "next/link";
 const LINKS = [
   ["/en", "Home"],
   ["/en/news", "News"],
-  ["/en/articles", "Articles"],
-  ["/en/events", "Events"],
+  ["/en/articles", "Guides"],
+  ["/en/events", "Dates"],
+  ["/en/events/upcoming", "Upcoming"],
   ["/en/free-tools", "Tools"],
 ];
 

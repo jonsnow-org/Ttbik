@@ -9,6 +9,18 @@ export type DeskItem = {
 
 export const EN_NEWS: DeskItem[] = [
   {
+    slug: "world-post-day-2026",
+    title: "World Post Day is 9 October",
+    dek: "The date marks the 1874 founding of the Universal Postal Union in Bern. The 2026 UN theme is one postal network, not a courier advert.",
+    date: "2026-10-09",
+    body: [
+      "World Post Day falls on 9 October. The Universal Postal Union was founded in Bern in 1874, and its Tokyo congress in 1969 set this date as the annual observance. The United Nations lists it because the UPU has been a specialised agency since 1948.",
+      "The 2026 message published by the UN is about one postal network and the services a post office still provides where a bank or a digital counter does not. The UN cites about 660,000 offices and about 4.6 million staff.",
+      "This note is not a shipping rate and not a brand page. The source is the UN observance page.",
+    ],
+    tool: "/en/events/upcoming",
+  },
+  {
     slug: "anne-carson-nobel-literature-2026",
     title: "Anne Carson wins 2026 Nobel Prize in Literature",
     dek: "The Swedish Academy named Canadian poet Anne Carson on 8 October 2026 for work that recasts classical forms. Medal ceremony is 10 December in Stockholm.",
@@ -17,7 +29,6 @@ export const EN_NEWS: DeskItem[] = [
       "The Swedish Academy awarded the 2026 Nobel Prize in Literature to Anne Carson, the Canadian poet, essayist, and translator. The announcement was made in Stockholm on 8 October 2026.",
       "The official citation is for her bold and inventive oeuvre that, in playful dialogue with the classical tradition, has created new forms for contemporary literature. Carson was born in Toronto in 1950. Her first book, Eros the Bittersweet, appeared in 1986.",
       "The medal and diploma are presented in Stockholm on 10 December, the anniversary of Alfred Nobel's death. This note uses the Academy citation and the public announcement; it is not a review of her books.",
-      "Primary source: the Nobel Prize page for Literature 2026. A same-day report is on The Guardian.",
     ],
     tool: "/en/articles",
   },
@@ -43,31 +54,21 @@ export const EN_NEWS: DeskItem[] = [
     ],
     tool: "/en/free-tools/qr-generator",
   },
-  {
-    slug: "short-links-and-click-counts",
-    title: "A short link is a counter, not a brand",
-    dek: "Shortening a URL is useful when you need a click count. It is a poor place to hide the destination.",
-    date: "2026-10-05",
-    body: [
-      "A short link helps on a printed card and in a chat where a long URL breaks. The count tells you if anyone opened it.",
-      "Do not use a short link to disguise where it goes. Show the destination in the text next to it.",
-    ],
-    tool: "/en/free-tools/url-shortener",
-  },
-  {
-    slug: "vat-inclusive-prices",
-    title: "Tax-inclusive prices hide the rate",
-    dek: "A shelf price can include tax. The calculator has to know which way you are going.",
-    date: "2026-10-04",
-    body: [
-      "Adding 20 percent to a net price is not the same as removing 20 percent from a gross price. The second move uses the rate divided by one plus the rate.",
-      "Write the rate on the invoice. A calculator that only adds tax will mis-state a price that already includes it.",
-    ],
-    tool: "/en/free-tools/vat-calculator",
-  },
 ];
 
 export const EN_ARTICLES: DeskItem[] = [
+  {
+    slug: "how-to-check-a-public-date",
+    title: "How to check a public date before you share it",
+    dek: "A day name in a headline is not a source. Open the organiser page and read the year.",
+    date: "2026-10-09",
+    body: [
+      "A shared post often moves a date by a day, or keeps last year's theme. Before you repeat it, open the page of the body that owns the day: the UN, WHO, FAO, or the academy that made the award.",
+      "Check three things: the calendar date, the year on the page, and whether the theme is for this year. A theme from 2024 on a 2026 card is a stale copy.",
+      "If two outlets disagree, link both and say so. Do not pick the rounder number.",
+    ],
+    tool: "/en/events",
+  },
   {
     slug: "how-to-calculate-bmi",
     title: "How to calculate BMI without a clinic form",
@@ -101,20 +102,48 @@ export const EN_ARTICLES: DeskItem[] = [
     ],
     tool: "/en/free-tools/whatsapp-link",
   },
-  {
-    slug: "one-page-cv",
-    title: "How to keep a CV to one page",
-    dek: "Role, dates, and one result per job. A second page rarely gets read.",
-    date: "2026-09-28",
-    body: [
-      "Lead with the role you want, then three jobs. Each job gets a title, dates, and one line that names a result.",
-      "Drop school dates if you have three years of work. A one-page CV is easier to send and easier to scan.",
-    ],
-    tool: "/en/free-tools/cv-generator",
-  },
 ];
 
 export const EN_EVENTS: DeskItem[] = [
+  {
+    slug: "world-post-day-2026",
+    title: "World Post Day 2026",
+    dek: "9 October. Anniversary of the Universal Postal Union, founded in Bern in 1874.",
+    date: "2026-10-09",
+    body: [
+      "World Post Day is 9 October. The Universal Postal Union was established in Bern in 1874. The UN observance page is the source for the date and for the 2026 theme, one postal network.",
+      "It is not a public holiday in most countries and not a shipping sale.",
+    ],
+  },
+  {
+    slug: "world-mental-health-day-2026",
+    title: "World Mental Health Day 2026",
+    dek: "10 October. A public date run with the World Federation for Mental Health and marked by WHO. Not medical advice.",
+    date: "2026-10-10",
+    body: [
+      "World Mental Health Day is 10 October. The World Federation for Mental Health has used the date since 1992. WHO keeps a campaign page for the same day.",
+      "This card explains the date. It is not a diagnosis and not a treatment. Someone who needs urgent help should use a local emergency service.",
+    ],
+  },
+  {
+    slug: "international-day-of-the-girl-2026",
+    title: "International Day of the Girl 2026",
+    dek: "11 October. Declared by the General Assembly. The 2026 UN and UNICEF theme is ending child marriage.",
+    date: "2026-10-11",
+    body: [
+      "The International Day of the Girl Child is 11 October. The General Assembly set the date in resolution 66/170 on 19 December 2011.",
+      "The 2026 theme published by the UN and UNICEF is to end child marriage and invest in girls' rights. UNICEF's public estimate is that about one in five girls is married before 18.",
+    ],
+  },
+  {
+    slug: "disaster-risk-reduction-day-2026",
+    title: "International Day for Disaster Risk Reduction 2026",
+    dek: "13 October. A UN date about preparation, not a forecast of a named storm.",
+    date: "2026-10-13",
+    body: [
+      "The International Day for Disaster Risk Reduction is 13 October. The UN page is the source. The day is about reducing loss before a disaster, not about predicting one.",
+    ],
+  },
   {
     slug: "world-standards-day-2026",
     title: "World Standards Day 2026",
@@ -126,6 +155,15 @@ export const EN_EVENTS: DeskItem[] = [
     ],
   },
   {
+    slug: "world-food-day-2026",
+    title: "World Food Day 2026",
+    dek: "16 October. Anniversary of the founding of the Food and Agriculture Organization in 1945.",
+    date: "2026-10-16",
+    body: [
+      "World Food Day is 16 October, the date FAO was founded in 1945. The FAO page is the source. The day is about hunger and farming, not a commodity price.",
+    ],
+  },
+  {
     slug: "public-domain-day-2027",
     title: "Public Domain Day 2027",
     dek: "1 January. Works whose term ends enter the commons in many countries.",
@@ -133,16 +171,6 @@ export const EN_EVENTS: DeskItem[] = [
     body: [
       "Public Domain Day is 1 January. The list of works differs by country because copyright terms differ.",
       "Do not copy a text into a tool page because a headline said it is free. Check the country and the year.",
-    ],
-  },
-  {
-    slug: "safer-internet-day-2027",
-    title: "Safer Internet Day 2027",
-    dek: "A February date used by schools and networks for ordinary online safety.",
-    date: "2027-02-09",
-    body: [
-      "Safer Internet Day falls in February. Campaigns usually cover passwords, shared photos, and links you did not expect.",
-      "A short link should show where it goes. A tool that keeps a file in the browser is easier to explain than one that uploads it.",
     ],
   },
 ];
