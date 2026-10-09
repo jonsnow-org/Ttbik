@@ -7,12 +7,10 @@ export const maxDuration = 60;
 
 /**
  * Channel cron every 2 hours. Quiet hours 23:00-07:00 Istanbul are skipped.
- * Owner list, 2026-10-07: Sham AI news, events, articles and tools,
- * Literium (https://literium.ai.studio/) once every 2 days, Athar on
- * Getgems once every 3 days. No title/link repeat inside 2 days.
- * Each post is a generated still of a man or woman plus Arabic caption
- * and the link. Athar copy must not promise profit. Video generation is
- * not used here: free GPU lanes miss the 60s cron budget.
+ * Literium once every 2 days, Athar once every 3 days.
+ * No title or link repeat inside 48 hours. No profit promises.
+ * Literium and Athar use one uploaded card each (adult presenter + the tool UI).
+ * No Pollinations and no random image fetch. Other posts are Arabic text plus the link only.
  */
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
