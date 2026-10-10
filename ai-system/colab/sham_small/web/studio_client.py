@@ -17,7 +17,7 @@ import os
 
 import requests
 
-DEFAULT_URL = "https://novaai2026-nova-inference-server.ms.show"
+DEFAULT_URL = "https://studio-novaai2026-nova-inference-server.api-inference.modelscope.net"
 _UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 
 
