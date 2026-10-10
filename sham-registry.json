@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10 13:44 UTC",
+  "generated_at": "2026-10-10 15:36 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -95,8 +95,8 @@
     {
       "alias": "المرحلة الثانية 2",
       "track": "stage2_multimodal",
-      "status": "running",
-      "role": "primary",
+      "status": "cancelAcknowledged",
+      "role": "duplicate",
       "last_run": "2026-10-10",
       "gpu": true,
       "failure": ""
@@ -159,7 +159,7 @@
       "alias": "المرحلة الثانية 1",
       "track": "stage2_multimodal",
       "status": "complete",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-09-23",
       "gpu": false,
       "failure": ""
@@ -406,7 +406,7 @@
       "stage2_multimodal": {
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الثانية 1"
       },
