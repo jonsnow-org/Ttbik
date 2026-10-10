@@ -68,6 +68,8 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     echo "$(now) OK (no relevant changes) $(git rev-parse --short HEAD)" > "$STATE/last_update"
   fi
 fi
+# Use the room of an enlarged boot volume (agent/grow-disk.sh): a read-only check unless the owner raised the size in the Oracle console.
+[ -f "$OR/agent/grow-disk.sh" ] && { bash "$OR/agent/grow-disk.sh" >/dev/null 2>&1 || true; }
 # The isolated runner of the Sham notebooks (agent/install-sham.sh, owner-approved; it never touches Athar or the media engine). Done outside the
 # update block above, once per version of the installer: when the update that brings it arrives, the running updater is still the old file.
 if [ -f "$OR/agent/SHAM_ON" ] && [ -f "$OR/agent/install-sham.sh" ]; then

@@ -4,7 +4,7 @@
 #   code   : /opt/sham, a sparse clone of branch `sham-main` ONLY (folder ai-system/), owned by the system user `sham`
 #   secrets: /etc/sham/sham.env (root:sham 0640): Kaggle / GitHub keys go here, put there by the owner; nobody else reads it
 #   job    : ai-system/oracle_job.sh from sham-main is run by the timer; if that file does not exist the run does nothing
-#   limits : 1 CPU, 4 GB RAM, lowest CPU/IO priority, a 10 GB work folder, no access to /opt/ttbik, /var/lib/ttbik or /var/backups/ttbik
+#   limits : 1 CPU, 4 GB RAM, lowest CPU/IO priority, a work folder of at most half the free disk (40 GB at most), no access to /opt/ttbik, /var/lib/ttbik or /var/backups/ttbik
 #            (Athar's keys live there) and no Docker. The runner below belongs to root, so job code can never change it.
 #   specs  : once, the machine's size (cores, memory, disk, architecture, GPU; no secrets) is sent to the owner on Telegram and kept in
 #            /var/lib/ttbik/server_specs.txt, to size the Sham jobs.
@@ -51,7 +51,10 @@ cat > /usr/local/sbin/sham-run <<'RUN'
 #!/usr/bin/env bash
 set -uo pipefail
 SHAM_DIR="${SHAM_DIR:-/opt/sham}"; WORK="${SHAM_WORK:-/var/lib/sham}"; REPO="${SHAM_REPO:-https://github.com/jonsnow-org/Ttbik.git}"; BRANCH=sham-main
-if [ "$(du -sxk "$WORK" 2>/dev/null | cut -f1)" -gt $((10*1024*1024)) ]; then echo "sham: $WORK is over 10 GB, skipping this run (clean it)"; exit 0; fi
+# the work folder may use up to half of what is free (counting what it already holds), never more than 40 GB: Athar and the media engine keep the rest
+USED_K=$(du -sxk "$WORK" 2>/dev/null | cut -f1); AVAIL_K=$(df -k --output=avail "$WORK" 2>/dev/null | tail -1 | tr -d ' ')
+CAP_K=$(( (${USED_K:-0} + ${AVAIL_K:-0}) / 2 )); [ "$CAP_K" -gt $((40*1024*1024)) ] && CAP_K=$((40*1024*1024))
+if [ "${USED_K:-0}" -gt "$CAP_K" ]; then echo "sham: $WORK holds more than its share ($((CAP_K/1048576)) GB), skipping this run (clean it)"; exit 0; fi
 cd "$SHAM_DIR" || exit 1
 if [ ! -d .git ]; then git init -q && git remote add origin "$REPO" && git config core.sparseCheckout true && git sparse-checkout init --cone && git sparse-checkout set ai-system; fi
 git fetch -q --depth 1 origin "$BRANCH" || { echo "sham: fetch of $BRANCH failed"; exit 0; }
