@@ -64,6 +64,12 @@ def main() -> int:
         say(f"بعد التشغيل: {getattr(studio, 'status', '?')} | الآلة: {getattr(studio, 'machine', '?')}")
         out = studio.run("nproc; free -g | head -2; df -h / | tail -1; python3 --version; echo صدى-من-الاستوديو")
         say("ناتج الأمر داخل الاستوديو:\n" + str(out)[:600])
+        net = studio.run(
+            "for u in https://huggingface.co https://www.kaggle.com https://api.kaggle.com https://github.com https://pypi.org "
+            "https://hf-mirror.com https://www.modelscope.cn https://api.telegram.org; do printf '%s ' $u; "
+            "curl -s -o /dev/null -m 8 -w '%{http_code}\\n' $u; done; python3 -m pip --version 2>&1 | head -1; "
+            "ls /usr/bin/python3* 2>/dev/null | head -5; python3 -c 'import torch;print(\"torch\",torch.__version__)' 2>&1 | tail -1")
+        say("الشبكة والأدوات داخل الاستوديو:\n" + str(net)[:900])
     except Exception as exc:
         say(f"فشل أثناء التشغيل أو الأمر: {type(exc).__name__}: {str(exc)[:240]}")
     finally:
