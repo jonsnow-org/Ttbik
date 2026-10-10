@@ -29,7 +29,16 @@ def main() -> int:
     name = os.environ.get("SHAM_LIGHTNING_STUDIO", "fantastic-bronze-a104f")
     try:        # the SDK needs the teamspace: ask the account which ones it has (names are not secrets)
         from lightning_sdk import User
-        spaces = list(User().teamspaces)
+        spaces, last = [], None
+        for uname in [os.environ.get("SHAM_LIGHTNING_USER"), "jonsnowx1r-lab", "Jonsnowx1r-Lab", None]:
+            try:       # the SDK cannot infer the user name from the key alone: try the account's own name (not a secret)
+                spaces = list(User(name=uname).teamspaces) if uname else list(User().teamspaces)
+                say(f"اسم المستخدم المقبول: {uname or '(مستنتَج)'}")
+                break
+            except Exception as exc:
+                last = exc
+        if not spaces and last is not None:
+            raise last
         say("مساحات الفريق في الحساب: " + ", ".join(str(getattr(s, "name", s)) for s in spaces))
         studio = None
         for sp in spaces:
