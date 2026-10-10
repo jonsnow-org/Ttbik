@@ -4,6 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
+import { shamGenerate, shamStudioEnabled } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -757,6 +758,15 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     if (update.callback_query?.id) {
       await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
     } else if (update.message?.chat?.id) {
+      // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
+      const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
+      if (text && !text.startsWith("/") && shamStudioEnabled()) {
+        const reply = await shamGenerate(text, 80);
+        if (reply) {
+          await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
+          return;
+        }
+      }
       await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     }
     return;
