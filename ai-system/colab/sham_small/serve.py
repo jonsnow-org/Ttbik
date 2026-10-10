@@ -191,7 +191,7 @@ class MedicalGenerationRequest(BaseModel):
 @app.get("/health")
 def health() -> dict:
     model: ShamSmall = _state["model"]
-    from self_learn import self_learn_enabled
+    from self_learn import pending, self_learn_enabled
 
     return {
         "status": "ok",
@@ -199,6 +199,8 @@ def health() -> dict:
         "note": f"شام: {_state.get('source', '')}",
         "train_step": _state.get("train_step", 0),
         "self_learn": self_learn_enabled(),
+        "self_learn_pending": pending(),
+        "self_learn_last": _state.get("last_self_learn"),
     }
 
 

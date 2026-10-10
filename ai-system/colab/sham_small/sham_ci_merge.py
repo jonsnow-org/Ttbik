@@ -111,7 +111,7 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
 
 
 def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, device: str = "cpu", publish_on_change: bool = True,
-        max_sources: int = MAX_SOURCES_PER_RUN) -> dict:
+        max_sources: int = MAX_SOURCES_PER_RUN, auto_hook=None) -> dict:
     from checkpoint import load_checkpoint, save_checkpoint
     from sham_inputs import fetch_dataset, publish_dataset
     import sham_merge
@@ -172,8 +172,20 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     progress.update(base=progress.get("base", label), base_step=progress.get("base_step", step), merged=merged,
                     updated=time.time(), gate_before=before, gate_after=after)
 
+    # settings Sham decides by itself from what it measures (sham_auto_config): the hook runs its experiment on the merged model and
+    # returns the new settings; they travel inside merge_progress.json, which every notebook can read when it starts
+    auto_changed = False
+    if auto_hook is not None:
+        try:
+            new_auto, auto_line = auto_hook(model, tokenizer, progress.get("auto", {}))
+            auto_changed = new_auto != progress.get("auto", {})
+            progress["auto"] = new_auto
+            report.append(auto_line)
+        except Exception as exc:
+            report.append(f"⚠ تعذّر قرار الإعدادات الذاتية: {type(exc).__name__}: {str(exc)[:100]}")
+
     published = None
-    if publish_on_change and (changed or not fetch(OWN)):
+    if publish_on_change and (changed or auto_changed or not fetch(OWN)):
         up = WORK / "upload"
         up.mkdir()
         save_checkpoint(up / "final_merged.pt", model, step)
@@ -196,23 +208,28 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             "model": model, "tokenizer": tokenizer}
 
 
+def probe_hook(model, tokenizer, previous: dict):
+    """Experiment on a COPY (publishes nothing) → the reasoning share Sham decides to train with from now on."""
+    import sham_auto_config
+    import sham_reasoning_probe
+    pr = sham_reasoning_probe.probe(model, tokenizer, "cpu")
+    new = sham_auto_config.decide_reasoning(pr, previous)
+    if pr.get("ok"):
+        line = (f"🔬 مسبار التفكير المتسلسل ({pr['steps']} خطوة، {pr['minutes']} د): خسارة الحلول {pr['before']['reason_loss']:.2f}→"
+                f"{pr['after']['reason_loss']:.2f} | نص {pr['before']['text_loss']:.2f}→{pr['after']['text_loss']:.2f} | إصابة "
+                f"{pr['before']['exact']:.0%}→{pr['after']['exact']:.0%} ⇒ قرار تلقائي: حصة التفكير المتسلسل {new.get('reasoning_share', 0):.0%}")
+    else:
+        line = f"🔬 مسبار التفكير المتسلسل لم يكتمل ({pr.get('error', '؟')}) — القرار السابق باقٍ: {previous.get('reasoning_share', 0):.0%}"
+    return new, line
+
+
 def main():
-    res = run()
+    res = run(auto_hook=probe_hook)
     try:   # real-source soak of the endless text pipeline on this (small, 7 GB) runner: evidence before CPU sessions may use it
         import sham_pipeline_soak
         res["soak"] = sham_pipeline_soak.soak(float(os.environ.get("SHAM_SOAK_SECONDS", "420")))
     except Exception as exc:
         print(f"soak: {exc}")
-    try:   # does this model LEARN step-by-step reasoning from worked solutions? an experiment on a COPY: publishes nothing
-        import sham_reasoning_probe
-        res["probe"] = sham_reasoning_probe.probe(res["model"], res["tokenizer"], "cpu")
-        pr = res["probe"]
-        if pr.get("ok"):
-            res["report"] += (f"\n🔬 مسبار التفكير المتسلسل ({pr['steps']} خطوة، {pr['minutes']} د): خسارة الحلول "
-                              f"{pr['before']['reason_loss']:.2f}→{pr['after']['reason_loss']:.2f} | نص {pr['before']['text_loss']:.2f}→"
-                              f"{pr['after']['text_loss']:.2f} | إصابة {pr['before']['exact']:.0%}→{pr['after']['exact']:.0%}")
-    except Exception as exc:
-        print(f"probe: {exc}")
     try:
         from telegram_report import send_telegram_message
         send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), res["report"][:4000])
@@ -271,6 +288,15 @@ if __name__ == "__main__":
                   sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
         assert res["changed"] and res["after"]["text"] < res["before"]["text"], res
         assert pubs and pubs[0][0] == OWN and "final_merged.pt" in pubs[0][1] and "merge_progress.json" in pubs[0][1], pubs
+        # a verdict Sham reached by itself travels in merge_progress.json and is published even when nothing was merged
+        pubs.clear()
+        up_dir = {}
+        publish2 = lambda up, name, msg: (up_dir.update(json=json.loads((Path(up) / "merge_progress.json").read_text(encoding="utf-8"))),
+                                          pubs.append(name), name)[1]
+        res2 = run(fetch=fetch, publish=publish2, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line"))
+        assert not res2["changed"] and pubs == [OWN] and up_dir["json"]["auto"] == {"reasoning_share": 0.1}, (res2, pubs, up_dir)
+        assert "line" in res2["report"]
         print("sham_ci_merge self-test OK")
     else:
         main()

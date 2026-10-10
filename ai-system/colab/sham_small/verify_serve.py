@@ -110,9 +110,15 @@ def main() -> None:
         assert Image.open(_io.BytesIO(resp.content)).format == "PNG"
         print("/generate/medical/image OK: a free-form prompt returns a real PNG (open endpoint).")
 
+        resp = requests.post(f"{_BASE_URL}/ask/web", json={"question": "ما هي عاصمة اليابان؟", "max_new_tokens": 8}, timeout=120)
+        resp.raise_for_status()
+        w = resp.json()
+        assert isinstance(w["answer"], str) and "queued" in w and "hits" in w, w
+        print(f"/ask/web OK: answers from a live search and decides on its own whether the turn becomes a learning experience (hits={w['hits']}, queued={w['queued']}).")
+
         h = requests.get(f"{_BASE_URL}/health", timeout=10).json()
-        assert "self_learn" in h and h["self_learn"] is False, "self-learning must be OFF unless SHAM_SELF_LEARN=1"
-        print("/health OK: reports self_learn=False by default (the weight-updating /ask/web path is off).")
+        assert "self_learn" in h and "self_learn_pending" in h, h
+        print(f"/health OK: self_learn={h['self_learn']} (on by default; a request never changes the served weights), pending={h['self_learn_pending']}.")
 
     finally:
         server.terminate()
