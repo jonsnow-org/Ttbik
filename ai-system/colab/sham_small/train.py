@@ -387,9 +387,16 @@ if __name__ == "__main__":
     # later notebook cells to run at all). A real, tiny time budget here
     # must make train() stop itself well before exhausting `batches`,
     # save a real checkpoint at exactly that point, and return normally.
+    import time as _time
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # the budget used to be a fixed 0.15 s: on a slower or busier machine even the first step took longer, so the run
+        # stopped with 0 steps and this check failed (2026-10-10). Time one full run, then allow half of it.
+        _t0 = _time.time()
+        train(ShamSmall(small_model_cfg), batches, TrainConfig(**{**train_cfg.__dict__, "checkpoint_dir": tmpdir, "checkpoint_every": 10**9}))
+        _full = _time.time() - _t0
     with tempfile.TemporaryDirectory() as tmpdir:
         time_limited_cfg = TrainConfig(
-            **{**train_cfg.__dict__, "checkpoint_dir": tmpdir, "checkpoint_every": 10**9, "max_wall_clock_seconds": 0.15}
+            **{**train_cfg.__dict__, "checkpoint_dir": tmpdir, "checkpoint_every": 10**9, "max_wall_clock_seconds": max(0.15, _full * 0.5)}
         )
         time_limited_history = train(ShamSmall(small_model_cfg), batches, time_limited_cfg)
         assert 0 < len(time_limited_history) < len(batches), (

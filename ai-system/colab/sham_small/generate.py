@@ -305,6 +305,26 @@ def build_image_understanding_prompt(
     return torch.cat([prefix, offset_tokens, suffix], dim=1)
 
 
+
+def build_audio_understanding_prompt(
+    audio_tokenizer, mel: torch.Tensor, question_ids: list[int]
+) -> torch.Tensor:
+    """Audio → text prompt: <BOS><AUDIO_START>[offset audio tokens]<AUDIO_END>[question].
+    mel: (1, 1, n_mels, segment_frames) or whatever audio_tokenizer.encode expects."""
+    if mel.shape[0] != 1:
+        raise ValueError("build_audio_understanding_prompt only supports batch size 1")
+    device = mel.device
+    token_grid = audio_tokenizer.encode(mel)
+    offset_tokens = audio_token_id_to_vocab_id(token_grid.view(1, -1))
+    prefix = torch.tensor(
+        [[SpecialTokens.BOS, SpecialTokens.AUDIO_START]], dtype=torch.long, device=device
+    )
+    suffix = torch.tensor(
+        [[SpecialTokens.AUDIO_END] + question_ids], dtype=torch.long, device=device
+    )
+    return torch.cat([prefix, offset_tokens, suffix], dim=1)
+
+
 def build_video_understanding_prompt(image_tokenizer, video: torch.Tensor, question_ids: list[int]) -> torch.Tensor:
     """The video counterpart — video: (1, num_frames, 3, H, W). Reuses
     video_tokenizer.encode_video() exactly as training does, so the

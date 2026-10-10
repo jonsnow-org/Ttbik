@@ -25,6 +25,23 @@ import threading
 import time
 from pathlib import Path
 
+def _ensure_hf_token() -> None:
+    """Unauthenticated Hugging Face requests are rate-limited hard (HTTP 429 «Rate limited. Waiting 111s» in the 2026-10-10 runs;
+    Kaggle's shared addresses hit the limit even sooner). A free read token raises it. Taken from the environment (HF_TOKEN) or,
+    on Kaggle, from a notebook secret named HF_TOKEN; absent = anonymous, exactly as before. Never printed."""
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"):
+        return
+    try:
+        from kaggle_secrets import UserSecretsClient
+        tok = UserSecretsClient().get_secret("HF_TOKEN")
+        if tok:
+            os.environ["HF_TOKEN"] = tok
+    except Exception:
+        pass
+
+
+_ensure_hf_token()
+
 # (label, dataset, config, text_field, weight, max_chars)   — weights are shares of documents
 SOURCES = [
     ("en-web-edu", "HuggingFaceFW/fineweb-edu", "sample-10BT", "text", 14, 6000),

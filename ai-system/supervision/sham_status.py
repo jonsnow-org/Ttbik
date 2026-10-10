@@ -111,9 +111,18 @@ def dataset_status(ref: str, run=subprocess.run, sleep=time.sleep) -> str:
     return ""
 
 
-def dataset_files(ref: str, run=subprocess.run, limit: int = 200) -> list[dict]:
-    r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
-    return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO(r.stdout or "")) if g.get("name")]
+def dataset_files(ref: str, run=subprocess.run, limit: int = 200, sleep=time.sleep) -> list[dict]:
+    """Files of a dataset. A FAILED call (rate limit, network) used to read as "no files" and raised a false "empty publish"
+    alarm for a dataset that was fine: now it is retried with backoff and, if it still fails, raised — "unknown", not "empty"."""
+    last = ""
+    for attempt in range(3):
+        r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
+        if getattr(r, "returncode", 0) == 0:
+            return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO(r.stdout or "")) if g.get("name")]
+        last = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()[0:1]
+        last = last[0] if last else f"exit {r.returncode}"
+        sleep(20 * (attempt + 1) if ("429" in last or "too many" in last.lower()) else 3)
+    raise RuntimeError(f"تعذّر سرد الملفات: {last[:80]}")
 
 
 def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subprocess.run) -> dict:
@@ -220,8 +229,16 @@ def last_reports(fetch, n: int = 10) -> list[dict]:
 def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> list[str]:
     now = now or _now()
     alerts: list[str] = []
+    import re as _re
     for k in data.get("kernels", []):
-        if k["status"] == "error" and k["role"] == "primary":
+        fail = k.get("failure") or ""
+        if k["status"] == "error" and "ERRORED_MOUNTING_DATASET" in fail:
+            # a PLATFORM failure before any code ran: Kaggle could not attach one of the notebook's input datasets
+            m = _re.search(r"/input/datasets/[^/\s]+/([\w\-]+)", fail)
+            ds = m.group(1) if m else "مجموعة مدخلات"
+            alerts.append(f"❌ {k['alias']}: Kaggle لم يستطع تركيب «{ds}» كمدخل (قبل تشغيل أي كود) — أزيلي هذه المجموعة من مدخلات الدفتر "
+                          "(يجد الدفتر ما يلزمه بنفسه عبر API) ثم أعيدي التشغيل")
+        elif k["status"] == "error" and k["role"] == "primary":
             alerts.append(f"❌ دفتر أساسي فشل: {k['alias']} ({k['track']}) — {k['failure'][:160]}".replace("\n", " "))
     for name, runs in data.get("workflows", {}).items():
         done = [r for r in runs if r["status"] == "completed"]
@@ -338,7 +355,7 @@ def render_md(data: dict, contract: dict) -> str:
     L += ["", "## الدفاتر على Kaggle (بأسماء مستعارة)"]
     for k in data.get("kernels", []):
         L.append(f"- {k['status']} | {k['alias']} | الدور: {k['role']} | آخر تشغيل {k['last_run']}" + (f" | GPU" if k["gpu"] else "")
-                 + (f" | الخطأ: {k['failure'][:200]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
+                 + (f" | الخطأ: {k['failure'][:(700 if k.get('role') == 'primary' else 200)]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
     L += [f"- (+{data.get('other_notebooks', 0)} دفتراً غير تابع لشام، +{data.get('engineer_notebooks', 0)} من دفاتر المهندس — مخفية)"]
     L += ["", "## مصنع GitHub المجاني (آخر التشغيلات)"]
     for name, runs in data.get("workflows", {}).items():

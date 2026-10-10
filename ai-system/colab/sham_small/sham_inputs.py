@@ -466,6 +466,31 @@ def dataset_inventory(names: list[str] | None = None) -> str:
             + (f" | لا أحد يقرؤها: {', '.join(unused)}" if unused else ""))
 
 
+def dataset_exists(slug: str, run=subprocess.run) -> bool:
+    """Does the account already hold this dataset? `kaggle datasets list` returns ONE page (20 rows, hottest first), so an
+    account with more datasets than that made an existing one look absent and every "create" then failed with "title already
+    in use" — the checkpoint stayed in the session's Output and the next session resumed from an older point. Ask Kaggle for
+    the dataset by name first, then read every page of the list."""
+    try:
+        r = run(["kaggle", "datasets", "status", slug], capture_output=True, text=True)
+        out = ((r.stdout or "") + (r.stderr or "")).strip().lower()
+        if r.returncode == 0 and out and not any(w in out for w in ("404", "not found", "does not exist", "error")):
+            return True
+    except Exception:
+        pass
+    for page in range(1, 11):
+        try:
+            listed = run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)], capture_output=True, text=True)
+        except Exception:
+            return False
+        text = listed.stdout or ""
+        if slug in text:
+            return True
+        if len(text.strip().splitlines()) < 2:
+            break
+    return False
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
@@ -482,17 +507,7 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
     upload_dir = Path(upload_dir)
     (upload_dir / "dataset-metadata.json").write_text(
         json.dumps({"title": name, "id": slug, "licenses": [{"name": "unknown"}]}))
-    # `datasets list` returns ONE page (20 rows): with more datasets than that an existing one looked absent and "create" failed
-    # ("title already in use") — so read every page, and below fall back to a new version if create says the title exists
-    exists = False
-    for page in range(1, 11):
-        listed = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)], capture_output=True, text=True)
-        rows = (listed.stdout or "").strip().splitlines()
-        if slug in (listed.stdout or ""):
-            exists = True
-            break
-        if len(rows) < 2:
-            break
+    exists = dataset_exists(slug)
     version_cmd = ["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"]
     create_cmd = ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"]
     r = subprocess.run(version_cmd if exists else create_cmd, capture_output=True, text=True)

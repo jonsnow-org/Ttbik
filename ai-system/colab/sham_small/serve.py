@@ -1,18 +1,16 @@
 """
-Sham â€” real HTTP serving backend. Owner spec: "ط§ظ„ط®ط·ظˆط© ط§ظ„ط­ط§ظ„ظٹط© ظ‡ظٹ
-ط§ظ„ط±ط¨ط· ظˆط§ظ„ط¯ظپط¹ ظˆط§ظ„ط§ط®طھط¨ط§ط±... ط§ظ„ط§ط®طھط¨ط§ط± ظٹط­طھط§ط¬ ط§ظ† ظٹظƒظˆظ† ظ†ظ…ظˆط°ط¬ظ†ط§ ظ…ط¨ظ†ظٹ ظˆظ…ط¬ظ‡ط²
-ظ„ظ„ط§ط®طھط¨ط§ط± ط¹ظ„ظ‰ طھط·ط¨ظٹظ‚ ظˆظٹط¨ ط§ظˆ ط¨ظˆطھ" (the current step is linking, pushing,
-and testing â€” testing needs the model built and ready to test via a
-web app or a bot).
+Sham — real HTTP serving backend. Owner spec: the current step is linking,
+pushing, and testing — testing needs the model built and ready to test via a
+web app or a bot.
 
 Mirrors the exact architecture the CURRENT live Nova already uses
 (see ai-system/app/main.py + ai-system/streamlit_app.py): ONE backend
 that does all the real work, thin clients (a web UI, later a bot) that
-only call it over HTTP â€” so every interface always behaves identically,
+only call it over HTTP — so every interface always behaves identically,
 and adding a Telegram bot later needs zero changes here, just another
 thin client hitting these same endpoints. Deliberately a SEPARATE
 service from ai-system/app/main.py (the live, deployed production
-Nova) rather than added into it â€” ShamSmall is a wholly different,
+Nova) rather than added into it — ShamSmall is a wholly different,
 still-untrained model tree; nothing here should be able to affect the
 live production bot in any way.
 
@@ -23,21 +21,12 @@ checkpoint). If any of them is missing the server refuses to start instead of
 falling back to random weights. An untrained model is available for plumbing
 diagnostics only, behind SHAM_DIAGNOSTIC_UNTRAINED=1 (verify_serve.py).
 
-/ask/image and /ask/video (owner spec: a verified organization asks a
-real, live question about a real clip THEY provide â€” e.g. a clinician
-photographing something during a real teaching session â€” WITHOUT that
-clip ever becoming training data): authenticated via a real
-per-organization API key (api_keys.py â€” see that module's own
-docstring for why this replaced an earlier, rejected idea of one
-shared hardcoded "magic code"). Organizations are registered OFFLINE,
-by a trusted operator calling
-OrganizationKeyStore.register_organization() directly (e.g. from a
-one-off admin script) â€” deliberately NOT exposed as an HTTP endpoint
-here, so there is no way for an arbitrary caller to mint their own key
-over the network. These two endpoints are entirely separate from
-medical_dataset.py's training-data pipeline: nothing an organization
-uploads here is stored, added to a manifest, or trained on â€” it is
-used once, for one real answer, and discarded.
+/generate/medical/image, /ask/image, /ask/video, and /ask/web are open endpoints
+(no organization API key, no fixed medical category gate). Callers send a
+free-form prompt or question; uploaded ask media is used once for one answer
+and is not stored or trained on. /ask/web may optionally run one self-learn
+weight step when SHAM_SELF_LEARN=1 and learn=true (saves a NEW checkpoint,
+never overwrites final_chat.pt).
 """
 
 import io
@@ -48,17 +37,15 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import Response
 from PIL import Image
 from pydantic import BaseModel
 
 import imageio_ffmpeg
 
-from api_keys import Organization, OrganizationKeyStore
 from audio_tokenizer import AudioTokenizer, AudioTokenizerConfig
 from checkpoint import load_checkpoint
-from medical_generation_templates import build_structured_prompt
 from generate import (
     build_image_understanding_prompt,
     build_video_understanding_prompt,
@@ -84,24 +71,6 @@ app = FastAPI(title="Sham — serving backend")
 # Filled by load_model(): the trained model, its tokenizers, and a short
 # description of which checkpoint is being served (shown by /health).
 _state: dict = {}
-
-# One real, persistent key store for this process â€” see api_keys.py's
-# own docstring for why SQLite (not a shared secret) and how this
-# would swap to Supabase for durability across redeploys later.
-_api_key_store = OrganizationKeyStore(os.environ.get("SHAM_SMALL_API_KEYS_DB", "sham_small_api_keys.db"))
-
-
-def _require_organization(x_sham_org_key: str | None) -> Organization:
-    """The real auth check every /ask/* endpoint goes through â€” no
-    key, an unknown key, or a revoked key are all rejected identically
-    with 401, so a caller can't distinguish "wrong key" from "revoked
-    key" from timing/response differences."""
-    if not x_sham_org_key:
-        raise HTTPException(status_code=401, detail="missing X-Sham-Org-Key header")
-    organization = _api_key_store.verify_api_key(x_sham_org_key)
-    if organization is None:
-        raise HTTPException(status_code=401, detail="invalid or revoked API key")
-    return organization
 
 
 def _load_image_tensor(raw_bytes: bytes, image_size: int) -> torch.Tensor:
@@ -134,6 +103,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     if not real and not diagnostic:
         raise RuntimeError(f"لا توجد نقطة حفظ مدرّبة لشام في {checkpoint_path!r} — الخادم يعمل بنموذج مدرّب فقط.")
 
+    step = 0
     if real:
         model, step, _ = load_checkpoint(checkpoint_path)
         _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
@@ -179,6 +149,9 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     _state["text_tokenizer"] = text_tokenizer
     _state["image_tokenizer"] = image_tokenizer
     _state["audio_tokenizer"] = audio_tokenizer
+    _state["checkpoint_path"] = checkpoint_path
+    _state["tokenizer_path"] = tokenizer_path
+    _state["train_step"] = step if real else 0
 
 
 @app.on_event("startup")
@@ -186,7 +159,7 @@ def _startup() -> None:
     # Real forward-compatibility: once real training produces an
     # actual checkpoint, pointing this exact same deployment at it is
     # an env var change, not a code change or a redeploy of different
-    # code â€” load_model() already knows how to load a real checkpoint
+    # code — load_model() already knows how to load a real checkpoint
     # (see its own docstring); this is just wiring that up to the
     # outside world.
     load_model(
@@ -210,23 +183,22 @@ class VideoRequest(BaseModel):
 
 
 class MedicalGenerationRequest(BaseModel):
-    """Deliberately no free-form `prompt` field: category must be one
-    of medical_generation_templates.MEDICAL_CATEGORIES's own fixed
-    keys â€” see that module's own docstring for why this structural
-    choice, not a smarter filter, is the real fix for free text being
-    unable to reliably separate a clinical description from a
-    sexualized one that reuses the same anatomical words."""
-    category: str
+    """Free-form medical image generation: no fixed category gate."""
+    prompt: str
     notes: str | None = None
 
 
 @app.get("/health")
 def health() -> dict:
     model: ShamSmall = _state["model"]
+    from self_learn import self_learn_enabled
+
     return {
         "status": "ok",
         "model_params": model.count_parameters(),
         "note": f"شام: {_state.get('source', '')}",
+        "train_step": _state.get("train_step", 0),
+        "self_learn": self_learn_enabled(),
     }
 
 
@@ -325,26 +297,16 @@ def generate_video_endpoint(req: VideoRequest) -> Response:
 
 
 @app.post("/generate/medical/image")
-def generate_medical_image_endpoint(
-    req: MedicalGenerationRequest,
-    x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
-) -> Response:
-    # No content filter on req.notes here by design â€” see
-    # medical_generation_templates.py's docstring: accountability for
-    # this endpoint is the organization's own revocable key plus the
-    # real request text recorded below for operator review, not a
-    # keyword match that can't tell real clinical language from misuse.
-    organization = _require_organization(x_sham_org_key)
-    try:
-        prompt_result = build_structured_prompt(req.category, req.notes)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
+def generate_medical_image_endpoint(req: MedicalGenerationRequest) -> Response:
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
 
-    prompt_ids = torch.tensor([tokenizer.encode(prompt_result.prompt)], dtype=torch.long)
+    prompt_text = req.prompt
+    if req.notes:
+        prompt_text = f"{prompt_text} {req.notes}"
+
+    prompt_ids = torch.tensor([tokenizer.encode(prompt_text)], dtype=torch.long)
     tokens_per_image = image_tokenizer.cfg.tokens_per_image
     sequence = generate_image(model, prompt_ids, tokens_per_image=tokens_per_image, top_k=40)
     raw_tokens = extract_image_tokens(sequence, tokens_per_image)
@@ -357,39 +319,14 @@ def generate_medical_image_endpoint(
 
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
-    # Real request detail logged for review â€” the actual category and
-    # any notes, so a trusted operator can see, per organization,
-    # whether requests stay within that organization's stated purpose.
-    log_detail = f"category={req.category}" + (f" notes={req.notes}" if req.notes else "")
-    _api_key_store.record_usage(organization.org_id, "/generate/medical/image", detail=log_detail)
     return Response(content=buffer.getvalue(), media_type="image/png")
-
-
-@app.get("/generate/medical/categories")
-def list_medical_categories(x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key")) -> dict:
-    """Lets an authenticated organization discover the real fixed
-    category list it must choose from â€” never a hint that free text
-    would also work."""
-    _require_organization(x_sham_org_key)
-    from medical_generation_templates import MEDICAL_CATEGORIES
-
-    return {"categories": sorted(MEDICAL_CATEGORIES)}
 
 
 @app.post("/ask/image")
 async def ask_image_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
-    x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
 ) -> dict:
-    # No content filter on `question` here by design â€” see
-    # medical_generation_templates.py's docstring: a doctor describing
-    # or asking about real anatomy (including genital anatomy, for real
-    # clinical reasons) must not be blocked by a keyword match that
-    # can't tell that apart from misuse. Accountability is the
-    # organization's own revocable key plus the real question text
-    # recorded below for operator review.
-    organization = _require_organization(x_sham_org_key)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -411,8 +348,7 @@ async def ask_image_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    _api_key_store.record_usage(organization.org_id, "/ask/image", detail=f"question={question}")
-    return {"organization": organization.name, "answer": answer}
+    return {"answer": answer}
 
 
 @app.post("/ask/video")
@@ -420,12 +356,7 @@ async def ask_video_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
     num_frames: int = Form(2),
-    x_sham_org_key: str | None = Header(default=None, alias="X-Sham-Org-Key"),
 ) -> dict:
-    # Same real, deliberate choice as /ask/image above: no content
-    # filter on `question` â€” accountability is the organization's key
-    # and the reviewed usage log, not a keyword match.
-    organization = _require_organization(x_sham_org_key)
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
     image_tokenizer: ImageTokenizer = _state["image_tokenizer"]
@@ -434,7 +365,7 @@ async def ask_video_endpoint(
     with tempfile.TemporaryDirectory() as tmpdir:
         video_path = Path(tmpdir) / "upload.mp4"
         video_path.write_bytes(raw_bytes)
-        # Frames only â€” this endpoint never uses the audio track, and
+        # Frames only — this endpoint never uses the audio track, and
         # requiring one would reject a real, valid silent video for no
         # reason (a real case caught by testing with an actual silent
         # clip, not a hypothetical). Reuses the exact real ffmpeg
@@ -459,9 +390,14 @@ async def ask_video_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    _api_key_store.record_usage(organization.org_id, "/ask/video", detail=f"question={question}")
-    return {"organization": organization.name, "answer": answer}
+    return {"answer": answer}
 
+
+
+# Self-learn live web ask (POST /ask/web) — see ask_web_api.py / self_learn.py
+from ask_web_api import register_ask_web
+
+register_ask_web(app, _state)
 
 if __name__ == "__main__":
     import uvicorn

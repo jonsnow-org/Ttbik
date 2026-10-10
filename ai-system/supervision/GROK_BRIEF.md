@@ -23,10 +23,10 @@
   `https://raw.githubusercontent.com/jonsnow-org/Ttbik/sham-status/STATUS.md` (ومعها `status.json`).
   فيها: التنبيهات، المراحل، الدفاتر (بأسماء مستعارة عمداً)، مصنع GitHub، المجموعات، وآخر تقارير الجلسات.
 - **العقد (المدخلات والمخارج لكل دفتر وسير عمل):**
-  `https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2/ai-system/supervision/CONTRACT.json`
+  `https://raw.githubusercontent.com/jonsnow-org/Ttbik/sham-main/ai-system/supervision/CONTRACT.json`
 - **التحليل المرجعي:** `.../docs/sham-analysis-2026-10-03.md` و`.../docs/sham-pending.md` (سجل ما فُعل وما أُجّل).
 - **الكود:** `.../ai-system/colab/sham_small/` (الوحدات)، و`.../kaggle_notebooks/` (الدفاتر)، و`.../.github/workflows/` (مصنع GitHub).
-  (استبدل `...` بـ `https://raw.githubusercontent.com/jonsnow-org/Ttbik/claude/free-services-marketplace-h6rwk2`.)
+  (استبدل `...` بـ `https://raw.githubusercontent.com/jonsnow-org/Ttbik/sham-main`.)
 إن لم تستطع فتح الروابط فاطلب من المالكة أن تلصق لك STATUS.md.
 
 ## خريطة المشروع في سطور
@@ -81,3 +81,6 @@
 
 ## متى تسأل المالكة قبل أي اقتراح
 تغيير يمسّ: بنية النموذج، المُرمِّز، أي مصدر بيانات جديد غير معرّف، جدولة تستهلك حصة GPU، أو حذف/نقل أي شيء. أما تفسير حالة، أو اقتراح قياس، أو إصلاح صغير موثَّق فلا يحتاج سؤالاً.
+
+## فرع كود شام (منذ 2026-10-05)
+كود النموذج ومهام GitHub المجدولة يعملان من الفرع **`sham-main`** (لا من الفرع الرئيسي للمستودع، فهو لجلسة أثر وقد ظهر في `CLAUDE.md` أنه محظور لمس ملفاتها). ملفات تعريف سير العمل `.github/workflows/sham-*.yml` تبقى في الفرع الرئيسي لأن GitHub لا يشغّل الجدولة إلا منه، لكنها تسحب الكود من `sham-main`. طلبات الدمج الخاصة بشام تستهدف `sham-main`، ولا تدمج أنت فيه (المراقبة أسبوع على الأقل).

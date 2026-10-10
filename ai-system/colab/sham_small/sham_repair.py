@@ -79,6 +79,30 @@ def _text_map(main_tok, src_tok):
     return torch.tensor(a), torch.tensor(b)
 
 
+def _transfer_text_rows(emb, src_tok, main_tok, fixed) -> tuple[int, int]:
+    """Writes into `fixed` (the main model's embedding, text rows) the rows rebuilt from the source embedding `emb`."""
+    src_vocab = src_tok._tokenizer.get_vocab()
+    src_model = src_tok._tokenizer.model
+    copied = built = 0
+    for piece, nid in main_tok._tokenizer.get_vocab().items():
+        if nid >= TEXT_VOCAB_SIZE:
+            continue
+        sid = src_vocab.get(piece)
+        if sid is not None and sid < min(TEXT_VOCAB_SIZE, emb.shape[0]):
+            fixed[nid] = emb[sid].to(fixed.dtype)
+            copied += 1
+            continue
+        try:
+            parts = [t.id for t in src_model.tokenize(piece)]
+        except Exception:
+            parts = []
+        parts = [p for p in parts if p < min(TEXT_VOCAB_SIZE, emb.shape[0])]
+        if parts:
+            fixed[nid] = emb[parts].float().mean(0).to(fixed.dtype)
+            built += 1
+    return copied, built
+
+
 def _pick_tokenizer(root: Path, main_tok):
     """The source's own text tokenizer: identical to the main one if present,
     otherwise the one sharing the most pieces with it."""
@@ -146,17 +170,18 @@ def repair_candidate(ckpt: Path, root: Path, main_model, main_tokenizer, referen
     if src_tok is None:
         return None, step, report + ["   ❌ لا توجد معه أداة تقسيم نص لمعرفة معنى صفوفه"]
     if not same or emb.shape[0] != vocab:
-        a, b = _text_map(main_tokenizer, src_tok)
-        cover = 0 if a is None else len(a) / main_tokenizer.vocab_size
-        if cover < MIN_TEXT_COVERAGE:
-            return None, step, report + [f"   ❌ أداة تقسيم النص تشترك مع أداتنا في {cover:.0%} فقط من الكلمات — لا يُصلح"]
+        # A different text tokenizer is NOT a reason to discard a checkpoint (it holds weeks of training): every row of our
+        # vocabulary is rebuilt from the source's rows — a piece both spell the same keeps its row, any other piece starts as
+        # the mean of the source rows that spelled it (embedding transfer). Whether the result is any good is decided by the
+        # quality gate that follows (held-out loss), not by how many pieces happen to match.
         fixed = main_sd["token_embedding.weight"].detach().cpu().clone()
-        fixed[a] = emb[b].to(fixed.dtype)
-        media_lo = TEXT_VOCAB_SIZE
+        copied, built = _transfer_text_rows(emb, src_tok, main_tokenizer, fixed)
+        if copied + built == 0:
+            return None, step, report + ["   ❌ لم يُعثر على أي صلة بين مفردات أداة التقسيم وأداتنا"]
         if emb.shape[0] == vocab:  # media/special rows keep their positions
-            fixed[media_lo:] = emb[media_lo:].to(fixed.dtype)
+            fixed[TEXT_VOCAB_SIZE:] = emb[TEXT_VOCAB_SIZE:].to(fixed.dtype)
         new_sd["token_embedding.weight"] = fixed
-        report.append(f"   • أداة تقسيم نص مختلفة: أُعيد ترتيب {len(a):,} صف نصي بحسب الكلمة نفسها ({cover:.0%} من مفرداتنا)")
+        report.append(f"   • أداة تقسيم نص مختلفة: {copied:,} صف مشترك نُقل كما هو، و{built:,} صف بُني من متوسط قطع المصدر (تقرّر البوابة بعدها هل النتيجة صالحة)")
     new_sd["lm_head.weight"] = new_sd["token_embedding.weight"]
 
     # 4) non-finite values
@@ -250,10 +275,15 @@ if __name__ == "__main__":
         save_checkpoint(src / "final.pt", good, step=9)
         tok2.save(str(src / "sham_small_tokenizer.json"))
         m, _, rep = repair_candidate(src / "final.pt", src, main, tok, ref)
-        assert m is not None and any("أُعيد ترتيب" in r for r in rep), rep
+        assert m is not None and any("صف مشترك" in r for r in rep), rep
         v1, v2 = tok._tokenizer.get_vocab(), tok2._tokenizer.get_vocab()
         piece = next(t for t in v1 if t in v2 and v1[t] != v2[t])
         assert torch.equal(m.token_embedding.weight[v1[piece]], good.token_embedding.weight[v2[piece]])
+
+        # c2) a tokenizer that shares few whole pieces is no longer a reason to refuse: unshared pieces are built from the source's pieces
+        import re as _re
+        nums = [int(x.replace(",", "")) for x in _re.findall(r"([\d,]+) صف", next(r for r in rep if "صف مشترك" in r))]
+        assert nums[0] > 0 and nums[1] >= 0 and torch.isfinite(m.token_embedding.weight).all(), rep
 
         # d) different architecture → refused with the reason
         src = d / "e"; src.mkdir()

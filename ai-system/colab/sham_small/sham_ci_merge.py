@@ -101,7 +101,8 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
                 media = []
                 for kind, manifest in fixed.items():
                     pairs = _pairs(kind, manifest, tokenizer, itok if kind == "image" else atok)
-                    media += _examples(kind, pairs, True, tokenizer)
+                    gen, und = _examples(kind, pairs, True, tokenizer)   # returns (generation, understanding) lists, not one list
+                    media += gen + und
                 if media:
                     gate["media"] = batch_examples(media, 4)[:6]
         except Exception as exc:
@@ -191,11 +192,27 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             + "\nبعد: " + ", ".join(f"{k}={v:.3f}" for k, v in after.items()) + "\n" + "\n".join(report)
             + (f"\nنُشر إلى {published}" if published else "") + f"\n({(time.time() - t0) / 60:.0f} دقيقة)")
     print(text)
-    return {"before": before, "after": after, "changed": changed, "published": published, "report": text}
+    return {"before": before, "after": after, "changed": changed, "published": published, "report": text,
+            "model": model, "tokenizer": tokenizer}
 
 
 def main():
     res = run()
+    try:   # real-source soak of the endless text pipeline on this (small, 7 GB) runner: evidence before CPU sessions may use it
+        import sham_pipeline_soak
+        res["soak"] = sham_pipeline_soak.soak(float(os.environ.get("SHAM_SOAK_SECONDS", "420")))
+    except Exception as exc:
+        print(f"soak: {exc}")
+    try:   # does this model LEARN step-by-step reasoning from worked solutions? an experiment on a COPY: publishes nothing
+        import sham_reasoning_probe
+        res["probe"] = sham_reasoning_probe.probe(res["model"], res["tokenizer"], "cpu")
+        pr = res["probe"]
+        if pr.get("ok"):
+            res["report"] += (f"\n🔬 مسبار التفكير المتسلسل ({pr['steps']} خطوة، {pr['minutes']} د): خسارة الحلول "
+                              f"{pr['before']['reason_loss']:.2f}→{pr['after']['reason_loss']:.2f} | نص {pr['before']['text_loss']:.2f}→"
+                              f"{pr['after']['text_loss']:.2f} | إصابة {pr['before']['exact']:.0%}→{pr['after']['exact']:.0%}")
+    except Exception as exc:
+        print(f"probe: {exc}")
     try:
         from telegram_report import send_telegram_message
         send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), res["report"][:4000])
@@ -206,7 +223,8 @@ def main():
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    # no Kaggle credentials (the PR checker runs every changed module with a scrubbed environment) = nothing real to merge: self-test
+    if (len(sys.argv) > 1 and sys.argv[1] == "--selftest") or not (os.environ.get("KAGGLE_USERNAME") or os.environ.get("KAGGLE_API_TOKEN")):
         import tempfile
 
         from checkpoint import save_checkpoint
