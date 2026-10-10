@@ -27,6 +27,7 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     if docker compose $PROFILES up -d --build > "$STATE/update.log" 2>&1; then
       echo "$(now) OK $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       docker image prune -f >/dev/null 2>&1
+      docker builder prune -f --reserved-space 12GB >/dev/null 2>&1 || docker builder prune -f --keep-storage 12GB >/dev/null 2>&1 || true   # the build cache never grows past about 12 GB
     else
       echo "$(now) FAILED $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       tg_notify "فشل بناء التحديث $(git -C /opt/ttbik rev-parse --short HEAD). النسخة القديمة ما زالت تعمل."
