@@ -124,6 +124,9 @@ if modal is not None:
         for cmd in (["kaggle", "--version"], ["kaggle", "datasets", "status", f"{user}/sham-merged-checkpoint"]):
             r = subprocess.run(cmd, capture_output=True, text=True)
             print("🔎", " ".join(cmd[:3]), "→", r.returncode, ((r.stdout or "") + (r.stderr or "")).strip().replace(user, "<owner>")[-240:])
+        r = subprocess.run(["kaggle", "datasets", "download", "-d", f"{user}/sham-text-shards", "-p", "/tmp/diag", "--unzip"], capture_output=True, text=True)
+        print("🔎 تنزيل تجريبي →", r.returncode, ((r.stdout or "") + (r.stderr or "")).strip().replace(user, "<owner>")[-400:])
+        print("🔎 ملفات:", subprocess.run("ls -la /tmp/diag 2>&1 | head -8; df -h /tmp | tail -1", shell=True, capture_output=True, text=True).stdout.strip()[-400:])
         from sham_inputs import fetch_dataset, publish_dataset
         small = device == "cpu"      # CPU: a shorter window and a smaller batch, the shape the CPU sessions of this project already use
         return session(minutes, fetch_dataset, publish_dataset, device=device, seq_len=512 if small else 1024, batch_size=4 if small else 8)
