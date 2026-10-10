@@ -33,6 +33,28 @@ export const EN_NEWS: DeskItem[] = [
     tool: "/en/articles",
   },
   {
+    slug: "navi-pillay-nobel-peace-2026",
+    title: "Navi Pillay awarded 2026 Nobel Peace Prize",
+    dek: "Former ICC judge Navi Pillay recognized for efforts on human rights and international law. Announcement 9 October 2026.",
+    date: "2026-10-09",
+    body: [
+      "The Norwegian Nobel Committee awarded the 2026 Nobel Peace Prize to Navi Pillay, the South African jurist and former judge at the International Criminal Court and UN High Commissioner for Human Rights.",
+      "The prize recognizes her long work on accountability and international justice. This note relies on the official announcement and contemporaneous agency reports; it does not speculate on political reactions.",
+    ],
+    tool: "/en/articles",
+  },
+  {
+    slug: "hurricane-isaias-gulf-2026",
+    title: "Hurricane Isaias approaches US Gulf Coast",
+    dek: "Category 3 storm nears landfall. Live updates from agencies and broadcasters as of 9-10 October 2026.",
+    date: "2026-10-09",
+    body: [
+      "Hurricane Isaias strengthened and moved toward the northern Gulf Coast of the United States in early October 2026. Agencies and outlets reported landfall risk near the Florida Panhandle and Alabama.",
+      "This desk note points to official forecasts and live streams rather than repeating changing casualty or path numbers. Open the live desks above or the National Hurricane Center for the latest.",
+    ],
+    tool: "/en/news",
+  },
+  {
     slug: "browser-tools-keep-files-local",
     title: "Browser tools that never upload the file",
     dek: "A size check, a QR code, and an invoice can run on the device. The useful part is what does not leave the tab.",
@@ -53,6 +75,17 @@ export const EN_NEWS: DeskItem[] = [
       "Generate the code, open it on a second phone, then print. A code for a link you control is easier to replace than a code baked into a PDF.",
     ],
     tool: "/en/free-tools/qr-generator",
+  },
+  {
+    slug: "world-mental-health-day-2026-note",
+    title: "World Mental Health Day is 10 October",
+    dek: "Annual observance with the World Federation for Mental Health and WHO. Not medical advice.",
+    date: "2026-10-10",
+    body: [
+      "World Mental Health Day falls on 10 October. The World Federation for Mental Health has marked the date since 1992. WHO maintains a campaign page for the same day.",
+      "This note explains the public date. It is not a diagnosis and not a treatment recommendation. Anyone needing urgent help should use a local emergency service.",
+    ],
+    tool: "/en/events",
   },
 ];
 
@@ -101,6 +134,17 @@ export const EN_ARTICLES: DeskItem[] = [
       "Put the offer in the page, not only in the prefilled text. The visitor can edit the message before it sends.",
     ],
     tool: "/en/free-tools/whatsapp-link",
+  },
+  {
+    slug: "why-live-desks-matter",
+    title: "Why we embed official live desks instead of rebroadcasting",
+    dek: "The stream stays on the channel's player. We do not copy the signal.",
+    date: "2026-10-10",
+    body: [
+      "A live news desk on this site is an official YouTube embed. The video leaves the channel's servers only when you open the player. Sham AI does not rebroadcast or store the stream.",
+      "If an embed stops, the Open on YouTube button goes to the channel's live page. That is the reliable source.",
+    ],
+    tool: "/en/news",
   },
 ];
 

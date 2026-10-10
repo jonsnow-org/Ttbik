@@ -18,7 +18,7 @@ export const LIVE_DESKS: LiveDesk[] = [
   },
 ];
 
-/** English desks. Embed only; Sham AI does not rebroadcast. */
+/** English desks. Embed only; Sham AI does not rebroadcast. European + US English channels. */
 export const EN_LIVE_DESKS: LiveDesk[] = [
   {
     name: "Al Jazeera English",
@@ -29,6 +29,31 @@ export const EN_LIVE_DESKS: LiveDesk[] = [
     name: "BBC News",
     channelId: "UC16niRr50-MSBwiO3YDb3RA",
     videoId: "9Auq9mYxFEE",
+  },
+  {
+    name: "Sky News",
+    channelId: "UCoMdktPbSTixAyNGwb-UYkQ",
+    videoId: "xDWQ3LkccY8",
+  },
+  {
+    name: "DW News",
+    channelId: "UCknLrEdhRCp1aegoMqRaCZg",
+    videoId: "tZT2MCYu6Zw",
+  },
+  {
+    name: "France 24 English",
+    channelId: "UCQfwfsi5VrQ8yKZ-UWmAEFg",
+    videoId: "Ap-UM1O9RBU",
+  },
+  {
+    name: "Euronews",
+    channelId: "UCyoGb3SMlTlB8CLGVH4c8Rw",
+    videoId: "pykpO5kQJ98",
+  },
+  {
+    name: "CNN Headlines",
+    channelId: "UCupvZG-5ko_eiXAupbDfxWw",
+    videoId: "GotlA1KKWoo",
   },
 ];
 
