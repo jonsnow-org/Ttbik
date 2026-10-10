@@ -113,6 +113,10 @@
     "sham-text-shards": {
       "role": "نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب)",
       "writer": "token_shards"
+    },
+    "sham-crawl-modal": {
+      "role": "نموذج جلسات GPU على Modal (مرشّح لبوابة الدمج)",
+      "writer": "modal_gpu"
     }
   },
   "dynamic_dataset_patterns": [
@@ -396,6 +400,19 @@
         "sham-checkpoint"
       ],
       "writes": []
+    },
+    "modal_gpu": {
+      "file": ".github/workflows/sham-modal.yml",
+      "title": "جلسة تدريب GPU على Modal (رصيد مجاني)",
+      "kind": "workflow",
+      "accelerator": "GPU T4 (Modal)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-text-shards"
+      ],
+      "writes": [
+        "sham-crawl-modal"
+      ]
     }
   },
   "lineage": [

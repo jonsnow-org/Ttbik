@@ -96,6 +96,8 @@ def check_all(env=os.environ) -> list[tuple[str, str]]:
     else:
         out.append(("Supabase", "— لا مفتاح"))
 
+    out.append(("Modal", "مفتاحان موجودان (المعرّف والسر)" if have("MODAL_TOKEN_ID") and have("MODAL_TOKEN_SECRET")
+                else "— ناقص (المعرّف أو السر غير مضاف)"))
     out.append(("Render (خطّاف نشر)", "موجود" if have("RENDER_NOVA_SMALL_DEPLOY_HOOK") else "— غير موجود"))
     return out
 

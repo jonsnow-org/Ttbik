@@ -1,0 +1,48 @@
+name: Sham Modal GPU session (free credits)
+
+# جلسة تدريب نص على بطاقة T4 في Modal، تُطلق من GitHub بلا فتح أي دفتر. تبدأ من أفضل أوزان (sham-merged-checkpoint)،
+# وتتدرّب على نوافذ النص الجاهزة (sham-text-shards) مع الحارس (أفضل أوزان تُحفظ)، ثم تنشر النتيجة كمجموعة sham-crawl-modal
+# التي تلتقطها وظيفة الدمج وحدها وتتبنّاها فقط إن لم تسُؤ أي مهارة.
+# الحساب على خطة Modal المجانية بسقف إنفاق $1 من Modal نفسه (بلا بطاقة)؛ جلسة 12 دقيقة ≈ 0.12 دولار.
+# يدوي فقط الآن (الرصيد محدود): شغّليه من تبويب Actions. الأسرار: MODAL_TOKEN_ID، MODAL_TOKEN_SECRET، KAGGLE_API_TOKEN، HF_TOKEN (اختياري).
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "مدة الجلسة بالدقائق (بطاقة T4 ≈ 0.59 دولار للساعة)"
+        required: false
+        default: "12"
+
+concurrency:
+  group: sham-modal
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gpu:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODAL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install modal kaggle
+
+      - name: Run the session on Modal
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: modal run ai-system/modal/sham_gpu_text.py --minutes "${{ inputs.minutes || '12' }}"
