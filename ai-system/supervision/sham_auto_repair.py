@@ -32,6 +32,18 @@ def mount_target(failure: str) -> str | None:
     return f"{m.group(1)}/{m.group(2)}" if m else None
 
 
+def suspected_mount_failure(k: dict, now: float, days: int = 4) -> bool:
+    """A notebook of the chat stage whose last run ERRORED with NO failure text and no log (Kaggle's API returns an empty failureMessage for
+    ERRORED_MOUNTING_DATASET, 2026-10-10: the stage-3 notebook sat dead for 7 days with an empty `failure`), run within the last few days."""
+    if k.get("status") != "error" or k.get("failure") or k.get("track") != "chat_stage":
+        return False
+    try:
+        age = now - time.mktime(time.strptime((k.get("last_run") or "")[:10], "%Y-%m-%d"))
+    except Exception:
+        return False
+    return age <= days * 86400
+
+
 def repair_mount_failures(kernels: list[dict], state: dict | None, work: Path, run=subprocess.run, now: float | None = None,
                           max_per_run: int = 2) -> tuple[list[str], dict]:
     """(human notes, new state). kernels: registry rows with ref/alias/status/failure."""
@@ -39,6 +51,9 @@ def repair_mount_failures(kernels: list[dict], state: dict | None, work: Path, r
     state, notes, done = dict(state or {}), [], 0
     for k in kernels:
         slug = mount_target(k.get("failure", "")) if k.get("status") == "error" else None
+        suspected = False
+        if not slug and suspected_mount_failure(k, now):
+            slug, suspected = "sham-crawl-*", True       # Kaggle's API gave no failure text (the notebook never started): drop the crawl inputs
         if not slug:
             continue
         ref = k["ref"]
@@ -57,7 +72,11 @@ def repair_mount_failures(kernels: list[dict], state: dict | None, work: Path, r
                 raise RuntimeError("تعذّر سحب الدفتر: " + ((r.stderr or r.stdout or "").strip().splitlines() or ["؟"])[0][:100])
             meta = json.loads(meta_p.read_text(encoding="utf-8"))
             sources = meta.get("dataset_sources") or []
-            kept = [s for s in sources if s.lower() != slug.lower()]
+            if suspected:       # every sham-crawl-* dataset (corpora and models): the notebook fetches them by name through the API anyway
+                kept = [s for s in sources if "/sham-crawl-" not in s.lower()]
+                slug = ", ".join(s.split("/")[-1] for s in sources if s not in kept) or "sham-crawl-*"
+            else:
+                kept = [s for s in sources if s.lower() != slug.lower()]
             if len(kept) == len(sources):
                 state[ref] = {"at": now, "result": "المجموعة ليست في مدخلات الدفتر المحفوظة"}
                 notes.append(f"ℹ {k.get('alias', '?')}: «{slug}» ليست بين مدخلاته المحفوظة — لا شيء يُزال")
@@ -114,5 +133,23 @@ if __name__ == "__main__":
         # a failing pull is reported, never raised
         notes4, st4 = repair_mount_failures(kernels, {}, Path(td), run=lambda *a, **k: R("", 1), now=5.0)
         assert any("تعذّر" in n for n in notes4) and "error" in st4["me/chat5"]
+    # no failure text from Kaggle (the real 2026-10-10 case): a chat-stage notebook that errored recently loses only its sham-crawl-* inputs
+    import datetime as _dt
+    pushes.clear()
+    today = _dt.date.today().isoformat()
+    def fake_run2(cmd, **k):
+        if cmd[:3] == ["kaggle", "kernels", "pull"]:
+            d = Path(cmd[cmd.index("-p") + 1])
+            (d / "kernel-metadata.json").write_text(json.dumps({"id": cmd[3], "dataset_sources": [
+                "me/sham-chat-checkpoint", "me/sham-crawl-xlive-corpus", "me/sham-crawl-gh-corpus", "me/other"]}), encoding="utf-8")
+            return R()
+        return fake_run(cmd, **k)
+    quiet = [{"ref": "me/chat6", "alias": "المرحلة الثالثة 6", "status": "error", "failure": "", "track": "chat_stage", "last_run": today},
+             {"ref": "me/old", "alias": "قديم", "status": "error", "failure": "", "track": "chat_stage", "last_run": "2026-01-01"},
+             {"ref": "me/other-track", "alias": "آخر", "status": "error", "failure": "", "track": "audio_tokenizer", "last_run": today}]
+    with tempfile.TemporaryDirectory() as td2:
+        notes5, st5 = repair_mount_failures(quiet, {}, Path(td2), run=fake_run2, now=time.time())
+        assert len(pushes) == 1 and pushes[0]["dataset_sources"] == ["me/sham-chat-checkpoint", "me/other"], pushes   # main-line input kept
+        assert list(st5) == ["me/chat6"] and any("sham-crawl-xlive-corpus" in n for n in notes5), (notes5, st5)
     assert mount_target("CUDA out of memory") is None and mount_target(fail) == "me/sham-crawl-xlive-corpus"
     print("sham_auto_repair self-test OK")
