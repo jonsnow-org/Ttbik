@@ -206,6 +206,9 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             for src in base_dir.rglob(f):
                 shutil.copy2(src, up / f)
                 break
+        hist = progress.setdefault("history", [])      # the published model's skills over time: a slow drift shows here
+        hist.append({"at": time.strftime("%Y-%m-%d %H:%M", time.gmtime()), "step": step, **{k: round(v, 4) for k, v in after.items()}})
+        del hist[:-200]
         (up / "merge_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
         published = publish(up, OWN, f"merged on CPU (GitHub) from {label} at step {step:,}")
     elif not changed:
