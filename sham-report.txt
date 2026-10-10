@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-10 21:53 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-10 23:06 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -34,5 +34,6 @@ ConnectionError: Connection error trying to communicate with service
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | primary
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
-❌ فشل | مسار ترميز الصوت 1 | duplicate
+❌ فشل | مسار ترميز الصوت 1 | duplicate | الخطأ:     494     except FileNotFoundError:
+--> 495         raise EmptyDatasetError(f"The directory at {base_path} doesn't contain any data files") from Non
 ❌ فشل | المرحلة الأولى 1 | duplicate

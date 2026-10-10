@@ -1,9 +1,11 @@
-# حالة مشروع شام — 2026-10-10 21:49 UTC
+# حالة مشروع شام — 2026-10-10 23:02 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
 ## التنبيهات (ابدأ منها)
+- ⚠ لا تشغيلات مسجلة لسير العمل «Sham Merge + Repair + Eval (free CPU runner)» (لم يبدأ بعد؟)
 - ⚠ sham-chat-checkpoint لم تُحدَّث منذ 7 أيام
+- 🔧 المرحلة الثالثة 5: أُزيلت «sham-crawl-agent, sham-crawl-checkpoint, sham-crawl-corpus, sham-crawl-xlive, sham-crawl-xlive-corpus» من مدخلاته وأُعيد رفعه وتشغيله تلقائياً
 
 ## المراحل
 - ✅ المرحلة الأولى — تدريب النص الأساسي (GPU) — دفتر: complete
@@ -37,25 +39,22 @@
 - complete | المرحلة الأولى 2 | الدور: primary | آخر تشغيل 2026-10-10
 - complete | المرحلة الثانية 1 | الدور: primary | آخر تشغيل 2026-09-23
 - complete | مسار ترميز الصورة 1 | الدور: duplicate | آخر تشغيل 2026-09-23
-- error | مسار ترميز الصوت 1 | الدور: duplicate | آخر تشغيل 2026-09-23
+- error | مسار ترميز الصوت 1 | الدور: duplicate | آخر تشغيل 2026-09-23 | الخطأ:     494     except FileNotFoundError: --> 495         raise EmptyDatasetError(f"The directory at {base_path} doesn't contain any data files") from None EmptyDatasetError: The directory at hf://dataset
 - error | المرحلة الأولى 1 | الدور: duplicate | آخر تشغيل 2026-09-22
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Modal GPU session (free credits): 2026-10-10T21:50 failure
-- Sham Access Check (what can the automation reach?): 2026-10-10T21:49 success ، 2026-10-10T18:47 success ، 2026-10-10T17:32 success
-- Sham Status (supervision snapshot): 2026-10-10T21:48 in_progress
+- Sham Status (supervision snapshot): 2026-10-10T23:02 in_progress ، 2026-10-10T21:48 success
+- Sham Modal GPU session (free credits): 2026-10-10T22:59 success ، 2026-10-10T22:56 success ، 2026-10-10T22:52 success ، 2026-10-10T22:37 success
+- Sham CI (contract + self-tests, read-only): 2026-10-10T22:21 success ، 2026-10-10T20:57 success ، 2026-10-10T20:54 success ، 2026-10-10T20:53 success
+- Sham Access Check (what can the automation reach?): 2026-10-10T22:15 success ، 2026-10-10T22:13 success ، 2026-10-10T21:49 success
+- Sham Token Shards (free CPU runner): 2026-10-10T22:06 in_progress
 - Sham Collector (free CPU runner): 2026-10-10T21:39 in_progress
 - Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-10T21:32 in_progress
 - Sham Vault (checkpoint backup to ModelScope): 2026-10-10T21:19 success
-- Sham CI (contract + self-tests, read-only): 2026-10-10T20:57 success ، 2026-10-10T20:54 success ، 2026-10-10T20:53 success ، 2026-10-10T20:34 success
-- Sham Merge + Repair + Eval (free CPU runner): 2026-10-10T20:18 success
-- Sham ModelScope Studio (host + worker): 2026-10-10T19:58 success ، 2026-10-10T18:59 success
-- Sham Token Shards (free CPU runner): 2026-10-10T18:49 success ، 2026-10-10T17:37 failure
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
-- 2026-10-10T21:50 «Sham Modal GPU session (free credits)» — الخطوة: gpu ← Run the session on Modal — https://github.com/jonsnow-org/Ttbik/actions/runs/38089184280
-- 2026-10-10T17:37 «Sham Token Shards (free CPU runner)» — الخطوة: غير معروفة — https://github.com/jonsnow-org/Ttbik/actions/runs/38072464347
+- لا أخطاء حديثة ✅
 
 ## المجموعات (ما كُتب أم لا، ومن يكتبها)
 | المجموعة | الحجم | آخر تحديث | الكاتب المعلن | الدور |
@@ -88,6 +87,7 @@
 | sham-crawl-selflearn | — | غير موجودة | selflearn | نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*) |
 | sham-crawl-selflearn-corpus | — | غير موجودة | selflearn | نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً) |
 | sham-text-shards | 0 | 2026-10-10 | token_shards | نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب) |
+| sham-crawl-modal | — | غير موجودة | modal_gpu | نموذج جلسات GPU على Modal (مرشّح لبوابة الدمج) |
 | sham-crawl-xlive | 1373973598 | 2026-10-03 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-crawl-agent | 1370230289 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
 | sham-crawl-agent-corpus | 65727 | 2026-10-01 | زاحف مكتشف تلقائياً | (نمط ديناميكي في العقد) |
