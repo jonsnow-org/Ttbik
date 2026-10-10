@@ -47,7 +47,7 @@ def check_all(env=os.environ) -> list[tuple[str, str]]:
 
     if have("KAGGLE_API_TOKEN"):
         try:
-            r = subprocess.run(["kaggle", "datasets", "list", "--mine", "--page-size", "1"], capture_output=True, text=True,
+            r = subprocess.run(["kaggle", "datasets", "status", f"{env.get('KAGGLE_USERNAME', '')}/sham-reports"], capture_output=True, text=True,
                                timeout=90)
             out.append(("Kaggle", "✅ يقبل المفتاح" if r.returncode == 0 else "❌ لم ينجح الطلب"))
         except Exception:
