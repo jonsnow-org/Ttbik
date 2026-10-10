@@ -19,6 +19,8 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"
   bash "$OR/agent/ensure-sweeper.sh" >/dev/null 2>&1 || true
+  # the isolated runner of the Sham notebooks (agent/install-sham.sh, owner-approved); it never touches Athar or the media engine
+  [ -f "$OR/agent/SHAM_ON" ] && { bash "$OR/agent/install-sham.sh" > "$STATE/sham_install.log" 2>&1 || true; }
   bash "$OR/agent/migrate.sh" >/dev/null 2>&1 || true      # new database scripts (deploy/oracle/migrations) are applied here, once each
   if [ -n "$CHANGED" ] || [ -f "$STATE/force-update" ]; then
     rm -f "$STATE/force-update"
