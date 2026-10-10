@@ -5,7 +5,8 @@ name: Sham ModelScope Studio (host + worker)
 #  2) ينسخ تطبيق شام (ai-system/modelscope-sham + كود sham_small) إلى مستودع git الخاص بالاستوديو ويدفعه.
 #     تطبيق نوفا القديم يُنقل إلى legacy-nova/ داخل الاستوديو (لا يُحذف).
 # الاستوديو يقرأ المستودع الخاص بمفتاح يضعه المالك مرة واحدة في إعدادات الاستوديو (MODELSCOPE_API_TOKEN) — لا يُكتب في أي كود.
-# الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان).
+# الكود الذي يسحبه الاستوديو بنفسه (studio_code/) موقَّع بـ HMAC (codesign.py) ولا يُنفَّذ بدون توقيع صحيح.
+# الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان)، SHAM_CODE_SIGNING_KEY (اختياري، يقوّي التوقيع).
 
 on:
   schedule:
@@ -47,6 +48,7 @@ jobs:
       - name: Push the model, stage the Studio app
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_CODE_SIGNING_KEY: ${{ secrets.SHAM_CODE_SIGNING_KEY }}   # اختياري: مفتاح توقيع منفصل (يضاف أيضاً في أسرار الاستوديو)
         run: |
           git clone "https://oauth2:${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" /tmp/studio
           python ai-system/modelscope-sham/sync_to_modelscope.py /tmp/ck /tmp/studio
