@@ -1,0 +1,63 @@
+name: Sham ModelScope Studio (host + worker)
+
+# يجسّر بين Kaggle (حيث نقاط حفظ شام) واستوديو ModelScope المجاني (16 جيجا، يعمل دائماً، ولا يصل github.com):
+#  1) ينزّل sham-merged-checkpoint من Kaggle ويرفعه إلى مستودع نموذج خاص في ModelScope — فقط حين يتغيّر (بصمة sha256)
+#  2) ينسخ تطبيق شام (ai-system/modelscope-sham + كود sham_small) إلى مستودع git الخاص بالاستوديو ويدفعه.
+#     تطبيق نوفا القديم يُنقل إلى legacy-nova/ داخل الاستوديو (لا يُحذف).
+# الاستوديو يقرأ المستودع الخاص بمفتاح يضعه المالك مرة واحدة في إعدادات الاستوديو (MODELSCOPE_API_TOKEN) — لا يُكتب في أي كود.
+# الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان).
+
+on:
+  schedule:
+    - cron: "20 2,10,18 * * *"     # بعد وظيفة الدمج بنحو ساعة
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-modelscope
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: pip install kaggle modelscope
+
+      - name: Download the merged checkpoint from Kaggle
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/ck
+          kaggle datasets download -d jonsnowjonsnow/sham-merged-checkpoint -p /tmp/ck --unzip -q
+
+      - name: Push the model, stage the Studio app
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: |
+          git clone "https://oauth2:${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" /tmp/studio
+          python ai-system/modelscope-sham/sync_to_modelscope.py /tmp/ck /tmp/studio
+
+      - name: Commit and push the Studio
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        working-directory: /tmp/studio
+        run: |
+          git config user.name "Sham CI"
+          git config user.email "ci@sham.local"
+          date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
+          git add -A
+          if git diff --cached --quiet; then echo "No changes to deploy."; else git commit -q -m "Sham app (from CI ${GITHUB_SHA})" && git push -q; echo pushed; fi

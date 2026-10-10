@@ -358,6 +358,16 @@
       "writes": [
         "sham-text-shards"
       ]
+    },
+    "modelscope_sync": {
+      "file": ".github/workflows/sham-modelscope.yml",
+      "title": "استوديو ModelScope: استضافة شام + عامل (جسر Kaggle→ModelScope)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-merged-checkpoint"
+      ],
+      "writes": []
     }
   },
   "lineage": [
