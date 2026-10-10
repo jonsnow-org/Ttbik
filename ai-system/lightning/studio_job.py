@@ -60,6 +60,9 @@ def prepare(studio) -> str:
 def diag(studio) -> None:
     write_secrets(studio)
     say("تحضير:\n" + prepare(studio)[-400:])
+    if WITH_SECRETS:
+        say("Kaggle from the Studio:\n" + str(studio.run(
+            ". ~/.sham_env; mkdir -p /tmp/d && kaggle datasets download -d $KAGGLE_USERNAME/sham-reports -p /tmp/d --unzip 2>&1 | tail -1; ls /tmp/d | head -3"))[-400:])
     say(str(studio.run("python -c \"import torch,tokenizers;print('torch',torch.__version__,'tokenizers',tokenizers.__version__)\" 2>&1 | tail -1; "
                        "ls ~/sham/Ttbik/ai-system/colab/sham_small | head -3")))
 
