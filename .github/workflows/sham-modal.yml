@@ -49,4 +49,5 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SHAM_MODAL_GPU: ${{ inputs.device == 'gpu' && '1' || '0' }}
         run: modal run ai-system/modal/sham_gpu_text.py --minutes "${{ inputs.minutes || '12' }}" --device "${{ inputs.device || 'cpu' }}"

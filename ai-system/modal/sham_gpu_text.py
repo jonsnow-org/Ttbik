@@ -126,9 +126,12 @@ if modal is not None:
     def run_session_cpu(minutes: float = 12.0) -> dict:
         return _session_in_container(minutes, "cpu")
 
-    @app.function(gpu="T4", image=image, timeout=3600, secrets=_secrets)      # needs a payment method on the Modal account
-    def run_session_gpu(minutes: float = 12.0) -> dict:
-        return _session_in_container(minutes, "cuda")
+    # Modal validates EVERY function of the app when it starts, and refuses a GPU function on an account without a payment method
+    # ("Please add a payment method to use T4 GPU functions") — even when only the CPU one is called. So the GPU one exists only on request.
+    if os.environ.get("SHAM_MODAL_GPU") == "1":
+        @app.function(gpu="T4", image=image, timeout=3600, secrets=_secrets)
+        def run_session_gpu(minutes: float = 12.0) -> dict:
+            return _session_in_container(minutes, "cuda")
 
     @app.local_entrypoint()
     def main(minutes: float = 12.0, device: str = "cpu"):
