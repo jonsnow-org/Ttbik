@@ -368,6 +368,20 @@
         "sham-merged-checkpoint"
       ],
       "writes": []
+    },
+    "oracle_vault": {
+      "file": "ai-system/oracle_job.sh",
+      "title": "خزنة نقاط الحفظ على خادم Oracle (نسخة احتياطية خارج Kaggle)",
+      "kind": "server-job",
+      "accelerator": "CPU (نواة واحدة، 4 جيجا)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-checkpoint",
+        "sham-checkpoint"
+      ],
+      "writes": []
     }
   },
   "lineage": [
