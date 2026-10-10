@@ -1,0 +1,15 @@
+# Studio platform pin (the Gradio version this Studio's proxy speaks — seen in the Studio's own settings)
+gradio==6.17.3
+modelscope
+# Sham's own load path (serve.py imports all of these)
+torch
+fastapi
+tokenizers
+numpy
+pillow
+soundfile
+imageio-ffmpeg
+ddgs
+beautifulsoup4
+python-multipart
+requests
