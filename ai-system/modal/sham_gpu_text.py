@@ -118,6 +118,12 @@ if modal is not None:
     def _session_in_container(minutes: float, device: str) -> dict:
         sys.path.insert(0, "/root/sham_small")
         os.chdir("/root/sham_small")
+        import subprocess
+        user = os.environ.get("KAGGLE_USERNAME", "")
+        print("🔎 مفاتيح داخل الحاوية: اسم المستخدم", "موجود" if user else "غائب", "| الرمز", "موجود" if os.environ.get("KAGGLE_API_TOKEN") else "غائب")
+        for cmd in (["kaggle", "--version"], ["kaggle", "datasets", "status", f"{user}/sham-merged-checkpoint"]):
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            print("🔎", " ".join(cmd[:3]), "→", r.returncode, ((r.stdout or "") + (r.stderr or "")).strip().replace(user, "<owner>")[-240:])
         from sham_inputs import fetch_dataset, publish_dataset
         small = device == "cpu"      # CPU: a shorter window and a smaller batch, the shape the CPU sessions of this project already use
         return session(minutes, fetch_dataset, publish_dataset, device=device, seq_len=512 if small else 1024, batch_size=4 if small else 8)
