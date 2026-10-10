@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10 01:00 UTC",
+  "generated_at": "2026-10-10 10:00 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -7,8 +7,8 @@
       "track": "live_trainer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-09",
-      "gpu": false,
+      "last_run": "2026-10-10",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -95,10 +95,10 @@
     {
       "alias": "المرحلة الثانية 2",
       "track": "stage2_multimodal",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-07",
-      "gpu": false,
+      "last_run": "2026-10-10",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -131,7 +131,7 @@
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-09",
       "gpu": false,
@@ -140,7 +140,7 @@
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-09",
       "gpu": false,
@@ -149,9 +149,9 @@
     {
       "alias": "المرحلة الأولى 2",
       "track": "text_stage1",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-09",
+      "last_run": "2026-10-10",
       "gpu": false,
       "failure": ""
     },
@@ -196,34 +196,34 @@
   "engineer_notebooks_count": 2,
   "datasets": [
     {
-      "alias": "نتائج المسار B 1",
-      "track": "research_track",
-      "size_mb": 380.7,
-      "last_updated": "2026-10-09",
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 581.4,
+      "last_updated": "2026-10-10",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
+      "alias": "نتائج المسار B 1",
+      "track": "research_track",
       "size_mb": 0.0,
-      "last_updated": "2026-10-09",
+      "last_updated": "2026-10-10",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
-      "size_mb": 2732.2,
-      "last_updated": "2026-10-09",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-10",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثانية 1",
-      "track": "stage2_multimodal",
-      "size_mb": 580.5,
-      "last_updated": "2026-10-07",
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-09",
       "progress": {},
       "has_key_files": true
     },
@@ -243,14 +243,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الأولى 1",
-      "track": "text_stage1",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-09",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
       "size_mb": 35.0,
@@ -265,6 +257,22 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج المرحلة الثانية 1",
+      "track": "stage2_multimodal",
+      "size_mb": 580.5,
+      "last_updated": "2026-10-07",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 582.3,
+      "last_updated": "2026-10-10",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "size_mb": 580.6,
@@ -273,7 +281,7 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
+      "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
       "size_mb": 1374.0,
       "last_updated": "2026-10-03",
@@ -289,14 +297,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 3",
-      "track": "live_trainer",
-      "size_mb": 581.2,
-      "last_updated": "2026-10-09",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصوت 2",
       "track": "audio_tokenizer",
       "size_mb": 34.9,
@@ -306,6 +306,14 @@
         "step": 9,
         "type": "adult_synthesized"
       },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 4",
+      "track": "live_trainer",
+      "size_mb": 1370.2,
+      "last_updated": "2026-10-01",
+      "progress": {},
       "has_key_files": true
     },
     {
@@ -343,14 +351,6 @@
         "videos_consumed": 568
       },
       "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 4",
-      "track": "live_trainer",
-      "size_mb": 1370.2,
-      "last_updated": "2026-10-01",
-      "progress": {},
-      "has_key_files": true
     }
   ],
   "pipeline": {
@@ -363,7 +363,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
@@ -406,21 +406,21 @@
       "stage2_multimodal": {
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المرحلة الثانية 1"
       },
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
