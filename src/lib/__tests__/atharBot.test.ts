@@ -2,11 +2,12 @@
 const store = new Map<string, string>();
 const channelSet: (string | null)[] = [];
 const members = new Set<number>();
+const raw: unknown[][] = [];
 jest.mock("@/lib/prisma", () => ({
   prisma: { atharBotUser: {
     findUnique: async ({ where }: any) => { const k = `${where.botId_tgUserId.botId}:${where.botId_tgUserId.tgUserId}`; return store.has(k) ? { lang: store.get(k) } : null; },
     upsert: async ({ where, create, update }: any) => { const w = where.botId_tgUserId; store.set(`${w.botId}:${w.tgUserId}`, update?.lang ?? create.lang); return {}; },
-  }, bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } } },
+  }, $executeRawUnsafe: async (...a: unknown[]) => { raw.push(a); return 1; }, bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } } },
 }));
 jest.mock("@/lib/botVisit", () => ({ recordBotVisit: async () => undefined }));
 import { handleAtharBotUpdate, LANGS, COMMANDS } from "../atharBotLogic";
@@ -83,7 +84,7 @@ describe("Athar bot", () => {
     expect(kb).toContain('"keyboard"');                // a menu panel under the message box, not inline buttons in the chat
     expect(kb).not.toContain("inline_keyboard");
     expect(kb).toContain("/mystery?lang=en");          // its buttons open the sections directly
-    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,language");   // set once per server start
+    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,birthday,language");   // set once per server start
     expect(bot.calls.some((c: string) => c.includes("menu:") && c.includes("lang=en"))).toBe(true);
     const sec = fakeBot();
     await handleAtharBotUpdate(sec, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "/mystery" } });
@@ -128,5 +129,30 @@ describe("Athar bot", () => {
     // turning it off
     await handleAtharBotUpdate(o, gated, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "إلغاء", reply_to_message: { text: ask } } });
     expect(channelSet[channelSet.length - 1]).toBeNull();
+  });
+});
+
+describe("Athar bot birthday reminder", () => {
+  beforeEach(() => { store.clear(); raw.length = 0; });
+  it("has the button, asks for the date and saves the answer", async () => {
+    const bot = fakeBot();
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "/start" } });
+    expect(JSON.stringify(bot.sent[0].kb)).toContain("🎂 Birthday reminder");
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "🎂 Birthday reminder" } });
+    const ask = bot.sent[bot.sent.length - 1];
+    expect(ask.text).toMatch(/birthday/i);
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "14/3/2003", reply_to_message: { text: ask.text } } });
+    expect(bot.sent[bot.sent.length - 1].text).toMatch(/Saved: 14\/3\/2003/);
+    expect(raw[0].slice(1)).toEqual(["bot1", "7", "en", 3, 14, 2003]);
+  });
+  it("takes /birthday with the date, removes it with off, refuses a bad date", async () => {
+    const bot = fakeBot();
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "/birthday ١٤/٣" } });
+    expect(bot.sent[bot.sent.length - 1].text).toMatch(/Saved: 14\/3 \(without a year\)/);
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "/birthday off" } });
+    expect(raw[1].slice(4)).toEqual([null, null, null]);
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 1 }, from: { id: 7 }, text: "/birthday 31/2/2003" } });
+    expect(bot.sent[bot.sent.length - 1].text).toMatch(/could not read/);
+    expect(raw.length).toBe(2);
   });
 });

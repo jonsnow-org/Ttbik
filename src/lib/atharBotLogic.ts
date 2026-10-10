@@ -2,6 +2,7 @@ import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
+import { BD, BD_OFF, bdText, parseBirthday, saveBirthday } from "@/lib/atharBirthday";
 
 /**
  * ATHAR_BOT: a token for every day of the calendar on the TON network.
@@ -100,7 +101,7 @@ function menu(lang: Lang, owner = false): Keyboard {
   const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
     .webApp(t.mystery, withLang("/mystery", lang)).webApp(t.auctions, withLang("/auctions", lang)).row()
     .webApp(t.mine, withLang("/mine", lang)).webApp(t.board, withLang("/board", lang)).row()
-    .webApp(t.today, withLang("/today", lang)).text(t.language);
+    .webApp(t.today, withLang("/today", lang)).text(t.language).row().text(BD[lang].button);
   if (owner) {
     kb.row().text(OWNER_STATS).text(OWNER_CHANNEL);
     if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
@@ -123,7 +124,7 @@ const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions
   { cmd: "mine", path: "/mine", key: "mine", en: "My tokens" },
   { cmd: "board", path: "/board", key: "board", en: "Calendar board" },
 ];
-export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "language", description: "Language" }];
+export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "birthday", description: "Birthday reminder" }, { command: "language", description: "Language" }];
 
 // What Telegram shows on the bot's page before the first message, in search results and next to a shared link (short: up to 120 characters, long: up to 512).
 const ABOUT: Record<Lang, { short: string; long: string }> = {
@@ -255,6 +256,29 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   if (owner && text === OWNER_STATS) {
     await bot.api.sendMessage(chatId, await statsText(botRow.id), { reply_markup: menu(lang, true) });
     return;
+  }
+
+  // birthday reminder: the button (or /birthday) asks for the date, the answer (or /birthday 14/3/2003) saves it, «off» removes it
+  {
+    const m = /^\/birthday(?:@\w+)?\s*(.*)$/is.exec(text);
+    const asked = !!msg.reply_to_message?.text && LANGS.some((l) => msg.reply_to_message.text === BD[l.code].ask);
+    if (LANGS.some((l) => BD[l.code].button === text) || (m && !m[1].trim())) {
+      await bot.api.sendMessage(chatId, BD[lang].ask, { reply_markup: { force_reply: true, input_field_placeholder: "14/3/2003" } });
+      return;
+    }
+    if (m || asked) {
+      const arg = (m ? m[1] : text).trim();
+      if (BD_OFF.test(arg)) {
+        const done = await saveBirthday(prisma as any, botRow.id, fromId, lang, null);
+        await bot.api.sendMessage(chatId, done ? bdText(lang, "off") : bdText(lang, "fail"), { reply_markup: menu(lang, owner) });
+        return;
+      }
+      const b = parseBirthday(arg);
+      if (!b) { await bot.api.sendMessage(chatId, bdText(lang, "bad"), { reply_markup: { force_reply: true, input_field_placeholder: "14/3/2003" } }); return; }
+      const done = await saveBirthday(prisma as any, botRow.id, fromId, lang, b);
+      await bot.api.sendMessage(chatId, done ? bdText(lang, b.year === null ? "savedNoYear" : "saved", b) : bdText(lang, "fail"), { reply_markup: menu(lang, owner) });
+      return;
+    }
   }
 
   const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
