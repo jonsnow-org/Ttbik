@@ -12,16 +12,19 @@ set -euo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 SHAM_DIR="${SHAM_DIR:-/opt/sham}"; ENV_DIR="${ENV_DIR:-/etc/sham}"; WORK="${SHAM_WORK:-/var/lib/sham}"
 
-if [ ! -s "$STATE/server_specs.txt" ]; then
+send_specs() (   # a subshell: nothing in here is allowed to stop the installation
+  set +e
+  [ -s "$STATE/server_specs.txt" ] && exit 0
   {
     echo "cores: $(nproc)"; echo "cpu: $(lscpu 2>/dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1)"; echo "arch: $(uname -m)"
     free -h | sed -n 1,2p; echo "disk /:"; df -h / | tail -1
     if command -v nvidia-smi >/dev/null 2>&1; then echo "gpu: $(nvidia-smi -L 2>/dev/null | head -1)"; else echo "gpu: none found"; fi
     echo "os: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}")"
-  } > "$STATE/server_specs.txt" 2>&1 || true
+  } > "$STATE/server_specs.txt" 2>&1
   tg_notify "مواصفات خادم Oracle (لتحديد حصة دفاتر شام):
-$(cat "$STATE/server_specs.txt")" || true
-fi
+$(cat "$STATE/server_specs.txt")"
+)
+send_specs || true
 
 id sham >/dev/null 2>&1 || useradd --system --home-dir "$WORK" --create-home --shell /usr/sbin/nologin sham
 install -d -o sham -g sham -m 750 "$SHAM_DIR" "$WORK" "$WORK/work"
