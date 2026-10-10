@@ -24,13 +24,28 @@ export async function setup(delay = DELAY) {
   return { bc, admin, payout, alice, bob, collection, minter };
 }
 
+export const ID = (kind: number, date: number) => BigInt(kind * 65536 + date);
+export const CURVES = [
+  { startPrice: "0.5", floor: "0.25", cap: "8", maxSupply: 36525, specialFee: "1", photoFee: "0.15", walletMax: 0 },
+  { startPrice: "1.5", floor: "0.75", cap: "24", maxSupply: 900, specialFee: "3", photoFee: "0.3", walletMax: 0 },
+  { startPrice: "5", floor: "2.5", cap: "80", maxSupply: 300, specialFee: "10", photoFee: "0.6", walletMax: 0 },
+];
+export const CLASS_CAPS = [100, 80, 60, 40, 10];       // bronze, rare, purple, diamond, legendary
+
+export async function configureKinds(ctx: Awaited<ReturnType<typeof setup>>) {
+  const { admin, minter } = ctx;
+  for (let k = 0; k < 3; k++) {
+    const c = CURVES[k];
+    await minter.send(admin.getSender(), { value: toNano("0.1") }, {
+      $$type: "Configure", kind: BigInt(k), startPrice: toNano(c.startPrice), floor: toNano(c.floor), cap: toNano(c.cap), bumpBps: 16n, decayBps: 1500n,
+      maxSupply: BigInt(c.maxSupply), specialFee: toNano(c.specialFee), photoFee: toNano(c.photoFee), walletMax: BigInt(c.walletMax) });
+  }
+  for (let k = 3; k < 8; k++) await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "SetCap", kind: BigInt(k), cap: BigInt(CLASS_CAPS[k - 3]) });
+}
+
 export async function openSeason(ctx: Awaited<ReturnType<typeof setup>>, opts?: { walletCap?: number; start?: number }) {
   const { bc, admin, collection, minter } = ctx;
-  const dep = await minter.send(admin.getSender(), { value: toNano("0.2") }, {
-    $$type: "Configure", tier: 0n, startPrice: toNano("0.5"), floor: toNano("0.25"), cap: toNano("8"), bumpBps: 16n, decayBps: 1500n });
-  expect(dep.transactions).toHaveTransaction({ to: minter.address, success: true });
-  await minter.send(admin.getSender(), { value: toNano("0.05") }, {
-    $$type: "Configure", tier: 1n, startPrice: toNano("3"), floor: toNano("1.5"), cap: toNano("40"), bumpBps: 200n, decayBps: 1500n });
+  await configureKinds(ctx);
   await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Open", startAt: BigInt(opts?.start ?? bc.now!), walletDailyCap: BigInt(opts?.walletCap ?? 0) });
   await collection.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "ProposeMinter", minter: minter.address });
   bc.now = bc.now! + 1;     // the first minter needs no waiting

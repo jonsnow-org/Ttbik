@@ -1,13 +1,15 @@
-import { hijriLabel, rarityReason, tierSupply, tokenStory } from "../web/lib/meta";
+import { hijriLabel, rarityReason, kindSupply, tokenStory } from "../web/lib/meta";
 import { TOTAL_DATES, ruleTier } from "../web/lib/dates";
-import { SEASON_1, seasonSize } from "../web/lib/seasons";
+import { SEASON_1, capOf } from "../web/lib/seasons";
 import { renderArt } from "../web/lib/art";
 import { liveArt, storedMotion } from "../web/lib/live";
 
 describe("what a buyer sees", () => {
-  it("season supply adds up to the season size", () => {
-    const s = tierSupply(1);
-    expect(s[0] + s[1] + s[2]).toBe(seasonSize(SEASON_1));
+  it("every kind states its supply cap, and the caps only get smaller as the kinds get rarer", () => {
+    for (let k = 0; k < 8; k++) expect(kindSupply(1, k)).toBe(capOf(SEASON_1, k));
+    expect(kindSupply(1, 0)).toBeGreaterThan(kindSupply(1, 1));
+    expect(kindSupply(1, 1)).toBeGreaterThan(kindSupply(1, 2));
+    expect(kindSupply(1, 7)).toBeLessThan(kindSupply(1, 2));
   });
   it("every date has a reason that matches its rarity (never 'everyday' for a rare one)", () => {
     for (let i = 0; i < TOTAL_DATES; i += 7) {

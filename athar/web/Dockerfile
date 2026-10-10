@@ -24,5 +24,6 @@ COPY --from=build /app/athar/web/node_modules ./node_modules
 COPY --from=build /app/athar/web/package.json ./package.json
 COPY --from=build /app/athar/web/next.config.mjs ./next.config.mjs
 COPY --from=build /app/athar/web/special ./special
+COPY --from=build /app/athar/web/public ./public
 EXPOSE 3100
 CMD ["npx", "next", "start", "-p", "3100"]

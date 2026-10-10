@@ -20,7 +20,7 @@ export const LANGS = [
 type Lang = (typeof LANGS)[number]["code"];
 const isLang = (x: string): x is Lang => LANGS.some((l) => l.code === x);
 
-type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; language: string; pick: string; changed: string; help: string; join: string; joined: string; back: string };
+type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; today: string; language: string; pick: string; changed: string; help: string; join: string; joined: string; back: string };
 const T: Record<Lang, Text> = {
   en: {
     welcome:
@@ -30,7 +30,7 @@ const T: Record<Lang, Text> = {
       "🎁 You can gift it to someone you love.\n\n" +
       "⚙️ How to start\n1️⃣ Tap “Open Athar” and find your date.\n2️⃣ Connect your wallet (Tonkeeper or MyTonWallet) and confirm the payment in Gram.\n3️⃣ The token arrives in your wallet and shows on markets such as Getgems.\n\n" +
       "ℹ️ Tokens are for memory and collecting. No profit or price increase is promised.",
-    open: "🕰 Open Athar", mystery: "🎁 Mystery boxes", auctions: "🔨 Auctions", mine: "🖼 My tokens", board: "🗓 Calendar board", language: "🌐 Language",
+    open: "🕰 Open Athar", mystery: "🎁 Mystery boxes", auctions: "🔨 Auctions", mine: "🖼 My tokens", board: "🗓 Calendar board", today: "📅 Today's token", language: "🌐 Language",
     pick: "Choose your language:", changed: "Language changed.", help: "Tap “Open Athar” to start.",
     join: "📢 Please join our channel first, then tap “✅ I joined”:", joined: "✅ I joined", back: "⬅️ Back",
   },
@@ -42,7 +42,7 @@ const T: Record<Lang, Text> = {
       "🎁 ويمكنك إهداؤه لمن تحب.\n\n" +
       "⚙️ كيف تبدأ؟\n1️⃣ اضغط «فتح أثر» وابحث عن تاريخك.\n2️⃣ اربط محفظتك (Tonkeeper أو MyTonWallet) وأكّد الدفع بعملة Gram.\n3️⃣ يصلك الرمز إلى محفظتك ويظهر في الأسواق مثل Getgems.\n\n" +
       "ℹ️ الرموز للذكرى والاقتناء، ولا وعد بأي ربح أو ارتفاع سعر.",
-    open: "🕰 فتح أثر", mystery: "🎁 صندوق الغموض", auctions: "🔨 المزادات", mine: "🖼 رموزي", board: "🗓 لوحة التقويم", language: "🌐 اللغة",
+    open: "🕰 فتح أثر", mystery: "🎁 صندوق الغموض", auctions: "🔨 المزادات", mine: "🖼 رموزي", board: "🗓 لوحة التقويم", today: "📅 رمز اليوم", language: "🌐 اللغة",
     pick: "اختر لغتك:", changed: "تم تغيير اللغة.", help: "اضغط «فتح أثر» للبدء.",
     join: "📢 انضم إلى قناتنا أولاً ثم اضغط «✅ انضممت»:", joined: "✅ انضممت", back: "⬅️ رجوع",
   },
@@ -54,7 +54,7 @@ const T: Record<Lang, Text> = {
       "🎁 Его можно подарить близкому человеку.\n\n" +
       "⚙️ Как начать\n1️⃣ Нажмите «Открыть Athar» и найдите свою дату.\n2️⃣ Подключите кошелёк (Tonkeeper или MyTonWallet) и подтвердите оплату в Gram.\n3️⃣ Токен придёт в ваш кошелёк и появится на площадках вроде Getgems.\n\n" +
       "ℹ️ Токены — для памяти и коллекции. Прибыль и рост цены не обещаются.",
-    open: "🕰 Открыть Athar", mystery: "🎁 Мистери-боксы", auctions: "🔨 Аукционы", mine: "🖼 Мои токены", board: "🗓 Календарная доска", language: "🌐 Язык",
+    open: "🕰 Открыть Athar", mystery: "🎁 Мистери-боксы", auctions: "🔨 Аукционы", mine: "🖼 Мои токены", board: "🗓 Календарная доска", today: "📅 Токен дня", language: "🌐 Язык",
     pick: "Выберите язык:", changed: "Язык изменён.", help: "Нажмите «Открыть Athar», чтобы начать.",
     join: "📢 Сначала подпишитесь на наш канал, затем нажмите «✅ Я подписался»:", joined: "✅ Я подписался", back: "⬅️ Назад",
   },
@@ -66,7 +66,7 @@ const T: Record<Lang, Text> = {
       "🎁 Sevdiğin birine hediye edebilirsin.\n\n" +
       "⚙️ Nasıl başlanır\n1️⃣ “Athar'ı aç”a dokun ve tarihini bul.\n2️⃣ Cüzdanını bağla (Tonkeeper veya MyTonWallet) ve ödemeyi Gram ile onayla.\n3️⃣ Token cüzdanına gelir ve Getgems gibi pazarlarda görünür.\n\n" +
       "ℹ️ Tokenlar anı ve koleksiyon içindir. Kâr veya fiyat artışı vaat edilmez.",
-    open: "🕰 Athar'ı aç", mystery: "🎁 Gizem kutuları", auctions: "🔨 Müzayedeler", mine: "🖼 Tokenlarım", board: "🗓 Takvim panosu", language: "🌐 Dil",
+    open: "🕰 Athar'ı aç", mystery: "🎁 Gizem kutuları", auctions: "🔨 Müzayedeler", mine: "🖼 Tokenlarım", board: "🗓 Takvim panosu", today: "📅 Günün tokenı", language: "🌐 Dil",
     pick: "Dilini seç:", changed: "Dil değiştirildi.", help: "Başlamak için “Athar'ı aç”a dokun.",
     join: "📢 Önce kanalımıza katıl, sonra “✅ Katıldım”a dokun:", joined: "✅ Katıldım", back: "⬅️ Geri",
   },
@@ -78,7 +78,7 @@ const T: Record<Lang, Text> = {
       "🎁 می‌توانید آن را به عزیزی هدیه دهید.\n\n" +
       "⚙️ چطور شروع کنیم؟\n۱️⃣ «باز کردن اثر» را بزنید و تاریخ خود را پیدا کنید.\n۲️⃣ کیف‌پول خود را وصل کنید (Tonkeeper یا MyTonWallet) و پرداخت را با Gram تأیید کنید.\n۳️⃣ توکن به کیف‌پولتان می‌آید و در بازارهایی مثل Getgems دیده می‌شود.\n\n" +
       "ℹ️ توکن‌ها برای یادگاری و کلکسیون‌اند. هیچ سود یا افزایش قیمتی وعده داده نمی‌شود.",
-    open: "🕰 باز کردن اثر", mystery: "🎁 جعبه‌های اسرار", auctions: "🔨 حراج‌ها", mine: "🖼 توکن‌های من", board: "🗓 تابلوی تقویم", language: "🌐 زبان",
+    open: "🕰 باز کردن اثر", mystery: "🎁 جعبه‌های اسرار", auctions: "🔨 حراج‌ها", mine: "🖼 توکن‌های من", board: "🗓 تابلوی تقویم", today: "📅 توکن امروز", language: "🌐 زبان",
     pick: "زبان خود را انتخاب کنید:", changed: "زبان تغییر کرد.", help: "برای شروع «باز کردن اثر» را بزنید.",
     join: "📢 ابتدا در کانال ما عضو شوید، سپس «✅ عضو شدم» را بزنید:", joined: "✅ عضو شدم", back: "⬅️ بازگشت",
   },
@@ -100,7 +100,7 @@ function menu(lang: Lang, owner = false): Keyboard {
   const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
     .webApp(t.mystery, withLang("/mystery", lang)).webApp(t.auctions, withLang("/auctions", lang)).row()
     .webApp(t.mine, withLang("/mine", lang)).webApp(t.board, withLang("/board", lang)).row()
-    .text(t.language);
+    .webApp(t.today, withLang("/today", lang)).text(t.language);
   if (owner) {
     kb.row().text(OWNER_STATS).text(OWNER_CHANNEL);
     if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
@@ -125,12 +125,27 @@ const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions
 ];
 export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "language", description: "Language" }];
 
-let commandsSet = false;
+// What Telegram shows on the bot's page before the first message, in search results and next to a shared link (short: up to 120 characters, long: up to 512).
+const ABOUT: Record<Lang, { short: string; long: string }> = {
+  en: { short: "A living token for every day of the calendar. Find your birthday on TON.", long: "Athar: one token for every day of the calendar (1950–2049). Your birthday, your wedding, a day you love. A living token whose picture moves and matures the longer you hold it. Normal, Silver and Gold for everyone, rarer classes by auction. Tap Start." },
+  ar: { short: "رمز حيّ لكل يوم في التقويم. اعثر على يوم ميلادك على TON.", long: "أثر: رمز واحد لكل يوم في التقويم (1950–2049): يوم ميلادك أو زواجك أو يوم تحبه. رمز حيّ صورته تتحرك وتنضج كلما طال بقاؤه عندك. عادي وفضي وذهبي للجميع، وفئات نادرة بالمزاد. اضغط ابدأ." },
+  ru: { short: "Живой токен на каждый день календаря. Найдите свой день рождения в TON.", long: "Athar: один токен на каждый день календаря (1950–2049): день рождения, свадьба, любимая дата. Живой токен: картинка движется и взрослеет, пока вы его храните. Обычный, Серебряный и Золотой для всех, редкие классы на аукционе. Нажмите Start." },
+  tr: { short: "Takvimin her günü için canlı bir token. Doğum gününü TON'da bul.", long: "Athar: takvimin her günü (1950–2049) için tek bir token: doğum günün, düğünün ya da sevdiğin bir gün. Resmi hareket eden, elinde tuttukça olgunlaşan canlı token. Herkese Normal, Gümüş ve Altın, nadir sınıflar müzayedeyle. Başlat'a dokun." },
+  fa: { short: "توکنی زنده برای هر روز تقویم. روز تولدتان را در TON پیدا کنید.", long: "اثر: یک توکن برای هر روز تقویم (۱۹۵۰–۲۰۴۹): تولد، عروسی یا روزی که دوست دارید. توکنی زنده که تصویرش حرکت می‌کند و با نگه‌داشتن بالغ می‌شود. عادی، نقره‌ای و طلایی برای همه و ردهٔ کمیاب با حراج. Start را بزنید." },
+};
+let commandsSet = false, aboutSet = false;
 /** The commands list (once per server start, in English for everyone) and this person's menu button, in their language. */
 async function ensureMenu(bot: TelegramBot, chatId: number, lang: Lang, owner = false): Promise<void> {
   try {
     if (!commandsSet) { await bot.api.setMyCommands(COMMANDS); commandsSet = true; }
   } catch { /* the list is optional */ }
+  try {
+    if (!aboutSet) {
+      aboutSet = true;
+      await bot.api.setMyShortDescription(ABOUT.en.short); await bot.api.setMyDescription(ABOUT.en.long);   // English for everyone without a language of their own
+      for (const l of LANGS) { if (l.code === "en") continue; await bot.api.setMyShortDescription(ABOUT[l.code].short, { language_code: l.code }); await bot.api.setMyDescription(ABOUT[l.code].long, { language_code: l.code }); }
+    }
+  } catch { /* the bot page text is optional */ }
   try {
     await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: owner && ADMIN_URL ? { type: "web_app", text: "🛠 Admin", web_app: { url: ADMIN_URL } } : { type: "web_app", text: "Athar", web_app: { url: withLang("", lang) } } });   // the owner's blue button opens the panel, everyone else's opens the app
   } catch { /* optional on some clients */ }

@@ -1,6 +1,7 @@
 "use client";
 import { use, useState } from "react";
-import { Top, TierBadge, useApi, useSend } from "@/components/ui";
+import { Top, KindBadge, useApi, useSend } from "@/components/ui";
+import { dateOf } from "@/lib/kinds";
 import { STAGE_DAYS, stageOf, ymd } from "@/lib/dates";
 import { eventEnOf } from "@/lib/specialNames";
 import { useI18n } from "@/lib/i18n";
@@ -9,7 +10,7 @@ import { engraveMsg, eq, mediaMsg, short } from "@/lib/tx";
 import MediaPicker, { MediaState } from "@/components/MediaPicker";
 import Born from "@/components/Born";
 import Features from "@/components/Features";
-import { eventOf, hijriLabel, tierSupply } from "@/lib/meta";
+import { eventOf, hijriLabel, kindSupply } from "@/lib/meta";
 import { useConfirmPreview } from "@/components/ConfirmPreview";
 import { persistPicture } from "@/lib/mediaFlow";
 import { useToast } from "@/components/ui";
@@ -25,7 +26,8 @@ function PendingNote({ id }: { id: string }) {
 }
 
 export default function Token({ params }: { params: Promise<{ index: string }> }) {
-  const index = Number(use(params).index);
+  const index = Number(use(params).index);       // the token id: kind * 65536 + date
+  const date = dateOf(index);
   const { data: t, reload } = useApi<Tok & { error?: string }>(`/api/token/${index}`, 15000);
   const { data: season } = useApi<{ collection?: string; itemFees?: { engrave: number; media: number; change: number } }>("/api/season", 30000);
   const { t: tr, dateLabel, lang } = useI18n();
@@ -36,7 +38,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
   const [media, setMedia] = useState<MediaState>({ occasion: 0, photo: null });
   const [mediaInit, setMediaInit] = useState(false);
   const [storing, setStoring] = useState(false);
-  const { y, m, d } = ymd(index);
+  const { y, m, d } = ymd(date);
   if (!t) return <><Top /><p className="muted">…</p></>;
   if (t.error) return <><Top /><div className="card"><h3>{dateLabel(y, m, d)}</h3><p className="muted">{tr("tok.notMinted")}</p></div></>;
   const mine = !!address && eq(address, t.owner);
@@ -52,7 +54,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
   async function storeAndSet(kind: "photo" | "snapshot") {
     setStoring(true); toast(tr("media.saving"));
     try {
-      const body = { index, kind, occasion: media.occasion, photo: media.photo };
+      const body = { id: index, kind, occasion: media.occasion, photo: media.photo };
       const pr = await fetch("/api/media/compose", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) });
       const pj = await pr.json();
       if (!pr.ok) { toast(pj.error || tr("media.fail")); return; }
@@ -75,9 +77,9 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
       <div className="card" style={{ textAlign: "center" }}>
         <img src={shown} alt="" style={{ width: "78%", maxWidth: 300, borderRadius: 26 }} onError={(e) => { const el = e.currentTarget; if (!el.dataset.fb) { el.dataset.fb = "1"; el.src = t.mediaRef && !t.pictureHidden ? `https://turbo-gateway.com/${t.mediaRef}` : `/api/img/${index}.svg${q}`; } else if (el.dataset.fb === "1") { el.dataset.fb = "2"; el.src = `/api/img/${index}.svg${q}`; } }} />
         <h2 style={{ margin: "12px 0 6px" }}>{dateLabel(y, m, d)}</h2>
-        <div className="muted" style={{ marginBottom: 6 }}>🌙 {tr("tok.hijri", { h: hijriLabel(index, lang) })}</div>
+        <div className="muted" style={{ marginBottom: 6 }}>🌙 {tr("tok.hijri", { h: hijriLabel(date, lang) })}</div>
         {anniv && <p className="note">{tr("tok.annivToday")}</p>}
-        <TierBadge tier={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
+        <KindBadge kind={t.tier} /> <span className="badge">{tr(`stage.${stage}` as "stage.0")}</span>
         {stage < 4 && <div className="muted" style={{ marginTop: 6 }}>⏳ {tr("tok.nextStage", { n: Math.max(0, STAGE_DAYS[stage + 1] - Math.floor((Date.now() / 1000 - t.lastTransferAt) / 86400)) })}</div>}
         <div className="row" style={{ marginTop: 14 }}><a className="btn ghost" target="_blank" rel="noreferrer" href={`https://${NETWORK === "testnet" ? "testnet." : ""}getgems.io/nft/${t.address}`}>{tr("tok.market")}</a><button className="btn ghost" onClick={share}>{tr("tok.share")}</button>{!t.mediaRef && !t.pictureHidden && <a className="btn ghost" target="_blank" rel="noreferrer" href={viewerUrl({ i: index, t: t.tier, s: t.season, g: stage, h: t.hands, e: t.engravings.length, o: t.occasion })}>{tr("tok.live")}</a>}{mine && <span className="badge t1">{tr("tok.yours")}</span>}</div>
         {t.pictureUnpaid && <p className="note" style={{ marginTop: 10 }}>{tr("media.unpaid")}</p>}
@@ -110,7 +112,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
       {mine && (
         <div className="card">
           <h3>{t.mediaRef ? tr("media.changeTitle") : tr("media.title")}</h3>
-          <MediaPicker index={index} tier={t.tier} season={t.season} value={media} onChange={setMedia} stage={stage} hands={t.hands} engravings={t.engravings.length} />
+          <MediaPicker index={date} tier={t.tier} season={t.season} value={media} onChange={setMedia} stage={stage} hands={t.hands} engravings={t.engravings.length} />
           <p className="muted">{t.mediaRef ? tr("media.changeNote") : tr("media.permNote")}</p>
           <div className="gap">
             {media.photo && <button className="btn gold" disabled={busy || storing} onClick={() => storeAndSet("photo")}>{t.mediaRef ? tr("media.change", { p: mediaFee }) : tr("media.save", { p: mediaFee })}</button>}
@@ -123,9 +125,9 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
           <div className="grid">{t.media.slice(1).map((m) => <div key={m.ref} className="card tok"><img src={`https://turbo-gateway.com/${m.ref}`} alt="" /><div className="muted mono">{new Date(m.at * 1000).toLocaleDateString(lang)}</div></div>)}</div>
         </div>
       )}
-      <Born index={index} />
+      <Born index={date} />
       {previewNode}
-      <Features supply={tierSupply(t.season)[t.tier]} event={eventOf(index, t.season)} eventEn={(() => { const c = ymd(index); return eventEnOf(c.y, c.m, c.d); })()} />
+      <Features supply={kindSupply(t.season, t.tier)} event={eventOf(date, t.season)} eventEn={(() => { const c = ymd(date); return eventEnOf(c.y, c.m, c.d); })()} />
     </>
   );
 }

@@ -39,8 +39,10 @@ export async function GET(req: Request) {
     out.status = Number(await m.getStatus());
     out.soldCount = Number(await m.getSoldCount());
     await gap();
-    out.priceCommon = Number(await m.getPrice(0n)) / 1e9;
-    out.priceRare = Number(await m.getPrice(1n)) / 1e9;
+    out.priceNormal = Number(await m.getPrice(0n)) / 1e9;
+    out.priceGold = Number(await m.getPrice(2n)) / 1e9;
+    await gap();
+    out.capLegendary = Number((await m.getKindInfo(7n)).cap);       // set in the second launch group: the signal that every kind is configured
     await gap();
     const my = await m.getMysteryInfo();
     out.poolSize = Number(my.poolSize); out.poolLoaded = Number(my.loaded); out.ticketsSold = Number(my.ticketsSold); out.revealed = my.revealed; out.revealAt = Number(my.revealAt);

@@ -1,19 +1,19 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Top, ton, useApi, useSend } from "@/components/ui";
+import { Top, KindBadge, ton, useApi, useSend, WalletTip } from "@/components/ui";
 import { ymd } from "@/lib/dates";
 import { useI18n } from "@/lib/i18n";
 import { bidMsg, settleMsg, short } from "@/lib/tx";
 import { arweaveId } from "@/lib/ids";
 
-type A = { index: number; taken: boolean; auction: null | { live: boolean; endAt: number; reserve: number; highBid: number; highBidder: string | null; mediaRef?: string } };
+type A = { id: number; kind: number; date: number; taken: boolean; live: boolean; endAt: number; reserve: number; highBid: number; highBidder: string | null; mediaRef?: string };   // id = kind * 65536 + date
 type Season = { minter?: string };
 
 function Card({ a, minter, onDone }: { a: A; minter?: string; onDone: () => void }) {
   const { t, dateLabel } = useI18n();
-  const au = a.auction!;
-  const { y, m, d } = ymd(a.index);
+  const au = a;
+  const { y, m, d } = ymd(a.date);
   const min = au.highBidder ? au.highBid * 1.05 + 0.001 : au.reserve;
   const [bid, setBid] = useState(String(Math.ceil(min * 100) / 100));
   const [now, setNow] = useState(Date.now());
@@ -22,19 +22,20 @@ function Card({ a, minter, onDone }: { a: A; minter?: string; onDone: () => void
   const { send, busy } = useSend();
   return (
     <div className="card">
-      <div className="row between"><h3>{dateLabel(y, m, d)}</h3><span className="badge t2">{t("tier.2")}</span></div>
-      <img src={au.mediaRef && au.mediaRef !== "0" ? `https://turbo-gateway.com/${arweaveId(BigInt(au.mediaRef))}` : `/api/img/${a.index}.svg?t=2&live=1`} alt="" style={{ width: "60%", maxWidth: 220, display: "block", margin: "8px auto", borderRadius: 20 }} />
+      <div className="row between"><h3>{dateLabel(y, m, d)}</h3><KindBadge kind={a.kind} /></div>
+      <img src={au.mediaRef && au.mediaRef !== "0" ? `https://turbo-gateway.com/${arweaveId(BigInt(au.mediaRef))}` : `/api/img/${a.id}.svg?live=1`} alt="" style={{ width: "60%", maxWidth: 220, display: "block", margin: "8px auto", borderRadius: 20 }} />
       <div className="kv"><span>{au.highBidder ? t("auc.high") : t("auc.reserve")}</span><span>{ton(au.highBidder ? au.highBid : au.reserve)}</span></div>
       {au.highBidder && <div className="kv"><span>{t("auc.bidder")}</span><span className="mono">{short(au.highBidder)}</span></div>}
       <div className="kv"><span>{t("auc.endsIn")}</span><span>{left > 0 ? `${Math.floor(left / 3600)}:${String(Math.floor((left % 3600) / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}` : t("auc.ended")}</span></div>
       {left > 0 ? (
         <div className="gap" style={{ marginTop: 10 }}>
           <input type="number" step="0.1" min={min} value={bid} onChange={(e) => setBid(e.target.value)} />
-          <button className="btn gold" disabled={busy || Number(bid) < min} onClick={async () => { if (minter && (await send([bidMsg(minter, a.index, Number(bid))], t("auc.sentB")))) onDone(); }}>{t("auc.bid")}</button>
+          <button className="btn gold" disabled={busy || Number(bid) < min} onClick={async () => { if (minter && (await send([bidMsg(minter, a.id, Number(bid))], t("auc.sentB")))) onDone(); }}>{t("auc.bid")}</button>
+          <WalletTip />
           <p className="muted">{t("auc.bidNote")}</p>
         </div>
       ) : (
-        <button className="btn" disabled={busy} style={{ marginTop: 10 }} onClick={async () => { if (minter && (await send([settleMsg(minter, a.index)], t("auc.sentS")))) onDone(); }}>{t("auc.settle")}</button>
+        <button className="btn" disabled={busy} style={{ marginTop: 10 }} onClick={async () => { if (minter && (await send([settleMsg(minter, a.id)], t("auc.sentS")))) onDone(); }}>{t("auc.settle")}</button>
       )}
     </div>
   );
@@ -44,14 +45,14 @@ export default function Auctions() {
   const { t } = useI18n();
   const { data, reload } = useApi<{ auctions: A[]; total: number }>("/api/auctions", 15000);
   const { data: s } = useApi<Season>("/api/season", 60000);
-  const live = data?.auctions.filter((a) => a.auction) ?? [];
+  const live = data?.auctions ?? [];
   return (
     <>
       <Top />
       <h2 style={{ margin: "6px 0" }}>{t("auc.title")}</h2>
       <p className="muted">{t("auc.intro")}</p>
-      {data && live.length === 0 && <div className="card"><p className="muted">{t("auc.none", { n: data.total })}</p><Link className="btn ghost" href="/date">{t("home.cta")}</Link></div>}
-      {live.map((a) => <Card key={a.index} a={a} minter={s?.minter} onDone={reload} />)}
+      {data && live.length === 0 && <div className="card"><p className="muted">{t("auc.none")}</p><Link className="btn ghost" href="/date">{t("home.cta")}</Link></div>}
+      {live.map((a) => <Card key={a.id} a={a} minter={s?.minter} onDone={reload} />)}
     </>
   );
 }
