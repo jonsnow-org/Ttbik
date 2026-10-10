@@ -382,6 +382,20 @@
         "sham-checkpoint"
       ],
       "writes": []
+    },
+    "vault_modelscope": {
+      "file": ".github/workflows/sham-vault.yml",
+      "title": "خزنة نقاط الحفظ (نسخة احتياطية في ModelScope بلا خادم)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-checkpoint",
+        "sham-checkpoint"
+      ],
+      "writes": []
     }
   },
   "lineage": [
