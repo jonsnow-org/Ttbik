@@ -4,7 +4,7 @@ import ToolSponsor from "@/components/ToolSponsor";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي | أدوات مجانية | شام AI",
+  title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي | شام AI",
   description:
     "احسب مؤشر كتلة الجسم (BMI) والوزن المثالي التقريبي فوراً — نحافة، طبيعي، زيادة وزن أو سمنة. أداة عربية مجانية بلا تسجيل مع نصائح عملية.",
   keywords: [

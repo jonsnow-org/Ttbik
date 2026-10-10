@@ -1,5 +1,9 @@
 import SponsorForm from "@/components/SponsorForm";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "رعاية أدوات شام AI المجانية", description: "ارعَ أداة مجانية من أدوات شام AI وتظهر أمام مستخدميها، بخطوات واضحة وأسعار معلنة." };
+
 export default async function SponsorPage({ searchParams }: { searchParams: Promise<{ tool?: string }> }) {
   const { tool } = await searchParams;
   return (
