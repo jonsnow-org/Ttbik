@@ -1,0 +1,40 @@
+name: Sham Access Check (what can the automation reach?)
+
+# يدوي أو أسبوعي: لكل خدمة لها مفتاح في أسرار المستودع يطبع «يقبل» أو «يرفض». لا يطبع مفتاحاً ولا اسم حساب ولا رابطاً،
+# ولا يغيّر شيئاً في أي خدمة.
+
+on:
+  schedule:
+    - cron: "40 5 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  access:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle
+      - name: Check
+        env:
+          SHAM_ACCESS_LIVE: "1"
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RENDER_NOVA_SMALL_DEPLOY_HOOK: ${{ secrets.RENDER_NOVA_SMALL_DEPLOY_HOOK }}
+        run: python ai-system/supervision/sham_access_check.py
