@@ -17,6 +17,53 @@ import { planBatches } from "@/lib/bulk";
 type St = { siteUrl: string; envAdmin: string; collection: string; minter: string; collectionActive: boolean; minterActive: boolean; balance: number | null; payout?: string | null; minted?: number; status?: number; soldCount?: number; priceNormal?: number; priceGold?: number; capLegendary?: number; poolSize?: number; poolLoaded?: number; ticketsSold?: number; revealed?: boolean; revealAt?: number; commitSet?: boolean };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** A photo for an owner mint or an auction: choose the file, and when it is not square slide the frame to pick which part of it fills the circle
+ *  (the same control the buyers have). The finished picture (waxed to the kind's metal) goes to onImage; null when there is none. */
+function AdminPhoto({ kind, resetKey, disabled, onImage }: { kind: number; resetKey: string | number; disabled?: boolean; onImage: (img: string | null) => void | Promise<void> }) {
+  const [raw, setRaw] = useState<{ uri: string; w: number; h: number } | null>(null);
+  const [pos, setPos] = useState(0.32);
+  const [busy, setBusy] = useState(false), [err, setErr] = useState("");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wax = kind === 1 ? "silver" : kind === 2 || kind === 7 ? "gold" : null;   // the photo's treatment follows the kind
+  const make = useCallback(async (r: { uri: string; w: number; h: number }, at: number) => {
+    setBusy(true); setErr("");
+    try {
+      const f = await fillSquare(r.uri, r.w > r.h ? at : 0.5, r.w > r.h ? 0.5 : at);
+      const img = f ? (wax ? await waxPhoto(f.uri, wax) : f.uri) : null;
+      if (!img) { setErr("تعذّر تجهيز الصورة"); await onImage(null); return; }
+      await onImage(img);
+    } catch { setErr("تعذّر تجهيز الصورة"); } finally { setBusy(false); }
+  }, [wax, onImage]);
+  useEffect(() => { if (raw) void make(raw, pos); /* kind or date changed: the picture is made again for it */ }, [kind, resetKey]);   // eslint-disable-line react-hooks/exhaustive-deps
+  async function pick(f: File | undefined) {
+    if (!f) return;
+    setBusy(true); setErr("");
+    try {
+      const c = await compressPhoto(f);
+      if (!c) { setErr("تعذّر تجهيز الصورة"); return; }
+      const r = { uri: c.uri, w: c.w, h: c.h };
+      setRaw(r); setPos(0.32); setBusy(false); await make(r, 0.32);
+    } catch { setErr("تعذّر تجهيز الصورة"); } finally { setBusy(false); }
+  }
+  const move = (v: number) => {       // the window follows the slider (re-made a moment after the finger stops)
+    setPos(v);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { if (raw) void make(raw, v); }, 250);
+  };
+  return (
+    <div className="gap">
+      <input type="file" accept="image/jpeg,image/png,image/webp" disabled={disabled || busy} onChange={(e) => void pick(e.target.files?.[0])} title="صورة اختيارية" />
+      {raw && raw.w !== raw.h && (
+        <label className="muted">حرّك الإطار لتختار ما يظهر
+          <input type="range" min={0} max={100} value={Math.round(pos * 100)} onChange={(e) => move(Number(e.target.value) / 100)} style={{ width: "100%" }} />
+        </label>
+      )}
+      {busy && <div className="muted">…</div>}
+      {err && <div className="bad">{err}</div>}
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const address = useTonAddress();
   const [ui] = useTonConnectUI();
@@ -83,16 +130,11 @@ export default function AdminPanel() {
     const j = await r.json(); if (!r.ok) { toast(j.error || "فشلت المعاينة"); return false; }
     setOmSvg(j.svg); return true;
   };
-  const omPick = async (f: File | undefined) => {
-    if (!f) return;
-    setOmBusy(true); setOmSvg(""); setOmPhoto(null);
-    try {
-      const c = await compressPhoto(f); const sq = c ? await fillSquare(c.uri) : null;
-      const w = waxOf(omKind); const img = sq ? (w ? await waxPhoto(sq.uri, w) : sq.uri) : null;
-      if (!img) { toast("تعذّر تجهيز الصورة"); return; }
-      if (await omPreview(img)) setOmPhoto(img);
-    } catch { toast("تعذّر تجهيز الصورة"); } finally { setOmBusy(false); }
-  };
+  const omImage = useCallback(async (img: string | null) => {
+    if (!img) { setOmPhoto(null); setOmSvg(""); return; }
+    setOmBusy(true);
+    try { if (await omPreview(img)) setOmPhoto(img); } finally { setOmBusy(false); }
+  }, [omKind, omY, omM, omD]);   // eslint-disable-line react-hooks/exhaustive-deps
   const omMint = () => run(async () => {
     const date = omDate(), id = idOf(omKind, date);
     const info = await (await fetch(`/api/date/${date}`, { cache: "no-store" })).json();
@@ -117,18 +159,15 @@ export default function AdminPanel() {
   const [acReserve, setAcReserve] = useState(SEASON_1.classAuction.reserve[4]), [acHours, setAcHours] = useState(String(SEASON_1.classAuction.hours));
   const acId = () => idOf(acKind, dateIdx(acY, acM, acD));
   useEffect(() => { setAcReserve(SEASON_1.classAuction.reserve[acKind - 3]); }, [acKind]);
-  const acPick = async (f: File | undefined) => {
-    if (!f) return;
-    setAcBusy(true); setAcSvg(""); setAcPhoto(null);
+  const acImage = useCallback(async (img: string | null) => {
+    if (!img) { setAcPhoto(null); setAcSvg(""); return; }
+    setAcBusy(true);
     try {
-      const c = await compressPhoto(f); const sq = c ? await fillSquare(c.uri) : null;
-      const w = waxOf(acKind); const img = sq ? (w ? await waxPhoto(sq.uri, w) : sq.uri) : null;
-      if (!img) { toast("تعذّر تجهيز الصورة"); return; }
       const pr = await fetch("/api/admin/special", { method: "POST", headers: adm(), body: JSON.stringify({ id: acId(), photo: img, preview: true }) });
       const pj = await pr.json(); if (!pr.ok) { toast(pj.error || "فشلت المعاينة"); return; }
       setAcPhoto(img); setAcSvg(pj.svg);
     } catch { toast("تعذّر تجهيز الصورة"); } finally { setAcBusy(false); }
-  };
+  }, [acKind, acY, acM, acD]);   // eslint-disable-line react-hooks/exhaustive-deps
   const acAuto = async () => {
     setAcBusy(true); setAcSvg("");
     try {
@@ -345,7 +384,7 @@ export default function AdminPanel() {
                   <input type="number" min={1950} max={2049} value={omY} onChange={(e) => { setOmY(Number(e.target.value)); setOmPhoto(null); setOmSvg(""); }} title="السنة" />
                 </div>
                 <input type="text" dir="ltr" placeholder="عنوان المستلم (اختياري، وإلا لمحفظتك)" value={omTo} onChange={(e) => setOmTo(e.target.value)} />
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={omBusy} onChange={(e) => omPick(e.target.files?.[0])} title="صورة اختيارية" />
+                <AdminPhoto kind={omKind} resetKey={`${omKind}-${omDate()}`} disabled={omBusy} onImage={omImage} />
                 {omSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(omSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <button className="btn gold" disabled={!launched || running || omBusy} onClick={omMint}>{omPhoto ? "خزّن الصورة واصكّ الرمز" : "اصكّ الرمز"}</button>
               </div>
@@ -362,7 +401,7 @@ export default function AdminPanel() {
                   <input type="number" min={1950} max={2049} value={acY} onChange={(e) => { setAcY(Number(e.target.value)); setAcPhoto(null); setAcSvg(""); }} title="السنة" />
                 </div>
                 <button className="btn ghost" disabled={acBusy} onClick={acAuto}>ارسم الصورة تلقائياً (تاريخ خاص)</button>
-                <input type="file" accept="image/jpeg,image/png,image/webp" disabled={acBusy} onChange={(e) => acPick(e.target.files?.[0])} title="أو اختر صورة بنفسك" />
+                <AdminPhoto kind={acKind} resetKey={`${acKind}-${acId()}`} disabled={acBusy} onImage={acImage} />
                 {acSvg && <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(acSvg)}`} alt="" style={{ width: "100%", maxWidth: 300, margin: "0 auto", display: "block" }} />}
                 <div className="row" style={{ gap: 8 }}>
                   <input type="number" step="1" min="1" value={acReserve} onChange={(e) => setAcReserve(e.target.value)} title="سعر البداية Gram" />

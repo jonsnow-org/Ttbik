@@ -110,7 +110,8 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     image: hidden ? `${imgBase}/hidden.svg` : permanent && st?.mediaRef ? `${imgBase}/${id}.svg${q}&p=${st.mediaRef}&live=1` : `${imgBase}/${id}.svg${q}&live=1`,   // always the living picture (motion, age, colours), a photo included
     // Getgems shows these as buttons on the token's page (label up to 24 characters)
     ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${id}` }, { label: "Living view", uri: livingView }] } : {}),
-    attributes: [...story.attrs, { trait_type: "Name (Arabic)", value: `أثر · ${dateLabelAr(y, m, d)}` }],
+    // a number 0 is shown as «attribute missing» by some wallets (Telegram Wallet): zero is written as the text "0"
+    attributes: [...story.attrs, { trait_type: "Name (Arabic)", value: `أثر · ${dateLabelAr(y, m, d)}` }].map((a) => (a.value === 0 ? { ...a, value: "0" } : a)),
   }, { headers: { "Cache-Control": "public, max-age=60" } });
 }
 

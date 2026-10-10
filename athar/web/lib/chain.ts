@@ -7,6 +7,7 @@ import { AtharItem } from "../../build/athar_AtharItem";
 import { AtharMinter } from "../../build/athar_AtharMinter";
 import { adminAddress, COLLECTION_URI, DELAY_SEC, TONCENTER_RPC, TONCENTER_V3 } from "./config";
 import { toncenterKey } from "./settings";
+import { marketView } from "./market";
 import { SEASONS, specialIndex } from "./seasons";
 import { KIND_COUNT, dateOf, kindOf } from "./kinds";
 
@@ -222,9 +223,14 @@ export async function tokensOf(owner: string) {
   return cached(`mine:${owner}`, 10000, async () => {
     const url = `${TONCENTER_V3}/nft/items?owner_address=${encodeURIComponent(owner)}&collection_address=${encodeURIComponent(a.collection.address.toString())}&limit=200`;
     const r = await fetch(url, { headers: toncenterKey() ? { "X-API-Key": toncenterKey() } : {}, cache: "no-store" });
-    if (!r.ok) return [] as number[];
-    const j = await r.json();
-    return (j.nft_items || []).map((x: { index: string }) => Number(x.index)).filter((n: number) => Number.isFinite(n)) as number[];
+    const ids = new Set<number>();
+    if (r.ok) for (const x of ((await r.json()).nft_items || []) as { index: string }[]) { const n = Number(x.index); if (Number.isFinite(n)) ids.add(n); }
+    // a token the owner has put up for sale or auction on a market is held by that market's sale contract until it sells: it is still theirs
+    try {
+      const me = Address.parse(owner);
+      for (const l of (await marketView()).listings) { if (l.owner && Address.parse(l.owner).equals(me)) ids.add(l.id); }
+    } catch { /* the market index is optional here */ }
+    return [...ids];
   });
 }
 
