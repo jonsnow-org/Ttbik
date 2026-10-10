@@ -14,7 +14,7 @@ sham_text_stream.stream_for uses it as the fallback: sources healthy → live st
 instead of the same 2,000 again. A shard built with another tokenizer or window length is never used (the fingerprint decides).
 Nothing here changes a weight; it only changes which text is available when the live sources are not.
 
-    SHAM_SHARD_SECONDS (default 14400)   how long the GitHub job collects
+    SHAM_SHARD_SECONDS (default 5400)   how long the GitHub job collects
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def build(out_dir: str, seconds: float, tokenizer=None, seq_len: int = 1024, see
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     seed = int(time.time()) % 1_000_000 if seed is None else seed
-    s = M.Stream(tokenizer, seq_len, seed=seed, queue_windows=2048, slots=3, chunk_docs=512, use_process=make_stream is None,
+    s = M.Stream(tokenizer, seq_len, seed=seed, queue_windows=1024, slots=2, chunk_docs=512, use_process=make_stream is None,
                  make_stream=make_stream, fake=fake).start()
     rows: list = []
     shards, total = [], 0
@@ -60,7 +60,7 @@ def build(out_dir: str, seconds: float, tokenizer=None, seq_len: int = 1024, see
         nonlocal rows, total
         if not rows:
             return
-        arr = np.asarray(rows, dtype=np.uint16)
+        arr = np.stack(rows)
         name = f"shard_{seed}_{len(shards):04d}.npy"
         np.save(out / name, arr[np.random.default_rng(seed + len(shards)).permutation(len(arr))])
         shards.append({"file": name, "windows": int(len(arr))})
@@ -75,7 +75,7 @@ def build(out_dir: str, seconds: float, tokenizer=None, seq_len: int = 1024, see
                 if s.stop.is_set():
                     break
                 continue
-            rows.append(w)
+            rows.append(np.asarray(w, dtype=np.uint16))     # 2 bytes a token, not a Python int (the runner has 16 GB)
             if len(rows) >= windows_per_shard:
                 flush()
         flush()
@@ -144,7 +144,7 @@ def publish_main() -> None:
     """The GitHub job: collect for SHAM_SHARD_SECONDS, then replace the dataset's contents (fresh data every run)."""
     from sham_inputs import publish_dataset
     work = Path(tempfile.mkdtemp())
-    man = build(str(work), float(os.environ.get("SHAM_SHARD_SECONDS", "14400")))
+    man = build(str(work), float(os.environ.get("SHAM_SHARD_SECONDS", "5400")))
     if man["windows"] < 1000:
         print("⚠ أقل من 1000 نافذة — لا نشر (المصادر متوقفة؟)")
         return
