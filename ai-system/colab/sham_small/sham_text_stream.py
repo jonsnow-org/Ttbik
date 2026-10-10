@@ -166,7 +166,7 @@ def _reader_main(sources, slots, chunk_docs, seed, out_q, stop_ev, mem_limit, fa
             ds = (load_dataset(name, config, split="train", streaming=True) if config
                   else load_dataset(name, split="train", streaming=True))
         try:
-            ds = ds.shuffle(seed=seed + 7919 * r, buffer_size=300)
+            ds = ds.shuffle(seed=seed + 7919 * r, buffer_size=1000)
         except Exception:
             pass
         return ds
@@ -290,7 +290,7 @@ class Stream:
             ds = (load_dataset(name, config, split="train", streaming=True) if config
                   else load_dataset(name, split="train", streaming=True))
         try:
-            ds = ds.shuffle(seed=self.seed + 7919 * round_no, buffer_size=300)
+            ds = ds.shuffle(seed=self.seed + 7919 * round_no, buffer_size=1000)
         except Exception:
             pass
         return ds
@@ -553,7 +553,12 @@ def stream_for(tokenizer, seq_len: int, seed_files=None) -> Stream:
         except Exception:
             gpu = False
         # a CPU session consumes ~1 window/s: two readers and small queues are plenty (and light on memory)
-        s = Stream(tokenizer, seq_len, slots=3 if gpu else 2, chunk_docs=64 if gpu else 32,
+        # 2026-10-10: a chunk used to be 64/32 documents. Every chunk re-opens the dataset (HF API calls, shard listing) and the
+        # shuffle buffer must fill (300 documents) before the first one is emitted, so ~5x more was read than used and the
+        # opens dominated: the GPU stage-1 session waited for data 21,638 s of ~30,000 (71%), and the GitHub soak managed 8.8
+        # windows/s with 73 re-opens in 7 minutes. Long chunks amortise the open and the buffer; memory is unchanged because
+        # at most `slots` streams are ever open at once.
+        s = Stream(tokenizer, seq_len, slots=3 if gpu else 2, chunk_docs=int(os.environ.get("SHAM_STREAM_CHUNK", 1024 if gpu else 512)),
                    queue_windows=2048 if gpu else 256, use_process=os.environ.get("SHAM_STREAM_THREADS") != "1")
         s.fallback = _fallback_windows(tokenizer, seq_len, seed_files or [])
         s.start()
