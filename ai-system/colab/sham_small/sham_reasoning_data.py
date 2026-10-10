@@ -11,8 +11,8 @@ easy step instead of the final number in one jump. This module generates such so
 
 Everything is checked exactly: each problem carries its true answer (computed from the same numbers), and the tests recompute
 every solution independently. Nothing here answers anything at inference time: it is a curriculum the model trains on, and the
-checkers only SCORE its own attempts. It stays OFF unless a session asks for it (SHAM_REASONING_SHARE > 0), so the owner's
-rule "no answers by rules" is untouched by default.
+checkers only SCORE its own attempts. Its share in training is decided by Sham itself from a measured probe (sham_auto_config) —
+or forced/forbidden with SHAM_REASONING_SHARE — and the verdict is re-measured after every merge.
 
 Kinds: add / sub / mul / div, next-in-sequence, compare, two-step word problems, ordering (transitive logic), parity.
 Languages: Arabic and English (the tokenizer is general; more languages are a template away).
@@ -227,10 +227,16 @@ def reasoning_examples(encode, n: int, seed: int = 0, max_len: int = 384) -> lis
 
 
 def share() -> float:
+    """The share of worked-solution examples in a training mixture. SHAM_REASONING_SHARE forces it (0 forbids); otherwise the
+    value Sham decided from its own probe (sham_auto_config); with no verdict yet: 0."""
     import os
+    env = os.environ.get("SHAM_REASONING_SHARE")
     try:
-        return max(0.0, min(0.5, float(os.environ.get("SHAM_REASONING_SHARE", "0"))))
-    except ValueError:
+        if env not in (None, ""):
+            return max(0.0, min(0.5, float(env)))
+        import sham_auto_config
+        return max(0.0, min(0.5, float(sham_auto_config.get("reasoning_share", 0.0) or 0.0)))
+    except Exception:
         return 0.0
 
 

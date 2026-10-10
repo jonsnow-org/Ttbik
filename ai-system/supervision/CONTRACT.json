@@ -101,6 +101,14 @@
     "sham-orchestrator-state": {
       "role": "حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج",
       "writer": null
+    },
+    "sham-crawl-selflearn": {
+      "role": "نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*)",
+      "writer": "selflearn"
+    },
+    "sham-crawl-selflearn-corpus": {
+      "role": "نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً)",
+      "writer": "selflearn"
     }
   },
   "dynamic_dataset_patterns": [
@@ -317,6 +325,17 @@
       "accelerator": "CPU",
       "reads": [],
       "writes": []
+    },
+    "selflearn": {
+      "file": "ai-system/colab/sham_small/self_learn.py",
+      "title": "التعلّم الذاتي من أسئلة الويب",
+      "kind": "module (يعمل داخل خادم البوت)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": [
+        "sham-crawl-selflearn",
+        "sham-crawl-selflearn-corpus"
+      ]
     }
   },
   "lineage": [

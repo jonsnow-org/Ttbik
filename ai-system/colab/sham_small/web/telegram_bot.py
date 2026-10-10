@@ -33,7 +33,7 @@ WELCOME = (
     "ويعمل تقنياً، وليس جودة الناتج بعد.\n\n"
     "• أرسل أي رسالة نصية مباشرة لتوليد نص.\n"
     "• /web سؤالك — بحث حي ثم إجابة\n"
-    "• /weblearn سؤالك — بحث + خطوة تعلّم (إن فُعّل على الخادم)\n"
+    "• /weblearn سؤالك — مثل /web (التعلّم الذاتي تلقائي لكل بحث)\n"
     "• /image وصف الصورة\n"
     "• /audio نص ليتحول لصوت\n"
     "• /video وصف الفيديو\n"
@@ -150,7 +150,7 @@ async def ask_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not question:
         await update.message.reply_text("استخدم: /web سؤالك هنا")
         return
-    learn = (context.user_data or {}).get("_learn_flag", False)
+    learn = True   # every web answer becomes a learning experience automatically (guarded server-side)
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     try:
         r = await _post(
@@ -165,11 +165,12 @@ async def ask_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         answer = (data.get("answer") or "").strip() or "(لم تُرجع شام رداً)"
         hits = data.get("hits", 0)
         footer = f"\n\n🔎 مصادر: {hits}"
-        if data.get("learned"):
-            learn_info = data.get("learn") or {}
-            footer += f"\n🧬 تعلّم: خسارة {learn_info.get('loss', '?')} · خطوة {learn_info.get('step', '?')}"
-        elif learn:
-            footer += f"\n🧬 لم يُحفظ تعلّم: {data.get('reason', '')}"
+        if data.get("queued"):
+            footer += f"\n🧬 حُفظت تجربة للتعلّم ({data.get('pending', '?')} بانتظار الدفعة)"
+            if data.get("learning_started"):
+                footer += " — بدأت جولة تعلّم محروسة الآن"
+        elif learn and data.get("reason"):
+            footer += f"\n🧬 لم تُحفظ تجربة: {data.get('reason', '')}"
         # لا روابط في الرد للمستخدم — لا نرفق sources/href
         await update.message.reply_text(answer[:3500] + footer)
     except Exception as e:
