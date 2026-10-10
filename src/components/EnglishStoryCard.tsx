@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CoverImage from "@/components/CoverImage";
 
 const COVERS: Record<string, string> = {
   "world-post-day-2026": "https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=1200&q=80",
@@ -18,7 +19,7 @@ const COVERS: Record<string, string> = {
 };
 
 export function englishCover(slug: string) {
-  return COVERS[slug] || "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
+  return COVERS[slug];
 }
 
 export default function EnglishStoryCard({
@@ -38,9 +39,8 @@ export default function EnglishStoryCard({
 }) {
   return (
     <Link href={href} className="block overflow-hidden rounded-3xl border border-sky-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300">
-      <div className="relative aspect-[21/9] bg-sky-50">
-        <img src={englishCover(slug)} alt="" className="h-full w-full object-cover" loading="lazy" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-white via-white/20 to-transparent" />
+      <div className="relative aspect-[16/9] bg-sky-100">
+        <CoverImage src={englishCover(slug)} alt={title} label={badge || "Sham AI"} />
       </div>
       <div className="p-4">
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
