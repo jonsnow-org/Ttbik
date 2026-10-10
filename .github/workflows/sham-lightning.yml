@@ -4,7 +4,12 @@ name: Sham Lightning Studio (free CPU)
 # الأسرار: LIGHTNING_USER_ID، LIGHTNING_API_KEY (تضيفها المالكة).
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe أو diag (تحضير الكود بلا أسرار) أو run (تشغيل المهمة)"
+        required: false
+        default: "probe"
 
 permissions:
   contents: read
@@ -13,7 +18,7 @@ jobs:
   probe:
     if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,4 +31,5 @@ jobs:
         env:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-        run: python ai-system/lightning/studio_probe.py
+        run: |
+          if [ "${{ inputs.mode || 'probe' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode }}"; fi
