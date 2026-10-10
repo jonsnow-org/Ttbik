@@ -413,6 +413,14 @@
       "writes": [
         "sham-crawl-modal"
       ]
+    },
+    "lightning_probe": {
+      "file": ".github/workflows/sham-lightning.yml",
+      "title": "استوديو Lightning المجاني (فحص التشغيل من GitHub)",
+      "kind": "workflow",
+      "accelerator": "CPU (استوديو Lightning المجاني)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
