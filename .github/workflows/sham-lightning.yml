@@ -31,5 +31,10 @@ jobs:
         env:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          # owner's explicit approval (2026-10-10): Kaggle + HF keys go only into a private file inside her own Studio, never printed
+          SHAM_STUDIO_SECRETS: "1"
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           if [ "${{ inputs.mode || 'probe' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode }}"; fi
