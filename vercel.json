@@ -67,6 +67,10 @@
     {
       "path": "/api/cron/time-capsules",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/athar-birthdays",
+      "schedule": "20 6 * * *"
     }
   ],
   "git": {
