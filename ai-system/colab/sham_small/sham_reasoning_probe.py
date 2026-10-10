@@ -9,10 +9,11 @@ the current best weights, run on the free GitHub CPU runner after the merge job:
   3. measure the same things again, and the held-out ordinary-text loss, so a gain in reasoning bought with a loss on
      everything else is visible.
 
-Nothing here changes any published weight. It answers one question before the owner is asked to switch the curriculum on in
-the long GPU sessions: does this model LEARN the procedure from these examples at all, and what does it cost?
+It changes no published weight by itself. It answers one question: does this model LEARN the procedure from these examples, and
+what does it cost? The caller (sham_ci_merge) decides the share automatically (sham_auto_config) and may ADOPT the trained copy
+only if the merge gate (held-out text / chat / media) says no skill got worse.
 
-    SHAM_PROBE_MINUTES (default 25)   training budget of the probe
+    SHAM_PROBE_MINUTES (default 45)   training budget of the probe
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ def _exact_match(model, tokenizer, device, n=16, seed=991) -> tuple[float, dict]
 def probe(model, tokenizer, device: str = "cpu", minutes: float | None = None, workdir: str = "/tmp/sham_probe") -> dict:
     out: dict = {"ok": False}
     t0 = time.time()
-    minutes = float(os.environ.get("SHAM_PROBE_MINUTES", 25)) if minutes is None else minutes
+    minutes = float(os.environ.get("SHAM_PROBE_MINUTES", 45)) if minutes is None else minutes
     try:
         from sham_chat import batch_examples, build_chat_example
         from sham_merge import batches_loss
@@ -113,6 +114,7 @@ def probe(model, tokenizer, device: str = "cpu", minutes: float | None = None, w
         after["exact"], after["by_kind"] = _exact_match(trial, tokenizer, device)
         out.update(ok=True, steps=step, minutes=round((time.time() - t0) / 60, 1), before=before, after=after,
                    train_reason_tail=round(sum(losses["reason"][-20:]) / max(len(losses["reason"][-20:]), 1), 3))
+        out["trial"] = trial.to("cpu")      # the trained COPY: the caller may adopt it (only after its own gate says it costs nothing)
         print(f"🔬 المسبار بعد {step} خطوة: خسارة الحلول {before['reason_loss']:.3f} → {after['reason_loss']:.3f} | "
               f"نص {before['text_loss']:.3f} → {after['text_loss']:.3f} | إصابة {before['exact']:.0%} → {after['exact']:.0%} "
               f"| حسب النوع {after['by_kind']}")
