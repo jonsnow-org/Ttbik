@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-09 18:25 UTC",
+  "generated_at": "2026-10-10 01:00 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -52,7 +52,7 @@
       "track": "chat_stage",
       "status": "error",
       "role": "duplicate",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": false,
       "failure": ""
     },
@@ -88,7 +88,7 @@
       "track": "bot_test",
       "status": "cancelAcknowledged",
       "role": "tool",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": false,
       "failure": ""
     },
@@ -115,7 +115,7 @@
       "track": "audio_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": false,
       "failure": ""
     },
@@ -124,25 +124,25 @@
       "track": "image_tokenizer",
       "status": "complete",
       "role": "primary",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": true,
       "failure": ""
     },
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": false,
       "failure": ""
     },
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-08",
+      "last_run": "2026-10-09",
       "gpu": false,
       "failure": ""
     },
@@ -180,7 +180,7 @@
       "role": "duplicate",
       "last_run": "2026-09-23",
       "gpu": false,
-      "failure": "    494     except FileNotFoundError:\n--> 495         raise EmptyDatasetError(f\"The directory at {base_path} doesn't contain any data files\") from None\nEmptyDatasetError: The directory at hf://datasets/mozilla-foundation/common_voice_17_0@11dc88355e899d1bf2df74f01b904a8544a17b33 doesn't contain any "
+      "failure": ""
     },
     {
       "alias": "المرحلة الأولى 1",
@@ -189,7 +189,7 @@
       "role": "duplicate",
       "last_run": "2026-09-22",
       "gpu": false,
-      "failure": "Exception encountered at \"In [9]\":\nNameError                                 Traceback (most recent call last)\nNameError: name 'realistic_steps' is not defined\nقبل الفشل: عدد ملفات الشحنات: 4 | أعيد استخدام: /kaggle/… (vocab=32000) | عدد النوافذ: 31,153 | استؤنف من /kaggle/… عند الخطوة 36,963 — 107,"
+      "failure": ""
     }
   ],
   "other_notebooks_count": 4,
@@ -233,11 +233,11 @@
       "size_mb": 144.1,
       "last_updated": "2026-10-09",
       "progress": {
-        "samples_consumed": 1833,
-        "step": 61,
+        "samples_consumed": 1922,
+        "step": 65,
         "last_run_sources": {
-          "x": 87,
-          "web_fallback": 7
+          "x": 86,
+          "web_fallback": 3
         }
       },
       "has_key_files": true
@@ -256,10 +256,10 @@
       "size_mb": 35.0,
       "last_updated": "2026-10-09",
       "progress": {
-        "samples_consumed": 2665,
-        "step": 259,
+        "samples_consumed": 2767,
+        "step": 284,
         "last_run_sources": {
-          "x": 56
+          "x": 102
         }
       },
       "has_key_files": true
@@ -267,7 +267,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 580.6,
       "last_updated": "2026-10-09",
       "progress": {},
       "has_key_files": true
@@ -372,11 +372,11 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 1833,
-          "step": 61,
+          "samples_consumed": 1922,
+          "step": 65,
           "last_run_sources": {
-            "x": 87,
-            "web_fallback": 7
+            "x": 86,
+            "web_fallback": 3
           }
         },
         "dataset": "نتائج مسار ترميز الصورة 1"
@@ -386,10 +386,10 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "samples_consumed": 2665,
-          "step": 259,
+          "samples_consumed": 2767,
+          "step": 284,
           "last_run_sources": {
-            "x": 56
+            "x": 102
           }
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
@@ -413,14 +413,14 @@
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
