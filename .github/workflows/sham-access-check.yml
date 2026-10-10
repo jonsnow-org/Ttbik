@@ -36,5 +36,7 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           RENDER_NOVA_SMALL_DEPLOY_HOOK: ${{ secrets.RENDER_NOVA_SMALL_DEPLOY_HOOK }}
         run: python ai-system/supervision/sham_access_check.py
