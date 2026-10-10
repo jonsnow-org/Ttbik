@@ -111,7 +111,8 @@ if modal is not None:
     image = (modal.Image.debian_slim(python_version="3.11")
              .pip_install("torch", "numpy", "tokenizers", "kaggle", "requests", "pillow", "soundfile", "imageio-ffmpeg", "beautifulsoup4")
              .add_local_dir(str(SRC), remote_path="/root/sham_small",
-                            ignore=["*.db", "__pycache__", "kaggle_notebooks", "colab_notebooks", "*.ipynb"]))
+                            ignore=["*.db", "__pycache__", "kaggle_notebooks", "colab_notebooks", "*.ipynb"])
+             .add_local_dir(str(HERE.parent / "vault"), remote_path="/root/vault", ignore=["__pycache__"]))
 
     _secrets = [modal.Secret.from_dict(_env)] if _env else []
 
@@ -126,6 +127,17 @@ if modal is not None:
             print("🔎", " ".join(cmd[:3]), "→", r.returncode, ((r.stdout or "") + (r.stderr or "")).strip().replace(user, "<owner>")[-240:])
         r = subprocess.run(["kaggle", "datasets", "download", "-d", f"{user}/sham-text-shards", "-p", "/tmp/diag", "--unzip"], capture_output=True, text=True)
         print("🔎 تنزيل تجريبي →", r.returncode, ((r.stdout or "") + (r.stderr or "")).strip().replace(user, "<owner>")[-400:])
+        try:      # the legacy REST route (no `kaggle` CLI): Bearer token, redirect target gets no credentials (ai-system/vault/sham_vault.py)
+            sys.path.insert(0, "/root/sham_small/../vault") if os.path.isdir("/root/vault") else None
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("sham_vault_rest", "/root/vault/sham_vault.py")
+            vm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(vm)
+            from pathlib import Path as _P
+            ok = vm.kaggle_download(user, "sham-text-shards", _P("/tmp/rest.zip"))
+            print("🔎 مسار REST →", ok, _P("/tmp/rest.zip").stat().st_size if _P("/tmp/rest.zip").exists() else "لا ملف", "| zip صالح:", vm.zip_ok(_P("/tmp/rest.zip")) if ok else "-")
+        except Exception as exc:
+            print("🔎 مسار REST تعذّر:", type(exc).__name__, str(exc)[:120])
         print("🔎 ملفات:", subprocess.run("ls -la /tmp/diag 2>&1 | head -8; df -h /tmp | tail -1", shell=True, capture_output=True, text=True).stdout.strip()[-400:])
         from sham_inputs import fetch_dataset, publish_dataset
         small = device == "cpu"      # CPU: a shorter window and a smaller batch, the shape the CPU sessions of this project already use
