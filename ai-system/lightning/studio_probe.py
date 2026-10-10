@@ -27,18 +27,27 @@ def main() -> int:
         say(f"مكتبة lightning_sdk غير متاحة: {type(exc).__name__}")
         return 0
     name = os.environ.get("SHAM_LIGHTNING_STUDIO", "fantastic-bronze-a104f")
-    kw = {"name": name}
-    if os.environ.get("SHAM_LIGHTNING_TEAMSPACE"):
-        kw["teamspace"] = os.environ["SHAM_LIGHTNING_TEAMSPACE"]
-    try:
-        studio = Studio(**kw)
+    try:        # the SDK needs the teamspace: ask the account which ones it has (names are not secrets)
+        from lightning_sdk import User
+        spaces = list(User().teamspaces)
+        say("مساحات الفريق في الحساب: " + ", ".join(str(getattr(s, "name", s)) for s in spaces))
+        studio = None
+        for sp in spaces:
+            found = [s for s in sp.studios]
+            say(f"  • {getattr(sp, 'name', sp)}: استوديوهات = " + ", ".join(str(getattr(s, 'name', s)) for s in found))
+            for s in found:
+                if str(getattr(s, "name", "")) == name or (studio is None and not os.environ.get("SHAM_LIGHTNING_STUDIO")):
+                    studio = s
+        if studio is None:
+            say(f"لا استوديو باسم «{name}» ولا غيره")
+            return 0
     except Exception as exc:
-        say(f"تعذّر الوصول إلى الاستوديو «{name}»: {type(exc).__name__}: {str(exc)[:200]}")
+        say(f"تعذّر سرد مساحات الفريق: {type(exc).__name__}: {str(exc)[:200]}")
         return 0
     started_here = False
     try:
         status = str(getattr(studio, "status", "?"))
-        say(f"حالة الاستوديو: {status}")
+        say(f"حالة الاستوديو: {status} | نوم تلقائي: {getattr(studio, 'auto_sleep', '?')} بعد {getattr(studio, 'auto_sleep_time', '?')}")
         if "running" not in status.lower():
             say("يُشغَّل على معالج مجاني (CPU)…")
             studio.start(Machine.CPU)
