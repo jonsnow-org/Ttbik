@@ -38,7 +38,7 @@ def _exact_match(model, tokenizer, device, n=16, seed=991) -> tuple[float, dict]
     import sham_grpo
     from sham_reasoning_data import make_problem
     rng = random.Random(seed)
-    model.eval()
+    model.train(False)
     hits, by_kind = 0, {}
     for _ in range(n):
         p = make_problem(rng)
@@ -108,7 +108,7 @@ def probe(model, tokenizer, device: str = "cpu", minutes: float | None = None, w
                 g["lr"] = 2e-4 * min(1.0, (step + 1) / 20)
             opt.step()
             step += 1
-        trial.eval()
+        trial.train(False)
         after = {"reason_loss": _solution_loss(trial, held, device), "text_loss": batches_loss(trial, text_gate, device)}
         after["exact"], after["by_kind"] = _exact_match(trial, tokenizer, device)
         out.update(ok=True, steps=step, minutes=round((time.time() - t0) / 60, 1), before=before, after=after,
