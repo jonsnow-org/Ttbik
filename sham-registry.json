@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-10 10:00 UTC",
+  "generated_at": "2026-10-10 13:44 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -149,7 +149,7 @@
     {
       "alias": "المرحلة الأولى 2",
       "track": "text_stage1",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-10",
       "gpu": false,
@@ -198,7 +198,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 581.4,
+      "size_mb": 0.0,
       "last_updated": "2026-10-10",
       "progress": {},
       "has_key_files": true
@@ -223,7 +223,7 @@
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
       "size_mb": 0.0,
-      "last_updated": "2026-10-09",
+      "last_updated": "2026-10-10",
       "progress": {},
       "has_key_files": true
     },
@@ -363,7 +363,7 @@
       "text_stage1": {
         "name": "المرحلة الأولى — تدريب النص الأساسي (GPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الأولى 1"
       },
