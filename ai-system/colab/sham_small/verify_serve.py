@@ -81,6 +81,39 @@ def main() -> None:
         assert len(resp.content) > 1000, f"video response suspiciously small: {len(resp.content)} bytes"
         print(f"/generate/video OK: real HTTP response is a real MP4 file ({len(resp.content):,} bytes).")
 
+        # --- the open /ask/* and /generate/medical/image endpoints (2026-10-07: no organization key, no fixed category gate).
+        #     Their tests had been dropped with the gates; restored for the open form, so a regression is caught again.
+        import io as _io
+        buf = _io.BytesIO()
+        Image.new("RGB", (32, 32), color=(120, 80, 60)).save(buf, format="PNG")
+        resp = requests.post(f"{_BASE_URL}/ask/image", files={"file": ("clip.png", buf.getvalue())},
+                              data={"question": "what is this?"}, timeout=60)
+        resp.raise_for_status()
+        assert isinstance(resp.json()["answer"], str)
+        print("/ask/image OK: an uploaded picture and a free question return an answer (open endpoint).")
+
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as _tmpdir:
+            _video_path = Path(_tmpdir) / "clip.mp4"
+            subprocess.run([__import__("imageio_ffmpeg").get_ffmpeg_exe(), "-y", "-f", "lavfi", "-i",
+                            "testsrc=duration=3:size=32x32:rate=5", str(_video_path)], check=True, capture_output=True)
+            video_bytes = _video_path.read_bytes()
+        resp = requests.post(f"{_BASE_URL}/ask/video", files={"file": ("clip.mp4", video_bytes)},
+                              data={"question": "what is happening?", "num_frames": 2}, timeout=120)
+        resp.raise_for_status()
+        assert isinstance(resp.json()["answer"], str)
+        print("/ask/video OK: an uploaded clip and a free question return an answer (open endpoint).")
+
+        resp = requests.post(f"{_BASE_URL}/generate/medical/image", json={"prompt": "a labelled anatomical diagram", "notes": "adult"}, timeout=60)
+        resp.raise_for_status()
+        assert resp.headers["content-type"] == "image/png"
+        assert Image.open(_io.BytesIO(resp.content)).format == "PNG"
+        print("/generate/medical/image OK: a free-form prompt returns a real PNG (open endpoint).")
+
+        h = requests.get(f"{_BASE_URL}/health", timeout=10).json()
+        assert "self_learn" in h and h["self_learn"] is False, "self-learning must be OFF unless SHAM_SELF_LEARN=1"
+        print("/health OK: reports self_learn=False by default (the weight-updating /ask/web path is off).")
+
     finally:
         server.terminate()
         try:
