@@ -1,0 +1,49 @@
+name: Sham Token Shards (free CPU runner)
+
+# أقراص النص الجاهزة: يقرأ المشغّل المجاني (له شبكة سريعة) نفس مصادر خط النص المتدفق، يقطّعها بمقطّع شام العام، ويحفظ النوافذ
+# (uint16) في مجموعة Kaggle اسمها sham-text-shards. جلسات التدريب على Kaggle تستعملها كاحتياط حين يرفض Hugging Face الطلبات (429)
+# أو تتوقف الشبكة، بدل تكرار شريحة صغيرة. كل تشغيل يستبدل المحتوى ببيانات جديدة (بذرة جديدة).
+# لا يغيّر أي وزن. الأسرار: KAGGLE_API_TOKEN، و HF_TOKEN اختياري (يخفّف حدود المعدل).
+
+on:
+  schedule:
+    - cron: "50 */12 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-token-shards
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  shards:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_SHARDS != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install (CPU only)
+        run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers numpy requests kaggle datasets
+
+      - name: Collect 3.5 hours of windows and publish
+        working-directory: ai-system/colab/sham_small
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SHAM_SHARDS_PUBLISH: "1"
+          SHAM_SHARD_SECONDS: "12600"
+        run: python sham_token_shards.py
