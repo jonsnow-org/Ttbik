@@ -67,7 +67,17 @@ def check_all(env=os.environ) -> list[tuple[str, str]]:
     else:
         out.append(("Hugging Face", "— لا مفتاح"))
 
-    out.append(("ModelScope", "مفتاح موجود (لا فحص آمن بلا تعديل حسابك)" if have("MODELSCOPE_TOKEN") else "— لا مفتاح"))
+    if have("MODELSCOPE_TOKEN"):
+        try:       # the SDK's login only exchanges the token for a session: nothing in the account changes
+            from modelscope.hub.api import HubApi
+            HubApi().login(env["MODELSCOPE_TOKEN"])
+            out.append(("ModelScope", "✅ يقبل المفتاح"))
+        except ImportError:
+            out.append(("ModelScope", "مفتاح موجود (مكتبة الفحص غير مثبتة)"))
+        except Exception as exc:
+            out.append(("ModelScope", f"❌ لم ينجح الدخول ({type(exc).__name__})"))
+    else:
+        out.append(("ModelScope", "— لا مفتاح"))
 
     if have("TELEGRAM_BOT_TOKEN"):
         out.append(("Telegram", _verdict(_get(f"https://api.telegram.org/bot{env['TELEGRAM_BOT_TOKEN']}/getMe")[0])))

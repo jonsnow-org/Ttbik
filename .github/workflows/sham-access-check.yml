@@ -23,7 +23,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - run: pip install kaggle
+      - run: pip install kaggle modelscope
       - name: Check
         env:
           SHAM_ACCESS_LIVE: "1"
