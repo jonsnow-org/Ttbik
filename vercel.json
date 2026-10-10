@@ -78,5 +78,5 @@
       "sham-status": false
     }
   },
-  "ignoreCommand": "git diff --name-only HEAD^ HEAD | grep -qvE '^(athar/(web/(app|components|special|Dockerfile|package(-lock)?\\.json|next\\.config\\.mjs)|tests|contracts|scripts|viewer|[^/]+\\.md)|cloudflare/|deploy/oracle/|docs/|CLAUDE\\.md|AGENTS\\.md)' && exit 1 || exit 0"
+  "ignoreCommand": "git diff --name-only HEAD^ HEAD | grep -qvE '^(athar/(web/(app|components|special|Dockerfile|package(-lock)?\\.json|next\\.config\\.mjs)|tests|contracts|scripts|viewer|[^/]+\\.md)|cloudflare/|deploy/oracle/|docs/|ai-system/|\\.github/workflows/sham-|CLAUDE\\.md|AGENTS\\.md)' && exit 1 || exit 0"
 }
