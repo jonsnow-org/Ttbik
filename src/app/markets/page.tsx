@@ -7,7 +7,7 @@ const PATH = "/markets";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "سعر الذهب اليوم والدولار مقابل الليرة والريال والعملات الرقمية",
+  title: "سعر الذهب اليوم والدولار والعملات الرقمية",
   description:
     "شريط حي لسعر أونصة الذهب وغرام 24، وبتكوين وإيثيريوم وسولانا، والدولار مقابل الليرة التركية والسورية والريال السعودي والدرهم والجنيه. مرجع مجاني وليس سعر صرافة.",
   keywords: [
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     "شام AI",
   ],
   alternates: { canonical: `${SITE_URL}${PATH}` },
-  openGraph: {
+  openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }],
     title: "أسعار الذهب والدولار والعملات الرقمية | شام AI",
     description: "مرجع يومي مجاني للذهب والعملات الرقمية والدولار مقابل عملات الشرق الأوسط.",
     url: `${SITE_URL}${PATH}`,

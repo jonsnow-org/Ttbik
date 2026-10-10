@@ -36,7 +36,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   return {
     title: `${service.name_ar} — ${formatUsd(service.price_usd)} | شام AI`,
     description,
-    openGraph: { title: service.name_ar, description, type: "website" },
+    openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }], title: service.name_ar, description, type: "website" },
   };
 }
 

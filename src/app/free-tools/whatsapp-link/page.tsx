@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     "شام AI",
   ],
   alternates: { canonical: `${SITE_URL}${PATH}` },
-  openGraph: {
+  openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }],
     title: "مولد رابط واتساب للطلب مجاناً",
     description: "رابط يفتح محادثة واتساب برسالة طلب معبّأة تلقائياً.",
     url: `${SITE_URL}${PATH}`,

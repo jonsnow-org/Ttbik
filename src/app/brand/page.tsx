@@ -1,5 +1,9 @@
 import BrandForm from "@/components/BrandForm";
 
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "هوية شام AI: الشعار والألوان وطلب الاستخدام", description: "الشعار الرسمي لشام AI وألوانه وقواعد استخدامه، ونموذج لطلب استخدام الهوية." };
+
 export default function BrandPage() {
   return (
     <main className="mx-auto max-w-xl px-4 py-10">

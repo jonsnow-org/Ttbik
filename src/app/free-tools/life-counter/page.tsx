@@ -3,7 +3,7 @@ import LifeCounter from "./LifeCounter";
 import AdSlot from "@/components/AdSlot";
 
 export const metadata: Metadata = {
-  title: "عدّاد عمرك الحيّ: كم يوماً وثانية عشت؟ | أدوات مجانية | شام AI",
+  title: "عدّاد عمرك الحيّ: كم يوماً وثانية عشت؟ | شام AI",
   description:
     "أدخل تاريخ ميلادك وشاهد عمرك يعدّ بالثواني لحظة بلحظة: الأيام والساعات، نبضات القلب، أيام النوم، اليوم الذي وُلدت فيه، برجك، وكم تبقى لعيد ميلادك القادم. بطاقة جاهزة للمشاركة.",
   keywords: [
