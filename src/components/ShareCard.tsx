@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { downloadDataUrl } from "@/lib/download";
 
 export type CardLine = { label: string; value: string };
 
@@ -67,20 +68,47 @@ export default function ShareCard({
   }, [kicker, title, lines, note, path]);
 
   function download() {
-    const a = document.createElement("a");
-    a.href = ref.current?.toDataURL("image/png") || "";
-    a.download = "sham-card.png";
-    a.click();
+    const dataUrl = ref.current?.toDataURL("image/png") || "";
+    if (!dataUrl) return;
+    downloadDataUrl(dataUrl, "sham-card.png");
   }
 
   async function share() {
-    const blob = await new Promise<Blob | null>((resolve) => ref.current?.toBlob(resolve, "image/png"));
-    const file = blob ? new File([blob], "sham-card.png", { type: "image/png" }) : null;
-    if (file && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], text: `ttbik.vercel.app${path}` });
+    const canvas = ref.current;
+    if (!canvas) {
+      download();
       return;
     }
-    download();
+    try {
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (blob && navigator.canShare?.({ files: [new File([blob], "sham-card.png", { type: "image/png" })] })) {
+        const file = new File([blob], "sham-card.png", { type: "image/png" });
+        await navigator.share({
+          files: [file],
+          title: title || "بطاقة شام",
+          text: `ttbik.vercel.app${path}`,
+        });
+        return;
+      }
+    } catch {
+      // fall through
+    }
+    // Fallback: share URL via Web Share or copy
+    const url = `https://ttbik.vercel.app${path}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: title || "بطاقة شام", text: title, url });
+        return;
+      } catch {
+        /* user cancelled or failed */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("تم نسخ الرابط. يمكنك مشاركته يدوياً.");
+    } catch {
+      download();
+    }
   }
 
   return (
