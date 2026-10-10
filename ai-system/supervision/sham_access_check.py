@@ -98,6 +98,17 @@ def check_all(env=os.environ) -> list[tuple[str, str]]:
 
     out.append(("Modal", "مفتاحان موجودان (المعرّف والسر)" if have("MODAL_TOKEN_ID") and have("MODAL_TOKEN_SECRET")
                 else "— ناقص (المعرّف أو السر غير مضاف)"))
+    if have("MODELSCOPE_TOKEN"):          # the hosted Sham itself: the same call the Telegram bot makes (phase/step only are printed)
+        try:
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "colab" / "sham_small" / "web"))
+            import studio_client
+            os.environ["MODELSCOPE_API_TOKEN"] = env["MODELSCOPE_TOKEN"]
+            st = studio_client.studio_status()
+            out.append(("شام على استوديو ModelScope", f"✅ يردّ: {st.get('phase')} — الخطوة {st.get('detail', '')}" if st else "❌ لا جواب (الرابط أو المفتاح)"))
+        except Exception as exc:
+            out.append(("شام على استوديو ModelScope", f"⚠ تعذّر الفحص ({type(exc).__name__})"))
     out.append(("Render (خطّاف نشر)", "موجود" if have("RENDER_NOVA_SMALL_DEPLOY_HOOK") else "— غير موجود"))
     return out
 
