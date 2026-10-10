@@ -1,0 +1,29 @@
+name: Sham Lightning Studio (free CPU)
+
+# هل يستطيع GitHub تشغيل استوديو Lightning المجاني (معالج، بلا رصيد ولا بطاقة) وتنفيذ أمر فيه؟ فحص يدوي الآن؛ إن نجح تُبنى فوقه مهمة دورية.
+# الأسرار: LIGHTNING_USER_ID، LIGHTNING_API_KEY (تضيفها المالكة).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install lightning-sdk
+      - name: Probe the free Studio
+        env:
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+        run: python ai-system/lightning/studio_probe.py
