@@ -21,6 +21,7 @@ import io
 import os
 
 import requests
+import studio_client
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -58,10 +59,12 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
     try:
+        hosted = await asyncio.to_thread(studio_client.studio_status) if studio_client.enabled() else None
         r = await _get("/health")
         data = r.json()
+        extra = (f"\n☁️ استوديو ModelScope: {hosted.get('phase')} — {hosted.get('detail', '')}" if hosted else "")
         await update.message.reply_text(
-            f"✅ الخادم يعمل — {data['model_params']:,} معامل\n{data['note']}"
+            f"✅ الخادم يعمل — {data['model_params']:,} معامل\n{data['note']}{extra}"
         )
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الوصول للخادم: {e}")
@@ -74,6 +77,11 @@ async def generate_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not prompt:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    if studio_client.enabled():      # Sham hosted on the ModelScope Studio (always the newest published checkpoint): first choice
+        hosted = await asyncio.to_thread(studio_client.generate_text, prompt, 60, timeout=100.0)
+        if hosted:
+            await update.message.reply_text(hosted)
+            return
     try:
         r = await _post("/generate/text", {"prompt": prompt, "max_new_tokens": 60}, timeout=60)
         if r.status_code >= 400:
