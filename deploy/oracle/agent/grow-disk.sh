@@ -15,7 +15,10 @@ PARTNUM=$(cat "/sys/class/block/$PART/partition")
 DISK=$(lsblk -no PKNAME "$ROOT_DEV" 2>/dev/null | head -1)
 [ -n "$DISK" ] && [ -b "/dev/$DISK" ] || exit 0
 # make the kernel notice a bigger disk (the same rescan the Oracle console shows after a resize)
-[ -w "/sys/class/block/$DISK/device/rescan" ] && [ -z "${DRY:-}" ] && echo 1 > "/sys/class/block/$DISK/device/rescan" 2>/dev/null
+if [ -z "${DRY:-}" ]; then
+  dd iflag=direct if="/dev/$DISK" of=/dev/null count=1 >/dev/null 2>&1       # the first of the two commands Oracle shows after a resize
+  [ -w "/sys/class/block/$DISK/device/rescan" ] && echo 1 > "/sys/class/block/$DISK/device/rescan" 2>/dev/null   # the second
+fi
 DISK_BYTES=$(blockdev --getsize64 "/dev/$DISK")
 PART_END=$(( ($(cat "/sys/class/block/$PART/start") + $(cat "/sys/class/block/$PART/size")) * 512 ))
 SPARE=$(( DISK_BYTES - PART_END ))
