@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import QR from "@/lib/qrMin";
+import { downloadDataUrl } from "@/lib/download";
 
 const SIZES = [128, 256, 384, 512] as const;
 
@@ -60,7 +61,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
     try {
       const matrix = QR(value) as number[][];
       const n = matrix.length;
-      const quiet = 2; // modules of quiet zone
+      const quiet = 2;
       const modules = n + quiet * 2;
       const cell = size / modules;
       canvas.width = size;
@@ -84,9 +85,6 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
       }
       setDataUrl(canvas.toDataURL("image/png"));
     } catch (e) {
-      // qrMin.ts's own thrown message is Arabic-only — for the English UI,
-      // always show the English translation rather than a mixed-language
-      // string, regardless of what the encoder threw.
       setError(lang === "en" ? t.errorTooLong : e instanceof Error ? e.message : t.errorTooLong);
       setDataUrl(null);
     }
@@ -98,10 +96,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
 
   const download = () => {
     if (!dataUrl) return;
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = "qr-sham-ai.png";
-    a.click();
+    downloadDataUrl(dataUrl, "qr-sham-ai.png");
   };
 
   const copyPng = async () => {
