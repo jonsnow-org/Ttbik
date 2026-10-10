@@ -97,3 +97,12 @@ sudo bash /opt/ttbik/deploy/oracle/status.sh
 - تجربة الاسترجاع بلا تغيير: `sudo bash /opt/ttbik/deploy/oracle/agent/restore.sh --dry-run`.
 
 **الاسترجاع الآلي مفعّل** (قرار المالك 2026-10-03) عبر الملف `agent/AUTO_RESTORE_ON` في المستودع، بالشروط المذكورة أعلاه. للإيقاف: `/restore_cancel` لبوت الوسائط (مؤقت)، أو حذف ذلك الملف ودفع التعديل (دائم). يجري المراقب يومياً تجربة غير مدمّرة لمسار الاسترجاع (`restore.sh --dry-run`) وتظهر نتيجتها في تقرير `/api/ops/oracle-status` باسم `restore_selftest`.
+
+## مشغّل دفاتر شام (معزول عن أثر ومحرك الوسائط، بموافقة المالك 2026-10-10)
+وجود الملف `agent/SHAM_ON` يجعل الوكيل يشغّل `agent/install-sham.sh` عند كل تحديث (آمن للتكرار):
+- مستخدم نظام `sham` بلا صدفة، والكود في `/opt/sham` (نسخة جزئية لمجلد `ai-system/` من الفرع **`sham-main` فقط**)، والعمل في `/var/lib/sham/work` (سقف 30 GB)، والأسرار في `/etc/sham/sham.env` (يضعها المالك بنفسه؛ `root:sham` بصلاحية 0640).
+- مؤقّت systemd `sham-run.timer` كل 6 ساعات (00 و06 و12 و18 بتوقيت UTC بعد 17 دقيقة) يشغّل `/usr/local/sbin/sham-run`، فيجلب `sham-main` ثم ينفّذ `ai-system/oracle_job.sh` إن وُجد (وإلا لا يفعل شيئاً).
+- حدود: نواة واحدة و4 GB وأدنى أولوية معالج وقرص، بلا Docker، ومحجوب عنه `/opt/ttbik` و`/var/lib/ttbik` و`/var/backups/ttbik` (أسرار أثر). المشغّل ملك root فلا تعدّله شيفرة المهمة.
+- مرة واحدة يُرسل الوكيل مواصفات الجهاز (أنوية، ذاكرة، قرص، معمارية، GPU؛ بلا أسرار) للمالك على تيليجرام ويحفظها في `/var/lib/ttbik/server_specs.txt`.
+- الإيقاف: احذف `agent/SHAM_ON` ثم `systemctl disable --now sham-run.timer`.
+
