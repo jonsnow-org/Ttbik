@@ -27,7 +27,7 @@ export const META_BASE = (process.env.NEXT_PUBLIC_ATHAR_META_BASE || (SITE_URL ?
 export const COLLECTION_URI = `${META_BASE}/collection`;
 // The standalone living viewer (one HTML file stored permanently, rebuilt only by ../scripts/build-viewer.sh + store-viewer.ts):
 // it draws a token's moving picture from the token's own numbers, so it works even if every server of ours is gone.
-export const VIEWER_ID = "OLetZ3Dc82VnoqYZEFWs2fL9RO37NUfglvkKPh2gl_c";
+export const VIEWER_ID = "lnBWwZqhLeNz6W0scoF18YreB6JUMBJe38ohSXp_Fjw";
 export const viewerUrl = (p: { i: number; t: number; s: number; g: number; h: number; e: number; o: number }) =>
   `https://turbo-gateway.com/${VIEWER_ID}#i=${p.i}&t=${p.t}&s=${p.s}&g=${p.g}&h=${p.h}&e=${p.e}&o=${p.o}`;
 export const BASE_URI = `${META_BASE}/m/`;

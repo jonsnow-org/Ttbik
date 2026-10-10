@@ -19,7 +19,7 @@ export function adminMintMsg(minter: string, index: number, recipient?: string, 
   return { address: minter, amount: ADMIN_MINT_VALUE.toString(), payload: b64(beginCell().store(storeAdminMint({ $$type: "AdminMint", index: BigInt(index), recipient: recipient ? Address.parse(recipient) : null, occasion: BigInt(occasion), mediaRef })).endCell()) };
 }
 export function bidMsg(minter: string, index: number, bidTon: number): Msg {
-  const amount = toNano(bidTon.toFixed(9)) + BUY_FEES + SAFETY;
+  const amount = toNano(bidTon.toFixed(9)) + BUY_FEES;      // everything above the fee margin is the bid itself: no extra "safety" amount, or the bid would be higher than the one typed
   return { address: minter, amount: amount.toString(), payload: b64(beginCell().store(storeBid({ $$type: "Bid", index: BigInt(index) })).endCell()) };
 }
 export function ticketMsg(minter: string, priceTon: number): Msg {

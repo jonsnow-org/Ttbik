@@ -3,7 +3,8 @@ import fs from "fs";
 import path from "path";
 import { renderArt, renderPhotoArt } from "@/lib/art";
 import { TOTAL_DATES, ymd } from "@/lib/dates";
-import { SEASON_1, seasonTier } from "@/lib/seasons";
+import { SEASON_1 } from "@/lib/seasons";
+import { dateOf, kindOf, validId } from "@/lib/kinds";
 import { MAX_BYTES, storeNow } from "@/lib/storage";
 import { enqueue } from "@/lib/mediaQueue";
 import { liveArt } from "@/lib/live";
@@ -36,14 +37,16 @@ export async function POST(req: Request) {
   const ip = (req.headers.get("x-forwarded-for") || "x").split(",")[0].trim();
   const b = await req.json().catch(() => null);
   if (!b) return NextResponse.json({ error: "bad request" }, { status: 400 });
-  const index = Number(b.index), kind = String(b.kind || "photo"), occasion = Number(b.occasion || 0), preview = !!b.preview;
-  if (!Number.isInteger(index) || index < 0 || index >= TOTAL_DATES) return NextResponse.json({ error: "bad date" }, { status: 400 });
+  // `id` is the token id (kind * 65536 + date); `kind` here is what to make: "photo" or "snapshot" (the preview of the generated art)
+  const id = Number(b.id ?? b.index), kind = String(b.kind || "photo"), occasion = Number(b.occasion || 0), preview = !!b.preview;
+  if (!validId(id, TOTAL_DATES)) return NextResponse.json({ error: "bad token" }, { status: 400 });
+  const index = dateOf(id);
   if (occasion !== 0 && !OCCASIONS.some((o) => o.id === occasion)) return NextResponse.json({ error: "bad occasion" }, { status: 400 });
   if (!preview && limited(ip)) return NextResponse.json({ error: "too many requests, try later" }, { status: 429 });
 
-  const tier = seasonTier(SEASON_1, index);
+  const tier = kindOf(id);
   // for a token that already exists the picture reflects its real, on-chain state
-  const st = await tokenState(index).catch(() => null);
+  const st = await tokenState(id).catch(() => null);
   const base = st
     ? { index, tier: st.tier, season: st.season, stage: stageOf(st.lastTransferAt), hands: st.hands, engravings: st.engravings.length, occasion }
     : { index, tier, season: SEASON_1.id, stage: 0, hands: 1, engravings: 0, occasion };

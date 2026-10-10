@@ -1,6 +1,7 @@
 import { collectionResponse } from "../web/lib/handlers";
-it("collection description states the real range", async () => {
+it("the collection description names the kinds and claims no fixed range of dates", async () => {
   const d = (await collectionResponse("https://x", "https://x/img").json()).description as string;
-  expect(d).toContain("2000–2007");
-  expect(d).not.toContain("1950");
+  expect(d).toContain("Normal, Silver and Gold");
+  expect(d).toContain("عادي وفضي وذهبي");
+  expect(d).not.toMatch(/1950|2007|available now/);
 });

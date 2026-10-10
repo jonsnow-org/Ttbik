@@ -1,5 +1,5 @@
 import { toNano, Dictionary } from "@ton/core";
-import { setup, openSeason, itemOf, S1_START } from "./helpers";
+import { setup, openSeason, itemOf, S1_START, configureKinds, ID } from "./helpers";
 import { indexOf, ruleTier, TIER } from "../lib/rules";
 
 const BUY_FEES = toNano("0.08");
@@ -7,7 +7,7 @@ const MINT_FEES = toNano("0.06");     // the minter keeps at least this per uncl
 const balanceOf = async (ctx: Awaited<ReturnType<typeof setup>>, a: any) => (await ctx.bc.getContract(a)).balance;
 
 describe("Sweep can never take money that is owed", () => {
-  const mythic = indexOf(2000, 11, 11);
+  const mythic = Number(ID(5, indexOf(2000, 11, 11)));   // a purple class token
   it("a live auction keeps its bid through Sweep, and the winner still gets the token", async () => {
     const ctx = await setup(); await openSeason(ctx);
     const { minter, admin, alice, bob, bc, payout } = ctx;
@@ -33,9 +33,9 @@ describe("Sweep can never take money that is owed", () => {
   });
 
   it("tickets keep the mint fee for their claim through Sweep", async () => {
-    const ctx = await setup();
+    const ctx = await setup(); await configureKinds(ctx);
     const { admin, minter, alice, bc, collection } = ctx;
-    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(16));
+    const items = Dictionary.empty(Dictionary.Keys.Uint(16), Dictionary.Values.Uint(32));
     let i = S1_START + 40, n = 0; while (n < 6) { if (ruleTier(i) === TIER.COMMON) items.set(n++, i); i++; }
     await minter.send(admin.getSender(), { value: toNano("0.5") }, { $$type: "LoadPool", items });
     const revealAt = bc.now! + 86400;
@@ -66,18 +66,18 @@ describe("prices can follow the market after opening", () => {
     const ctx = await setup(); await openSeason(ctx);
     const { minter, admin, alice } = ctx;
     expect(await minter.getPrice(0n)).toBe(toNano("0.5"));
-    let r = await minter.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("1"), cap: toNano("3") });
+    let r = await minter.send(alice.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 0n, floor: toNano("1"), cap: toNano("3") });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });
-    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("4"), cap: toNano("3") });
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 0n, floor: toNano("4"), cap: toNano("3") });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // floor above cap
-    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("0.01"), cap: toNano("3") });
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 0n, floor: toNano("0.01"), cap: toNano("3") });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // floor under 0.05 TON
-    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 2n, floor: toNano("1"), cap: toNano("3") });
-    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // mythic dates have no band: they are auctioned
-    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("1"), cap: toNano("3") });
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 3n, floor: toNano("1"), cap: toNano("3") });
+    expect(r.transactions).toHaveTransaction({ to: minter.address, success: false });          // the classes have no band: they are auctioned
+    r = await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 0n, floor: toNano("1"), cap: toNano("3") });
     expect(r.transactions).toHaveTransaction({ to: minter.address, success: true });
     expect(await minter.getPrice(0n)).toBe(toNano("1"));                                        // 0.5 was under the new floor
-    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", tier: 0n, floor: toNano("0.05"), cap: toNano("0.3") });
+    await minter.send(admin.getSender(), { value: toNano("0.05") }, { $$type: "Reprice", kind: 0n, floor: toNano("0.05"), cap: toNano("0.3") });
     expect(await minter.getPrice(0n)).toBe(toNano("0.3"));                                      // pulled under the new cap
   });
 });

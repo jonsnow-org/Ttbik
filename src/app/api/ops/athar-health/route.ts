@@ -2,7 +2,7 @@ import { PRIMARY } from "@/lib/atharMirror";
 import { addresses } from "../../../../../athar/web/lib/chain";
 export const dynamic = "force-dynamic";
 // Is every layer that keeps Athar's tokens alive answering? (primary server, this mirror, the permanent viewer on the gateways)
-const VIEWER_ID = "OLetZ3Dc82VnoqYZEFWs2fL9RO37NUfglvkKPh2gl_c";
+const VIEWER_ID = "lnBWwZqhLeNz6W0scoF18YreB6JUMBJe38ohSXp_Fjw";
 type Probe = { ok: boolean; status: number; ms: number; error?: string };
 async function probe(url: string, want: RegExp): Promise<Probe> {
   const t0 = Date.now();

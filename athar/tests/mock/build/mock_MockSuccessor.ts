@@ -2095,6 +2095,135 @@ export function dictValueParserWithdraw(): DictionaryValue<Withdraw> {
     }
 }
 
+export type ProposeCode = {
+    $$type: 'ProposeCode';
+    code: Cell;
+}
+
+export function storeProposeCode(src: ProposeCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024104, 32);
+        b_0.storeRef(src.code);
+    };
+}
+
+export function loadProposeCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024104) { throw Error('Invalid prefix'); }
+    const _code = sc_0.loadRef();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function loadTupleProposeCode(source: TupleReader) {
+    const _code = source.readCell();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function loadGetterTupleProposeCode(source: TupleReader) {
+    const _code = source.readCell();
+    return { $$type: 'ProposeCode' as const, code: _code };
+}
+
+export function storeTupleProposeCode(source: ProposeCode) {
+    const builder = new TupleBuilder();
+    builder.writeCell(source.code);
+    return builder.build();
+}
+
+export function dictValueParserProposeCode(): DictionaryValue<ProposeCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeProposeCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadProposeCode(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type ApplyCode = {
+    $$type: 'ApplyCode';
+}
+
+export function storeApplyCode(src: ApplyCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024105, 32);
+    };
+}
+
+export function loadApplyCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024105) { throw Error('Invalid prefix'); }
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function loadTupleApplyCode(source: TupleReader) {
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function loadGetterTupleApplyCode(source: TupleReader) {
+    return { $$type: 'ApplyCode' as const };
+}
+
+export function storeTupleApplyCode(source: ApplyCode) {
+    const builder = new TupleBuilder();
+    return builder.build();
+}
+
+export function dictValueParserApplyCode(): DictionaryValue<ApplyCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeApplyCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadApplyCode(src.loadRef().beginParse());
+        }
+    }
+}
+
+export type CancelCode = {
+    $$type: 'CancelCode';
+}
+
+export function storeCancelCode(src: CancelCode) {
+    return (builder: Builder) => {
+        const b_0 = builder;
+        b_0.storeUint(1096024106, 32);
+    };
+}
+
+export function loadCancelCode(slice: Slice) {
+    const sc_0 = slice;
+    if (sc_0.loadUint(32) !== 1096024106) { throw Error('Invalid prefix'); }
+    return { $$type: 'CancelCode' as const };
+}
+
+export function loadTupleCancelCode(source: TupleReader) {
+    return { $$type: 'CancelCode' as const };
+}
+
+export function loadGetterTupleCancelCode(source: TupleReader) {
+    return { $$type: 'CancelCode' as const };
+}
+
+export function storeTupleCancelCode(source: CancelCode) {
+    const builder = new TupleBuilder();
+    return builder.build();
+}
+
+export function dictValueParserCancelCode(): DictionaryValue<CancelCode> {
+    return {
+        serialize: (src, builder) => {
+            builder.storeRef(beginCell().store(storeCancelCode(src)).endCell());
+        },
+        parse: (src) => {
+            return loadCancelCode(src.loadRef().beginParse());
+        }
+    }
+}
+
 export type EngraveReq = {
     $$type: 'EngraveReq';
     index: bigint;
@@ -2681,6 +2810,9 @@ const MockSuccessor_types: ABIType[] = [
     {"name":"ApplyBaseUri","header":1096024101,"fields":[]},
     {"name":"SetSuccessor","header":1096024102,"fields":[{"name":"successor","type":{"kind":"simple","type":"address","optional":false}}]},
     {"name":"Withdraw","header":1096024103,"fields":[]},
+    {"name":"ProposeCode","header":1096024104,"fields":[{"name":"code","type":{"kind":"simple","type":"cell","optional":false}}]},
+    {"name":"ApplyCode","header":1096024105,"fields":[]},
+    {"name":"CancelCode","header":1096024106,"fields":[]},
     {"name":"EngraveReq","header":1096024176,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}}]},
     {"name":"EngraveFrom","header":1096024177,"fields":[{"name":"owner","type":{"kind":"simple","type":"address","optional":false}},{"name":"text","type":{"kind":"simple","type":"string","optional":false}},{"name":"fee","type":{"kind":"simple","type":"uint","optional":false,"format":"coins"}}]},
     {"name":"SetMediaReq","header":1096024178,"fields":[{"name":"index","type":{"kind":"simple","type":"uint","optional":false,"format":64}},{"name":"occasion","type":{"kind":"simple","type":"uint","optional":false,"format":8}},{"name":"mediaRef","type":{"kind":"simple","type":"uint","optional":false,"format":256}}]},
@@ -2715,6 +2847,9 @@ const MockSuccessor_opcodes = {
     "ApplyBaseUri": 1096024101,
     "SetSuccessor": 1096024102,
     "Withdraw": 1096024103,
+    "ProposeCode": 1096024104,
+    "ApplyCode": 1096024105,
+    "CancelCode": 1096024106,
     "EngraveReq": 1096024176,
     "EngraveFrom": 1096024177,
     "SetMediaReq": 1096024178,
@@ -2735,15 +2870,24 @@ const MockSuccessor_receivers: ABIReceiver[] = [
 ]
 
 export const MAX_INDEX = 36524n;
+export const ID_SHIFT = 65536n;
+export const MAX_KIND = 7n;
+export const MAX_ID = 495276n;
+export const KIND_NORMAL = 0n;
+export const KIND_SILVER = 1n;
+export const KIND_GOLD = 2n;
+export const KIND_BRONZE = 3n;
+export const KIND_LEGENDARY = 7n;
+export const KEY_TICKETS = 15n;
 export const TIER_COMMON = 0n;
 export const TIER_RARE = 1n;
 export const TIER_MYTHIC = 2n;
-export const ITEM_FUND = 80000000n;
+export const ITEM_FUND = 30000000n;
 export const MINTER_GAS = 20000000n;
 export const OK_VALUE = 10000000n;
 export const COLL_GAS = 20000000n;
-export const MINT_FEES = 130000000n;
-export const BUY_FEES = 150000000n;
+export const MINT_FEES = 60000000n;
+export const BUY_FEES = 80000000n;
 export const ENGRAVE_FEE = 100000000n;
 export const MEDIA_FEE = 100000000n;
 export const MIN_STORAGE = 50000000n;
