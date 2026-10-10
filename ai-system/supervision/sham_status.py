@@ -268,6 +268,7 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
                 alerts.append(f"⚠ {name}: حالة Kaggle «{dg['status']}» (النشر لم يكتمل أو فشل؟)")
             if dg.get("files", 1) == 0:
                 alerts.append(f"❌ {name}: آخر نسخة بلا أي ملف (النشر فارغ) — الجلسة القادمة ستبدأ من نقطة أقدم أو من الصفر")
+    alerts += list(data.get("repairs") or [])
     # a sham* dataset without a contract entry is NOT an alert: it is classified by its file kinds and merged per modality
     if not data.get("reports"):
         alerts.append("ℹ لا تقارير بعد في sham-reports (تظهر بعد أول جلسة تعمل بالكود الجديد)")
@@ -297,6 +298,21 @@ def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: d
                     k["failure"] = ("(بلا رسالة فشل من Kaggle) الحالة الخام: " + raw[:240]) if raw else ""
                 except Exception:
                     pass
+        # a PLATFORM failure no code can prevent (Kaggle could not attach an input dataset) is repaired automatically: the failing
+        # input is detached and the notebook re-run (sham_auto_repair: once per notebook per 24 h, so it can never loop)
+        if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("KAGGLE_API_TOKEN") and os.environ.get("SHAM_AUTO_REPAIR", "1") == "1":
+            try:
+                import requests
+                import sham_auto_repair
+                try:
+                    prev = requests.get(f"https://raw.githubusercontent.com/{REPO}/sham-status/repairs.json", timeout=20).json()
+                except Exception:
+                    prev = {}
+                notes, state = sham_auto_repair.repair_mount_failures(registry["kernels"], prev if isinstance(prev, dict) else {},
+                                                                      Path(tempfile.mkdtemp()), run=run)
+                data["repairs"], data["repairs_state"] = notes, state
+            except Exception as exc:
+                data["errors"].append(f"auto-repair: {type(exc).__name__}: {str(exc)[:100]}")
         pub = reg.public_registry(registry)
         data.update(kernels=pub["kernels"], pipeline=pub["pipeline"], other_notebooks=pub["other_notebooks_count"],
                     engineer_notebooks=pub["engineer_notebooks_count"], public_registry=pub,
@@ -401,7 +417,9 @@ def render_md(data: dict, contract: dict) -> str:
 def write_outputs(data: dict, out: Path, contract: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "STATUS.md").write_text(render_md(data, contract), encoding="utf-8")
-    pub = {k: v for k, v in data.items() if k not in ("registry_private", "public_registry", "public_report")}
+    pub = {k: v for k, v in data.items() if k not in ("registry_private", "public_registry", "public_report", "repairs_state")}
+    if data.get("repairs_state") is not None:
+        (out / "repairs.json").write_text(json.dumps(data["repairs_state"], ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "status.json").write_text(json.dumps(pub, ensure_ascii=False, indent=1), encoding="utf-8")
     if data.get("public_registry"):
         (out / "sham-registry.json").write_text(json.dumps(data["public_registry"], ensure_ascii=False, indent=2), encoding="utf-8")
