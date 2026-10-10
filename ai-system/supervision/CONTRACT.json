@@ -336,6 +336,14 @@
         "sham-crawl-selflearn",
         "sham-crawl-selflearn-corpus"
       ]
+    },
+    "access_check": {
+      "file": ".github/workflows/sham-access-check.yml",
+      "title": "فحص ما تصل إليه الأتمتة (مفاتيح الخدمات)",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
