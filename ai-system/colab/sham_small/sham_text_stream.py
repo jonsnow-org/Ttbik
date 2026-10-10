@@ -561,12 +561,30 @@ def stream_for(tokenizer, seq_len: int, seed_files=None) -> Stream:
         s = Stream(tokenizer, seq_len, slots=3 if gpu else 2, chunk_docs=int(os.environ.get("SHAM_STREAM_CHUNK", 1024 if gpu else 512)),
                    queue_windows=2048 if gpu else 256, use_process=os.environ.get("SHAM_STREAM_THREADS") != "1")
         s.fallback = _fallback_windows(tokenizer, seq_len, seed_files or [])
+        threading.Thread(target=_attach_shards, args=(s, tokenizer, seq_len), daemon=True).start()   # never delays the session
         s.start()
         _ACTIVE["stream"] = s
         import atexit
         atexit.register(s.close)
         print(f"🌊 خط النص المتدفق يعمل (بذرة {s.seed}) — لا شريحة محمّلة، ولا تكرار")
     return s
+
+
+def _attach_shards(s: "Stream", tokenizer, seq_len: int) -> None:
+    """Fresh pre-tokenized windows (built on GitHub, dataset sham-text-shards) beat repeating the tiny seed slice when the live
+    sources stall. Found in the attached inputs, or downloaded once in the background; any failure leaves the seed fallback."""
+    try:
+        import sham_token_shards
+        shards = sham_token_shards.load(tokenizer, seq_len)
+        if not shards and not os.environ.get("SHAM_NO_SHARD_DOWNLOAD"):
+            from sham_inputs import fetch_dataset
+            if fetch_dataset(sham_token_shards.DATASET):
+                shards = sham_token_shards.load(tokenizer, seq_len)
+        if shards:
+            s.fallback = shards
+            print(f"🧱 احتياطي الانقطاع: {len(shards):,} نافذة جاهزة من {sham_token_shards.DATASET}")
+    except Exception:
+        pass
 
 
 def _fallback_windows(tokenizer, seq_len: int, files, limit: int = 2000) -> list:

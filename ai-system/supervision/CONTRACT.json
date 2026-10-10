@@ -109,6 +109,10 @@
     "sham-crawl-selflearn-corpus": {
       "role": "نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً)",
       "writer": "selflearn"
+    },
+    "sham-text-shards": {
+      "role": "نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب)",
+      "writer": "token_shards"
     }
   },
   "dynamic_dataset_patterns": [
@@ -344,6 +348,16 @@
       "accelerator": "CPU",
       "reads": [],
       "writes": []
+    },
+    "token_shards": {
+      "file": ".github/workflows/sham-token-shards.yml",
+      "title": "أقراص النص الجاهزة (تقطيع مسبق على GitHub)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-text-shards"
+      ]
     }
   },
   "lineage": [
