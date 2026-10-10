@@ -18,6 +18,8 @@ Nothing here answers by rule: every reply is the trained model's own generation.
 """
 import json
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -27,11 +29,15 @@ from pathlib import Path
 os.environ["no_proxy"] = "127.0.0.1,localhost"          # Gradio's localhost self-check (same fix as the previous app in this Studio)
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE / "sham_small"))
+sys.path.insert(0, str(HERE))
+import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 3 * 3600))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
 _LOCK = threading.Lock()
+HOT = HERE / "_hot"            # signed code synced from the model repo (studio_code/): new code reaches the Studio without a Redeploy click
+_PROC = {"p": None, "sig": ""}
 
 
 def _token() -> str:
@@ -64,6 +70,47 @@ def _load(model_dir: Path) -> None:
             pass
 
 
+def _hot_sync(model_dir: Path) -> None:
+    """Run the worker from studio_code/ of the model repo — ONLY if its signature verifies (codesign.py), checked again on the copy
+    that is executed. A changed signature restarts the worker; an invalid one is refused and reported, and nothing runs."""
+    src = next(iter(sorted(model_dir.rglob("studio_code"))), None)
+    if src is None or not (src / "ms_worker.py").exists():
+        return
+    sig_file = src / codesign.SIG_NAME
+    sig = sig_file.read_text(encoding="utf-8").strip() if sig_file.exists() else ""
+    p = _PROC["p"]
+    if not sig or not codesign.verify(src, sig):          # checked on every cycle, even when a worker is already running
+        STATE["code"] = "رُفض: توقيع الكود غير صحيح أو غائب — لم يُنفَّذ (العامل الحالي يبقى كما هو)"
+        return
+    if sig == _PROC["sig"] and p is not None and p.poll() is None:
+        return
+    if p is not None and p.poll() is None:
+        p.terminate()
+        try:
+            p.wait(timeout=20)
+        except Exception:
+            p.kill()
+    shutil.rmtree(HOT, ignore_errors=True)
+    shutil.copytree(src, HOT, symlinks=True)
+    if not codesign.verify(HOT, sig):
+        shutil.rmtree(HOT, ignore_errors=True)
+        STATE["code"] = "رُفض: النسخة المنسوخة لا تطابق التوقيع"
+        return
+    env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG", "TMPDIR") if k in os.environ}      # no account token, no secrets
+    env.update(PYTHONPATH=str(HOT / "sham_small"), SHAM_MS_MODEL=MODEL_ID)
+    log = open(HERE / "worker.log", "ab")
+    _PROC["p"] = subprocess.Popen([sys.executable, str(HOT / "ms_worker.py")], cwd=str(HOT), env=env, stdout=log, stderr=log)
+    _PROC["sig"] = sig
+    STATE["code"] = f"يعمل (توقيع {sig[:8]})"
+
+
+def _worker_status() -> dict:
+    try:
+        return json.loads((HOT / "worker_status.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _worker() -> None:
     last_sha = None
     while True:
@@ -75,6 +122,7 @@ def _worker() -> None:
             if sha is None or sha != last_sha or STATE["phase"] != "ready":
                 _load(model_dir)
                 last_sha = sha
+            _hot_sync(model_dir)
         except Exception as exc:
             STATE.update(phase="waiting" if STATE["phase"] != "ready" else "ready",
                          error=f"{type(exc).__name__}: {str(exc)[:200]}")
@@ -84,6 +132,9 @@ def _worker() -> None:
 
 def status() -> str:
     msg = dict(STATE)
+    w = _worker_status()
+    if w:
+        msg["worker"] = w
     if msg["phase"] == "waiting" and not _token():
         msg["hint"] = "ضعي MODELSCOPE_API_TOKEN في إعدادات الاستوديو (متغيرات البيئة) ليقرأ المستودع الخاص"
     return json.dumps(msg, ensure_ascii=False)

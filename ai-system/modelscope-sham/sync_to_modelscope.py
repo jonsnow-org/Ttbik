@@ -22,6 +22,8 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import codesign
 SRC = HERE.parent / "colab" / "sham_small"
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 CODE_FILES_EXCLUDE = {"sham_small_api_keys.db"}
@@ -36,6 +38,21 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def stage_code(dest: Path) -> str:
+    """studio_code/: the worker + the Sham modules it imports, signed. Returns the signature."""
+    dest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(HERE / "ms_worker.py", dest / "ms_worker.py")
+    inner = dest / "sham_small"
+    inner.mkdir(exist_ok=True)
+    for p in SRC.glob("*.py"):
+        if p.name not in CODE_FILES_EXCLUDE:
+            shutil.copy2(p, inner / p.name)
+    shutil.copy2(SRC / "sham_general_tokenizer.json", inner / "sham_general_tokenizer.json")
+    sig = codesign.sign(dest)
+    (dest / codesign.SIG_NAME).write_text(sig, encoding="utf-8")
+    return sig
+
+
 def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
     """A clean folder with exactly what the Studio loads, plus configuration.json (the hub requires it) and the manifest."""
     out = Path(tempfile.mkdtemp())
@@ -46,18 +63,19 @@ def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
         if p:
             shutil.copy2(p, out / n)
     sha = sha256(out / "final_merged.pt")
+    code_sig = stage_code(out / "studio_code")
     (out / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
-    (out / "bridge_manifest.json").write_text(json.dumps({"sha": sha, "files": sorted(p.name for p in out.iterdir())}), encoding="utf-8")
+    (out / "bridge_manifest.json").write_text(json.dumps({"sha": sha, "code_sig": code_sig, "files": sorted(p.name for p in out.iterdir())}), encoding="utf-8")
     return out, sha
 
 
-def remote_sha(api, model_id: str) -> str | None:
+def remote_manifest(api, model_id: str) -> dict:
     try:
         from modelscope.hub.file_download import model_file_download
         p = model_file_download(model_id, "bridge_manifest.json", cache_dir=tempfile.mkdtemp())
-        return json.loads(Path(p).read_text(encoding="utf-8")).get("sha")
+        return json.loads(Path(p).read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return {}
 
 
 def push_model(ckpt_dir: Path) -> str:
@@ -68,12 +86,14 @@ def push_model(ckpt_dir: Path) -> str:
     api = HubApi()
     api.login(token)
     model_dir, sha = stage_model_dir(ckpt_dir)
-    if remote_sha(api, MODEL_ID) == sha:
-        return "⏭ النموذج في ModelScope هو نفسه — لا إعادة رفع"
+    local = json.loads((model_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
+    remote = remote_manifest(api, MODEL_ID)
+    if remote.get("sha") == sha and remote.get("code_sig") == local["code_sig"]:
+        return "⏭ النموذج والكود في ModelScope هما نفسهما — لا إعادة رفع"
     from modelscope.hub.constants import Visibility
     api.push_model(model_id=MODEL_ID, model_dir=str(model_dir), visibility=Visibility.PRIVATE, license="apache-2.0",
-                   chinese_name="Sham", commit_message=f"sham-merged-checkpoint {sha[:12]}")
-    return f"✅ رُفع النموذج إلى ModelScope ({sha[:12]})"
+                   chinese_name="Sham", commit_message=f"sham-merged-checkpoint {sha[:12]} code {local['code_sig'][:8]}")
+    return f"✅ رُفع إلى ModelScope: النموذج {sha[:12]} والكود الموقَّع {local['code_sig'][:8]}"
 
 
 def stage_studio(studio_dir: Path) -> str:
@@ -86,6 +106,7 @@ def stage_studio(studio_dir: Path) -> str:
                 shutil.move(str(studio_dir / name), str(legacy / name))
     shutil.copy2(HERE / "app.py", studio_dir / "app.py")
     shutil.copy2(HERE / "requirements.txt", studio_dir / "requirements.txt")
+    shutil.copy2(HERE / "codesign.py", studio_dir / "codesign.py")
     code = studio_dir / "sham_small"
     shutil.rmtree(code, ignore_errors=True)
     code.mkdir()
@@ -115,10 +136,14 @@ if __name__ == "__main__":
             assert (studio / "legacy-nova" / "app.py").read_text(encoding="utf-8") == "old nova app"
             ck = d / "ck"
             ck.mkdir()
+            os.environ["MODELSCOPE_TOKEN"] = "selftest-key"
             for n in FILES[:4]:
                 (ck / n).write_bytes(n.encode())
             md, sha = stage_model_dir(ck)
             assert (md / "configuration.json").exists() and json.loads((md / "bridge_manifest.json").read_text())["sha"] == sha
+            assert (md / "studio_code" / "ms_worker.py").exists() and (md / "studio_code" / "sham_small" / "model.py").exists()
+            assert codesign.verify(md / "studio_code", (md / "studio_code" / codesign.SIG_NAME).read_text(), {"MODELSCOPE_API_TOKEN": "selftest-key"})
+            assert not codesign.verify(md / "studio_code", (md / "studio_code" / codesign.SIG_NAME).read_text(), {"MODELSCOPE_API_TOKEN": "another"})
             os.environ.pop("MODELSCOPE_TOKEN", None)
             assert push_model(ck).startswith("⏭")
         print("sync_to_modelscope self-test OK")
