@@ -19,6 +19,7 @@ as one more source, through its own gate.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -177,10 +178,21 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     auto_changed = False
     if auto_hook is not None:
         try:
-            new_auto, auto_line = auto_hook(model, tokenizer, progress.get("auto", {}))
+            new_auto, auto_line, candidate = auto_hook(model, tokenizer, progress.get("auto", {}))
             auto_changed = new_auto != progress.get("auto", {})
             progress["auto"] = new_auto
             report.append(auto_line)
+            if candidate is not None:       # the copy trained on worked solutions + replay: adopted only if NO skill got worse
+                after_c = score(candidate)
+                worse = {k: (after[k], after_c[k]) for k in after if after_c.get(k, 1e9) > after[k] * 1.01}
+                if not worse:
+                    model, after, changed = candidate.to(device), after_c, True
+                    progress["gate_after"] = after
+                    report.append("✅ تُبنّيت نسخة التفكير المتسلسل: الميزان بعد = " + ", ".join(f"{k}={v:.3f}" for k, v in after.items()))
+                else:
+                    report.append("❌ نسخة التفكير المتسلسل رُفضت (ساءت مهارة على الميزان): "
+                                  + ", ".join(f"{k} {a:.3f}→{b:.3f}" for k, (a, b) in worse.items()))
+            del candidate
         except Exception as exc:
             report.append(f"⚠ تعذّر قرار الإعدادات الذاتية: {type(exc).__name__}: {str(exc)[:100]}")
 
@@ -214,13 +226,14 @@ def probe_hook(model, tokenizer, previous: dict):
     import sham_reasoning_probe
     pr = sham_reasoning_probe.probe(model, tokenizer, "cpu")
     new = sham_auto_config.decide_reasoning(pr, previous)
+    candidate = pr.pop("trial", None) if (pr.get("ok") and new.get("reasoning_share", 0) > 0) else None
     if pr.get("ok"):
         line = (f"🔬 مسبار التفكير المتسلسل ({pr['steps']} خطوة، {pr['minutes']} د): خسارة الحلول {pr['before']['reason_loss']:.2f}→"
                 f"{pr['after']['reason_loss']:.2f} | نص {pr['before']['text_loss']:.2f}→{pr['after']['text_loss']:.2f} | إصابة "
                 f"{pr['before']['exact']:.0%}→{pr['after']['exact']:.0%} ⇒ قرار تلقائي: حصة التفكير المتسلسل {new.get('reasoning_share', 0):.0%}")
     else:
         line = f"🔬 مسبار التفكير المتسلسل لم يكتمل ({pr.get('error', '؟')}) — القرار السابق باقٍ: {previous.get('reasoning_share', 0):.0%}"
-    return new, line
+    return new, line, candidate
 
 
 def main():
@@ -294,9 +307,23 @@ if __name__ == "__main__":
         publish2 = lambda up, name, msg: (up_dir.update(json=json.loads((Path(up) / "merge_progress.json").read_text(encoding="utf-8"))),
                                           pubs.append(name), name)[1]
         res2 = run(fetch=fetch, publish=publish2, gate_builder=gate_builder2, sources=[],
-                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line"))
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", None))
         assert not res2["changed"] and pubs == [OWN] and up_dir["json"]["auto"] == {"reasoning_share": 0.1}, (res2, pubs, up_dir)
         assert "line" in res2["report"]
+        # the trained copy is ADOPTED only when no skill got worse on the gate; a worse one is refused
+        pubs.clear()
+        res3 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", copy.deepcopy(good)))
+        assert res3["changed"] and res3["after"]["text"] < res3["before"]["text"] and "تُبنّيت" in res3["report"], res3
+        pubs.clear()
+        torch.manual_seed(5)
+        ruined = copy.deepcopy(good)
+        with torch.no_grad():
+            for p_ in ruined.parameters():
+                p_.add_(3.0 * torch.randn_like(p_))
+        res4 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", ruined))
+        assert not res4["changed"] and "رُفضت" in res4["report"], res4
         print("sham_ci_merge self-test OK")
     else:
         main()
