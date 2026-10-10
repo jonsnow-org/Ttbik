@@ -118,7 +118,11 @@ def dataset_files(ref: str, run=subprocess.run, limit: int = 200, sleep=time.sle
     for attempt in range(3):
         r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
         if getattr(r, "returncode", 0) == 0:
-            return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO(r.stdout or "")) if g.get("name")]
+            # the Kaggle CLI prints "Next Page Token = ..." BEFORE the csv header when a dataset has more files than one page: reading that line
+            # as the header made every such dataset look EMPTY (a false "empty publish" alarm for sham-research-track-checkpoint-v2, 2026-10-10)
+            lines = (r.stdout or "").splitlines()
+            start = next((i for i, ln in enumerate(lines) if ln.startswith("name,")), 0)
+            return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO("\n".join(lines[start:]))) if g.get("name")]
         last = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()[0:1]
         last = last[0] if last else f"exit {r.returncode}"
         sleep(20 * (attempt + 1) if ("429" in last or "too many" in last.lower()) else 3)
@@ -446,6 +450,13 @@ def main():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         contract = json.loads((HERE / "CONTRACT.json").read_text(encoding="utf-8"))
+
+        class _Paged:      # a dataset with more files than a page: the CLI prints "Next Page Token" before the csv header
+            returncode = 0
+            stdout = "Next Page Token = abc123\nname,size,creationDate\ncheckpoints/final.pt,431911611,2026-10-10 08:08:38\nresearch_corpus/d1.txt,6546,2026-10-10\n"
+            stderr = ""
+        _f = dataset_files("me/x", lambda *a, **k: _Paged(), sleep=lambda s: None)
+        assert [x["name"] for x in _f] == ["checkpoints/final.pt", "research_corpus/d1.txt"], _f      # was: 0 files = a false "empty publish"
         runs = {"workflow_runs": [
             {"name": "Sham Collector (free CPU runner)", "status": "completed", "conclusion": "success",
              "run_started_at": "2026-10-04T10:00:00Z", "updated_at": "2026-10-04T15:20:00Z", "event": "schedule"},
