@@ -143,6 +143,9 @@ def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subpr
                 out[n] = {"status": dataset_status(f"{user}/{n}", run) if (n in MAIN_LINE or zero) else "",
                           "files": len(files), "kinds": classify_files([f["name"] for f in files]),
                           "sample": [f["name"] for f in files[:4]], "documented": in_contract}
+                if not files:   # keep what Kaggle actually answered, so an "empty" verdict can be checked instead of believed
+                    raw = run(["kaggle", "datasets", "files", f"{user}/{n}", "--csv"], capture_output=True, text=True)
+                    out[n]["raw"] = (((raw.stdout or "") + " | " + (raw.stderr or "")).strip().replace(user, "<owner>"))[:300]
             except Exception as exc:
                 out[n] = {"error": f"{type(exc).__name__}: {str(exc)[:100]}", "documented": in_contract}
     return out
