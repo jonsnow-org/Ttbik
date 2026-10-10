@@ -645,6 +645,10 @@ if __name__ == "__main__":
         seen.add(hash(tuple(w.tolist())))
     assert len(seen) > 380, len(seen)           # endless and (almost always) fresh: every visit opens the source with a new seed
     assert s.stats["windows"] >= 400 and s.stats["restarts"] > 0
+    for _ in range(2000):                      # how many sources a short window has reached depends on scheduling: keep reading (bounded)
+        if len([k for k, v in s.per_source.items() if v]) >= 15:
+            break
+        s.next_window()
     assert len([k for k, v in s.per_source.items() if v]) >= 15   # many sources really mixed
     assert s.per_source.get("ko", 0) == 0 and s.stats["failed"] > 0  # a down source never stops the others
     assert open_now["max"] <= 3, open_now          # NEVER more streams open than slots (the Kaggle OOM of 2026-10-05)
