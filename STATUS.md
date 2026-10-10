@@ -1,4 +1,4 @@
-# حالة مشروع شام — 2026-10-10 15:31 UTC
+# حالة مشروع شام — 2026-10-10 15:38 UTC
 
 > تُحدَّث تلقائياً كل 3 ساعات من GitHub Actions. الدفاتر بأسماء مستعارة عمداً (قرار المالكة)؛ الأسماء الحقيقية في تيليجرام المالكة فقط.
 
@@ -43,11 +43,11 @@
 - (+4 دفتراً غير تابع لشام، +2 من دفاتر المهندس — مخفية)
 
 ## مصنع GitHub المجاني (آخر التشغيلات)
-- Sham Status (supervision snapshot): 2026-10-10T15:31 in_progress ، 2026-10-10T13:39 success ، 2026-10-10T09:55 success ، 2026-10-10T00:56 success
+- Sham Status (supervision snapshot): 2026-10-10T15:38 in_progress ، 2026-10-10T15:31 success ، 2026-10-10T13:39 success ، 2026-10-10T09:55 success
+- Sham Merge + Repair + Eval (free CPU runner): 2026-10-10T15:37 in_progress ، 2026-10-10T14:41 success ، 2026-10-10T13:39 failure ، 2026-10-10T06:20 success
 - Sham CI (contract + self-tests, read-only): 2026-10-10T15:00 success ، 2026-10-10T14:56 success ، 2026-10-10T14:49 success ، 2026-10-10T14:36 success
-- Sham Merge + Repair + Eval (free CPU runner): 2026-10-10T14:41 success ، 2026-10-10T13:39 failure ، 2026-10-10T06:20 success ، 2026-10-09T21:12 success
-- Sham Collector (free CPU runner): 2026-10-10T12:26 in_progress ، 2026-10-10T05:47 success ، 2026-10-09T22:35 success ، 2026-10-09T13:11 success
-- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-10T12:21 in_progress ، 2026-10-10T05:38 success ، 2026-10-09T22:33 success ، 2026-10-09T13:05 success
+- Sham Collector (free CPU runner): 2026-10-10T12:26 in_progress ، 2026-10-10T05:47 success ، 2026-10-09T22:35 success
+- Sham CPU Trainer (free CPU runner, slow and continuous): 2026-10-10T12:21 in_progress ، 2026-10-10T05:38 success ، 2026-10-09T22:33 success
 
 ## آخر أخطاء مصنع GitHub (أين فشل بالضبط)
 - 2026-10-10T13:39 «Sham Merge + Repair + Eval (free CPU runner)» — الخطوة: غير معروفة — https://github.com/jonsnow-org/Ttbik/actions/runs/38056578292

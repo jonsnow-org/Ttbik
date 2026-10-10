@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-10 15:31 UTC",
+ "generated_at": "2026-10-10 15:38 UTC",
  "errors": [],
  "repairs": [],
  "kernels": [
@@ -448,7 +448,8 @@
    "files": 0,
    "kinds": {},
    "sample": [],
-   "documented": true
+   "documented": true,
+   "raw": "Next Page Token = CfDJ8JDwKpgsc5hJpcljKjpYpOGLdcnmAZTXCaYoyJkh8n0Av3tOQTG4CR3NJZSlQmXSxcvW0WmocIbx137iS_0xPTUSKRqRwmRlL5F2V9lcQ36p6dd618YjIAzSaiA9HEnuyHU5kHOHXptlmwOX4w6YUehHPlzv4A0P\nname,size,creationDate\ncheckpoints/final.pt,431911611,2026-10-10 08:08:38.208000\nresearch_corpus/doc_000143.txt,6546,"
   },
   "sham-cpu-track-checkpoint-v2": {
    "status": "ready",
@@ -528,10 +529,19 @@
  "workflows": {
   "Sham Status (supervision snapshot)": [
    {
-    "id": 38063951638,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38063951638",
+    "id": 38064412573,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38064412573",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-10T15:38",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 38063951638,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38063951638",
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-10T15:31",
     "minutes": null,
     "event": "workflow_dispatch"
@@ -553,13 +563,42 @@
     "started": "2026-10-10T09:55",
     "minutes": null,
     "event": "schedule"
+   }
+  ],
+  "Sham Merge + Repair + Eval (free CPU runner)": [
+   {
+    "id": 38064356899,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38064356899",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-10T15:37",
+    "minutes": null,
+    "event": "workflow_dispatch"
    },
    {
-    "id": 38011140414,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38011140414",
+    "id": 38060610141,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38060610141",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-10T00:56",
+    "started": "2026-10-10T14:41",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 38056578292,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38056578292",
+    "status": "completed",
+    "conclusion": "failure",
+    "started": "2026-10-10T13:39",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 38030569017,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38030569017",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-10T06:20",
     "minutes": null,
     "event": "schedule"
    }
@@ -602,44 +641,6 @@
     "event": "pull_request"
    }
   ],
-  "Sham Merge + Repair + Eval (free CPU runner)": [
-   {
-    "id": 38060610141,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38060610141",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-10T14:41",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38056578292,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38056578292",
-    "status": "completed",
-    "conclusion": "failure",
-    "started": "2026-10-10T13:39",
-    "minutes": null,
-    "event": "workflow_dispatch"
-   },
-   {
-    "id": 38030569017,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38030569017",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-10T06:20",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 37992047576,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37992047576",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-09T21:12",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
   "Sham Collector (free CPU runner)": [
    {
     "id": 38051953152,
@@ -665,15 +666,6 @@
     "status": "completed",
     "conclusion": "success",
     "started": "2026-10-09T22:35",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 37935100161,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37935100161",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-09T13:11",
     "minutes": null,
     "event": "schedule"
    }
@@ -703,15 +695,6 @@
     "status": "completed",
     "conclusion": "success",
     "started": "2026-10-09T22:33",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 37934423831,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/37934423831",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-09T13:05",
     "minutes": null,
     "event": "schedule"
    }
