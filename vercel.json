@@ -67,6 +67,10 @@
     {
       "path": "/api/cron/ads-expire",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/athar-birthdays",
+      "schedule": "20 6 * * *"
     }
   ],
   "git": {
