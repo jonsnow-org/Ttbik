@@ -1,0 +1,46 @@
+name: Sham Vault (checkpoint backup to ModelScope)
+
+# نسخة احتياطية خارج Kaggle لنقاط حفظ شام الرئيسية، بلا أي خادم ولا طرفية: يشغّلها GitHub بالأسرار الموجودة أصلاً.
+# لكل مجموعة رئيسية: ينزّلها من Kaggle، يحسب بصمتها، ويدفع نسخة جديدة إلى مستودع نموذج خاص في ModelScope
+# (`novaai2026/sham-vault-<الاسم>`) فقط حين تتغيّر البصمة. تاريخ git يحفظ النسخ الأقدم.
+# الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان).
+
+on:
+  schedule:
+    - cron: "35 3,15 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-vault
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  vault:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_VAULT != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+
+      - name: Free disk (checkpoints are GBs)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          df -h / | tail -1
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - run: pip install kaggle modelscope
+
+      - name: Back up
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        run: python ai-system/vault/vault_to_modelscope.py --run
