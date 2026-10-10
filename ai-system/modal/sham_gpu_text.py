@@ -1,7 +1,7 @@
 """
-A GPU text-training session on Modal (free credits, billed per second), started from GitHub — no notebook to open, nothing to click.
+A text-training session on Modal (free credits, billed per second; CPU works without a card, GPU needs a payment method), started from GitHub — no notebook to open, nothing to click.
 
-What it does, on one T4:
+What it does (CPU by default; `--device gpu` for a T4 once a payment method is on the account):
   1. downloads the current best weights (Kaggle `sham-merged-checkpoint`) and the fresh pre-tokenized text windows (Kaggle `sham-text-shards`,
      built on GitHub — so no live internet source can rate-limit this session);
   2. times a few steps, then trains for the requested minutes (never more) with the project's own train() — mixed precision on the GPU and the
@@ -12,7 +12,7 @@ What it does, on one T4:
 The Modal account is on the free Starter plan with Modal's own $1 usage cap (no card): a session of ~12 minutes costs about $0.12.
 Secrets are passed from the GitHub runner's environment into the container and are never printed.
 
-    modal run ai-system/modal/sham_gpu_text.py --minutes 12       (from GitHub: .github/workflows/sham-modal.yml)
+    modal run ai-system/modal/sham_gpu_text.py --minutes 12 --device cpu   (from GitHub: .github/workflows/sham-modal.yml)
     python sham_gpu_text.py                                       offline self-test (tiny model, CPU, local fakes)
 """
 
@@ -113,17 +113,28 @@ if modal is not None:
              .add_local_dir(str(SRC), remote_path="/root/sham_small",
                             ignore=["*.db", "__pycache__", "kaggle_notebooks", "colab_notebooks", "*.ipynb"]))
 
-    @app.function(gpu="T4", image=image, timeout=3600, secrets=[modal.Secret.from_dict(_env)] if _env else [])
-    def run_session(minutes: float = 12.0) -> dict:
+    _secrets = [modal.Secret.from_dict(_env)] if _env else []
+
+    def _session_in_container(minutes: float, device: str) -> dict:
         sys.path.insert(0, "/root/sham_small")
         os.chdir("/root/sham_small")
         from sham_inputs import fetch_dataset, publish_dataset
-        return session(minutes, fetch_dataset, publish_dataset, device="cuda")
+        small = device == "cpu"      # CPU: a shorter window and a smaller batch, the shape the CPU sessions of this project already use
+        return session(minutes, fetch_dataset, publish_dataset, device=device, seq_len=512 if small else 1024, batch_size=4 if small else 8)
+
+    @app.function(image=image, timeout=3600, secrets=_secrets, cpu=4.0, memory=8192)
+    def run_session_cpu(minutes: float = 12.0) -> dict:
+        return _session_in_container(minutes, "cpu")
+
+    @app.function(gpu="T4", image=image, timeout=3600, secrets=_secrets)      # needs a payment method on the Modal account
+    def run_session_gpu(minutes: float = 12.0) -> dict:
+        return _session_in_container(minutes, "cuda")
 
     @app.local_entrypoint()
-    def main(minutes: float = 12.0):
+    def main(minutes: float = 12.0, device: str = "cpu"):
         import json
-        print(json.dumps(run_session.remote(minutes), ensure_ascii=False, indent=1))
+        fn = run_session_gpu if device == "gpu" else run_session_cpu
+        print(json.dumps(fn.remote(minutes), ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":
