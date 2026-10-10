@@ -4,7 +4,7 @@
 #   code   : /opt/sham, a sparse clone of branch `sham-main` ONLY (folder ai-system/), owned by the system user `sham`
 #   secrets: /etc/sham/sham.env (root:sham 0640): Kaggle / GitHub keys go here, put there by the owner; nobody else reads it
 #   job    : ai-system/oracle_job.sh from sham-main is run by the timer; if that file does not exist the run does nothing
-#   limits : 1 CPU, 4 GB RAM, lowest CPU/IO priority, a 30 GB work folder, no access to /opt/ttbik, /var/lib/ttbik or /var/backups/ttbik
+#   limits : 1 CPU, 4 GB RAM, lowest CPU/IO priority, a 10 GB work folder, no access to /opt/ttbik, /var/lib/ttbik or /var/backups/ttbik
 #            (Athar's keys live there) and no Docker. The runner below belongs to root, so job code can never change it.
 #   specs  : once, the machine's size (cores, memory, disk, architecture, GPU; no secrets) is sent to the owner on Telegram and kept in
 #            /var/lib/ttbik/server_specs.txt, to size the Sham jobs.
@@ -26,6 +26,18 @@ $(cat "$STATE/server_specs.txt")"
 )
 send_specs || true
 
+# Where the disk goes, once (the machine's disk is small and 79% full when the Sham runner was added): sizes only, no file contents.
+send_disk() (
+  set +e
+  [ -f "$STATE/disk_report_1" ] && exit 0
+  touch "$STATE/disk_report_1"
+  tg_notify "استهلاك قرص Oracle (أحجام فقط):
+$(df -h / | tail -1)
+$(docker system df 2>/dev/null | head -6)
+$(du -xk --max-depth=2 /var /opt /home /root /srv 2>/dev/null | sort -n | tail -8 | awk '{printf "%.1f GB  %s\n", $1/1048576, $2}')"
+)
+send_disk || true
+
 id sham >/dev/null 2>&1 || useradd --system --home-dir "$WORK" --create-home --shell /usr/sbin/nologin sham
 install -d -o sham -g sham -m 750 "$SHAM_DIR" "$WORK" "$WORK/work"
 install -d -o root -g sham -m 750 "$ENV_DIR"
@@ -39,7 +51,7 @@ cat > /usr/local/sbin/sham-run <<'RUN'
 #!/usr/bin/env bash
 set -uo pipefail
 SHAM_DIR="${SHAM_DIR:-/opt/sham}"; WORK="${SHAM_WORK:-/var/lib/sham}"; REPO="${SHAM_REPO:-https://github.com/jonsnow-org/Ttbik.git}"; BRANCH=sham-main
-if [ "$(du -sxk "$WORK" 2>/dev/null | cut -f1)" -gt $((30*1024*1024)) ]; then echo "sham: $WORK is over 30 GB, skipping this run (clean it)"; exit 0; fi
+if [ "$(du -sxk "$WORK" 2>/dev/null | cut -f1)" -gt $((10*1024*1024)) ]; then echo "sham: $WORK is over 10 GB, skipping this run (clean it)"; exit 0; fi
 cd "$SHAM_DIR" || exit 1
 if [ ! -d .git ]; then git init -q && git remote add origin "$REPO" && git config core.sparseCheckout true && git sparse-checkout init --cone && git sparse-checkout set ai-system; fi
 git fetch -q --depth 1 origin "$BRANCH" || { echo "sham: fetch of $BRANCH failed"; exit 0; }
