@@ -68,8 +68,13 @@ def run(cfg):
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
     gm = gold_mask(src)
+    gray0 = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255
+    if cfg.get('lum_mask'):
+        gm = np.clip((gray0 - cfg['lum_mask']) * 3, 0, 1)
+        if cfg.get('circle'):
+            cm = np.zeros(gm.shape, np.float32); cv2.circle(cm, (W // 2, H // 2), int(cfg['circle']), 1, -1); gm *= cv2.GaussianBlur(cm, (0, 0), 3)
     gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255
-    sparks = find_sparkles(src, gm, cfg.get('nspark', 28), vthr=cfg.get('vthr', 225))
+    sparks = find_sparkles(src, gm, cfg.get('nspark', 28), vthr=cfg.get('vthr', 225)) if cfg.get('nspark', 28) else []
     sprites = {r: star_sprite(r) for r in (10, 16, 24)}
     sp_cfg = [(x, y, rng.integers(0, 2) + 1, rng.random() * TAU, rng.choice([10, 16, 24]))
               for x, y in sparks]
