@@ -127,7 +127,7 @@ def _forward(tok, x: torch.Tensor, amp_dtype):
 @torch.no_grad()
 def init_codebook_from_data(tok, batches: list[torch.Tensor]) -> None:
     """Codebook := real encoder outputs (random rows), so every code starts where the encoder actually puts its features."""
-    tok.eval()
+    tok.train(False)
     zs = []
     for x in batches:
         z = tok.encoder(x)
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     epochs = steps // (384 // bs)
     s_old = train_vqvae(old, train.clone(), num_epochs=epochs, batch_size=bs, log_every=999)
     with torch.no_grad():
-        old.eval()
+        old.train(False)
         rec_old = float(((old.decode(old.encode(held)) - held) ** 2).mean())
 
     # the new loop on the same data written as image files + a manifest
@@ -274,7 +274,7 @@ if __name__ == "__main__":
         s_new = train_stream(new, Path(d) / "manifest.jsonl", minutes=10, batch_size=bs, max_steps=steps, workers=0, warmup=10,
                              restart_every=20, log_every=160)
         with torch.no_grad():
-            new.eval()
+            new.train(False)
             rec_new = float(((new.decode(new.encode(held)) - held) ** 2).mean())
     print(f"قديم: استعمال {s_old.final_codebook_usage}/{cfg.num_codes} | إعادة بناء {rec_old:.4f}")
     print(f"جديد: {s_new.summary()} | إعادة بناء على صور لم تُدرَّب {rec_new:.4f}")

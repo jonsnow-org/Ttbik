@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
     torch.manual_seed(0)
     cfg = AudioTokenizerConfig(n_mels=16, segment_frames=32, base_channels=8, channel_multipliers=(1, 2), code_dim=8, num_codes=64)
-    tok = AudioTokenizer(cfg).eval()
+    tok = AudioTokenizer(cfg).train(False)
     sr, hop = 16000, 160
     seg_samples = cfg.segment_frames * hop
     t = torch.arange(seg_samples * 9) / sr
