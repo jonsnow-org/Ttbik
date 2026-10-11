@@ -28,7 +28,7 @@ WORK = Path(os.environ.get("SHAM_FACTORY_DIR", str(Path.home() / "sham_factory")
 KINDS = [k for k in os.environ.get("SHAM_FACTORY_KINDS", "image,audio").split(",") if k]
 HOURS = float(os.environ.get("SHAM_FACTORY_HOURS", "3.3"))
 IMAGE_SIZE = int(os.environ.get("SHAM_IMAGE_SIZE", "256"))
-BATCH = {"image": int(os.environ.get("SHAM_BATCH_IMAGE", "3000")), "audio": int(os.environ.get("SHAM_BATCH_AUDIO", "1500")),
+BATCH = {"image": int(os.environ.get("SHAM_BATCH_IMAGE", "10000")), "audio": int(os.environ.get("SHAM_BATCH_AUDIO", "4000")),
          "video": int(os.environ.get("SHAM_BATCH_VIDEO", "80"))}
 
 
