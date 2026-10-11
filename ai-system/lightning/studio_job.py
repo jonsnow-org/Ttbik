@@ -77,7 +77,9 @@ def prepare(studio) -> str:
         "python -m pip install -q --disable-pip-version-check tokenizers numpy requests kaggle datasets pillow soundfile imageio-ffmpeg "
         "beautifulsoup4 av 2>&1 | tail -2; "
         # a --measure run that never exited (HF threads) must not be mistaken for the factory: end any such leftover
-        "pkill -f 'media_factory.py --measure' 2>/dev/null; echo prepared; ls -ld /kaggle/working 2>&1 | cut -c1-60"))
+        "pkill -f 'media_factory.py --measure' 2>/dev/null; "
+        # a job still running OLD code (before this prepare fetched new code) must not block the new one: end it, the launcher restarts it fresh
+        "pkill -f 'tokenizer_job.py$' 2>/dev/null; echo prepared; ls -ld /kaggle/working 2>&1 | cut -c1-60"))
 
 
 def diag(studio) -> None:
@@ -110,7 +112,7 @@ def main() -> int:
         if mode == "peek":                                   # read-only look at a running job: never starts, stops or restarts anything
             say(str(getattr(studio, "status", "?")))
             say(str(studio.run("tail -n 30 ~/tokens.log 2>/dev/null | cut -c1-300; echo ---; tail -n 10 ~/factory.log 2>/dev/null | cut -c1-200; echo ---; ls ~/sham_factory 2>/dev/null | head; "
-                               "du -sh ~/sham_factory 2>/dev/null; pgrep -af "media_factory|tokenizer_job" | cut -c1-120 | head -3; free -g | head -2")))
+                               "du -sh ~/sham_factory 2>/dev/null; pgrep -af 'media_factory|tokenizer_job' | cut -c1-120 | head -3; free -g | head -2")))
             return 0
         ensure_running(studio, machine)
         say(f"حالة الاستوديو: {getattr(studio, 'status', '?')}")
