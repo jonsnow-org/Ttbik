@@ -37,7 +37,8 @@ def _step_of(path: Path) -> int:
     return int(torch.load(path, map_location="cpu", weights_only=False, mmap=True).get("step") or 0)
 
 
-MAIN_LINE = (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-crawl-checkpoint", "final.pt"))
+MAIN_LINE = (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-crawl-checkpoint", "final.pt"),
+             ("sham-grown-checkpoint", "final_grown.pt"))
 HYSTERESIS = 1.05      # the recorded base stays unless another main-line checkpoint is better by more than 5%
 
 
@@ -68,7 +69,8 @@ def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
     main = cands[0]
     if probe is not None and len(cands) > 1:
         from sham_base_select import choose_base
-        best, scores = choose_base([(c[2], c[0], c[3]) for c in cands], probe, keep=progress.get("base"), log=log)
+        best, scores = choose_base([(c[2], c[0], c[3]) for c in cands], probe, keep=progress.get("base"), log=log,
+                                   prefer=("sham-grown-checkpoint",))
         if scores:
             main = next(c for c in cands if c[2] == best)
     main = (main[0], main[1], main[2])

@@ -54,7 +54,7 @@ def make_probe(device: str = "cpu", work: str | Path = "/tmp/sham_probe", docume
     return probe
 
 
-def choose_base(candidates, probe, keep: str | None = None, log=print):
+def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = ()):
     scores: dict[str, float] = {}
     for name, ckpt, tok in candidates:
         if tok is None:
@@ -68,6 +68,10 @@ def choose_base(candidates, probe, keep: str | None = None, log=print):
     best = min(scores, key=scores.get)
     if keep in scores and scores[keep] <= scores[best] * HYSTERESIS:
         best = keep
+    for name in prefer:                      # e.g. the grown checkpoint: more capacity, same function — wins any near-tie
+        if name in scores and scores[name] <= scores[best] * HYSTERESIS:
+            best = name
+            break
     chance = getattr(probe, "last_chance", None)
     note = ""
     if chance and scores[best] > CHANCE_FRACTION * chance:
@@ -112,6 +116,8 @@ if __name__ == "__main__":
         # hysteresis: the lineage in use stays while it is within 5% of the best
         best2, _ = choose_base([("bad", paths["bad"], Path(d) / "t.json"), ("good", paths["good"], Path(d) / "t.json")], probe, keep="bad")
         assert best2 == "good", "a clearly worse kept lineage must be dropped"
+        best4, _ = choose_base([("good", paths["good"], Path(d) / "t.json"), ("grown", paths["good"], Path(d) / "t.json")], probe, keep="good", prefer=("grown",))
+        assert best4 == "grown", "a preferred (grown) checkpoint wins a near-tie"
         best3, _ = choose_base([("good", paths["good"], Path(d) / "t.json"), ("good2", paths["good"], Path(d) / "t.json")], probe, keep="good2")
         assert best3 == "good2", "a lineage within 5% of the best is kept"
     print("sham_base_select self-test OK")

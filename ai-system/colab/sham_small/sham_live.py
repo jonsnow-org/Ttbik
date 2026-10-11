@@ -109,7 +109,8 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     from sham_inputs import fetch_dataset
 
     mains = []
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
+    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
+                          ("sham-grown-checkpoint", "final_grown.pt")):
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
@@ -133,7 +134,8 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     best = cands[0][0]
     if len(cands) > 1:
         try:
-            best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None)
+            best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
+                                prefer=("sham-grown-checkpoint",))
         except Exception as exc:
             print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
             best = "own" if own_ok else cands[0][0]
