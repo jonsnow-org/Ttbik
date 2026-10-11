@@ -107,6 +107,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .filter((slug) => slug !== "autumn-equinox-2026")
       .map((slug) => ({ url: `${base}/events/${slug}`, changeFrequency: "monthly" as const, priority: 0.65 })),
     ...BOT_LANDINGS.map((b) => ({ url: `${base}/bot/${b.slug}`, changeFrequency: "monthly" as const, priority: 0.85 })),
+    { url: `${base}/en/free-tools/percentage-calculator`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/en/free-tools/date-difference`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/en/free-tools/pregnancy-calculator`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/en/free-tools/fancy-text`, changeFrequency: "monthly", priority: 0.8 },
     ...PRAYER_CITIES.map((c) => ({
       url: `${base}/prayer-times/${c.slug}`,
       changeFrequency: "daily" as const,
