@@ -467,6 +467,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "tokenizer_bench": {
+      "file": ".github/workflows/sham-bench.yml",
+      "title": "قياس سرعة تدريب المُرمِّزات على CPU (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
