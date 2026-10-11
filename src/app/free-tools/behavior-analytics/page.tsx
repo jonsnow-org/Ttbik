@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import AdSlot from "@/components/AdSlot";
 import BehaviorAnalytics from "./BehaviorAnalytics";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "محلل سلوك الأحداث (CSV/JSON) مجاناً | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "الصق سجلات أحداث CSV أو JSON واحصل على ملخص سلوك المستخدمين فوراً في المتصفح — بلا تسجيل.",
 };
 
-export default function BehaviorAnalyticsPage() {
+function BehaviorAnalyticsPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12" dir="rtl" lang="ar">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -25,5 +26,14 @@ export default function BehaviorAnalyticsPage() {
         <AdSlot position="in-content" label="أسفل محلل السلوك" />
       </div>
     </div>
+  );
+}
+
+export default function BehaviorAnalyticsPage() {
+  return (
+    <>
+      <BehaviorAnalyticsPageBody />
+      <ToolSeoSection slug="behavior-analytics" />
+    </>
   );
 }

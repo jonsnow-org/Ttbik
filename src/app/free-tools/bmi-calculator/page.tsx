@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import BmiCalculator from "./BmiCalculator";
 import ToolSponsor from "@/components/ToolSponsor";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "حاسبة مؤشر كتلة الجسم BMI والوزن المثالي | شام AI",
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
   ],
 };
 
-export default function BmiCalculatorPage() {
+function BmiCalculatorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -40,5 +41,14 @@ export default function BmiCalculatorPage() {
         <AdSlot position="in-content" label="أسفل حاسبة BMI" />
       </div>
     </div>
+  );
+}
+
+export default function BmiCalculatorPage() {
+  return (
+    <>
+      <BmiCalculatorPageBody />
+      <ToolSeoSection slug="bmi-calculator" />
+    </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 const T = {
@@ -58,6 +58,14 @@ export default function UrlShortener({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ shortUrl: string; code: string; clicks: number } | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ?url=... prefill (used by the Chrome extension).
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("url");
+      if (q && /^https?:\/\//i.test(q)) setUrl(q.slice(0, 2000));
+    } catch {}
+  }, []);
 
   async function shorten() {
     setError("");

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import LifeCounter from "./LifeCounter";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "عدّاد عمرك الحيّ: كم يوماً وثانية عشت؟ | شام AI",
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
   ],
 };
 
-export default function LifeCounterPage() {
+function LifeCounterPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -34,5 +35,14 @@ export default function LifeCounterPage() {
         <AdSlot position="in-content" label="أسفل عدّاد العمر" />
       </div>
     </div>
+  );
+}
+
+export default function LifeCounterPage() {
+  return (
+    <>
+      <LifeCounterPageBody />
+      <ToolSeoSection slug="life-counter" />
+    </>
   );
 }

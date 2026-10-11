@@ -5,6 +5,7 @@ import ToolSponsor from "@/components/ToolSponsor";
 import BulkQr from "@/components/BulkQr";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مولّد رمز QR مجاني (عربي) | أدوات مجانية | شام AI",
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function QrGeneratorPage() {
+function QrGeneratorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <div className="flex items-center justify-between gap-3">
@@ -48,5 +49,14 @@ export default function QrGeneratorPage() {
         <AdSlot position="in-content" label="أسفل مولّد QR" />
       </div>
     </div>
+  );
+}
+
+export default function QrGeneratorPage() {
+  return (
+    <>
+      <QrGeneratorPageBody />
+      <ToolSeoSection slug="qr-generator" />
+    </>
   );
 }
