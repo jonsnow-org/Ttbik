@@ -98,6 +98,7 @@ def generate_tokens(
     forced_ids: list[int | None] | None = None,
     allowed_ranges: list[tuple[int, int] | None] | None = None,
     stop_ids: set[int] | None = None,
+    repetition_penalty: float = 1.0,
 ) -> torch.Tensor:
     """The one real generation loop everything else in this file is
     built on. prompt_ids: (batch, prompt_len). Returns (batch,
@@ -127,6 +128,12 @@ def generate_tokens(
     for step in range(max_new_tokens):
         logits, _, past_key_values = model(next_input, past_key_values=past_key_values, use_cache=True)
         last_logits = logits[:, -1, :]
+        if repetition_penalty != 1.0 and generated.shape[1] > prompt_ids.shape[1]:
+            # A weak language model falls into loops ("1.3.3.3.3…"): tokens it already produced get less likely (the standard CTRL penalty
+            # over the last 64 generated tokens). 1.0 = off, which is every other caller's behaviour.
+            recent = generated[:, max(prompt_ids.shape[1], generated.shape[1] - 64):]
+            seen = torch.zeros_like(last_logits, dtype=torch.bool).scatter_(1, recent, True)
+            last_logits = torch.where(seen, torch.where(last_logits > 0, last_logits / repetition_penalty, last_logits * repetition_penalty), last_logits)
 
         forced = forced_ids[step] if forced_ids is not None else None
         if forced is not None:

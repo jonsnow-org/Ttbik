@@ -151,7 +151,7 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     with _LOCK:
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
         ids = torch.tensor([tok.encode(prompt)], dtype=torch.long)
-        out = generate_tokens(model, ids, max_new_tokens=n, temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS,
+        out = generate_tokens(model, ids, max_new_tokens=n, temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS, repetition_penalty=1.3,
                               allowed_ranges=[(0, tok.vocab_size)] * n)
     new = [i for i in out[0, ids.shape[1]:].tolist() if i != SpecialTokens.EOS]
     return tok.decode(new)
