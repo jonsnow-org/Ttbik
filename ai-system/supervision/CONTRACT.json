@@ -421,6 +421,14 @@
       "accelerator": "CPU (استوديو Lightning المجاني)",
       "reads": [],
       "writes": []
+    },
+    "checkpoint_audit": {
+      "file": ".github/workflows/sham-audit.yml",
+      "title": "فحص نقاط الحفظ (قراءة فقط): قياس كل نقطة بكل مُرمِّز على نص ثابت",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
