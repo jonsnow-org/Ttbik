@@ -10,6 +10,19 @@ jest.mock("@/lib/prisma", () => ({
   }, $executeRawUnsafe: async (...a: unknown[]) => { raw.push(a); return 1; }, bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } } },
 }));
 jest.mock("@/lib/botVisit", () => ({ recordBotVisit: async () => undefined }));
+// the chain and its stored state are stubs: nothing here touches the network or the database
+const watch = { alerts: true, baselineAt: "x" as string, days: {} as Record<string, { n: number; nano: string }>, lastLt: "1", total: 0 };
+jest.mock("@/lib/atharWatch", () => {
+  const real = jest.requireActual("@/lib/atharWatch");
+  return {
+    ...real,
+    fetchBalance: async () => BigInt(3_500_000_000),
+    fetchIncoming: async () => [{ hash: "abc", lt: "5", at: Date.now(), from: "0:EF9E00000000", nano: BigInt(218_000_000) }],
+    loadWatch: async () => watch,
+    setAlerts: async (on: boolean) => { watch.alerts = on; },
+    checkPayments: async () => ({ ok: true, fresh: [{ hash: "h1", lt: "9", at: Date.now(), from: "0:AA", nano: BigInt(99_000_000) }], balance: BigInt(3_600_000_000) }),
+  };
+});
 import { handleAtharBotUpdate, LANGS, COMMANDS } from "../atharBotLogic";
 
 function fakeBot() {
@@ -21,6 +34,49 @@ const row = { id: "bot1", ownerId: "555001" } as any;
 const ARABIC = /[؀-ۿ]/;
 
 describe("Athar bot", () => {
+  it("the owner sees a different panel: balance, payments, alerts, stats, channel, user view", async () => {
+    const owner = fakeBot();
+    await handleAtharBotUpdate(owner, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "/start" } });
+    const kb = JSON.stringify(owner.sent[0].kb);
+    for (const b of ["💰 الرصيد", "📈 آخر الدفعات", "📊 Stats", "🔔 التنبيهات", "🔄 افحص الآن", "👁 شكل المستخدم"]) expect(kb).toContain(b);
+    expect(kb).not.toContain("🌐 Language");
+    expect(kb).not.toContain("Mystery boxes");
+    expect(owner.sent[0].text).toContain("لوحة أدمن أثر");
+    expect(owner.sent[0].text).toContain("3.50 TON");
+    const user = fakeBot();
+    await handleAtharBotUpdate(user, row, { message: { chat: { id: 2 }, from: { id: 9 }, text: "/start" } });
+    const ukb = JSON.stringify(user.sent[0].kb);
+    for (const b of ["💰 الرصيد", "🔔 التنبيهات", "👁 شكل المستخدم", "🛠 لوحة الأدمن"]) expect(ukb).not.toContain(b);
+  });
+  it("balance, payments, alerts and the manual check work for the owner only", async () => {
+    const o = fakeBot();
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "💰 الرصيد" } });
+    expect(o.sent[0].text).toContain("3.50 TON");
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "📈 آخر الدفعات" } });
+    expect(o.sent[1].text).toContain("+0.218 TON");
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "🔔 التنبيهات" } });
+    expect(o.sent[2].text).toContain("متوقفة");
+    expect(watch.alerts).toBe(false);
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "🔔 التنبيهات" } });
+    expect(watch.alerts).toBe(true);
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "🔄 افحص الآن" } });
+    expect(o.sent[4].text).toContain("دفعة جديدة");
+    const stranger = fakeBot();
+    for (const t of ["💰 الرصيد", "📈 آخر الدفعات", "🔔 التنبيهات", "🔄 افحص الآن", "👁 شكل المستخدم", "/admin"]) {
+      await handleAtharBotUpdate(stranger, row, { message: { chat: { id: 2 }, from: { id: 9 }, text: t } });
+    }
+    expect(stranger.sent.every((m) => !m.text.includes("TON") && !m.text.includes("لوحة"))).toBe(true);
+  });
+  it("the owner can preview the user menu and come back", async () => {
+    const o = fakeBot();
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "👁 شكل المستخدم" } });
+    const kb = JSON.stringify(o.sent[0].kb);
+    expect(kb).toContain("Mystery boxes");
+    expect(kb).toContain("🛠 لوحة الأدمن");
+    await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "🛠 لوحة الأدمن" } });
+    expect(JSON.stringify(o.sent[1].kb)).toContain("💰 الرصيد");
+  });
+
   beforeEach(() => { store.clear(); channelSet.length = 0; members.clear(); });
   it("greets in English even a user whose Telegram is Arabic", async () => {
     const bot = fakeBot();
@@ -95,12 +151,13 @@ describe("Athar bot", () => {
     expect(JSON.stringify(old.sent[0].kb)).toContain("lang=en");
   });
 
-  it("the menu panel is the same shape for the owner and the user, the owner has two more buttons", async () => {
+  it("the owner panel is a different, admin-only keyboard (the old shared-shape rule is retired by the owner)", async () => {
     const o = fakeBot(), u = fakeBot();
     await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "/start" } });
     await handleAtharBotUpdate(u, row, { message: { chat: { id: 2 }, from: { id: 9 }, text: "/start" } });
     expect(JSON.stringify(o.sent[0].kb)).toContain("الاشتراك الإجباري");
-    expect(o.sent[0].kb.keyboard.length).toBeGreaterThan(u.sent[0].kb.keyboard.length);
+    expect(JSON.stringify(o.sent[0].kb)).not.toContain("/mystery");
+    expect(JSON.stringify(u.sent[0].kb)).toContain("/mystery");
     expect(o.sent[0].kb.is_persistent).toBe(true);
   });
 
@@ -125,7 +182,7 @@ describe("Athar bot", () => {
     expect(out.sent[1].text).toMatch(/^🕰 Welcome to Athar/);
     const ownerIn = fakeBot();
     await handleAtharBotUpdate(ownerIn, gated, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "/start" } });
-    expect(ownerIn.sent[0].text).toMatch(/^🕰 Welcome to Athar/);
+    expect(ownerIn.sent[0].text).toContain("لوحة أدمن أثر");
     // turning it off
     await handleAtharBotUpdate(o, gated, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "إلغاء", reply_to_message: { text: ask } } });
     expect(channelSet[channelSet.length - 1]).toBeNull();

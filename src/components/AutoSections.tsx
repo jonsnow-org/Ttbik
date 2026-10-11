@@ -1,4 +1,4 @@
-import { fetchEnHeadlines, fetchFeaturedArticle, fetchOnThisDay, fetchTrending, type WikiLang } from "@/lib/autoFeeds";
+import { fetchEnHeadlines } from "@/lib/autoFeeds";
 
 // Self-updating sections (server components, cached by Next). They render
 // nothing when the upstream source is unreachable, so a page never shows an
@@ -19,21 +19,6 @@ const L = {
     read: "Read on Wikipedia",
     ago: (m: number) => (m < 60 ? `${Math.max(1, m)} min ago` : m < 1440 ? `${Math.floor(m / 60)} h ago` : `${Math.floor(m / 1440)} d ago`),
     dir: "ltr" as const,
-  },
-  ar: {
-    liveTag: "مباشر",
-    liveTitle: "",
-    liveNote: "",
-    watchTitle: "",
-    otdTitle: "في مثل هذا اليوم",
-    otdNote: "من ويكيبيديا، يتحدث يومياً بشكل تلقائي.",
-    trendTitle: "الأكثر قراءة في ويكيبيديا",
-    trendNote: "الصفحات التي يقرؤها الناس الآن. النص من ويكيبيديا (CC BY-SA).",
-    featTitle: "",
-    featNote: "",
-    read: "اقرأ في ويكيبيديا",
-    ago: (m: number) => (m < 60 ? `قبل ${Math.max(1, m)} د` : m < 1440 ? `قبل ${Math.floor(m / 60)} س` : `قبل ${Math.floor(m / 1440)} يوم`),
-    dir: "rtl" as const,
   },
 };
 
@@ -79,78 +64,6 @@ export async function LiveHeadlines({ limit = 12, links = true }: { limit?: numb
           </div>
         </div>
       )}
-    </section>
-  );
-}
-
-export async function OnThisDay({ lang, limit = 6 }: { lang: WikiLang; limit?: number }) {
-  const items = await fetchOnThisDay(lang, limit);
-  if (!items.length) return null;
-  const t = L[lang];
-  return (
-    <section className="mt-8" dir={t.dir} lang={lang}>
-      <h2 className="text-xl font-black text-slate-900">🗓 {t.otdTitle}</h2>
-      <p className="mt-1 text-xs text-slate-500">{t.otdNote}</p>
-      <ul className="mt-3 grid gap-3">
-        {items.map((e) => (
-          <li key={`${e.year}-${e.text.slice(0, 20)}`} className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-            {e.page?.thumb && <img src={e.page.thumb} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded-xl object-cover" />}
-            <div className="min-w-0">
-              <p className="text-sm font-black text-sky-700">{e.year}</p>
-              <p className="text-sm leading-6 text-slate-800">{e.text}</p>
-              {e.page && (
-                <a href={e.page.url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-bold text-sky-700 hover:underline">
-                  {e.page.title} ↗
-                </a>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-export async function Trending({ lang, limit = 6 }: { lang: WikiLang; limit?: number }) {
-  const items = await fetchTrending(lang, limit);
-  if (!items.length) return null;
-  const t = L[lang];
-  return (
-    <section className="mt-8" dir={t.dir} lang={lang}>
-      <h2 className="text-xl font-black text-slate-900">🔥 {t.trendTitle}</h2>
-      <p className="mt-1 text-xs text-slate-500">{t.trendNote}</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {items.map((p) => (
-          <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer" className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-3 hover:border-sky-300">
-            {p.thumb && <img src={p.thumb} alt="" loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover" />}
-            <div className="min-w-0">
-              <p className="font-black text-slate-900">{p.title}</p>
-              {p.description && <p className="text-xs font-semibold text-slate-500">{p.description}</p>}
-              <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-700">{p.extract}</p>
-            </div>
-          </a>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-export async function FeaturedArticle() {
-  const p = await fetchFeaturedArticle();
-  if (!p) return null;
-  const t = L.en;
-  return (
-    <section className="mt-8" dir="ltr" lang="en">
-      <h2 className="text-xl font-black text-slate-900">⭐ {t.featTitle}</h2>
-      <p className="mt-1 text-xs text-slate-500">{t.featNote}</p>
-      <article className="mt-3 overflow-hidden rounded-3xl border border-slate-200 bg-white">
-        {p.thumb && <img src={p.thumb} alt="" loading="lazy" className="h-52 w-full object-cover" />}
-        <div className="p-4">
-          <h3 className="text-lg font-black text-slate-900">{p.title}</h3>
-          <p className="mt-2 text-sm leading-7 text-slate-700">{p.extract}</p>
-          <a href={p.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white">{t.read} ↗</a>
-        </div>
-      </article>
     </section>
   );
 }
