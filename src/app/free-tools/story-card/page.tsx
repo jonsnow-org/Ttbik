@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import StoryCardMaker from "./StoryCardMaker";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "بطاقة ستوري للمشاركة | شام AI",
@@ -8,12 +9,21 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE_URL}/free-tools/story-card` },
 };
 
-export default function Page() {
+function PageBody() {
   return (
     <main className="mx-auto max-w-xl px-4 py-10">
       <h1 className="text-2xl font-extrabold">بطاقة ستوري</h1>
       <p className="mt-2 text-sm text-slate-600">اكتب نتيجتك وتُرسم بطاقة 9:16 جاهزة لواتساب وستوري، وفي أسفلها رابط الموقع.</p>
       <div className="mt-4"><StoryCardMaker /></div>
     </main>
+  );
+}
+
+export default function Page() {
+  return (
+    <>
+      <PageBody />
+      <ToolSeoSection slug="story-card" />
+    </>
   );
 }

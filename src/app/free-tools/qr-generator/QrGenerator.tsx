@@ -44,6 +44,14 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // ?text=... prefill (optional prefill via link).
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search).get("text");
+      if (q) setText(q.slice(0, 1000));
+    } catch {}
+  }, []);
+
   const draw = useCallback(() => {
     setError(null);
     const canvas = canvasRef.current;

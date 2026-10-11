@@ -170,7 +170,8 @@ function adminMenu(): Keyboard {
     .text("📊 الإحصائيات").text("📋 الملفات المعلقة").row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
-    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة")
+    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
+    .text("🩺 فحص البحث")
     .resized();
 }
 const ADMIN_COMMANDS = new Set([
@@ -183,6 +184,7 @@ const ADMIN_COMMANDS = new Set([
   "🔎 بحث عن مستخدم",
   "🔓 رفع حظر/كتم",
   "📥 الرسائل الواردة",
+  "🩺 فحص البحث",
 ]);
 const DELETE_CONFIRM_LABEL = "✅ نعم، احذف نهائياً";
 function confirmDeleteMenu(): Keyboard {
@@ -405,20 +407,31 @@ async function saveProfile(bot: TelegramBot, chatId: number, userId: string, dat
     maritalStatus: data.maritalStatus ?? null,
     contactMethod: data.contactMethod!,
     contactValue: data.contactValue!,
-    status: "PENDING",
   };
+  // Owner decision (2026-10-11): profiles go live immediately so the search is
+  // never empty because of the review queue; the admin still gets every new or
+  // changed profile with ✅/❌ buttons and can reject afterwards. Editing keeps
+  // an approved profile approved; only a previously REJECTED profile goes back
+  // to manual review (so a rejection cannot be bypassed by re-saving).
+  const existing = await prisma.matchProfile.findUnique({ where: { userId } });
+  const status = existing?.status === "REJECTED" ? "PENDING" : "APPROVED";
+  const sensitiveChanged =
+    !existing || existing.name !== shared.name || (existing.attributes ?? null) !== shared.attributes || !!data.photoFileId || !!data.voiceFileId;
   await prisma.matchProfile.upsert({
     where: { userId },
-    update: { ...shared, ...(data.photoFileId ? { photoFileId: data.photoFileId } : {}), ...(data.voiceFileId ? { voiceFileId: data.voiceFileId } : {}) },
-    create: { userId, ...shared, photoFileId: data.photoFileId ?? null, voiceFileId: data.voiceFileId ?? null },
+    update: { ...shared, status, ...(data.photoFileId ? { photoFileId: data.photoFileId } : {}), ...(data.voiceFileId ? { voiceFileId: data.voiceFileId } : {}) },
+    create: { userId, ...shared, status, photoFileId: data.photoFileId ?? null, voiceFileId: data.voiceFileId ?? null },
   });
   await setPending(userId, null);
   await bot.api.sendMessage(
     chatId,
-    "✅ تم حفظ ملفك الشخصي، وهو الآن قيد المراجعة من إدارة البوت. سيصلك إشعار فور اعتماده.",
+    status === "APPROVED"
+      ? "✅ تم حفظ ملفك الشخصي وهو الآن ظاهر في البحث. يمكنك الضغط على «🔍 البحث عن شريك»."
+      : "✅ تم حفظ ملفك الشخصي، وهو قيد المراجعة من إدارة البوت لأنه رُفض سابقاً. سيصلك إشعار فور اعتماده.",
     { reply_markup: mainMenu() }
   );
-  if (SUPER_ADMIN_ID) {
+  if (status === "APPROVED" && !existing) await grantReferralReward(bot, userId);
+  if (SUPER_ADMIN_ID && (status === "PENDING" || sensitiveChanged)) {
     const profile = await prisma.matchProfile.findUnique({ where: { userId } });
     if (profile) await notifyAdminNewProfile(bot, profile);
   }
@@ -429,7 +442,7 @@ async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
   // The text commands (موافقة ملف/رفض ملف <رمز>) still work too, as a
   // fallback for whenever a message with buttons has scrolled out of view.
   const text =
-    (profile.status === "PENDING" ? `👤 ملف بانتظار المراجعة` : `👤 ملف`) + ` #${shortId(profile.userId)}\n\n` +
+    (profile.status === "PENDING" ? `👤 ملف بانتظار المراجعة` : `👤 ملف جديد/معدَّل (ظاهر في البحث — ارفضه إن خالف الشروط)`) + ` #${shortId(profile.userId)}\n\n` +
     `الاسم: ${profile.name}\nالجنس: ${profile.gender === "MALE" ? "ذكر" : "أنثى"}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\n` +
     `العمل: ${profile.job || "غير محدد"}\nالتعليم: ${profile.education || "غير محدد"}\nالمواصفات: ${profile.attributes || "غير محدد"}\n` +
     `التواصل: ${profile.contactMethod === "TELEGRAM" ? "تلجرام" : "واتساب"} — ${profile.contactValue}`;
@@ -716,6 +729,8 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
     if (isEffectivelyBoosted(c, c.user)) w *= 2.5;
     if (c.verificationStatus === "VERIFIED") w *= 1.3;
     if (now - c.user.lastActiveAt.getTime() < 3 * 86400000) w *= 1.3;
+    // Recently refreshed profiles get a small lift so stale ones don't crowd the top.
+    if (c.updated_at && now - new Date(c.updated_at).getTime() < 14 * 86400000) w *= 1.2;
     if (seenSet.has(c.userId)) w *= 0.35;
     w *= Math.max(0.6, Math.min(1.6, 1.6 / (1 + (exposureOf.get(c.userId) || 0) / 25)));
 
@@ -796,7 +811,8 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   ]);
   if (!profile || !targetUser) return null;
 
-  const pct = compatibilityPercent(profile, viewerPref, viewerUser ? hasAdvancedFilters(viewerUser) : false);
+  const viewerOwn = viewerPref ? null : await prisma.matchProfile.findUnique({ where: { userId: viewerId } });
+  const pct = compatibilityPercent(profile, viewerPref ?? (viewerOwn ? defaultPref(viewerId, viewerOwn) : null), viewerUser ? hasAdvancedFilters(viewerUser) : false);
   const head = [
     `👤 ${profile.name}، ${profile.age}${profile.verificationStatus === "VERIFIED" ? " ☑️" : ""}`,
     `🌍 ${profile.country}${profile.city ? ` · ${clip(profile.city, 40)}` : ""}`,
@@ -822,8 +838,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   // collision risk between different users; the full ID easily fits
   // Telegram's 64-byte callback_data limit anyway.
   const kb = new InlineKeyboard();
-  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(`⭐ سوبر لايك`, `msuperlike|${targetUserId}`).row();
-  kb.text(expanded ? "🔼 إخفاء التفاصيل" : "📖 المزيد من المعلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`);
+  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(expanded ? "🔼 إخفاء" : "📖 معلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`).text(`⭐`, `msuperlike|${targetUserId}`).row();
   const contactUrl = profile.contactMethod === "TELEGRAM" ? `https://t.me/${profile.contactValue.replace(/^@/, "")}` : `https://wa.me/${profile.contactValue.replace(/[^0-9]/g, "")}`;
   kb.url("💬 رسالة", contactUrl).row();
   const photoGranted = photoPermission?.status === "GRANTED";
@@ -887,6 +902,11 @@ async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: st
   return shownId;
 }
 
+// Used when the user never filled in partner preferences: own country only.
+function defaultPref(userId: string, profile: MatchProfile): PartnerPreference {
+  return { id: "", userId, country: profile.country, ageMin: null, ageMax: null, job: null, education: null, attributes: null, city: null, maritalStatus: null, updated_at: new Date() } as PartnerPreference;
+}
+
 async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "search_browsing" }>, messageId?: number) {
   let queue = pending.queue;
   let idx = pending.index;
@@ -914,8 +934,8 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
       prisma.matchProfile.findUnique({ where: { userId } }),
       prisma.partnerPreference.findUnique({ where: { userId } }),
     ]);
-    if (!me || !prof || !pref) break;
-    const fresh = await buildSearchQueue(me.botId, userId, prof, pref, !!pending.strict);
+    if (!me || !prof || (!pref && pending.strict)) break;
+    const fresh = await buildSearchQueue(me.botId, userId, prof, pref ?? defaultPref(userId, prof), !!pending.strict);
     if (fresh.length === 0) break;
     queue = fresh;
     idx = 0;
@@ -933,18 +953,44 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي واعتماده من الإدارة أولاً.", { reply_markup: mainMenu() });
     return;
   }
-  if (!pref) {
-    await bot.api.sendMessage(chatId, "⚠️ يجب تحديد مواصفات الشريك الذي تبحث عنه أولاً.", { reply_markup: mainMenu() });
+  // Partner preferences are optional for a normal search: without them we
+  // search with the user's own country and nothing else, instead of refusing.
+  // (The precise search still needs real preferences to be meaningful.)
+  if (!pref && strict) {
+    await bot.api.sendMessage(chatId, "⚠️ البحث الدقيق يحتاج مواصفات الشريك. حدّدها من «💍 مواصفات الشريك» أولاً.", { reply_markup: mainMenu() });
     return;
   }
-  const queue = await buildSearchQueue(botId, userId, profile, pref, strict);
+  const effectivePref: PartnerPreference = pref ?? defaultPref(userId, profile);
+  const queue = await buildSearchQueue(botId, userId, profile, effectivePref, strict);
   if (queue.length === 0) {
+    if (strict) {
+      await bot.api.sendMessage(chatId, "🎯 لا توجد ملفات تطابق كل مواصفاتك حرفياً الآن. جرّب «🔍 البحث عن شريك» لعرض الأقرب لها.", { reply_markup: mainMenu() });
+      return;
+    }
+    // Say WHY it is empty instead of a vague "no results".
+    const opposite: Gender = profile.gender === "MALE" ? "FEMALE" : "MALE";
+    const visible = await prisma.matchProfile.count({ where: { status: "APPROVED", isHidden: false, gender: opposite, userId: { not: userId }, user: { botId } } });
+    const me = await bot.api.getMe().catch(() => null);
     await bot.api.sendMessage(
       chatId,
-      strict ? "🎯 لا توجد ملفات تطابق كل مواصفاتك حرفياً الآن. جرّب «🔍 البحث عن شريك» لعرض الأقرب لها." : "😔 لا توجد نتائج مطابقة حالياً.",
+      (visible === 0
+        ? `📭 لا توجد حالياً ملفات ${opposite === "FEMALE" ? "نسائية" : "رجالية"} ظاهرة في البوت، فالقاعدة ما زالت تنمو.`
+        : "📭 لا توجد ملفات يمكن عرضها لك الآن (قد تكون محظورة أو مقيّدة بدولة أخرى).") +
+        (me?.username ? `\n\nشارك رابط البوت ليكبر المجتمع، وستصلك رسالة عند انضمام ملفات جديدة:\nhttps://t.me/${me.username}?start=ref_${userId}` : ""),
       { reply_markup: mainMenu() }
     );
     return;
+  }
+  // Honest notice (friend's suggestion): when none of the first profiles meets
+  // every stated requirement, say we are showing the closest ones instead.
+  if (!strict) {
+    const head = await prisma.matchProfile.findMany({ where: { userId: { in: queue.slice(0, 10) } } });
+    const best = head.reduce((m, h) => Math.max(m, compatibilityPercent(h, effectivePref, false) ?? 0), 0);
+    if (best < 100) {
+      await bot.api
+        .sendMessage(chatId, "ℹ️ لا يوجد ملف يطابق كل مواصفاتك بالضبط حالياً، فنعرض لك الأقرب إليها. نسبة التوافق ظاهرة على كل بطاقة.")
+        .catch(() => null);
+    }
   }
   await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0, strict }, messageId);
 }
@@ -1688,6 +1734,23 @@ async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: stri
 // ---------------------------------------------------------------------
 // SUPER_ADMIN moderation (text commands, same convention as adBotLogic)
 // ---------------------------------------------------------------------
+// Referral reward (owner spec, 2026-09-05) — 24h free Boost for the referrer,
+// granted exactly once per referred person, only when the referred profile goes
+// live (never on rejection).
+async function grantReferralReward(bot: TelegramBot, profileUserId: string) {
+  const referredUser = await prisma.matchUser.findUnique({ where: { id: profileUserId } });
+  if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
+    await prisma.matchUser.update({ where: { id: profileUserId }, data: { referralRewardGranted: true } }).catch(() => null);
+    const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
+    await prisma.matchProfile
+      .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
+      .catch(() => null);
+    await bot.api
+      .sendMessage(Number(referredUser.referredBy), "🎁 اعتُمد ملف صديق دعوته! حصلت على رفع مجاني لملفك لمدة 24 ساعة.")
+      .catch(() => null);
+  }
+}
+
 async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profile: MatchProfile, approve: boolean) {
   await prisma.matchProfile.update({ where: { userId: profile.userId }, data: { status: approve ? "APPROVED" : "REJECTED" } });
   await bot.api.sendMessage(adminChatId, approve ? `✅ تم اعتماد ملف ${profile.name}.` : `❌ تم رفض ملف ${profile.name}.`);
@@ -1698,26 +1761,11 @@ async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profi
     )
     .catch(() => null);
 
-  // Referral reward (owner spec, 2026-09-05) — 24h free Boost for the
-  // referrer, granted exactly once per referred person, only on a real
-  // approval (never on rejection).
-  if (approve) {
-    const referredUser = await prisma.matchUser.findUnique({ where: { id: profile.userId } });
-    if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
-      await prisma.matchUser.update({ where: { id: profile.userId }, data: { referralRewardGranted: true } }).catch(() => null);
-      const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
-      await prisma.matchProfile
-        .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
-        .catch(() => null);
-      await bot.api
-        .sendMessage(Number(referredUser.referredBy), "🎁 اعتمدت الإدارة ملف صديق دعوته! حصلت على رفع مجاني لملفك لمدة 24 ساعة.")
-        .catch(() => null);
-    }
-  }
+  if (approve) await grantReferralReward(bot, profile.userId);
 }
 
 async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string, approve: boolean) {
-  const candidates = await prisma.matchProfile.findMany({ where: { status: "PENDING" }, take: 200 });
+  const candidates = await prisma.matchProfile.findMany({ where: { status: approve ? "PENDING" : { in: ["PENDING", "APPROVED"] } }, take: 500 });
   const profile = candidates.find((p) => shortId(p.userId) === idSuffix);
   if (!profile) {
     await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
@@ -1728,7 +1776,9 @@ async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string,
 
 async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean) {
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
-  if (!profile || profile.status !== "PENDING") {
+  // Profiles now go live automatically, so the admin must still be able to
+  // reject an already-APPROVED profile afterwards.
+  if (!profile || profile.status === "REJECTED" || (profile.status === "APPROVED" && approve)) {
     await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
     return;
   }
@@ -1763,6 +1813,41 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     `🔀 المحادثة العشوائية الآن:\n💬 محادثات نشطة: ${activeSessions}\n⏳ بانتظار شريك: ${waitingQueue}\n\n` +
     `📥 رسائل واردة غير مقروءة: ${pendingInbox}`;
   await bot.api.sendMessage(chatId, text);
+}
+
+// Read-only report for the admin: WHY searches come back empty, from real
+// numbers instead of guesses. Counts exactly the conditions buildSearchQueue
+// applies (APPROVED, not hidden, opposite gender, same bot, not country-only
+// for other countries) and shows where profiles are lost.
+async function sendSearchDiagnostics(bot: TelegramBot, botId: string, chatId: number) {
+  const [all, byStatus, hidden, otherBot, prefs, users] = await Promise.all([
+    prisma.matchProfile.count({ where: { user: { botId } } }),
+    prisma.matchProfile.groupBy({ by: ["status", "gender"], where: { user: { botId } }, _count: { _all: true } }),
+    prisma.matchProfile.count({ where: { user: { botId }, status: "APPROVED", isHidden: true } }),
+    prisma.matchProfile.count({ where: { user: { botId: { not: botId } } } }),
+    prisma.partnerPreference.count({ where: { user: { botId } } }),
+    prisma.matchUser.count({ where: { botId } }),
+  ]);
+  const n = (st: string, g: string) => byStatus.find((x) => x.status === st && x.gender === g)?._count._all ?? 0;
+  const visible = (g: string) => n("APPROVED", g);
+  const countryOnly = await prisma.matchProfilePrivacy.count({ where: { countryOnly: true } }).catch(() => null);
+  const lines = [
+    "🩺 فحص البحث عن شريك",
+    "",
+    `👥 مستخدمو هذا البوت: ${users}`,
+    `📋 ملفات هذا البوت: ${all}`,
+    `⏳ بانتظار المراجعة: ذكور ${n("PENDING", "MALE")} · إناث ${n("PENDING", "FEMALE")}`,
+    `✅ معتمدة: ذكور ${visible("MALE")} · إناث ${visible("FEMALE")}`,
+    `❌ مرفوضة: ${n("REJECTED", "MALE") + n("REJECTED", "FEMALE")}`,
+    `⏸ معتمدة لكنها مخفية بقرار أصحابها: ${hidden}`,
+    `💍 أصحاب مواصفات شريك محفوظة: ${prefs}`,
+    countryOnly != null ? `🌍 ملفات «لدولتي فقط»: ${countryOnly}` : null,
+    otherBot > 0 ? `\n⚠️ يوجد ${otherBot} ملفاً مسجّلاً على بوت آخر (botId مختلف) ولا يظهر في بحث هذا البوت.` : null,
+    "",
+    "ما يراه الباحث: ذكر يرى الإناث المعتمدات غير المخفيات، والعكس.",
+    `→ الباحثون الذكور يرون حتى ${Math.max(0, visible("FEMALE") - 0)} ملفاً، والباحثات يرين حتى ${Math.max(0, visible("MALE") - 0)} ملفاً.`,
+  ].filter((l): l is string => l !== null);
+  await bot.api.sendMessage(chatId, lines.join("\n"));
 }
 
 async function sendPendingProfilesList(bot: TelegramBot, chatId: number) {
@@ -1898,6 +1983,10 @@ async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
 async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+    return;
+  }
+  if (text === "🩺 فحص البحث") {
+    await sendSearchDiagnostics(bot, botId, chatId);
     return;
   }
   if (text === "📊 الإحصائيات") {
@@ -2411,8 +2500,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `📌 طريقة الاستخدام:\n` +
       `1️⃣ أنشئ ملفك الشخصي من «👤 ملفي الشخصي» — الاسم والعمر والدولة والحالة والصورة.\n` +
       `2️⃣ حدد مواصفات الشريك من «💍 مواصفات الشريك» — العمر والدولة والحالة المطلوبة.\n` +
-      `3️⃣ اضغط «🔍 البحث عن شريك» لعرض الملفات المطابقة لمواصفاتك.\n` +
-      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً تُتبادل معلومات التواصل.\n\n` +
+      `3️⃣ اضغط «🔍 البحث عن شريك»: تظهر الملفات الأقرب لمواصفاتك أولاً مع نسبة التوافق، و«➡️ الملف التالي» يستبدل البطاقة بملف آخر. «📖 المزيد من المعلومات» يعرض بقية التفاصيل.\n` +
+      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً يصل كلاً منكما إشعار «إعجاب متبادل» مع زر للمراسلة.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔀 المراسلة العشوائية:\n` +
       `• محادثة مجهولة فورية مع شخص عشوائي.\n` +
@@ -2427,12 +2516,13 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `• 🖼 صور إضافية — أضف صوراً أكثر لملفك.\n` +
       `• 👀 من زار ملفي — اعرف من اطّلع على ملفك.\n` +
       `• 🎯 فلاتر متقدمة — فلترة حسب المدينة والحالة الاجتماعية.\n` +
+      `• 🎯 بحث دقيق — يعرض فقط الملفات التي تطابق كل مواصفاتك (للمشتركين في الفلاتر المتقدمة أو الذهبية).\n` +
       `• 👑 العضوية الذهبية — كل المزايا مجتمعة + وضع التخفي.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔒 الخصوصية والأمان:\n` +
       `• لا تُشارَك بياناتك حتى تختار أنت بدء التواصل.\n` +
-      `• كل ملف جديد يُراجَع يدوياً من الإدارة قبل ظهوره.\n` +
-      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت.\n\n` +
+      `• ملفك يظهر فور حفظه، وتراجعه الإدارة لاحقاً وقد ترفضه إن خالف الشروط.\n` +
+      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت، أو جعله ظاهراً لأهل دولتك فقط من «👤 ملفي الشخصي».\n\n` +
       `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، يُرفع ملفك مجاناً 24 ساعة.\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
     await bot.api.sendMessage(chatId, info, { reply_markup: infoMenu() });
