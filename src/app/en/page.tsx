@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
-import EnglishLiveDesks from "@/components/EnglishLiveDesks";
+import { LiveHeadlines, OnThisDay } from "@/components/AutoSections";
 import EnglishStoryCard from "@/components/EnglishStoryCard";
 import { EN_ARTICLES, EN_EVENTS, EN_NEWS } from "@/lib/enDesk";
 import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
@@ -34,12 +34,13 @@ export default function EnglishHome() {
           </div>
         </div>
       </section>
-      <div className="mt-6 grid gap-3 sm:grid-cols-4">
+      <div className="mt-6 grid gap-3 sm:grid-cols-5">
         {[
           ["/en/news", "News", String(EN_NEWS.length)],
           ["/en/articles", "Guides", String(EN_ARTICLES.length)],
           ["/en/events", "Dates", String(EN_EVENTS.length)],
           ["/en/free-tools", "Tools", String(EN_FREE_TOOLS.length)],
+          ["/en/markets", "Markets", "Live"],
         ].map(([href, label, count]) => (
           <Link key={href} href={href} className="rounded-2xl border border-sky-100 bg-sky-50 p-4 text-sky-950">
             <p className="text-2xl font-extrabold">{count}</p>
@@ -47,7 +48,7 @@ export default function EnglishHome() {
           </Link>
         ))}
       </div>
-      <EnglishLiveDesks />
+      <LiveHeadlines limit={8} />
       <div className="mt-6"><AdSlot position="in-content" label="English home" /></div>
       <section className="mt-8">
         <h2 className="text-xl font-black text-slate-900">Latest notes</h2>
@@ -58,6 +59,7 @@ export default function EnglishHome() {
         </div>
       </section>
       {lead && <p className="mt-3 text-xs text-slate-500">Lead story: {lead.title}</p>}
+      <OnThisDay lang="en" limit={4} />
       <section className="mt-8">
         <h2 className="text-xl font-black text-slate-900">Start with a tool</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">

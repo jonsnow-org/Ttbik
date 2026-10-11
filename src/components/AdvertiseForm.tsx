@@ -27,7 +27,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
     body.set("file", file);
     const res = await fetch("/api/ads/upload", { method: "POST", body });
     const data = await res.json();
-    if (!res.ok) return setMsg(data.error || "تعذر الرفع");
+    if (!res.ok) return setMsg(data.error || (ar ? "تعذر الرفع" : "Upload failed"));
     setBannerUrl(data.url);
     setKind(data.kind);
     setMsg(ar ? "تم رفع الملف." : "File uploaded.");
@@ -41,7 +41,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
       body: JSON.stringify({ bannerUrl, targetUrl, altText, days, kind }),
     });
     const data = await res.json();
-    if (!res.ok) return setMsg(data.error || "تعذر الحفظ");
+    if (!res.ok) return setMsg(data.error || (ar ? "تعذر الحفظ" : "Could not save"));
     setCode(data.code);
     setConfirm(data.code);
   }
@@ -55,7 +55,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
     });
     const data = await res.json();
     if (data.invoiceUrl) window.location.href = data.invoiceUrl;
-    else setMsg(data.note ? `${data.note} ${data.amount}$ عبر ${data.network}: ${data.usdt}` : data.error || "تعذر الدفع");
+    else setMsg(data.note ? `${data.note} ${data.amount}$ ${ar ? "عبر" : "via"} ${data.network}: ${data.usdt}` : data.error || (ar ? "تعذر الدفع" : "Payment failed"));
   }
 
   async function sendCode() {
@@ -66,7 +66,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
       body: JSON.stringify({ code: confirm }),
     });
     const data = await res.json();
-    setMsg(data.status || data.error || "أُرسل");
+    setMsg(data.status || data.error || (ar ? "أُرسل" : "Sent"));
   }
 
   return (
@@ -94,7 +94,7 @@ export default function AdvertiseForm({ locale }: { locale: "ar" | "en" }) {
       </label>
       <div className="flex flex-wrap gap-2">
         {PLANS.map((p) => (
-          <button key={p.days} type="button" onClick={() => setDays(p.days)} className={`rounded-full px-3 py-1 text-sm font-bold ${days === p.days ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{p.label} · ${p.price}</button>
+          <button key={p.days} type="button" onClick={() => setDays(p.days)} className={`rounded-full px-3 py-1 text-sm font-bold ${days === p.days ? "bg-slate-900 text-white" : "bg-slate-100"}`}>{ar ? p.label : `${p.days} days`} · ${p.price}</button>
         ))}
       </div>
       <p className="text-sm">{ar ? "المجموع" : "Total"}: ${price}</p>

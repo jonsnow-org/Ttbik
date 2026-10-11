@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
-import Tool from "@/app/free-tools/cv-generator/CvGenerator";
+import Tool from "@/components/en/EnCv";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {

@@ -8,6 +8,7 @@ import AdSlot from "@/components/AdSlot";
 import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import MarketTickers from "@/components/MarketTickers";
+import EnMarketTickers from "@/components/EnMarketTickers";
 import PaidBanner from "@/components/PaidBanner";
 import StickyBottomAd from "@/components/StickyBottomAd";
 import TelegramSwipeLock from "@/components/TelegramSwipeLock";
@@ -96,6 +97,75 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   }
 
   const isOwner = await isOwnerServer();
+
+  // English desk (/en/*): its own header, ticker and footer in English, LTR,
+  // with the global-markets ticker (the Arabic chrome below stays for everything else).
+  if (pathname === "/en" || pathname.startsWith("/en/")) {
+    return (
+      <html lang="en" dir="ltr">
+        <body className="min-h-screen bg-slate-50 font-sans text-slate-800 antialiased">
+          <TelegramSwipeLock />
+          <AdServiceWorker />
+          <AnalyticsTracker isOwner={isOwner} />
+          <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
+            <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3.5">
+              <a href="/en" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
+                <Logo className="h-7 w-7" /> Sham AI
+              </a>
+              <nav className="hidden items-center gap-1 text-sm font-semibold text-slate-600 md:flex" aria-label="Main">
+                <a href="/en/news" className="rounded-full px-3 py-1.5 hover:bg-brand-50">News</a>
+                <a href="/en/markets" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Markets</a>
+                <a href="/en/free-tools" className="rounded-full px-3 py-1.5 text-emerald-600 hover:bg-emerald-50">Free tools</a>
+                <a href="/en/articles" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Guides</a>
+                <a href="/en/events" className="rounded-full px-3 py-1.5 hover:bg-brand-50">Dates</a>
+              </nav>
+              <div className="flex items-center gap-2">
+                <a href="/en/advertise" className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-950">Advertise</a>
+                <a href="/" hrefLang="ar" className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">Arabic</a>
+              </div>
+            </div>
+          </header>
+          <div className="relative z-20 bg-white">
+            <EnMarketTickers />
+            <PaidBanner lang="en" />
+          </div>
+          <div className="mx-auto max-w-6xl px-4 py-2">
+            <AdSlot position="header-banner" label="Top of page" isOwner={isOwner} />
+          </div>
+          <main>{children}</main>
+          <div className="mx-auto max-w-6xl px-4 py-2">
+            <AdSlot position="footer-banner" label="Above footer" isOwner={isOwner} />
+          </div>
+          <footer className="mt-20 border-t border-slate-200 bg-white">
+            <div className="mx-auto max-w-6xl px-4 py-10">
+              <div className="flex flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-left">
+                <a href="/en" className="flex items-center gap-2 text-base font-extrabold text-brand-800">
+                  <Logo className="h-6 w-6" /> Sham AI
+                </a>
+                <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-slate-500">
+                  <a href="/en/news" className="hover:text-brand-700">News</a>
+                  <a href="/en/markets" className="hover:text-brand-700">Markets</a>
+                  <a href="/en/free-tools" className="hover:text-brand-700">Free tools</a>
+                  <a href="/en/articles" className="hover:text-brand-700">Guides</a>
+                  <a href="/en/events" className="hover:text-brand-700">Dates</a>
+                  <a href="/en/advertise" className="hover:text-brand-700">Advertise</a>
+                  <a href="/" className="hover:text-brand-700">Arabic site</a>
+                </p>
+              </div>
+              <div className="mt-6 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-6 text-xs text-slate-400 sm:flex-row">
+                <p>© {new Date().getFullYear()} Sham AI. All rights reserved.</p>
+                <p className="flex items-center gap-4">
+                  <a href="/terms" className="hover:text-brand-700">Terms</a>
+                  <a href="/privacy" className="hover:text-brand-700">Privacy</a>
+                </p>
+              </div>
+            </div>
+          </footer>
+          <StickyBottomAd isOwner={isOwner} lang="en" />
+        </body>
+      </html>
+    );
+  }
 
   return (
     <html lang="ar" dir="rtl">

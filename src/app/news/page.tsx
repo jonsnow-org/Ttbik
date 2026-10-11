@@ -3,7 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { latestNewsItem } from "@/lib/newsItems";
-import { LIVE_DESKS, isMajorStory, liveEmbedSrc, liveWatchUrl } from "@/lib/newsLive";
+import { LIVE_DESKS, isMajorStory } from "@/lib/newsLive";
 import { clusterHeadlines, coverFor, fetchAllNews, interleaveNews, type NewsCluster, type RssItem } from "@/lib/newsRss";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -87,37 +87,22 @@ export default async function NewsHubPage() {
 
         <section className="mb-8" aria-labelledby="live-desk">
           <h2 id="live-desk" className="mb-1 text-lg font-extrabold text-slate-900">
-            بث الأحداث الكبرى
+            البث المباشر للأحداث الكبرى
           </h2>
           <p className="mb-3 text-xs leading-6 text-slate-500">
-            بث رسمي من يوتيوب للقنوات أدناه — ليس إعادة بث من شام AI. إن توقف التضمين اضغط «فتح على يوتيوب».
+            روابط البث الرسمي للقنوات على يوتيوب (تُفتح في صفحة القناة نفسها، وليس إعادة بث من شام AI). العناوين أدناه تتحدث تلقائياً.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap gap-2">
             {LIVE_DESKS.map((desk) => (
-              <figure key={desk.channelId} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950">
-                <div className="aspect-video w-full bg-black">
-                  <iframe
-                    title={`بث ${desk.name}`}
-                    src={liveEmbedSrc(desk)}
-                    className="h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    loading="lazy"
-                    referrerPolicy="strict-origin-when-cross-origin"
-                  />
-                </div>
-                <figcaption className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold text-white">
-                  <span>مباشر · {desk.name}</span>
-                  <a
-                    href={liveWatchUrl(desk)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 rounded-full bg-red-600 px-2.5 py-1 text-[11px] font-extrabold text-white hover:bg-red-500"
-                  >
-                    فتح على يوتيوب
-                  </a>
-                </figcaption>
-              </figure>
+              <a
+                key={desk.channelId}
+                href={`https://www.youtube.com/channel/${desk.channelId}/live`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-red-500"
+              >
+                ▶ مباشر · {desk.name}
+              </a>
             ))}
           </div>
         </section>

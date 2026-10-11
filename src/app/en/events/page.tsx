@@ -3,6 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
 import EnglishStoryCard from "@/components/EnglishStoryCard";
+import { OnThisDay } from "@/components/AutoSections";
 import { EN_EVENTS } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -26,6 +27,7 @@ export default function Page() {
           <EnglishStoryCard key={item.slug} href={`/en/events/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} badge="Date" />
         ))}
       </div>
+      <OnThisDay lang="en" limit={12} />
     </main>
   );
 }

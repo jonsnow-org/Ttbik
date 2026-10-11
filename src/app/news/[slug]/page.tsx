@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { NEWS_ITEMS, getNewsItem } from "@/lib/newsItems";
-import { LIVE_DESKS, liveEmbedSrc, liveWatchUrl } from "@/lib/newsLive";
+import { LIVE_DESKS } from "@/lib/newsLive";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
@@ -115,31 +115,18 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
           <AdSlot position="in-content" label="وسط صفحة الخبر" />
         </div>
 
-        <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-slate-950" aria-label="بث رسمي">
-          <div className="aspect-video w-full bg-black">
-            <iframe
-              title={`بث ${desk.name}`}
-              src={liveEmbedSrc(desk)}
-              className="h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              loading="lazy"
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-            <p className="text-xs leading-6 text-slate-200">
-              متابعة من بث {desk.name} الرسمي على يوتيوب. الملخص أعلاه ليس تغطية لحظة بلحظة.
-            </p>
-            <a
-              href={liveWatchUrl(desk)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 rounded-full bg-red-600 px-3 py-1.5 text-[11px] font-extrabold text-white hover:bg-red-500"
-            >
-              فتح على يوتيوب
-            </a>
-          </div>
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4" aria-label="بث رسمي">
+          <p className="text-xs leading-6 text-slate-600">
+            للمتابعة اللحظية افتح البث الرسمي لقناة {desk.name} على يوتيوب. الملخص أعلاه ليس تغطية لحظة بلحظة.
+          </p>
+          <a
+            href={`https://www.youtube.com/channel/${desk.channelId}/live`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-red-500"
+          >
+            ▶ فتح البث على يوتيوب
+          </a>
         </section>
 
         <div className="mt-6">

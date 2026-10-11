@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import AdSlot from "@/components/AdSlot";
+import { OnThisDay, Trending } from "@/components/AutoSections";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
 import EditorialHubNav from "@/components/editorial/EditorialHubNav";
@@ -64,6 +65,8 @@ export default function ArticlesHubPage() {
           />
         ))}
       </ul>
+
+      <Trending lang="ar" limit={6} />
 
       <div className="mt-8">
         <AdSlot position="footer-banner" label="أسفل المقالات" />
