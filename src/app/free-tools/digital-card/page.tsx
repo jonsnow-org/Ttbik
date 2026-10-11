@@ -3,6 +3,7 @@ import Link from "next/link";
 import DigitalCardForm from "./DigitalCardForm";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/digital-card";
 
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function DigitalCardPage() {
+function DigitalCardPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -59,5 +60,14 @@ export default function DigitalCardPage() {
         <AdSlot position="in-content" label="أسفل نموذج البطاقة الرقمية" />
       </div>
     </div>
+  );
+}
+
+export default function DigitalCardPage() {
+  return (
+    <>
+      <DigitalCardPageBody />
+      <ToolSeoSection slug="digital-card" />
+    </>
   );
 }

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "شام AI — أدوات مجانية بالعربي",
+  "short_name": "شام AI",
+  "version": "1.0.0",
+  "description": "أدوات عربية مجانية بضغطة: رمز QR للصفحة الحالية، حاسبة الزكاة، BMI، محوّل التاريخ الهجري، اختصار الروابط وغيرها.",
+  "default_locale": "ar",
+  "action": { "default_popup": "popup.html", "default_title": "شام AI" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["activeTab", "contextMenus"],
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import VatCalculator from "./VatCalculator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "حاسبة ضريبة القيمة المضافة VAT | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "احسب ضريبة القيمة المضافة فوراً للدول العربية: السعودية 15%، الإمارات 5%، مصر 14%، الأردن 16% — مبلغ قبل أو شامل الضريبة. أداة عربية مجانية بلا تسجيل.",
 };
 
-export default function VatCalculatorPage() {
+function VatCalculatorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -29,5 +30,14 @@ export default function VatCalculatorPage() {
         <AdSlot position="in-content" label="أسفل حاسبة ضريبة القيمة المضافة" />
       </div>
     </div>
+  );
+}
+
+export default function VatCalculatorPage() {
+  return (
+    <>
+      <VatCalculatorPageBody />
+      <ToolSeoSection slug="vat-calculator" />
+    </>
   );
 }

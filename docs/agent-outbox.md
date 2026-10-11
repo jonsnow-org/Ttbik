@@ -850,3 +850,12 @@ Plus the honesty rule from O27 (read back every write and paste the tool's retur
 
 Status: **open — waiting G73/G74 (ack + drill 3).**
 
+
+## O21 — 2026-10-11 — Claude: growth pack + match bot nudges
+
+- Free tools: every `/free-tools/<tool>` page now has ~300 words of explanation, steps, FAQ and FAQPage/HowTo/WebApplication JSON-LD
+  (`src/lib/toolSeo.ts`, `src/components/ToolSeoSection.tsx`). New tool → add to `FREE_TOOLS` + `TOOL_SEO` and render `<ToolSeoSection slug=…/>`.
+- Embeddable widgets: `/embed/tools/<tool>` (8 tools, noindex, backlink footer) + copy-paste iframe code under each tool.
+- `/llms.txt` for answer engines; `extension/` = ready Chrome MV3 extension (see its README); `docs/GROWTH_PLAYBOOK.md` has directory/GEO copy.
+- Match bot: daily `/api/cron/match-activity` nudge (new profiles + visitor count, max 1/day/user). Vercel ignore script also skips media-bot/, supabase/, prisma/*.sql, extension/;
+  the `claude/compassionate-mayer-u1n7zr` branch no longer gets preview deployments (builds were hitting Vercel's rate limit).
