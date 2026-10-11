@@ -1,10 +1,8 @@
 import { parseFeed, type RssItem } from "@/lib/newsRss";
 
-// Automatic content for both desks, all from free public sources and refreshed
-// by Next's data cache (no cron needed): English RSS headlines, Wikipedia's
-// "on this day", Wikipedia's featured article and most-read pages.
-// Every item links out to its original page; nothing is copied wholesale.
-// Wikipedia text is CC BY-SA, so each block names Wikipedia as the source.
+// Automatic data for the English desk, refreshed by Next's data cache: English
+// RSS headlines (title + source + link out to the publisher; no article text
+// is copied) and the global-markets ticker.
 
 const UA = "ShamAI/1.0 (https://ttbik.vercel.app; contact via site)";
 
@@ -64,75 +62,6 @@ export async function fetchEnHeadlines(limit = 20): Promise<RssItem[]> {
     per.set(it.source, n + 1);
     out.push(it);
     if (out.length >= limit) break;
-  }
-  return out;
-}
-
-// ---------- Wikipedia ----------
-export type WikiLang = "en" | "ar";
-export type WikiPage = { title: string; extract: string; url: string; thumb?: string; description?: string };
-export type OnThisDayItem = { year: number; text: string; page?: WikiPage };
-
-type WikiRaw = {
-  title?: string;
-  normalizedtitle?: string;
-  titles?: { normalized?: string };
-  extract?: string;
-  description?: string;
-  thumbnail?: { source?: string };
-  content_urls?: { desktop?: { page?: string } };
-};
-
-function page(p: WikiRaw): WikiPage | undefined {
-  const url = p.content_urls?.desktop?.page;
-  const title = p.titles?.normalized || p.normalizedtitle || p.title;
-  if (!url || !title) return undefined;
-  return { title, extract: (p.extract || "").trim(), url, thumb: p.thumbnail?.source, description: p.description };
-}
-
-export async function fetchOnThisDay(lang: WikiLang, limit = 8, now = new Date()): Promise<OnThisDayItem[]> {
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(now.getUTCDate()).padStart(2, "0");
-  const data = await getJson<{ events?: { year: number; text: string; pages?: WikiRaw[] }[] }>(
-    `https://api.wikimedia.org/feed/v1/wikipedia/${lang}/onthisday/events/${mm}/${dd}`,
-    6 * 3600,
-  );
-  const events = (data?.events || []).filter((e) => e.text && Number.isFinite(e.year));
-  // most recent first, mixing eras so the list is not all ancient history
-  events.sort((a, b) => b.year - a.year);
-  const step = Math.max(1, Math.floor(events.length / limit));
-  const picked = events.filter((_, i) => i % step === 0).slice(0, limit);
-  return picked.map((e) => ({ year: e.year, text: e.text, page: e.pages?.[0] ? page(e.pages[0]) : undefined }));
-}
-
-export async function fetchFeaturedArticle(now = new Date()): Promise<WikiPage | null> {
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(now.getUTCDate()).padStart(2, "0");
-  const data = await getJson<{ tfa?: WikiRaw }>(`https://api.wikimedia.org/feed/v1/wikipedia/en/featured/${y}/${m}/${d}`, 6 * 3600);
-  return data?.tfa ? page(data.tfa) || null : null;
-}
-
-const SKIP = /^(Main_Page|Special:|Wikipedia:|Portal:|File:|Help:|Category:|Talk:|User:|الصفحة_الرئيسية|خاص:|ويكيبيديا:|بوابة:|ملف:|مساعدة:|تصنيف:|نقاش:|مستخدم:)/;
-
-export async function fetchTrending(lang: WikiLang, n = 6, now = new Date()): Promise<WikiPage[]> {
-  const day = new Date(now.getTime() - 2 * 86400_000); // data lags ~1 day
-  const y = day.getUTCFullYear();
-  const m = String(day.getUTCMonth() + 1).padStart(2, "0");
-  const d = String(day.getUTCDate()).padStart(2, "0");
-  const top = await getJson<{ items?: { articles?: { article: string; views: number }[] }[] }>(
-    `https://wikimedia.org/api/rest_v1/metrics/pageviews/top/${lang}.wikipedia/all-access/${y}/${m}/${d}`,
-    6 * 3600,
-  );
-  const names = (top?.items?.[0]?.articles || []).filter((a) => !SKIP.test(a.article)).slice(0, n + 4);
-  const sums = await Promise.all(
-    names.map((a) => getJson<WikiRaw>(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(a.article)}`, 6 * 3600)),
-  );
-  const out: WikiPage[] = [];
-  for (const s of sums) {
-    const p = s ? page(s) : undefined;
-    if (p && p.extract) out.push(p);
-    if (out.length >= n) break;
   }
   return out;
 }

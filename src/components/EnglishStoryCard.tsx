@@ -2,6 +2,12 @@ import Link from "next/link";
 import CoverImage from "@/components/CoverImage";
 
 const COVERS: Record<string, string> = {
+  "why-gold-and-the-dollar-move-opposite": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
+  "five-forces-that-move-exchange-rates": "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=1200&q=80",
+  "news-analysis-opinion-how-to-tell-apart": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=1200&q=80",
+  "verify-a-viral-photo-or-video": "https://images.unsplash.com/photo-1611746872915-64382b5c76da?auto=format&fit=crop&w=1200&q=80",
+  "what-free-really-costs-online": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=1200&q=80",
+  "how-nobel-prizes-are-chosen-and-what-it-tells-you": "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=1200&q=80",
   "world-post-day-2026": "https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=1200&q=80",
   "anne-carson-nobel-literature-2026": "https://images.unsplash.com/photo-1457369804613-52c61a468e7d?auto=format&fit=crop&w=1200&q=80",
   "browser-tools-keep-files-local": "https://images.unsplash.com/photo-1461749280684-dccba630e2f6?auto=format&fit=crop&w=1200&q=80",

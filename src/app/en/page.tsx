@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
-import { LiveHeadlines, OnThisDay } from "@/components/AutoSections";
+import { LiveHeadlines } from "@/components/AutoSections";
 import EnglishStoryCard from "@/components/EnglishStoryCard";
 import { EN_ARTICLES, EN_EVENTS, EN_NEWS } from "@/lib/enDesk";
 import { EN_FREE_TOOLS } from "@/lib/enFreeTools";
@@ -59,7 +59,6 @@ export default function EnglishHome() {
         </div>
       </section>
       {lead && <p className="mt-3 text-xs text-slate-500">Lead story: {lead.title}</p>}
-      <OnThisDay lang="en" limit={4} />
       <section className="mt-8">
         <h2 className="text-xl font-black text-slate-900">Start with a tool</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
