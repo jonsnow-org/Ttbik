@@ -451,6 +451,14 @@
       "writes": [
         "sham-grown-checkpoint"
       ]
+    },
+    "dataset_probe": {
+      "file": ".github/workflows/sham-dataset-probe.yml",
+      "title": "فحص مجموعات Kaggle (الحالة والملفات والتنزيل) — قراءة فقط",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
