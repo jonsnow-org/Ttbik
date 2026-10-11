@@ -31,8 +31,8 @@ JOB_HOURS = float(os.environ.get("SHAM_JOB_HOURS", "3.3"))
 WITH_SECRETS = os.environ.get("SHAM_STUDIO_SECRETS") == "1"
 
 JOBS = {
-    "measure": ("media_factory --measure", "cd {home}/Ttbik/ai-system/lightning && python -u media_factory.py --measure", "~/factory_measure.log"),
-    "media": ("media_factory", "cd {home}/Ttbik/ai-system/lightning && SHAM_FACTORY_HOURS={h} python media_factory.py", "~/factory.log"),
+    "measure": ("media_factory.py --measure", "cd {home}/Ttbik/ai-system/lightning && python -u media_factory.py --measure", "~/factory_measure.log"),
+    "media": ("media_factory.py$", "cd {home}/Ttbik/ai-system/lightning && SHAM_FACTORY_HOURS={h} python media_factory.py", "~/factory.log"),
     "run": ("sham_live", "cd {home}/Ttbik/ai-system/colab/sham_small && python -c \"import sham_live; print(sham_live.run(hours={h}, "
                          "name='lightning', source_set='gh', video=False, workers=4))\"", "~/sham_job.log"),
 }
@@ -73,7 +73,9 @@ def prepare(studio) -> str:
         # the notebooks' code writes under /kaggle/working: give this Studio user that folder (sudo is available there), else fall back to HOME
         "(sudo -n mkdir -p /kaggle/working /kaggle/input && sudo -n chown -R $(id -u):$(id -g) /kaggle 2>/dev/null || true) && "
         "python -m pip install -q --disable-pip-version-check tokenizers numpy requests kaggle datasets pillow soundfile imageio-ffmpeg "
-        "beautifulsoup4 av 2>&1 | tail -2; echo prepared; ls -ld /kaggle/working 2>&1 | cut -c1-60"))
+        "beautifulsoup4 av 2>&1 | tail -2; "
+        # a --measure run that never exited (HF threads) must not be mistaken for the factory: end any such leftover
+        "pkill -f 'media_factory.py --measure' 2>/dev/null; echo prepared; ls -ld /kaggle/working 2>&1 | cut -c1-60"))
 
 
 def diag(studio) -> None:
