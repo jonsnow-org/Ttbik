@@ -1,5 +1,5 @@
 import { FREE_TOOLS } from "@/lib/freeTools";
-import { LIVE_BOTS } from "@/lib/liveBots";
+import { BOT_LANDINGS } from "@/lib/botLanding";
 import { TOOL_SEO } from "@/lib/toolSeo";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -14,7 +14,7 @@ export function GET() {
     const about = TOOL_SEO[slug]?.about[0];
     return `- [${t.title}](${SITE_URL}${t.href}): ${(about || t.desc).replace(/\s+/g, " ").slice(0, 220)}`;
   }).join("\n");
-  const bots = LIVE_BOTS.map((b) => `- ${b.title}: ${b.desc}`).join("\n");
+  const bots = BOT_LANDINGS.map((b) => `- [${b.name}](${SITE_URL}/bot/${b.slug}): ${b.summary}`).join("\n");
   const body = `# شام AI (Sham AI)
 
 > موقع عربي يقدّم أدوات مجانية تعمل داخل المتصفح بلا تسجيل (حاسبات، محوّلات، مولّدات)، وبوتات تليجرام جاهزة، ومواقيت الصلاة، وأخبارًا وأحداثًا. اللغة الأساسية: العربية. كل الأدوات مجانية، ومعظمها يعمل دون إرسال بيانات المستخدم إلى أي خادم.
