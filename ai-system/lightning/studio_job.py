@@ -114,6 +114,9 @@ def main() -> int:
             say(str(studio.run("tail -n 30 ~/tokens.log 2>/dev/null | cut -c1-300; echo ---; tail -n 10 ~/factory.log 2>/dev/null | cut -c1-200; echo ---; ls ~/sham_factory 2>/dev/null | head; "
                                "du -sh ~/sham_factory 2>/dev/null; pgrep -af 'media_factory|tokenizer_job' | cut -c1-120 | head -3; free -g | head -2")))
             return 0
+        if mode == "stopfactory":                            # the 4 cores belong to the tokenizer trainer: end a leftover media factory, touch nothing else
+            say(str(studio.run("pkill -f 'media_factory.py' 2>/dev/null; sleep 2; pgrep -af 'media_factory|tokenizer_job' | cut -c1-100")))
+            return 0
         ensure_running(studio, machine)
         say(f"حالة الاستوديو: {getattr(studio, 'status', '?')}")
         if mode == "diag":
