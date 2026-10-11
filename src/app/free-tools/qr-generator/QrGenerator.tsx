@@ -44,7 +44,7 @@ export default function QrGenerator({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // ?text=... prefill (used by the Chrome extension's "QR for this page").
+  // ?text=... prefill (optional prefill via link).
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search).get("text");

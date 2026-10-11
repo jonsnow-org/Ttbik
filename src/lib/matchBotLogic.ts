@@ -946,6 +946,17 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     );
     return;
   }
+  // Honest notice (friend's suggestion): when none of the first profiles meets
+  // every stated requirement, say we are showing the closest ones instead.
+  if (!strict) {
+    const head = await prisma.matchProfile.findMany({ where: { userId: { in: queue.slice(0, 10) } } });
+    const best = head.reduce((m, h) => Math.max(m, compatibilityPercent(h, pref, false) ?? 0), 0);
+    if (best < 100) {
+      await bot.api
+        .sendMessage(chatId, "ℹ️ لا يوجد ملف يطابق كل مواصفاتك بالضبط حالياً، فنعرض لك الأقرب إليها. نسبة التوافق ظاهرة على كل بطاقة.")
+        .catch(() => null);
+    }
+  }
   await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0, strict }, messageId);
 }
 
@@ -2411,8 +2422,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `📌 طريقة الاستخدام:\n` +
       `1️⃣ أنشئ ملفك الشخصي من «👤 ملفي الشخصي» — الاسم والعمر والدولة والحالة والصورة.\n` +
       `2️⃣ حدد مواصفات الشريك من «💍 مواصفات الشريك» — العمر والدولة والحالة المطلوبة.\n` +
-      `3️⃣ اضغط «🔍 البحث عن شريك» لعرض الملفات المطابقة لمواصفاتك.\n` +
-      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً تُتبادل معلومات التواصل.\n\n` +
+      `3️⃣ اضغط «🔍 البحث عن شريك»: تظهر الملفات الأقرب لمواصفاتك أولاً مع نسبة التوافق، و«➡️ الملف التالي» يستبدل البطاقة بملف آخر. «📖 المزيد من المعلومات» يعرض بقية التفاصيل.\n` +
+      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً يصل كلاً منكما إشعار «إعجاب متبادل» مع زر للمراسلة.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔀 المراسلة العشوائية:\n` +
       `• محادثة مجهولة فورية مع شخص عشوائي.\n` +
@@ -2427,12 +2438,13 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `• 🖼 صور إضافية — أضف صوراً أكثر لملفك.\n` +
       `• 👀 من زار ملفي — اعرف من اطّلع على ملفك.\n` +
       `• 🎯 فلاتر متقدمة — فلترة حسب المدينة والحالة الاجتماعية.\n` +
+      `• 🎯 بحث دقيق — يعرض فقط الملفات التي تطابق كل مواصفاتك (للمشتركين في الفلاتر المتقدمة أو الذهبية).\n` +
       `• 👑 العضوية الذهبية — كل المزايا مجتمعة + وضع التخفي.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔒 الخصوصية والأمان:\n` +
       `• لا تُشارَك بياناتك حتى تختار أنت بدء التواصل.\n` +
       `• كل ملف جديد يُراجَع يدوياً من الإدارة قبل ظهوره.\n` +
-      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت.\n\n` +
+      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت، أو جعله ظاهراً لأهل دولتك فقط من «👤 ملفي الشخصي».\n\n` +
       `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، يُرفع ملفك مجاناً 24 ساعة.\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
     await bot.api.sendMessage(chatId, info, { reply_markup: infoMenu() });

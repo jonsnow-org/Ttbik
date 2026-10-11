@@ -59,7 +59,7 @@ export default function UrlShortener({ lang = "ar" }: { lang?: "ar" | "en" }) {
   const [result, setResult] = useState<{ shortUrl: string; code: string; clicks: number } | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // ?url=... prefill (used by the Chrome extension).
+  // ?url=... prefill (optional prefill via link).
   useEffect(() => {
     try {
       const q = new URLSearchParams(window.location.search).get("url");
