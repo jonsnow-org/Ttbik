@@ -103,6 +103,11 @@ def main() -> int:
         return 0
     try:
         studio, machine = open_studio()
+        if mode == "peek":                                   # read-only look at a running job: never starts, stops or restarts anything
+            say(str(getattr(studio, "status", "?")))
+            say(str(studio.run("tail -n 45 ~/factory.log 2>/dev/null | cut -c1-300; echo ---; ls ~/sham_factory 2>/dev/null | head; "
+                               "du -sh ~/sham_factory 2>/dev/null; pgrep -af media_factory | cut -c1-120 | head -3; free -g | head -2")))
+            return 0
         ensure_running(studio, machine)
         say(f"حالة الاستوديو: {getattr(studio, 'status', '?')}")
         if mode == "diag":

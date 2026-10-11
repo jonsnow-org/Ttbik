@@ -459,6 +459,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "lightning_peek": {
+      "file": ".github/workflows/sham-lightning-peek.yml",
+      "title": "نظرة للقراءة فقط على استوديو Lightning",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [

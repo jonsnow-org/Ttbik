@@ -1,0 +1,29 @@
+name: Sham Lightning Peek (read-only)
+
+# نظرة للقراءة فقط على ما يجري داخل استوديو Lightning (سجل المصنع وحجم ما جُمع). لا تشغّل ولا توقف شيئاً، ولها مجموعة تزامن مستقلة
+# فلا تنتظر خلف تشغيل المصنع الطويل.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  peek:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install lightning-sdk
+      - name: Peek
+        env:
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+        run: python ai-system/lightning/studio_job.py peek
