@@ -729,6 +729,8 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
     if (isEffectivelyBoosted(c, c.user)) w *= 2.5;
     if (c.verificationStatus === "VERIFIED") w *= 1.3;
     if (now - c.user.lastActiveAt.getTime() < 3 * 86400000) w *= 1.3;
+    // Recently refreshed profiles get a small lift so stale ones don't crowd the top.
+    if (c.updated_at && now - new Date(c.updated_at).getTime() < 14 * 86400000) w *= 1.2;
     if (seenSet.has(c.userId)) w *= 0.35;
     w *= Math.max(0.6, Math.min(1.6, 1.6 / (1 + (exposureOf.get(c.userId) || 0) / 25)));
 
@@ -836,8 +838,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   // collision risk between different users; the full ID easily fits
   // Telegram's 64-byte callback_data limit anyway.
   const kb = new InlineKeyboard();
-  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(`⭐ سوبر لايك`, `msuperlike|${targetUserId}`).row();
-  kb.text(expanded ? "🔼 إخفاء التفاصيل" : "📖 المزيد من المعلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`);
+  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(expanded ? "🔼 إخفاء" : "📖 معلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`).text(`⭐`, `msuperlike|${targetUserId}`).row();
   const contactUrl = profile.contactMethod === "TELEGRAM" ? `https://t.me/${profile.contactValue.replace(/^@/, "")}` : `https://wa.me/${profile.contactValue.replace(/[^0-9]/g, "")}`;
   kb.url("💬 رسالة", contactUrl).row();
   const photoGranted = photoPermission?.status === "GRANTED";
