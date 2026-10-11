@@ -1,0 +1,20 @@
+name: athar-mints
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: athar-mints
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: look for new Athar payments
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
+          code=$(curl -sS -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/athar-mints?secret=${CRON_SECRET}")
+          echo "HTTP ${code}"; cat body.json; echo
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
