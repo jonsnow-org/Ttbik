@@ -36,22 +36,30 @@ def make_probe(device: str = "cpu", work: str | Path = "/tmp/sham_probe", docume
     def probe(ckpt: Path, tok_json: Path) -> float:
         model, _step, _ = load_checkpoint(ckpt, map_location=device)
         tok = ShamTextTokenizer.load(str(tok_json))
-        ids = tok.encode(text)
-        L = min(256, model.cfg.max_seq_len)
-        wins = [ids[i:i + L] for i in range(0, len(ids) - L + 1, L)][:16]
-        model.train(False)
-        total = 0.0
-        with torch.no_grad():
-            for w in wins:
-                x = torch.tensor([w], device=device)
-                total += float(model(x, labels=x)[1])
-        chance = math.log(model.cfg.vocab_size)
+        loss = text_loss(model, tok, text, device)
+        probe.last_chance = math.log(model.cfg.vocab_size)
         del model
-        loss = total / max(len(wins), 1)
-        probe.last_chance = chance
         return loss
     probe.last_chance = None
+    probe.text = text
+    probe.device = device
     return probe
+
+
+def text_loss(model, tok, text: str, device: str = "cpu", windows: int = 16, length: int = 256) -> float:
+    """Mean next-token loss of `model` on the first `windows` windows of `text` (a fixed sample: comparable across calls and models)."""
+    ids = tok.encode(text)
+    L = min(length, model.cfg.max_seq_len)
+    wins = [ids[i:i + L] for i in range(0, len(ids) - L + 1, L)][:windows]
+    was = model.training
+    model.train(False)
+    total = 0.0
+    with torch.no_grad():
+        for w in wins:
+            x = torch.tensor([w], device=device)
+            total += float(model(x, labels=x)[1])
+    model.train(was)
+    return total / max(len(wins), 1)
 
 
 def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = ()):

@@ -38,36 +38,53 @@ def layers_to_add(cfg, current_params: int, target_params: int) -> int:
     return max(0, math.ceil((target_params - current_params) / layer_params(cfg)))
 
 
-def grow_model_depth_and_context(model, add_layers: int, target_ctx: int):
-    """(grown model, report). Depth-only growth is exact; the report states the measured effects."""
+def grow_model_depth_and_context(model, add_layers: int, target_ctx: int, loss_fn=None, max_loss_rise: float = 0.03):
+    """(grown model, report). Depth-only growth is exact. The context is extended in steps (x2, x4, ... up to target_ctx) and each step is kept
+    only while the loss on a fixed real text (loss_fn(model) -> float) rises by at most max_loss_rise: NTK scaling is free in weights but
+    not free in quality — the real model moved far more than a toy one (2026-10-11), so the extension is measured, never assumed."""
     from expand_model import grow_model
     from sham_longctx import extend_context_ntk
     model.train(False)
     x = torch.randint(0, min(model.cfg.vocab_size, 32000), (1, min(64, model.cfg.max_seq_len)))
     with torch.no_grad():
         ref = model(x)[0]
+    base_loss = loss_fn(model) if loss_fn else None
     grown = grow_model(model, replace(model.cfg, n_layers=model.cfg.n_layers + add_layers))
     grown.train(False)
     with torch.no_grad():
         deep = grown(x)[0]
     exact = float((ref - deep).abs().max())
-    theta0 = grown.cfg.rope_theta
-    extend_context_ntk(grown, target_ctx)
+    deep_loss = loss_fn(grown) if loss_fn else None
+    steps = []
+    start_len, start_theta = grown.cfg.max_seq_len, grown.cfg.rope_theta
+    ctx = start_len
+    while ctx * 2 <= target_ctx:
+        ctx *= 2
+        saved = (grown.cfg.max_seq_len, grown.cfg.rope_theta)
+        extend_context_ntk(grown, ctx)
+        loss = loss_fn(grown) if loss_fn else None
+        rise = (loss / deep_loss - 1) if loss is not None else 0.0
+        steps.append((ctx, None if loss is None else round(loss, 3), round(rise, 4)))
+        if loss is not None and rise > max_loss_rise:           # this step costs too much quality: undo it and stop
+            grown.cfg.rope_theta = saved[1]
+            grown.resize_max_seq_len(saved[0])
+            steps[-1] = steps[-1] + ("رُفضت",)
+            break
     with torch.no_grad():
         ext = grown(x)[0]
-    drift = float((ref - ext).abs().max())
-    report = {"layers": f"{model.cfg.n_layers}→{grown.cfg.n_layers}", "depth_max_logit_diff": exact, "ctx": f"{model.cfg.max_seq_len}→{grown.cfg.max_seq_len}",
-              "ntk_max_logit_diff": drift, "theta": f"{theta0:.0f}→{grown.cfg.rope_theta:.0f}",
-              "params_m": round(grown.count_parameters() / 1e6, 1)}
+    report = {"layers": f"{model.cfg.n_layers}→{grown.cfg.n_layers}", "depth_max_logit_diff": exact,
+              "loss_base": None if base_loss is None else round(base_loss, 3), "loss_depth_grown": None if deep_loss is None else round(deep_loss, 3),
+              "ctx": f"{start_len}→{grown.cfg.max_seq_len}", "ctx_steps": steps, "ntk_max_logit_diff": float((ref - ext).abs().max()),
+              "theta": f"{start_theta:.0f}→{grown.cfg.rope_theta:.0f}", "params_m": round(grown.count_parameters() / 1e6, 1)}
     return grown, report
 
 
-def grow_checkpoint(ckpt: Path, out: Path, target_params: int, target_ctx: int, tokenizer_dir: Path | None = None) -> dict:
+def grow_checkpoint(ckpt: Path, out: Path, target_params: int, target_ctx: int, tokenizer_dir: Path | None = None, loss_fn=None) -> dict:
     from checkpoint import load_checkpoint, save_checkpoint
     model, step, _ = load_checkpoint(ckpt, map_location="cpu")
     cur = model.count_parameters()
     add = layers_to_add(model.cfg, cur, target_params)
-    grown, rep = grow_model_depth_and_context(model, add, target_ctx)
+    grown, rep = grow_model_depth_and_context(model, add, target_ctx, loss_fn=loss_fn)
     assert rep["depth_max_logit_diff"] < 1e-3, f"depth growth must preserve the function: {rep}"
     out.parent.mkdir(parents=True, exist_ok=True)
     save_checkpoint(out, grown, step)
@@ -100,7 +117,11 @@ def main(argv: list[str]) -> int:
     best, scores = choose_base(cands, make_probe("cpu"))
     ckpt = next(c[1] for c in cands if c[0] == best)
     out = Path("/tmp/sham_grown/upload/final_grown.pt")
-    rep = grow_checkpoint(ckpt, out, target, ctx, roots[best])
+    from sham_base_select import text_loss
+    from text_tokenizer import ShamTextTokenizer
+    tok = ShamTextTokenizer.load(str(next(c[2] for c in cands if c[0] == best)))
+    probe = make_probe("cpu")
+    rep = grow_checkpoint(ckpt, out, target, ctx, roots[best], loss_fn=lambda m: text_loss(m, tok, probe.text, "cpu"))
     print("🌱 " + str(rep))
     slug = publish_dataset(out.parent, "sham-grown-checkpoint", f"grown from {best}: {rep['layers']} layers, ctx {rep['ctx']}, {rep['params_m']}M")
     print("نُشر:", slug)
@@ -148,4 +169,12 @@ if __name__ == "__main__":
         assert float(loss) < first * 0.5
         new_layer_moved = float(again.layers[-1].attention.o_proj.weight.abs().max()) > 0
         assert new_layer_moved, "the new layers must learn (their zero-initialised output projections must move)"
-    print("sham_grow self-test OK |", rep)
+    # the context steps are measured: a loss that rises more than 3% at 512 stops the ladder at 256 (and the rejected step is undone)
+    m2 = ShamSmall(cfg)
+    fake = {"calls": 0}
+    def loss_fn(m):
+        fake["calls"] += 1
+        return 3.0 if m.cfg.max_seq_len <= 256 else 3.5          # base, depth-grown, x2 (256) fine; x4 (512) is +17%
+    g2, rep2 = grow_model_depth_and_context(m2, 1, 1024, loss_fn=loss_fn)
+    assert g2.cfg.max_seq_len == 256 and g2.cfg.rope_theta < 20000 and rep2["ctx_steps"][-1][-1] == "رُفضت", rep2
+    print("sham_grow self-test OK |", rep, "| ladder:", rep2["ctx_steps"])
