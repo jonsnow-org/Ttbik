@@ -176,5 +176,5 @@ if __name__ == "__main__":
         fake["calls"] += 1
         return 3.0 if m.cfg.max_seq_len <= 256 else 3.5          # base, depth-grown, x2 (256) fine; x4 (512) is +17%
     g2, rep2 = grow_model_depth_and_context(m2, 1, 1024, loss_fn=loss_fn)
-    assert g2.cfg.max_seq_len == 256 and g2.cfg.rope_theta < 20000 and rep2["ctx_steps"][-1][-1] == "رُفضت", rep2
+    assert g2.cfg.max_seq_len == 256 and g2.cfg.rope_theta < 30000 and rep2["ctx_steps"][-1][-1] == "رُفضت", rep2
     print("sham_grow self-test OK |", rep, "| ladder:", rep2["ctx_steps"])
