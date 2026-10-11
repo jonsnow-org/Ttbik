@@ -107,6 +107,9 @@ def check_all(env=os.environ) -> list[tuple[str, str]]:
             os.environ["MODELSCOPE_API_TOKEN"] = env["MODELSCOPE_TOKEN"]
             st = studio_client.studio_status()
             out.append(("شام على استوديو ModelScope", f"✅ يردّ: {st.get('phase')} — الخطوة {st.get('detail', '')}" if st else "❌ لا جواب (الرابط أو المفتاح)"))
+            if st:      # a real generation: what the owner would see in Telegram (the model's own text, no secret in it)
+                sample = studio_client.generate_text("اللغة العربية هي", 30, timeout=120)
+                out.append(("عيّنة من شام على الاستوديو", repr((sample or "—")[:140])))
         except Exception as exc:
             out.append(("شام على استوديو ModelScope", f"⚠ تعذّر الفحص ({type(exc).__name__})"))
     out.append(("Render (خطّاف نشر)", "موجود" if have("RENDER_NOVA_SMALL_DEPLOY_HOOK") else "— غير موجود"))
