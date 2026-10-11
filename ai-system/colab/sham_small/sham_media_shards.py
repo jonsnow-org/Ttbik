@@ -89,6 +89,38 @@ def merge_manifest_files(files: list[str | Path], out_manifest: str | Path) -> i
     return n
 
 
+def with_factory(kind: str, manifest: str | Path | None, work: str | Path, k: int = 1, limit: int | None = None, seed: int | None = None) -> str | None:
+    """For consumers that do not track consumption (the LM stages): `manifest` (the stage's own direct collection, may be None) plus a random
+    sample (<= limit records) of k random factory batches. Returns the merged manifest path, or `manifest` unchanged when the factory has no
+    batch. Never raises: a stage must not stop because the factory is empty or a download failed."""
+    import random
+
+    from sham_inputs import fetch_dataset
+    try:
+        every = list_batches(kind)
+        if not every:
+            return str(manifest) if manifest else None
+        rng = random.Random(seed if seed is not None else int(__import__("time").time()) // 3600)
+        roots = [Path(r) for r in (fetch_dataset(n) for n in rng.sample(every, min(k, len(every)))) if r]
+        if not roots:
+            return str(manifest) if manifest else None
+        tmp = Path(work) / "factory_all.jsonl"
+        n = merge_manifests(roots, tmp)
+        lines = tmp.read_text(encoding="utf-8").splitlines()
+        if limit and len(lines) > limit:
+            lines = rng.sample(lines, limit)
+        sampled = Path(work) / "factory_sample.jsonl"
+        sampled.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        files = ([manifest] if manifest else []) + [sampled]
+        out = Path(work) / "merged" / "manifest.jsonl"
+        total = merge_manifest_files(files, out)
+        print(f"🏭 {kind}: {len(lines):,} عيّنة من المصنع (من {n:,}) + مصدر المرحلة المباشر = {total:,}")
+        return str(out)
+    except Exception as exc:
+        print(f"⚠ تعذّر قراءة مصنع الوسائط ({type(exc).__name__}): {str(exc)[:100]} — يُكمل المصدر المباشر وحده")
+        return str(manifest) if manifest else None
+
+
 def next_batches(kind: str, consumed: set[str], max_batches: int, work: str | Path, reuse_last: int = 3) -> tuple[str | None, list[str]]:
     """The batches not consumed yet (oldest first, at most max_batches). When the factory has nothing new, the latest `reuse_last` batches are
     used for another pass, so a GPU session is never idle (a second epoch over fresh-enough data beats no training)."""
