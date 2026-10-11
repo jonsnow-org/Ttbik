@@ -43,7 +43,14 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           mkdir -p /tmp/ck
-          kaggle datasets download -d jonsnowjonsnow/sham-merged-checkpoint -p /tmp/ck --unzip -q
+          DS=jonsnowjonsnow/sham-merged-checkpoint
+          # the whole-dataset archive can answer a bare 404 while every file downloads fine one by one (2026-10-11): fall back to file by file
+          if ! kaggle datasets download -d $DS -p /tmp/ck --unzip -q; then
+            for f in final_merged.pt sham_small_tokenizer.json image_tokenizer.pt audio_tokenizer.pt merge_progress.json; do
+              kaggle datasets download -d $DS -f $f -p /tmp/ck --unzip -q
+            done
+          fi
+          ls -la /tmp/ck
 
       - name: Push the model, stage the Studio app
         env:
