@@ -170,7 +170,8 @@ function adminMenu(): Keyboard {
     .text("📊 الإحصائيات").text("📋 الملفات المعلقة").row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
-    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة")
+    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
+    .text("🩺 فحص البحث")
     .resized();
 }
 const ADMIN_COMMANDS = new Set([
@@ -183,6 +184,7 @@ const ADMIN_COMMANDS = new Set([
   "🔎 بحث عن مستخدم",
   "🔓 رفع حظر/كتم",
   "📥 الرسائل الواردة",
+  "🩺 فحص البحث",
 ]);
 const DELETE_CONFIRM_LABEL = "✅ نعم، احذف نهائياً";
 function confirmDeleteMenu(): Keyboard {
@@ -1776,6 +1778,41 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
   await bot.api.sendMessage(chatId, text);
 }
 
+// Read-only report for the admin: WHY searches come back empty, from real
+// numbers instead of guesses. Counts exactly the conditions buildSearchQueue
+// applies (APPROVED, not hidden, opposite gender, same bot, not country-only
+// for other countries) and shows where profiles are lost.
+async function sendSearchDiagnostics(bot: TelegramBot, botId: string, chatId: number) {
+  const [all, byStatus, hidden, otherBot, prefs, users] = await Promise.all([
+    prisma.matchProfile.count({ where: { user: { botId } } }),
+    prisma.matchProfile.groupBy({ by: ["status", "gender"], where: { user: { botId } }, _count: { _all: true } }),
+    prisma.matchProfile.count({ where: { user: { botId }, status: "APPROVED", isHidden: true } }),
+    prisma.matchProfile.count({ where: { user: { botId: { not: botId } } } }),
+    prisma.partnerPreference.count({ where: { user: { botId } } }),
+    prisma.matchUser.count({ where: { botId } }),
+  ]);
+  const n = (st: string, g: string) => byStatus.find((x) => x.status === st && x.gender === g)?._count._all ?? 0;
+  const visible = (g: string) => n("APPROVED", g);
+  const countryOnly = await prisma.matchProfilePrivacy.count({ where: { countryOnly: true } }).catch(() => null);
+  const lines = [
+    "🩺 فحص البحث عن شريك",
+    "",
+    `👥 مستخدمو هذا البوت: ${users}`,
+    `📋 ملفات هذا البوت: ${all}`,
+    `⏳ بانتظار المراجعة: ذكور ${n("PENDING", "MALE")} · إناث ${n("PENDING", "FEMALE")}`,
+    `✅ معتمدة: ذكور ${visible("MALE")} · إناث ${visible("FEMALE")}`,
+    `❌ مرفوضة: ${n("REJECTED", "MALE") + n("REJECTED", "FEMALE")}`,
+    `⏸ معتمدة لكنها مخفية بقرار أصحابها: ${hidden}`,
+    `💍 أصحاب مواصفات شريك محفوظة: ${prefs}`,
+    countryOnly != null ? `🌍 ملفات «لدولتي فقط»: ${countryOnly}` : null,
+    otherBot > 0 ? `\n⚠️ يوجد ${otherBot} ملفاً مسجّلاً على بوت آخر (botId مختلف) ولا يظهر في بحث هذا البوت.` : null,
+    "",
+    "ما يراه الباحث: ذكر يرى الإناث المعتمدات غير المخفيات، والعكس.",
+    `→ الباحثون الذكور يرون حتى ${Math.max(0, visible("FEMALE") - 0)} ملفاً، والباحثات يرين حتى ${Math.max(0, visible("MALE") - 0)} ملفاً.`,
+  ].filter((l): l is string => l !== null);
+  await bot.api.sendMessage(chatId, lines.join("\n"));
+}
+
 async function sendPendingProfilesList(bot: TelegramBot, chatId: number) {
   const profiles = await prisma.matchProfile.findMany({ where: { status: "PENDING" }, orderBy: { created_at: "asc" }, take: 20 });
   if (profiles.length === 0) {
@@ -1909,6 +1946,10 @@ async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
 async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+    return;
+  }
+  if (text === "🩺 فحص البحث") {
+    await sendSearchDiagnostics(bot, botId, chatId);
     return;
   }
   if (text === "📊 الإحصائيات") {
