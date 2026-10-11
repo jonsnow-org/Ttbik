@@ -10,4 +10,8 @@ export const EN_FREE_TOOLS = [
   { href: "/en/free-tools/crypto-converter", title: "Crypto converter", text: "Convert common crypto amounts." },
   { href: "/en/free-tools/life-counter", title: "Age calculator", text: "Exact age from a birth date." },
   { href: "/en/free-tools/whatsapp-link", title: "WhatsApp link generator", text: "Build a click-to-chat link." },
+  { href: "/en/free-tools/percentage-calculator", title: "Percentage calculator", text: "Percent of, percent change and discounts." },
+  { href: "/en/free-tools/date-difference", title: "Days between dates", text: "Date gaps and adding days to a date." },
+  { href: "/en/free-tools/pregnancy-calculator", title: "Pregnancy due date calculator", text: "Due date and week from your last period." },
+  { href: "/en/free-tools/fancy-text", title: "Fancy text generator", text: "Cool fonts to copy for names and bios." },
 ] as const;
