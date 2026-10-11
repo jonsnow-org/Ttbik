@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-11 05:56 UTC",
+  "generated_at": "2026-10-11 13:00 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -131,7 +131,7 @@
     {
       "alias": "المسار B 1",
       "track": "research_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-10",
       "gpu": false,
@@ -140,7 +140,7 @@
     {
       "alias": "المسار A 1",
       "track": "cpu_training_track",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-10",
       "gpu": false,
@@ -199,15 +199,15 @@
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
       "size_mb": 0.0,
-      "last_updated": "2026-10-10",
+      "last_updated": "2026-10-11",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 370.1,
-      "last_updated": "2026-10-10",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-11",
       "progress": {},
       "has_key_files": true
     },
@@ -228,7 +228,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 144.1,
       "last_updated": "2026-10-10",
       "progress": {
         "samples_consumed": 2046,
@@ -413,14 +413,14 @@
       "cpu_training_track": {
         "name": "المسار A — التدريب النصي المستمر (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار A 1"
       },
       "research_track": {
         "name": "المسار B — البحث الذاتي من الإنترنت (CPU)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المسار B 1"
       },
