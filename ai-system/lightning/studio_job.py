@@ -31,6 +31,7 @@ JOB_HOURS = float(os.environ.get("SHAM_JOB_HOURS", "3.3"))
 WITH_SECRETS = os.environ.get("SHAM_STUDIO_SECRETS") == "1"
 
 JOBS = {
+    "measure": ("media_factory --measure", "cd {home}/Ttbik/ai-system/lightning && python -u media_factory.py --measure", "~/factory_measure.log"),
     "media": ("media_factory", "cd {home}/Ttbik/ai-system/lightning && SHAM_FACTORY_HOURS={h} python media_factory.py", "~/factory.log"),
     "run": ("sham_live", "cd {home}/Ttbik/ai-system/colab/sham_small && python -c \"import sham_live; print(sham_live.run(hours={h}, "
                          "name='lightning', source_set='gh', video=False, workers=4))\"", "~/sham_job.log"),
@@ -85,14 +86,14 @@ def diag(studio) -> None:
 def start_job(studio, name: str) -> None:
     proc, cmd, log = JOBS[name]
     inner = cmd.format(home=HOME_DIR, h=JOB_HOURS)
-    full = (f"test -f ~/.sham_env && . ~/.sham_env; (pgrep -f {proc} >/dev/null && echo already-running || "
+    full = (f"test -f ~/.sham_env && . ~/.sham_env; (pgrep -f {shlex.quote(proc)} >/dev/null && echo already-running || "
             f"(nohup nice -n 5 bash -c {shlex.quote(inner)} > {log} 2>&1 & echo started))")
     say("المهمة: " + str(studio.run(full)).strip())
 
 
 def poll(studio, name: str) -> str:
     proc, _cmd, log = JOBS[name]
-    return str(studio.run(f"pgrep -f {proc} >/dev/null && echo حيّة || echo متوقفة; tail -n 3 {log} 2>/dev/null | cut -c1-300"))
+    return str(studio.run(f"pgrep -f {shlex.quote(proc)} >/dev/null && echo حيّة || echo متوقفة; tail -n 3 {log} 2>/dev/null | cut -c1-300"))
 
 
 def main() -> int:
@@ -109,8 +110,16 @@ def main() -> int:
             return 0
         write_secrets(studio)
         say("تحضير:\n" + prepare(studio)[-400:])
-        if mode == "measure":
-            say(str(studio.run(f". ~/.sham_env; cd {HOME_DIR}/Ttbik/ai-system/lightning && python media_factory.py --measure 2>&1 | tail -25")))
+        if mode == "measure":                                    # a short run with live progress: polled every 2 minutes for at most 40
+            studio.run("rm -f ~/factory_measure.log")
+            start_job(studio, "measure")
+            for _ in range(20):
+                time.sleep(120)
+                status = poll(studio, "measure")
+                say(time.strftime("%H:%M ") + status)
+                if status.startswith("متوقفة"):
+                    break
+            say(str(studio.run("tail -n 40 ~/factory_measure.log 2>/dev/null | cut -c1-400")))
             return 0
         start_job(studio, mode)
         end = time.time() + HOLD_MINUTES * 60
