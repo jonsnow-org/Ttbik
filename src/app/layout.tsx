@@ -26,7 +26,21 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
-    other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
+    yandex: process.env.YANDEX_SITE_VERIFICATION || undefined,
+    other: {
+      ...(process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : {}),
+      ...(process.env.PINTEREST_SITE_VERIFICATION ? { "p:domain_verify": process.env.PINTEREST_SITE_VERIFICATION } : {}),
+      ...(process.env.BAIDU_SITE_VERIFICATION ? { "baidu-site-verification": process.env.BAIDU_SITE_VERIFICATION } : {}),
+      ...(process.env.NAVER_SITE_VERIFICATION ? { "naver-site-verification": process.env.NAVER_SITE_VERIFICATION } : {}),
+      // Any other engine: SITE_VERIFICATION_TAGS="name1=content1;name2=content2"
+      ...Object.fromEntries(
+        (process.env.SITE_VERIFICATION_TAGS || "")
+          .split(";")
+          .map((p) => p.split("="))
+          .filter((p) => p.length === 2 && p[0].trim() && p[1].trim())
+          .map((p) => [p[0].trim(), p[1].trim()]),
+      ),
+    },
   },
   openGraph: {
     type: "website",
