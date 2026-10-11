@@ -4,7 +4,11 @@ name: Sham Lightning Peek (read-only)
 # فلا تنتظر خلف تشغيل المصنع الطويل.
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "peek (read-only, default) or stopfactory (end a leftover media factory so the 4 cores serve the tokenizer trainer)"
+        default: peek
 
 permissions:
   contents: read
@@ -26,4 +30,4 @@ jobs:
         env:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-        run: python ai-system/lightning/studio_job.py peek
+        run: python ai-system/lightning/studio_job.py "${{ inputs.mode || 'peek' }}"
