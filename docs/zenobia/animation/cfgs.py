@@ -55,6 +55,17 @@ C['banner']=dict(zoom=0.025,pan=8,focus=(1000,300),dust=70,dust_dir=(0.7,-0.3),d
  sun=dict(x=60,y=260,r=520,amp=0.22,col=(80,170,255)),
  zones=[z(900,110,1000,130,ax=14,kx=0.004,n=1),z(1530,420,150,200,ax=5,ay=2,kx=0.025,ky=0.03,n=1),z(1640,450,120,200,ax=5,ay=2,kx=0.025,ky=0.03,n=1,ph=1),
         z(260,330,160,100,ax=5,ay=2,kx=0.03,ky=0.03,n=1),z(1230,370,150,50,ax=5,kx=0.03,n=1,ph=2)])
+C['coin2']=dict(C['coin-gold']); C['coin2']['zones']=[z(250,700,200,250,ax=3,kx=0.03,n=1),z(730,330,100,150,ax=5,ay=2,kx=0.03,ky=0.03,n=1)]
+C['captive2']=dict(zoom=0.06,pan=7,focus=(720,230),dust=120,dust_dir=(-1,-0.05),dust_amp=1.15,dust_col=(150,200,235),
+ bands=[(0,0.06,0.5)],band_angle=20,nspark=10,vthr=170,spark_amp=0.7,
+ sun=dict(x=1100,y=300,r=500,amp=0.16),
+ zones=[z(720,180,110,140,ax=7,ay=2,kx=0.03,ky=0.04,n=1),z(720,560,170,200,ax=4,ay=2,kx=0.03,ky=0.03,n=1,ph=1),
+        z(700,60,700,110,ax=8,kx=0.006,n=1),z(300,600,250,150,ax=3,ay=1,kx=0.02,n=1,ph=2),z(1100,600,250,150,ax=3,ay=1,kx=0.02,n=1,ph=3)])
+C['legend2']=dict(zoom=0.04,pan=6,focus=(700,200),dust=100,dust_dir=(0.05,-1),dust_amp=1.3,dust_col=(120,190,255),
+ bands=[(0,0.06,0.5),(0.5,0.05,0.3)],band_angle=40,nspark=34,vthr=215,spark_amp=1.0,
+ sun=dict(x=700,y=170,r=260,amp=0.22,col=(120,200,255)),
+ zones=[z(700,420,260,280,ax=7,ay=3,kx=0.025,ky=0.03,n=1),z(660,170,80,60,ax=3,ay=1,kx=0.04,ky=0.04,n=1,ph=1),
+        z(780,330,360,110,ay=6,ax=5,kx=0.015,ky=0.02,n=2,ph=2),z(700,60,700,60,ax=3,kx=0.006,n=1)])
 import sys
 if __name__=='__main__':
     k=sys.argv[1]; c=dict(C[k]); c['src']=D+f'src/{k}.jpg'; c['out']=D+f'out/{k}.mp4'
