@@ -144,7 +144,7 @@ def _image_tensor(data: bytes, size: int) -> torch.Tensor:
     return torch.from_numpy(np.asarray(img, dtype="float32")).permute(2, 0, 1) / 127.5 - 1.0
 
 
-def decode_audio(data: bytes, seconds: float = 4.0) -> torch.Tensor | None:
+def decode_audio(data: bytes, seconds: float = 16.0) -> torch.Tensor | None:
     """Any container/codec → 16 kHz mono float in [-1, 1]."""
     import av
     import numpy as np
@@ -210,12 +210,9 @@ class Encoder:
         return [image_token_id_to_vocab_id(c.view(-1)).tolist() for c in codes]
 
     def _aud_ids(self, wave: torch.Tensor):
-        from mel_spectrogram import waveform_to_mel_spectrogram
-        from model import audio_token_id_to_vocab_id
-        mel = waveform_to_mel_spectrogram(wave, SAMPLE_RATE, self.aud.cfg.n_mels, self.aud.cfg.segment_frames)
-        with self.lock, torch.no_grad():
-            codes = self.aud.encode(mel.unsqueeze(0).to(self.device)).cpu()
-        return audio_token_id_to_vocab_id(codes.view(1, -1))[0].tolist()
+        from sham_media_codec import audio_vocab_ids
+        with self.lock:                      # every consecutive 2.56 s segment of the clip (up to 6), not only one center crop
+            return audio_vocab_ids(self.aud, wave, SAMPLE_RATE, max_segments=6, device=self.device)
 
     def text_examples(self, text: str):
         from model import SpecialTokens
