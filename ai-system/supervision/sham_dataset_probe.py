@@ -19,6 +19,14 @@ def run(cmd: list[str], timeout: int = 120) -> str:
 
 def main(names: list[str]) -> int:
     user = os.environ.get("KAGGLE_USERNAME", "")
+    if names and names[0] == "--list":                      # --list <prefix>: the account's datasets whose name starts with it, with sizes
+        for page in range(1, 6):
+            out = run(["kaggle", "datasets", "list", "-m", "-s", names[1], "--csv", "-p", str(page)])
+            rows = [l for l in out.splitlines()[1:] if l.startswith(f"{user}/")]
+            if not rows:
+                break
+            print("\n".join(r[:160] for r in rows))
+        return 0
     for n in names:
         slug = n if "/" in n else f"{user}/{n}"
         print(f"===== {slug}")

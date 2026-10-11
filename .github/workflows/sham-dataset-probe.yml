@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       names:
-        description: "أسماء المجموعات (مفصولة بمسافة)"
+        description: "أسماء المجموعات (مفصولة بمسافة) أو: --list بادئة"
         required: false
         default: "sham-merged-checkpoint sham-multimodal-checkpoint sham-chat-checkpoint sham-crawl-checkpoint"
 
