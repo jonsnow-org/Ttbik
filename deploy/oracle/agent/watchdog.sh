@@ -5,13 +5,15 @@ set -uo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 exec 9>/var/lock/ttbik-watchdog.lock; flock -n 9 || exit 0
 wd() { echo "$(now) $1" > "$STATE/watchdog_note"; }
-# Disk guard: the server builds containers all day, and a full disk stops everything. At 85% old build cache and unused images go;
+# Disk guard: the server builds containers all day, and a full disk stops everything. At 75% old build cache and unused images go (the disk is small: 96 GB, and the Sham jobs share it);
 # at 90% the owner is told (at most once a day).
 USED=$(df / | awk 'NR==2{gsub("%","",$5); print $5}')
-if [ -n "$USED" ] && [ "$USED" -ge 85 ]; then
-  docker builder prune -f --filter "until=72h" >/dev/null 2>&1 || true
+if [ -n "$USED" ] && [ "$USED" -ge 75 ]; then
+  # the build cache (every layer of every Athar / site / media build) is only a speed-up: keep 8 GB of it, drop the rest. It had grown to 69 GB.
+  docker builder prune -f --reserved-space 8GB >/dev/null 2>&1 || docker builder prune -f --keep-storage 8GB >/dev/null 2>&1 || docker builder prune -f --filter "until=24h" >/dev/null 2>&1 || true
   docker image prune -af --filter "until=168h" >/dev/null 2>&1 || true
   USED2=$(df / | awk 'NR==2{gsub("%","",$5); print $5}')
+  [ -n "$USED2" ] && [ "$USED2" -le $((USED - 5)) ] && tg_notify "🧹 نظّفتُ ذاكرة بناء Docker القديمة: امتلاء القرص من ${USED}% إلى ${USED2}%." || true
   if [ -n "$USED2" ] && [ "$USED2" -ge 90 ] && [ -z "$(find "$STATE/disk_warned" -mmin -1440 2>/dev/null)" ]; then
     touch "$STATE/disk_warned"; tg_notify "⚠️ قرص الخادم امتلأ بنسبة ${USED2}%. نظّفتُ ما أمكن، وقد تحتاج إلى تنظيف يدوي أو توسيع."
   fi
