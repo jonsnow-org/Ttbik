@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     google: process.env.GOOGLE_SITE_VERIFICATION || "L8vGbLXr7dgW6fI-Z17Ahc85aCfxZP4JMLwyGMNhr_g",
     yandex: process.env.YANDEX_SITE_VERIFICATION || undefined,
     other: {
-      ...(process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : {}),
+      ...{ "msvalidate.01": process.env.BING_SITE_VERIFICATION || "500FCBAE2506B455C22D3676A5315E2F" },
       ...(process.env.PINTEREST_SITE_VERIFICATION ? { "p:domain_verify": process.env.PINTEREST_SITE_VERIFICATION } : {}),
       ...(process.env.BAIDU_SITE_VERIFICATION ? { "baidu-site-verification": process.env.BAIDU_SITE_VERIFICATION } : {}),
       ...(process.env.NAVER_SITE_VERIFICATION ? { "naver-site-verification": process.env.NAVER_SITE_VERIFICATION } : {}),
