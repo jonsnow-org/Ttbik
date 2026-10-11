@@ -60,9 +60,12 @@ def merge_manifests(roots: list[Path], out_manifest: Path) -> int:
     return n
 
 
-def next_batches(kind: str, consumed: set[str], max_batches: int, work: str | Path) -> tuple[str | None, list[str]]:
+def next_batches(kind: str, consumed: set[str], max_batches: int, work: str | Path, reuse_last: int = 3) -> tuple[str | None, list[str]]:
+    """The batches not consumed yet (oldest first, at most max_batches). When the factory has nothing new, the latest `reuse_last` batches are
+    used for another pass, so a GPU session is never idle (a second epoch over fresh-enough data beats no training)."""
     from sham_inputs import fetch_dataset
-    todo = [b for b in list_batches(kind) if b not in consumed][:max_batches]
+    every = list_batches(kind)
+    todo = [b for b in every if b not in consumed][:max_batches] or every[-reuse_last:]
     roots, taken = [], []
     for name in todo:
         root = fetch_dataset(name)
