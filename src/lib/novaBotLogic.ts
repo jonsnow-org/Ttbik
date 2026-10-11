@@ -760,7 +760,14 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
     } else if (update.message?.chat?.id) {
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
-      if (text && !text.startsWith("/") && shamStudioEnabled()) {
+      if (text.startsWith("/")) {
+        const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي أي جملة وسأكمل عليها. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
+        const unavailable = "هذه الميزة غير متاحة الآن. اكتب جملة عادية وسأرد عليها.";
+        const cmd = text.split(/[\s@]/)[0].toLowerCase();
+        await bot.api.sendMessage(update.message.chat.id, cmd === "/start" || cmd === "/help" ? welcome : unavailable, { reply_markup: { remove_keyboard: true } }).catch(() => null);
+        return;
+      }
+      if (text && shamStudioEnabled()) {
         const reply = await shamGenerate(text, 80);
         if (reply) {
           await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
