@@ -11,9 +11,11 @@ mixed precision. Everything here works on the SAME ImageTokenizer class and chec
       * codebook initialised from real encoder outputs (data-dependent init), dead codes re-seeded from the current batch (EMA usage)
       * the encoder/decoder run under autocast (bf16/fp16 on a GPU), the quantizer's distance search stays float32
       * warm-up + cosine learning-rate decay over the time budget, gradient clipping, a real step counter (optimizer steps, not epochs)
-      * multires=p: with probability p a step trains on the batch average-pooled to half size (256px -> 128px). The tokenizer is fully
-        convolutional, so a 128px frame becomes an 8x8 grid = 64 tokens instead of 256: VIDEO frames can use that, four times as many
-        frames in the same 1024-token window (the model's real window is 1024), and the same tokenizer must be good at both sizes
+      * res_mix={64: .55, 128: .30, 256: .15}: each step trains at ONE size drawn from the mix (the batch is average-pooled down). The tokenizer
+        is fully convolutional, so the SAME weights encode a 256px image as 16x16 = 256 tokens, 128px as 8x8 = 64, 64px as 4x4 = 16: a CPU
+        spends most steps on cheap small pictures and a few on the full size, and the full-size ability and the 38.9M capacity are kept
+        (owner, 2026-10-11: never go smaller). Video frames can use the 64-token size: four times as many frames in the same window.
+        multires=p is the two-size shortcut (half size with probability p)
       * stops at the time budget, so a Kaggle session spends all of it training
 
 Offline self-test: `python sham_vq_train.py` — compares this loop against train_vqvae on a synthetic structured set (same steps): codebook use
@@ -153,7 +155,8 @@ def revive_dead_codes(tok, ema_usage: torch.Tensor, z: torch.Tensor, threshold: 
 
 def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16, lr: float = 3e-4, device: str | None = None,
                  workers: int = 2, warmup: int = 100, restart_every: int = 100, log_every: int = 50, max_steps: int | None = None,
-                 init_batches: int = 4, size: int | None = None, kind: str = "image", multires: float = 0.0) -> StreamStats:
+                 init_batches: int = 4, size: int | None = None, kind: str = "image", multires: float = 0.0,
+                 res_mix: dict[int, float] | None = None) -> StreamStats:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     if kind == "audio":
         ds = ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
@@ -198,8 +201,13 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
         for g in opt.param_groups:
             g["lr"] = cur
         x = next_batch().to(device, non_blocking=True)
-        if kind == "image" and multires > 0 and x.shape[-1] >= 64 and torch.rand(1).item() < multires:
-            x = F.avg_pool2d(x, 2)
+        if kind == "image":
+            mix = res_mix or ({x.shape[-1] // 2: multires, x.shape[-1]: 1.0 - multires} if multires > 0 else None)
+            if mix:                                           # one size per step, drawn from the mix (the weights are size-agnostic)
+                sizes, probs = zip(*sorted(mix.items()))
+                pick = sizes[int(torch.multinomial(torch.tensor(probs, dtype=torch.float), 1))]
+                if pick < x.shape[-1] and x.shape[-1] % pick == 0:
+                    x = F.avg_pool2d(x, x.shape[-1] // pick)
         loss, recon, ids, z = _forward(tok, x, amp)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
@@ -292,7 +300,7 @@ if __name__ == "__main__":
         Path(d, "manifest.jsonl").write_text("\n".join(json.dumps({"image": f"{i}.png", "caption": "x"}) for i in range(64)), encoding="utf-8")
         mr = ImageTokenizer(cfg)
         m_stats = train_stream(mr, Path(d) / "manifest.jsonl", minutes=5, batch_size=8, max_steps=40, workers=0, warmup=5, restart_every=20,
-                               log_every=20, multires=0.5)
+                               log_every=20, res_mix={16: 0.5, 32: 0.5})
         with torch.no_grad():
             mr.train(False)
             assert mr.encode(train[:2]).shape[-1] == 8 and mr.encode(torch.nn.functional.avg_pool2d(train[:2], 2)).shape[-1] == 4
