@@ -11,7 +11,19 @@ export default function Features({ supply, event, eventEn }: { supply?: number; 
       <div className="steps">
         {event && <div className="step"><i>★</i><div><b>{t("feat.event")}</b><div className="muted">{lang === "ar" ? event : (eventEn || event)}</div></div></div>}
         {supply ? <div className="step"><i>#</i><div><b>{t("feat.supply", { n: supply })}</b><div className="muted">{t("feat.supplyD")}</div></div></div> : null}
-        {rows.map((k) => <div className="step" key={k}><i>{t(`feat.${k}i` as "feat.f1i")}</i><div><b>{t(`feat.${k}` as "feat.f1")}</b><div className="muted">{t(`feat.${k}d` as "feat.f1")}</div></div></div>)}
+        {rows.map((k) => (
+          <div className="step" key={k}>
+            <i>{t(`feat.${k}i` as "feat.f1i")}</i>
+            <div>
+              <b>{t(`feat.${k}` as "feat.f1")}</b>
+              <div className="muted">{t(`feat.${k}d` as "feat.f1")}</div>
+              <details style={{ marginTop: 6 }}>
+                <summary style={{ cursor: "pointer", fontWeight: 600 }}>{t("feat.more" as "feat.f1")}</summary>
+                <div className="muted" style={{ marginTop: 6, lineHeight: 1.9 }}>{t(`feat.${k}m` as "feat.f1")}</div>
+              </details>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
