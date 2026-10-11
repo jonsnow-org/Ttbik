@@ -1,6 +1,7 @@
 import type { MetadataRoute } from "next";
 import { NEWS_ITEMS } from "@/lib/newsItems";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "@/lib/enDesk";
+import { BOT_LANDINGS } from "@/lib/botLanding";
 import { PRAYER_CITIES } from "@/lib/prayerCities";
 
 export const revalidate = 30;
@@ -76,6 +77,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     { url: `${base}/free-tools/text-analyzer`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/free-tools/writing-assistant`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/number-to-words`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/name-decorator`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/percentage-calculator`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/pregnancy-calculator`, changeFrequency: "monthly", priority: 0.9 },
+    { url: `${base}/free-tools/date-difference`, changeFrequency: "monthly", priority: 0.9 },
     { url: `${base}/en/free-tools/qr-generator`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/url-shortener`, changeFrequency: "monthly", priority: 0.85 },
     { url: `${base}/en/free-tools/image-optimizer`, changeFrequency: "monthly", priority: 0.85 },
@@ -87,6 +93,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/en/free-tools/crypto-converter`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/en/free-tools/life-counter`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/en/free-tools/whatsapp-link`, changeFrequency: "monthly", priority: 0.8 },
+    ...BOT_LANDINGS.map((b) => ({ url: `${base}/bot/${b.slug}`, changeFrequency: "monthly" as const, priority: 0.85 })),
     ...PRAYER_CITIES.map((c) => ({
       url: `${base}/prayer-times/${c.slug}`,
       changeFrequency: "daily" as const,

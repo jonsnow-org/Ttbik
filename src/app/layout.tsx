@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   description: SITE_DESCRIPTION,
   keywords: ["شام AI", "Sham AI", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
   alternates: { canonical: "/" },
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.BING_SITE_VERIFICATION ? { "msvalidate.01": process.env.BING_SITE_VERIFICATION } : undefined,
+  },
   openGraph: {
     type: "website",
     locale: "ar_AR",
