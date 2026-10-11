@@ -3,11 +3,27 @@ on:
   schedule:
     - cron: "0 5,7,9,11,13,15,17,19 * * *"
   workflow_dispatch:
+concurrency:
+  group: channel-post
+  cancel-in-progress: false
 jobs:
   post:
     runs-on: ubuntu-latest
     steps:
       - name: publish
-        run: curl -fsS "https://ttbik.vercel.app/api/cron/telegram-post?secret=${CRON_SECRET}"
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::GitHub secret CRON_SECRET is empty or missing (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+          code=$(curl -sS -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/telegram-post?secret=${CRON_SECRET}")
+          echo "HTTP ${code}"
+          cat body.json
+          echo
+          if [ "${code}" = "401" ]; then
+            echo "::error::CRON_SECRET in GitHub does not match the one in Vercel"
+            exit 1
+          fi
+          [ "${code}" -lt 500 ]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
