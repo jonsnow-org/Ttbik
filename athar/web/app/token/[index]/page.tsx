@@ -93,6 +93,10 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
         <div className="kv"><span>{tr("tok.paid")}</span><span>{t.paid.toFixed(2)} Gram</span></div>
         <div className="kv"><span>{tr("tok.minted")}</span><span>{new Date(t.mintedAt * 1000).toLocaleDateString(lang)}</span></div>
         <div className="kv"><span>{tr("tok.since")}</span><span>{tr("tok.days", { n: Math.floor((Date.now() / 1000 - t.lastTransferAt) / 86400) })}</span></div>
+        <p className="muted" style={{ marginTop: 8 }}>
+          <a href={`https://${NETWORK === "testnet" ? "testnet." : ""}tonviewer.com/${t.address}`} target="_blank" rel="noreferrer">{tr("tok.verify")}</a>
+          <br />{tr("tok.verifyHelp")}
+        </p>
       </div>
       <div className="card">
         <h3>{tr("tok.memory")}</h3>
@@ -100,6 +104,7 @@ export default function Token({ params }: { params: Promise<{ index: string }> }
         {t.engravings.map((n, i) => (
           <div className="note" key={i}><div>{n.text}</div><div className="muted mono">{short(n.owner)} · {new Date(n.at * 1000).toLocaleDateString(lang)}</div></div>
         ))}
+        {!mine && <p className="muted" style={{ marginTop: 10 }}>🔒 {tr("tok.engrOwner")}</p>}
         {mine && (
           <div className="gap" style={{ marginTop: 10 }}>
             <input type="text" placeholder={tr("tok.engrPh")} value={text} onChange={(e) => setText(e.target.value)} />
