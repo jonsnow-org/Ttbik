@@ -66,3 +66,26 @@ for pool in (2, 10, 50):
     gain = after[-1]
     cost = 0.01 * atk['volume']
     print(f"pool={pool:3d} TON: attacker reward {gain:.3f}, fee cost {cost:.3f} -> net {gain - cost:+.3f} TON")
+
+
+# ---------------------------------------------------------------------------
+# 4. Per-person scoring: one Telegram identity bound to its wallets (ton_proof), concave transform.
+#    Splitting wallets no longer helps (balances are summed per person), so square-root is safe to use.
+# ---------------------------------------------------------------------------
+print('\n== 4. whale share of the pool: linear per-wallet vs concave per-person (proposed weights)')
+def season_person(wallets, weights, pool, transform):
+    wh, wt, wa = weights
+    cap = [min(w['volume'], 3.0 * w['avg_bal']) for w in wallets]
+    t = [transform(w['avg_bal']) for w in wallets]
+    c = [transform(x) for x in cap]
+    a = [transform(max(0, w['accum'])) for w in wallets]
+    sh, st, sa = (sum(t) or 1), (sum(c) or 1), (sum(a) or 1)
+    return [pool * (wh * x / sh + wt * y / st + wa * z / sa) for x, y, z in zip(t, c, a)]
+ws = crowd(300)
+pool = 10.0
+lin = season(ws, CONFIGS['proposed 30/40/30'], pool)
+cav = season_person(ws, CONFIGS['proposed 30/40/30'], pool, math.sqrt)
+for name, r in (('linear per wallet', lin), ('sqrt per person', cav)):
+    by = {}
+    for w, x in zip(ws, r): by.setdefault(w['kind'], []).append(x)
+    print(f"{name:20s}", {k: round(sum(v) / len(v), 4) for k, v in by.items()}, '| whales share:', round(sum(by['whale']) / pool, 3), '| holders share:', round(sum(by['holder']) / pool, 3))
