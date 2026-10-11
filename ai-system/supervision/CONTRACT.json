@@ -121,6 +121,14 @@
     "sham-grown-checkpoint": {
       "role": "أفضل نقطة حفظ بالقياس بعد التكبير (طبقات أكثر وسياق أطول، الدالة محفوظة) — يفضّلها الدمج والمدرّب الحي عند التعادل",
       "writer": "model_grow"
+    },
+    "sham-image-tokenizer-v2-checkpoint": {
+      "role": "مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning)",
+      "writer": "lightning_probe"
+    },
+    "sham-audio-tokenizer-v2-checkpoint": {
+      "role": "مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning)",
+      "writer": "lightning_probe"
     }
   },
   "dynamic_dataset_patterns": [
@@ -424,7 +432,10 @@
       "kind": "workflow",
       "accelerator": "CPU (استوديو Lightning المجاني)",
       "reads": [],
-      "writes": []
+      "writes": [
+        "sham-audio-tokenizer-v2-checkpoint",
+        "sham-image-tokenizer-v2-checkpoint"
+      ]
     },
     "retrieval_parity": {
       "file": ".github/workflows/sham-parity.yml",
