@@ -2,13 +2,14 @@
 Tokenizer training on the free Lightning Studio's 4 CPU cores — no GPU anywhere (owner, 2026-10-11). One loop, one process, data local:
 
   collect  a big batch of images and sound with the media factory's own collector (de-duplicated, resumable), publish both as sham-media-*
-  train    the image tokenizer v2 (128 px, 64 tokens per image, 11M params: ~17k images/hour on 2 threads, measured) on that local batch,
-           in 25-minute chunks, saving after each chunk; then the audio tokenizer (every segment of every clip) the same way
+  train    the image tokenizer — the FULL design, 38.9M params, 256 px, 256 tokens, never smaller — on that local batch with a resolution
+           curriculum (each step at 64, 128 or 256 px: one set of convolutional weights serves all sizes, so a CPU spends most steps on
+           cheap small pictures and some on full size), in 25-minute chunks saving after each; then the audio tokenizer (every segment)
   publish  sham-image-tokenizer-v2-checkpoint / sham-audio-tokenizer-v2-checkpoint (+ a progress file with samples, steps, reconstruction and
            codebook use) so any later job — or the merge — can pick them up
 
 It resumes from its own last checkpoint (this Studio's disk, else the published dataset), so the 4-hour restarts of a free Studio lose nothing.
-The audio tokenizer starts from the old audio weights when there are any (same architecture), the image tokenizer starts fresh at the new size.
+Both resume from the existing tokenizers' weights when there are any (same architecture): nothing already learned is thrown away.
 
     python tokenizer_job.py        (SHAM_TOK_HOURS, default 3.3)       python tokenizer_job.py --selftest
 """
@@ -45,15 +46,15 @@ def _progress(kind: str) -> dict:
 def load_tokenizer(kind: str):
     """The tokenizer to continue: local file, else the published dataset, else (audio) the old weights, else a new one."""
     import torch
-    from sham_media_cfg import audio_v2_config, image_v2_config
+    from sham_media_cfg import audio_config, image_config
     if kind == "image":
         from image_tokenizer import ImageTokenizer
         from train_image_tokenizer import load_tokenizer_checkpoint
-        make = lambda: ImageTokenizer(image_v2_config())
+        make = lambda: ImageTokenizer(image_config())
     else:
         from audio_tokenizer import AudioTokenizer
         from train_audio_tokenizer import load_tokenizer_checkpoint
-        make = lambda: AudioTokenizer(audio_v2_config())
+        make = lambda: AudioTokenizer(audio_config())
     local = TOK / f"{kind}_tokenizer.pt"
     if local.exists():
         tok, step = load_tokenizer_checkpoint(local)
@@ -64,12 +65,12 @@ def load_tokenizer(kind: str):
         hits = sorted(root.rglob(f"{kind}_tokenizer.pt")) if root else []
         if hits:
             return load_tokenizer_checkpoint(hits[0])
-        if kind == "audio":                                   # same architecture: keep what the old audio tokenizer learned
-            from tokenizer_select import select_pretrained_tokenizer
-            fetch_dataset("sham-audio-tokenizer-checkpoint")
-            picked = select_pretrained_tokenizer("audio")
-            if picked:
-                return picked[0], 0
+        # same architecture as before: keep whatever the existing tokenizer learned (never start over from nothing)
+        from tokenizer_select import select_pretrained_tokenizer
+        fetch_dataset(f"sham-{kind}-tokenizer-checkpoint")
+        picked = select_pretrained_tokenizer(kind)
+        if picked:
+            return picked[0], 0
     except Exception as exc:
         print(f"⚠ {kind}: no checkpoint to resume ({type(exc).__name__})", flush=True)
     return make(), 0
@@ -96,8 +97,9 @@ def train_kind(kind: str, manifest: str, minutes: float, deadline: float, margin
     while time.time() < end - margin_s:
         chunk = min(CHUNK_MIN, (end - time.time()) / 60)
         lr = max(5e-5, 3e-4 * (0.9 ** prog["chunks"]))
-        stats = train_stream(tok, manifest, minutes=chunk, batch_size=16 if kind == "image" else 32, lr=lr, workers=2, kind=kind,
-                             multires=0.3 if kind == "image" else 0.0, warmup=50, **kw)
+        from sham_media_cfg import IMAGE_RES_MIX
+        stats = train_stream(tok, manifest, minutes=chunk, batch_size=12 if kind == "image" else 32, lr=lr, workers=2, kind=kind,
+                             res_mix=IMAGE_RES_MIX if kind == "image" else None, warmup=50, **kw)
         prog["steps"] += stats.steps
         prog["samples"] += stats.samples
         prog["chunks"] += 1
@@ -137,7 +139,7 @@ def main() -> int:
                 ledgers.mkdir(parents=True, exist_ok=True)
                 ledger = Ledger.load(kind, search_root=ledgers, name=f"factory_{kind}")
                 out = WORK / f"batch_{kind}_{time.strftime('%Y%m%d%H%M', time.gmtime())}"
-                manifest, stats = collect(kind, out, n, ledger, image_size=128 if kind == "image" else 64)
+                manifest, stats = collect(kind, out, n, ledger, image_size=256 if kind == "image" else 64)
                 ledger.save(ledgers)
                 print(f"🏭 {kind}: {stats.written:,} new samples ({stats.summary()[:100]})", flush=True)
                 if stats.written:
@@ -169,7 +171,10 @@ def selftest() -> int:
         # a tiny image set and audio set on disk, then train_kind for both with the real code path (tiny configs via monkeypatch)
         import sham_media_cfg
         from image_tokenizer import ImageTokenizerConfig
-        sham_media_cfg.IMAGE_V2.update(image_size=32, base_channels=8, channel_multipliers=(1, 2), code_dim=16, num_codes=64)
+        import image_tokenizer as it
+        _orig_cfg = sham_media_cfg.image_config
+        sham_media_cfg.image_config = lambda: it.ImageTokenizerConfig(image_size=32, base_channels=8, channel_multipliers=(1, 2), code_dim=16, num_codes=64)
+        sham_media_cfg.IMAGE_RES_MIX = {8: 0.5, 16: 0.25, 32: 0.25}
         for i in range(24):
             arr = (np.random.RandomState(i).rand(32, 32, 3) * 255).astype("uint8")
             Image.fromarray(arr).save(Path(d) / f"{i}.png")

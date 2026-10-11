@@ -7,7 +7,7 @@ starts it again and relaunches the job.
 
   python studio_job.py diag      start, fetch code + libraries, print what the Studio has (no job)
   python studio_job.py measure   the media factory's one-small-cycle throughput test (publishes nothing)
-  python studio_job.py tokens    collect + TRAIN the image/audio tokenizers on the Studio's 4 CPU cores (no GPU), publish v2 checkpoints  <- main job
+  python studio_job.py tokens    collect + TRAIN the image/audio tokenizers (full design, resolution curriculum) on the Studio's 4 CPU cores (no GPU), publish  <- main job
   python studio_job.py media     the media factory (collect + pack tokenizer training data, publish as Kaggle datasets)  <- the main job
   python studio_job.py run       Sham's live text trainer (sham_live)
 
@@ -109,8 +109,8 @@ def main() -> int:
         studio, machine = open_studio()
         if mode == "peek":                                   # read-only look at a running job: never starts, stops or restarts anything
             say(str(getattr(studio, "status", "?")))
-            say(str(studio.run("tail -n 45 ~/factory.log 2>/dev/null | cut -c1-300; echo ---; ls ~/sham_factory 2>/dev/null | head; "
-                               "du -sh ~/sham_factory 2>/dev/null; pgrep -af media_factory | cut -c1-120 | head -3; free -g | head -2")))
+            say(str(studio.run("tail -n 30 ~/tokens.log 2>/dev/null | cut -c1-300; echo ---; tail -n 10 ~/factory.log 2>/dev/null | cut -c1-200; echo ---; ls ~/sham_factory 2>/dev/null | head; "
+                               "du -sh ~/sham_factory 2>/dev/null; pgrep -af "media_factory|tokenizer_job" | cut -c1-120 | head -3; free -g | head -2")))
             return 0
         ensure_running(studio, machine)
         say(f"حالة الاستوديو: {getattr(studio, 'status', '?')}")
