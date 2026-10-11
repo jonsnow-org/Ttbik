@@ -3,6 +3,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { BD, BD_OFF, bdText, parseBirthday, saveBirthday } from "@/lib/atharBirthday";
+import { checkPayments, dayKey, daySummary, fetchBalance, fetchIncoming, loadWatch, setAlerts, tons, txLink, walletLink, weekSummary } from "@/lib/atharWatch";
 
 /**
  * ATHAR_BOT: a token for every day of the calendar on the TON network.
@@ -96,16 +97,27 @@ const ADMIN_URL = (process.env.ATHAR_ADMIN_URL || "").trim();
 // The bot's menu is a button panel under the message box (a reply keyboard, always there), not buttons inside the conversation.
 // The sections open the mini app directly; 🌐 changes the language; the owner has two more buttons.
 const OWNER_STATS = "📊 Stats", OWNER_CHANNEL = "📢 قناة الاشتراك الإجباري";
-function menu(lang: Lang, owner = false): Keyboard {
+const OWNER_BALANCE = "💰 الرصيد", OWNER_PAYMENTS = "📈 آخر الدفعات", OWNER_ALERTS = "🔔 التنبيهات", OWNER_CHECK = "🔄 افحص الآن";
+const OWNER_USERVIEW = "👁 شكل المستخدم", OWNER_BACK = "🛠 لوحة الأدمن";
+
+/** The owner's own panel: nothing like the public one (balance, payments, alerts, stats, channel, preview). */
+function adminMenu(): Keyboard {
+  const kb = new Keyboard()
+    .text(OWNER_BALANCE).text(OWNER_PAYMENTS).row()
+    .text(OWNER_STATS).text(OWNER_ALERTS).row()
+    .text(OWNER_CHECK).text(OWNER_CHANNEL).row();
+  if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL).row();
+  return kb.text(OWNER_USERVIEW).resized().persistent();
+}
+
+function menu(lang: Lang, owner = false, preview = false): Keyboard {
+  if (owner && !preview) return adminMenu();
   const t = T[lang];
   const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
     .webApp(t.mystery, withLang("/mystery", lang)).webApp(t.auctions, withLang("/auctions", lang)).row()
     .webApp(t.mine, withLang("/mine", lang)).webApp(t.board, withLang("/board", lang)).row()
     .webApp(t.today, withLang("/today", lang)).text(t.language).row().text(BD[lang].button);
-  if (owner) {
-    kb.row().text(OWNER_STATS).text(OWNER_CHANNEL);
-    if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL);
-  }
+  if (owner) kb.row().text(OWNER_BACK);
   return kb.resized().persistent();
 }
 
@@ -172,16 +184,67 @@ async function setLang(botId: string, tgUserId: string, lang: Lang): Promise<voi
   } catch { /* the choice still applies to this message */ }
 }
 
-/** What the owner sees under «📊 Stats»: how many people started the bot and in which languages. */
-async function statsText(botId: string): Promise<string> {
+/** What the owner sees under «📊 Stats»: people who started the bot (never counting the owner), growth, languages. Each part fails on its own. */
+async function statsText(botRow: BotRow): Promise<string> {
+  const botId = botRow.id;
+  const owner = String(botRow.ownerId || OWNER_FALLBACK);
+  const lines = ["📊 إحصائيات بوت أثر"];
   try {
-    const total = await prisma.botVisit.count({ where: { botId } });
-    const since = new Date(Date.now() - 24 * 3600 * 1000);
-    const today = await prisma.botVisit.count({ where: { botId, firstSeenAt: { gte: since } } });
+    const where = (since?: Date) => ({ botId, tgUserId: { notIn: [owner, OWNER_FALLBACK] }, ...(since ? { firstSeenAt: { gte: since } } : {}) });
+    const ago = (h: number) => new Date(Date.now() - h * 3600 * 1000);
+    const [total, d1, d7, d30] = await Promise.all([
+      prisma.botVisit.count({ where: where() }),
+      prisma.botVisit.count({ where: where(ago(24)) }),
+      prisma.botVisit.count({ where: where(ago(24 * 7)) }),
+      prisma.botVisit.count({ where: where(ago(24 * 30)) }),
+    ]);
+    lines.push(`👥 كل من بدأ البوت: ${total}`, `🆕 آخر 24 ساعة: ${d1}`, `📅 آخر 7 أيام: ${d7}`, `🗓 آخر 30 يوماً: ${d30}`);
+  } catch {
+    lines.push("👥 تعذّر قراءة عدد المستخدمين الآن.");
+  }
+  try {
     const langs = await prisma.atharBotUser.groupBy({ by: ["lang"], where: { botId }, _count: { lang: true } });
-    const parts = langs.map((l) => `${l.lang}: ${l._count.lang}`).join(" · ") || "—";
-    return `📊 Athar bot\nStarted: ${total}\nNew in 24h: ${today}\nChosen languages: ${parts}\n(people who never pressed 🌐 are in English)`;
-  } catch { return "📊 Stats are not available right now."; }
+    if (langs.length) lines.push(`🌐 اللغات المختارة: ${langs.map((l) => `${l.lang} ${l._count.lang}`).join(" · ")}`, "(من لم يضغط 🌐 يُحسب إنجليزياً)");
+  } catch {
+    /* the language table is optional */
+  }
+  try {
+    const w = await loadWatch();
+    const today = daySummary(w, dayKey(Date.now()));
+    const week = weekSummary(w);
+    if (w.baselineAt) lines.push(`💰 دفعات اليوم: ${today.n} (${tons(today.nano)} TON)`, `💰 آخر 7 أيام: ${week.n} (${tons(week.nano)} TON)`);
+    else lines.push("💰 مراقبة الدفعات لم تبدأ بعد: اضغط «🔄 افحص الآن».");
+  } catch {
+    /* payment totals are optional */
+  }
+  lines.push("ملاحظة: الأعداد تخص من راسل البوت فعلاً. من فتح التطبيق المصغّر دون مراسلة البوت لا يُحسب هنا.");
+  return lines.join("\n");
+}
+
+async function balanceText(): Promise<string> {
+  const [bal, w] = await Promise.all([fetchBalance(), loadWatch().catch(() => null)]);
+  const lines = ["💰 محفظة الإدارة (أثر)"];
+  lines.push(bal == null ? "👛 الرصيد: تعذّر الجلب الآن (خدمة السلسلة لا تردّ). أعد المحاولة بعد قليل." : `👛 الرصيد الآن: ${tons(bal)} TON`);
+  if (w?.baselineAt) {
+    const t = daySummary(w, dayKey(Date.now()));
+    const wk = weekSummary(w);
+    lines.push(`📈 اليوم: ${t.n} دفعة واردة (${tons(t.nano)} TON)`, `📅 آخر 7 أيام: ${wk.n} دفعة (${tons(wk.nano)} TON)`);
+  }
+  lines.push(`🔔 التنبيهات: ${w?.alerts === false ? "متوقفة" : "تعمل"}`, `🔗 ${walletLink()}`);
+  return lines.join("\n");
+}
+
+async function paymentsText(): Promise<string> {
+  const list = await fetchIncoming(10);
+  if (!list) return "📈 تعذّر جلب الدفعات الآن. أعد المحاولة بعد قليل.";
+  if (!list.length) return "📈 لا توجد دفعات واردة حديثة.";
+  const rows = list.slice(0, 8).map((x) => `• ${new Date(x.at + 3 * 3600_000).toISOString().replace("T", " ").slice(5, 16)}  +${tons(x.nano)} TON  ${txLink(x.hash)}`);
+  return ["📈 آخر الدفعات الواردة (توقيت إسطنبول)", ...rows].join("\n");
+}
+
+async function adminHome(botRow: BotRow): Promise<string> {
+  const [bal, stats] = await Promise.all([fetchBalance().catch(() => null), statsText(botRow)]);
+  return [`🛠 لوحة أدمن أثر (تظهر لك وحدك)`, bal == null ? "👛 الرصيد: غير متاح الآن" : `👛 الرصيد: ${tons(bal)} TON`, "", stats, "", "الأزرار بالأسفل: الرصيد، آخر الدفعات، التنبيهات، فحص فوري، القناة، وعرض البوت كما يراه الناس."].join("\n");
 }
 
 export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
@@ -200,7 +263,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, isOwner(botRow, from)) });
       await ensureMenu(bot, chatId, lang, isOwner(botRow, from));
     } else if (data === "ao:stats" && isOwner(botRow, from)) {
-      await bot.api.sendMessage(chatId, await statsText(botRow.id));
+      await bot.api.sendMessage(chatId, await statsText(botRow));
     }
     return;
   }
@@ -209,11 +272,11 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   const chatId = msg.chat.id;
   const text = String(msg.text || "").trim();
   const fromId = String(msg.from?.id || "");
-  if (fromId) {
+  const owner = isOwner(botRow, fromId);
+  if (fromId && !owner) {
     try { await recordBotVisit(botRow.id, fromId); } catch { /* visit counting is optional */ }
   }
   const lang = fromId ? await getLang(botRow.id, fromId) : "en";
-  const owner = isOwner(botRow, fromId);
 
   // the owner sets (or stops) the mandatory channel: the answer to our question
   if (owner && msg.reply_to_message?.text === CHANNEL_ASK) {
@@ -254,7 +317,42 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     return;
   }
   if (owner && text === OWNER_STATS) {
-    await bot.api.sendMessage(chatId, await statsText(botRow.id), { reply_markup: menu(lang, true) });
+    await bot.api.sendMessage(chatId, await statsText(botRow), { reply_markup: menu(lang, true) });
+    return;
+  }
+  if (owner && text === OWNER_BALANCE) {
+    await bot.api.sendMessage(chatId, await balanceText(), { reply_markup: menu(lang, true), link_preview_options: { is_disabled: true } });
+    return;
+  }
+  if (owner && text === OWNER_PAYMENTS) {
+    await bot.api.sendMessage(chatId, await paymentsText(), { reply_markup: menu(lang, true), link_preview_options: { is_disabled: true } });
+    return;
+  }
+  if (owner && text === OWNER_ALERTS) {
+    const w = await loadWatch();
+    const next = w.alerts === false;
+    await setAlerts(next).catch(() => null);
+    await bot.api.sendMessage(chatId, next ? "🔔 تنبيهات الدفعات: تعمل. ستصلك رسالة عند كل دفعة جديدة (الفحص كل 5 دقائق تقريباً)." : "🔕 تنبيهات الدفعات: متوقفة. الرصيد والإحصائيات تبقى متاحة بالأزرار.", { reply_markup: menu(lang, true) });
+    return;
+  }
+  if (owner && text === OWNER_CHECK) {
+    const res = await checkPayments();
+    const msg = !res.ok
+      ? "🔄 تعذّر الفحص الآن: خدمة السلسلة لا تردّ."
+      : res.baseline
+        ? `✅ بدأت مراقبة الدفعات. الرصيد: ${res.balance == null ? "—" : tons(res.balance) + " TON"}.`
+        : res.fresh.length
+          ? `🎉 ${res.fresh.length} دفعة جديدة منذ آخر فحص، آخرها +${tons(res.fresh[res.fresh.length - 1].nano)} TON.\n👛 الرصيد: ${res.balance == null ? "—" : tons(res.balance) + " TON"}`
+          : `✅ لا دفعات جديدة منذ آخر فحص.\n👛 الرصيد: ${res.balance == null ? "—" : tons(res.balance) + " TON"}`;
+    await bot.api.sendMessage(chatId, msg, { reply_markup: menu(lang, true) });
+    return;
+  }
+  if (owner && text === OWNER_USERVIEW) {
+    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, true, true) });
+    return;
+  }
+  if (owner && (text === OWNER_BACK || /^\/admin(?:@\w+)?$/i.test(text))) {
+    await bot.api.sendMessage(chatId, await adminHome(botRow), { reply_markup: menu(lang, true), link_preview_options: { is_disabled: true } });
     return;
   }
 
@@ -283,7 +381,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
 
   const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
   if (cmd === "start") {
-    await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
+    await bot.api.sendMessage(chatId, owner ? await adminHome(botRow) : T[lang].welcome, { reply_markup: menu(lang, owner), ...(owner ? { link_preview_options: { is_disabled: true } } : {}) });
     await ensureMenu(bot, chatId, lang, owner);
     return;
   }
@@ -292,7 +390,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     return;
   }
   if (cmd === "stats" && owner) {
-    await bot.api.sendMessage(chatId, await statsText(botRow.id));
+    await bot.api.sendMessage(chatId, await statsText(botRow));
     return;
   }
   const section = SECTIONS.find((x) => x.cmd === cmd);
