@@ -87,4 +87,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    code = main()
+    # the Hugging Face streaming libraries leave background threads that keep the interpreter from ever exiting (found 2026-10-11: a finished
+    # --measure run stayed alive for over an hour and the launcher took it for the running factory): leave explicitly
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
