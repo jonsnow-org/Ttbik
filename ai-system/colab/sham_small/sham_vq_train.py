@@ -11,6 +11,9 @@ mixed precision. Everything here works on the SAME ImageTokenizer class and chec
       * codebook initialised from real encoder outputs (data-dependent init), dead codes re-seeded from the current batch (EMA usage)
       * the encoder/decoder run under autocast (bf16/fp16 on a GPU), the quantizer's distance search stays float32
       * warm-up + cosine learning-rate decay over the time budget, gradient clipping, a real step counter (optimizer steps, not epochs)
+      * multires=p: with probability p a step trains on the batch average-pooled to half size (256px -> 128px). The tokenizer is fully
+        convolutional, so a 128px frame becomes an 8x8 grid = 64 tokens instead of 256: VIDEO frames can use that, four times as many
+        frames in the same 1024-token window (the model's real window is 1024), and the same tokenizer must be good at both sizes
       * stops at the time budget, so a Kaggle session spends all of it training
 
 Offline self-test: `python sham_vq_train.py` — compares this loop against train_vqvae on a synthetic structured set (same steps): codebook use
@@ -154,7 +157,7 @@ def revive_dead_codes(tok, ema_usage: torch.Tensor, z: torch.Tensor, threshold: 
 
 def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16, lr: float = 3e-4, device: str | None = None,
                  workers: int = 2, warmup: int = 100, restart_every: int = 100, log_every: int = 50, max_steps: int | None = None,
-                 init_batches: int = 4, size: int | None = None, kind: str = "image") -> StreamStats:
+                 init_batches: int = 4, size: int | None = None, kind: str = "image", multires: float = 0.0) -> StreamStats:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     if kind == "audio":
         ds = ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
@@ -199,6 +202,8 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
         for g in opt.param_groups:
             g["lr"] = cur
         x = next_batch().to(device, non_blocking=True)
+        if kind == "image" and multires > 0 and x.shape[-1] >= 64 and torch.rand(1).item() < multires:
+            x = F.avg_pool2d(x, 2)
         loss, recon, ids, z = _forward(tok, x, amp)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
@@ -283,6 +288,19 @@ if __name__ == "__main__":
     assert rec_new < rec_old, "the new loop must reconstruct better at equal steps"
     assert s_new.recon[-1] < s_new.recon[0], "loss must go down"
 
+    # multires: the same tokenizer trained on both sizes encodes 32px and 16px inputs (grids 8x8 and 4x4 for the 2-stage toy)
+    with tempfile.TemporaryDirectory() as d:
+        for i in range(64):
+            arr = ((train[i].permute(1, 2, 0).numpy() + 1) * 127.5).clip(0, 255).astype("uint8")
+            Image.fromarray(arr).save(Path(d) / f"{i}.png")
+        Path(d, "manifest.jsonl").write_text("\n".join(json.dumps({"image": f"{i}.png", "caption": "x"}) for i in range(64)), encoding="utf-8")
+        mr = ImageTokenizer(cfg)
+        m_stats = train_stream(mr, Path(d) / "manifest.jsonl", minutes=5, batch_size=8, max_steps=40, workers=0, warmup=5, restart_every=20,
+                               log_every=20, multires=0.5)
+        with torch.no_grad():
+            mr.train(False)
+            assert mr.encode(train[:2]).shape[-1] == 8 and mr.encode(torch.nn.functional.avg_pool2d(train[:2], 2)).shape[-1] == 4
+        assert m_stats.steps == 40
     # the same loop on audio segments: runs, loss goes down, and a long clip yields several different segments
     import numpy as np
     import soundfile as sf
