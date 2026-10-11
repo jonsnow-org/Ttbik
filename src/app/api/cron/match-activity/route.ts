@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
   const active = new Date(Date.now() - 30 * 86400000);
   const bots = await prisma.bot.findMany({ where: { template: "MARRIAGE_BOT", isActive: true }, select: { id: true, token: true } });
   let sent = 0;
+  const isFriday = new Date().getUTCDay() === 5;
+  const stale = Date.now() - 14 * 86400000;
 
   for (const b of bots) {
     if (sent >= MAX_PER_RUN) break;
@@ -31,7 +33,7 @@ export async function GET(req: NextRequest) {
 
     const members = await prisma.matchProfile.findMany({
       where: { status: "APPROVED", isHidden: false, user: { botId: b.id, isBanned: false, lastActiveAt: { gte: active } } },
-      select: { userId: true, gender: true },
+      select: { userId: true, gender: true, updated_at: true },
       take: MAX_PER_RUN,
     });
     const visits = await prisma.matchProfileVisit.groupBy({
@@ -45,10 +47,12 @@ export async function GET(req: NextRequest) {
       if (sent >= MAX_PER_RUN) break;
       const newOpp = newByGender.get(m.gender === "MALE" ? "FEMALE" : "MALE") || 0;
       const seen = visitsOf.get(m.userId) || 0;
-      if (!newOpp && !seen) continue;
+      const needsRefresh = isFriday && new Date(m.updated_at).getTime() < stale;
+      if (!newOpp && !seen && !needsRefresh) continue;
       const lines = ["🔔 جديد في بوت التعارف:"];
       if (newOpp) lines.push(`✨ انضم ${newOpp} ${newOpp === 1 ? "ملف جديد" : "ملفات جديدة"} خلال 24 ساعة — اضغط «🔍 البحث عن شريك» لتراها.`);
       if (seen) lines.push(`👀 اطّلع ${seen} ${seen === 1 ? "شخص" : "أشخاص"} على ملفك. لمعرفة من هم: «⭐ الترقيات والمزايا ← 👀 من زار ملفي».`);
+      if (needsRefresh) lines.push("🔄 ملفك لم يُحدَّث منذ أسبوعين — حدّثه من «ملفي» ليظهر أكثر في نتائج البحث.");
       try {
         const res = await fetch(`https://api.telegram.org/bot${b.token}/sendMessage`, {
           method: "POST",
