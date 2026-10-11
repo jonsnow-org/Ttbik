@@ -48,6 +48,52 @@ def extend_context_ntk(model, new_len: int) -> float:
 
 
 # --------------------------------------------------------------------------------------------------------------------------------------
+# 1b. explicit positions: lets retrieved chunks keep the positions they had in the original stream (model.py is untouched)
+# --------------------------------------------------------------------------------------------------------------------------------------
+
+
+@torch.no_grad()
+def forward_positions(model, ids: torch.Tensor, pos: torch.Tensor, past=None, use_cache: bool = False):
+    """The model's own forward, but token i of `ids` sits at RoPE position pos[i] (any increasing or gapped positions).
+    With pos = arange(n) it equals model(ids). Attention stays causal over the order the tokens are given.
+    past/use_cache: the standard per-layer (k, v) caches, so a later step can add tokens at later positions."""
+    x = model.token_embedding(ids)
+    offset = past[0][0].shape[2] if past is not None else 0
+    n = ids.shape[1]
+    hd2 = model.rope_cos.shape[1]
+    # Attention slices cos[offset:offset+n]; hand it a table whose rows at that slice are the wanted positions
+    cos = torch.zeros(offset + n, hd2, dtype=model.rope_cos.dtype)
+    sin = torch.zeros(offset + n, hd2, dtype=model.rope_sin.dtype)
+    cos[offset:] = model.rope_cos[pos.long()]
+    sin[offset:] = model.rope_sin[pos.long()]
+    caches = []
+    for i, layer in enumerate(model.layers):
+        x, c = layer(x, cos, sin, past_kv=past[i] if past is not None else None, use_cache=use_cache)
+        caches.append(c)
+    logits = model.lm_head(model.final_norm(x)) * model.cfg.output_mult
+    return (logits, caches) if use_cache else (logits, None)
+
+
+@torch.no_grad()
+def generate_positions(model, ctx_ids: list[int], ctx_pos: list[int], n_new: int, first_new_pos: int, temperature: float = 0.8,
+                       top_k: int | None = 50, top_p: float | None = 0.95, allowed: tuple[int, int] | None = None,
+                       eos_id: int | None = None) -> list[int]:
+    """Prefill the context with its own positions, then sample n_new tokens at positions first_new_pos, +1, ... (with a KV cache)."""
+    from generate import _sample_from_logits
+    ids = torch.tensor([ctx_ids], dtype=torch.long)
+    logits, past = forward_positions(model, ids, torch.tensor(ctx_pos), use_cache=True)
+    out: list[int] = []
+    for i in range(n_new):
+        tok = _sample_from_logits(logits[:, -1, :], temperature=temperature, top_k=top_k, top_p=top_p, allowed_range=allowed)
+        t = int(tok[0, 0])
+        if eos_id is not None and t == eos_id:
+            break
+        out.append(t)
+        logits, past = forward_positions(model, tok, torch.tensor([first_new_pos + i]), past=past, use_cache=True)
+    return out
+
+
+# --------------------------------------------------------------------------------------------------------------------------------------
 # 2. the bank
 # --------------------------------------------------------------------------------------------------------------------------------------
 
@@ -123,6 +169,7 @@ class LongGenConfig:
     top_p: float | None = 0.95
     allowed: tuple[int, int] | None = None     # restrict sampling to an id range (e.g. image codebook ids of a video)
     eos_id: int | None = None
+    true_positions: bool = False   # retrieved chunks keep the RoPE positions they had in the stream (needs a rope table that long: NTK-extend first)
 
 
 class LongGenerator:
@@ -131,26 +178,38 @@ class LongGenerator:
         self.max_context_used = 0
         self.log: list[dict] = []
 
-    def _context(self, stream: list[int], pos_in_bank: set[int]) -> tuple[list[int], list[int]]:
+    def _context(self, stream: list[int], pos_in_bank: set[int]) -> tuple[list[int], list[int], list[int]]:
+        """(context ids, their positions, used bank ids). Positions are the true stream positions when cfg.true_positions, else packed 0..n-1."""
         c = self.cfg
-        window = self.model.cfg.max_seq_len
+        window = self.window
         anchor = stream[:c.anchor]
-        tail = stream[max(c.anchor, len(stream) - c.tail):]
-        # whatever room is left after anchor + tail + the chunk being generated goes to retrieved chunks
+        tail_start = max(c.anchor, len(stream) - c.tail)
+        tail = stream[tail_start:]
         room = window - len(anchor) - len(tail) - c.chunk
         got: list[int] = []
         if room > 0 and len(self.bank):
             q = chunk_key(self.model, tail or anchor)
             got = self.bank.retrieve(q, c.retrieve_k, exclude=pos_in_bank)
-        ctx_chunks: list[int] = []
         used: list[int] = []
+        taken = 0
         for i in got:
-            ch = self.bank.chunks[i].tolist()
-            if len(ctx_chunks) + len(ch) > room:
+            n = len(self.bank.chunks[i])
+            if taken + n > room:
                 break
-            ctx_chunks += ch
             used.append(i)
-        return anchor + ctx_chunks + tail, used
+            taken += n
+        used.sort(key=lambda i: self.bank.meta[i].get("p0", i))       # chronological, like the stream itself
+        ids = list(anchor)
+        pos = list(range(len(anchor)))
+        for i in used:
+            ids += self.bank.chunks[i].tolist()
+            p0 = self.bank.meta[i].get("p0", 0)
+            pos += list(range(p0, p0 + len(self.bank.chunks[i])))
+        ids += tail
+        pos += list(range(tail_start, tail_start + len(tail)))
+        if not c.true_positions:
+            pos = list(range(len(ids)))
+        return ids, pos, used
 
     @torch.no_grad()
     def generate(self, prompt: list[int], total_new: int, seed: int | None = None) -> list[int]:
@@ -158,8 +217,11 @@ class LongGenerator:
         c = self.cfg
         if seed is not None:
             torch.manual_seed(seed)
-        window = self.model.cfg.max_seq_len
+        window = self.window = self.model.cfg.max_seq_len      # the ATTENTION window: a context never holds more tokens than the model was built for
         assert c.anchor + c.tail + c.chunk <= window, "anchor + tail + chunk must fit the model's window"
+        # with true positions only the position NUMBERS grow past the window: the rope table must reach them (NTK-extended, weights untouched)
+        if c.true_positions and len(prompt) + total_new + c.chunk > self.model.cfg.max_seq_len:
+            extend_context_ntk(self.model, len(prompt) + total_new + c.chunk)
         stream = list(prompt)
         self.model.eval()
         n_new = 0
@@ -168,17 +230,21 @@ class LongGenerator:
         for i in range(0, len(stream), c.chunk):
             part = stream[i:i + c.chunk]
             if len(part) >= 8:
-                recent_bank_ids.add(self.bank.add(part, chunk_key(self.model, part), src="prompt"))
+                recent_bank_ids.add(self.bank.add(part, chunk_key(self.model, part), src="prompt", p0=i))
         while n_new < total_new:
             step = min(c.chunk, total_new - n_new)
-            ctx, used = self._context(stream, recent_bank_ids)
+            ctx, ctx_pos, used = self._context(stream, recent_bank_ids)
             self.max_context_used = max(self.max_context_used, len(ctx) + step)
             assert len(ctx) + step <= window
-            x = torch.tensor([ctx], dtype=torch.long)
-            ranges = [c.allowed] * step if c.allowed else None
-            out = generate_tokens(self.model, x, step, temperature=c.temperature, top_k=c.top_k, top_p=c.top_p, eos_id=c.eos_id,
-                                  allowed_ranges=ranges)
-            new = out[0, x.shape[1]:].tolist()
+            if c.true_positions:
+                new = generate_positions(self.model, ctx, ctx_pos, step, first_new_pos=len(stream), temperature=c.temperature,
+                                         top_k=c.top_k, top_p=c.top_p, allowed=c.allowed, eos_id=c.eos_id)
+            else:
+                x = torch.tensor([ctx], dtype=torch.long)
+                ranges = [c.allowed] * step if c.allowed else None
+                out = generate_tokens(self.model, x, step, temperature=c.temperature, top_k=c.top_k, top_p=c.top_p, eos_id=c.eos_id,
+                                      allowed_ranges=ranges)
+                new = out[0, x.shape[1]:].tolist()
             if c.eos_id is not None and c.eos_id in new:
                 new = new[:new.index(c.eos_id)]
                 stream += new
@@ -186,7 +252,7 @@ class LongGenerator:
                 break
             stream += new
             n_new += len(new)
-            idx = self.bank.add(new, chunk_key(self.model, new), src="gen", at=len(stream))
+            idx = self.bank.add(new, chunk_key(self.model, new), src="gen", at=len(stream), p0=len(stream) - len(new))
             # a chunk just written must not be retrieved straight back (it is already in the tail)
             recent_bank_ids = {idx - j for j in range(0, max(1, c.tail // c.chunk))}
             self.log.append({"at": len(stream), "ctx": len(ctx), "retrieved": used})
@@ -310,6 +376,27 @@ if __name__ == "__main__":
     assert len(lg.bank) > 40 and any(e["retrieved"] for e in lg.log), "bank never used"
     lg2 = LongGenerator(model, LongGenConfig(chunk=32, tail=96, retrieve_k=2, anchor=16, top_k=20, top_p=None, allowed=(0, 400)))
     assert lg2.generate(prompt, total_new=1500, seed=7) == out1, "same seed must give the same stream"
+
+    # 3b. explicit positions: contiguous positions equal the model's own forward; gapped positions change the output; true-position
+    # generation runs 6x the window and is deterministic by seed
+    xs = torch.randint(0, 400, (1, 48))
+    with torch.no_grad():
+        ref = model(xs)[0]
+    got, _ = forward_positions(model, xs, torch.arange(48))
+    assert (ref - got).abs().max() < 1e-5, "forward_positions(arange) must equal model(ids)"
+    gap, _ = forward_positions(model, xs, torch.arange(48) * 3)
+    assert (ref - gap).abs().max() > 1e-4, "positions must matter"
+    lgp = LongGenerator(model, LongGenConfig(chunk=32, tail=96, retrieve_k=2, anchor=16, top_k=20, top_p=None, allowed=(0, 400),
+                                             true_positions=True))
+    outp = lgp.generate(prompt, total_new=700, seed=3)
+    assert len(outp) == 80 + 700 and lgp.max_context_used <= 256 and model.cfg.max_seq_len >= 80 + 700
+    lgp.model.resize_max_seq_len(256)
+    lgp.model.cfg.rope_theta = 10000.0
+    lgp2 = LongGenerator(model, LongGenConfig(chunk=32, tail=96, retrieve_k=2, anchor=16, top_k=20, top_p=None, allowed=(0, 400),
+                                              true_positions=True))
+    assert lgp2.generate(prompt, total_new=700, seed=3) == outp, "true-position generation must be deterministic"
+    lgp2.model.resize_max_seq_len(256)
+    lgp2.model.cfg.rope_theta = 10000.0
 
     # 4. delta codec: lossless on a clip whose grid changes in a few cells; compression is measured
     rng = np.random.default_rng(0)

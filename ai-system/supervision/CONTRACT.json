@@ -422,6 +422,14 @@
       "reads": [],
       "writes": []
     },
+    "retrieval_parity": {
+      "file": ".github/workflows/sham-parity.yml",
+      "title": "قياس تكافؤ الاسترجاع مع السياق المتصل (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "checkpoint_audit": {
       "file": ".github/workflows/sham-audit.yml",
       "title": "فحص نقاط الحفظ (قراءة فقط): قياس كل نقطة بكل مُرمِّز على نص ثابت",
