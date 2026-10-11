@@ -50,6 +50,11 @@ C['captive']=dict(zoom=0.06,pan=7,focus=(710,250),dust=120,dust_dir=(-1,-0.05),d
  sun=dict(x=100,y=300,r=500,amp=0.2),
  zones=[z(720,200,130,150,ax=7,ay=2,kx=0.03,ky=0.04,n=1),z(710,620,150,130,ax=5,ay=2,kx=0.03,ky=0.03,n=1,ph=1),
         z(150,290,170,160,ax=6,ay=3,kx=0.03,ky=0.03,n=1,ph=2),z(700,60,700,110,ax=8,kx=0.006,n=1),z(280,650,250,100,ax=6,ay=3,kx=0.02,n=1)])
+C['banner']=dict(zoom=0.025,pan=8,focus=(1000,300),dust=70,dust_dir=(0.7,-0.3),dust_amp=1.0,dust_col=(130,205,255),
+ bands=[(0,0.05,0.18)],band_angle=15,nspark=24,vthr=220,spark_amp=0.95,
+ sun=dict(x=60,y=260,r=520,amp=0.22,col=(80,170,255)),
+ zones=[z(900,110,1000,130,ax=14,kx=0.004,n=1),z(1530,420,150,200,ax=5,ay=2,kx=0.025,ky=0.03,n=1),z(1640,450,120,200,ax=5,ay=2,kx=0.025,ky=0.03,n=1,ph=1),
+        z(260,330,160,100,ax=5,ay=2,kx=0.03,ky=0.03,n=1),z(1230,370,150,50,ax=5,kx=0.03,n=1,ph=2)])
 import sys
 if __name__=='__main__':
     k=sys.argv[1]; c=dict(C[k]); c['src']=D+f'src/{k}.jpg'; c['out']=D+f'out/{k}.mp4'
