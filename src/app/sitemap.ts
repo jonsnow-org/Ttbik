@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { NEWS_ITEMS } from "@/lib/newsItems";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "@/lib/enDesk";
 import { BOT_LANDINGS } from "@/lib/botLanding";
+import { FREE_TOOLS } from "@/lib/freeTools";
 import { PRAYER_CITIES } from "@/lib/prayerCities";
 
 export const revalidate = 30;
@@ -114,5 +115,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     serviceRoutes = [];
   }
 
-  return [...staticRoutes, ...serviceRoutes];
+  // Every tool listed in FREE_TOOLS is included even if nobody remembered to
+  // add it by hand above (story-card, sentiment-analyzer, ...).
+  const have = new Set(staticRoutes.map((r) => r.url));
+  const toolRoutes: MetadataRoute.Sitemap = FREE_TOOLS.filter((t) => !have.has(`${base}${t.href}`)).map((t) => ({
+    url: `${base}${t.href}`,
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
+
+  return [...staticRoutes, ...toolRoutes, ...serviceRoutes];
 }

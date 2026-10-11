@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import sitemap from "@/app/sitemap";
+import { newsSitemapEntries } from "@/lib/newsItems";
 import { INDEXNOW_KEY } from "@/lib/indexNow";
 import { SITE_URL } from "@/lib/siteUrl";
 
-// Daily: tells IndexNow search engines (Bing, Yandex, ...) about every URL in
-// our sitemap so new tools/pages get discovered in hours, not weeks.
+// Daily (or on demand with ?secret=): tells every IndexNow search engine
+// (Bing, Yandex, Seznam, Naver, ...) about every public URL -- all tools, bot
+// pages, news, events, prayer cities -- so new pages are discovered in hours.
+// Google does not take IndexNow; it reads the sitemap submitted in Search Console.
 export const maxDuration = 60;
+
+const ENDPOINTS = ["https://api.indexnow.org/indexnow", "https://www.bing.com/indexnow", "https://yandex.com/indexnow"];
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get("authorization");
@@ -13,12 +18,13 @@ export async function GET(req: NextRequest) {
   const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
   if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const urls = (await sitemap()).map((e) => e.url).slice(0, 9000);
-  const host = new URL(SITE_URL).host;
-  const res = await fetch("https://api.indexnow.org/indexnow", {
-    method: "POST",
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-    body: JSON.stringify({ host, key: INDEXNOW_KEY, keyLocation: `${SITE_URL}/indexnow-key.txt`, urlList: urls }),
-  }).catch(() => null);
-  return NextResponse.json({ ok: !!res && res.status < 300, status: res?.status ?? 0, submitted: urls.length });
+  const urls = Array.from(new Set([...(await sitemap()).map((e) => e.url), ...newsSitemapEntries().map((n) => `${SITE_URL}${n.path}`)])).slice(0, 9000);
+  const body = JSON.stringify({ host: new URL(SITE_URL).host, key: INDEXNOW_KEY, keyLocation: `${SITE_URL}/indexnow-key.txt`, urlList: urls });
+  const results = await Promise.all(
+    ENDPOINTS.map(async (ep) => {
+      const res = await fetch(ep, { method: "POST", headers: { "Content-Type": "application/json; charset=utf-8" }, body }).catch(() => null);
+      return { endpoint: new URL(ep).host, status: res?.status ?? 0 };
+    }),
+  );
+  return NextResponse.json({ ok: results.some((r) => r.status >= 200 && r.status < 300), submitted: urls.length, results });
 }
