@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publishRotation, type RotationResult } from "@/lib/channelRotation";
-import { isSafeForChannel } from "@/lib/channelPublisher";
+import { isSafeForChannel, channelBotToken } from "@/lib/channelPublisher";
 import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
 
 export const maxDuration = 60;
 
 /**
  * Channel cron every 2 hours. Quiet hours 23:00-07:00 Istanbul are skipped.
- * Literium once every 2 days, Athar once every 3 days.
+ * Literium once every 2 days, Athar once every 3 days. Everything else comes from
+ * channelPool.ts: tools, bots, news, events and articles of the whole site.
+ * Add ?dry=1 to preview the next post without sending it.
  * No title or link repeat inside 48 hours. No profit promises.
  * Literium and Athar use one uploaded card each (adult presenter + the tool UI).
  * No Pollinations and no random image fetch. Other posts are Arabic text plus the link only.
@@ -21,10 +23,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const channel = process.env.TELEGRAM_CHANNEL_ID;
-  if (!token || !channel) {
-    return NextResponse.json({ error: "Telegram not configured" }, { status: 503 });
+  // The channel bot's token lives in the CHANNEL_PUBLISH_BOT template row (or
+  // TELEGRAM_BOT_TOKEN); the channel defaults to @ttbik5. Checking only the env
+  // vars made every run answer 503 when they were not set.
+  const token = await channelBotToken();
+  const channel = process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
+  const dry = req.nextUrl.searchParams.get("dry") === "1";
+  if (!token) {
+    return NextResponse.json({ ok: false, reason: "no-bot-token", hint: "Create a CHANNEL_PUBLISH_BOT bot or set TELEGRAM_BOT_TOKEN" });
+  }
+  if (dry) {
+    const preview = await publishRotation(1, { dry: true }).catch((e) => ({ ok: false, slot: 1, reason: String(e) }));
+    return NextResponse.json({ ...preview, channel, token: "present" });
   }
 
   await ensureFrontDoor().catch(() => null);

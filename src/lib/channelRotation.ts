@@ -6,6 +6,7 @@ import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { CHANNEL_CHANGELOG } from "@/lib/channelChangelog";
 import { isSafeForChannel } from "@/lib/channelPublisher";
 import { supabaseAdmin } from "@/lib/supabase";
+import { buildPool, formatPost, ROTATION, type PoolItem } from "@/lib/channelPool";
 
 /**
  * Channel rotation. Owner list, 2026-10-09:
@@ -54,6 +55,7 @@ type State = {
   lastPostAt: string;
   cursor: number;
   postedChangelog: string[];
+  seenAt: Record<string, string>; // pool id -> ISO of last post
 };
 
 export type RotationResult = {
@@ -66,7 +68,7 @@ export type RotationResult = {
 };
 
 function emptyState(): State {
-  return { recent: [], lastLiteriumAt: "", lastAtharAt: "", lastPostAt: "", cursor: 0, postedChangelog: [] };
+  return { recent: [], lastLiteriumAt: "", lastAtharAt: "", lastPostAt: "", cursor: 0, postedChangelog: [], seenAt: {} };
 }
 
 async function loadState(): Promise<State> {
@@ -80,6 +82,7 @@ async function loadState(): Promise<State> {
       lastPostAt: typeof v.lastPostAt === "string" ? v.lastPostAt : "",
       cursor: typeof v.cursor === "number" ? v.cursor : 0,
       postedChangelog: Array.isArray(v.postedChangelog) ? v.postedChangelog : [],
+      seenAt: v.seenAt && typeof v.seenAt === "object" ? (v.seenAt as Record<string, string>) : {},
     };
   } catch {
     return emptyState();
@@ -87,7 +90,7 @@ async function loadState(): Promise<State> {
 }
 
 async function saveState(state: State): Promise<void> {
-  const trimmed = { ...state, recent: state.recent.slice(-200), postedChangelog: state.postedChangelog.slice(-100) };
+  const trimmed = { ...state, recent: state.recent.slice(-200), postedChangelog: state.postedChangelog.slice(-100), seenAt: Object.fromEntries(Object.entries(state.seenAt).slice(-800)) };
   await supabaseAdmin().from("bot_settings").upsert({ key: STATE_KEY, value: trimmed, updated_at: new Date().toISOString() });
 }
 
@@ -217,9 +220,11 @@ function cardFor(item: Item): { bytes: Buffer; name: string } | null {
   return null;
 }
 
+const channelId = () => process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
+
 async function sendPhoto(captionText: string, card: { bytes: Buffer; name: string }): Promise<boolean> {
   const token = await channelBotToken();
-  const channel = process.env.TELEGRAM_CHANNEL_ID;
+  const channel = channelId();
   if (!token || !channel) return false;
   const form = new FormData();
   form.append("chat_id", channel);
@@ -232,7 +237,7 @@ async function sendPhoto(captionText: string, card: { bytes: Buffer; name: strin
 
 async function sendText(captionText: string): Promise<boolean> {
   const token = await channelBotToken();
-  const channel = process.env.TELEGRAM_CHANNEL_ID;
+  const channel = channelId();
   if (!token || !channel) return false;
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -243,7 +248,44 @@ async function sendText(captionText: string): Promise<boolean> {
   return data?.ok === true;
 }
 
-export async function publishRotation(slot: number): Promise<RotationResult> {
+function pickPool(state: State): PoolItem | null {
+  const pool = buildPool();
+  const now = Date.now();
+  for (let i = 0; i < ROTATION.length; i++) {
+    const kind = ROTATION[(state.cursor + i) % ROTATION.length];
+    const ranked = [...pool[kind]].sort((a, b) => (Date.parse(state.seenAt[a.id] || "") || 0) - (Date.parse(state.seenAt[b.id] || "") || 0));
+    for (const it of ranked) {
+      const last = Date.parse(state.seenAt[it.id] || "") || 0;
+      if (last && now - last < it.repeatDays * 86400000) continue;
+      if (seen(state, it.title, it.url)) continue;
+      if (!isSafeForChannel(`${it.title}\n${it.blurb}`)) continue;
+      return it;
+    }
+  }
+  return null;
+}
+
+async function sendPost(item: PoolItem, text: string): Promise<{ ok: boolean; error?: string }> {
+  const token = await channelBotToken();
+  if (!token) return { ok: false, error: "no-bot-token" };
+  const rows: { text: string; url: string }[][] = [[{ text: item.cta, url: item.url }]];
+  if (item.target) rows.unshift([{ text: item.target.label, url: item.target.url }]);
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: channelId(),
+      text: text.slice(0, 4000),
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: rows },
+      link_preview_options: { url: item.url, prefer_large_media: true, show_above_text: true },
+    }),
+  }).catch(() => null);
+  const data = res ? await res.json().catch(() => null) : null;
+  return data?.ok === true ? { ok: true } : { ok: false, error: String(data?.description || "telegram-request-failed").slice(0, 160) };
+}
+
+export async function publishRotation(slot: number, opts: { dry?: boolean } = {}): Promise<RotationResult> {
   const state = await loadState();
   state.recent = fresh(state);
   if (state.lastPostAt && Date.now() - Date.parse(state.lastPostAt) < MIN_GAP_MS) {
@@ -253,7 +295,30 @@ export async function publishRotation(slot: number): Promise<RotationResult> {
   let item: Item | null = null;
   if (due(state.lastLiteriumAt, LITERIUM_EVERY_MS) && !seen(state, "ليتيريوم", LITERIUM_URL)) item = literiumItem();
   else if (due(state.lastAtharAt, ATHAR_EVERY_MS) && !seen(state, "أثر على Getgems", ATHAR_GETGEMS)) item = atharItem();
-  else item = await shamItem(state);
+  else {
+    // Whole-site rotation: tools, bots, news, events, articles (see channelPool.ts).
+    const log = changelogItem(state);
+    const pick: PoolItem | null = log
+      ? { kind: "tool", id: `log:${log.title}`, title: log.title, blurb: log.blurb, url: log.url, cta: "🚀 جرّبه الآن", tags: ["#جديد", "#شام_AI"], repeatDays: 3650 }
+      : pickPool(state);
+    if (pick) {
+      const text = formatPost(pick, state.cursor);
+      if (!isSafeForChannel(text)) return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: "blocked" };
+      if (opts.dry) return { ok: true, slot, topic: pick.title, kind: pick.kind, text, reason: "dry-run" };
+      const sent = await sendPost(pick, text);
+      if (!sent.ok) return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: `telegram: ${sent.error}` };
+      const now = new Date().toISOString();
+      state.recent.push({ title: pick.title, link: pick.url, at: now });
+      state.seenAt[pick.id] = now;
+      state.lastPostAt = now;
+      state.cursor += 1;
+      const clog = CHANNEL_CHANGELOG.find((e) => e.title === pick.title && e.url === pick.url);
+      if (clog) state.postedChangelog.push(clog.id);
+      await saveState(state).catch((e) => console.error("[channel-rotation] state save failed", e));
+      return { ok: true, slot, topic: pick.title, kind: pick.kind, text };
+    }
+    item = await shamItem(state); // last resort: live RSS headline
+  }
 
   if (!item) {
     await saveState(state).catch(() => null);
@@ -264,6 +329,8 @@ export async function publishRotation(slot: number): Promise<RotationResult> {
   if (!captionOk(item, text)) {
     return { ok: false, slot, topic: item.title, kind: item.kind, reason: "blocked" };
   }
+
+  if (opts.dry) return { ok: true, slot, topic: item.title, kind: item.kind, text, reason: "dry-run" };
 
   const card = cardFor(item);
   const posted = card ? await sendPhoto(text, card) : await sendText(text);
