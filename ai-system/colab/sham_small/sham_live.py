@@ -102,16 +102,18 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
 
 
 def resolve_start(model_dataset: str = MODEL_DATASET):
-    """(checkpoint path, its folder, progress dict, origin label)."""
+    """(checkpoint path, its folder, progress dict, origin label). The start is the MEASURED best among the main line (chat stage, stage 2) and
+    this trainer's own previous output (sham_base_select): a lineage is only continued while it is not clearly worse than another one
+    (2026-10-11: the chat stage's output was at chance level while this trainer kept extending whichever lineage it found first)."""
+    from sham_base_select import choose_base, make_probe
     from sham_inputs import fetch_dataset
 
-    main = None
+    mains = []
     for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
-            main = (hits[0], hits[0].parent, name)
-            break
+            mains.append((name, hits[0], hits[0].parent))
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -121,14 +123,27 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
             except Exception:
                 pass
     own_ckpt = sorted(own.rglob("final.pt")) if own else []
-    if own_ckpt and progress.get("by") == "sham_live" and (main is None or _same_tokenizers(own_ckpt[0].parent, main[1])):
-        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
-    if main is None:
+    own_ok = bool(own_ckpt and progress.get("by") == "sham_live")
+    cands = [(n, c, sorted(d.rglob("sham_small_tokenizer.json"))[0] if list(d.rglob("sham_small_tokenizer.json")) else None) for n, c, d in mains]
+    if own_ok:
+        toks = sorted(own_ckpt[0].parent.rglob("sham_small_tokenizer.json"))
+        cands.append(("own", own_ckpt[0], toks[0] if toks else None))
+    if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
-    base = {"by": "sham_live", "base": main[2]}
+    best = cands[0][0]
+    if len(cands) > 1:
+        try:
+            best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None)
+        except Exception as exc:
+            print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
+            best = "own" if own_ok else cands[0][0]
+    if best == "own":
+        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
+    name, ckpt, folder = next(m for m in mains if m[0] == best)
+    base = {"by": "sham_live", "base": name}
     if progress.get("by") == "sham_live":
         base.update({k: progress[k] for k in ("sessions", "seen_total") if k in progress})
-    return main[0], main[1], base, f"{main[2]} (الخط الرئيسي لشام)"
+    return ckpt, folder, base, f"{name} (الأفضل بالقياس)"
 
 
 # ---------------------------------------------------------------- encoders
