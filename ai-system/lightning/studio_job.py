@@ -7,6 +7,7 @@ starts it again and relaunches the job.
 
   python studio_job.py diag      start, fetch code + libraries, print what the Studio has (no job)
   python studio_job.py measure   the media factory's one-small-cycle throughput test (publishes nothing)
+  python studio_job.py tokens    collect + TRAIN the image/audio tokenizers on the Studio's 4 CPU cores (no GPU), publish v2 checkpoints  <- main job
   python studio_job.py media     the media factory (collect + pack tokenizer training data, publish as Kaggle datasets)  <- the main job
   python studio_job.py run       Sham's live text trainer (sham_live)
 
@@ -33,6 +34,7 @@ WITH_SECRETS = os.environ.get("SHAM_STUDIO_SECRETS") == "1"
 JOBS = {
     "measure": ("media_factory.py --measure", "cd {home}/Ttbik/ai-system/lightning && python -u media_factory.py --measure", "~/factory_measure.log"),
     "media": ("media_factory.py$", "cd {home}/Ttbik/ai-system/lightning && SHAM_FACTORY_HOURS={h} python media_factory.py", "~/factory.log"),
+    "tokens": ("tokenizer_job.py$", "cd {home}/Ttbik/ai-system/lightning && SHAM_TOK_HOURS={h} python tokenizer_job.py", "~/tokens.log"),
     "run": ("sham_live", "cd {home}/Ttbik/ai-system/colab/sham_small && python -c \"import sham_live; print(sham_live.run(hours={h}, "
                          "name='lightning', source_set='gh', video=False, workers=4))\"", "~/sham_job.log"),
 }
