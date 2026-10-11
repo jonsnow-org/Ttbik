@@ -1,6 +1,9 @@
 import type { MetadataRoute } from "next";
 import { NEWS_ITEMS } from "@/lib/newsItems";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "@/lib/enDesk";
+import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
+import { EVENT_ITEMS } from "@/lib/eventsIndex";
+import { EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { BOT_LANDINGS } from "@/lib/botLanding";
 import { FREE_TOOLS } from "@/lib/freeTools";
 import { PRAYER_CITIES } from "@/lib/prayerCities";
@@ -94,6 +97,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/en/free-tools/crypto-converter`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/en/free-tools/life-counter`, changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/en/free-tools/whatsapp-link`, changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/articles`, changeFrequency: "weekly", priority: 0.7 },
+    { url: `${base}/articles/mawaeed-qitaf-zaytoun-2026`, changeFrequency: "monthly", priority: 0.6 },
+    ...ARTICLE_ITEMS.map((a) => ({ url: `${base}/articles/${a.slug}`, changeFrequency: "monthly" as const, priority: 0.7 })),
+    { url: `${base}/events/upcoming`, changeFrequency: "daily", priority: 0.7 },
+    { url: `${base}/en/events/upcoming`, changeFrequency: "daily", priority: 0.6 },
+    { url: `${base}/digest`, changeFrequency: "daily", priority: 0.6 },
+    ...Array.from(new Set([...EVENT_ITEMS, ...EVENT_EXTRAS].map((e) => e.slug)))
+      .filter((slug) => slug !== "autumn-equinox-2026")
+      .map((slug) => ({ url: `${base}/events/${slug}`, changeFrequency: "monthly" as const, priority: 0.65 })),
     ...BOT_LANDINGS.map((b) => ({ url: `${base}/bot/${b.slug}`, changeFrequency: "monthly" as const, priority: 0.85 })),
     ...PRAYER_CITIES.map((c) => ({
       url: `${base}/prayer-times/${c.slug}`,
@@ -124,5 +136,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  return [...staticRoutes, ...toolRoutes, ...serviceRoutes];
+  const seen = new Set<string>();
+  return [...staticRoutes, ...toolRoutes, ...serviceRoutes].filter((r) => !seen.has(r.url) && !!seen.add(r.url));
 }
