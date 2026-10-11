@@ -27,6 +27,7 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     if docker compose $PROFILES up -d --build > "$STATE/update.log" 2>&1; then
       echo "$(now) OK $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       docker image prune -f >/dev/null 2>&1
+      docker builder prune -f --reserved-space 12GB >/dev/null 2>&1 || docker builder prune -f --keep-storage 12GB >/dev/null 2>&1 || true   # the build cache never grows past about 12 GB
     else
       echo "$(now) FAILED $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       tg_notify "فشل بناء التحديث $(git -C /opt/ttbik rev-parse --short HEAD). النسخة القديمة ما زالت تعمل."
@@ -67,5 +68,13 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   else
     echo "$(now) OK (no relevant changes) $(git rev-parse --short HEAD)" > "$STATE/last_update"
   fi
+fi
+# Use the room of an enlarged boot volume (agent/grow-disk.sh): a read-only check unless the owner raised the size in the Oracle console.
+[ -f "$OR/agent/grow-disk.sh" ] && { bash "$OR/agent/grow-disk.sh" >/dev/null 2>&1 || true; }
+# The isolated runner of the Sham notebooks (agent/install-sham.sh, owner-approved; it never touches Athar or the media engine). Done outside the
+# update block above, once per version of the installer: when the update that brings it arrives, the running updater is still the old file.
+if [ -f "$OR/agent/SHAM_ON" ] && [ -f "$OR/agent/install-sham.sh" ]; then
+  SV=$(sha1sum "$OR/agent/install-sham.sh" | cut -c1-12)
+  [ -f "$STATE/sham_ok_$SV" ] || { bash "$OR/agent/install-sham.sh" > "$STATE/sham_install.log" 2>&1 && touch "$STATE/sham_ok_$SV"; }
 fi
 report
