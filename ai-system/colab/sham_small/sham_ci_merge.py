@@ -37,15 +37,50 @@ def _step_of(path: Path) -> int:
     return int(torch.load(path, map_location="cpu", weights_only=False, mmap=True).get("step") or 0)
 
 
-def pick_base(fetch, own_name: str = OWN):
-    """(checkpoint, folder, label, progress). Our merged lineage continues only while the main line has not moved on."""
-    main = None
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
+MAIN_LINE = (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-crawl-checkpoint", "final.pt"))
+HYSTERESIS = 1.05      # the recorded base stays unless another main-line checkpoint is better by more than 5%
+
+
+def make_probe(device: str = "cpu"):
+    """probe(checkpoint, tokenizer_json) -> mean next-token loss of that checkpoint, with ITS OWN tokenizer, on one fixed text sample.
+    Why: for weeks the merge anchored on whichever main-line dataset existed first by NAME (the chat stage). A 2026-10-11 audit showed that
+    checkpoint (step 45,584) sits at chance level (loss 10.7 = ln of the vocabulary) while the multimodal one (step 61,555) writes fluent
+    Arabic (4.1-4.7). A name is not a measurement: the base is now the main-line checkpoint with the lowest loss."""
+    import torch
+    import sham_text_mix
+    from checkpoint import load_checkpoint
+    from text_tokenizer import ShamTextTokenizer
+
+    files = sham_text_mix.stream_mix(str(WORK / "probe_text"), max_documents=60, seed=4242, documents_per_file=60)
+    text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if f.endswith(".txt"))
+
+    def probe(ckpt: Path, tok_json: Path) -> float:
+        model, _step, _ = load_checkpoint(ckpt, map_location=device)
+        tok = ShamTextTokenizer.load(str(tok_json))
+        ids = tok.encode(text)
+        L = min(256, model.cfg.max_seq_len)
+        wins = [ids[i:i + L] for i in range(0, len(ids) - L + 1, L)][:16]
+        model.eval()
+        total = 0.0
+        with torch.no_grad():
+            for w in wins:
+                x = torch.tensor([w])
+                total += float(model(x, labels=x)[1])
+        del model
+        return total / max(len(wins), 1)
+    return probe
+
+
+def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
+    """(checkpoint, folder, label, progress). The base is the MEASURED-best main-line checkpoint (probe), not the first by name. Our merged
+    lineage continues only while that base is still the best and has not moved on."""
+    cands = []
+    for name, pattern in MAIN_LINE:
         root = fetch(name)
         hits = sorted(root.rglob(pattern)) if root else []
+        toks = sorted(root.rglob("sham_small_tokenizer.json")) if root else []
         if hits:
-            main = (hits[0], hits[0].parent, name)
-            break
+            cands.append((hits[0], hits[0].parent, name, toks[0] if toks else None))
     own = fetch(own_name)
     own_ckpt = sorted(own.rglob("final_merged.pt")) if own else []
     progress = {}
@@ -55,8 +90,26 @@ def pick_base(fetch, own_name: str = OWN):
                 progress = json.loads(p.read_text(encoding="utf-8"))
             except Exception:
                 pass
-    if main is None:
+    if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية.")
+    main = cands[0]
+    if probe is not None and len(cands) > 1:
+        scores = {}
+        for c in cands:
+            try:
+                scores[c[2]] = probe(c[0], c[3]) if c[3] else None
+            except Exception as exc:
+                log(f"⚠ تعذّر قياس {c[2]}: {type(exc).__name__}: {str(exc)[:100]}")
+        valid = {k: v for k, v in scores.items() if v is not None}
+        if valid:
+            best = min(valid, key=valid.get)
+            keep = progress.get("base")
+            if keep in valid and valid[keep] <= valid[best] * HYSTERESIS:
+                best = keep
+            main = next(c for c in cands if c[2] == best)
+            log("🎯 اختيار الأساس بالقياس (خسارة على نص ثابت بمُرمِّز كل نقطة): "
+                + " | ".join(f"{k}={v:.2f}" for k, v in sorted(valid.items(), key=lambda kv: kv[1])) + f" ⇒ {best}")
+    main = (main[0], main[1], main[2])
     main_step = _step_of(main[0])
     if own_ckpt and progress.get("base") == main[2] and int(progress.get("base_step", -1)) >= main_step:
         return own_ckpt[0], own_ckpt[0].parent, f"{own_name} (يكمل من ناتجه السابق)", progress
@@ -123,7 +176,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     t0 = time.time()
     shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
-    ckpt, base_dir, label, progress = pick_base(fetch)
+    ckpt, base_dir, label, progress = pick_base(fetch, probe=make_probe(device) if fetch is fetch_dataset else None)
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tokenizer = ShamTextTokenizer.load(str(sorted(base_dir.rglob("sham_small_tokenizer.json"))[0]))
     print(f"نقطة الانطلاق: {label} — الخطوة {step:,}")
