@@ -33,7 +33,7 @@ sys.path.insert(0, str(HERE))
 import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
-REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 3 * 3600))
+REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
 _LOCK = threading.Lock()
 HOT = HERE / "_hot"            # signed code synced from the model repo (studio_code/): new code reaches the Studio without a Redeploy click
