@@ -241,6 +241,21 @@ class Encoder:
             if len(chunk) >= 8:
                 seq = [SpecialTokens.BOS] + chunk + [SpecialTokens.EOS]
                 out.append((seq, list(seq)))
+        # long-context skill (2026-10-11): the measured model barely looks back (loss with the whole earlier document 3.702 vs 3.710 with only
+        # the last 512 tokens). A share of long documents also yields a RECALL example — a passage planted far back is repeated and the model
+        # must continue it — the standard way to build the look-back (induction) ability that retrieval and long generation rely on.
+        try:
+            import random as _random
+            import sham_auto_config
+            share = float(sham_auto_config.get("longctx_share", 0.15))
+            budget = min(512, self.max_len - 4)
+            rr = _random.Random(len(ids) * 2654435761 % 2**32)
+            if share > 0 and len(ids) >= budget + 64 and rr.random() < share:
+                from sham_longctx_train import build_recall_example
+                r_ids, r_lab = build_recall_example(ids, rr, budget)
+                out.append(([SpecialTokens.BOS] + r_ids, [-100] + r_lab))
+        except Exception:
+            pass
         return out
 
     def __call__(self, item, rng) -> list:

@@ -1,0 +1,33 @@
+name: Sham Dataset Probe (read-only)
+
+# يفحص مجموعات Kaggle: الحالة والملفات وهل التنزيل يعمل فعلاً (404 المجرد لا يقول السبب). للقراءة فقط.
+
+on:
+  workflow_dispatch:
+    inputs:
+      names:
+        description: "أسماء المجموعات (مفصولة بمسافة)"
+        required: false
+        default: "sham-merged-checkpoint sham-multimodal-checkpoint sham-chat-checkpoint sham-crawl-checkpoint"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle
+      - name: Probe
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_dataset_probe.py ${{ inputs.names || 'sham-merged-checkpoint sham-multimodal-checkpoint sham-chat-checkpoint sham-crawl-checkpoint' }}
