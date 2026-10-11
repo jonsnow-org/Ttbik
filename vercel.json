@@ -69,6 +69,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/match-activity",
+      "schedule": "0 17 * * *"
+    },
+    {
       "path": "/api/cron/athar-birthdays",
       "schedule": "20 6 * * *"
     }
@@ -76,6 +80,7 @@
   "git": {
     "deploymentEnabled": {
       "sham-status": false,
+      "claude/compassionate-mayer-u1n7zr": false,
       "sham-next": false,
       "claude/sham-next": false,
       "sham-main": false
