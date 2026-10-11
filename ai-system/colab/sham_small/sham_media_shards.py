@@ -60,6 +60,35 @@ def merge_manifests(roots: list[Path], out_manifest: Path) -> int:
     return n
 
 
+def merge_manifest_files(files: list[str | Path], out_manifest: str | Path) -> int:
+    """One manifest over several manifests of different origins (the factory's batches AND the notebook's own direct collection):
+    every relative path becomes absolute against its own manifest's folder. Returns the record count."""
+    n = 0
+    out = Path(out_manifest)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    with open(out, "w", encoding="utf-8") as fh:
+        for mf in map(Path, files):
+            if not mf.exists():
+                continue
+            for line in mf.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                rec = json.loads(line)
+                for key in ("image", "audio"):
+                    if isinstance(rec.get(key), str):
+                        rec[key] = str((mf.parent / rec[key]).resolve())
+                if isinstance(rec.get("frames"), list):
+                    rec["frames"] = [str((mf.parent / f).resolve()) for f in rec["frames"]]
+                sig = rec.get("image") or rec.get("audio") or line
+                if sig in seen:
+                    continue
+                seen.add(sig)
+                fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                n += 1
+    return n
+
+
 def next_batches(kind: str, consumed: set[str], max_batches: int, work: str | Path, reuse_last: int = 3) -> tuple[str | None, list[str]]:
     """The batches not consumed yet (oldest first, at most max_batches). When the factory has nothing new, the latest `reuse_last` batches are
     used for another pass, so a GPU session is never idle (a second epoch over fresh-enough data beats no training)."""
@@ -90,6 +119,8 @@ if __name__ == "__main__":
             (root / "images" / f"{name}.jpg").write_bytes(b"jpg")
             (root / "manifest.jsonl").write_text(json.dumps({"image": f"images/{name}.jpg", "caption": name}) + "\n", encoding="utf-8")
         n = merge_manifests([a, b], Path(d, "out", "manifest.jsonl"))
+        m2 = merge_manifest_files([a / "manifest.jsonl", b / "manifest.jsonl", a / "manifest.jsonl"], Path(d, "out2", "manifest.jsonl"))
+        assert m2 == 2, "the same file listed twice must not duplicate records"
         recs = [json.loads(l) for l in Path(d, "out", "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
         assert n == 2 and all(Path(r["image"]).is_absolute() and Path(r["image"]).exists() for r in recs), recs
     print("sham_media_shards self-test OK")

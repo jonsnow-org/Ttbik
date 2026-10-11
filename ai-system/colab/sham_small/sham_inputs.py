@@ -257,6 +257,19 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
                        capture_output=True, text=True)
     _unzip_nested(dest)
     if r.returncode != 0 or not any(dest.iterdir()):
+        # the whole-dataset archive can answer a bare 404 while every file of the dataset downloads fine one by one (found 2026-10-11 for
+        # sham-merged-checkpoint: the lineage silently restarted on each run because this fetch returned None): fall back to file by file
+        listing = subprocess.run(["kaggle", "datasets", "files", ref, "--csv"], capture_output=True, text=True)
+        names = [l.split(",", 1)[0] for l in (listing.stdout or "").splitlines()[1:] if l.strip() and "," in l]
+        got = 0
+        for fname in names:
+            one = subprocess.run(["kaggle", "datasets", "download", "-d", ref, "-f", fname, "-p", str(dest), "--unzip"], capture_output=True, text=True)
+            got += int(one.returncode == 0)
+        if got:
+            print(f"  • {base}: التنزيل الكامل فشل فنُزّلت الملفات واحداً واحداً ({got}/{len(names)})")
+            _unzip_nested(dest)
+            r = subprocess.CompletedProcess(r.args, 0, r.stdout, "")
+    if r.returncode != 0 or not any(dest.iterdir()):
         shutil.rmtree(dest, ignore_errors=True)
         msg = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
         print(f"  • {base}: غير متاحة ({msg[-1][:160] if msg else 'لا شيء'}) — طبيعي في أول تشغيل لهذا المسار")
