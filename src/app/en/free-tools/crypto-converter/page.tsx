@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
-import Tool from "@/app/free-tools/crypto-converter/CryptoConverter";
+import Tool from "@/components/en/EnCrypto";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {

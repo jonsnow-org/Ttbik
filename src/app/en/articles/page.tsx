@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
 import EnglishStoryCard from "@/components/EnglishStoryCard";
+import { FeaturedArticle, Trending } from "@/components/AutoSections";
 import { EN_ARTICLES } from "@/lib/enDesk";
 import { SITE_URL } from "@/lib/siteUrl";
 
@@ -24,6 +25,8 @@ export default function Page() {
           <EnglishStoryCard key={item.slug} href={`/en/articles/${item.slug}`} slug={item.slug} title={item.title} dek={item.dek} date={item.date} badge="Guide" />
         ))}
       </div>
+      <FeaturedArticle />
+      <Trending lang="en" limit={6} />
     </main>
   );
 }

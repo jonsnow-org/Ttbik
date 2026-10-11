@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import EnglishDeskNav from "@/components/EnglishDeskNav";
-import Tool from "@/app/free-tools/invoice-generator/InvoiceGenerator";
+import Tool from "@/components/en/EnInvoice";
 import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {

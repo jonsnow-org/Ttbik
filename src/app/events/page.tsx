@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
+import { OnThisDay, Trending } from "@/components/AutoSections";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
 import EditorialHubNav from "@/components/editorial/EditorialHubNav";
@@ -99,6 +100,7 @@ export default function EventsHubPage() {
         ))}
       </ul>
       <div className="mt-8"><AdSlot position="footer-banner" label="أسفل الأحداث" /></div>
+      <OnThisDay lang="ar" limit={8} />
     </main>
   );
 }
