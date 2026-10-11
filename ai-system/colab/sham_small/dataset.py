@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import soundfile as sf
+import numpy as np
 import torch
 from PIL import Image
 
@@ -169,9 +170,11 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int) -> tuple[str, torch.Tensor]:
         audio_path, transcript = self.entries[idx]
-        waveform, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
-        if waveform.ndim > 1:
-            waveform = waveform.mean(axis=1)  # real stereo-to-mono downmix, not just dropping a channel
+        from sham_media_load import load_audio_any   # any format (mp3/m4a/opus too), any rate: mono 16 kHz; unreadable -> a silent segment
+        waveform = load_audio_any(audio_path)
+        sample_rate = 16000
+        if waveform is None:
+            waveform = np.zeros(sample_rate, dtype="float32")
         if self.max_segments > 1:
             from mel_spectrogram import waveform_to_mel_segments
             return transcript, waveform_to_mel_segments(torch.from_numpy(waveform), sample_rate, self.n_mels, self.segment_frames,

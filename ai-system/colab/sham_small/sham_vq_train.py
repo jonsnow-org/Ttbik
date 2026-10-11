@@ -67,13 +67,10 @@ class ManifestImages(torch.utils.data.Dataset):
         return len(self.paths)
 
     def __getitem__(self, i: int) -> torch.Tensor:
-        from PIL import Image
+        from sham_media_load import load_image_any
         for k in range(8):
             try:
-                img = Image.open(self.paths[(i + k) % len(self.paths)]).convert("RGB").resize((self.size, self.size))
-                import numpy as np
-                arr = torch.from_numpy(np.asarray(img, dtype="uint8").copy()).float().permute(2, 0, 1)
-                return arr / 127.5 - 1.0
+                return load_image_any(self.paths[(i + k) % len(self.paths)], self.size)     # any format/mode/aspect; a broken file moves on
             except Exception:
                 continue
         return torch.zeros(3, self.size, self.size)
@@ -99,15 +96,14 @@ class ManifestAudio(torch.utils.data.Dataset):
     def __getitem__(self, i: int) -> torch.Tensor:
         import random
 
-        import soundfile as sf
-
         from mel_spectrogram import waveform_to_mel_segments
+        from sham_media_load import load_audio_any
         for k in range(8):
             try:
-                wave, sr = sf.read(self.paths[(i + k) % len(self.paths)], dtype="float32", always_2d=False)
-                if wave.ndim > 1:
-                    wave = wave.mean(axis=1)
-                mels = waveform_to_mel_segments(torch.from_numpy(wave.copy()), int(sr), self.n_mels, self.segment_frames, self.max_segments)
+                wave = load_audio_any(self.paths[(i + k) % len(self.paths)])      # any format, any rate -> mono 16 kHz
+                if wave is None or wave.size < 1600:
+                    continue
+                mels = waveform_to_mel_segments(torch.from_numpy(wave), 16000, self.n_mels, self.segment_frames, self.max_segments)
                 return mels[random.randrange(mels.shape[0])]
             except Exception:
                 continue

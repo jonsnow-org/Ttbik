@@ -55,6 +55,16 @@ def build_mel_filterbank(sample_rate: int, n_fft: int, n_mels: int, f_min: float
     return filterbank
 
 
+def _to_16k(waveform: torch.Tensor, sample_rate: int) -> tuple[torch.Tensor, int]:
+    """The mel hop (160 samples) is 10 ms only at 16 kHz: any other rate is resampled first, or the time axis (and where a clip is cut)
+    is wrong — a 48 kHz clip gave 256 frames = 0.85 s instead of 2.56 s (found 2026-10-11)."""
+    if int(sample_rate) == 16000:
+        return waveform, 16000
+    from sham_media_load import resample
+    out = resample(waveform.detach().cpu().numpy(), int(sample_rate), 16000)
+    return torch.from_numpy(out), 16000
+
+
 def waveform_to_mel_spectrogram(
     waveform: torch.Tensor,
     sample_rate: int,
@@ -72,6 +82,7 @@ def waveform_to_mel_spectrogram(
     policy rather than silently truncating from one end only."""
     if waveform.dim() != 1:
         raise ValueError(f"expected a mono 1D waveform, got shape {tuple(waveform.shape)}")
+    waveform, sample_rate = _to_16k(waveform, sample_rate)
 
     window = torch.hann_window(n_fft)
     stft = torch.stft(waveform, n_fft=n_fft, hop_length=hop_length, window=window, return_complex=True)
@@ -115,6 +126,7 @@ def waveform_to_mel_segments(
     sound, a clip shorter than one segment gives one padded segment (the same tensor the old function returns for it)."""
     if waveform.dim() != 1:
         raise ValueError(f"expected a mono 1D waveform, got shape {tuple(waveform.shape)}")
+    waveform, sample_rate = _to_16k(waveform, sample_rate)
     window = torch.hann_window(n_fft)
     stft = torch.stft(waveform, n_fft=n_fft, hop_length=hop_length, window=window, return_complex=True)
     power = stft.abs() ** 2
