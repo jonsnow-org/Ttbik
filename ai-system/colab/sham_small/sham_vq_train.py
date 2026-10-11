@@ -173,7 +173,7 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
     opt = torch.optim.AdamW(tok.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.0)
     n_codes = tok.quantizer.num_codes
     stats = StreamStats(codebook_size=n_codes)
-    ema = torch.ones(n_codes, device=device)
+    last_used = torch.zeros(n_codes, device=device)       # step at which each code was last picked (a code idle for a whole restart window is dead)
     budget = minutes * 60.0
     t0 = time.time()
     it = iter(loader)
@@ -218,12 +218,17 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
         step += 1
         stats.samples += x.shape[0]
         counts = torch.bincount(ids.flatten(), minlength=n_codes).float()
-        ema = 0.99 * ema + 0.01 * counts
+        last_used[counts > 0] = step
         last_ids.append(ids.detach().flatten().cpu())
         if len(last_ids) > 20:
             last_ids.pop(0)
         if step % restart_every == 0:
-            stats.restarts += revive_dead_codes(tok, ema, z.detach(), threshold=1e-3 * ids.numel() / n_codes)
+            # measured on the CPU run (2026-10-11): an EMA that starts at 1 never fell below the threshold inside a 150-step chunk, so
+            # only 313 of 8192 codes were ever used and none was revived. Idle for a whole window = dead, whatever the chunk length.
+            alive = (step - last_used < restart_every).float()
+            n_dead = revive_dead_codes(tok, alive, z.detach(), threshold=0.5)
+            last_used[alive > 1.5] = step                  # revived codes (marked 2.0 by the function) start a fresh window
+            stats.restarts += n_dead
         run_recon += float(recon.detach())
         run_loss += float(loss.detach())
         window += 1
