@@ -757,7 +757,7 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 const SHAM_MEDIA_COMMANDS: Record<string, "image" | "audio" | "video"> = {
   "image": "image", "صورة": "image", "صوره": "image", "ارسم": "image", "audio": "audio", "صوت": "audio", "video": "video", "فيديو": "video",
 };
-// the kind the USER named with the first word of the message, with or without a leading "/"
+// the kind the USER named with the first word of the message, with or without a leading "/" (the content itself is always written by the model)
 const shamMediaKind = (text: string) => SHAM_MEDIA_COMMANDS[text.split(/[\s@]/)[0].replace(/^\//, "").toLowerCase()];
 
 async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
