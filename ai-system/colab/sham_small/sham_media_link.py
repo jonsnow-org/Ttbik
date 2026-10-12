@@ -114,7 +114,7 @@ def _pairs(kind, manifest, tokenizer, media_tok):
         ds = ImageCaptionDataset(manifest, image_size=media_tok.cfg.image_size)
         encode = MultimodalCollator(tokenizer, media_tok).encode_batch_images
     else:
-        ds = AudioTranscriptDataset(manifest, n_mels=media_tok.cfg.n_mels, segment_frames=media_tok.cfg.segment_frames)
+        ds = AudioTranscriptDataset(manifest, n_mels=media_tok.cfg.n_mels, segment_frames=media_tok.cfg.segment_frames, max_segments=4)
         encode = AudioMultimodalCollator(tokenizer, media_tok).encode_batch_audio
     items = [ds[i] for i in range(len(ds))]
     with torch.no_grad():

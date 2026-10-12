@@ -57,9 +57,31 @@ def make_task(rng: random.Random) -> tuple[str, str]:
 
 
 def check(answer_text: str, truth: str) -> bool:
-    """Right if the FIRST number Sham writes is the true one."""
+    """Right if the FIRST number Sham writes is the true one — or, when the answer is a worked solution with a final line
+    «الناتج: …» / «Answer: …», if THAT final answer is the true one (a scratchpad is full of intermediate numbers)."""
+    from sham_reasoning_data import MARK_AR, MARK_EN, check_final
+    if MARK_AR in answer_text or MARK_EN in answer_text:
+        return check_final(answer_text, truth)
     nums = re.findall(r"\d+", answer_text.translate(_ARABIC_DIGITS))
     return bool(nums) and nums[0] == truth
+
+
+def _reasoning_on() -> bool:
+    try:
+        from sham_reasoning_data import share
+        return share() > 0
+    except Exception:
+        return False
+
+
+def _task(rng: random.Random) -> tuple[str, str]:
+    """A fresh verifiable question: the worked-solution kinds when the reasoning curriculum is on (the model must then write
+    its steps, so it also needs room to), else the original five."""
+    if _reasoning_on():
+        from sham_reasoning_data import make_problem
+        p = make_problem(rng)
+        return p["question"], p["truth"]
+    return make_task(rng)
 
 
 def _repetition(ids: list[int]) -> float:
@@ -68,7 +90,8 @@ def _repetition(ids: list[int]) -> float:
 
 
 @torch.no_grad()
-def _attempts(model, tokenizer, question: str, device: str, k: int, max_new_tokens: int = 24, temperature=0.9):
+def _attempts(model, tokenizer, question: str, device: str, k: int, max_new_tokens: int | None = None, temperature=0.9):
+    max_new_tokens = max_new_tokens or (96 if _reasoning_on() else 24)
     prompt = chat_prompt_ids(tokenizer.encode(question))
     x = torch.tensor([prompt] * k, dtype=torch.long, device=device)
     out = guarded_generate_tokens(model, x, max_new_tokens, temperature=temperature, top_k=50, top_p=0.95,
@@ -87,7 +110,7 @@ def success_rate(model, tokenizer, device: str, n: int = 32, seed: int = 0) -> f
     model.eval()
     hits = 0
     for _ in range(n):
-        q, truth = make_task(rng)
+        q, truth = _task(rng)
         _, rows = _attempts(model, tokenizer, q, device, 1, temperature=0.3)
         hits += check(rows[0][2], truth)
     return hits / n
@@ -113,7 +136,7 @@ def grpo_round(model, tokenizer, device: str, questions: int = 48, seed: int = 0
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr, weight_decay=0.0)
     used, rewards = 0, []
     for _ in range(questions):
-        q, truth = make_task(rng)
+        q, truth = _task(rng)
         model.eval()
         prompt, rows = _attempts(model, tokenizer, q, device, GROUP)
         r = torch.tensor([reward(t, ids, e, truth) for ids, e, t in rows])

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ShareCard from "@/components/ShareCard";
 
 const STORE_KEY = "lifeCounter.birth";
 const DAYS_AR = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -137,6 +138,7 @@ export default function LifeCounter() {
             <p className="mt-4 text-[11px] font-bold opacity-80">عدد الثواني التي عشتها</p>
             <p className="font-mono text-3xl font-black tabular-nums" aria-live="off">{n(view.secs)}</p>
           </div>
+          <ShareCard kicker="عداد العمر" title={`${n(view.y)} سنة`} lines={[{ label: "الأشهر والأيام", value: `${n(view.m)} شهر و${n(view.d)} يوم` }, { label: "الثواني", value: n(view.secs) }]} path="/free-tools/life-counter" />
 
           <div className="grid grid-cols-2 gap-3">
             {[

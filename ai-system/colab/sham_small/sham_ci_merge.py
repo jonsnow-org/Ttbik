@@ -19,6 +19,7 @@ as one more source, through its own gate.
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shutil
@@ -36,15 +37,24 @@ def _step_of(path: Path) -> int:
     return int(torch.load(path, map_location="cpu", weights_only=False, mmap=True).get("step") or 0)
 
 
-def pick_base(fetch, own_name: str = OWN):
-    """(checkpoint, folder, label, progress). Our merged lineage continues only while the main line has not moved on."""
-    main = None
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
+MAIN_LINE = (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"), ("sham-crawl-checkpoint", "final.pt"),
+             ("sham-grown-checkpoint", "final_grown.pt"))
+HYSTERESIS = 1.05      # the recorded base stays unless another main-line checkpoint is better by more than 5%
+
+
+from sham_base_select import make_probe  # noqa: E402,F401  (the measured-base probe now lives in one shared module)
+
+
+def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
+    """(checkpoint, folder, label, progress). The base is the MEASURED-best main-line checkpoint (probe), not the first by name. Our merged
+    lineage continues only while that base is still the best and has not moved on."""
+    cands = []
+    for name, pattern in MAIN_LINE:
         root = fetch(name)
         hits = sorted(root.rglob(pattern)) if root else []
+        toks = sorted(root.rglob("sham_small_tokenizer.json")) if root else []
         if hits:
-            main = (hits[0], hits[0].parent, name)
-            break
+            cands.append((hits[0], hits[0].parent, name, toks[0] if toks else None))
     own = fetch(own_name)
     own_ckpt = sorted(own.rglob("final_merged.pt")) if own else []
     progress = {}
@@ -54,8 +64,16 @@ def pick_base(fetch, own_name: str = OWN):
                 progress = json.loads(p.read_text(encoding="utf-8"))
             except Exception:
                 pass
-    if main is None:
+    if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية.")
+    main = cands[0]
+    if probe is not None and len(cands) > 1:
+        from sham_base_select import choose_base
+        best, scores = choose_base([(c[2], c[0], c[3]) for c in cands], probe, keep=progress.get("base"), log=log,
+                                   prefer=("sham-grown-checkpoint",))
+        if scores:
+            main = next(c for c in cands if c[2] == best)
+    main = (main[0], main[1], main[2])
     main_step = _step_of(main[0])
     if own_ckpt and progress.get("base") == main[2] and int(progress.get("base_step", -1)) >= main_step:
         return own_ckpt[0], own_ckpt[0].parent, f"{own_name} (يكمل من ناتجه السابق)", progress
@@ -101,7 +119,8 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
                 media = []
                 for kind, manifest in fixed.items():
                     pairs = _pairs(kind, manifest, tokenizer, itok if kind == "image" else atok)
-                    media += _examples(kind, pairs, True, tokenizer)
+                    gen, und = _examples(kind, pairs, True, tokenizer)   # returns (generation, understanding) lists, not one list
+                    media += gen + und
                 if media:
                     gate["media"] = batch_examples(media, 4)[:6]
         except Exception as exc:
@@ -110,7 +129,7 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
 
 
 def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, device: str = "cpu", publish_on_change: bool = True,
-        max_sources: int = MAX_SOURCES_PER_RUN) -> dict:
+        max_sources: int = MAX_SOURCES_PER_RUN, auto_hook=None) -> dict:
     from checkpoint import load_checkpoint, save_checkpoint
     from sham_inputs import fetch_dataset, publish_dataset
     import sham_merge
@@ -121,7 +140,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     t0 = time.time()
     shutil.rmtree(WORK, ignore_errors=True)
     WORK.mkdir(parents=True)
-    ckpt, base_dir, label, progress = pick_base(fetch)
+    ckpt, base_dir, label, progress = pick_base(fetch, probe=make_probe(device) if fetch is fetch_dataset else None)
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tokenizer = ShamTextTokenizer.load(str(sorted(base_dir.rglob("sham_small_tokenizer.json"))[0]))
     print(f"نقطة الانطلاق: {label} — الخطوة {step:,}")
@@ -171,8 +190,31 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     progress.update(base=progress.get("base", label), base_step=progress.get("base_step", step), merged=merged,
                     updated=time.time(), gate_before=before, gate_after=after)
 
+    # settings Sham decides by itself from what it measures (sham_auto_config): the hook runs its experiment on the merged model and
+    # returns the new settings; they travel inside merge_progress.json, which every notebook can read when it starts
+    auto_changed = False
+    if auto_hook is not None:
+        try:
+            new_auto, auto_line, candidate = auto_hook(model, tokenizer, progress.get("auto", {}))
+            auto_changed = new_auto != progress.get("auto", {})
+            progress["auto"] = new_auto
+            report.append(auto_line)
+            if candidate is not None:       # the copy trained on worked solutions + replay: adopted only if NO skill got worse
+                after_c = score(candidate)
+                worse = {k: (after[k], after_c[k]) for k in after if after_c.get(k, 1e9) > after[k] * 1.01}
+                if not worse:
+                    model, after, changed = candidate.to(device), after_c, True
+                    progress["gate_after"] = after
+                    report.append("✅ تُبنّيت نسخة التفكير المتسلسل: الميزان بعد = " + ", ".join(f"{k}={v:.3f}" for k, v in after.items()))
+                else:
+                    report.append("❌ نسخة التفكير المتسلسل رُفضت (ساءت مهارة على الميزان): "
+                                  + ", ".join(f"{k} {a:.3f}→{b:.3f}" for k, (a, b) in worse.items()))
+            del candidate
+        except Exception as exc:
+            report.append(f"⚠ تعذّر قرار الإعدادات الذاتية: {type(exc).__name__}: {str(exc)[:100]}")
+
     published = None
-    if publish_on_change and (changed or not fetch(OWN)):
+    if publish_on_change and (changed or auto_changed or not fetch(OWN)):
         up = WORK / "upload"
         up.mkdir()
         save_checkpoint(up / "final_merged.pt", model, step)
@@ -181,6 +223,9 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             for src in base_dir.rglob(f):
                 shutil.copy2(src, up / f)
                 break
+        hist = progress.setdefault("history", [])      # the published model's skills over time: a slow drift shows here
+        hist.append({"at": time.strftime("%Y-%m-%d %H:%M", time.gmtime()), "step": step, **{k: round(v, 4) for k, v in after.items()}})
+        del hist[:-200]
         (up / "merge_progress.json").write_text(json.dumps(progress, ensure_ascii=False), encoding="utf-8")
         published = publish(up, OWN, f"merged on CPU (GitHub) from {label} at step {step:,}")
     elif not changed:
@@ -191,11 +236,33 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             + "\nبعد: " + ", ".join(f"{k}={v:.3f}" for k, v in after.items()) + "\n" + "\n".join(report)
             + (f"\nنُشر إلى {published}" if published else "") + f"\n({(time.time() - t0) / 60:.0f} دقيقة)")
     print(text)
-    return {"before": before, "after": after, "changed": changed, "published": published, "report": text}
+    return {"before": before, "after": after, "changed": changed, "published": published, "report": text,
+            "model": model, "tokenizer": tokenizer}
+
+
+def probe_hook(model, tokenizer, previous: dict):
+    """Experiment on a COPY (publishes nothing) → the reasoning share Sham decides to train with from now on."""
+    import sham_auto_config
+    import sham_reasoning_probe
+    pr = sham_reasoning_probe.probe(model, tokenizer, "cpu")
+    new = sham_auto_config.decide_reasoning(pr, previous)
+    candidate = pr.pop("trial", None) if (pr.get("ok") and new.get("reasoning_share", 0) > 0) else None
+    if pr.get("ok"):
+        line = (f"🔬 مسبار التفكير المتسلسل ({pr['steps']} خطوة، {pr['minutes']} د): خسارة الحلول {pr['before']['reason_loss']:.2f}→"
+                f"{pr['after']['reason_loss']:.2f} | نص {pr['before']['text_loss']:.2f}→{pr['after']['text_loss']:.2f} | إصابة "
+                f"{pr['before']['exact']:.0%}→{pr['after']['exact']:.0%} ⇒ قرار تلقائي: حصة التفكير المتسلسل {new.get('reasoning_share', 0):.0%}")
+    else:
+        line = f"🔬 مسبار التفكير المتسلسل لم يكتمل ({pr.get('error', '؟')}) — القرار السابق باقٍ: {previous.get('reasoning_share', 0):.0%}"
+    return new, line, candidate
 
 
 def main():
-    res = run()
+    res = run(auto_hook=probe_hook)
+    try:   # real-source soak of the endless text pipeline on this (small, 7 GB) runner: evidence before CPU sessions may use it
+        import sham_pipeline_soak
+        res["soak"] = sham_pipeline_soak.soak(float(os.environ.get("SHAM_SOAK_SECONDS", "420")))
+    except Exception as exc:
+        print(f"soak: {exc}")
     try:
         from telegram_report import send_telegram_message
         send_telegram_message(os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_CHAT_ID"), res["report"][:4000])
@@ -206,7 +273,8 @@ def main():
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "--selftest":
+    # no Kaggle credentials (the PR checker runs every changed module with a scrubbed environment) = nothing real to merge: self-test
+    if (len(sys.argv) > 1 and sys.argv[1] == "--selftest") or not (os.environ.get("KAGGLE_USERNAME") or os.environ.get("KAGGLE_API_TOKEN")):
         import tempfile
 
         from checkpoint import save_checkpoint
@@ -253,6 +321,29 @@ if __name__ == "__main__":
                   sources=[("sham-crawl-good", "final*.pt", [(0, 42256)])])
         assert res["changed"] and res["after"]["text"] < res["before"]["text"], res
         assert pubs and pubs[0][0] == OWN and "final_merged.pt" in pubs[0][1] and "merge_progress.json" in pubs[0][1], pubs
+        # a verdict Sham reached by itself travels in merge_progress.json and is published even when nothing was merged
+        pubs.clear()
+        up_dir = {}
+        publish2 = lambda up, name, msg: (up_dir.update(json=json.loads((Path(up) / "merge_progress.json").read_text(encoding="utf-8"))),
+                                          pubs.append(name), name)[1]
+        res2 = run(fetch=fetch, publish=publish2, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", None))
+        assert not res2["changed"] and pubs == [OWN] and up_dir["json"]["auto"] == {"reasoning_share": 0.1}, (res2, pubs, up_dir)
+        assert "line" in res2["report"]
+        # the trained copy is ADOPTED only when no skill got worse on the gate; a worse one is refused
+        pubs.clear()
+        res3 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", copy.deepcopy(good)))
+        assert res3["changed"] and res3["after"]["text"] < res3["before"]["text"] and "تُبنّيت" in res3["report"], res3
+        pubs.clear()
+        torch.manual_seed(5)
+        ruined = copy.deepcopy(good)
+        with torch.no_grad():
+            for p_ in ruined.parameters():
+                p_.add_(3.0 * torch.randn_like(p_))
+        res4 = run(fetch=fetch, publish=publish, gate_builder=gate_builder2, sources=[],
+                   auto_hook=lambda m, t, prev: ({"reasoning_share": 0.1}, "line", ruined))
+        assert not res4["changed"] and "رُفضت" in res4["report"], res4
         print("sham_ci_merge self-test OK")
     else:
         main()

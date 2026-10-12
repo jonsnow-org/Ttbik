@@ -56,6 +56,11 @@ def align(old: list[str], new: list[str]) -> dict[int, int]:
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ha, hb, autojunk=False).get_opcodes():
         if tag == "equal":
             out.update({i1 + k: j1 + k for k in range(i2 - i1)})
+        elif tag == "replace" and i2 - i1 == j2 - j1:
+            # the same number of cells on both sides of a changed block: they are the same cells in the same order, however much each was rewritten.
+            # (2026-10-12, found on the owner's Kaggle run: a fully rewritten training cell was not paired by similarity, so an imported notebook got
+            # the new save cell but kept the OLD training cell, and the two did not fit — AttributeError 'TrainStats' has no 'steps'.)
+            out.update({i1 + k: j1 + k for k in range(i2 - i1)})
         elif tag == "replace":
             used: set[int] = set()
             for i in range(i1, i2):
@@ -75,6 +80,11 @@ def align(old: list[str], new: list[str]) -> dict[int, int]:
 def build(repo: Path | None = None, keep: int = KEEP_VERSIONS) -> dict:
     """{"map": {old_hash: new_hash}, "text": {new_hash: source}} from git history."""
     repo = repo or HERE
+    try:                       # the all-in-one notebook is generated from three others: refresh it first so a source change reaches it (and the table)
+        import build_all_in_one
+        build_all_in_one.write()
+    except ImportError:
+        pass
     top = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], text=True).strip()
     rel_dir = os.path.relpath(NOTEBOOKS, top)
     table = {"map": {}, "text": {}}
@@ -112,6 +122,82 @@ def sync_text(source: str) -> str | None:
     return t["text"].get(new) if new else None
 
 
+def _scope_names(src: str) -> tuple[set, set]:
+    """(names the cell reads from the notebook's global scope without defining them itself, names it defines at the top level)."""
+    import symtable
+    top = symtable.symtable(src, "<cell>", "exec")
+    used: set = set()
+    defined: set = set()
+
+    def walk(t, module: bool) -> None:
+        for sym in t.get_symbols():
+            name = sym.get_name()
+            if module:
+                if sym.is_assigned() or sym.is_imported() or sym.is_namespace():
+                    defined.add(name)
+                elif sym.is_referenced():
+                    used.add(name)
+            elif sym.is_global() and sym.is_referenced():
+                used.add(name)                       # a function or comprehension reading a notebook-level name
+        for child in t.get_children():
+            walk(child, False)
+
+    walk(top, True)
+    return used - defined, defined
+
+
+def _repo_notebook_cells(text: str) -> tuple[list[str], int] | None:
+    """The code cells of the repository notebook that holds this exact cell, and the cell's index (None when no notebook has it)."""
+    want = digest(text)
+    cache = _STATE.setdefault("nb_cells", {})
+    if str(NOTEBOOKS) not in cache:
+        cache[str(NOTEBOOKS)] = {}
+        for f in sorted(NOTEBOOKS.glob("*.ipynb")):
+            try:
+                cache[str(NOTEBOOKS)][f.name] = _code_cells(json.loads(f.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+    for cells in cache[str(NOTEBOOKS)].values():
+        for i, c in enumerate(cells):
+            if digest(c) == want:
+                return cells, i
+    return None
+
+
+def with_prerequisites(new: str, known_names: set) -> tuple[str, list[int]]:
+    """The engineer edits the owner's notebooks and adds cells (owner's standing rule): a cell we replace may need names that an EARLIER cell used
+    to define and that cell was edited, replaced by something else, or deleted. Statically find the names the new cell reads that nothing in the
+    kernel defines, take the latest EARLIER cell of the repository notebook that defines each (recursively, a few levels), and put those cells'
+    current text in front of the new one. Only missing names trigger it, so a notebook that is consistent runs exactly as before, and the engineer's
+    own cells are never removed or rewritten. Returns (text, indexes of the prerequisite cells that were added)."""
+    import builtins
+    found = _repo_notebook_cells(new)
+    if found is None:
+        return new, []
+    cells, idx = found
+    known = set(known_names) | set(dir(builtins))
+    chosen: dict[int, str] = {}
+    todo = [(idx, new)]
+    for _ in range(4):                               # a few levels of "this prerequisite needs another"
+        nxt = []
+        for at, text in todo:
+            needs, _def = _scope_names(text)
+            for name in sorted(needs - known - {n for c in chosen.values() for n in _scope_names(c)[1]}):
+                for j in range(at - 1, -1, -1):
+                    if name in _scope_names(cells[j])[1]:
+                        if j not in chosen:
+                            chosen[j] = cells[j]
+                            nxt.append((j, cells[j]))
+                        break
+        todo = nxt
+        if not todo:
+            break
+    if not chosen:
+        return new, []
+    order = sorted(chosen)
+    return "\n".join(cells[j].strip("\n") for j in order) + "\n\n" + new.strip("\n") + "\n", order
+
+
 def transform(lines: list[str]) -> list[str]:
     try:
         new = sync_text("".join(lines))
@@ -119,6 +205,13 @@ def transform(lines: list[str]) -> list[str]:
             return lines
         _STATE["replaced"].append(digest("".join(lines)))
         banner = "print('🔄 هذه الخلية نسخة قديمة — شُغِّلت نسخة المستودع الحالية منها (مزامنة الخلايا)')\n"
+        try:
+            ns = get_ipython().user_ns  # noqa: F821
+            new, extra = with_prerequisites(new, set(ns))
+            if extra:
+                banner += (f"print('🧩 الخلية تحتاج متغيرات لم تعد معرّفة (خلية سابقة عُدِّلت أو حُذفت): شُغِّلت قبلها خلايا المستودع رقم {extra}')\n")
+        except Exception:
+            pass
         return (banner + new.strip("\n") + "\n").splitlines(keepends=True)
     except Exception:
         return lines  # never break a cell because of the sync
@@ -148,6 +241,8 @@ if __name__ == "__main__":
     old = ["x = 1\n", "print('a')\nprint('b')\n", "keep = True\n"]
     new = ["x = 1\n", "print('a')\nprint('b')\nprint('c')\n", "keep = True\n", "extra = 0\n"]
     assert align(old, new) == {0: 0, 1: 1, 2: 2}
+    # a cell rewritten beyond recognition still pairs with its successor when the block has the same number of cells on both sides
+    assert align(["a = 1\n", "totally old code here\n"], ["a = 1\n", "import something_else\nprint(99)\n"]) == {0: 0, 1: 1}
     _STATE["table"] = {"map": {digest(old[1]): digest(new[1])}, "text": {digest(new[1]): new[1]}}
     assert sync_text(old[1]) == new[1] and sync_text("print('mine')") is None and sync_text(new[1]) is None
     out = transform(old[1].splitlines(keepends=True))
@@ -169,4 +264,24 @@ if __name__ == "__main__":
     assert shell.user_ns["v"] == 2, shell.user_ns.get("v")
     shell.run_cell("v = 5\n")
     assert shell.user_ns["v"] == 5  # a cell that is not an old published version is never touched
+    # the engineer edited / deleted the earlier cell that defined what a replaced cell needs: the repository's version of that cell runs first
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        nbdir = Path(td)
+        cells_new = ["BASE = 10\nITEMS = [BASE, 2]\n", "import math\nTOTAL = sum(ITEMS) + math.floor(1.5)\n", "RESULT = TOTAL * 2\n"]
+        (nbdir / "n.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code", "source": c} for c in cells_new]}), encoding="utf-8")
+        old_dir, NOTEBOOKS = NOTEBOOKS, nbdir
+        _STATE["nb_cells"] = {}
+        text, extra = with_prerequisites(cells_new[2], {"os"})
+        assert extra == [0, 1] and "BASE = 10" in text and "TOTAL = sum" in text, (extra, text)      # the chain: RESULT needs TOTAL needs ITEMS
+        text2, extra2 = with_prerequisites(cells_new[2], {"TOTAL"})
+        assert extra2 == [] and text2 == cells_new[2]                                             # nothing missing: the cell runs exactly as it was
+        # for real, in the shell: the engineer's cell defined something else, so ITEMS and TOTAL do not exist when the replaced cell runs
+        _STATE["table"] = {"map": {digest("RESULT = 0\n"): digest(cells_new[2])}, "text": {digest(cells_new[2]): cells_new[2]}}
+        shell.run_cell("ENGINEER_ADDED = 'kept'\n")
+        shell.run_cell("RESULT = 0\n")
+        assert shell.user_ns["RESULT"] == 2 * (10 + 2 + 1), shell.user_ns.get("RESULT")
+        assert shell.user_ns["ENGINEER_ADDED"] == "kept"                                          # the engineer's own cell was never touched
+        NOTEBOOKS = old_dir
+        _STATE["nb_cells"] = {}
     print("sham_cell_sync self-test OK")

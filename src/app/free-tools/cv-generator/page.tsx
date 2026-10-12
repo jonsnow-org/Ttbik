@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import CvGenerator from "./CvGenerator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مولّد سيرة ذاتية عربي + PDF | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "أنشئ سيرة ذاتية عربية احترافية مجاناً واحفظها كـ PDF — بدون تسجيل، بدون مكتبات خارجية، النص العربي يظهر بشكل صحيح.",
 };
 
-export default function CvGeneratorPage() {
+function CvGeneratorPageBody() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -26,5 +27,14 @@ export default function CvGeneratorPage() {
         <AdSlot position="in-content" label="أسفل مولّد السيرة الذاتية" />
       </div>
     </div>
+  );
+}
+
+export default function CvGeneratorPage() {
+  return (
+    <>
+      <CvGeneratorPageBody />
+      <ToolSeoSection slug="cv-generator" />
+    </>
   );
 }

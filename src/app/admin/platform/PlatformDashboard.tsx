@@ -23,6 +23,8 @@ type Bot = {
 
 const TEMPLATE_LABELS: Record<string, string> = {
   AD_BOT: "الإعلانات والمهام",
+  SITE_BANNER_ADMIN: "بوت الموقع",
+  CHANNEL_PUBLISH_BOT: "نشر القناة",
   MARRIAGE_BOT: "التعارف والزواج",
   JOBS_BOT: "فرص العمل والمتجر",
   MEDICAL_BOT: "الطبي",
@@ -56,6 +58,14 @@ export default function PlatformDashboard() {
   useEffect(() => {
     load();
   }, []);
+
+  async function removeBot(bot: Bot) {
+    if (!confirm(`حذف ${bot.identity?.username || bot.template} نهائياً مع بقاياه؟`)) return;
+    setBusyId(bot.id);
+    await fetch(`/api/admin/bots/${bot.id}`, { method: "DELETE" });
+    setBusyId(null);
+    await load();
+  }
 
   async function toggleActive(bot: Bot) {
     setBusyId(bot.id);
@@ -159,6 +169,7 @@ export default function PlatformDashboard() {
                     >
                       {busyId === bot.id ? "..." : bot.isActive ? "تعطيل" : "تفعيل"}
                     </button>
+                    <button onClick={() => removeBot(bot)} disabled={busyId === bot.id} className="mr-2 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">حذف</button>
                   </td>
                 </tr>
               ))}

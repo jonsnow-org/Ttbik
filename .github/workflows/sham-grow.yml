@@ -1,0 +1,48 @@
+name: Sham Grow (depth + context, function preserved)
+
+# يكبّر أفضل نقطة حفظ بالقياس: طبقات جديدة تبدأ مخرجاتها بصفر (النموذج يحسب المخرج نفسه تماماً) وسياق أطول (NTK-RoPE بلا تغيير أوزان)،
+# وينشر النتيجة في sham-grown-checkpoint؛ الدمج والمدرّب الحي يفضّلانها عند التعادل (sham_base_select). يدوي: مرة عند كل قرار توسعة.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_m:
+        description: "الحجم المستهدف بملايين المعاملات"
+        required: false
+        default: "160"
+      ctx:
+        description: "طول السياق (مواضع)"
+        required: false
+        default: "8192"
+
+permissions:
+  contents: read
+
+jobs:
+  grow:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle datasets soundfile imageio-ffmpeg av
+      - name: Grow
+        working-directory: ai-system/colab/sham_small
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python sham_grow.py auto "${{ inputs.target_m || '160' }}" "${{ inputs.ctx || '8192' }}"

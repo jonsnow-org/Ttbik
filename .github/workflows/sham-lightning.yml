@@ -1,0 +1,48 @@
+name: Sham Lightning Studio (free CPU)
+
+# هل يستطيع GitHub تشغيل استوديو Lightning المجاني (معالج، بلا رصيد ولا بطاقة) وتنفيذ أمر فيه؟ فحص يدوي الآن؛ إن نجح تُبنى فوقه مهمة دورية.
+# الأسرار: LIGHTNING_USER_ID، LIGHTNING_API_KEY (تضيفها المالكة).
+
+on:
+  schedule:
+    - cron: "5 */4 * * *"      # the free Studio is stopped every 4 h: each run starts it again and relaunches the media factory
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "auto (what the schedule uses: tokens 2 windows of 3, run 1 of 3) | probe | diag | measure | tokens (collect + train the tokenizers on CPU) | media (collect only) | run (live text trainer)"
+        required: false
+        default: "tokens"
+
+concurrency:
+  group: sham-lightning
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install lightning-sdk
+      - name: Probe the free Studio
+        env:
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          # owner's explicit approval (2026-10-10): Kaggle + HF keys go only into a private file inside her own Studio, never printed
+          SHAM_STUDIO_SECRETS: "1"
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # GPU is tried first for the important jobs; set the repository variable SHAM_LIGHTNING_GPU=0 to stop asking Lightning for a GPU
+          SHAM_LIGHTNING_GPU: ${{ vars.SHAM_LIGHTNING_GPU }}
+        run: |
+          if [ "${{ inputs.mode || 'auto' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode || 'auto' }}"; fi

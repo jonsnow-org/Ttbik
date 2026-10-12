@@ -111,9 +111,22 @@ def dataset_status(ref: str, run=subprocess.run, sleep=time.sleep) -> str:
     return ""
 
 
-def dataset_files(ref: str, run=subprocess.run, limit: int = 200) -> list[dict]:
-    r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
-    return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO(r.stdout or "")) if g.get("name")]
+def dataset_files(ref: str, run=subprocess.run, limit: int = 200, sleep=time.sleep) -> list[dict]:
+    """Files of a dataset. A FAILED call (rate limit, network) used to read as "no files" and raised a false "empty publish"
+    alarm for a dataset that was fine: now it is retried with backoff and, if it still fails, raised — "unknown", not "empty"."""
+    last = ""
+    for attempt in range(3):
+        r = run(["kaggle", "datasets", "files", ref, "--csv", "--page-size", str(limit)], capture_output=True, text=True)
+        if getattr(r, "returncode", 0) == 0:
+            # the Kaggle CLI prints "Next Page Token = ..." BEFORE the csv header when a dataset has more files than one page: reading that line
+            # as the header made every such dataset look EMPTY (a false "empty publish" alarm for sham-research-track-checkpoint-v2, 2026-10-10)
+            lines = (r.stdout or "").splitlines()
+            start = next((i for i, ln in enumerate(lines) if ln.startswith("name,")), 0)
+            return [{"name": g.get("name", ""), "size": g.get("size", "")} for g in csv.DictReader(io.StringIO("\n".join(lines[start:]))) if g.get("name")]
+        last = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()[0:1]
+        last = last[0] if last else f"exit {r.returncode}"
+        sleep(20 * (attempt + 1) if ("429" in last or "too many" in last.lower()) else 3)
+    raise RuntimeError(f"تعذّر سرد الملفات: {last[:80]}")
 
 
 def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subprocess.run) -> dict:
@@ -134,6 +147,9 @@ def diagnose_datasets(datasets: list[dict], contract: dict, user: str, run=subpr
                 out[n] = {"status": dataset_status(f"{user}/{n}", run) if (n in MAIN_LINE or zero) else "",
                           "files": len(files), "kinds": classify_files([f["name"] for f in files]),
                           "sample": [f["name"] for f in files[:4]], "documented": in_contract}
+                if not files:   # keep what Kaggle actually answered, so an "empty" verdict can be checked instead of believed
+                    raw = run(["kaggle", "datasets", "files", f"{user}/{n}", "--csv"], capture_output=True, text=True)
+                    out[n]["raw"] = (((raw.stdout or "") + " | " + (raw.stderr or "")).strip().replace(user, "<owner>"))[:300]
             except Exception as exc:
                 out[n] = {"error": f"{type(exc).__name__}: {str(exc)[:100]}", "documented": in_contract}
     return out
@@ -220,8 +236,16 @@ def last_reports(fetch, n: int = 10) -> list[dict]:
 def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> list[str]:
     now = now or _now()
     alerts: list[str] = []
+    import re as _re
     for k in data.get("kernels", []):
-        if k["status"] == "error" and k["role"] == "primary":
+        fail = k.get("failure") or ""
+        if k["status"] == "error" and "ERRORED_MOUNTING_DATASET" in fail:
+            # a PLATFORM failure before any code ran: Kaggle could not attach one of the notebook's input datasets
+            m = _re.search(r"/input/datasets/[^/\s]+/([\w\-]+)", fail)
+            ds = m.group(1) if m else "مجموعة مدخلات"
+            alerts.append(f"❌ {k['alias']}: Kaggle لم يستطع تركيب «{ds}» كمدخل (قبل تشغيل أي كود) — أزيلي هذه المجموعة من مدخلات الدفتر "
+                          "(يجد الدفتر ما يلزمه بنفسه عبر API) ثم أعيدي التشغيل")
+        elif k["status"] == "error" and k["role"] == "primary":
             alerts.append(f"❌ دفتر أساسي فشل: {k['alias']} ({k['track']}) — {k['failure'][:160]}".replace("\n", " "))
     for name, runs in data.get("workflows", {}).items():
         done = [r for r in runs if r["status"] == "completed"]
@@ -251,6 +275,7 @@ def build_alerts(data: dict, contract: dict, now: dt.datetime | None = None) -> 
                 alerts.append(f"⚠ {name}: حالة Kaggle «{dg['status']}» (النشر لم يكتمل أو فشل؟)")
             if dg.get("files", 1) == 0:
                 alerts.append(f"❌ {name}: آخر نسخة بلا أي ملف (النشر فارغ) — الجلسة القادمة ستبدأ من نقطة أقدم أو من الصفر")
+    alerts += list(data.get("repairs") or [])
     # a sham* dataset without a contract entry is NOT an alert: it is classified by its file kinds and merged per modality
     if not data.get("reports"):
         alerts.append("ℹ لا تقارير بعد في sham-reports (تظهر بعد أول جلسة تعمل بالكود الجديد)")
@@ -280,6 +305,21 @@ def collect(api=None, get_json=None, fetch=None, run=subprocess.run, contract: d
                     k["failure"] = ("(بلا رسالة فشل من Kaggle) الحالة الخام: " + raw[:240]) if raw else ""
                 except Exception:
                     pass
+        # a PLATFORM failure no code can prevent (Kaggle could not attach an input dataset) is repaired automatically: the failing
+        # input is detached and the notebook re-run (sham_auto_repair: once per notebook per 24 h, so it can never loop)
+        if os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("KAGGLE_API_TOKEN") and os.environ.get("SHAM_AUTO_REPAIR", "1") == "1":
+            try:
+                import requests
+                import sham_auto_repair
+                try:
+                    prev = requests.get(f"https://raw.githubusercontent.com/{REPO}/sham-status/repairs.json", timeout=20).json()
+                except Exception:
+                    prev = {}
+                notes, state = sham_auto_repair.repair_mount_failures(registry["kernels"], prev if isinstance(prev, dict) else {},
+                                                                      Path(tempfile.mkdtemp()), run=run)
+                data["repairs"], data["repairs_state"] = notes, state
+            except Exception as exc:
+                data["errors"].append(f"auto-repair: {type(exc).__name__}: {str(exc)[:100]}")
         pub = reg.public_registry(registry)
         data.update(kernels=pub["kernels"], pipeline=pub["pipeline"], other_notebooks=pub["other_notebooks_count"],
                     engineer_notebooks=pub["engineer_notebooks_count"], public_registry=pub,
@@ -338,7 +378,7 @@ def render_md(data: dict, contract: dict) -> str:
     L += ["", "## الدفاتر على Kaggle (بأسماء مستعارة)"]
     for k in data.get("kernels", []):
         L.append(f"- {k['status']} | {k['alias']} | الدور: {k['role']} | آخر تشغيل {k['last_run']}" + (f" | GPU" if k["gpu"] else "")
-                 + (f" | الخطأ: {k['failure'][:200]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
+                 + (f" | الخطأ: {k['failure'][:(700 if k.get('role') == 'primary' else 200)]}".replace("\n", " ") if k["status"] == "error" and k["failure"] else ""))
     L += [f"- (+{data.get('other_notebooks', 0)} دفتراً غير تابع لشام، +{data.get('engineer_notebooks', 0)} من دفاتر المهندس — مخفية)"]
     L += ["", "## مصنع GitHub المجاني (آخر التشغيلات)"]
     for name, runs in data.get("workflows", {}).items():
@@ -384,7 +424,9 @@ def render_md(data: dict, contract: dict) -> str:
 def write_outputs(data: dict, out: Path, contract: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "STATUS.md").write_text(render_md(data, contract), encoding="utf-8")
-    pub = {k: v for k, v in data.items() if k not in ("registry_private", "public_registry", "public_report")}
+    pub = {k: v for k, v in data.items() if k not in ("registry_private", "public_registry", "public_report", "repairs_state")}
+    if data.get("repairs_state") is not None:
+        (out / "repairs.json").write_text(json.dumps(data["repairs_state"], ensure_ascii=False, indent=1), encoding="utf-8")
     (out / "status.json").write_text(json.dumps(pub, ensure_ascii=False, indent=1), encoding="utf-8")
     if data.get("public_registry"):
         (out / "sham-registry.json").write_text(json.dumps(data["public_registry"], ensure_ascii=False, indent=2), encoding="utf-8")
@@ -408,6 +450,13 @@ def main():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         contract = json.loads((HERE / "CONTRACT.json").read_text(encoding="utf-8"))
+
+        class _Paged:      # a dataset with more files than a page: the CLI prints "Next Page Token" before the csv header
+            returncode = 0
+            stdout = "Next Page Token = abc123\nname,size,creationDate\ncheckpoints/final.pt,431911611,2026-10-10 08:08:38\nresearch_corpus/d1.txt,6546,2026-10-10\n"
+            stderr = ""
+        _f = dataset_files("me/x", lambda *a, **k: _Paged(), sleep=lambda s: None)
+        assert [x["name"] for x in _f] == ["checkpoints/final.pt", "research_corpus/d1.txt"], _f      # was: 0 files = a false "empty publish"
         runs = {"workflow_runs": [
             {"name": "Sham Collector (free CPU runner)", "status": "completed", "conclusion": "success",
              "run_started_at": "2026-10-04T10:00:00Z", "updated_at": "2026-10-04T15:20:00Z", "event": "schedule"},
