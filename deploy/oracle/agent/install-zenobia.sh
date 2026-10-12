@@ -31,6 +31,8 @@ if [ -f "$OR/agent/ZENOBIA_SILK_ON" ]; then
   EXTRA+=(-e ZNB_SILK_ON=1 -e ZNB_SILK_BASE="https://ttbik.vercel.app/api/zenobia/silk/" -e ZNB_SILK_COLLECTION_JSON="https://ttbik.vercel.app/zenobia/silk-collection.json")
   [ -n "${BOT_TOKEN:-}" ] && ! printf '%s\n' "${EXTRA[@]}" | grep -q ZNB_OPS_KEY && EXTRA+=(-e ZNB_OPS_KEY="$(printf %s "$BOT_TOKEN" | sha256sum | cut -c1-48)")
   [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_SILK_ROYALTY_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")")
+  # the proceeds (above a 0.9 reserve, once a day, only while nothing is unfinished) go to this ONE committed address: the owner's wallet
+  [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_SWEEP_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")" -e ZNB_SWEEP_RESERVE=0.9)
 fi
 docker run -d --name zenobia-ledger --restart unless-stopped --memory 256m \
   -v "$ZDIR":/state -e ZNB_DIR=/state -e ZNB_NETWORK=mainnet -e ZNB_SITE="$SITE_URL" ${TC_KEY:+-e TONCENTER_API_KEY="$TC_KEY"} \
