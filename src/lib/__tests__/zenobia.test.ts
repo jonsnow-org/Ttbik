@@ -314,3 +314,26 @@ describe("Silk Road Passport", () => {
     expect(await holdsCoin("UQx", "EQx", { fetchFn: bal(null) })).toBe(false);
   });
 });
+
+describe("Caravan Board", () => {
+  const { buildBoard } = require("../zenobiaBoard");
+  const raw = (c: string) => "0:" + c.repeat(64);
+  const d = (n: number) => `2026-12-${String(n).padStart(2, "0")}`;
+  it("ranks by consecutive holding days, then balance; a break resets the streak; pools are not ranked", () => {
+    const rows = [
+      // a: held 1..5 (5 days); b: held 3..5 but sold on day 2 earlier gap; c: 5 days, bigger balance; pool: huge share
+      ...[1, 2, 3, 4, 5].map((n) => ({ day: d(n), owner: raw("a"), balance: 100n })),
+      ...[1, 3, 4, 5].map((n) => ({ day: d(n), owner: raw("b"), balance: 100n })),
+      ...[1, 2, 3, 4, 5].map((n) => ({ day: d(n), owner: raw("c"), balance: 300n })),
+      ...[1, 2, 3, 4, 5].map((n) => ({ day: d(n), owner: raw("e"), balance: 9000n })),
+      { day: d(5), owner: raw("f"), balance: 100n }, // new today: 1 day
+      ...[1, 2, 3].map((n) => ({ day: d(n), owner: raw("g"), balance: 100n })), // left before today
+    ];
+    const b = buildBoard(rows);
+    expect(b.latest).toBe(d(5));
+    expect(b.entries.map((e: any) => [e.owner[2], e.days, e.rank])).toEqual([["c", 5, 1], ["a", 5, 2], ["b", 3, 3], ["f", 1, 4]]);
+  });
+  it("empty input gives an empty board", () => {
+    expect(buildBoard([]).entries).toEqual([]);
+  });
+});
