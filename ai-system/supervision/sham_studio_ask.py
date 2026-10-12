@@ -28,10 +28,19 @@ def main() -> int:
     st = studio_client.studio_status()
     print("حالة الاستوديو:", json.dumps(st, ensure_ascii=False)[:1800] if st else "لا يردّ")
     qs = [q.strip() for q in os.environ.get("ASK", "").split("|") if q.strip()] or DEFAULT
+    api = os.environ.get("API", "text")           # text (the old call) | any (the model decides: words / picture / sound) | image | audio | video (the user chose the kind)
     for q in qs:
         t0 = time.time()
-        a = studio_client.generate_text(q, 60, timeout=170)
-        print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): {(a or '— لا جواب')[:600]}")
+        if api == "text":
+            a = studio_client.generate_text(q, 60, timeout=170)
+            print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): {(a or '— لا جواب')[:600]}")
+            continue
+        r = studio_client.generate_any(q, 60, timeout=170) if api == "any" else studio_client.generate_media(api, q, timeout=300)
+        if r is None:
+            print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): — لا جواب (الاستوديو ما زال على النسخة القديمة؟)")
+            continue
+        size = f" | {len(r.get('b64') or '') * 3 // 4:,} بايت {r.get('mime', '')}" if r.get("b64") else ""
+        print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): النوع={r.get('type')}{size} {(r.get('text') or '')[:500]}")
     return 0
 
 
