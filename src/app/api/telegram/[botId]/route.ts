@@ -42,6 +42,7 @@ async function notifyGrok(botId: string, template: string, body: any) {
   }).catch(() => null);
 }
 
+import { handleZenobiaBotUpdate } from "@/lib/zenobiaBotLogic";
 
 export const maxDuration = 60;
 
@@ -59,6 +60,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   CAPSULE_BOT: "migration_40_capsule_bot.sql",
   FADAA_BOT: "migration_fadaa.sql",
   ATHAR_BOT: "migration_full_current_schema.sql",
+  ZENOBIA_BOT: "migration_full_current_schema.sql", // its table is created on first use
 };
 
 export async function POST(req: NextRequest, props: { params: Promise<{ botId: string }> }) {
@@ -162,6 +164,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await handleFadaaBotUpdate(bot, botRow, body);
       } else if (botRow.template === "ATHAR_BOT") {
         await handleAtharBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "ZENOBIA_BOT") {
+        await handleZenobiaBotUpdate(bot, botRow, body);
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {
