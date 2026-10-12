@@ -21,6 +21,7 @@ import io
 import os
 
 import requests
+import studio_client
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -32,6 +33,8 @@ WELCOME = (
     "هذه نسخة اختبار قبل التدريب الفعلي الكبير: تختبر أن كل شيء متصل "
     "ويعمل تقنياً، وليس جودة الناتج بعد.\n\n"
     "• أرسل أي رسالة نصية مباشرة لتوليد نص.\n"
+    "• /web سؤالك — بحث حي ثم إجابة\n"
+    "• /weblearn سؤالك — مثل /web (التعلّم الذاتي تلقائي لكل بحث)\n"
     "• /image وصف الصورة\n"
     "• /audio نص ليتحول لصوت\n"
     "• /video وصف الفيديو\n"
@@ -56,10 +59,12 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
     try:
+        hosted = await asyncio.to_thread(studio_client.studio_status) if studio_client.enabled() else None
         r = await _get("/health")
         data = r.json()
+        extra = (f"\n☁️ استوديو ModelScope: {hosted.get('phase')} — {hosted.get('detail', '')}" if hosted else "")
         await update.message.reply_text(
-            f"✅ الخادم يعمل — {data['model_params']:,} معامل\n{data['note']}"
+            f"✅ الخادم يعمل — {data['model_params']:,} معامل\n{data['note']}{extra}"
         )
     except Exception as e:
         await update.message.reply_text(f"❌ تعذر الوصول للخادم: {e}")
@@ -72,6 +77,11 @@ async def generate_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not prompt:
         return
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    if studio_client.enabled():      # Sham hosted on the ModelScope Studio (always the newest published checkpoint): first choice
+        hosted = await asyncio.to_thread(studio_client.generate_text, prompt, 60, timeout=100.0)
+        if hosted:
+            await update.message.reply_text(hosted)
+            return
     try:
         r = await _post("/generate/text", {"prompt": prompt, "max_new_tokens": 60}, timeout=60)
         if r.status_code >= 400:
@@ -141,6 +151,50 @@ async def generate_video(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
 
 
+async def ask_web(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    question = " ".join(context.args or []).strip()
+    if not question:
+        await update.message.reply_text("استخدم: /web سؤالك هنا")
+        return
+    learn = True   # every web answer becomes a learning experience automatically (guarded server-side)
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    try:
+        r = await _post(
+            "/ask/web",
+            {"question": question, "max_new_tokens": 60, "learn": bool(learn)},
+            timeout=120,
+        )
+        if r.status_code >= 400:
+            await update.message.reply_text(f"❌ رفض الخادم الطلب: {r.text[:200]}")
+            return
+        data = r.json()
+        answer = (data.get("answer") or "").strip() or "(لم تُرجع شام رداً)"
+        hits = data.get("hits", 0)
+        footer = f"\n\n🔎 مصادر: {hits}"
+        if data.get("queued"):
+            footer += f"\n🧬 حُفظت تجربة للتعلّم ({data.get('pending', '?')} بانتظار الدفعة)"
+            if data.get("learning_started"):
+                footer += " — بدأت جولة تعلّم محروسة الآن"
+        elif learn and data.get("reason"):
+            footer += f"\n🧬 لم تُحفظ تجربة: {data.get('reason', '')}"
+        # لا روابط في الرد للمستخدم — لا نرفق sources/href
+        await update.message.reply_text(answer[:3500] + footer)
+    except Exception as e:
+        await update.message.reply_text(f"❌ تعذر الاتصال بالخادم: {e}")
+
+
+async def ask_web_learn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    context.user_data["_learn_flag"] = True
+    try:
+        await ask_web(update, context)
+    finally:
+        context.user_data["_learn_flag"] = False
+
+
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("SHAM_TELEGRAM_BOT_TOKEN is required — create a bot via @BotFather and set it.")
@@ -150,6 +204,8 @@ def main() -> None:
     app.add_handler(CommandHandler("image", generate_image))
     app.add_handler(CommandHandler("audio", generate_audio))
     app.add_handler(CommandHandler("video", generate_video))
+    app.add_handler(CommandHandler("web", ask_web))
+    app.add_handler(CommandHandler("weblearn", ask_web_learn))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, generate_text))
     print(f"Sham Telegram bot starting — backend at {BACKEND_URL}")
     app.run_polling(drop_pending_updates=True)

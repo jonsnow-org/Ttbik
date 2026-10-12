@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
+<!-- zenobia connect page v6 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
@@ -42,7 +43,7 @@
   function say(text, cls) { msg.textContent = text; msg.className = cls || ""; }
   if (!bot || !t) { say(S.expired, "err"); return; }
 
-  var ui = new TON_CONNECT_UI.TonConnectUI({ manifestUrl: location.origin + "/zenobia/tonconnect-manifest.json", buttonRootId: "btn" });
+  var ui = new TON_CONNECT_UI.TonConnectUI({ manifestUrl: location.origin + "/zenobia/tonconnect-manifest-v2.json", buttonRootId: "btn" });
   ui.setConnectRequestParameters({ state: "loading" });
   fetch("/api/zenobia/link/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ botId: bot, t: t }) })
     .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })

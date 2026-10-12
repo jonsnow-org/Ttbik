@@ -1,4 +1,13 @@
 # شام AI (Sham AI — المستودع التقني Ttbik) — ملف تجميع كامل للمشروع والتعليمات
+
+> ## ⚠️ ARCHIVED / OUTDATED — مؤرشف / قديم
+>
+> **EN:** This handoff brief is archived and may be wrong or incomplete. Live sources of truth are [`docs/AGENT_BUS.md`](./AGENT_BUS.md) and [`prisma/schema.prisma`](../prisma/schema.prisma). Do not implement from this file alone.
+>
+> **AR:** هذا الملف مؤرشف وقديم وقد يخالف الواقع الحالي. المصادر الحية المعتمدة: [`docs/AGENT_BUS.md`](./AGENT_BUS.md) و[`prisma/schema.prisma`](../prisma/schema.prisma). لا تنفّذ بناءً على هذا الملف وحده.
+>
+> ---
+
 تم إعداده بطلب من مالك المشروع بتاريخ 2026-08-29 ليُعطى لأداة/جهة أخرى ("Claude Worker") لتنظيم المشروع، على أن تُعاد نسخة منظَّمة لتُنفَّذ فعلياً بعدها. هذا الملف يجمع كل قرار وتعليمة صدرت من بداية العمل على المشروع حتى الآن، بالإضافة إلى المتطلبات الجديدة التي حُدِّدت اليوم بدقة.
 
 ---

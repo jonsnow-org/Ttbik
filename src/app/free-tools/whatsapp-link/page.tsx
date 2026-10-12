@@ -3,6 +3,7 @@ import Link from "next/link";
 import WhatsappLinkGenerator from "./WhatsappLinkGenerator";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/whatsapp-link";
 
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
     "شام AI",
   ],
   alternates: { canonical: `${SITE_URL}${PATH}` },
-  openGraph: {
+  openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }],
     title: "مولد رابط واتساب للطلب مجاناً",
     description: "رابط يفتح محادثة واتساب برسالة طلب معبّأة تلقائياً.",
     url: `${SITE_URL}${PATH}`,
@@ -28,7 +29,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function WhatsappLinkPage() {
+function WhatsappLinkPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -68,5 +69,14 @@ export default function WhatsappLinkPage() {
         <AdSlot position="in-content" label="أسفل مولد رابط واتساب" />
       </div>
     </div>
+  );
+}
+
+export default function WhatsappLinkPage() {
+  return (
+    <>
+      <WhatsappLinkPageBody />
+      <ToolSeoSection slug="whatsapp-link" />
+    </>
   );
 }

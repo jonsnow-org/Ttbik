@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import CryptoConverter from "./CryptoConverter";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "محول عملات رقمية (TON / BTC / ETH) | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "حوّل بين TON وبيتكوين وإيثريوم وUSDT والدولار والريال بأسعار حية — مجاناً بلا تسجيل. مفيد أيضاً لمستخدمي محفظة TON على شام AI.",
 };
 
-export default function CryptoConverterPage() {
+function CryptoConverterPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -26,5 +27,14 @@ export default function CryptoConverterPage() {
         <AdSlot position="in-content" label="أسفل محول العملات" />
       </div>
     </div>
+  );
+}
+
+export default function CryptoConverterPage() {
+  return (
+    <>
+      <CryptoConverterPageBody />
+      <ToolSeoSection slug="crypto-converter" />
+    </>
   );
 }

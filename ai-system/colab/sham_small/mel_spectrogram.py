@@ -55,6 +55,16 @@ def build_mel_filterbank(sample_rate: int, n_fft: int, n_mels: int, f_min: float
     return filterbank
 
 
+def _to_16k(waveform: torch.Tensor, sample_rate: int) -> tuple[torch.Tensor, int]:
+    """The mel hop (160 samples) is 10 ms only at 16 kHz: any other rate is resampled first, or the time axis (and where a clip is cut)
+    is wrong — a 48 kHz clip gave 256 frames = 0.85 s instead of 2.56 s (found 2026-10-11)."""
+    if int(sample_rate) == 16000:
+        return waveform, 16000
+    from sham_media_load import resample
+    out = resample(waveform.detach().cpu().numpy(), int(sample_rate), 16000)
+    return torch.from_numpy(out), 16000
+
+
 def waveform_to_mel_spectrogram(
     waveform: torch.Tensor,
     sample_rate: int,
@@ -72,6 +82,7 @@ def waveform_to_mel_spectrogram(
     policy rather than silently truncating from one end only."""
     if waveform.dim() != 1:
         raise ValueError(f"expected a mono 1D waveform, got shape {tuple(waveform.shape)}")
+    waveform, sample_rate = _to_16k(waveform, sample_rate)
 
     window = torch.hann_window(n_fft)
     stft = torch.stft(waveform, n_fft=n_fft, hop_length=hop_length, window=window, return_complex=True)
@@ -97,6 +108,42 @@ def waveform_to_mel_spectrogram(
         normalized = normalized[:, start : start + segment_frames]
 
     return normalized.unsqueeze(0)  # (1, n_mels, segment_frames)
+
+
+def waveform_to_mel_segments(
+    waveform: torch.Tensor,
+    sample_rate: int,
+    n_mels: int,
+    segment_frames: int,
+    max_segments: int = 6,
+    n_fft: int = 512,
+    hop_length: int = 160,
+) -> torch.Tensor:
+    """EVERY consecutive segment of a clip, not just one center crop: (K, 1, n_mels, segment_frames), 1 <= K <= max_segments.
+    waveform_to_mel_spectrogram keeps only segment_frames frames (2.56 s) of any clip and throws the rest away, so the tokenizers were
+    trained on, and the model was taught, 2.56 s of sound per clip no matter how long the clip was (found 2026-10-11). Here the clip is cut
+    into consecutive non-overlapping segments; a last partial segment is kept (zero-padded) when it holds at least half a segment of
+    sound, a clip shorter than one segment gives one padded segment (the same tensor the old function returns for it)."""
+    if waveform.dim() != 1:
+        raise ValueError(f"expected a mono 1D waveform, got shape {tuple(waveform.shape)}")
+    waveform, sample_rate = _to_16k(waveform, sample_rate)
+    window = torch.hann_window(n_fft)
+    stft = torch.stft(waveform, n_fft=n_fft, hop_length=hop_length, window=window, return_complex=True)
+    power = stft.abs() ** 2
+    mel = build_mel_filterbank(sample_rate, n_fft, n_mels) @ power
+    normalized = ((torch.log(mel + 1e-6) + 5.0) / 9.0).clamp(-1.0, 1.0)
+    frames = normalized.shape[1]
+    full = frames // segment_frames
+    rest = frames - full * segment_frames
+    count = full + (1 if rest * 2 >= segment_frames or full == 0 else 0)
+    count = max(1, min(count, max_segments))
+    out = []
+    for k in range(count):
+        seg = normalized[:, k * segment_frames:(k + 1) * segment_frames]
+        if seg.shape[1] < segment_frames:
+            seg = torch.nn.functional.pad(seg, (0, segment_frames - seg.shape[1]))
+        out.append(seg.unsqueeze(0))
+    return torch.stack(out)
 
 
 def mel_spectrogram_to_waveform(

@@ -19,7 +19,7 @@ const KEY_320x50 = "560a1eb1632771185b888243a7d36a07";
  * every single page navigation once someone's closed it once, but does
  * come back on their next visit.
  */
-export default function StickyBottomAd({ isOwner }: { isOwner: boolean }) {
+export default function StickyBottomAd({ isOwner, lang = "ar" }: { isOwner: boolean; lang?: "ar" | "en" }) {
   const [dismissed, setDismissed] = useState(true); // default hidden until we know sessionStorage says otherwise — avoids a flash on load
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export default function StickyBottomAd({ isOwner }: { isOwner: boolean }) {
     >
       <button
         onClick={dismiss}
-        aria-label="إغلاق الإعلان"
+        aria-label={lang === "en" ? "Close ad" : "إغلاق الإعلان"}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-bold text-slate-600"
       >
         ✕

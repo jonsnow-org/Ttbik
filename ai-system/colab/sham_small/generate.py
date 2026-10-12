@@ -98,6 +98,7 @@ def generate_tokens(
     forced_ids: list[int | None] | None = None,
     allowed_ranges: list[tuple[int, int] | None] | None = None,
     stop_ids: set[int] | None = None,
+    repetition_penalty: float = 1.0,
 ) -> torch.Tensor:
     """The one real generation loop everything else in this file is
     built on. prompt_ids: (batch, prompt_len). Returns (batch,
@@ -127,6 +128,12 @@ def generate_tokens(
     for step in range(max_new_tokens):
         logits, _, past_key_values = model(next_input, past_key_values=past_key_values, use_cache=True)
         last_logits = logits[:, -1, :]
+        if repetition_penalty != 1.0 and generated.shape[1] > prompt_ids.shape[1]:
+            # A weak language model falls into loops ("1.3.3.3.3…"): tokens it already produced get less likely (the standard CTRL penalty
+            # over the last 64 generated tokens). 1.0 = off, which is every other caller's behaviour.
+            recent = generated[:, max(prompt_ids.shape[1], generated.shape[1] - 64):]
+            seen = torch.zeros_like(last_logits, dtype=torch.bool).scatter_(1, recent, True)
+            last_logits = torch.where(seen, torch.where(last_logits > 0, last_logits / repetition_penalty, last_logits * repetition_penalty), last_logits)
 
         forced = forced_ids[step] if forced_ids is not None else None
         if forced is not None:
@@ -301,6 +308,26 @@ def build_image_understanding_prompt(
     )
     suffix = torch.tensor(
         [[SpecialTokens.IMAGE_END] + question_ids], dtype=torch.long, device=device
+    )
+    return torch.cat([prefix, offset_tokens, suffix], dim=1)
+
+
+
+def build_audio_understanding_prompt(
+    audio_tokenizer, mel: torch.Tensor, question_ids: list[int]
+) -> torch.Tensor:
+    """Audio → text prompt: <BOS><AUDIO_START>[offset audio tokens]<AUDIO_END>[question].
+    mel: (1, 1, n_mels, segment_frames) or whatever audio_tokenizer.encode expects."""
+    if mel.shape[0] != 1:
+        raise ValueError("build_audio_understanding_prompt only supports batch size 1")
+    device = mel.device
+    token_grid = audio_tokenizer.encode(mel)
+    offset_tokens = audio_token_id_to_vocab_id(token_grid.view(1, -1))
+    prefix = torch.tensor(
+        [[SpecialTokens.BOS, SpecialTokens.AUDIO_START]], dtype=torch.long, device=device
+    )
+    suffix = torch.tensor(
+        [[SpecialTokens.AUDIO_END] + question_ids], dtype=torch.long, device=device
     )
     return torch.cat([prefix, offset_tokens, suffix], dim=1)
 

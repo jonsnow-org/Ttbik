@@ -39,7 +39,7 @@ export default function ImageOptimizerEnPage() {
           🎁 100% Free — Runs In Your Browser
         </span>
         <Link href="/free-tools/image-optimizer" className="shrink-0 text-xs font-semibold text-slate-500 hover:text-brand-700">
-          🇸🇦 العربية
+          🇸🇦 Arabic version
         </Link>
       </div>
       <h1 className="mt-3 text-2xl font-extrabold text-slate-900">Free Image Compressor</h1>
