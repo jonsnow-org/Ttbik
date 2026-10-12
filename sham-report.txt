@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-11 19:37 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-12 00:41 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -29,15 +29,12 @@ ConnectionError: Connection error trying to communicate with service
 ⛔ أُوقف | تجربة بوت شام 1 | tool
 ⛔ أُوقف | المرحلة الثانية 2 | duplicate
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
-✅ اكتمل | مسار ترميز الصوت 3 | primary
-✅ اكتمل | مسار ترميز الصورة 3 | primary
-✅ اكتمل | المسار B 1 | primary
-✅ اكتمل | المسار A 1 | primary
+❌ فشل | مسار ترميز الصوت 3 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
+❌ فشل | مسار ترميز الصورة 3 | duplicate
+⏳ يعمل الآن | المسار B 1 | primary
+⏳ يعمل الآن | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | primary
-✅ اكتمل | مسار ترميز الصورة 1 | duplicate
-❌ فشل | مسار ترميز الصوت 1 | duplicate | الخطأ:     494     except FileNotFoundError:
---> 495         raise EmptyDatasetError(f"The directory at {base_path} doesn't contain any data files") from Non
-❌ فشل | المرحلة الأولى 1 | duplicate | الخطأ: Exception encountered at "In [9]":
-NameError                                 Traceback (most recent call last)
-NameError: name 'realistic_steps' is no
+✅ اكتمل | مسار ترميز الصورة 1 | primary
+❌ فشل | مسار ترميز الصوت 1 | duplicate
+❌ فشل | المرحلة الأولى 1 | duplicate
