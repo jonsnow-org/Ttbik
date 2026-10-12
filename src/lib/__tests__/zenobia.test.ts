@@ -89,7 +89,7 @@ function fakeBot() {
     getMe: async () => ({ username: "ZenobiaBot" }),
   } } as any;
 }
-const row = { id: "z1", ownerId: "555001" } as any;
+const row = { id: "z1", ownerId: "555001", token: "123456:TESTTOKEN" } as any;
 const AR = /[؀-ۿ]/;
 const msg = (id: number, text: string, lang = "en") => ({ message: { message_id: ++mid, chat: { id }, from: { id, first_name: "Sam", language_code: lang }, text } });
 const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { id, first_name: "Sam" }, data, message: { message_id: 1, chat: { id } } } });
@@ -110,12 +110,12 @@ describe("Zenobia bot", () => {
   it("every reply to a menu button carries the persistent menu, and nothing is deleted", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    for (const label of ["🏆 Leaderboard", "ℹ️ About", "🔗 Wallet", "✅ Check-in"]) {
+    for (const label of ["🏆 Leaderboard", "ℹ️ About", "✅ Check-in"]) {
       await handleZenobiaBotUpdate(bot, row, msg(7, label));
       expect(bot.sent.at(-1)!.kb.is_persistent).toBe(true);
     }
     expect(bot.deleted).toEqual([]);
-    expect(bot.sent.length).toBe(5);
+    expect(bot.sent.length).toBe(4);
   });
   it("switches to Arabic with the menu button and remembers it", async () => {
     const bot = fakeBot();
@@ -151,13 +151,18 @@ describe("Zenobia bot", () => {
     await handleZenobiaBotUpdate(bot, row, msg(333333, "/start ref_333333"));
     expect(rows.get("z1:333333").ref_by).toBeNull();
   });
-  it("saves a valid TON address as unverified and rejects junk", async () => {
+  it("the wallet button gives a signed connect link; a verified wallet is shown", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/link nonsense"));
-    expect(bot.sent.at(-1)!.text).toMatch(/not a valid TON address/);
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/link " + new Address(0, Buffer.alloc(32, 7)).toString()));
-    expect(bot.sent.at(-1)!.text).toMatch(/Saved \(unverified\)/);
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🔗 Wallet"));
+    const last = bot.sent.at(-1)!;
+    expect(last.text).toMatch(/Connect your TON wallet to prove it is yours/);
+    expect(last.text).toMatch(/never ask for your recovery phrase/);
+    const url = JSON.stringify(last.kb);
+    expect(url).toContain("/zenobia/link.html?bot=z1&t=7.");
+    rows.get("z1:7").wallet = "UQtest"; rows.get("z1:7").wallet_verified = true;
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🔗 Wallet"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Verified wallet:\nUQtest/);
   });
   it("shows the journey stage, and the quote on the captive and legend stages in place", async () => {
     const bot = fakeBot();
