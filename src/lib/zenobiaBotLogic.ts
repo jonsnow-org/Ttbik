@@ -1,3 +1,4 @@
+import { holdsCoin, findPayment, LEDGER_RAW, payComment } from "@/lib/zenobiaPay";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -44,6 +45,10 @@ const T = {
     passRequested: (n: number) => `🪪 Your passport #${n} is on its way to your verified wallet. It usually arrives within a few minutes.`,
     passReady: (n: number, link: string) => `✅ Your Caravan Passport #${n} is in your wallet.\n${link}`,
     passAsked: (n: number) => `✅ Passport #${n} requested. It will be minted to your verified wallet in a few minutes and you will get a message here.`,
+    passNeedCoin: "🪪 The Caravan Passport is for ZNB holders. Hold some ZNB in your verified wallet, then press 🪪 Passport again.",
+    passPay: (addr: string, comment: string) => `🪪 Your passport is paid by you, not by anyone else: send 0.06 GRAM from your verified wallet to\n${addr}\nwith this exact comment:\n${comment}\n\nThen press the button below. It covers the cost of minting your soulbound NFT. Nothing else is promised for it.`,
+    passPaidBtn: "✅ I paid",
+    passNoPay: "I do not see your payment yet. It can take a minute. Make sure it came from your verified wallet with the exact comment, then press the button again.",
     passOpen: "✅ Passports are open.",
     passClosed: "✅ Passports are closed.",
     passUsage: "Usage: /passports on  or  /passports off",
@@ -86,6 +91,10 @@ const T = {
     passRequested: (n: number) => `🪪 جوازك رقم ${n} في طريقه إلى محفظتك الموثّقة. يصل عادةً خلال دقائق.`,
     passReady: (n: number, link: string) => `✅ جواز القافلة رقم ${n} صار في محفظتك.\n${link}`,
     passAsked: (n: number) => `✅ طُلب الجواز رقم ${n}. سيُصَكّ إلى محفظتك الموثّقة خلال دقائق وتصلك رسالة هنا.`,
+    passNeedCoin: "🪪 جواز القافلة لحاملي ZNB. احتفظ بقدر من ZNB في محفظتك الموثّقة ثم اضغط 🪪 الجواز مرة أخرى.",
+    passPay: (addr: string, comment: string) => `🪪 تدفع أنت ثمن جوازك ولا يدفعه أحد غيرك: أرسل 0.06 GRAM من محفظتك الموثّقة إلى\n${addr}\nمع هذا التعليق بالضبط:\n${comment}\n\nثم اضغط الزر أدناه. المبلغ يغطي كلفة صكّ رمزك غير القابل للتحويل، ولا يُوعد بشيء آخر مقابله.`,
+    passPaidBtn: "✅ دفعت",
+    passNoPay: "لم أرَ دفعتك بعد، وقد يستغرق ذلك دقيقة. تأكد أنها من محفظتك الموثّقة وبالتعليق نفسه، ثم اضغط الزر مرة أخرى.",
     passOpen: "✅ فُتحت الجوازات.",
     passClosed: "✅ أُغلقت الجوازات.",
     passUsage: "الاستخدام: /passports on  أو  /passports off",
@@ -160,6 +169,8 @@ export function ensureZenobiaTables(): Promise<void> {
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS wallet TEXT`))
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'minted'`))
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS item TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS pay_tx TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS zenobia_passport_pay ON zenobia_passport (pay_tx) WHERE pay_tx IS NOT NULL`))
       .then(() => prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS zenobia_passport_person ON zenobia_passport (bot_id, tg_user_id)`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_config (bot_id TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (bot_id, k))`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_snap (day DATE NOT NULL, owner TEXT NOT NULL, balance NUMERIC NOT NULL, PRIMARY KEY (day, owner))`))
@@ -428,10 +439,24 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     }
     if (!user.wallet || !user.wallet_verified) { await panel({ text: t.passNeedWallet }); return; }
     if (!open) { await panel({ text: t.passSoon }); return; }
+    // the passport is for holders of the coin, and the holder pays for it (the ledger never pays for others)
+    const jetton = ((await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE bot_id=$1 AND k='jetton'`, botId)) as { v: string }[])[0]?.v;
+    if (!jetton) { await panel({ text: t.passSoon }); return; }
+    let holds = false;
+    try { holds = await holdsCoin(user.wallet, jetton, { apiKey: process.env.TONAPI_KEY }); } catch { await panel({ text: t.passSoon }); return; }
+    if (!holds) { await panel({ text: t.passNeedCoin }); return; }
+    const used = new Set(((await prisma.$queryRawUnsafe(`SELECT pay_tx FROM zenobia_passport WHERE pay_tx IS NOT NULL`)) as { pay_tx: string }[]).map((r) => r.pay_tx));
+    let tx: string | null = null;
+    try { tx = await findPayment(user.wallet, id, { apiKey: process.env.TONAPI_KEY, used }); } catch { /* tonapi hiccup: ask again */ }
+    if (!tx) {
+      const ledger = Address.parseRaw(LEDGER_RAW).toString({ bounceable: false });
+      await panel({ text: cq ? t.passNoPay : t.passPay(ledger, payComment(id)), kb: new InlineKeyboard().text(t.passPaidBtn, "zn:pass") });
+      return;
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const ins = (await prisma.$queryRawUnsafe(
-          `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status) SELECT GREATEST(COALESCE(MAX(idx),0)+1,1), $1, $2, $3, 'requested' FROM zenobia_passport RETURNING idx`, botId, id, user.wallet,
+          `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status, pay_tx) SELECT GREATEST(COALESCE(MAX(idx),0)+1,1), $1, $2, $3, 'requested', $4 FROM zenobia_passport RETURNING idx`, botId, id, user.wallet, tx,
         )) as { idx: number }[];
         await panel({ text: t.passAsked(Number(ins[0]?.idx)) });
         return;
