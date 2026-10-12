@@ -19,6 +19,7 @@ const COMMAND_TEXT: Record<(typeof COMMANDS)[number], string> = {
   stages: "All passport stages",
   lang: "Language: English / العربية",
   about: "About Zenobia",
+  season: "Latest season result",
 };
 
 export async function POST(req: NextRequest) {
