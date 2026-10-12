@@ -65,6 +65,9 @@ SOURCES = [
     ("code", "codeparrot/codeparrot-clean", None, "content", 8, 8000),
     ("school-science", "HuggingFaceTB/cosmopedia", "khanacademy", "text", 3, 6000),
     ("school-math", "HuggingFaceTB/cosmopedia", "auto_math_text", "text", 3, 6000),
+    # 2026-10-12 (owner: code and all human knowledge, not one language): programming questions and answers, practical how-to knowledge
+    ("code-qa", "HuggingFaceTB/cosmopedia", "stackoverflow", "text", 4, 6000),
+    ("how-to", "HuggingFaceTB/cosmopedia", "wikihow", "text", 2, 6000),
     ("textbooks", "HuggingFaceTB/cosmopedia", "openstax", "text", 2, 6000),
 ]
 MAX_PARALLEL = 4   # sources read at the same time (each HF stream holds ~1-2 GB: 6 reached 10 GB peak)
