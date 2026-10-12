@@ -486,6 +486,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "kaggle_runs": {
+      "file": ".github/workflows/sham-kaggle-runs.yml",
+      "title": "مدة تشغيل كل دفتر على كاكل فعلياً (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
