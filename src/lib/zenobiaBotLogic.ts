@@ -44,6 +44,8 @@ const T = {
     passRequested: (n: number) => `🪪 Your passport #${n} is on its way to your verified wallet. It usually arrives within a few minutes.`,
     passReady: (n: number, link: string) => `✅ Your Caravan Passport #${n} is in your wallet.\n${link}`,
     passAsked: (n: number) => `✅ Passport #${n} requested. It will be minted to your verified wallet in a few minutes and you will get a message here.`,
+    passSite: "🪪 Silk Road Passport · From Palmyra: a limited, tradable passport for ZNB holders. It is bought on the website with your wallet, locked for its first 30 days, then free to trade. Not a promise of any return.",
+    passSiteBtn: "Open the passport page",
     passOpen: "✅ Passports are open.",
     passClosed: "✅ Passports are closed.",
     passUsage: "Usage: /passports on  or  /passports off",
@@ -86,6 +88,8 @@ const T = {
     passRequested: (n: number) => `🪪 جوازك رقم ${n} في طريقه إلى محفظتك الموثّقة. يصل عادةً خلال دقائق.`,
     passReady: (n: number, link: string) => `✅ جواز القافلة رقم ${n} صار في محفظتك.\n${link}`,
     passAsked: (n: number) => `✅ طُلب الجواز رقم ${n}. سيُصَكّ إلى محفظتك الموثّقة خلال دقائق وتصلك رسالة هنا.`,
+    passSite: "🪪 جواز مرور طريق الحرير من تدمر: جواز محدود العدد وقابل للبيع لحاملي ZNB. يُشترى من الموقع بمحفظتك، ويُقفل أول 30 يومًا ثم يُباع ويُشترى بحرية. ليس وعدًا بأي عائد.",
+    passSiteBtn: "افتح صفحة الجواز",
     passOpen: "✅ فُتحت الجوازات.",
     passClosed: "✅ أُغلقت الجوازات.",
     passUsage: "الاستخدام: /passports on  أو  /passports off",
@@ -160,6 +164,8 @@ export function ensureZenobiaTables(): Promise<void> {
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS wallet TEXT`))
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'minted'`))
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS item TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS pay_tx TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS zenobia_passport_pay ON zenobia_passport (pay_tx) WHERE pay_tx IS NOT NULL`))
       .then(() => prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS zenobia_passport_person ON zenobia_passport (bot_id, tg_user_id)`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_config (bot_id TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (bot_id, k))`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_snap (day DATE NOT NULL, owner TEXT NOT NULL, balance NUMERIC NOT NULL, PRIMARY KEY (day, owner))`))
@@ -426,18 +432,26 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
       await panel({ text: mine.status === "minted" ? t.passReady(mine.idx, link) : t.passRequested(mine.idx) });
       return;
     }
-    if (!user.wallet || !user.wallet_verified) { await panel({ text: t.passNeedWallet }); return; }
-    if (!open) { await panel({ text: t.passSoon }); return; }
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        const ins = (await prisma.$queryRawUnsafe(
-          `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status) SELECT GREATEST(COALESCE(MAX(idx),0)+1,1), $1, $2, $3, 'requested' FROM zenobia_passport RETURNING idx`, botId, id, user.wallet,
-        )) as { idx: number }[];
-        await panel({ text: t.passAsked(Number(ins[0]?.idx)) });
-        return;
-      } catch { /* two people asked at the same moment: take the next number */ }
-    }
-    await panel({ text: t.passSoon });
+    // the passport is the Silk Road Passport: bought on the website with a wallet (no Telegram needed)
+    await panel({ text: t.passSite, kb: new InlineKeyboard().url(t.passSiteBtn, `${SITE}/zenobia/silk.html`) });
+    return;
+  }
+
+  if (act === "zn:silk" && id === ownerId && !cq) {
+    const arg = (text.split(/\s+/)[1] || "").toLowerCase();
+    if (arg !== "on" && arg !== "off") { await panel({ text: "Usage: /silk on  or  /silk off" }); return; }
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'silk',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, arg);
+    await panel({ text: arg === "on" ? "✅ Silk Road Passports are open (they also need the coin set with /jetton)." : "✅ Silk Road Passports are closed." });
+    return;
+  }
+  if (act === "zn:silkmin" && id === ownerId && !cq) {
+    const amount = (text.split(/\s+/)[1] || "").replace(/,/g, "");
+    if (!/^\d+(\.\d+)?$/.test(amount)) { await panel({ text: "Usage: /silkmin AMOUNT  (the least ZNB a wallet must hold, in whole coins, to buy a passport)" }); return; }
+    const dec = Number(((await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE bot_id=$1 AND k='decimals'`, botId)) as { v: string }[])[0]?.v ?? 9);
+    const [w, f = ""] = amount.split(".");
+    const units = BigInt(w + (f + "0".repeat(dec)).slice(0, dec));
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'silk_min',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, units.toString());
+    await panel({ text: `✅ A wallet must hold at least ${amount} ZNB to buy a passport.` });
     return;
   }
 
