@@ -43,6 +43,8 @@ const T = {
     seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 Season ${id}\nParticipants: ${n}\nResult fingerprint (SHA-256):\n${hash}\n\nSeal: ${seal}`,
     jettonOn: (a: string, d: number) => `✅ Jetton set: ${a} (decimals ${d}). Daily snapshots start.`,
     jettonUsage: "Usage: /jetton ADDRESS [decimals]",
+    passportUsage: "Usage: /passport NUMBER  (links that passport to you; its picture follows your journey)",
+    passportOn: (n: number) => `✅ Passport #${n} is now linked to you. Its picture and title follow your journey.`,
     about:
       "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra. Seasons last a week; a score comes from holding, taking part and accumulating, and the leaderboard is public. Scores are ranks and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
@@ -75,6 +77,8 @@ const T = {
     seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 الموسم ${id}\nالمشاركون: ${n}\nبصمة النتيجة (SHA-256):\n${hash}\n\nالختم: ${seal}`,
     jettonOn: (a: string, d: number) => `✅ تم تحديد العملة: ${a} (الخانات ${d}). تبدأ اللقطات اليومية.`,
     jettonUsage: "الاستخدام: /jetton العنوان [الخانات]",
+    passportUsage: "الاستخدام: /passport الرقم  (يربط هذا الجواز بك، وتتبع صورته رحلتك)",
+    passportOn: (n: number) => `✅ الجواز رقم ${n} صار مربوطًا بك. تتبع صورته ولقبه رحلتك.`,
     about:
       "زنوبيا (ZNB) عملة مجتمعية على TON مستوحاة من ملكة تدمر. الموسم أسبوع، والدرجة تأتي من الاحتفاظ والمشاركة والتراكم، ولوحة الصدارة علنية. الدرجات ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. العملات الرقمية محفوفة بالمخاطر، فلا تضع ما لا تتحمل خسارته.",
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
@@ -381,6 +385,16 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'jetton',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, raw);
     await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'decimals',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, String(decimals));
     await panel({ text: t.jettonOn(raw, decimals) });
+    return;
+  }
+
+  if (act === "zn:passport" && id === ownerId && !cq) {
+    const n = Number(text.split(/\s+/)[1]);
+    if (!Number.isInteger(n) || n < 0 || n > 1_000_000) { await panel({ text: t.passportUsage }); return; }
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id) VALUES ($1,$2,$3) ON CONFLICT (idx) DO UPDATE SET bot_id=EXCLUDED.bot_id, tg_user_id=EXCLUDED.tg_user_id`, n, botId, id,
+    );
+    await panel({ text: t.passportOn(n) });
     return;
   }
 
