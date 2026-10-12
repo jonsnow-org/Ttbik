@@ -316,6 +316,8 @@ describe("Silk Road Passport", () => {
     const young = silkMetadata({ index: 7, mintedAt: new Date("2026-11-20T00:00:00Z"), now }, "https://x");
     expect(young.name).toContain("#7"); expect(young.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("After day 30");
     expect(young.image).toBe("https://x/zenobia/stage-2-queen-sq.jpg");
+    expect(young.content_url).toBe("https://x/zenobia/anim/stage-2-queen.mp4"); // the living picture, for the apps that play it
+    expect(young.content_type).toBe("video/mp4");
     const old = silkMetadata({ index: 7, mintedAt: new Date("2026-10-01T00:00:00Z"), now }, "https://x");
     expect(old.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("Yes");
     expect(old.image).toContain("stage-3-warrior-sq");

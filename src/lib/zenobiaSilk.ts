@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { STAGE_IMG_SQ } from "@/lib/zenobiaPassport";
+import { STAGE_IMG_SQ, STAGE_ANIM } from "@/lib/zenobiaPassport";
 import type { Stage } from "@/lib/zenobiaScore";
 
 /** Silk Road Passport · From Palmyra: 2500 in total, locked for the first 30 days (enforced inside the item contract), then free to trade. */
@@ -31,7 +31,11 @@ export function silkMetadata(p: { index: number; mintedAt: Date | null; captive?
       `Your seat on the Silk Road, from Palmyra. It grows with its age: Child, Queen, Warrior. It cannot be moved for its first ${LOCK_DAYS} days (enforced by the contract), then it can be traded freely. ` +
       "Its perks work while its holder also holds ZNB; without ZNB it shows as Captive. Limited to 2500. Not a promise of any return.\n" +
       `مقعدك على طريق الحرير من تدمر. يكبر بعمره: طفلة ثم ملكة ثم محاربة. لا يُنقل في أول ${LOCK_DAYS} يومًا (يفرضه العقد)، ثم يُباع ويُشترى بحرية. تعمل مزاياه ما دام حامله يملك ZNB، وبدونها يظهر أسيرًا. محدود بـ2500. ليس وعدًا بأي عائد.`,
-    image: `${site.replace(/\/$/, "")}/zenobia/${STAGE_IMG_SQ[stage]}`,
+    image: `${site.replace(/\/$/, "")}/zenobia/${STAGE_IMG_SQ[stage]}`, // the still picture (also the first frame)
+    // the living picture: Getgems plays content_url (video); animation_url is the common name other apps look for
+    content_url: `${site.replace(/\/$/, "")}/zenobia/anim/${STAGE_ANIM[stage]}`,
+    content_type: "video/mp4",
+    animation_url: `${site.replace(/\/$/, "")}/zenobia/anim/${STAGE_ANIM[stage]}`,
     attributes: [
       { trait_type: "Stage", value: LABEL[stage] },
       { trait_type: "Days", value: days },
