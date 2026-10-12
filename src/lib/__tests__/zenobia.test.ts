@@ -1,6 +1,8 @@
 // Zenobia: season scoring (pure) and the bot (Telegram and the database are stubs).
 const rows = new Map<string, any>();
 const sql: string[] = [];
+const channelSet: (string | null)[] = [];
+const members = new Set<number>();
 jest.mock("@/lib/prisma", () => ({
   prisma: {
     $executeRawUnsafe: async (q: string, ...a: any[]) => {
@@ -12,6 +14,8 @@ jest.mock("@/lib/prisma", () => ({
       else if (q.includes("SET wallet=")) rows.get(`${a[0]}:${a[1]}`).wallet = a[2];
       return 1;
     },
+    $bogus: 0,
+    bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } },
     $queryRawUnsafe: async (q: string, ...a: any[]) => {
       if (q.startsWith("SELECT lang")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
       if (q.includes("AS rank")) return [{ rank: 1, total: rows.size }];
@@ -76,6 +80,7 @@ function fakeBot() {
     sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); return { message_id: 1 }; },
     sendPhoto: async (chat: number, _p: string, o?: any) => { sent.push({ chat, text: "[photo] " + (o?.caption || "") }); return { message_id: 2 }; },
     answerCallbackQuery: async () => undefined,
+    getChatMember: async (_c: string, u: number) => { if (members.has(u)) return { status: "member" }; throw Object.assign(new Error("x"), { description: "Bad Request: user not found" }); },
     getMe: async () => ({ username: "ZenobiaBot" }),
   } } as any;
 }
@@ -85,7 +90,7 @@ const msg = (id: number, text: string, lang = "en") => ({ message: { chat: { id 
 const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { id, first_name: "Sam" }, data, message: { chat: { id } } } });
 
 describe("Zenobia bot", () => {
-  beforeEach(() => { rows.clear(); sql.length = 0; });
+  beforeEach(() => { rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
   it("greets in English even a user whose Telegram is Arabic, creating the table on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
@@ -140,5 +145,26 @@ describe("Zenobia bot", () => {
     expect(bot.sent.some((s) => /Owner stats/.test(s.text))).toBe(false);
     await handleZenobiaBotUpdate(bot, row, msg(555001, "/stats"));
     expect(bot.sent.at(-1)!.text).toMatch(/Owner stats/);
+  });
+  it("the owner sets a mandatory channel; others must join first, members get in", async () => {
+    members.add(555001);
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/channel https://t.me/Zenobiaton"));
+    expect(channelSet).toEqual(["Zenobiaton"]);
+    expect(bot.sent.at(-1)!.text).toMatch(/Mandatory subscription is on: @Zenobiaton/);
+    const gated = { ...row, requiredChannel: "Zenobiaton" };
+    await handleZenobiaBotUpdate(bot, gated, msg(7, "/start"));
+    expect(bot.sent.at(-1)!.text).toMatch(/join the Zenobia channel first/);
+    members.add(7);
+    await handleZenobiaBotUpdate(bot, gated, cb(7, "zn:start"));
+    expect(bot.sent.some((s) => /Welcome to the Zenobia caravan/.test(s.text))).toBe(true);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/channel off"));
+    expect(channelSet.at(-1)).toBeNull();
+  });
+  it("lets everyone in when the bot cannot check the channel (not an admin there)", async () => {
+    const bot = fakeBot();
+    bot.api.getChatMember = async () => { throw Object.assign(new Error("x"), { description: "Bad Request: member list is inaccessible" }); };
+    await handleZenobiaBotUpdate(bot, { ...row, requiredChannel: "Zenobiaton" }, msg(9, "/start"));
+    expect(bot.sent[0].text).toMatch(/Welcome to the Zenobia caravan/);
   });
 });
