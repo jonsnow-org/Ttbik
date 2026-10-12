@@ -41,11 +41,6 @@ def _src(cell: dict) -> str:
     return "".join(s) if isinstance(s, list) else s
 
 
-def _plain(code: str) -> str:
-    """`.eval()` → `.train(False)` (the same call in PyTorch): the project's safety scan rejects the text `eval(` in any file it sees as new."""
-    return code.replace(".eval()", ".train(False)")
-
-
 INTRO = """# شام — الدفتر الشامل (مقعد واحد بدل ثلاثة دفاتر)
 
 دفتر واحد يحوي **كل خلايا** ثلاثة دفاتر: **المدرّب الحي** (زحف وجمع وترميز وتدريب)، و**المرحلة الأولى** (تدريب النص)، و**المرحلة الثانية** (الصورة والصوت مع النص). كل قسم تحته خلاياه كما هي في دفتره الأصلي.
@@ -111,7 +106,7 @@ def build(sources=None, nb_dir: Path | None = None) -> dict:
             if c["cell_type"] == "markdown":
                 cells.append(_md(_src(c)))
             elif c["cell_type"] == "code":
-                cells.append(_code(f"{MARK} {name}\n" + _plain(_src(c))))
+                cells.append(_code(f"{MARK} {name}\n" + _src(c)))
     base = {k: v for k, v in first.items() if k != "cells"}
     return {**base, "cells": cells}
 
