@@ -445,6 +445,34 @@ def account_dataset_names() -> list[str]:
     return sorted(set(names))
 
 
+_TOKENIZERS_FETCHED = {"done": False}
+
+
+def tokenizer_dataset_names(names: list[str] | None = None) -> list[str]:
+    """Every tokenizer output of the account: a dataset starting with "sham" whose name says tokenizer (the CPU tracks', the Lightning trainer's,
+    the old combined ones). Which of them is used is decided by looking inside (tokenizer_select), never by the name."""
+    names = account_dataset_names() if names is None else names
+    return sorted(n for n in names if n.startswith("sham") and "tokenizer" in n)
+
+
+def fetch_all_tokenizer_datasets(force: bool = False) -> list[str]:
+    """Downloads every tokenizer dataset of the account once per process so the selector sees all of them (owner, 2026-10-12: each notebook must
+    find the outputs that exist, not only the ones it was told about). Returns the names that arrived."""
+    if _TOKENIZERS_FETCHED["done"] and not force:
+        return []
+    _TOKENIZERS_FETCHED["done"] = True
+    got = []
+    for n in tokenizer_dataset_names():
+        try:
+            if fetch_dataset(n):
+                got.append(n)
+        except Exception as exc:
+            print(f"  ⚠ تعذّر جلب {n}: {exc.__class__.__name__}")
+    if got:
+        print(f"🧩 مُرمِّزات الحساب التي دخلت المفاضلة: {', '.join(got)}")
+    return got
+
+
 def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     """Account datasets that may hold a Sham model to merge: every dataset starting with "sham"
     (or the old "nova-small") that is not a tokenizer-only or text-corpus dataset — the name need
