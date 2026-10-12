@@ -61,7 +61,8 @@ def main() -> int:
         say("نواة/ذاكرة: " + str(probe.run("nproc; free -g | head -2")).strip().replace("\n", " | "))
         say("الاستوديوهات العاملة الآن: " + ", ".join(f"{getattr(s, 'name', s)}={getattr(s, 'status', '?')}" for s in ts.studios))
     except Exception as exc:
-        say(f"تعذّر تشغيل استوديو ثانٍ بالتزامن: {type(exc).__name__}: {str(exc)[:300]}")
+        body = str(getattr(exc, "body", "") or "")[:400]       # Lightning's own explanation is in the response body
+        say(f"تعذّر تشغيل استوديو ثانٍ بالتزامن: {type(exc).__name__} {getattr(exc, 'status', '')} | {body or str(exc)[:200]}")
     finally:
         try:
             probe.stop()
