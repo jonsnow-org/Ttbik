@@ -9,7 +9,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 // Everything the channel can promote, built from the site's own data so a new
 // tool, bot page, news item, event or article joins the rotation by itself.
 // Only public pages: nothing owner-only has a path in here.
-export type PoolKind = "tool" | "bot" | "news" | "event" | "article" | "project";
+export type PoolKind = "tool" | "bot" | "news" | "event" | "article" | "project" | "coin";
 export type PoolItem = {
   kind: PoolKind;
   id: string;
@@ -87,13 +87,47 @@ export function buildPool(): Record<PoolKind, PoolItem[]> {
     tags: ["#مقالات", "#شام_AI"],
     repeatDays: 3650,
   }));
-  const projects: PoolItem[] = [
+  // The coin comes first: the ZNB posts are the most frequent in the rotation (see ROTATION). Fixed wording, English then Arabic, never a promise.
+  const ZNB_CONTRACT = "EQDai9iDv4fDlQHUDxx59QUZMGvTm9uzUL867c_Lxi4cDuCN";
+  const coinPosts: PoolItem[] = [
     {
-      kind: "project", id: "project:zenobia-coin", title: "زنوبيا · Zenobia (ZNB)",
+      kind: "coin", id: "coin:intro", title: "زنوبيا · Zenobia (ZNB)",
       blurb: "Zenobia (ZNB): a community coin inspired by the queen of Palmyra and the Silk Road. Not financial advice; crypto is risky. عملة مجتمعية مستوحاة من زنوبيا ملكة تدمر وطريق الحرير. ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر.",
       url: `${SITE_URL}/zenobia/hall.html`, cta: "🏆 لوحة القافلة", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
-      tags: ["#زنوبيا", "#ZNB", "#TON"], repeatDays: 3,
+      tags: ["#زنوبيا", "#ZNB", "#TON"], repeatDays: 2,
     },
+    {
+      kind: "coin", id: "coin:how-to-buy", title: "كيف تشتري ZNB",
+      blurb: `How to buy ZNB: open the coin's page on Blum from the button, connect your wallet, choose the amount and confirm. Check the contract address first: ${ZNB_CONTRACT}. Only use what you can afford to lose. افتح صفحة العملة على Blum من الزر، اربط محفظتك، اختر المبلغ وأكّد. تحقق من عنوان العقد أولًا: ${ZNB_CONTRACT}. لا تستخدم إلا ما تتحمل خسارته.`,
+      url: ZENOBIA_CHANNEL, cta: "📢 قناة زنوبيا", target: { url: ZENOBIA_BUY, label: "🛒 افتح ZNB على Blum" },
+      tags: ["#ZNB", "#TON", "#Blum"], repeatDays: 3,
+    },
+    {
+      kind: "coin", id: "coin:palmyra", title: "تدمر: مدينة على طريق الحرير",
+      blurb: "Palmyra was an oasis city in the Syrian desert and a great stop on the Silk Road, where caravans met between East and West. ZNB carries its name forward. كانت تدمر واحة في قلب الصحراء السورية ومحطة كبرى على طريق الحرير تلتقي فيها القوافل بين الشرق والغرب. وعملة ZNB تحمل اسمها.",
+      url: ZENOBIA_CHANNEL, cta: "📢 المزيد في القناة", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
+      tags: ["#تدمر", "#طريق_الحرير", "#ZNB"], repeatDays: 5,
+    },
+    {
+      kind: "coin", id: "coin:zenobia", title: "زنوبيا: ملكة تدمر",
+      blurb: "Zenobia ruled Palmyra from about 267 to 272 CE as regent for her son after the death of her husband Odaenathus. Her realm reached Egypt and parts of Anatolia before the Roman emperor Aurelian defeated her in 272. حكمت زنوبيا تدمر نحو 267 إلى 272م وصيّةً على ابنها بعد وفاة زوجها أذينة، وبلغ نفوذها مصر وأجزاء من الأناضول قبل أن يهزمها الإمبراطور أورليان عام 272م.",
+      url: ZENOBIA_CHANNEL, cta: "📢 قصتها في القناة", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
+      tags: ["#زنوبيا", "#تدمر", "#ZNB"], repeatDays: 6,
+    },
+    {
+      kind: "coin", id: "coin:quote", title: "قالت زنوبيا",
+      blurb: "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»  “A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.”",
+      url: ZENOBIA_CHANNEL, cta: "📢 قناة زنوبيا", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
+      tags: ["#زنوبيا", "#ZNB"], repeatDays: 8,
+    },
+    {
+      kind: "coin", id: "coin:board", title: "لوحة القافلة: من احتفظ أطول؟",
+      blurb: "The Caravan Board shows who has held ZNB the longest. Connect your wallet to see your place. Rankings only, no reward. لوحة القافلة تعرض من احتفظ بـ ZNB أطول مدة. اربط محفظتك لترى مكانك. ترتيب فقط بلا مكافأة.",
+      url: `${SITE_URL}/zenobia/hall.html`, cta: "🏆 افتح اللوحة", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
+      tags: ["#ZNB", "#TON"], repeatDays: 7,
+    },
+  ];
+  const projects: PoolItem[] = [
     {
       kind: "project", id: "project:zenobia-passport", title: "جواز مرور طريق الحرير من تدمر",
       blurb: "Silk Road Passport: 2,500 only, grows with its age, locked 30 days then free to trade, for ZNB holders. جواز محدود بـ2,500، يكبر بعمره (طفلة ثم ملكة ثم محاربة)، يُقفل 30 يومًا ثم يُباع ويُشترى بحرية، لحاملي ZNB. للاقتناء فقط وبلا أي وعد.",
@@ -117,12 +151,12 @@ export function buildPool(): Record<PoolKind, PoolItem[]> {
       url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 7,
     },
   ];
-  return { tool: tools, bot: bots, news, event: events, article: articles, project: projects };
+  return { tool: tools, bot: bots, news, event: events, article: articles, project: projects, coin: coinPosts };
 }
 
 // Category order for the rotation (cursor % length): varied, tools and bots
 // appear often because they are what newcomers can use immediately.
-export const ROTATION: PoolKind[] = ["tool", "project", "news", "bot", "event", "project", "tool", "article", "bot", "project", "news"];
+export const ROTATION: PoolKind[] = ["coin", "tool", "coin", "news", "project", "coin", "bot", "coin", "event", "coin", "tool", "article"];
 
 export const HEADERS: Record<PoolKind, string> = {
   tool: "🛠 أداة مجانية",
@@ -131,6 +165,7 @@ export const HEADERS: Record<PoolKind, string> = {
   event: "📅 مناسبة",
   article: "📖 مقال",
   project: "✨ من مشاريعنا",
+  coin: "🏛 عملة زنوبيا",
 };
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
