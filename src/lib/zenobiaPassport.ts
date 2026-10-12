@@ -14,6 +14,15 @@ export const STAGE_IMG: Record<Stage, string> = {
   legend: "stage-5-legend.jpg",
 };
 
+/** Square crops of the stage pictures: wallets and explorers show NFT pictures as squares. */
+export const STAGE_IMG_SQ: Record<Stage, string> = {
+  child: "stage-1-child-sq.jpg",
+  queen: "stage-2-queen-sq.jpg",
+  warrior: "stage-3-warrior-sq.jpg",
+  captive: "stage-4-captive-sq.jpg",
+  legend: "stage-5-legend-sq.jpg",
+};
+
 const STAGE_LABEL: Record<Stage, string> = { child: "Child", queen: "Queen", warrior: "Warrior", captive: "Captive", legend: "Legend" };
 
 export interface PassportInput {
@@ -37,7 +46,7 @@ export function passportMetadata(p: PassportInput, site: string) {
     description:
       "Soulbound passport of the Zenobia caravan. It cannot be transferred and it grows with its holder's journey. Ranks and titles only; not a promise of any reward.\n" +
       "جواز قافلة زنوبيا. لا يُحوَّل، ويكبر مع رحلة حامله. ترتيب وألقاب فقط، وليس وعدًا بأي مقابل.",
-    image: `${site.replace(/\/$/, "")}/zenobia/${STAGE_IMG[stage]}`,
+    image: `${site.replace(/\/$/, "")}/zenobia/${STAGE_IMG_SQ[stage]}`,
     attributes: [
       { trait_type: "Stage", value: STAGE_LABEL[stage] },
       { trait_type: "Title", value: title.en },
