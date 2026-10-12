@@ -118,7 +118,10 @@ describe("Zenobia bot", () => {
   it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
-    expect(bot.sent.length).toBe(1);
+    expect(bot.sent.length).toBe(2); // the welcome with the menu, then the links
+    expect(bot.sent[1].text).toBe("Zenobia links:");
+    expect(JSON.stringify(bot.sent[1].kb)).toContain("t.me/Zenobiaton"); // the channel link is in the bot
+    expect(JSON.stringify(bot.sent[1].kb)).toContain("memepadjetton_ZNB"); // and the place to buy the coin
     expect(bot.sent[0].text).toMatch(/^🏛 Welcome to the Zenobia caravan/);
     expect(AR.test(bot.sent[0].text)).toBe(false);
     expect(bot.sent[0].kb.is_persistent).toBeFalsy(); // collapsible with the Back button
@@ -129,14 +132,17 @@ describe("Zenobia bot", () => {
   it("replies to menu buttons do not resend the keyboard (so Back can collapse it); the welcome does", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    for (const label of ["🏆 Leaderboard", "ℹ️ About", "✅ Check-in"]) {
+    for (const label of ["🏆 Leaderboard", "✅ Check-in"]) {
       await handleZenobiaBotUpdate(bot, row, msg(7, label));
       expect(bot.sent.at(-1)!.kb).toBeUndefined();
     }
+    await handleZenobiaBotUpdate(bot, row, msg(7, "ℹ️ About"));
+    expect(bot.sent.at(-1)!.kb.keyboard).toBeUndefined(); // About carries inline link buttons, never the menu
+    expect(JSON.stringify(bot.sent.at(-1)!.kb)).toContain("t.me/Zenobiaton");
     expect(bot.deleted).toEqual([]);
-    expect(bot.sent.length).toBe(4);
+    expect(bot.sent.length).toBe(5);
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    expect(bot.sent.at(-1)!.kb.keyboard.length).toBeGreaterThan(0);
+    expect(bot.sent.at(-2)!.kb.keyboard.length).toBeGreaterThan(0);
   });
   it("switches to Arabic with the menu button and remembers it", async () => {
     const bot = fakeBot();
@@ -215,7 +221,7 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/join the Zenobia channel first/);
     members.add(7);
     await handleZenobiaBotUpdate(bot, gated, cb(7, "zn:start"));
-    expect(bot.sent.at(-1)!.text).toMatch(/Welcome to the Zenobia caravan/);
+    expect(bot.sent.at(-2)!.text).toMatch(/Welcome to the Zenobia caravan/);
     await handleZenobiaBotUpdate(bot, row, msg(555001, "/channel off"));
     expect(channelSet.at(-1)).toBeNull();
   });
