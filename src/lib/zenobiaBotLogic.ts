@@ -132,20 +132,21 @@ function ensureTable(): Promise<void> {
           bot_id TEXT NOT NULL, tg_user_id TEXT NOT NULL, lang TEXT NOT NULL DEFAULT 'en',
           name TEXT, joined_at TIMESTAMPTZ NOT NULL DEFAULT now(), points INT NOT NULL DEFAULT 0,
           streak INT NOT NULL DEFAULT 0, last_checkin DATE, ref_by TEXT, wallet TEXT,
-          wallet_verified BOOLEAN NOT NULL DEFAULT false, panel_msg_id BIGINT, PRIMARY KEY (bot_id, tg_user_id))`,
+          wallet_verified BOOLEAN NOT NULL DEFAULT false, panel_msg_id BIGINT, anchor_msg_id BIGINT, PRIMARY KEY (bot_id, tg_user_id))`,
       )
       .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_user ADD COLUMN IF NOT EXISTS panel_msg_id BIGINT`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_user ADD COLUMN IF NOT EXISTS anchor_msg_id BIGINT`))
       .then(() => undefined)
       .catch((e) => { ready = null; throw e; });
   }
   return ready;
 }
 
-interface UserRow { panel_msg_id: string | number | null; lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
+interface UserRow { panel_msg_id: string | number | null; anchor_msg_id: string | number | null; lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
 
 async function getUser(botId: string, id: string): Promise<UserRow | null> {
   const rows = (await prisma.$queryRawUnsafe(
-    `SELECT panel_msg_id, lang, name, joined_at, points, streak, last_checkin, wallet FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
+    `SELECT panel_msg_id, anchor_msg_id, lang, name, joined_at, points, streak, last_checkin, wallet FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
   )) as UserRow[];
   return rows[0] ?? null;
 }
@@ -171,25 +172,35 @@ for (const lg of ["en", "ar"] as Lang[]) {
   Object.assign(ACT_BY_LABEL, { [b.journey]: "zn:journey", [b.checkin]: "zn:checkin", [b.top]: "zn:top", [b.invite]: "zn:invite", [b.link]: "zn:link", [b.stages]: "zn:stages", [b.about]: "zn:about", [b.lang]: "zn:lang" });
 }
 
-interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard }
+interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard; lang?: Lang }
 /**
- * One panel message per person: the previous panel is deleted and the new one sent, so the chat never piles up.
- * The person's own button/command message is removed too.
+ * One panel message per person: the previous panel is deleted and the new one sent, so the chat never piles up,
+ * and the person's own button/command message is removed too.
+ * The persistent menu lives on an "anchor" message that is never deleted by a normal panel: deleting the message
+ * that set a reply keyboard can make the keyboard disappear. Plain panels also carry the menu again.
  */
-async function sendPanel(bot: TelegramBot, chatId: number, botId: string, id: string, prev: string | number | null, p: Panel, trigger?: number): Promise<void> {
-  if (prev) await bot.api.deleteMessage(chatId, Number(prev)).catch(() => null);
-  if (trigger) await bot.api.deleteMessage(chatId, trigger).catch(() => null);
+async function sendPanel(bot: TelegramBot, chatId: number, botId: string, id: string, user: UserRow, p: Panel, trigger?: number, anchor = false): Promise<void> {
+  const l: Lang = p.lang ?? (user.lang === "ar" ? "ar" : "en");
+  const kb = p.kb ?? menuKeyboard(l);
   let sent: { message_id: number };
-  if (p.photo) {
+  if (p.photo && !anchor) {
     try {
-      sent = await bot.api.sendPhoto(chatId, p.photo, { caption: p.text, reply_markup: p.kb });
+      sent = await bot.api.sendPhoto(chatId, p.photo, { caption: p.text, reply_markup: kb });
     } catch {
-      sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: p.kb });
+      sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: kb });
     }
   } else {
-    sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: p.kb });
+    sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: kb });
   }
-  await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET panel_msg_id=$3 WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, sent.message_id);
+  // delete the old ones only after the new message (and its keyboard) is in place
+  if (user.panel_msg_id) await bot.api.deleteMessage(chatId, Number(user.panel_msg_id)).catch(() => null);
+  if (trigger) await bot.api.deleteMessage(chatId, trigger).catch(() => null);
+  if (anchor) {
+    if (user.anchor_msg_id) await bot.api.deleteMessage(chatId, Number(user.anchor_msg_id)).catch(() => null);
+    await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET anchor_msg_id=$3, panel_msg_id=NULL WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, sent.message_id);
+  } else {
+    await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET panel_msg_id=$3 WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, sent.message_id);
+  }
 }
 
 const STAGES: Stage[] = ["child", "queen", "warrior", "captive", "legend"];
@@ -244,8 +255,7 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   const l: Lang = user.lang === "ar" ? "ar" : "en";
   const t = T[l];
   const trigger: number | undefined = msg?.message_id;
-  const prev = user.panel_msg_id;
-  const panel = (p: Panel) => sendPanel(bot, chatId, botId, id, prev, p, trigger);
+  const panel = (p: Panel) => sendPanel(bot, chatId, botId, id, user!, p, trigger);
   const botLink = async () => `https://t.me/${(await bot.api.getMe().catch(() => ({ username: "" }))).username}?start=ref_${id}`;
 
   // the owner sets (or stops) the mandatory channel
@@ -276,18 +286,18 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   const act = cq ? String(cq.data || "") : text.startsWith("/") ? "zn:" + text.slice(1).split(/[\s@]/)[0].toLowerCase() : ACT_BY_LABEL[text] || "";
   if (cq) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
 
-  const welcome = (lang: Lang) => ({ text: T[lang].welcome, kb: menuKeyboard(lang) });
+  const welcome = (lang: Lang): Panel => ({ text: T[lang].welcome, kb: menuKeyboard(lang), lang });
 
   if (act === "zn:start") {
     // the first panel carries the persistent menu, which then stays at the bottom of the screen
-    await sendPanel(bot, chatId, botId, id, prev, welcome(l), trigger);
+    await sendPanel(bot, chatId, botId, id, user, welcome(l), trigger, true);
     return;
   }
 
   if (act === "zn:lang") {
     const to: Lang = l === "en" ? "ar" : "en";
     await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET lang=$3 WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, to);
-    await sendPanel(bot, chatId, botId, id, prev, welcome(to), trigger);
+    await sendPanel(bot, chatId, botId, id, user, welcome(to), trigger, true);
     return;
   }
 
@@ -380,5 +390,5 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     return;
   }
 
-  if (!cq) await panel(welcome(l));
+  if (!cq) await sendPanel(bot, chatId, botId, id, user, welcome(l), trigger, true);
 }
