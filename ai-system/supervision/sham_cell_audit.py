@@ -1,11 +1,11 @@
 """
-Which of the owner's Kaggle notebooks will break because cell sync only half-updates them? (read-only)
+How do the owner's Kaggle notebooks compare with the repository, cell by cell? (read-only)
 
 Cell sync replaces a cell of an imported notebook only when its text is a version of that cell known from the repository history, and only for cells
-that run AFTER `import sham_inputs` (that import installs the sync). A notebook whose cells are partly old and partly new can fail (found 2026-10-12:
-an old training cell next to a new save cell; then a new training cell next to an old collect cell). This pulls every Sham notebook from Kaggle and
-compares each cell with the repository: per notebook it prints how many cells are current, how many will be replaced, and which are UNKNOWN (neither)
-or STUCK (old, but they run before the sync is installed, so they can never be replaced). Output uses track names and an alias number only, never the
+that run AFTER `import sham_inputs` (that import installs the sync). The engineer edits these notebooks and adds cells (owner's standing rule), so a
+cell that matches no repository version is normal and is kept untouched; when a replaced cell needs a name an edited cell no longer defines, the
+sync runs the repository's earlier cell first. This pulls every Sham notebook from Kaggle and prints, per notebook, how many cells are current, how many
+will be replaced, and how many are the engineer's. Output uses track names and an alias number only, never the
 real notebook names, and never prints code.
 
   python sham_cell_audit.py [workdir]            (needs KAGGLE_USERNAME / KAGGLE_API_TOKEN)
@@ -47,9 +47,10 @@ def classify(kaggle_cells: list[str], current: list[str], table: dict) -> dict:
 
 def report(track: str, n: int, r: dict) -> str:
     st = r["status"]
-    risky = bool(r["stuck"] or r["unknown"])
-    return (f"{track} #{n} | خلايا {len(st)} | حالية {st.count('current')} | ستُبدَّل {st.count('sync')} | مجهولة {st.count('unknown')} {r['unknown']} "
-            f"| عالقة قبل تثبيت المزامنة {r['stuck']} | " + ("⚠ خطر نصف تحديث — الأفضل إعادة استيراده" if risky else "✅ سليم"))
+    # cells that match no repository version are the engineer's edits/additions: they are kept as they are (owner's standing rule); a replaced cell
+    # that needs a name one of them no longer defines gets the repository's earlier cell run first (sham_cell_sync.with_prerequisites)
+    return (f"{track} #{n} | خلايا {len(st)} | حالية {st.count('current')} | ستُبدَّل {st.count('sync')} | معدّلة/مضافة من المهندس {st.count('unknown')} {r['unknown']} "
+            f"| قبل تثبيت المزامنة (تعمل كما هي) {r['stuck']} | ✅ لا يُعاد استيراده؛ تُترك خلايا المهندس والمزامنة تعالج ما تحتاجه الخلية الجديدة")
 
 
 def main(workdir: Path) -> int:
@@ -92,7 +93,7 @@ def _self_test() -> None:
     assert half["status"] == ["current", "current", "sync", "unknown"] and half["unknown"] == [3] and half["stuck"] == []
     stuck = classify(["import os", "old collect()", "import sham_inputs", "new train()"], current, table)
     assert stuck["stuck"] == [1], stuck          # an old cell that runs before sham_inputs is imported can never be replaced
-    assert "⚠" in report("t", 1, stuck) and "✅" in report("t", 1, ok)
+    assert "المهندس" in report("t", 1, half) and "⚠" not in report("t", 1, stuck)
     print("sham_cell_audit self-test OK")
 
 
