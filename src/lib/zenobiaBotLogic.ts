@@ -50,6 +50,12 @@ const T = {
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
     ref: (l: string) => `Invite friends: ${l}\nEach friend who joins gives you +5 points.`,
     owner: (n: number) => `👑 Owner stats\nMembers: ${n}`,
+    join: "📢 Please join the Zenobia channel first, then tap the button below.",
+    joined: "✅ I joined",
+    chOn: (c: string, warn: string) => `✅ Mandatory subscription is on: @${c}.${warn}`,
+    chOff: "✅ Mandatory subscription is off.",
+    chWarn: "\n⚠️ Add the bot to the channel as an admin, or it cannot check members (until then it lets everyone in).",
+    chUsage: "Usage: /channel @YourChannel  (or /channel off)",
   },
   ar: {
     welcome:
@@ -70,6 +76,12 @@ const T = {
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
     ref: (l: string) => `ادعُ أصدقاءك: ${l}\nكل صديق ينضم يمنحك +5 نقاط.`,
     owner: (n: number) => `👑 إحصائيات المالك\nالأعضاء: ${n}`,
+    join: "📢 انضم أولًا إلى قناة زنوبيا، ثم اضغط الزر أدناه.",
+    joined: "✅ انضممت",
+    chOn: (c: string, warn: string) => `✅ فُعّل الاشتراك الإجباري: @${c}.${warn}`,
+    chOff: "✅ أُوقف الاشتراك الإجباري.",
+    chWarn: "\n⚠️ أضف البوت إلى القناة كمشرف (Admin) وإلا لا يستطيع التحقق من المشتركين (وإلى ذلك الحين يدخل الجميع).",
+    chUsage: "الاستخدام: /channel @قناتك  (أو /channel off)",
   },
 } as const;
 
@@ -93,6 +105,18 @@ const STAGE_CAPTION: Record<Lang, Record<Stage, string>> = {
     legend: `خلود.\n\n${QUOTE_AR}`,
   },
 };
+
+// ---- mandatory-subscription channel (Bot.requiredChannel, the field the other bots use) ----
+const normChannel = (x: string) => x.trim().replace(/^@/, "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/^(t\.me|telegram\.me)\//i, "").replace(/\/+$/, "").split(/[?#]/)[0];
+/** false only when Telegram says the person is not in the channel. If the bot cannot check (not an admin there), nobody is locked out. */
+async function isMember(bot: TelegramBot, channel: string, tgId: string): Promise<boolean> {
+  try {
+    const m = await bot.api.getChatMember(`@${normChannel(channel)}`, Number(tgId));
+    return ["creator", "administrator", "member", "restricted"].includes(m.status);
+  } catch (e: any) {
+    return !/user not found|participant/i.test(String(e?.description || e?.message || ""));
+  }
+}
 
 // ---- storage (raw SQL; the table is created on first use) ----
 let ready: Promise<void> | null = null;
@@ -185,6 +209,29 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   }
   const l: Lang = user.lang === "ar" ? "ar" : "en";
   const t = T[l];
+
+  // the owner sets (or stops) the mandatory channel
+  if (id === ownerId && !cq && /^\/channel(@\w+)?(\s|$)/i.test(text)) {
+    const arg = text.split(/\s+/)[1] || "";
+    if (!arg) { await bot.api.sendMessage(chatId, t.chUsage); return; }
+    if (/^(off|cancel|إلغاء)$/i.test(arg)) {
+      await prisma.bot.update({ where: { id: botId }, data: { requiredChannel: null } });
+      await bot.api.sendMessage(chatId, t.chOff);
+      return;
+    }
+    const ch = normChannel(arg);
+    await prisma.bot.update({ where: { id: botId }, data: { requiredChannel: ch } });
+    const canCheck = await bot.api.getChatMember(`@${ch}`, Number(id)).then(() => true).catch(() => false);
+    await bot.api.sendMessage(chatId, t.chOn(ch, canCheck ? "" : t.chWarn));
+    return;
+  }
+  // everyone else must have joined the channel first (when one is set)
+  if (id !== ownerId && botRow.requiredChannel && !(await isMember(bot, botRow.requiredChannel, id))) {
+    await bot.api.sendMessage(chatId, `${t.join}\nhttps://t.me/${normChannel(botRow.requiredChannel)}`, {
+      reply_markup: new InlineKeyboard().url("📢 Zenobia", `https://t.me/${normChannel(botRow.requiredChannel)}`).row().text(t.joined, "zn:start"),
+    });
+    return;
+  }
 
   const act = cq ? String(cq.data || "") : text.startsWith("/") ? "zn:" + text.slice(1).split(/[\s@]/)[0].toLowerCase() : "";
   if (cq) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
