@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Zenobia · Connect wallet</title>
+<style>
+  :root { --bg:#fffaf0; --fg:#2a1b0b; --card:#ffffff; --gold:#b8862b; --line:#ead9b4; --ok:#1a7f37; --err:#b42318; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; padding:16px; box-sizing:border-box; }
+  main { max-width:440px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; text-align:center; }
+  h1 { font-size:20px; margin:0 0 8px; color:var(--gold); }
+  p { margin:8px 0; }
+  #btn { margin:16px 0; min-height:44px; }
+  #msg { min-height:24px; font-weight:600; }
+  .ok { color:var(--ok); } .err { color:var(--err); }
+  small { opacity:.75; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Connect your wallet</h1>
+  <p id="lead">Prove this TON wallet is yours. Your wallet signs one harmless message. We never ask for your recovery phrase.</p>
+  <div id="btn"></div>
+  <p id="msg" role="status"></p>
+  <small id="foot">Only verified wallets count toward season scores.</small>
+</main>
+<script src="https://unpkg.com/@tonconnect/ui@2.0.9/dist/tonconnect-ui.min.js"></script>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var bot = q.get("bot"), t = q.get("t"), ar = q.get("l") === "ar";
+  var S = ar
+    ? { title: "اربط محفظتك", lead: "أثبت أن هذه المحفظة لك. توقّع محفظتك رسالة واحدة غير ضارة. لا نطلب عبارة الاسترداد أبدًا.", foot: "تُحتسب في درجات المواسم المحافظ الموثّقة فقط.", wait: "جارٍ التحقق…", ok: "تم توثيق المحفظة ✅ يمكنك العودة إلى تيليجرام.", bad: "تعذّر التوثيق: ", expired: "انتهت صلاحية الرابط. افتح زر الربط من البوت من جديد." }
+    : { title: "Connect your wallet", lead: "Prove this TON wallet is yours. Your wallet signs one harmless message. We never ask for your recovery phrase.", foot: "Only verified wallets count toward season scores.", wait: "Verifying…", ok: "Wallet verified ✅ You can return to Telegram.", bad: "Could not verify: ", expired: "This link has expired. Open the connect button in the bot again." };
+  if (ar) { document.documentElement.lang = "ar"; document.documentElement.dir = "rtl"; }
+  document.getElementById("title").textContent = S.title;
+  document.getElementById("lead").textContent = S.lead;
+  document.getElementById("foot").textContent = S.foot;
+  var msg = document.getElementById("msg");
+  function say(text, cls) { msg.textContent = text; msg.className = cls || ""; }
+  if (!bot || !t) { say(S.expired, "err"); return; }
+
+  var ui = new TON_CONNECT_UI.TonConnectUI({ manifestUrl: location.origin + "/zenobia/tonconnect-manifest.json", buttonRootId: "btn" });
+  ui.setConnectRequestParameters({ state: "loading" });
+  fetch("/api/zenobia/link/challenge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ botId: bot, t: t }) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      if (!res.ok) { ui.setConnectRequestParameters(null); say(S.expired, "err"); return; }
+      ui.setConnectRequestParameters({ state: "ready", value: { tonProof: res.j.payload } });
+    })
+    .catch(function () { ui.setConnectRequestParameters(null); say(S.expired, "err"); });
+
+  var sent = false;
+  ui.onStatusChange(function (w) {
+    var proof = w && w.connectItems && w.connectItems.tonProof && w.connectItems.tonProof.proof;
+    if (!proof || sent) return;
+    sent = true; say(S.wait);
+    fetch("/api/zenobia/link/verify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ botId: bot, account: w.account, proof: proof }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) { say(res.ok ? S.ok : S.bad + (res.j.error || ""), res.ok ? "ok" : "err"); ui.disconnect(); })
+      .catch(function () { say(S.bad + "network", "err"); sent = false; });
+  });
+})();
+</script>
+</body>
+</html>
