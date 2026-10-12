@@ -102,6 +102,10 @@
       "role": "حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج",
       "writer": null
     },
+    "sham-keeper-state": {
+      "role": "حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج",
+      "writer": null
+    },
     "sham-crawl-selflearn": {
       "role": "نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*)",
       "writer": "selflearn"
@@ -274,6 +278,14 @@
     "orchestrator": {
       "file": "ai-system/colab/sham_small/kaggle_notebooks/kaggle_resume_orchestrator.ipynb",
       "title": "منسّق الاستئناف التلقائي",
+      "kind": "notebook (أداة)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "keeper": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_keeper.ipynb",
+      "title": "حارس الدفتر الشامل: يعيد تشغيله فور توقفه (CPU)",
       "kind": "notebook (أداة)",
       "accelerator": "CPU",
       "reads": [],
