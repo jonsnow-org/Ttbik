@@ -41,7 +41,7 @@ def main() -> int:
         ips = bench(m, x)
         print(f"image {size}px base{base} codes{codes}: {m.count_parameters() / 1e6:.1f}M params, {cfg.tokens_per_image} tokens/image, "
               f"{ips:.1f} img/s => {ips * 3600:,.0f} img/h", flush=True)
-    for base, mult in ((64, (1, 2, 4, 4)), (48, (1, 2, 4, 4)), (32, (1, 2, 4, 4))):
+    for base, mult in ((96, (1, 2, 4, 4)), (64, (1, 2, 4, 4)), (32, (1, 2, 4, 4))):      # GroupNorm uses 32 groups: widths must divide by 32 (48 crashed the 2026-10-11 run)
         cfg = AudioTokenizerConfig(base_channels=base, channel_multipliers=mult)
         m = AudioTokenizer(cfg)
         x = torch.rand(16, 1, cfg.n_mels, cfg.segment_frames) * 2 - 1
