@@ -141,6 +141,35 @@ def next_batches(kind: str, consumed: set[str], max_batches: int, work: str | Pa
     return (str(out) if n else None), taken
 
 
+def attach_factory(kind: str, manifest: str | Path | None, work: str | Path, max_batches: int = 6) -> tuple[str | None, bool, list[str], set]:
+    """The factory joins at TRAINING time, whatever the collection cell above produced (owner, 2026-10-12: the engineer edits the collection cells and
+    adds his own sources — those cells stay his, and the factory's unconsumed batches are merged into whatever manifest they made).
+    `manifest` = the collection cell's manifest path, or None. Returns (merged manifest or None, there-is-something-to-train-on, factory batches
+    taken, batches consumed before). Never raises."""
+    from sham_inputs import rglob_inputs
+    consumed: set = set()
+    try:
+        for p in rglob_inputs(f"{kind}_factory_consumed.json"):
+            try:
+                consumed |= set(json.loads(Path(p).read_text(encoding="utf-8")))
+            except Exception:
+                pass
+        fm, taken = next_batches(kind, consumed, max_batches, work)
+    except Exception as exc:
+        print(f"⚠ تعذّر قراءة مصنع الوسائط ({type(exc).__name__}) — يُكمل ما جمعه دفتر الجمع وحده")
+        fm, taken = None, []
+    have = str(manifest) if manifest and Path(str(manifest)).exists() and Path(str(manifest)).stat().st_size > 0 else None
+    parts = [m for m in (fm, have) if m]
+    if not parts:
+        return None, False, [], consumed
+    if len(parts) == 1:
+        return parts[0], True, taken, consumed
+    out = Path(work) / "merged_with_collection" / "manifest.jsonl"
+    n = merge_manifest_files(parts, out)
+    print(f"المصادر مجتمعة: مصنع + ما جمعه دفتر الجمع = {n:,} عيّنة")
+    return str(out), True, taken, consumed
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -155,4 +184,26 @@ if __name__ == "__main__":
         assert m2 == 2, "the same file listed twice must not duplicate records"
         recs = [json.loads(l) for l in Path(d, "out", "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
         assert n == 2 and all(Path(r["image"]).is_absolute() and Path(r["image"]).exists() for r in recs), recs
+        # attach_factory: the collection cell's manifest (the engineer's) and the factory's unconsumed batches end up in ONE manifest
+        import sham_inputs
+        fake_batches = {"sham-media-image-1": a, "sham-media-image-2": b}
+        orig = (list_batches, sham_inputs.fetch_dataset, sham_inputs.rglob_inputs)
+        globals()["list_batches"] = lambda kind: sorted(fake_batches)
+        sham_inputs.fetch_dataset = lambda name, **kw: fake_batches.get(name)
+        sham_inputs.rglob_inputs = lambda pat: []
+        try:
+            mine = Path(d, "mine"); (mine / "images").mkdir(parents=True)
+            (mine / "images" / "z.jpg").write_bytes(b"jpg")
+            (mine / "manifest.jsonl").write_text(json.dumps({"image": str(mine / "images" / "z.jpg"), "caption": "z"}) + "\n", encoding="utf-8")
+            merged, new, taken, consumed = attach_factory("image", mine / "manifest.jsonl", Path(d, "w1"), 6)
+            assert new and taken == ["sham-media-image-1", "sham-media-image-2"] and len(Path(merged).read_text(encoding="utf-8").splitlines()) == 3
+            only_factory = attach_factory("image", None, Path(d, "w2"), 6)
+            assert only_factory[1] and only_factory[2]                                   # no collection cell output: the factory alone trains
+            globals()["list_batches"] = lambda kind: []
+            nothing = attach_factory("image", None, Path(d, "w3"), 6)
+            assert nothing[0] is None and nothing[1] is False                           # nothing anywhere: no training, no crash
+            mine_only = attach_factory("image", mine / "manifest.jsonl", Path(d, "w4"), 6)
+            assert mine_only[1] and mine_only[0] == str(mine / "manifest.jsonl")         # factory empty: the engineer's collection still trains
+        finally:
+            globals()["list_batches"], sham_inputs.fetch_dataset, sham_inputs.rglob_inputs = orig
     print("sham_media_shards self-test OK")
