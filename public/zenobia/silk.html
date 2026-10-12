@@ -13,7 +13,6 @@
   main { max-width:520px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
   h1 { font-size:21px; margin:0 0 4px; color:var(--gold); }
   h2 { font-size:15px; margin:0 0 12px; font-weight:500; opacity:.8; }
-  img { width:100%; max-width:320px; display:block; margin:12px auto; border-radius:12px; }
   ul { padding-inline-start:20px; margin:8px 0; }
   .row { display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--line); padding:8px 0; }
   #btn { margin:16px 0 8px; min-height:44px; display:flex; justify-content:center; }
@@ -29,7 +28,7 @@
 <main>
   <h1>Silk Road Passport · From Palmyra</h1>
   <h2>جواز مرور طريق الحرير من تدمر</h2>
-  <img src="/zenobia/stage-2-queen-sq.jpg" alt="Zenobia" width="320" height="320">
+  <video src="/zenobia/anim/stage-2-queen.mp4" poster="/zenobia/stage-2-queen-sq.jpg" autoplay loop muted playsinline width="320" height="320" style="width:100%;max-width:320px;display:block;margin:12px auto;border-radius:12px"></video>
   <ul>
     <li>Limited to <b id="cap">2500</b> passports. It grows with its own age: Child, Queen, Warrior.</li>
     <li>Locked for the first <b>30 days</b> (the contract itself enforces it), then it can be sold or bought freely. A 7% royalty goes to the project on every resale.</li>
@@ -40,14 +39,14 @@
   <div id="btn"></div>
   <button class="buy" id="buy" disabled>Buy passport</button>
   <p id="msg" role="status"></p>
-  <small>You pay from your own wallet; the passport is minted to that same wallet after the payment is confirmed on the chain (usually within minutes). Pay only through this page's button: a payment that breaks the rules is returned minus a small network fee. Not financial advice and not a promise of any return.</small>
+  <small>You pay from your own wallet; the passport is minted to that same wallet after the payment is confirmed on the chain (it took about 6 minutes in our first real test, and can take up to 10 or more). Pay only through this page's button: a payment that breaks the rules is returned minus a small network fee. Not financial advice and not a promise of any return.</small>
   <div class="ar">
     <ul>
       <li>محدود بـ<b id="capAr">2500</b> جواز. يكبر بعمره: طفلة ثم ملكة ثم محاربة.</li>
       <li>يُقفل أول <b>30 يومًا</b> (يفرضه العقد نفسه)، ثم يُباع ويُشترى بحرية. وللمشروع 7% عائد على كل إعادة بيع.</li>
       <li>لحاملي ZNB. إن لم يملك حامله ZNB يظهر الجواز أسيرًا.</li>
     </ul>
-    <small>تدفع من محفظتك وتُصَكّ إليها بعد تأكيد الدفع على السلسلة (عادةً خلال دقائق). ادفع عبر زر هذه الصفحة فقط: الدفعة التي تخالف القواعد تُعاد بعد خصم رسم الشبكة الصغير. ليس نصيحة مالية ولا وعدًا بأي عائد.</small>
+    <small>تدفع من محفظتك وتُصَكّ إليها بعد تأكيد الدفع على السلسلة (استغرق نحو 6 دقائق في أول تجربة حقيقية، وقد يصل إلى 10 دقائق أو أكثر). ادفع عبر زر هذه الصفحة فقط: الدفعة التي تخالف القواعد تُعاد بعد خصم رسم الشبكة الصغير. ليس نصيحة مالية ولا وعدًا بأي عائد.</small>
   </div>
 </main>
 <script src="https://unpkg.com/@tonconnect/ui@2.0.9/dist/tonconnect-ui.min.js"></script>
@@ -90,7 +89,7 @@
         }
         var q = res.j;
         return ui.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: q.to, amount: String(Math.round(q.priceGram * 1e9)), payload: commentBoc(q.comment) }] })
-          .then(function () { say("Payment sent ✅ Your passport will arrive in your wallet within minutes. / أُرسلت الدفعة ✅ سيصل جوازك إلى محفظتك خلال دقائق.", "ok"); })
+          .then(function () { say("Payment sent ✅ Your passport arrives in your wallet in about 6 minutes (up to 10 or more). Do not pay twice. / أُرسلت الدفعة ✅ يصل جوازك إلى محفظتك خلال نحو 6 دقائق (وقد يصل إلى 10 دقائق أو أكثر). لا تدفع مرة ثانية.", "ok"); })
           .catch(function () { say("Cancelled. / أُلغيت العملية.", "err"); update(); });
       })
       .catch(function () { say("Network error. / خطأ في الشبكة.", "err"); update(); });

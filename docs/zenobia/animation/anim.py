@@ -73,6 +73,9 @@ def run(cfg):
         gm = np.clip((gray0 - cfg['lum_mask']) * 3, 0, 1)
         if cfg.get('circle'):
             cm = np.zeros(gm.shape, np.float32); cv2.circle(cm, (W // 2, H // 2), int(cfg['circle']), 1, -1); gm *= cv2.GaussianBlur(cm, (0, 0), 3)
+    # skin that is warm like gold (a blonde queen's face) must not catch the light sweep: protected ellipses take their weight out of the gold mask
+    for (px_, py_, rx_, ry_) in cfg.get('protect', []):
+        gm = gm * (1 - np.clip(2.0 * feather_ellipse((H, W), px_, py_, rx_, ry_), 0, 1))
     gray = cv2.cvtColor(src, cv2.COLOR_BGR2GRAY).astype(np.float32) / 255
     sparks = find_sparkles(src, gm, cfg.get('nspark', 28), vthr=cfg.get('vthr', 225)) if cfg.get('nspark', 28) else []
     sprites = {r: star_sprite(r) for r in (10, 16, 24)}
