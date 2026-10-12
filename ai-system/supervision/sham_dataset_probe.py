@@ -27,6 +27,36 @@ def main(names: list[str]) -> int:
                 break
             print("\n".join(r[:160] for r in rows))
         return 0
+    if names and names[0] == "--inventory":                 # every sham* dataset of the account: kind, size, and whether any code of the project reads it
+        sys.path.insert(0, "ai-system/colab/sham_small")
+        import re
+        from sham_inputs import repo_dataset_names
+        used = repo_dataset_names()
+        rows: dict[str, list] = {}
+        for page in range(1, 21):
+            out = run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)])
+            got = [l.split(",") for l in out.splitlines()[1:] if l.startswith(f"{user}/")]
+            if not got:
+                break
+            for g in got:
+                name = g[1] if len(g) > 1 else g[0].split("/", 1)[1]
+                if name.startswith(("sham", "nova")):
+                    rows[name] = [int(g[2]) if len(g) > 2 and g[2].isdigit() else 0, g[3][:10] if len(g) > 3 else ""]
+        batch = re.compile(r"^sham-media-(image|audio)-\d{12}$")
+        kinds = {"media_batches": [], "tokenizer": [], "corpus": [], "model": [], "other": []}
+        for n, (size, day) in sorted(rows.items()):
+            k = ("media_batches" if batch.match(n) else "tokenizer" if "tokenizer" in n else "corpus" if n.endswith("corpus")
+                 else "model" if any(x in n for x in ("checkpoint", "merged", "crawl-gh", "-gh")) else "other")
+            kinds[k].append((n, size, day))
+        print(f"مجموعات شام في الحساب: {len(rows)}")
+        mb = kinds.pop("media_batches")
+        print(f"- دفعات مصنع الوسائط: {len(mb)} (صور {sum(1 for n, *_ in mb if '-image-' in n)}، صوت {sum(1 for n, *_ in mb if '-audio-' in n)})")
+        for k, items in kinds.items():
+            print(f"- {k}:")
+            for n, size, day in items:
+                reads = "يقرؤها كود المشروع" if n in used else "لا أحد يقرؤها بالاسم"
+                print(f"    {n} | {size / 1e6:.1f} MB | {day} | {reads}")
+        return 0
     for n in names:
         slug = n if "/" in n else f"{user}/{n}"
         print(f"===== {slug}")
