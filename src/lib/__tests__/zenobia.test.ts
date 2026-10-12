@@ -111,19 +111,22 @@ describe("Zenobia bot", () => {
     expect(bot.sent.length).toBe(1);
     expect(bot.sent[0].text).toMatch(/^🏛 Welcome to the Zenobia caravan/);
     expect(AR.test(bot.sent[0].text)).toBe(false);
-    expect(bot.sent[0].kb.is_persistent).toBe(true);
+    expect(bot.sent[0].kb.is_persistent).toBeFalsy(); // collapsible with the Back button
+    expect(bot.sent[0].kb.keyboard.length).toBeGreaterThan(0);
     expect(flat(bot.sent[0].kb)).toContain("Invite friends");
     expect(sql[0]).toMatch(/CREATE TABLE IF NOT EXISTS zenobia_user/);
   });
-  it("every reply to a menu button carries the persistent menu, and nothing is deleted", async () => {
+  it("replies to menu buttons do not resend the keyboard (so Back can collapse it); the welcome does", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
     for (const label of ["🏆 Leaderboard", "ℹ️ About", "✅ Check-in"]) {
       await handleZenobiaBotUpdate(bot, row, msg(7, label));
-      expect(bot.sent.at(-1)!.kb.is_persistent).toBe(true);
+      expect(bot.sent.at(-1)!.kb).toBeUndefined();
     }
     expect(bot.deleted).toEqual([]);
     expect(bot.sent.length).toBe(4);
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    expect(bot.sent.at(-1)!.kb.keyboard.length).toBeGreaterThan(0);
   });
   it("switches to Arabic with the menu button and remembers it", async () => {
     const bot = fakeBot();
