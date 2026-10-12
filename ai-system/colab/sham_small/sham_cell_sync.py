@@ -80,6 +80,11 @@ def align(old: list[str], new: list[str]) -> dict[int, int]:
 def build(repo: Path | None = None, keep: int = KEEP_VERSIONS) -> dict:
     """{"map": {old_hash: new_hash}, "text": {new_hash: source}} from git history."""
     repo = repo or HERE
+    try:                       # the all-in-one notebook is generated from three others: refresh it first so a source change reaches it (and the table)
+        import build_all_in_one
+        build_all_in_one.write()
+    except ImportError:
+        pass
     top = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], text=True).strip()
     rel_dir = os.path.relpath(NOTEBOOKS, top)
     table = {"map": {}, "text": {}}

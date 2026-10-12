@@ -58,6 +58,31 @@ def run_notebooks(names: list[str], code_dir, log=print) -> dict[str, str]:
     return results
 
 
+SECTION_MARK = "# SHAM_SECTION:"
+
+
+def _gate(lines: list[str]) -> list[str]:
+    """IPython input transformer: a cell whose first line is `# SHAM_SECTION: <name>` runs only when <name> is in SHAM_ACTIVE_SECTIONS (comma list);
+    otherwise it is replaced by a one-line notice. This is what lets the all-in-one notebook hold EVERY cell of the notebooks it combines, visible
+    and editable, while one session runs only the sections whose turn it is."""
+    import os
+    if lines and lines[0].startswith(SECTION_MARK):
+        name = lines[0][len(SECTION_MARK):].strip()
+        if name not in [x.strip() for x in os.environ.get("SHAM_ACTIVE_SECTIONS", "").split(",")]:
+            return [f"print('⏭ قسم {name} ليس دوره في هذه الجلسة — تُتخطى خلاياه')\n"]
+    return lines
+
+
+def install_section_gate() -> bool:
+    try:
+        ip = _shell()
+    except Exception:
+        return False
+    if _gate not in ip.input_transformers_cleanup:
+        ip.input_transformers_cleanup.append(_gate)
+    return True
+
+
 # The "all in one" notebook (owner, 2026-10-12: one big notebook for the fifth seat instead of many). It carries the tracks that are NOT scheduled
 # anywhere else — the others each keep their own seat or run inside the image notebook's chain, and two notebooks must never write the same dataset.
 # hours = each notebook's own time budget on (cpu, gpu), read from the notebooks themselves (MAX_TRAINING_HOURS / sham_live.run default).
