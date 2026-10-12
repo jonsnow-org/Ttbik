@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zenobia · Caravan Hall</title>
+<meta name="description" content="The Caravan Board of ZNB holders and your Silk Road Passports. Rankings and titles only; no reward, no promise.">
+<style>
+  :root { --bg:#fffaf0; --fg:#2a1b0b; --card:#ffffff; --gold:#b8862b; --line:#ead9b4; --ok:#1a7f37; --err:#b42318; }
+  :root[data-theme="dark"] { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; padding:16px; box-sizing:border-box; }
+  main { max-width:560px; margin:0 auto; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:20px; margin-bottom:16px; }
+  h1 { font-size:21px; margin:0 0 4px; color:var(--gold); } h2 { font-size:16px; margin:0 0 10px; color:var(--gold); }
+  .sub { opacity:.8; margin:0 0 16px; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  td, th { padding:6px 4px; border-top:1px solid var(--line); text-align:start; } th { font-weight:600; opacity:.8; }
+  #btn { display:flex; justify-content:center; margin:8px 0; min-height:44px; }
+  .pp { display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--line); padding:8px 0; }
+  small { opacity:.75; display:block; margin-top:10px; } .err { color:var(--err); }
+  a { color:var(--gold); }
+</style>
+</head>
+<body>
+<main>
+  <section>
+    <h1>Caravan Hall · قاعة القافلة</h1>
+    <p class="sub">ZNB holders and Silk Road Passports. Connect your wallet to see yours. No account, no Telegram. / أصحاب ZNB وجوازات طريق الحرير. اربط محفظتك لترى ما يخصك.</p>
+    <div id="btn"></div>
+    <div id="me"></div>
+  </section>
+  <section>
+    <h2>Caravan Board · لوحة القافلة</h2>
+    <p class="sub" id="boardnote">Longest holders first. / الأطول احتفاظًا أولًا.</p>
+    <table><thead><tr><th>#</th><th>Wallet / المحفظة</th><th>Days / الأيام</th></tr></thead><tbody id="rows"><tr><td colspan="3">…</td></tr></tbody></table>
+    <small>Rankings and titles only: no reward and no promise of any return. Liquidity pools and contracts holding a large share are not ranked. Updated daily from public chain data. / ترتيب وألقاب فقط: لا مكافأة ولا وعد بأي عائد. لا تُرتَّب أحواض السيولة والعقود الكبيرة. يُحدَّث يوميًا من بيانات السلسلة العامة.</small>
+  </section>
+  <section>
+    <h2>Get a passport · احصل على جواز</h2>
+    <p><a href="/zenobia/silk.html">Silk Road Passport · From Palmyra →</a></p>
+  </section>
+</main>
+<script src="https://unpkg.com/@tonconnect/ui@2.0.9/dist/tonconnect-ui.min.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var STAGE = { child: "Child / طفلة", queen: "Queen / ملكة", warrior: "Warrior / محاربة", captive: "Captive / أسيرة", legend: "Legend / خلود" };
+  var ui = new TON_CONNECT_UI.TonConnectUI({ manifestUrl: location.origin + "/zenobia/tonconnect-manifest-v2.json", buttonRootId: "btn" });
+  function load(wallet) {
+    fetch("/api/zenobia/board" + (wallet ? "?wallet=" + encodeURIComponent(wallet) : "")).then(function (r) { return r.json(); }).then(function (b) {
+      var rows = $("rows"); rows.textContent = "";
+      if (!b.top || !b.top.length) { var tr = document.createElement("tr"), td = document.createElement("td"); td.colSpan = 3; td.textContent = "No snapshot yet. / لا لقطات بعد."; tr.appendChild(td); rows.appendChild(tr); }
+      (b.top || []).forEach(function (e) { var tr = document.createElement("tr"); [e.rank, e.wallet, e.days].forEach(function (v) { var td = document.createElement("td"); td.textContent = v; tr.appendChild(td); }); rows.appendChild(tr); });
+      if (wallet) {
+        var me = $("me"); me.textContent = "";
+        var p = document.createElement("p"); p.textContent = b.me ? "Your place: #" + b.me.rank + " · " + b.me.days + " days / ترتيبك: " + b.me.rank + " · " + b.me.days + " يومًا" : "Not ranked yet: hold ZNB to enter. / لست في الترتيب بعد: احتفظ بـ ZNB لتدخل.";
+        me.appendChild(p);
+        fetch("/api/zenobia/silk/mine?wallet=" + encodeURIComponent(wallet)).then(function (r) { return r.json(); }).then(function (m) {
+          if (!m.passports) return;
+          var h = document.createElement("h2"); h.textContent = "Your passports / جوازاتك"; me.appendChild(h);
+          if (!m.passports.length) { var n = document.createElement("p"); n.textContent = "None yet. / لا شيء بعد."; me.appendChild(n); }
+          m.passports.forEach(function (x) {
+            var d = document.createElement("div"); d.className = "pp";
+            var a = document.createElement("span"); a.textContent = "#" + x.idx + " · " + (STAGE[x.stage] || x.stage);
+            var c = document.createElement("span"); c.textContent = x.tradableInDays > 0 ? "tradable in " + x.tradableInDays + " d / يُباع بعد " + x.tradableInDays + " ي" : "tradable / قابل للبيع";
+            d.appendChild(a); d.appendChild(c); me.appendChild(d);
+          });
+          if (!m.holdsZnb) { var w = document.createElement("small"); w.className = "err"; w.textContent = "This wallet holds no ZNB, so its passports show as Captive. / هذه المحفظة لا تملك ZNB فتظهر جوازاتها أسيرة."; me.appendChild(w); }
+        }).catch(function () {});
+      }
+    }).catch(function () {});
+  }
+  load(null);
+  ui.onStatusChange(function (w) { if (w && w.account) load(w.account.address); else $("me").textContent = ""; });
+})();
+</script>
+</body>
+</html>
