@@ -24,13 +24,29 @@ export const QUOTE_EN =
   "A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.";
 export const QUOTE_AR = "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»";
 
-export const COMMANDS = ["start", "journey", "checkin", "top", "invite", "link", "stages", "lang", "about", "season"] as const;
+// The menu is a funnel: buy the coin, the passport, the board, the channel, invite, about, language.
+// The older commands (journey, checkin, top, link, stages, season) still work when typed; they are just no longer in the menu.
+export const COMMANDS = ["start", "buy", "passport", "board", "channel", "invite", "about", "lang"] as const;
+
+const COMMAND_DESC: Record<(typeof COMMANDS)[number], string> = {
+  start: "Start", buy: "Buy ZNB", passport: "Silk Road Passport", board: "Caravan Board", channel: "Zenobia channel", invite: "Invite friends", about: "About Zenobia", lang: "Language: English / العربية",
+};
+let commandsSet = false; // the command list is refreshed once per server start, so old bots pick up the simpler menu without being re-activated
 
 const T = {
   en: {
     welcome:
-      "🏛 Welcome to the Zenobia caravan.\n\nZenobia, queen of Palmyra: real history plus a transparent weekly game on TON.\n\n• Check in daily to build your streak\n• Invite friends with your link\n• Watch your passport grow from a child into a queen and a warrior\n\nPoints are ranks and titles only — not a promise of any reward. Not financial advice.",
-    btn: { journey: "🗺 My journey", checkin: "✅ Check-in", top: "🏆 Leaderboard", invite: "👥 Invite friends", link: "🔗 Wallet", passport: "🪪 Passport", stages: "👑 Stages", about: "ℹ️ About", lang: "🌐 العربية" },
+      "🏛 Welcome to the Zenobia caravan.\n\nZenobia (ZNB): a community coin on TON inspired by the queen of Palmyra and the Silk Road.\n\n• Buy ZNB\n• Get a Silk Road Passport (limited, tradable NFT for holders)\n• See the Caravan Board\n\nNot financial advice. Crypto is risky.",
+    btn: { buy: "🛒 Buy ZNB", passport: "🪪 Passport", board: "🏆 Caravan Board", channel: "📢 Channel", invite: "👥 Invite friends", about: "ℹ️ About", lang: "🌐 العربية" },
+    legacyBtn: { journey: "🗺 My journey", checkin: "✅ Check-in", top: "🏆 Leaderboard", link: "🔗 Wallet", stages: "👑 Stages" },
+    buyText: "🛒 Zenobia (ZNB) is traded on Blum. Tap below to open its page.\n\nNot financial advice. Crypto is risky; only use what you can afford to lose.",
+    buyBtn: "🛒 Open ZNB on Blum",
+    passInfo: "🪪 Silk Road Passport · From Palmyra\n\n• Limited to 2,500, it grows with its age: Child, Queen, Warrior\n• Locked for its first 30 days (the contract enforces it), then free to sell or buy\n• For ZNB holders; if its owner holds no ZNB it shows as Captive\n• Price rises with the number: 1, then 2, then 3 GRAM\n\nBuy it on the website with your wallet. Not a promise of any return.",
+    passBtn: "🪪 Buy a passport",
+    boardText: "🏆 Caravan Board: who has held ZNB the longest. Connect your wallet on the page to see your own rank and your passports. Rankings and titles only, with no reward.",
+    boardBtn: "🏆 Open the Caravan Board",
+    channelText: "📢 The Zenobia channel: the story of the queen of Palmyra, and news of the coin and the passport.",
+    channelBtn: "📢 Open the channel",
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 Your journey\n\nDay ${d} · stage: ${stage}${nxt}\nPoints: ${pts}\nRank: #${rank} of ${total} · ${title}`,
     next: (n: number, s: string) => `\nNext stage (${s}) in ${n} day${n === 1 ? "" : "s"}`,
@@ -58,9 +74,9 @@ const T = {
     passportUsage: "Usage: /passport NUMBER  (links that passport to you; its picture follows your journey)",
     passportOn: (n: number) => `✅ Passport #${n} is now linked to you. Its picture and title follow your journey.`,
     about:
-      "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra. Seasons last a week; a score comes from holding, taking part and accumulating, and the leaderboard is public. Scores are ranks and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
+      "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra and the Silk Road. Holders can get a limited Silk Road Passport, and the Caravan Board shows who has held the longest. Rankings and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
-    ref: (l: string) => `👥 Invite friends\n\nYour link:\n${l}\n\nEach friend who joins gives you +5 points.`,
+    ref: (l: string) => `👥 Invite friends\n\nYour link:\n${l}\n\nShare it with friends who would like to know Zenobia.`,
     share: "📤 Share my link",
     shareText: "Join the Zenobia caravan on TON 🏛",
     owner: (n: number) => `👑 Owner stats\nMembers: ${n}`,
@@ -73,8 +89,17 @@ const T = {
   },
   ar: {
     welcome:
-      "🏛 أهلًا بك في قافلة زنوبيا.\n\nزنوبيا ملكة تدمر: تاريخ حقيقي ولعبة أسبوعية شفافة على TON.\n\n• سجّل حضورك يوميًا لتبني سلسلتك\n• ادعُ أصدقاءك برابطك\n• شاهد جوازك يكبر من طفلة إلى ملكة ثم محاربة\n\nالنقاط ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. ليست نصيحة مالية.",
-    btn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", invite: "👥 ادعُ صديقًا", link: "🔗 المحفظة", passport: "🪪 الجواز", stages: "👑 المراحل", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
+      "🏛 أهلًا بك في قافلة زنوبيا.\n\nزنوبيا (ZNB): عملة مجتمعية على TON مستوحاة من ملكة تدمر وطريق الحرير.\n\n• اشترِ ZNB\n• احصل على جواز طريق الحرير (NFT محدود وقابل للبيع للحاملين)\n• شاهد لوحة القافلة\n\nليست نصيحة مالية. العملات الرقمية محفوفة بالمخاطر.",
+    btn: { buy: "🛒 شراء ZNB", passport: "🪪 الجواز", board: "🏆 لوحة القافلة", channel: "📢 القناة", invite: "👥 ادعُ صديقًا", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
+    legacyBtn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", link: "🔗 المحفظة", stages: "👑 المراحل" },
+    buyText: "🛒 عملة زنوبيا (ZNB) تُتداول على Blum. اضغط الزر لفتح صفحتها.\n\nليست نصيحة مالية. العملات الرقمية محفوفة بالمخاطر، ولا تستخدم إلا ما تتحمل خسارته.",
+    buyBtn: "🛒 افتح ZNB على Blum",
+    passInfo: "🪪 جواز مرور طريق الحرير من تدمر\n\n• محدود بـ2,500، ويكبر بعمره: طفلة ثم ملكة ثم محاربة\n• يُقفل أول 30 يومًا (يفرضه العقد)، ثم يُباع ويُشترى بحرية\n• لحاملي ZNB؛ وإن لم يملك مالكه ZNB يظهر أسيرًا\n• السعر يرتفع مع الرقم: 1 ثم 2 ثم 3 GRAM\n\nيُشترى من الموقع بمحفظتك. ليس وعدًا بأي عائد.",
+    passBtn: "🪪 اشترِ جوازًا",
+    boardText: "🏆 لوحة القافلة: من احتفظ بـ ZNB أطول مدة. اربط محفظتك في الصفحة لترى ترتيبك وجوازاتك. ترتيب وألقاب فقط، بلا مكافأة.",
+    boardBtn: "🏆 افتح لوحة القافلة",
+    channelText: "📢 قناة زنوبيا: قصة ملكة تدمر وأخبار العملة والجواز.",
+    channelBtn: "📢 افتح القناة",
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 رحلتك\n\nاليوم ${d} · المرحلة: ${stage}${nxt}\nالنقاط: ${pts}\nالترتيب: ${rank} من ${total} · ${title}`,
     next: (n: number, s: string) => `\nالمرحلة التالية (${s}) بعد ${n} يوم`,
@@ -104,7 +129,7 @@ const T = {
     about:
       "زنوبيا (ZNB) عملة مجتمعية على TON مستوحاة من ملكة تدمر. الموسم أسبوع، والدرجة تأتي من الاحتفاظ والمشاركة والتراكم، ولوحة الصدارة علنية. الدرجات ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. العملات الرقمية محفوفة بالمخاطر، فلا تضع ما لا تتحمل خسارته.",
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
-    ref: (l: string) => `👥 ادعُ أصدقاءك\n\nرابطك:\n${l}\n\nكل صديق ينضم يمنحك +5 نقاط.`,
+    ref: (l: string) => `👥 ادعُ أصدقاءك\n\nرابطك:\n${l}\n\nشاركه مع أصدقائك الذين يهمهم التعرف على زنوبيا.`,
     share: "📤 شارك رابطي",
     shareText: "انضم إلى قافلة زنوبيا على TON 🏛",
     owner: (n: number) => `👑 إحصائيات المالك\nالأعضاء: ${n}`,
@@ -195,18 +220,18 @@ const dayStr = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) :
 function menuKeyboard(l: Lang): Keyboard {
   const b = T[l].btn;
   return new Keyboard()
-    .text(b.journey).text(b.checkin).row()
-    .text(b.top).text(b.invite).row()
-    .text(b.link).text(b.passport).row()
-    .text(b.stages).text(b.about).row()
+    .text(b.buy).text(b.passport).row()
+    .text(b.board).text(b.channel).row()
+    .text(b.invite).text(b.about).row()
     .text(b.lang)
     .resized(); // not persistent: the Back button (or the keyboard icon) collapses it, and the icon opens it again
 }
 
 const ACT_BY_LABEL: Record<string, string> = {};
 for (const lg of ["en", "ar"] as Lang[]) {
-  const b = T[lg].btn;
-  Object.assign(ACT_BY_LABEL, { [b.journey]: "zn:journey", [b.checkin]: "zn:checkin", [b.top]: "zn:top", [b.invite]: "zn:invite", [b.link]: "zn:link", [b.passport]: "zn:pass", [b.stages]: "zn:stages", [b.about]: "zn:about", [b.lang]: "zn:lang" });
+  const b = T[lg].btn, o = T[lg].legacyBtn; // the older labels still work for people whose keyboard has not been refreshed
+  Object.assign(ACT_BY_LABEL, { [b.buy]: "zn:buy", [b.passport]: "zn:pass", [b.board]: "zn:board", [b.channel]: "zn:channel", [b.invite]: "zn:invite", [b.about]: "zn:about", [b.lang]: "zn:lang",
+    [o.journey]: "zn:journey", [o.checkin]: "zn:checkin", [o.top]: "zn:top", [o.link]: "zn:link", [o.stages]: "zn:stages" });
 }
 
 interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard }
@@ -318,9 +343,12 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     .url(lang === "ar" ? "🪪 جواز طريق الحرير" : "🪪 Silk Road Passport", `${SITE}/zenobia/silk.html`);
 
   if (act === "zn:start") {
+    if (!commandsSet) {
+      commandsSet = true;
+      try { await bot.api.setMyCommands(COMMANDS.map((command) => ({ command, description: COMMAND_DESC[command] }))); } catch { /* the list is optional */ }
+    }
     // the first panel carries the persistent menu, which then stays at the bottom of the screen
     await reply(bot, chatId, l, welcome(l));
-    await reply(bot, chatId, l, { text: l === "ar" ? "روابط زنوبيا:" : "Zenobia links:", kb: linksKb(l) });
     return;
   }
 
@@ -428,39 +456,28 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   }
 
   if (act === "zn:pass") {
-    const open = (((await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE bot_id=$1 AND k='passports'`, botId)) as { v: string }[])[0]?.v) === "on";
+    // an older free passport (the owner's trial #0) still shows if this person has one
     const mineRows = (await prisma.$queryRawUnsafe(`SELECT idx, status, item FROM zenobia_passport WHERE bot_id=$1 AND tg_user_id=$2`, botId, id)) as { idx: number; status: string; item: string | null }[];
     let mine = mineRows[0];
     if (!mine && id === ownerId && user.wallet && user.wallet_verified) {
-      // the owner's trial passport is #0 (minted to his verified wallet before the passports were opened)
       await prisma.$executeRawUnsafe(`INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status) VALUES (0,$1,$2,$3,'minted') ON CONFLICT DO NOTHING`, botId, id, user.wallet);
       mine = { idx: 0, status: "minted", item: null };
     }
-    if (mine) {
-      const link = mine.item ? `https://tonviewer.com/${mine.item}` : "";
-      await panel({ text: mine.status === "minted" ? t.passReady(mine.idx, link) : t.passRequested(mine.idx) });
-      return;
-    }
-    // the passport is the Silk Road Passport: bought on the website with a wallet (no Telegram needed)
-    await panel({ text: t.passSite, kb: new InlineKeyboard().url(t.passSiteBtn, `${SITE}/zenobia/silk.html`) });
+    const have = mine && mine.status === "minted" ? `${t.passReady(mine.idx, mine.item ? `https://tonviewer.com/${mine.item}` : "")}\n\n` : "";
+    await panel({ text: have + t.passInfo, kb: new InlineKeyboard().url(t.passBtn, `${SITE}/zenobia/silk.html`) });
     return;
   }
 
-  if (act === "zn:silk" && id === ownerId && !cq) {
-    const arg = (text.split(/\s+/)[1] || "").toLowerCase();
-    if (arg !== "on" && arg !== "off") { await panel({ text: "Usage: /silk on  or  /silk off" }); return; }
-    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'silk',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, arg);
-    await panel({ text: arg === "on" ? "✅ Silk Road Passports are open (they also need the coin set with /jetton)." : "✅ Silk Road Passports are closed." });
+  if (act === "zn:buy") {
+    await panel({ text: t.buyText, kb: new InlineKeyboard().url(t.buyBtn, BUY_URL) });
     return;
   }
-  if (act === "zn:silkmin" && id === ownerId && !cq) {
-    const amount = (text.split(/\s+/)[1] || "").replace(/,/g, "");
-    if (!/^\d+(\.\d+)?$/.test(amount)) { await panel({ text: "Usage: /silkmin AMOUNT  (the least ZNB a wallet must hold, in whole coins, to buy a passport)" }); return; }
-    const dec = Number(((await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE bot_id=$1 AND k='decimals'`, botId)) as { v: string }[])[0]?.v ?? 9);
-    const [w, f = ""] = amount.split(".");
-    const units = BigInt(w + (f + "0".repeat(dec)).slice(0, dec));
-    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'silk_min',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, units.toString());
-    await panel({ text: `✅ A wallet must hold at least ${amount} ZNB to buy a passport.` });
+  if (act === "zn:board") {
+    await panel({ text: t.boardText, kb: new InlineKeyboard().url(t.boardBtn, `${SITE}/zenobia/hall.html`) });
+    return;
+  }
+  if (act === "zn:channel") {
+    await panel({ text: t.channelText, kb: new InlineKeyboard().url(t.channelBtn, CHANNEL_URL) });
     return;
   }
 

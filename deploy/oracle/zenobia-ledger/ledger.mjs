@@ -13,10 +13,13 @@
 //      each passport that its buyer PAID for. The ledger checks the payment itself on the chain (sender, exact comment, amount >= the tier price)
 //      before it mints, and mints to the payer's address. A payment it cannot honour (sold out, or short of the price) is returned to its sender,
 //      minus a small fee, once. Hard limits: 2500 passports, 150 per day.
+//   6. Proceeds to the owner (only with agent/ZENOBIA_SILK_ON): once a day, what is above a reserve of 0.9 goes to the ONE address committed in
+//      agent/ZENOBIA_MINT_TO (the owner's wallet), and only while no claim or mint is unfinished. Nothing else can ever be sent to it.
 // Each action is recorded BEFORE it is waited on, so a crash or a restart can never send twice.
 // The key is generated here on first run and stays in /state (mode 600, a folder that belongs to this container only).
 // It is never printed, logged or sent anywhere; only the public address is written to /state/address and status.json.
 import fs from "node:fs";
+import { sweepAmount } from "./sweep.mjs";
 import { mnemonicNew, mnemonicToPrivateKey } from "@ton/crypto";
 import { TonClient, WalletContractV4, internal, SendMode, beginCell, toNano, fromNano, Address, Cell, contractAddress } from "@ton/ton";
 
@@ -39,6 +42,8 @@ const SILK_ON = process.env.ZNB_SILK_ON === "1";
 const SILK_BASE = process.env.ZNB_SILK_BASE || "";
 const SILK_JSON = process.env.ZNB_SILK_COLLECTION_JSON || "";
 const SILK_ROYALTY_TO = (process.env.ZNB_SILK_ROYALTY_TO || process.env.ZNB_TRIAL_MINT_TO || "").trim();
+const SWEEP_TO = (process.env.ZNB_SWEEP_TO || "").trim();
+const SWEEP_RESERVE = toNano(process.env.ZNB_SWEEP_RESERVE || "0.9"), SWEEP_MIN = toNano("0.3");
 const SILK_CAP = 2500, SILK_PER_DAY = 150, SILK_DEPLOY_VALUE = toNano("0.04"), SILK_REFUND_FEE = toNano("0.02");
 /** 1-500: 1, 501-1500: 2, 1501-2500: 3 (GRAM). Keep in sync with src/lib/zenobiaSilk.ts */
 const silkPrice = (idx) => (idx < 500 ? toNano("1") : idx < 1500 ? toNano("2") : toNano("3"));
@@ -81,8 +86,9 @@ async function retry(fn) {
 /** The one place that sends money. Only to this wallet itself or to the passport collection address. */
 let collectionAddr = null;
 let silkAddr = null;
+let ownerAddr = null; // the one committed address that receives the proceeds
 async function send(to, value, body, init, refundOk = false) {
-  const ok = to.equals(wallet.address) || (collectionAddr && to.equals(collectionAddr)) || (silkAddr && to.equals(silkAddr)) || refundOk; // refundOk: returning a payer's own payment
+  const ok = to.equals(wallet.address) || (collectionAddr && to.equals(collectionAddr)) || (silkAddr && to.equals(silkAddr)) || (ownerAddr && to.equals(ownerAddr)) || refundOk; // refundOk: returning a payer's own payment
   if (!ok) throw new Error("refusing to send to an address that is not ours");
   const seqno = await retry(() => wallet.getSeqno());
   await retry(() => wallet.sendTransfer({
@@ -322,6 +328,7 @@ async function silkTick() {
     if (next >= SILK_CAP || pay.value < silkPrice(next)) {
       // cannot honour it: give the money back to its sender, once, minus a small fee
       const back = pay.value - SILK_REFUND_FEE;
+      if ((await retry(() => client.getBalance(wallet.address))) < back + toNano("0.05")) { status({ note: "silk: a refund is waiting for funds" }); continue; } // never mark it done without paying it
       s.claims[id] = { refunded: true, hash: pay.hash, sentAt: new Date().toISOString() };
       saveSstate(s); // recorded first
       if (back > 0n) { await send(from, back, beginCell().storeUint(0, 32).storeStringTail("ZNB refund").endCell(), undefined, true); log("silk refund sent", id); }
@@ -346,11 +353,38 @@ async function silkTick() {
   }
 }
 
+// ---- 6. proceeds to the owner ------------------------------------------------------------------------------------------------
+async function sweepTick() {
+  if (!SILK_ON || !SWEEP_TO || !OPS_KEY) return;
+  let to;
+  try { to = Address.parse(SWEEP_TO); } catch { status({ note: "sweep address is not valid" }); return; }
+  ownerAddr = to;
+  const s = sstate();
+  if (!s.collection?.deployed) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (s.sweep?.day === today) return;
+  const res = await fetch(`${SITE}/api/zenobia/silk/queue`, { headers: { accept: "application/json", "x-ops-key": OPS_KEY } });
+  if (!res.ok) return;
+  const q = await res.json();
+  if (!Array.isArray(q.claims)) return;
+  const pendingClaims = q.claims.filter((c) => !s.claims[String(c.id)]).length;
+  const unfinishedMints = Object.values(s.claims).filter((c) => !c.refunded && !c.told).length;
+  const balance = await retry(() => client.getBalance(wallet.address));
+  const amount = sweepAmount({ balance, reserve: SWEEP_RESERVE, min: SWEEP_MIN, pendingClaims, unfinishedMints });
+  if (amount <= 0n) return;
+  s.sweep = { day: today, amount: String(amount), at: new Date().toISOString() };
+  saveSstate(s); // recorded first: never sent twice
+  await send(to, amount, beginCell().storeUint(0, 32).storeStringTail("ZNB proceeds").endCell());
+  log("proceeds sent to the owner", fromNano(amount));
+  status({ note: `proceeds sent: ${fromNano(amount)}` });
+}
+
 status({ note: "started" });
 for (;;) {
   try { await seasonTick(); } catch (e) { log("season tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "error: " + String(e?.message || e).slice(0, 120) }); }
   try { await passportTick(); } catch (e) { log("passport tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "passport error: " + String(e?.message || e).slice(0, 120) }); }
   try { await silkTick(); } catch (e) { log("silk tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "silk error: " + String(e?.message || e).slice(0, 120) }); }
+  try { await sweepTick(); } catch (e) { log("sweep tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "sweep error: " + String(e?.message || e).slice(0, 120) }); }
   try { await queueTick(); } catch (e) { log("queue tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "queue error: " + String(e?.message || e).slice(0, 120) }); }
   if (process.env.ZNB_ONCE) break;
   await sleep(EVERY_MS);
