@@ -102,16 +102,19 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
 
 
 def resolve_start(model_dataset: str = MODEL_DATASET):
-    """(checkpoint path, its folder, progress dict, origin label)."""
+    """(checkpoint path, its folder, progress dict, origin label). The start is the MEASURED best among the main line (chat stage, stage 2) and
+    this trainer's own previous output (sham_base_select): a lineage is only continued while it is not clearly worse than another one
+    (2026-10-11: the chat stage's output was at chance level while this trainer kept extending whichever lineage it found first)."""
+    from sham_base_select import choose_base, make_probe
     from sham_inputs import fetch_dataset
 
-    main = None
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
+    mains = []
+    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
+                          ("sham-grown-checkpoint", "final_grown.pt")):
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
-            main = (hits[0], hits[0].parent, name)
-            break
+            mains.append((name, hits[0], hits[0].parent))
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -121,14 +124,28 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
             except Exception:
                 pass
     own_ckpt = sorted(own.rglob("final.pt")) if own else []
-    if own_ckpt and progress.get("by") == "sham_live" and (main is None or _same_tokenizers(own_ckpt[0].parent, main[1])):
-        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
-    if main is None:
+    own_ok = bool(own_ckpt and progress.get("by") == "sham_live")
+    cands = [(n, c, sorted(d.rglob("sham_small_tokenizer.json"))[0] if list(d.rglob("sham_small_tokenizer.json")) else None) for n, c, d in mains]
+    if own_ok:
+        toks = sorted(own_ckpt[0].parent.rglob("sham_small_tokenizer.json"))
+        cands.append(("own", own_ckpt[0], toks[0] if toks else None))
+    if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
-    base = {"by": "sham_live", "base": main[2]}
+    best = cands[0][0]
+    if len(cands) > 1:
+        try:
+            best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
+                                prefer=("sham-grown-checkpoint",))
+        except Exception as exc:
+            print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
+            best = "own" if own_ok else cands[0][0]
+    if best == "own":
+        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
+    name, ckpt, folder = next(m for m in mains if m[0] == best)
+    base = {"by": "sham_live", "base": name}
     if progress.get("by") == "sham_live":
         base.update({k: progress[k] for k in ("sessions", "seen_total") if k in progress})
-    return main[0], main[1], base, f"{main[2]} (الخط الرئيسي لشام)"
+    return ckpt, folder, base, f"{name} (الأفضل بالقياس)"
 
 
 # ---------------------------------------------------------------- encoders
@@ -144,7 +161,7 @@ def _image_tensor(data: bytes, size: int) -> torch.Tensor:
     return torch.from_numpy(np.asarray(img, dtype="float32")).permute(2, 0, 1) / 127.5 - 1.0
 
 
-def decode_audio(data: bytes, seconds: float = 4.0) -> torch.Tensor | None:
+def decode_audio(data: bytes, seconds: float = 16.0) -> torch.Tensor | None:
     """Any container/codec → 16 kHz mono float in [-1, 1]."""
     import av
     import numpy as np
@@ -210,12 +227,9 @@ class Encoder:
         return [image_token_id_to_vocab_id(c.view(-1)).tolist() for c in codes]
 
     def _aud_ids(self, wave: torch.Tensor):
-        from mel_spectrogram import waveform_to_mel_spectrogram
-        from model import audio_token_id_to_vocab_id
-        mel = waveform_to_mel_spectrogram(wave, SAMPLE_RATE, self.aud.cfg.n_mels, self.aud.cfg.segment_frames)
-        with self.lock, torch.no_grad():
-            codes = self.aud.encode(mel.unsqueeze(0).to(self.device)).cpu()
-        return audio_token_id_to_vocab_id(codes.view(1, -1))[0].tolist()
+        from sham_media_codec import audio_vocab_ids
+        with self.lock:                      # every consecutive 2.56 s segment of the clip (up to 6), not only one center crop
+            return audio_vocab_ids(self.aud, wave, SAMPLE_RATE, max_segments=6, device=self.device)
 
     def text_examples(self, text: str):
         from model import SpecialTokens
@@ -227,6 +241,43 @@ class Encoder:
             if len(chunk) >= 8:
                 seq = [SpecialTokens.BOS] + chunk + [SpecialTokens.EOS]
                 out.append((seq, list(seq)))
+        # long-context skill (2026-10-11): the measured model barely looks back (loss with the whole earlier document 3.702 vs 3.710 with only
+        # the last 512 tokens). A share of long documents also yields a RECALL example — a passage planted far back is repeated and the model
+        # must continue it — the standard way to build the look-back (induction) ability that retrieval and long generation rely on.
+        try:
+            import random as _random
+            import sham_auto_config
+            share = float(sham_auto_config.get("longctx_share", 0.15))
+            budget = min(512, self.max_len - 4)
+            rr = _random.Random(len(ids) * 2654435761 % 2**32)
+            if share > 0 and len(ids) >= budget + 64 and rr.random() < share:
+                from sham_longctx_train import build_recall_example
+                r_ids, r_lab = build_recall_example(ids, rr, budget)
+                out.append(([SpecialTokens.BOS] + r_ids, [-100] + r_lab))
+        except Exception:
+            pass
+        # live-search and date skills (owner, 2026-10-12: a model that only remembers says "the year is 2024"): a share of the documents that start
+        # with a short title line also yield «ابحث ثم أجب» (title → search → the document's own opening as the result → its first sentence as the
+        # answer; the date line in the prompt on half of them), and a small share teaches READING today's date from the context line.
+        try:
+            import datetime
+            import random as _random
+            import sham_auto_config
+            from sham_chat import build_date_example, build_search_example, date_context_line
+            import zlib
+            r2 = _random.Random(zlib.crc32(text.encode('utf-8')[:600]))      # from the text itself, so the choice does not follow the document's length
+            lines = [ln for ln in text.split("\n") if ln.strip()]
+            if len(lines) >= 2 and len(lines[0]) <= 100 and not lines[0].rstrip().endswith((".", "؟", "!", "…", ":")) \
+                    and r2.random() < float(sham_auto_config.get("search_share", 0.08)):
+                day = datetime.date(2024, 1, 1) + datetime.timedelta(days=r2.randrange(0, 365 * 5))
+                ex = build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2,
+                                          date_line=date_context_line(day) if r2.random() < 0.5 else None)
+                if ex:
+                    out.append(ex)
+            if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
+                out.append(build_date_example(self.tok.encode, r2))
+        except Exception:
+            pass
         return out
 
     def __call__(self, item, rng) -> list:

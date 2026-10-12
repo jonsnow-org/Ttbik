@@ -267,9 +267,9 @@ export default function InvoiceGenerator() {
       >
         <header className="border-b-2 border-slate-800 pb-4 mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-900">
+            <h2 className="text-2xl font-extrabold text-slate-900">
               {docType === "invoice" ? "فاتورة" : "عقد خدمة"}
-            </h1>
+            </h2>
             {docNumber && <p className="mt-1 text-sm text-slate-600">رقم: {docNumber}</p>}
             {docDate && <p className="text-sm text-slate-600">التاريخ: {docDate}</p>}
           </div>

@@ -1,0 +1,32 @@
+name: Sham Lightning Limits (measure how many free Studios)
+
+# كم استوديو مجاني تسمح به Lightning فعلاً، وهل يعمل ثانٍ مع الرئيسي؟ يُنشئ استوديو فحص صغيراً ويشغّله ثم يوقفه ويحذفه. لا يمس الاستوديو الرئيسي.
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-lightning-limits
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  limits:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install lightning-sdk
+      - name: Measure
+        env:
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+        run: python ai-system/lightning/studio_limits.py

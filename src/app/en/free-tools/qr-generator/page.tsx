@@ -40,7 +40,7 @@ export default function QrGeneratorEnPage() {
           🎁 100% Free Tool
         </span>
         <Link href="/free-tools/qr-generator" className="text-xs font-semibold text-slate-500 hover:text-brand-700">
-          🇸🇦 العربية
+          🇸🇦 Arabic version
         </Link>
       </div>
       <h1 className="mt-3 text-2xl font-extrabold text-slate-900">

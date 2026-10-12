@@ -43,12 +43,47 @@ from sham_decoding import SHAM_TURN, USER_TURN
 IGNORE = -100
 
 DESCRIBE_IMAGE = ["صف هذه الصورة.", "ماذا ترى في الصورة؟", "اكتب وصفاً لهذه الصورة.", "ما الذي تظهره هذه الصورة؟"]
-DRAW_IMAGE = ["ارسم: {}", "أنشئ صورة: {}", "ارسم لي صورة لـ {}", "صورة: {}"]
+DRAW_IMAGE = ["ارسم: {}", "أنشئ صورة: {}", "ارسم لي صورة لـ {}", "صورة: {}",
+              # 2026-10-12: how people really ask on Telegram — the model must DECIDE to draw from many phrasings, not from one fixed template
+              "اعطني صورة {}", "أعطني صورة {}", "أريد صورة {}", "ولّد صورة {}", "اصنع لي صورة {}", "أرني صورة {}", "صوّر لي {}", "هات صورة {}",
+              "ارسم {}", "اريد رسمة {}", "أنشئ لي صورة عن {}", "اعرض صورة {}"]
 DESCRIBE_VIDEO = ["صف هذا الفيديو.", "ماذا يحدث في هذا الفيديو؟", "ما الذي يظهر في المقطع؟"]
-MAKE_VIDEO = ["أنشئ فيديو: {}", "اصنع مقطع فيديو: {}", "فيديو: {}"]
+MAKE_VIDEO = ["أنشئ فيديو: {}", "اصنع مقطع فيديو: {}", "فيديو: {}",
+              "اعطني فيديو {}", "أعطني مقطع فيديو {}", "أريد فيديو {}", "ولّد فيديو {}", "اصنع لي فيديو {}", "أرني فيديو {}", "هات فيديو {}", "صوّر فيديو {}"]
 ASK_ABOUT = ["ما هو {}؟", "حدثني عن {}.", "ماذا تعرف عن {}؟", "من هو {}؟", "عرّف {}."]
 TRANSCRIBE_AUDIO = ["اكتب ما يقال في هذا المقطع.", "ماذا يقول هذا الصوت؟", "حوّل هذا الصوت إلى نص."]
-SPEAK_AUDIO = ["انطق: {}", "قل بصوتك: {}", "حوّل إلى صوت: {}"]
+SPEAK_AUDIO = ["انطق: {}", "قل بصوتك: {}", "حوّل إلى صوت: {}",
+               "اعطني صوت {}", "أعطني تسجيلاً صوتياً {}", "أريد صوتاً {}", "ولّد صوتاً {}", "اقرأ بصوت عالٍ {}", "تكلّم عن {}", "أسمعني {}", "هات صوت {}"]
+
+
+# ---- today's date as CONTEXT (owner, 2026-10-12): a model that only remembers answers "the date is 2024". The date is handed to it in the
+# prompt like any other input, and these examples teach it to READ it (and convert it: the context line has the ISO date, the answer says the month in words).
+WEEKDAYS_AR = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]      # datetime.date.weekday(): Monday = 0
+MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+DATE_QUESTIONS = ["ما تاريخ اليوم؟", "كم التاريخ اليوم؟", "في أي سنة نحن؟", "ما هو اليوم؟", "في أي شهر نحن؟", "ما اليوم وتاريخه؟"]
+
+
+def date_context_line(d) -> str:
+    """The context line put in front of a question: «التاريخ اليوم: 2026-10-12 (الاثنين)»."""
+    return f"التاريخ اليوم: {d.isoformat()} ({WEEKDAYS_AR[d.weekday()]})"
+
+
+def build_date_example(text_ids_fn, rng: random.Random, today=None) -> tuple[list[int], list[int]]:
+    """A question about the date whose answer is read from the date line in the context. `today` is a datetime.date; None draws a random day
+    from 2024-2028, so the model learns the skill, never a particular date."""
+    import datetime
+    d = today or datetime.date(2024, 1, 1) + datetime.timedelta(days=rng.randrange(0, 365 * 5))
+    q = rng.choice(DATE_QUESTIONS)
+    wd, mon = WEEKDAYS_AR[d.weekday()], MONTHS_AR[d.month - 1]
+    if "سنة" in q:
+        a = f"نحن في سنة {d.year}."
+    elif "شهر" in q:
+        a = f"نحن في شهر {mon} من سنة {d.year}."
+    elif q == "ما هو اليوم؟":
+        a = f"اليوم {wd}."
+    else:
+        a = f"اليوم {wd} {d.day} {mon} {d.year}."
+    return build_chat_example(text_ids_fn(date_context_line(d) + "\n" + q), text_ids_fn(a))
 
 
 def build_chat_example(
@@ -108,6 +143,7 @@ def build_video_chat_examples(
 
 def build_search_example(
     text_ids_fn, title: str, article: str, rng: random.Random, max_result_tokens: int = 160, max_answer_tokens: int = 96,
+    date_line: str | None = None,
 ) -> tuple[list[int], list[int]] | None:
     """Learned search, self-supervised from Wikipedia (no labels needed):
         <USER> ما هو {title}؟ <SHAM> <SEARCH_START> title <SEARCH_END>
@@ -120,7 +156,7 @@ def build_search_example(
     first = paragraphs[0]
     answer = first.split(". ")[0].strip()
     answer = answer if answer.endswith(".") else answer + "."
-    q = text_ids_fn(rng.choice(ASK_ABOUT).format(title))
+    q = text_ids_fn((date_line + "\n" if date_line else "") + rng.choice(ASK_ABOUT).format(title))
     query = text_ids_fn(title)
     result = text_ids_fn(" ".join(paragraphs[:2]))[:max_result_tokens]
     ans = text_ids_fn(answer)[:max_answer_tokens]
@@ -300,6 +336,17 @@ if __name__ == "__main__":
     t_ids, t_lab = build_search_example(fake, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng)
     s0, r0 = t_ids.index(SpecialTokens.SEARCH_START), t_ids.index(SpecialTokens.RESULT_START)
     assert t_lab[s0] == SpecialTokens.SEARCH_START and t_lab[r0 + 1] == IGNORE and t_lab[-1] == SpecialTokens.EOS
+    # the date is context: the line goes in front of the question and the answer is read from it (the model learns the skill, not a date)
+    import datetime
+    seen: list[str] = []
+    cap = lambda t: (seen.append(t), fake(t))[1]
+    build_date_example(cap, random.Random(1), today=datetime.date(2026, 10, 12))
+    assert seen[0].startswith("التاريخ اليوم: 2026-10-12 (الاثنين)\n") and any(q in seen[0] for q in DATE_QUESTIONS), seen
+    assert "2026" in seen[1] or "الاثنين" in seen[1], seen
+    days = {build_date_example(lambda t: [len(t)], random.Random(k))[0][-2] for k in range(30)}
+    assert len(days) > 3                                              # random days: not one memorised date
+    dated = build_search_example(cap, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng, date_line=date_context_line(datetime.date(2026, 1, 5)))
+    assert seen[-4].startswith("التاريخ اليوم: 2026-01-05") and dated[0].count(SpecialTokens.SEARCH_START) == 1
     tr, ho = split_holdout(list(range(100)))
     assert len(ho) == 5 and not set(tr) & set(ho)
     print("sham_chat self-test OK")

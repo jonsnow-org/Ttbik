@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import Logo from "@/components/Logo";
+import { SIDEBAR_EDITORIAL_SECTION } from "@/config/navigation";
 
 /**
  * Mobile-only hamburger + slide-in drawer. The per-tool admin shortcuts
@@ -20,33 +21,21 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
-  // No background-scroll-lock (no `body.style.overflow = "hidden"`):
-  // real, reported bug (2026-09-20) in Telegram's in-app browser -- some
-  // mobile WebViews route ALL touch-scroll gestures through whatever
-  // `overflow` the page's own <body> has, so locking it also silently
-  // breaks scrolling *inside* this drawer, not just the page behind it.
-  // Losing the "background can't scroll while the drawer is open" nicety
-  // is a much smaller cost than a menu the owner can't scroll at all.
 
   const groups: { label: string; badge?: string; links: { href: string; label: string }[] }[] = [
     {
       label: "الرئيسية",
-      links: [
-        { href: "/", label: "🏠 الصفحة الرئيسية" },
-      ],
+      links: [{ href: "/", label: "🏠 الصفحة الرئيسية" }, { href: "/en", label: "EN English" }],
     },
     {
       label: "الأدوات",
       links: [
         { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
-        { href: "/free-tools", label: "📂 كل الأدوات" },
       ],
     },
     {
-      label: "المدونة والأخبار",
-      links: [
-        { href: "/news", label: "📰 مركز المدونة والأخبار" },
-      ],
+      label: SIDEBAR_EDITORIAL_SECTION.label,
+      links: SIDEBAR_EDITORIAL_SECTION.links.map((l) => ({ href: l.href, label: l.label })),
     },
     {
       label: "قسم البوتات",

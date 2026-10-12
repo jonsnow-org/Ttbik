@@ -1,0 +1,28 @@
+name: Sham Cell Audit (read-only)
+
+# أيّ دفاتر كاكل ستتعطل لأن مزامنة الخلايا تحدّثها نصف تحديث؟ قراءة فقط: يسحب كل دفتر شام ويقارن خلاياه بالمستودع. أسماء الدفاتر الحقيقية لا تظهر.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle ipython
+      - name: Audit
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_cell_audit.py /tmp/sham_cells

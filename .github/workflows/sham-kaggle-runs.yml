@@ -1,0 +1,28 @@
+name: Sham Kaggle Runs (read-only)
+
+# كم يعمل كل دفتر من دفاتر شام على كاكل فعلاً؟ قراءة فقط: يحمّل سجل آخر تشغيل لكل دفتر ويطبع مدته. أسماء الدفاتر الحقيقية لا تظهر (مسار + رقم مستعار).
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  runs:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle
+      - name: Durations
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: python ai-system/supervision/sham_kaggle_runs.py /tmp/sham_runs

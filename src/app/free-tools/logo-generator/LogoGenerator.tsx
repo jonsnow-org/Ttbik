@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { downloadDataUrl, downloadBlob } from "@/lib/download";
 
 // O4 co-build pass 7 (Grok): restore truncated file + diagonal split layout.
 const FONTS = [
@@ -160,12 +161,12 @@ export default function LogoGenerator() {
       ctx.arc(cx, cy, 152, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = pairing.text;
-      ctx.font = `${font.weight} 52px "${font.family}"`;
-      ctx.fillText(label.slice(0, 18), cx, tagline.trim() ? cy - 16 : cy);
+      ctx.font = `${font.weight} 64px "${font.family}"`;
+      ctx.fillText(label.slice(0, 18), cx, tagline.trim() ? cy - 22 : cy);
       if (tagline.trim()) {
-        ctx.font = `400 22px "${font.family}"`;
         ctx.fillStyle = pairing.accent;
-        ctx.fillText(tagline.trim().slice(0, 28), cx, cy + 36);
+        ctx.font = `700 26px "${font.family}"`;
+        ctx.fillText(tagline.trim().slice(0, 28), cx, cy + 42);
       }
       setDataUrl(canvas.toDataURL("image/png"));
       return;
@@ -183,12 +184,12 @@ export default function LogoGenerator() {
       ctx.arc(cx, cy, 126, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = pairing.text;
-      ctx.font = `${font.weight} 120px "${font.family}"`;
+      ctx.font = `${font.weight} 128px "${font.family}"`;
       ctx.fillText(firstGlyph(label), cx, cy + 6);
       if (tagline.trim()) {
-        ctx.font = `400 26px "${font.family}"`;
         ctx.fillStyle = pairing.accent;
-        ctx.fillText(tagline.trim().slice(0, 60), cx, cy + 176);
+        ctx.font = `700 28px "${font.family}"`;
+        ctx.fillText(tagline.trim().slice(0, 32), cx, cy + 190);
       }
       setDataUrl(canvas.toDataURL("image/png"));
       return;
@@ -201,61 +202,57 @@ export default function LogoGenerator() {
       let fontSize = 88;
       do {
         ctx.font = `${font.weight} ${fontSize}px "${font.family}"`;
-        if (ctx.measureText(label).width <= CANVAS_W - 160 || fontSize <= 28) break;
+        if (ctx.measureText(label).width <= CANVAS_W - 120) break;
         fontSize -= 4;
-      } while (true);
+      } while (fontSize > 36);
       ctx.fillStyle = pairing.text;
-      ctx.fillText(label, CANVAS_W / 2, tagline.trim() ? CANVAS_H / 2 - 36 : CANVAS_H / 2);
+      ctx.fillText(label, CANVAS_W / 2, tagline.trim() ? CANVAS_H / 2 - 28 : CANVAS_H / 2);
       if (tagline.trim()) {
-        ctx.font = `400 30px "${font.family}"`;
         ctx.fillStyle = pairing.accent;
-        ctx.fillText(tagline.trim().slice(0, 60), CANVAS_W / 2, CANVAS_H / 2 + 48);
+        ctx.font = `700 30px "${font.family}"`;
+        ctx.fillText(tagline.trim().slice(0, 40), CANVAS_W / 2, CANVAS_H / 2 + 48);
       }
       setDataUrl(canvas.toDataURL("image/png"));
       return;
     }
 
     if (layoutId === "badge") {
-      const pad = 48;
-      const rx = 48;
+      const inner = transparentBg ? "#ffffff" : pairing.bg;
       ctx.fillStyle = pairing.accent;
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(pad, pad, CANVAS_W - pad * 2, CANVAS_H - pad * 2, rx);
-      } else {
-        ctx.rect(pad, pad, CANVAS_W - pad * 2, CANVAS_H - pad * 2);
-      }
+      roundRect(ctx, 48, 48, CANVAS_W - 96, CANVAS_H - 96, 48);
       ctx.fill();
-      ctx.fillStyle = transparentBg ? "#ffffff" : pairing.bg;
-      ctx.beginPath();
-      if (typeof ctx.roundRect === "function") {
-        ctx.roundRect(pad + 10, pad + 10, CANVAS_W - pad * 2 - 20, CANVAS_H - pad * 2 - 20, rx - 8);
-      } else {
-        ctx.rect(pad + 10, pad + 10, CANVAS_W - pad * 2 - 20, CANVAS_H - pad * 2 - 20);
-      }
+      ctx.fillStyle = inner;
+      roundRect(ctx, 58, 58, CANVAS_W - 116, CANVAS_H - 116, 40);
       ctx.fill();
-    } else {
-      ctx.fillStyle = pairing.accent;
-      ctx.fillRect(CANVAS_W / 2 - 60, CANVAS_H / 2 + 70, 120, 6);
+      ctx.fillStyle = pairing.text;
+      ctx.font = `${font.weight} 72px "${font.family}"`;
+      ctx.fillText(label.slice(0, 20), CANVAS_W / 2, tagline.trim() ? CANVAS_H / 2 - 20 : CANVAS_H / 2);
+      if (tagline.trim()) {
+        ctx.fillStyle = pairing.accent;
+        ctx.font = `700 28px "${font.family}"`;
+        ctx.fillText(tagline.trim().slice(0, 36), CANVAS_W / 2, CANVAS_H / 2 + 60);
+      }
+      setDataUrl(canvas.toDataURL("image/png"));
+      return;
     }
 
-    let fontSize = layoutId === "badge" ? 84 : 96;
+    // default wordmark
+    let fontSize = 96;
     do {
       ctx.font = `${font.weight} ${fontSize}px "${font.family}"`;
-      const width = ctx.measureText(label).width;
-      const maxW = layoutId === "badge" ? CANVAS_W - 200 : CANVAS_W - 120;
-      if (width <= maxW || fontSize <= 28) break;
+      if (ctx.measureText(label).width <= CANVAS_W - 80) break;
       fontSize -= 4;
-    } while (true);
+    } while (fontSize > 32);
     ctx.fillStyle = pairing.text;
-    ctx.fillText(label, CANVAS_W / 2, CANVAS_H / 2 - (tagline.trim() ? 20 : 0));
-
+    ctx.fillText(label, CANVAS_W / 2, tagline.trim() ? CANVAS_H / 2 - 20 : CANVAS_H / 2);
     if (tagline.trim()) {
-      ctx.font = `400 28px "${font.family}"`;
       ctx.fillStyle = pairing.accent;
-      ctx.fillText(tagline.trim().slice(0, 60), CANVAS_W / 2, CANVAS_H / 2 + 110);
+      ctx.font = `700 32px "${font.family}"`;
+      ctx.fillText(tagline.trim().slice(0, 40), CANVAS_W / 2, CANVAS_H / 2 + 52);
+    } else {
+      ctx.fillStyle = pairing.accent;
+      ctx.fillRect(CANVAS_W / 2 - 60, CANVAS_H / 2 + 50, 120, 6);
     }
-
     setDataUrl(canvas.toDataURL("image/png"));
   }, [name, tagline, font, pairing, fontsReady, layoutId, transparentBg]);
 
@@ -265,10 +262,7 @@ export default function LogoGenerator() {
 
   function downloadPng() {
     if (!dataUrl) return;
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `logo-${slugName(name)}.png`;
-    a.click();
+    downloadDataUrl(dataUrl, `logo-${slugName(name)}.png`);
   }
 
   function downloadAvatarPng() {
@@ -297,10 +291,7 @@ export default function LogoGenerator() {
     ctx.font = `${font.weight} 168px "${font.family}"`;
     ctx.fillText(firstGlyph(label), cx, cy + 8);
     const url = off.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `avatar-${slugName(name)}.png`;
-    a.click();
+    downloadDataUrl(url, `avatar-${slugName(name)}.png`);
   }
 
   function downloadSvg() {
@@ -309,37 +300,31 @@ export default function LogoGenerator() {
     const escaped = escapeXml(label);
     const escapedSub = escapeXml(sub);
     const glyph = escapeXml(firstGlyph(label));
-    const bgRect = transparentBg ? "" : `<rect width=\"1000\" height=\"500\" fill=\"${pairing.bg}\"/>`;
+    const bgRect = transparentBg ? "" : `<rect width="1000" height="500" fill="${pairing.bg}"/>`;
     let body = "";
     if (layoutId === "split") {
       const rightText = sub ? escapeXml(sub.slice(0, 24)) : glyph;
       const rightSize = sub ? 26 : 72;
-      body = `<polygon points=\"580,0 1000,0 1000,500 380,500\" fill=\"${pairing.accent}\"/><text x=\"320\" y=\"${sub ? 232 : 250}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"56\">${escaped.slice(0, 22)}</text><text x=\"720\" y=\"258\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.bg}\" font-family=\"${font.family}, sans-serif\" font-weight=\"700\" font-size=\"${rightSize}\">${rightText}</text>`;
+      body = `<polygon points="580,0 1000,0 1000,500 380,500" fill="${pairing.accent}"/><text x="320" y="${sub ? 232 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="56">${escaped.slice(0, 22)}</text><text x="720" y="258" text-anchor="middle" dominant-baseline="middle" fill="${pairing.bg}" font-family="${font.family}, sans-serif" font-weight="700" font-size="${rightSize}">${rightText}</text>`;
     } else if (layoutId === "ribbon") {
       const onBand = escapeXml((sub || label).slice(0, 36));
-      body = `<rect x=\"0\" y=\"310\" width=\"1000\" height=\"190\" fill=\"${pairing.accent}\"/><text x=\"500\" y=\"160\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"64\">${escaped.slice(0, 28)}</text><text x=\"500\" y=\"405\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.bg}\" font-family=\"${font.family}, sans-serif\" font-weight=\"700\" font-size=\"28\">${onBand}</text>`;
+      body = `<rect y="310" width="1000" height="190" fill="${pairing.accent}"/><text x="500" y="170" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="64">${escaped.slice(0, 28)}</text><text x="500" y="405" text-anchor="middle" dominant-baseline="middle" fill="${pairing.bg}" font-family="${font.family}, sans-serif" font-weight="700" font-size="28">${onBand}</text>`;
     } else if (layoutId === "seal") {
-      body = `<circle cx=\"500\" cy=\"250\" r=\"168\" fill=\"none\" stroke=\"${pairing.accent}\" stroke-width=\"10\"/><circle cx=\"500\" cy=\"250\" r=\"152\" fill=\"none\" stroke=\"${pairing.accent}\" stroke-width=\"3\"/><text x=\"500\" y=\"${sub ? 234 : 250}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"52\">${escaped.slice(0, 18)}</text>${sub ? `<text x=\"500\" y=\"286\" text-anchor=\"middle\" fill=\"${pairing.accent}\" font-family=\"${font.family}, sans-serif\" font-size=\"22\">${escapeXml(sub.slice(0, 28))}</text>` : ""}`;
+      body = `<circle cx="500" cy="250" r="168" fill="none" stroke="${pairing.accent}" stroke-width="10"/><circle cx="500" cy="250" r="152" fill="none" stroke="${pairing.accent}" stroke-width="3"/><text x="500" y="${sub ? 228 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="64">${escaped.slice(0, 18)}</text>${sub ? `<text x="500" y="292" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="26">${escapedSub.slice(0, 28)}</text>` : ""}`;
     } else if (layoutId === "monogram") {
-      const cy = sub ? 226 : 250;
       const inner = transparentBg ? "#ffffff" : pairing.bg;
-      body = `<circle cx=\"500\" cy=\"${cy}\" r=\"140\" fill=\"${pairing.accent}\"/><circle cx=\"500\" cy=\"${cy}\" r=\"126\" fill=\"${inner}\"/><text x=\"500\" y=\"${cy + 8}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"120\">${glyph}</text>${sub ? `<text x=\"500\" y=\"${cy + 176}\" text-anchor=\"middle\" fill=\"${pairing.accent}\" font-family=\"${font.family}, sans-serif\" font-size=\"26\">${escapedSub}</text>` : ""}`;
+      body = `<circle cx="500" cy="${sub ? 210 : 250}" r="140" fill="${pairing.accent}"/><circle cx="500" cy="${sub ? 210 : 250}" r="126" fill="${inner}"/><text x="500" y="${sub ? 216 : 256}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="128">${glyph}</text>${sub ? `<text x="500" y="400" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub.slice(0, 32)}</text>` : ""}`;
     } else if (layoutId === "stacked") {
-      body = `<rect x=\"0\" y=\"0\" width=\"16\" height=\"500\" fill=\"${pairing.accent}\"/><rect x=\"984\" y=\"0\" width=\"16\" height=\"500\" fill=\"${pairing.accent}\"/><text x=\"500\" y=\"${sub ? 214 : 250}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"72\">${escaped}</text>${sub ? `<text x=\"500\" y=\"298\" text-anchor=\"middle\" fill=\"${pairing.accent}\" font-family=\"${font.family}, sans-serif\" font-size=\"30\">${escapedSub}</text>` : ""}`;
+      body = `<rect width="16" height="500" fill="${pairing.accent}"/><rect x="984" width="16" height="500" fill="${pairing.accent}"/><text x="500" y="${sub ? 214 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="298" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="30">${escapedSub}</text>` : ""}`;
     } else if (layoutId === "badge") {
       const inner = transparentBg ? "#ffffff" : pairing.bg;
-      body = `<rect x=\"48\" y=\"48\" width=\"904\" height=\"404\" rx=\"48\" fill=\"${pairing.accent}\"/><rect x=\"58\" y=\"58\" width=\"884\" height=\"384\" rx=\"40\" fill=\"${inner}\"/><text x=\"500\" y=\"${sub ? 230 : 250}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"72\">${escaped}</text>${sub ? `<text x=\"500\" y=\"360\" text-anchor=\"middle\" fill=\"${pairing.accent}\" font-family=\"${font.family}, sans-serif\" font-size=\"28\">${escapedSub}</text>` : ""}`;
+      body = `<rect x="48" y="48" width="904" height="404" rx="48" fill="${pairing.accent}"/><rect x="58" y="58" width="884" height="384" rx="40" fill="${inner}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
     } else {
-      body = `<rect x=\"440\" y=\"320\" width=\"120\" height=\"6\" fill=\"${pairing.accent}\"/><text x=\"500\" y=\"${sub ? 230 : 250}\" text-anchor=\"middle\" dominant-baseline=\"middle\" fill=\"${pairing.text}\" font-family=\"${font.family}, sans-serif\" font-weight=\"${font.weight}\" font-size=\"72\">${escaped}</text>${sub ? `<text x=\"500\" y=\"360\" text-anchor=\"middle\" fill=\"${pairing.accent}\" font-family=\"${font.family}, sans-serif\" font-size=\"28\">${escapedSub}</text>` : ""}`;
+      body = `<rect x="440" y="320" width="120" height="6" fill="${pairing.accent}"/><text x="500" y="${sub ? 230 : 250}" text-anchor="middle" dominant-baseline="middle" fill="${pairing.text}" font-family="${font.family}, sans-serif" font-weight="${font.weight}" font-size="72">${escaped}</text>${sub ? `<text x="500" y="360" text-anchor="middle" fill="${pairing.accent}" font-family="${font.family}, sans-serif" font-size="28">${escapedSub}</text>` : ""}`;
     }
-    const svg = `<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1000\" height=\"500\" viewBox=\"0 0 1000 500\" direction=\"rtl\">\n  <style>@import url('${GOOGLE_FONTS_HREF}');</style>\n  ${bgRect}\n  ${body}\n</svg>`;
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500" viewBox="0 0 1000 500" direction="rtl">\n  <style>@import url('${GOOGLE_FONTS_HREF}');</style>\n  ${bgRect}\n  ${body}\n</svg>`;
     const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `logo-${slugName(name)}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `logo-${slugName(name)}.svg`);
   }
 
   return (
@@ -348,130 +333,105 @@ export default function LogoGenerator() {
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link rel="stylesheet" href={GOOGLE_FONTS_HREF} />
 
-      <label className="block text-sm font-semibold text-slate-700">اسم المشروع أو المتجر</label>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        dir="auto"
-        placeholder="مثال: بيت القهوة"
-        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-      />
-
-      <label className="mt-4 block text-sm font-semibold text-slate-700">شعار فرعي (اختياري)</label>
-      <input
-        value={tagline}
-        onChange={(e) => setTagline(e.target.value)}
-        dir="auto"
-        placeholder="مثال: قهوة مختصة منذ 2020"
-        className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
-      />
-
-      <p className="mt-4 mb-1 text-sm font-semibold text-slate-700">الخط</p>
-      <div className="flex flex-wrap gap-2">
-        {FONTS.map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            onClick={() => setFontId(f.id)}
-            style={{ fontFamily: `\"${f.family}\"` }}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${
-              fontId === f.id ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-4 mb-1 text-sm font-semibold text-slate-700">التخطيط</p>
-      <div className="flex flex-wrap gap-2">
-        {LAYOUTS.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            onClick={() => setLayoutId(l.id)}
-            className={`rounded-full px-3.5 py-1.5 text-sm font-semibold ${
-              layoutId === l.id ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
-          >
-            {l.label}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-4 mb-1 text-sm font-semibold text-slate-700">تنسيق الألوان</p>
-      <div className="flex flex-wrap gap-2">
-        {PAIRINGS.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            onClick={() => setPairingId(p.id)}
-            title={p.label}
-            className={`h-9 w-9 rounded-full border-2 ${
-              pairingId === p.id ? "border-brand-600" : "border-transparent"
-            }`}
-            style={{ background: `linear-gradient(135deg, ${p.bg} 50%, ${p.accent} 50%)` }}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div>
+          <label className="block text-sm font-semibold text-slate-700">اسم المشروع / الشعار</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            placeholder="اسم مشروعك"
           />
-        ))}
+        </div>
+        <div>
+          <label className="block text-sm font-semibold text-slate-700">شعار فرعي (اختياري)</label>
+          <input
+            value={tagline}
+            onChange={(e) => setTagline(e.target.value)}
+            className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+            placeholder="جملة قصيرة"
+          />
+        </div>
       </div>
 
-      <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
-        <input
-          type="checkbox"
-          checked={transparentBg}
-          onChange={(e) => setTransparentBg(e.target.checked)}
-          className="h-4 w-4 rounded border-slate-300"
-        />
-        خلفية شفافة للتنزيل (مناسب للطباعة واللصق فوق صورة)
+      <div className="mt-4">
+        <p className="text-sm font-semibold text-slate-700">الخط</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {FONTS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFontId(f.id)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${fontId === f.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-sm font-semibold text-slate-700">الألوان</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {PAIRINGS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPairingId(p.id)}
+              className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${pairingId === p.id ? "border-slate-900" : "border-slate-200"}`}
+            >
+              <span className="h-3 w-3 rounded-full" style={{ background: p.accent }} />
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-sm font-semibold text-slate-700">التصميم</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {LAYOUTS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              onClick={() => setLayoutId(l.id)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${layoutId === l.id ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-700"}`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <label className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+        <input type="checkbox" checked={transparentBg} onChange={(e) => setTransparentBg(e.target.checked)} />
+        خلفية شفافة
       </label>
 
-      <div className="mt-6 flex flex-col items-center gap-3">
+      <div className="mt-6 flex flex-col items-center">
         <canvas
           ref={canvasRef}
           width={CANVAS_W}
           height={CANVAS_H}
-          className="w-full max-w-lg rounded-xl border border-slate-200 shadow-sm"
-          style={
-            transparentBg
-              ? {
-                  backgroundImage:
-                    "linear-gradient(45deg,#e2e8f0 25%,transparent 25%),linear-gradient(-45deg,#e2e8f0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e2e8f0 75%),linear-gradient(-45deg,transparent 75%,#e2e8f0 75%)",
-                  backgroundSize: "20px 20px",
-                  backgroundPosition: "0 0,0 10px,10px -10px,-10px 0",
-                }
-              : undefined
-          }
+          className="max-w-full rounded-xl border border-slate-200 shadow-sm"
+          style={{ width: "100%", maxWidth: 500, height: "auto" }}
         />
-        <div className="flex flex-wrap justify-center gap-2">
-          <button
-            type="button"
-            onClick={downloadPng}
-            disabled={!dataUrl}
-            className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            تنزيل PNG
-          </button>
-          <button
-            type="button"
-            onClick={downloadAvatarPng}
-            disabled={!fontsReady}
-            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            أفاتار 500×500
-          </button>
-          <button
-            type="button"
-            onClick={downloadSvg}
-            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
-          >
-            تنزيل SVG
-          </button>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <button type="button" onClick={downloadPng} className="rounded-full bg-slate-900 px-4 py-2 text-sm font-bold text-white">تنزيل PNG</button>
+          <button type="button" onClick={downloadAvatarPng} className="rounded-full border px-4 py-2 text-sm font-bold">أفاتار دائري</button>
+          <button type="button" onClick={downloadSvg} className="rounded-full border px-4 py-2 text-sm font-bold">تنزيل SVG</button>
         </div>
       </div>
-
-      <p className="mt-4 text-center text-xs text-slate-400">
-        يعمل بالكامل داخل متصفحك — بلا رفع بيانات لأي خادم. PNG للاستخدام السريع، SVG للتكبير بلا فقدان وضوح، الأفاتار مربع 500×500 للحسابات. الخلفية الشفافة تُصدَّر في PNG وSVG.
-      </p>
     </div>
   );
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

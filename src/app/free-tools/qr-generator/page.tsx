@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import QrGenerator from "./QrGenerator";
+import ToolSponsor from "@/components/ToolSponsor";
+import BulkQr from "@/components/BulkQr";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مولّد رمز QR مجاني (عربي) | أدوات مجانية | شام AI",
@@ -18,7 +21,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function QrGeneratorPage() {
+function QrGeneratorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <div className="flex items-center justify-between gap-3">
@@ -36,12 +39,24 @@ export default function QrGeneratorPage() {
         الصق رابطاً أو أي نص واحصل فوراً على رمز QR جاهز للتنزيل أو النسخ —
         خصّص الحجم والألوان. يعمل محلياً في متصفحك، بلا تسجيل.
       </p>
+      <ToolSponsor tool="qr-generator" />
       <div className="mt-6">
         <QrGenerator />
+        <BulkQr />
       </div>
+      <a href="/brand" className="mt-3 block text-center text-xs font-bold text-slate-500">أضف هذه الأداة لموقعك</a>
       <div className="mt-8">
         <AdSlot position="in-content" label="أسفل مولّد QR" />
       </div>
     </div>
+  );
+}
+
+export default function QrGeneratorPage() {
+  return (
+    <>
+      <QrGeneratorPageBody />
+      <ToolSeoSection slug="qr-generator" />
+    </>
   );
 }

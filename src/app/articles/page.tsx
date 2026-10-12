@@ -2,14 +2,18 @@ import type { Metadata } from "next";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 const PATH = "/articles";
 
+/** تحديث دوري + دعم /api/revalidate عند إضافة مقالات */
+export const revalidate = 300;
+
 export const metadata: Metadata = {
-  title: "مقالات مفيدة | شام AI",
+  title: "مقالات مفيدة",
   description:
     "مقالات عربية هادفة: محو أمية رقمية، ثقافة مالية، أمن حسابات، ومهارات عملية — قيمة حقيقية بلا حشو.",
   keywords: ["مقالات عربية", "محو الأمية الرقمية", "أمن رقمي", "شام AI"],
@@ -27,6 +31,8 @@ export const metadata: Metadata = {
 export default function ArticlesHubPage() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHubNav active="articles" />
+
       <EditorialHero
         crumbs={[{ href: "/", label: "الرئيسة" }, { label: "مقالات" }]}
         title="مقالات مفيدة"

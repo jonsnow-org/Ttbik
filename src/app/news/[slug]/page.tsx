@@ -3,10 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import AdSlot from "@/components/AdSlot";
 import { NEWS_ITEMS, getNewsItem } from "@/lib/newsItems";
-import { LIVE_DESKS, liveEmbedSrc } from "@/lib/newsLive";
+import { LIVE_DESKS } from "@/lib/newsLive";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
+
+/** ISR — static editorial body; refresh periodically */
+export const revalidate = 3600;
 
 export function generateStaticParams() {
   return NEWS_ITEMS.map((n) => ({ slug: n.slug }));
@@ -19,7 +22,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const url = `${SITE}/news/${item.slug}`;
   const image = item.imageUrl || `${SITE}/og/news.jpg`;
   return {
-    title: `${item.title} | سوق تولز`,
+    title: item.title,
     description: item.description,
     alternates: { canonical: url },
     openGraph: {
@@ -57,8 +60,8 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
     inLanguage: "ar",
     url,
     image,
-    author: { "@type": "Organization", name: "سوق تولز" },
-    publisher: { "@type": "Organization", name: "سوق تولز" },
+    author: { "@type": "Organization", name: "شام AI" },
+    publisher: { "@type": "Organization", name: "شام AI" },
     citation: item.sources.map((s) => s.href),
   };
   const desk = LIVE_DESKS[0];
@@ -108,24 +111,26 @@ export default async function NewsArticlePage(props: { params: Promise<{ slug: s
           </div>
         </article>
 
-        <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-slate-950" aria-label="بث رسمي">
-          <div className="aspect-video w-full">
-            <iframe
-              title={`بث ${desk.name}`}
-              src={liveEmbedSrc(desk)}
-              className="h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              loading="lazy"
-            />
-          </div>
-          <p className="px-4 py-3 text-xs leading-6 text-slate-200">
-            متابعة الأحداث العالمية من بث {desk.name} الرسمي. الملخص أعلاه ليس تغطية لحظة بلحظة.
+        <div className="mt-6">
+          <AdSlot position="in-content" label="وسط صفحة الخبر" />
+        </div>
+
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-4" aria-label="بث رسمي">
+          <p className="text-xs leading-6 text-slate-600">
+            للمتابعة اللحظية افتح البث الرسمي لقناة {desk.name} على يوتيوب. الملخص أعلاه ليس تغطية لحظة بلحظة.
           </p>
+          <a
+            href={`https://www.youtube.com/channel/${desk.channelId}/live`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 inline-block rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-red-500"
+          >
+            ▶ فتح البث على يوتيوب
+          </a>
         </section>
 
         <div className="mt-6">
-          <AdSlot position="in-content" label="أسفل الخبر" />
+          <AdSlot position="footer-banner" label="أسفل الخبر" />
         </div>
 
         <p className="mb-6 mt-6 text-sm">

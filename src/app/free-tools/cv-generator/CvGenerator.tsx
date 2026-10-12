@@ -282,7 +282,7 @@ export default function CvGenerator() {
         className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm print:border-0 print:shadow-none print:p-0"
       >
         <header className="border-b-2 border-slate-800 pb-4 mb-6">
-          <h1 className="text-2xl font-extrabold text-slate-900">{name || "الاسم الكامل"}</h1>
+          <h2 className="text-2xl font-extrabold text-slate-900">{name || "الاسم الكامل"}</h2>
           {jobTitle && <p className="mt-1 text-lg text-brand-700 font-semibold">{jobTitle}</p>}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
             {phone && <span dir="ltr">{phone}</span>}

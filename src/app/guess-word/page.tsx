@@ -3,6 +3,7 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ExploreMore from "@/components/ExploreMore";
 import WordGame from "@/components/WordGame";
+import ToolSponsor from "@/components/ToolSponsor";
 import { SITE_URL } from "@/lib/siteUrl";
 import { wordOfDayGame, WORD_LEN, MAX_GUESSES } from "@/lib/wordGame";
 
@@ -17,7 +18,7 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESC,
   alternates: { canonical: `${SITE}${PATH}` },
-  openGraph: { title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website" },
+  openGraph: { images: [{ url: "/og/cover.jpg", width: 1200, height: 630 }], title: TITLE, description: DESC, url: `${SITE}${PATH}`, locale: "ar_AR", type: "website" },
   twitter: { card: "summary", title: TITLE, description: DESC },
 };
 
@@ -78,7 +79,9 @@ export default function GuessWordPage() {
           كلمة من {WORD_LEN} أحرف، أمامك {MAX_GUESSES} محاولات. كلمة جديدة كل يوم للجميع.
         </p>
 
-        <WordGame key={dayIndex} answer={word} dayIndex={dayIndex} siteUrl={SITE} />
+        <ToolSponsor tool="guess-word" />
+      <a href="/sponsor?tool=guess-word" className="mb-3 block text-center text-xs font-bold text-amber-800">تحدي اليوم برعاية — احجز السطر</a>
+      <WordGame key={dayIndex} answer={word} dayIndex={dayIndex} siteUrl={SITE} />
 
         <div className="my-8">
           <AdSlot position="in-content" label="أسفل لعبة خمّن الكلمة" />
