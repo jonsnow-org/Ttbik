@@ -974,9 +974,9 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     await bot.api.sendMessage(
       chatId,
       (visible === 0
-        ? `📭 لا توجد حالياً ملفات ${opposite === "FEMALE" ? "نسائية" : "رجالية"} ظاهرة في البوت، فالقاعدة ما زالت تنمو.`
+        ? "🌿 لا توجد نتائج مطابقة في هذه اللحظة. يستقبل البوت ملفات جديدة كل يوم، وسنُعلمك فور توفر ملفات تناسبك، فعاود البحث لاحقاً بإذن الله."
         : "📭 لا توجد ملفات يمكن عرضها لك الآن (قد تكون محظورة أو مقيّدة بدولة أخرى).") +
-        (me?.username ? `\n\nشارك رابط البوت ليكبر المجتمع، وستصلك رسالة عند انضمام ملفات جديدة:\nhttps://t.me/${me.username}?start=ref_${userId}` : ""),
+        (me?.username ? `\n\nيمكنك دعوة من تثق بهم عبر رابطك الخاص، وستصلك رسالة عند انضمام ملفات جديدة:\nhttps://t.me/${me.username}?start=ref_${userId}` : ""),
       { reply_markup: mainMenu() }
     );
     return;
