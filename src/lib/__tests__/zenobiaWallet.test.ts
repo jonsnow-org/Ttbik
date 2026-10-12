@@ -78,9 +78,9 @@ describe("passport metadata", () => {
   it("picks the stage picture from the holder's days", () => {
     const now = new Date("2026-11-01T00:00:00Z");
     const at = (d: number) => passportMetadata({ index: 3, joinedAt: new Date(now.getTime() - d * day), now }, site);
-    expect(at(2).image).toBe(`${site}/zenobia/stage-1-child.jpg`);
-    expect(at(10).image).toBe(`${site}/zenobia/stage-2-queen.jpg`);
-    expect(at(30).image).toBe(`${site}/zenobia/stage-3-warrior.jpg`);
+    expect(at(2).image).toBe(`${site}/zenobia/stage-1-child-sq.jpg`);
+    expect(at(10).image).toBe(`${site}/zenobia/stage-2-queen-sq.jpg`);
+    expect(at(30).image).toBe(`${site}/zenobia/stage-3-warrior-sq.jpg`);
     expect(at(30).attributes.find((a) => a.trait_type === "Stage")!.value).toBe("Warrior");
   });
   it("shows captive and legend, with a name and both languages in the description", () => {
