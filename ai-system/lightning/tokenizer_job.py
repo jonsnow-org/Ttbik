@@ -119,6 +119,8 @@ def publish(kind: str) -> str | None:
     shutil.copy2(TOK / f"{kind}_tokenizer.pt", d / f"{kind}_tokenizer.pt")
     shutil.copy2(TOK / f"{kind}_progress.json", d / f"{kind}_progress.json")
     prog = _progress(kind)
+    # the name the selector (tokenizer_select) reads, so this checkpoint ranks by what it really trained
+    (d / f"{kind}_tokenizer_progress.json").write_text(json.dumps({**prog, "samples_consumed": prog.get("samples", 0)}), encoding="utf-8")
     return publish_dataset(d, IMAGE_DATASET if kind == "image" else AUDIO_DATASET,
                            f"{kind} tokenizer v2 on CPU: {prog['steps']:,} steps, {prog['samples']:,} samples, recon {prog.get('recon')}")
 

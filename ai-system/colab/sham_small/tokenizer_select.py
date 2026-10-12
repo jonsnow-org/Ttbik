@@ -41,7 +41,8 @@ _EXPECTED = {"image": IMAGE_VOCAB_SIZE, "audio": AUDIO_VOCAB_SIZE}
 
 
 def _progress_samples(ckpt: Path, kind: str) -> int:
-    for p in (ckpt.parent / f"{kind}_tokenizer_progress.json", ckpt.parent.parent / f"{kind}_tokenizer_progress.json"):
+    for p in (ckpt.parent / f"{kind}_tokenizer_progress.json", ckpt.parent.parent / f"{kind}_tokenizer_progress.json",
+              ckpt.parent / f"{kind}_progress.json"):      # the last one is what the Lightning CPU trainer writes
         if p.exists():
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
@@ -126,7 +127,8 @@ def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None
     if loader is None:
         loader = lambda p: robust_load(p, kind)
     if search_root is None:  # /kaggle/input + datasets fetched by sham_inputs.fetch_dataset
-        from sham_inputs import rglob_inputs
+        from sham_inputs import fetch_all_tokenizer_datasets, rglob_inputs
+        fetch_all_tokenizer_datasets()          # every tokenizer output of the account competes, whatever notebook or machine made it
         candidates = sorted(rglob_inputs(f"{kind}_tokenizer.pt"))
     else:
         root = Path(search_root)
