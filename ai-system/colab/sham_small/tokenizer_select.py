@@ -119,9 +119,46 @@ def fit_codebook(tok, target: int) -> str | None:
     return how
 
 
-def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None, loader: Any = None):
+_PROBE: dict = {}
+
+
+def default_measure(kind: str, n: int = 24, seed: int = 20261012):
+    """A measuring function (tokenizer → reconstruction error, lower is better) on ONE fixed sample of fresh factory items, the same for every
+    candidate; None when the factory cannot be reached (offline). Quality decides between tokenizers, not how long one trained (owner, 2026-10-12:
+    never replace one with another unless it measures better). The sample is random factory items, so a candidate that happened to train on exactly
+    these items would be favoured slightly; with hundreds of thousands of items that overlap is small and the same for everybody."""
+    try:
+        if kind not in _PROBE:
+            import tempfile
+            from sham_media_shards import with_factory
+            _PROBE[kind] = with_factory(kind, None, tempfile.mkdtemp(prefix="tokprobe_"), k=1, limit=n * 2, seed=seed)
+        manifest = _PROBE[kind]
+        if not manifest:
+            return None
+        from sham_vq_train import ManifestAudio, ManifestImages, _forward
+
+        def measure(tok) -> float | None:
+            ds = ManifestImages(manifest, tok.cfg.image_size) if kind == "image" else ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
+            items = [ds[i] for i in range(min(n, len(ds)))]
+            if not items:
+                return None
+            tok.train(False)
+            with torch.no_grad():
+                return float(_forward(tok, torch.stack(items), None)[1])
+        return measure
+    except Exception as exc:
+        print(f"  ⚠ تعذّر تجهيز عيّنة القياس ({exc.__class__.__name__}) — المفاضلة بعدد العيّنات المتدربة")
+        return None
+
+
+def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None, loader: Any = None, measure: Any = "auto"):
     """Returns (tokenizer, step, path) for the best candidate — repairing
-    incompatible ones — or None when nothing at all could be loaded."""
+    incompatible ones — or None when nothing at all could be loaded.
+
+    Ranking: a healthy codebook first, then MEASURED reconstruction error on a shared sample (when one is available; `measure` may be a function
+    tokenizer→error, None to skip, or "auto" to build the default factory sample), then samples trained, then step."""
+    if measure == "auto":
+        measure = default_measure(kind) if search_root is None else None
     if kind not in _EXPECTED:
         raise ValueError(kind)
     if loader is None:
@@ -158,10 +195,19 @@ def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None
         healthy = live >= 0.05 * _EXPECTED[kind]
         # A collapsed codebook (a handful of live codes) always ranks below a healthy one,
         # however long it trained: it can only ever produce the same flat texture.
-        score = (1 if healthy else 0, _progress_samples(path, kind), int(step or 0), 0 if repaired else 1, path.stat().st_mtime)
+        err = None
+        if measure is not None and healthy:
+            try:
+                err = measure(tok)
+            except Exception as exc:
+                print(f"  ⚠ تعذّر قياس {path.parent.name}: {exc.__class__.__name__}")
+        # with a measurement: lower error ranks higher (an unmeasurable candidate ranks below every measured one); without: the old order
+        quality = (-err if err is not None else -1e9) if measure is not None else 0.0
+        score = (1 if healthy else 0, quality, _progress_samples(path, kind), int(step or 0), 0 if repaired else 1, path.stat().st_mtime)
         tag = "🔧 أُصلح وقُبل — " + "؛ ".join(notes) if repaired else "صالح"
-        state = f"رموز حيّة {live:,}/{_EXPECTED[kind]:,}" + ("" if healthy else " ⚠ قاموس منهار")
-        print(f"  • {path}: {tag} — عيّنات={score[1]:,} خطوة={score[2]} — {state}")
+        state = (f"رموز حيّة {live:,}/{_EXPECTED[kind]:,}" + ("" if healthy else " ⚠ قاموس منهار")
+                 + (f" | خطأ إعادة البناء المقيس {err:.4f}" if err is not None else ""))
+        print(f"  • {path}: {tag} — عيّنات={score[2]:,} خطوة={score[3]} — {state}")
         if best is None or score > best[0]:
             best = (score, tok, int(step or 0), path)
     if best is not None and best[0][0] == 0 and search_root is not None:
@@ -178,8 +224,8 @@ def select_pretrained_tokenizer(kind: str, search_root: str | Path | None = None
         fetch_dataset(f"sham-{kind}-tokenizer-checkpoint")
         tried = []
         if mm and Path(mm).resolve() != Path(search_root).resolve():
-            tried.append(select_pretrained_tokenizer(kind, mm, loader))
-        tried.append(select_pretrained_tokenizer(kind, None, loader))
+            tried.append(select_pretrained_tokenizer(kind, mm, loader, measure))
+        tried.append(select_pretrained_tokenizer(kind, None, loader, measure))
         for other in tried:
             if other is not None and not is_collapsed(other[0]):
                 print(f"  ⇄ أداة {kind} المحفوظة مع النموذج منهارة — التبديل إلى الأداة المُحياة: {other[2]}")
@@ -229,4 +275,22 @@ if __name__ == "__main__":
         _, _, notes = robust_load(root / "d/image_tokenizer.pt", "image")
         assert notes and "legacy_flag" in notes[0]
         assert select_pretrained_tokenizer("image", root / "missing") is None
+        # measured quality beats "trained longest": the candidate with the least training wins when it reconstructs best
+        # (every toy tokenizer is declared healthy here so the comparison is about the measurement alone)
+        import sham_vq
+        _live = sham_vq.live_codes
+        sham_vq.live_codes = lambda t: IMAGE_VOCAB_SIZE
+
+        def fake_measure(t):
+            return {5: 0.05, 40: 0.30, 7: 0.20, 3: 0.40}.get(int(getattr(t, "_step", -1)), 0.5)
+
+        def tagged_loader(pth):
+            loaded = robust_load(pth, "image")
+            loaded[0]._step = loaded[1]
+            return loaded
+        tok3, step3, path3 = select_pretrained_tokenizer("image", root, loader=tagged_loader, measure=fake_measure)
+        assert path3.parent.name == "a" and step3 == 5, (path3, step3)
+        tok4, step4, path4 = select_pretrained_tokenizer("image", root, loader=tagged_loader, measure=None)
+        assert path4.parent.name == "b" and step4 == 40, (path4, step4)       # no measurement: the old order (most trained) still applies
+        sham_vq.live_codes = _live
     print("tokenizer_select self-test: OK")
