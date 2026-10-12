@@ -17,6 +17,26 @@ from pathlib import Path
 DEFAULT = ["ما تاريخ اليوم؟", "في أي سنة نحن؟", "ما هي عاصمة فرنسا؟", "اللغة العربية هي"]
 
 
+def _content_stats(r: dict) -> str:
+    """Is the picture / sound empty or does it carry anything? (read-only look at the returned bytes)"""
+    import base64, io
+    raw = base64.b64decode(r["b64"])
+    try:
+        if r.get("mime") == "image/png":
+            from PIL import Image
+            import numpy as np
+            a = np.asarray(Image.open(io.BytesIO(raw)).convert("RGB"), dtype=np.float32)
+            blocks = a.reshape(a.shape[0] // 8, 8, a.shape[1] // 8, 8, 3).mean(axis=(1, 3))
+            return f"{a.shape[1]}x{a.shape[0]} | متوسط {a.mean():.1f} | انحراف {a.std():.1f} | ألوان مختلفة {len(np.unique(a.reshape(-1, 3), axis=0))} | انحراف الكتل {blocks.std():.1f}"
+        import wave
+        import numpy as np
+        w = wave.open(io.BytesIO(raw))
+        x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32)
+        return f"{w.getframerate()} هرتز | {len(x) / w.getframerate():.1f} ث | أعلى سعة {np.abs(x).max():.0f} | انحراف {x.std():.1f}"
+    except Exception as e:
+        return f"تعذّر الفحص: {type(e).__name__}: {e}"
+
+
 def main() -> int:
     token = os.environ.get("MODELSCOPE_TOKEN", "").strip()
     if not token:
@@ -41,6 +61,8 @@ def main() -> int:
             continue
         size = f" | {len(r.get('b64') or '') * 3 // 4:,} بايت {r.get('mime', '')}" if r.get("b64") else ""
         print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): النوع={r.get('type')}{size} {(r.get('text') or '')[:500]}")
+        if r.get("b64"):
+            print("   فحص المحتوى:", _content_stats(r))
     return 0
 
 
