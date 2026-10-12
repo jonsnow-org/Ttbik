@@ -4,7 +4,6 @@ import { supabasePublic } from "@/lib/supabase";
 import { LIVE_BOTS } from "@/lib/liveBots";
 import { publishNew, isSafeForChannel, sendToChannel } from "@/lib/channelPublisher";
 import { ensureFrontDoor } from "@/lib/mediaFrontDoor";
-import { PROJECT_PROMOS, pickPromoKind, rotate } from "@/lib/channelPromos";
 
 export const maxDuration = 60;
 
@@ -168,19 +167,17 @@ export async function GET(req: NextRequest) {
   const paidTopics = await getPaidTopics();
   const botPromos = getBotPromos();
 
-  // The pick is deterministic (day and slot), so every project and every pool comes round regularly:
-  // the owner's own projects (Zenobia, Athar) with fixed texts, the live bots, the free tools and the paid services.
-  const { kind, turn } = pickPromoKind(new Date(), slot);
-  const topicPost = (t: { name: string; url: string } | undefined) => (t ? { label: t.name, run: () => writeGenericPost(t) } : undefined);
-  const fixed = (id: string) => { const f = PROJECT_PROMOS.find((x) => x.id === id); return f ? { label: f.id, run: async () => f.text } : undefined; };
-  const bots = botPromos.length && turn % 4 === 0 ? { label: botPromos[0].label, run: () => buildBotPromoText(botPromos[0]) } : undefined;
-  let picked =
-    kind === "free" ? topicPost(rotate(FREE_TOPICS, turn)) :
-    kind === "bot" ? (bots ?? topicPost(rotate(LIVE_BOT_TOPICS, turn))) :
-    kind === "service" ? topicPost(rotate(paidTopics, turn)) :
-    fixed(kind);
-  // an empty pool (for example no active paid service) falls back to a live bot
-  if (!picked) picked = topicPost(rotate(LIVE_BOT_TOPICS, turn)) ?? topicPost(rotate(FREE_TOPICS, turn))!;
+  // Plain topics (free + live paid + store) far outnumber the bot-purchase
+  // pitch, so the AD_BOT awareness post stays an occasional post, not a
+  // spam pattern — roughly 1-in-N where N grows with the live catalog size.
+  const pool: { label: string; run: () => Promise<string> }[] = [
+    ...FREE_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
+    ...LIVE_BOT_TOPICS.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
+    ...paidTopics.map((t) => ({ label: t.name, run: () => writeGenericPost(t) })),
+    ...botPromos.map((p) => ({ label: p.label, run: () => buildBotPromoText(p) })),
+  ];
+
+  const picked = pool[Math.floor(Math.random() * pool.length)];
   const text = await picked.run();
   if (!isSafeForChannel(text)) {
     return NextResponse.json({ ok: false, slot, topic: picked.label, blocked: true });
