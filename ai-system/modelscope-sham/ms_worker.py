@@ -32,6 +32,9 @@ TARGETS = {
     "duckduckgo.com": "https://duckduckgo.com/html/?q=test",     # the model's live search needs a provider the Studio can reach
     "html.duckduckgo.com": "https://html.duckduckgo.com/html/?q=test",
     "searx (public)": "https://searx.be/",
+    "cn.bing.com": "https://cn.bing.com/",                        # providers reachable from inside China, in case DuckDuckGo stays blocked
+    "baidu.com": "https://www.baidu.com/",
+    "api.github.com": "https://api.github.com/",
 }
 
 
