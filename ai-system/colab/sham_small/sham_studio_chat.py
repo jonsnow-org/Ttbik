@@ -49,7 +49,15 @@ def raw_continuation(model, tokenizer, prompt: str, max_new_tokens: int) -> str:
 
 
 def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, today: datetime.date | None = None, search_fn="default") -> str:
-    """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str."""
+    """The answer to `prompt`. `search_fn`: "default" = real web search unless SHAM_STUDIO_SEARCH=0, None = no search, or any callable(str)->str.
+    Two diagnostic prompts for the owner: «#info» reports which path is active; «#raw <text>» answers <text> with the old raw continuation, so the two
+    ways can be compared on the same question."""
+    stripped = prompt.strip()
+    if stripped == "#info":
+        return (f"sham_studio_chat فعّال | حوار={_on('SHAM_STUDIO_CHAT')} بحث={_on('SHAM_STUDIO_SEARCH')} تاريخ={_on('SHAM_STUDIO_DATE')} | "
+                f"التاريخ في السياق الآن: {build_user_text('', today).splitlines()[0] if _on('SHAM_STUDIO_DATE') else '—'}")
+    if stripped.startswith("#raw "):
+        return raw_continuation(model, tokenizer, stripped[5:], max_new_tokens)
     if not _on("SHAM_STUDIO_CHAT"):
         return raw_continuation(model, tokenizer, prompt, max_new_tokens)
     from sham_decoding import chat_generate_with_search, chat_prompt_ids, web_search_text
@@ -92,6 +100,8 @@ if __name__ == "__main__":
     assert isinstance(out, str) and out
     out2 = studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None)
     assert isinstance(out2, str) and out2
+    assert "sham_studio_chat" in studio_generate(model, Tok(), "#info", 8, today=d) and "2026-10-12" in studio_generate(model, Tok(), "#info", 8, today=d)
+    assert isinstance(studio_generate(model, Tok(), "#raw سؤال", 8), str)
     os.environ["SHAM_STUDIO_CHAT"] = "0"
     assert isinstance(studio_generate(model, Tok(), "سؤال", 8), str)
     print("sham_studio_chat self-test OK")

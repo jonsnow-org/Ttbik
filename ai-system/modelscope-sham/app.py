@@ -140,6 +140,26 @@ def status() -> str:
     return json.dumps(msg, ensure_ascii=False)
 
 
+_CHAT_SEEN: dict = {}
+
+
+def _studio_chat():
+    """The answer path lives in sham_small/sham_studio_chat.py. Prefer the SIGNED hot copy (_hot/sham_small, refreshed by the GitHub bridge without a
+    Redeploy click) over the copy deployed with this file, and reload it when it changes: later changes to how Sham answers need no manual deploy."""
+    import importlib
+    hot = HOT / "sham_small"
+    f = hot / "sham_studio_chat.py"
+    stamp = (str(f), f.stat().st_mtime) if f.exists() else ("deployed", 0)
+    if _CHAT_SEEN.get("stamp") != stamp:
+        if f.exists() and str(hot) not in sys.path:
+            sys.path.insert(0, str(hot))
+        for name in ("sham_studio_chat", "sham_decoding", "sham_chat"):      # the hot copies replace the deployed ones
+            sys.modules.pop(name, None)
+        _CHAT_SEEN["mod"] = importlib.import_module("sham_studio_chat")
+        _CHAT_SEEN["stamp"] = stamp
+    return _CHAT_SEEN["mod"]
+
+
 def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     if STATE["phase"] != "ready":
         return "(شام يتهيأ بعد: " + STATE["phase"] + ")"
@@ -151,8 +171,7 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     with _LOCK:
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
         try:        # 2026-10-12: dialogue layout + today's date as context + the model's own learned web search (sham_studio_chat.py, hot code)
-            from sham_studio_chat import studio_generate
-            return studio_generate(model, tok, prompt, n)
+            return _studio_chat().studio_generate(model, tok, prompt, n)
         except Exception as exc:        # never take the Studio down: the raw continuation below is the old behaviour
             print(f"studio_generate failed ({type(exc).__name__}: {str(exc)[:120]}) — raw continuation", flush=True)
         ids = torch.tensor([tok.encode(prompt)], dtype=torch.long)
