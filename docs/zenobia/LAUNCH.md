@@ -44,14 +44,18 @@
 ```
 🏛 Zenobia (ZNB) is live.
 A community coin inspired by Zenobia, queen of Palmyra, and the Silk Road.
-Buy / trade: <رابط Blum للعملة>
+Buy / trade: https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD
+Contract: EQDai9iDv4fDlQHUDxx59QUZMGvTm9uzUL867c_Lxi4cDuCN
+Bot: https://t.me/Zenobia_Palmyrabot
 Silk Road Passport (limited, tradable NFT for holders): https://ttbik.vercel.app/zenobia/silk.html
 Caravan Board (longest holders): https://ttbik.vercel.app/zenobia/hall.html
 Not financial advice. Crypto is risky; only use what you can afford to lose.
 
 🏛 انطلقت عملة زنوبيا (ZNB).
 عملة مجتمعية مستوحاة من زنوبيا ملكة تدمر وطريق الحرير.
-الشراء والتداول: <رابط Blum للعملة>
+الشراء والتداول: https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD
+عنوان العقد: EQDai9iDv4fDlQHUDxx59QUZMGvTm9uzUL867c_Lxi4cDuCN
+البوت: https://t.me/Zenobia_Palmyrabot
 جواز طريق الحرير (NFT محدود وقابل للبيع للحاملين): https://ttbik.vercel.app/zenobia/silk.html
 لوحة القافلة (الأطول احتفاظًا): https://ttbik.vercel.app/zenobia/hall.html
 ليست نصيحة مالية. العملات الرقمية محفوفة بالمخاطر، ولا تستخدم إلا ما تتحمل خسارته.

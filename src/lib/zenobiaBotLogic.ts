@@ -15,6 +15,8 @@ import { makeLinkToken } from "@/lib/zenobiaTonProof";
  * Storage: one table created on first use (no manual SQL).
  */
 
+const CHANNEL_URL = "https://t.me/Zenobiaton";
+const BUY_URL = "https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD"; // the coin's page on Blum (the owner's link)
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 export type Lang = "en" | "ar";
 
@@ -308,10 +310,17 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   if (cq) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
 
   const welcome = (lang: Lang): Panel => ({ text: T[lang].welcome, kb: menuKeyboard(lang) });
+  // the links people need most: where to buy the coin, the channel, the board and the passport
+  const linksKb = (lang: Lang) => new InlineKeyboard()
+    .url(lang === "ar" ? "🛒 شراء ZNB (Blum)" : "🛒 Buy ZNB (Blum)", BUY_URL).row()
+    .url(lang === "ar" ? "📢 قناة زنوبيا" : "📢 Zenobia channel", CHANNEL_URL).row()
+    .url(lang === "ar" ? "🏆 لوحة القافلة" : "🏆 Caravan Board", `${SITE}/zenobia/hall.html`).row()
+    .url(lang === "ar" ? "🪪 جواز طريق الحرير" : "🪪 Silk Road Passport", `${SITE}/zenobia/silk.html`);
 
   if (act === "zn:start") {
     // the first panel carries the persistent menu, which then stays at the bottom of the screen
     await reply(bot, chatId, l, welcome(l));
+    await reply(bot, chatId, l, { text: l === "ar" ? "روابط زنوبيا:" : "Zenobia links:", kb: linksKb(l) });
     return;
   }
 
@@ -392,7 +401,7 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   }
 
   if (act === "zn:about") {
-    await panel({ text: t.about });
+    await panel({ text: t.about, kb: linksKb(l) });
     return;
   }
 
