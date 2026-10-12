@@ -9,7 +9,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 // Everything the channel can promote, built from the site's own data so a new
 // tool, bot page, news item, event or article joins the rotation by itself.
 // Only public pages: nothing owner-only has a path in here.
-export type PoolKind = "tool" | "bot" | "news" | "event" | "article";
+export type PoolKind = "tool" | "bot" | "news" | "event" | "article" | "project";
 export type PoolItem = {
   kind: PoolKind;
   id: string;
@@ -23,6 +23,12 @@ export type PoolItem = {
   // content (news/events/articles) is posted once.
   repeatDays: number;
 };
+
+// The owner's own projects (Zenobia, Athar): fixed wording, written once here, never left to a model. No promise of any return, ever.
+const ZENOBIA_BUY = "https://t.me/blum/app?startapp=memepadjetton_ZNB_gMTPq-ref_GcJK8kBUGD";
+const ZENOBIA_BOT = "https://t.me/Zenobia_Palmyrabot";
+const ZENOBIA_CHANNEL = "https://t.me/Zenobiaton";
+const ATHAR_BOT = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot").trim();
 
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 const short = (s: string, n: number) => (clean(s).length > n ? clean(s).slice(0, n - 1).trimEnd() + "…" : clean(s));
@@ -81,12 +87,42 @@ export function buildPool(): Record<PoolKind, PoolItem[]> {
     tags: ["#مقالات", "#شام_AI"],
     repeatDays: 3650,
   }));
-  return { tool: tools, bot: bots, news, event: events, article: articles };
+  const projects: PoolItem[] = [
+    {
+      kind: "project", id: "project:zenobia-coin", title: "زنوبيا · Zenobia (ZNB)",
+      blurb: "Zenobia (ZNB): a community coin inspired by the queen of Palmyra and the Silk Road. Not financial advice; crypto is risky. عملة مجتمعية مستوحاة من زنوبيا ملكة تدمر وطريق الحرير. ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر.",
+      url: `${SITE_URL}/zenobia/hall.html`, cta: "🏆 لوحة القافلة", target: { url: ZENOBIA_BUY, label: "🛒 شراء ZNB" },
+      tags: ["#زنوبيا", "#ZNB", "#TON"], repeatDays: 3,
+    },
+    {
+      kind: "project", id: "project:zenobia-passport", title: "جواز مرور طريق الحرير من تدمر",
+      blurb: "Silk Road Passport: 2,500 only, grows with its age, locked 30 days then free to trade, for ZNB holders. جواز محدود بـ2,500، يكبر بعمره (طفلة ثم ملكة ثم محاربة)، يُقفل 30 يومًا ثم يُباع ويُشترى بحرية، لحاملي ZNB. للاقتناء فقط وبلا أي وعد.",
+      url: `${SITE_URL}/zenobia/silk.html`, cta: "🪪 احصل على جوازك", target: { url: ZENOBIA_BOT, label: "🤖 بوت زنوبيا" },
+      tags: ["#زنوبيا", "#NFT", "#TON"], repeatDays: 4,
+    },
+    {
+      kind: "project", id: "project:zenobia-channel", title: "قناة زنوبيا",
+      blurb: "تاريخ ملكة تدمر وأخبار العملة والجواز بالإنجليزية والعربية. Zenobia's story, the coin and the passport, in English and Arabic.",
+      url: ZENOBIA_CHANNEL, cta: "📢 انضم إلى القناة", target: { url: ZENOBIA_BOT, label: "🤖 بوت زنوبيا" },
+      tags: ["#زنوبيا", "#تدمر"], repeatDays: 6,
+    },
+    {
+      kind: "project", id: "project:athar-days", title: "أثر · رمز حيّ لكل يوم",
+      blurb: "لكل يوم في التقويم رمز واحد: يوم ميلادك أو زواجك أو يوم تحبه. صورته حيّة تومض وتدور وتنضج كلما طال بقاؤه عندك، ويمكنك وضع صورتك عليه وإهداؤه. للذكرى والاقتناء فقط.",
+      url: ATHAR_BOT, cta: "🕰 افتح أثر", tags: ["#أثر", "#TON"], repeatDays: 4,
+    },
+    {
+      kind: "project", id: "project:athar-today", title: "رمز اليوم في أثر",
+      blurb: "كل يوم تاريخ جديد قد يصير رمزك. افتح أثر وشاهد رمز اليوم واحجزه إن كان متاحًا. للذكرى والاقتناء فقط.",
+      url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 7,
+    },
+  ];
+  return { tool: tools, bot: bots, news, event: events, article: articles, project: projects };
 }
 
 // Category order for the rotation (cursor % length): varied, tools and bots
 // appear often because they are what newcomers can use immediately.
-export const ROTATION: PoolKind[] = ["tool", "news", "bot", "event", "tool", "article", "bot", "news"];
+export const ROTATION: PoolKind[] = ["tool", "project", "news", "bot", "event", "project", "tool", "article", "bot", "project", "news"];
 
 export const HEADERS: Record<PoolKind, string> = {
   tool: "🛠 أداة مجانية",
@@ -94,6 +130,7 @@ export const HEADERS: Record<PoolKind, string> = {
   news: "📰 خبر",
   event: "📅 مناسبة",
   article: "📖 مقال",
+  project: "✨ من مشاريعنا",
 };
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");

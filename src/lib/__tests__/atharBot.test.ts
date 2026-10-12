@@ -28,7 +28,7 @@ import { handleAtharBotUpdate, LANGS, COMMANDS } from "../atharBotLogic";
 function fakeBot() {
   const sent: { chat: number; text: string; kb?: any }[] = [];
   const calls: string[] = [];
-  return { sent, calls, api: { sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); return { message_id: 1 }; }, answerCallbackQuery: async () => undefined, setMyCommands: async (c: any) => { calls.push("commands:" + c.map((x: any) => x.command).join(",")); }, setChatMenuButton: async (o: any) => { calls.push("menu:" + o.menu_button.web_app.url); }, deleteMessage: async () => undefined, getChat: async () => ({ id: 1 }), getChatMember: async (_c: string, u: number) => { if (!members.has(u)) throw new Error("not a member"); return { status: "member" }; } } } as any;
+  return { sent, calls, api: { sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); return { message_id: 1 }; }, answerCallbackQuery: async () => undefined, setMyCommands: async (c: any) => { calls.push("commands:" + c.map((x: any) => x.command).join(",")); }, setChatMenuButton: async (o: any) => { calls.push("menu:" + o.menu_button.web_app.url); }, deleteMessage: async () => undefined, getMe: async () => ({ username: "AtharDaysBot" }), getChat: async () => ({ id: 1 }), getChatMember: async (_c: string, u: number) => { if (!members.has(u)) throw new Error("not a member"); return { status: "member" }; } } } as any;
 }
 const row = { id: "bot1", ownerId: "555001" } as any;
 const ARABIC = /[؀-ۿ]/;
@@ -71,7 +71,7 @@ describe("Athar bot", () => {
     const o = fakeBot();
     await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "👁 شكل المستخدم" } });
     const kb = JSON.stringify(o.sent[0].kb);
-    expect(kb).toContain("Mystery boxes");
+    expect(kb).toContain("Open Athar");
     expect(kb).toContain("🛠 لوحة الأدمن");
     await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "🛠 لوحة الأدمن" } });
     expect(JSON.stringify(o.sent[1].kb)).toContain("💰 الرصيد");
@@ -139,8 +139,11 @@ describe("Athar bot", () => {
     const kb = JSON.stringify(bot.sent[0].kb);
     expect(kb).toContain('"keyboard"');                // a menu panel under the message box, not inline buttons in the chat
     expect(kb).not.toContain("inline_keyboard");
-    expect(kb).toContain("/mystery?lang=en");          // its buttons open the sections directly
-    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,birthday,language");   // set once per server start
+    expect(kb).toContain("/today?lang=en");            // its buttons open the app directly, one per different thing (no duplicate section buttons)
+    expect(kb).toContain("Share Athar");
+    expect(kb).not.toContain("/mystery?lang=en");
+    expect(bot.sent[0].kb.is_persistent).toBeFalsy();  // collapsible with the phone's Back button
+    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,share,birthday,language");   // set once per server start
     expect(bot.calls.some((c: string) => c.includes("menu:") && c.includes("lang=en"))).toBe(true);
     const sec = fakeBot();
     await handleAtharBotUpdate(sec, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "/mystery" } });
@@ -151,14 +154,25 @@ describe("Athar bot", () => {
     expect(JSON.stringify(old.sent[0].kb)).toContain("lang=en");
   });
 
+  it("the Share button sends a ready share message with the bot's link, and replies do not resend the menu", async () => {
+    const bot = fakeBot();
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "👥 Share Athar" } });
+    const sent = bot.sent[0];
+    expect(sent.text).toMatch(/share Athar/i);
+    expect(JSON.stringify(sent.kb)).toContain("t.me/share/url");
+    expect(JSON.stringify(sent.kb)).not.toContain("ref=");   // no referral payload (referrals are deferred by the owner)
+    await handleAtharBotUpdate(bot, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "something else" } });
+    expect(bot.sent.at(-1).kb).toBeUndefined();               // a plain reply never brings the collapsed menu back
+  });
+
   it("the owner panel is a different, admin-only keyboard (the old shared-shape rule is retired by the owner)", async () => {
     const o = fakeBot(), u = fakeBot();
     await handleAtharBotUpdate(o, row, { message: { chat: { id: 1 }, from: { id: 555001 }, text: "/start" } });
     await handleAtharBotUpdate(u, row, { message: { chat: { id: 2 }, from: { id: 9 }, text: "/start" } });
     expect(JSON.stringify(o.sent[0].kb)).toContain("الاشتراك الإجباري");
     expect(JSON.stringify(o.sent[0].kb)).not.toContain("/mystery");
-    expect(JSON.stringify(u.sent[0].kb)).toContain("/mystery");
-    expect(o.sent[0].kb.is_persistent).toBe(true);
+    expect(JSON.stringify(u.sent[0].kb)).toContain("/today");
+    expect(o.sent[0].kb.is_persistent).toBeFalsy();
   });
 
   it("the owner adds a mandatory channel; members pass, others are held until they join", async () => {
