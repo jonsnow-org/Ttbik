@@ -507,6 +507,14 @@
       "reads": [],
       "writes": []
     },
+    "lightning_limits": {
+      "file": ".github/workflows/sham-lightning-limits.yml",
+      "title": "قياس عدد استوديوهات Lightning المجانية المسموحة (ينشئ استوديو فحص ويحذفه)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
     "tokenizer_bench": {
       "file": ".github/workflows/sham-bench.yml",
       "title": "قياس سرعة تدريب المُرمِّزات على CPU (قراءة فقط)",
