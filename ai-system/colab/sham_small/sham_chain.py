@@ -58,6 +58,32 @@ def run_notebooks(names: list[str], code_dir, log=print) -> dict[str, str]:
     return results
 
 
+# The "all in one" notebook (owner, 2026-10-12: one big notebook for the fifth seat instead of many). It carries the tracks that are NOT scheduled
+# anywhere else — the others each keep their own seat or run inside the image notebook's chain, and two notebooks must never write the same dataset.
+# hours = each notebook's own time budget on (cpu, gpu), read from the notebooks themselves (MAX_TRAINING_HOURS / sham_live.run default).
+ALL_IN_ONE_STAGES = {
+    "sham_live_trainer": (11.0, 7.0),
+    "sham_small_training": (8.5, 8.5),
+    "sham_small_training_stage2_multimodal": (8.5, 3.5),
+}
+
+
+def pick_stages(day_ordinal: int, session_hours: float, cuda: bool, stages: dict | None = None) -> list[str]:
+    """Which stages this session runs: the order rotates daily so every stage gets its turn; the first always runs, later ones only if their own
+    budget still fits in the session (a session is at most 12 hours; the default keeps 1 hour spare)."""
+    stages = stages or ALL_IN_ONE_STAGES
+    names = sorted(stages)
+    start = day_ordinal % len(names)
+    order = names[start:] + names[:start]
+    picked, used = [], 0.0
+    for n in order:
+        h = stages[n][1 if cuda else 0]
+        if not picked or used + h <= session_hours:
+            picked.append(n)
+            used += h
+    return picked
+
+
 if __name__ == "__main__":
     import tempfile
 
@@ -79,4 +105,10 @@ if __name__ == "__main__":
         assert res["a"] == "ok" and "RuntimeError" in res["boom"] and res["boom"].startswith("failed"), res
         assert res["nope"] == "missing" and res["c"] == "ok", res
         del builtins.OUT
+    # rotation: every stage gets a turn; on CPU one long stage fills the session, on GPU two short-enough ones may share it
+    first = {pick_stages(d, 11.0, False)[0] for d in range(6)}
+    assert first == set(ALL_IN_ONE_STAGES), first
+    assert all(len(pick_stages(d, 11.0, False)) == 1 for d in range(6))
+    assert any(len(pick_stages(d, 11.0, True)) == 2 for d in range(6)) and all(len(pick_stages(d, 11.0, True)) <= 2 for d in range(6))
+    assert pick_stages(5, 1.0, True)[0] in ALL_IN_ONE_STAGES                    # a too-short session still runs one stage (never none)
     print("sham_chain self-test OK")
