@@ -1,9 +1,10 @@
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
-import { Address } from "@ton/core";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { lifeStage, titleFor, type Stage } from "@/lib/zenobiaScore";
+import { STAGE_IMG } from "@/lib/zenobiaPassport";
+import { makeLinkToken } from "@/lib/zenobiaTonProof";
 
 /**
  * ZENOBIA_BOT — pre-launch caravan bot for the Zenobia (ZNB) coin on TON.
@@ -22,14 +23,6 @@ export const QUOTE_AR = "«نِعْمَ مَا قَيْدٌ فِي مِعْصَ�
 
 export const COMMANDS = ["start", "journey", "checkin", "top", "invite", "link", "stages", "lang", "about"] as const;
 
-const STAGE_IMG: Record<Stage, string> = {
-  child: "stage-1-child.jpg",
-  queen: "stage-2-queen.jpg",
-  warrior: "stage-3-warrior.jpg",
-  captive: "stage-4-captive.jpg",
-  legend: "stage-5-legend.jpg",
-};
-
 const T = {
   en: {
     welcome:
@@ -42,9 +35,9 @@ const T = {
     already: "You already checked in today. Come back tomorrow.",
     top: "🏆 Top caravan members",
     topEmpty: "No one on the board yet. Be the first.",
-    link: "🔗 Send your TON wallet like this:\n/link YOUR_ADDRESS\n\nIt is saved as unverified. Ownership is proven later with a TonConnect signature, and only verified wallets will count toward season scores.",
-    linkOk: (a: string) => `🔗 Saved (unverified): ${a}`,
-    linkBad: "That is not a valid TON address. Example: /link UQ...",
+    link: "🔐 Connect your TON wallet to prove it is yours. Only verified wallets count toward season scores.\n\nWe never ask for your recovery phrase: the wallet signs one harmless message.",
+    linkVerified: (a: string) => `✅ Verified wallet:\n${a}\n\nYou can connect a different one below.`,
+    connect: "🔐 Connect wallet",
     about:
       "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra. Seasons last a week; a score comes from holding, taking part and accumulating, and the leaderboard is public. Scores are ranks and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
@@ -70,9 +63,9 @@ const T = {
     already: "سجّلت حضورك اليوم. عد غدًا.",
     top: "🏆 أوائل القافلة",
     topEmpty: "لا أحد على اللوحة بعد. كن الأول.",
-    link: "🔗 أرسل محفظتك على تون هكذا:\n/link عنوانك\n\nتُحفظ غير موثّقة. تُثبت ملكيتها لاحقًا بتوقيع TonConnect، وتُحتسب في درجات المواسم المحافظ الموثّقة فقط.",
-    linkOk: (a: string) => `🔗 تم الحفظ (غير موثّقة): ${a}`,
-    linkBad: "هذا ليس عنوان TON صالحًا. مثال: /link UQ...",
+    link: "🔐 اربط محفظتك على TON لتثبت أنها لك. تُحتسب في درجات المواسم المحافظ الموثّقة فقط.\n\nلا نطلب منك عبارة الاسترداد أبدًا: المحفظة توقّع رسالة واحدة غير ضارة.",
+    linkVerified: (a: string) => `✅ محفظة موثّقة:\n${a}\n\nيمكنك ربط محفظة أخرى بالزر أدناه.`,
+    connect: "🔐 ربط المحفظة",
     about:
       "زنوبيا (ZNB) عملة مجتمعية على TON مستوحاة من ملكة تدمر. الموسم أسبوع، والدرجة تأتي من الاحتفاظ والمشاركة والتراكم، ولوحة الصدارة علنية. الدرجات ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. العملات الرقمية محفوفة بالمخاطر، فلا تضع ما لا تتحمل خسارته.",
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
@@ -124,7 +117,7 @@ async function isMember(bot: TelegramBot, channel: string, tgId: string): Promis
 
 // ---- storage (raw SQL; the table is created on first use) ----
 let ready: Promise<void> | null = null;
-function ensureTable(): Promise<void> {
+export function ensureZenobiaTables(): Promise<void> {
   if (!ready) {
     ready = prisma
       .$executeRawUnsafe(
@@ -134,17 +127,18 @@ function ensureTable(): Promise<void> {
           streak INT NOT NULL DEFAULT 0, last_checkin DATE, ref_by TEXT, wallet TEXT,
           wallet_verified BOOLEAN NOT NULL DEFAULT false, PRIMARY KEY (bot_id, tg_user_id))`,
       )
+      .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_passport (idx INT PRIMARY KEY, bot_id TEXT NOT NULL, tg_user_id TEXT NOT NULL, minted_at TIMESTAMPTZ NOT NULL DEFAULT now())`))
       .then(() => undefined)
       .catch((e) => { ready = null; throw e; });
   }
   return ready;
 }
 
-interface UserRow { lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
+interface UserRow { wallet_verified: boolean; lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
 
 async function getUser(botId: string, id: string): Promise<UserRow | null> {
   const rows = (await prisma.$queryRawUnsafe(
-    `SELECT lang, name, joined_at, points, streak, last_checkin, wallet FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
+    `SELECT lang, name, joined_at, points, streak, last_checkin, wallet, wallet_verified FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
   )) as UserRow[];
   return rows[0] ?? null;
 }
@@ -203,7 +197,7 @@ async function rankOf(botId: string, id: string): Promise<{ rank: number; total:
 const stageUrl = (st: Stage) => `${SITE}/zenobia/${STAGE_IMG[st]}`;
 
 export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
-  await ensureTable();
+  await ensureZenobiaTables();
   const cq = body.callback_query;
   const msg = body.message;
   const from = cq?.from ?? msg?.from;
@@ -329,18 +323,9 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   }
 
   if (act === "zn:link") {
-    const arg = !cq && text.startsWith("/") ? text.split(/\s+/)[1] : "";
-    if (!arg) {
-      await panel({ text: t.link });
-      return;
-    }
-    try {
-      const friendly = Address.parse(arg).toString({ bounceable: false });
-      await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET wallet=$3, wallet_verified=false WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, friendly);
-      await panel({ text: t.linkOk(friendly) });
-    } catch {
-      await panel({ text: t.linkBad });
-    }
+    const url = `${SITE}/zenobia/link.html?bot=${encodeURIComponent(botId)}&t=${makeLinkToken(botRow.token, id)}&l=${l}`;
+    const text = user.wallet && user.wallet_verified ? `${t.linkVerified(user.wallet)}` : t.link;
+    await panel({ text, kb: new InlineKeyboard().url(t.connect, url) });
     return;
   }
 
