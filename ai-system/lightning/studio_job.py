@@ -68,6 +68,53 @@ def ensure_running(studio, machine) -> bool:
     return True
 
 
+GPU_MODES = {"run", "tokens"}                  # the important jobs: try a GPU first, fall back to the free CPU (owner, 2026-10-12)
+GPU_NAMES = ("T4", "L4")                      # cheapest first
+GPU_MAX_SECONDS = int(os.environ.get("SHAM_GPU_MAX_SECONDS", str(4 * 3600 + 900)))   # never hold a GPU machine longer than one window
+
+
+def has_gpu(studio) -> bool:
+    try:
+        return "GPU" in str(studio.run("nvidia-smi -L 2>&1 | head -1"))
+    except Exception:
+        return False
+
+
+def try_gpu(studio, machine) -> str | None:
+    """Asks Lightning for a GPU machine (interruptible = the cheapest). Works only if the account has GPU credit and there is capacity: otherwise
+    Lightning refuses and we return None — nothing is assumed about the account, the answer is measured here every window.
+    SHAM_LIGHTNING_GPU=0 switches this off."""
+    if os.environ.get("SHAM_LIGHTNING_GPU") == "0":
+        return None
+    for name in GPU_NAMES:
+        m = getattr(machine, name, None)
+        if m is None:
+            continue
+        try:
+            if "running" in str(getattr(studio, "status", "")).lower():
+                studio.switch_machine(m, interruptible=True)              # blocks until the new machine is up
+            else:
+                studio.start(m, interruptible=True, max_runtime=GPU_MAX_SECONDS)
+        except Exception as exc:
+            say(f"GPU {name} غير متاح: {type(exc).__name__}: {str(exc)[:140]}")
+            continue
+        if has_gpu(studio):
+            return name
+        say(f"GPU {name}: بدأت الآلة ولا يظهر عتاد GPU")
+    return None
+
+
+def bring_up(studio, machine, mode: str) -> str:
+    """Starts the Studio on a GPU when the job is an important one and one is available, else on the free CPU. Returns "GPU <name>" or "CPU"."""
+    if mode in GPU_MODES:
+        got = try_gpu(studio, machine)
+        if got:
+            return f"GPU {got}"
+        say("لا GPU متاح الآن — يكمل على المعالج المجاني")
+    ensure_running(studio, machine)
+    return "CPU"
+
+
 def write_secrets(studio) -> None:
     if not WITH_SECRETS:
         return
@@ -131,8 +178,8 @@ def main() -> int:
         if mode == "stopfactory":                            # the 4 cores belong to the tokenizer trainer: end a leftover media factory, touch nothing else
             say(str(studio.run("pkill -f 'media_factory.py' 2>/dev/null; sleep 2; pgrep -af 'media_factory|tokenizer_job' | cut -c1-100")))
             return 0
-        ensure_running(studio, machine)
-        say(f"حالة الاستوديو: {getattr(studio, 'status', '?')}")
+        hardware = bring_up(studio, machine, mode)
+        say(f"حالة الاستوديو: {getattr(studio, 'status', '?')} | العتاد: {hardware}")
         if mode == "diag":
             diag(studio)
             return 0
@@ -154,7 +201,9 @@ def main() -> int:
         while time.time() < end:
             time.sleep(300)
             try:
-                if ensure_running(studio, machine):             # the Studio was stopped under us: bring everything back
+                if "running" not in str(getattr(studio, "status", "")).lower():     # the Studio was stopped under us (or an interruptible GPU was taken back)
+                    hardware = bring_up(studio, machine, mode)
+                    say(f"العتاد بعد التوقف: {hardware}")
                     write_secrets(studio)
                     say("إعادة تحضير بعد توقف الاستوديو:\n" + prepare(studio)[-200:])
                     start_job(studio, mode)
@@ -164,6 +213,12 @@ def main() -> int:
                     start_job(studio, mode)                     # the job ended early (cycle over or crashed): relaunch it
             except Exception as exc:
                 say(f"فشل الفحص: {type(exc).__name__}: {str(exc)[:120]}")
+        if hardware.startswith("GPU"):                  # the window is over: do not leave a GPU machine running idle (it would keep spending the credit)
+            try:
+                studio.stop()
+                say("أُوقف الاستوديو (آلة GPU) بعد انتهاء النافذة")
+            except Exception as exc:
+                say(f"تعذّر إيقاف آلة GPU: {type(exc).__name__}: {str(exc)[:100]}")
     except Exception as exc:
         say(f"تعذّر العمل: {type(exc).__name__}: {str(exc)[:240]}")
     return 0

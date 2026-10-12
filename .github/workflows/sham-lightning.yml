@@ -42,5 +42,7 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # GPU is tried first for the important jobs; set the repository variable SHAM_LIGHTNING_GPU=0 to stop asking Lightning for a GPU
+          SHAM_LIGHTNING_GPU: ${{ vars.SHAM_LIGHTNING_GPU }}
         run: |
           if [ "${{ inputs.mode || 'auto' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode || 'auto' }}"; fi
