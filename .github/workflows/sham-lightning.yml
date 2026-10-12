@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "probe | diag | measure | tokens (collect + train the tokenizers on CPU) | media (collect only) | run (live text trainer)"
+        description: "auto (what the schedule uses: tokens 2 windows of 3, run 1 of 3) | probe | diag | measure | tokens (collect + train the tokenizers on CPU) | media (collect only) | run (live text trainer)"
         required: false
         default: "tokens"
 
@@ -43,4 +43,4 @@ jobs:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          if [ "${{ inputs.mode || 'tokens' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode || 'tokens' }}"; fi
+          if [ "${{ inputs.mode || 'auto' }}" = "probe" ]; then python ai-system/lightning/studio_probe.py; else python ai-system/lightning/studio_job.py "${{ inputs.mode || 'auto' }}"; fi

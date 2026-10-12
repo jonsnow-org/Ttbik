@@ -9,7 +9,8 @@ starts it again and relaunches the job.
   python studio_job.py measure   the media factory's one-small-cycle throughput test (publishes nothing)
   python studio_job.py tokens    collect + TRAIN the image/audio tokenizers (full design, resolution curriculum) on the Studio's 4 CPU cores (no GPU), publish  <- main job
   python studio_job.py media     the media factory (collect + pack tokenizer training data, publish as Kaggle datasets)  <- the main job
-  python studio_job.py run       Sham's live text trainer (sham_live)
+  python studio_job.py run       Sham's live text trainer (sham_live): crawls, tokenizes and trains text on the 4 CPU cores, publishes sham-crawl-lightning
+  python studio_job.py auto      the scheduled mode: each 4-hour window picks tokens (2 windows of 3) or run (1 of 3), so one Studio serves both
 
 The Kaggle/HF keys are written to a private file inside the owner's own Studio only with her explicit approval (2026-10-11) and never printed.
 Names: SHAM_LIGHTNING_USER / _TEAMSPACE / _STUDIO.
@@ -35,9 +36,17 @@ JOBS = {
     "measure": ("media_factory.py --measure", "cd {home}/Ttbik/ai-system/lightning && python -u media_factory.py --measure", "~/factory_measure.log"),
     "media": ("media_factory.py$", "cd {home}/Ttbik/ai-system/lightning && SHAM_FACTORY_HOURS={h} python media_factory.py", "~/factory.log"),
     "tokens": ("tokenizer_job.py$", "cd {home}/Ttbik/ai-system/lightning && SHAM_TOK_HOURS={h} python tokenizer_job.py", "~/tokens.log"),
-    "run": ("sham_live", "cd {home}/Ttbik/ai-system/colab/sham_small && python -c \"import sham_live; print(sham_live.run(hours={h}, "
+    # end-anchored: a bare "sham_live" also matches the very shell that is asking (its own command line contains the word), so the job always looked alive
+    "run": (r"sham_live\.run.*workers=4\)\)$", "cd {home}/Ttbik/ai-system/colab/sham_small && python -c \"import sham_live; print(sham_live.run(hours={h}, "
                          "name='lightning', source_set='gh', video=False, workers=4))\"", "~/sham_job.log"),
 }
+
+
+def auto_mode(now: float | None = None) -> str:
+    """The scheduled run's job: one free Studio, two jobs. Tokenizer training gets two 4-hour windows of every three, the live text trainer one
+    (both resume from their own last published state, so a window's work is never lost)."""
+    slot = int((time.time() if now is None else now) // (4 * 3600))
+    return "run" if slot % 3 == 2 else "tokens"
 
 
 def say(msg: str) -> None:
@@ -92,7 +101,9 @@ def diag(studio) -> None:
 def start_job(studio, name: str) -> None:
     proc, cmd, log = JOBS[name]
     inner = cmd.format(home=HOME_DIR, h=JOB_HOURS)
-    full = (f"test -f ~/.sham_env && . ~/.sham_env; (pgrep -f {shlex.quote(proc)} >/dev/null && echo already-running || "
+    # the four cores serve ONE job at a time: end any other job of ours that is still running (a window of the other mode that outlived its hold)
+    others = "; ".join(f"pkill -f {shlex.quote(p)} 2>/dev/null" for n, (p, _c, _l) in JOBS.items() if n != name and n != "measure")
+    full = (f"{others}; test -f ~/.sham_env && . ~/.sham_env; (pgrep -f {shlex.quote(proc)} >/dev/null && echo already-running || "
             f"(nohup nice -n 5 bash -c {shlex.quote(inner)} > {log} 2>&1 & echo started))")
     say("المهمة: " + str(studio.run(full)).strip())
 
@@ -104,6 +115,9 @@ def poll(studio, name: str) -> str:
 
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else "diag"
+    if mode == "auto":
+        mode = auto_mode()
+        say(f"الوضع التلقائي لهذه النافذة: {mode}")
     if not (os.environ.get("LIGHTNING_USER_ID") and os.environ.get("LIGHTNING_API_KEY")):
         say("لا مفاتيح Lightning — لا عمل")
         return 0
