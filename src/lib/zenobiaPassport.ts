@@ -61,3 +61,19 @@ export function parsePassportFile(file: string): number | null {
   const m = /^(\d{1,9})\.json$/.exec(file);
   return m ? Number(m[1]) : null;
 }
+
+/** tonapi's view of an SBT after its holder destroyed it: the owner is gone (or the zero address). */
+export function ownerGone(nft: { owner?: { address?: string } | null } | null | undefined): boolean {
+  const a = nft?.owner?.address;
+  return !a || /^0:0+$/.test(a);
+}
+
+/**
+ * "Sold everything" for the Captive stage: the wallet held the coin at some point, and is missing from the latest daily snapshot.
+ * Snapshots only list holders with a balance, so absence means a zero balance. Unknown when the latest snapshot is old.
+ */
+export function soldEverything(opts: { jettonSet: boolean; everHeld: boolean; inLatest: boolean; latestDay: string | null; today: string }): boolean {
+  if (!opts.jettonSet || !opts.everHeld || opts.inLatest || !opts.latestDay) return false;
+  const age = (Date.parse(opts.today) - Date.parse(opts.latestDay)) / 86400000;
+  return age <= 3;
+}

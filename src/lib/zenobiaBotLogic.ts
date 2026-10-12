@@ -28,7 +28,7 @@ const T = {
   en: {
     welcome:
       "🏛 Welcome to the Zenobia caravan.\n\nZenobia, queen of Palmyra: real history plus a transparent weekly game on TON.\n\n• Check in daily to build your streak\n• Invite friends with your link\n• Watch your passport grow from a child into a queen and a warrior\n\nPoints are ranks and titles only — not a promise of any reward. Not financial advice.",
-    btn: { journey: "🗺 My journey", checkin: "✅ Check-in", top: "🏆 Leaderboard", invite: "👥 Invite friends", link: "🔗 Wallet", stages: "👑 Stages", about: "ℹ️ About", lang: "🌐 العربية" },
+    btn: { journey: "🗺 My journey", checkin: "✅ Check-in", top: "🏆 Leaderboard", invite: "👥 Invite friends", link: "🔗 Wallet", passport: "🪪 Passport", stages: "👑 Stages", about: "ℹ️ About", lang: "🌐 العربية" },
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 Your journey\n\nDay ${d} · stage: ${stage}${nxt}\nPoints: ${pts}\nRank: #${rank} of ${total} · ${title}`,
     next: (n: number, s: string) => `\nNext stage (${s}) in ${n} day${n === 1 ? "" : "s"}`,
@@ -39,6 +39,14 @@ const T = {
     link: "🔐 Connect your TON wallet to prove it is yours. Only verified wallets count toward season scores.\n\nWe never ask for your recovery phrase: the wallet signs one harmless message.",
     linkVerified: (a: string) => `✅ Verified wallet:\n${a}\n\nYou can connect a different one below.`,
     connect: "🔐 Connect wallet",
+    passNeedWallet: "🪪 Your Caravan Passport is a soulbound NFT that grows with your journey. First connect and verify your wallet with the 🔗 Wallet button.",
+    passSoon: "🪪 Passports are not open yet. Verify your wallet now and you will be among the first when they open.",
+    passRequested: (n: number) => `🪪 Your passport #${n} is on its way to your verified wallet. It usually arrives within a few minutes.`,
+    passReady: (n: number, link: string) => `✅ Your Caravan Passport #${n} is in your wallet.\n${link}`,
+    passAsked: (n: number) => `✅ Passport #${n} requested. It will be minted to your verified wallet in a few minutes and you will get a message here.`,
+    passOpen: "✅ Passports are open.",
+    passClosed: "✅ Passports are closed.",
+    passUsage: "Usage: /passports on  or  /passports off",
     seasonNone: "No season has closed yet. Seasons are weekly; the first result is published after the first full week of trading.",
     seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 Season ${id}\nParticipants: ${n}\nResult fingerprint (SHA-256):\n${hash}\n\nSeal: ${seal}`,
     jettonOn: (a: string, d: number) => `✅ Jetton set: ${a} (decimals ${d}). Daily snapshots start.`,
@@ -62,7 +70,7 @@ const T = {
   ar: {
     welcome:
       "🏛 أهلًا بك في قافلة زنوبيا.\n\nزنوبيا ملكة تدمر: تاريخ حقيقي ولعبة أسبوعية شفافة على TON.\n\n• سجّل حضورك يوميًا لتبني سلسلتك\n• ادعُ أصدقاءك برابطك\n• شاهد جوازك يكبر من طفلة إلى ملكة ثم محاربة\n\nالنقاط ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. ليست نصيحة مالية.",
-    btn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", invite: "👥 ادعُ صديقًا", link: "🔗 المحفظة", stages: "👑 المراحل", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
+    btn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", invite: "👥 ادعُ صديقًا", link: "🔗 المحفظة", passport: "🪪 الجواز", stages: "👑 المراحل", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 رحلتك\n\nاليوم ${d} · المرحلة: ${stage}${nxt}\nالنقاط: ${pts}\nالترتيب: ${rank} من ${total} · ${title}`,
     next: (n: number, s: string) => `\nالمرحلة التالية (${s}) بعد ${n} يوم`,
@@ -73,6 +81,14 @@ const T = {
     link: "🔐 اربط محفظتك على TON لتثبت أنها لك. تُحتسب في درجات المواسم المحافظ الموثّقة فقط.\n\nلا نطلب منك عبارة الاسترداد أبدًا: المحفظة توقّع رسالة واحدة غير ضارة.",
     linkVerified: (a: string) => `✅ محفظة موثّقة:\n${a}\n\nيمكنك ربط محفظة أخرى بالزر أدناه.`,
     connect: "🔐 ربط المحفظة",
+    passNeedWallet: "🪪 جواز القافلة رمز NFT غير قابل للتحويل يكبر مع رحلتك. اربط محفظتك وثبّتها أولًا بزر 🔗 المحفظة.",
+    passSoon: "🪪 الجوازات لم تُفتح بعد. وثّق محفظتك الآن لتكون من الأوائل عند الافتتاح.",
+    passRequested: (n: number) => `🪪 جوازك رقم ${n} في طريقه إلى محفظتك الموثّقة. يصل عادةً خلال دقائق.`,
+    passReady: (n: number, link: string) => `✅ جواز القافلة رقم ${n} صار في محفظتك.\n${link}`,
+    passAsked: (n: number) => `✅ طُلب الجواز رقم ${n}. سيُصَكّ إلى محفظتك الموثّقة خلال دقائق وتصلك رسالة هنا.`,
+    passOpen: "✅ فُتحت الجوازات.",
+    passClosed: "✅ أُغلقت الجوازات.",
+    passUsage: "الاستخدام: /passports on  أو  /passports off",
     seasonNone: "لم يُغلق موسم بعد. المواسم أسبوعية، وتُنشر أول نتيجة بعد أول أسبوع كامل.",
     seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 الموسم ${id}\nالمشاركون: ${n}\nبصمة النتيجة (SHA-256):\n${hash}\n\nالختم: ${seal}`,
     jettonOn: (a: string, d: number) => `✅ تم تحديد العملة: ${a} (الخانات ${d}). تبدأ اللقطات اليومية.`,
@@ -141,6 +157,10 @@ export function ensureZenobiaTables(): Promise<void> {
           wallet_verified BOOLEAN NOT NULL DEFAULT false, PRIMARY KEY (bot_id, tg_user_id))`,
       )
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_passport (idx INT PRIMARY KEY, bot_id TEXT NOT NULL, tg_user_id TEXT NOT NULL, minted_at TIMESTAMPTZ NOT NULL DEFAULT now())`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS wallet TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'minted'`))
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_passport ADD COLUMN IF NOT EXISTS item TEXT`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS zenobia_passport_person ON zenobia_passport (bot_id, tg_user_id)`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_config (bot_id TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (bot_id, k))`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_snap (day DATE NOT NULL, owner TEXT NOT NULL, balance NUMERIC NOT NULL, PRIMARY KEY (day, owner))`))
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_season (season TEXT PRIMARY KEY, hash TEXT NOT NULL, results JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`))
@@ -169,15 +189,16 @@ function menuKeyboard(l: Lang): Keyboard {
   return new Keyboard()
     .text(b.journey).text(b.checkin).row()
     .text(b.top).text(b.invite).row()
-    .text(b.link).text(b.stages).row()
-    .text(b.about).text(b.lang)
+    .text(b.link).text(b.passport).row()
+    .text(b.stages).text(b.about).row()
+    .text(b.lang)
     .resized().persistent();
 }
 
 const ACT_BY_LABEL: Record<string, string> = {};
 for (const lg of ["en", "ar"] as Lang[]) {
   const b = T[lg].btn;
-  Object.assign(ACT_BY_LABEL, { [b.journey]: "zn:journey", [b.checkin]: "zn:checkin", [b.top]: "zn:top", [b.invite]: "zn:invite", [b.link]: "zn:link", [b.stages]: "zn:stages", [b.about]: "zn:about", [b.lang]: "zn:lang" });
+  Object.assign(ACT_BY_LABEL, { [b.journey]: "zn:journey", [b.checkin]: "zn:checkin", [b.top]: "zn:top", [b.invite]: "zn:invite", [b.link]: "zn:link", [b.passport]: "zn:pass", [b.stages]: "zn:stages", [b.about]: "zn:about", [b.lang]: "zn:lang" });
 }
 
 interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard }
@@ -385,6 +406,43 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'jetton',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, raw);
     await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'decimals',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, String(decimals));
     await panel({ text: t.jettonOn(raw, decimals) });
+    return;
+  }
+
+  if (act === "zn:pass") {
+    const open = (((await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE bot_id=$1 AND k='passports'`, botId)) as { v: string }[])[0]?.v) === "on";
+    const mineRows = (await prisma.$queryRawUnsafe(`SELECT idx, status, item FROM zenobia_passport WHERE bot_id=$1 AND tg_user_id=$2`, botId, id)) as { idx: number; status: string; item: string | null }[];
+    let mine = mineRows[0];
+    if (!mine && id === ownerId && user.wallet && user.wallet_verified) {
+      // the owner's trial passport is #0 (minted to his verified wallet before the passports were opened)
+      await prisma.$executeRawUnsafe(`INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status) VALUES (0,$1,$2,$3,'minted') ON CONFLICT DO NOTHING`, botId, id, user.wallet);
+      mine = { idx: 0, status: "minted", item: null };
+    }
+    if (mine) {
+      const link = mine.item ? `https://tonviewer.com/${mine.item}` : "";
+      await panel({ text: mine.status === "minted" ? t.passReady(mine.idx, link) : t.passRequested(mine.idx) });
+      return;
+    }
+    if (!user.wallet || !user.wallet_verified) { await panel({ text: t.passNeedWallet }); return; }
+    if (!open) { await panel({ text: t.passSoon }); return; }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const ins = (await prisma.$queryRawUnsafe(
+          `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id, wallet, status) SELECT GREATEST(COALESCE(MAX(idx),0)+1,1), $1, $2, $3, 'requested' FROM zenobia_passport RETURNING idx`, botId, id, user.wallet,
+        )) as { idx: number }[];
+        await panel({ text: t.passAsked(Number(ins[0]?.idx)) });
+        return;
+      } catch { /* two people asked at the same moment: take the next number */ }
+    }
+    await panel({ text: t.passSoon });
+    return;
+  }
+
+  if (act === "zn:passports" && id === ownerId && !cq) {
+    const arg = (text.split(/\s+/)[1] || "").toLowerCase();
+    if (arg !== "on" && arg !== "off") { await panel({ text: t.passUsage }); return; }
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'passports',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, arg);
+    await panel({ text: arg === "on" ? t.passOpen : t.passClosed });
     return;
   }
 

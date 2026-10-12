@@ -4,7 +4,7 @@ import { beginCell, storeStateInit } from "@ton/core";
 import { mnemonicNew, mnemonicToPrivateKey, sign } from "@ton/crypto";
 import { WalletContractV4 } from "@ton/ton";
 import { makeLinkToken, readLinkToken, makeProofPayload, readProofPayload, verifyTonProof, type TonProofRequest } from "../zenobiaTonProof";
-import { passportMetadata, parsePassportFile } from "../zenobiaPassport";
+import { passportMetadata, parsePassportFile, ownerGone, soldEverything } from "../zenobiaPassport";
 
 const TOKEN = "123456:TESTTOKEN";
 const DOMAIN = "ttbik.vercel.app";
@@ -94,5 +94,24 @@ describe("passport metadata", () => {
     expect(passportMetadata({ index: 0 }, site).image).toMatch(/stage-1-child/);
     expect(parsePassportFile("12.json")).toBe(12);
     for (const bad of ["x.json", "12", "12.json/", "-1.json", "1.json.exe", "../1.json"]) expect(parsePassportFile(bad)).toBeNull();
+  });
+});
+
+describe("stage signals", () => {
+  it("a destroyed passport has no owner on tonapi", () => {
+    expect(ownerGone({ owner: { address: "0:" + "6d".repeat(32) } })).toBe(false);
+    expect(ownerGone({})).toBe(true);
+    expect(ownerGone({ owner: null })).toBe(true);
+    expect(ownerGone({ owner: { address: "0:" + "0".repeat(64) } })).toBe(true);
+    expect(ownerGone(null)).toBe(true);
+  });
+  it("sold everything: needs a jetton, a past balance, absence from a recent snapshot", () => {
+    const base = { jettonSet: true, everHeld: true, inLatest: false, latestDay: "2026-10-12", today: "2026-10-12" };
+    expect(soldEverything(base)).toBe(true);
+    expect(soldEverything({ ...base, jettonSet: false })).toBe(false);
+    expect(soldEverything({ ...base, everHeld: false })).toBe(false); // never held: not "sold"
+    expect(soldEverything({ ...base, inLatest: true })).toBe(false);
+    expect(soldEverything({ ...base, latestDay: null })).toBe(false);
+    expect(soldEverything({ ...base, latestDay: "2026-10-01" })).toBe(false); // stale snapshot: unknown
   });
 });
