@@ -3,6 +3,9 @@ const rows = new Map<string, any>();
 const sql: string[] = [];
 let seasonRows: any[] = [];
 let passOpen = false;
+let jettonSet = "";
+let holdsCoinNow = false;
+let paymentTx = "";
 let passRows: any[] = [];
 let passInserts = 0;
 const channelSet: (string | null)[] = [];
@@ -22,7 +25,9 @@ jest.mock("@/lib/prisma", () => ({
     bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } },
     $queryRawUnsafe: async (q: string, ...a: any[]) => {
       if (q.startsWith("SELECT lang")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
+      if (q.startsWith("SELECT v FROM zenobia_config") && q.includes("'jetton'")) return jettonSet ? [{ v: jettonSet }] : [];
       if (q.startsWith("SELECT v FROM zenobia_config")) return passOpen ? [{ v: "on" }] : [];
+      if (q.startsWith("SELECT pay_tx")) return [];
       if (q.startsWith("SELECT idx, status, item FROM zenobia_passport")) return passRows;
       if (q.includes("INSERT INTO zenobia_passport") && q.includes("RETURNING idx")) { passInserts += 1; return [{ idx: 1 }]; }
       if (q.startsWith("SELECT season")) return seasonRows;
@@ -34,6 +39,11 @@ jest.mock("@/lib/prisma", () => ({
 }));
 jest.mock("@/lib/botVisit", () => ({ recordBotVisit: async () => undefined }));
 import { Address } from "@ton/core";
+(global as any).fetch = async (url: string) => {
+  if (/\/accounts\/[^/]+\/jettons\//.test(url)) return holdsCoinNow ? { ok: true, status: 200, json: async () => ({ balance: "5" }) } : { ok: false, status: 404, json: async () => ({}) };
+  if (/blockchain\/accounts/.test(url)) return { ok: true, status: 200, json: async () => ({ transactions: paymentTx ? [{ hash: paymentTx, success: true, in_msg: { source: { address: Address.parse("UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz").toRawString() } , value: 60000000, decoded_body: { text: "ZNBP-7" } } }] : [] }) };
+  return { ok: false, status: 500, json: async () => ({}) };
+};
 import { computeSeason, seasonHash, sealSvg, lifeStage, titleFor, type PersonSeason } from "../zenobiaScore";
 import { handleZenobiaBotUpdate } from "../zenobiaBotLogic";
 
@@ -104,7 +114,7 @@ const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { i
 const flat = (kb: any) => JSON.stringify(kb);
 
 describe("Zenobia bot", () => {
-  beforeEach(() => { passOpen = false; passRows = []; passInserts = 0; seasonRows = []; rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
+  beforeEach(() => { passOpen = false; jettonSet = ""; holdsCoinNow = false; paymentTx = ""; passRows = []; passInserts = 0; seasonRows = []; rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
   it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
@@ -245,26 +255,19 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/Passport #0 is now linked to you/);
     expect(sql.some((q) => /INSERT INTO zenobia_passport/.test(q))).toBe(true);
   });
-  it("the passport button: needs a verified wallet, waits while closed, requests when open, then shows the status", async () => {
+  it("the passport button points to the website, mints nothing from the bot, and still shows an older free passport", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/connect and verify your wallet/);
-    rows.get("z1:7").wallet = "UQtest"; rows.get("z1:7").wallet_verified = true;
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/not open yet/);
+    expect(bot.sent.at(-1)!.text).toMatch(/Silk Road Passport/);
     expect(passInserts).toBe(0);
     passOpen = true;
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/Passport #1 requested/);
-    expect(passInserts).toBe(1);
-    passRows = [{ idx: 1, status: "requested", item: null }];
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/passport #1 is on its way/);
+    expect(bot.sent.at(-1)!.text).toMatch(/Silk Road Passport/); // the bot only points to the website; nothing is minted from here
+    expect(passInserts).toBe(0);
     passRows = [{ idx: 1, status: "minted", item: "EQabc" }];
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toContain("https://tonviewer.com/EQabc");
-    expect(passInserts).toBe(1); // asking again never makes a second one
+    expect(bot.sent.at(-1)!.text).toContain("https://tonviewer.com/EQabc"); // an older free passport still shows
   });
   it("only the owner opens or closes passports, and the Arabic menu has the button", async () => {
     const bot = fakeBot();
@@ -277,5 +280,37 @@ describe("Zenobia bot", () => {
     await handleZenobiaBotUpdate(bot, row, msg(8, "/start"));
     await handleZenobiaBotUpdate(bot, row, msg(8, "🌐 العربية"));
     expect(JSON.stringify(bot.sent.at(-1)!.kb)).toContain("🪪 الجواز");
+  });
+});
+
+describe("Silk Road Passport", () => {
+  const { silkPriceGram, silkStage, silkMetadata, isDead, SILK_CAP, LOCK_DAYS } = require("../zenobiaSilk");
+  const { holdsCoin } = require("../zenobiaPay");
+  it("price rises with the number: 1, then 2, then 3 GRAM; 2500 in all", () => {
+    expect([0, 499, 500, 1499, 1500, 2499].map(silkPriceGram)).toEqual([1, 1, 2, 2, 3, 3]);
+    expect(SILK_CAP).toBe(2500); expect(LOCK_DAYS).toBe(30);
+  });
+  it("stage follows the passport's age; Captive without ZNB; Legend when sent to the dead address", () => {
+    expect([0, 9, 10, 29, 30, 400].map((d) => silkStage(d))).toEqual(["child", "child", "queen", "queen", "warrior", "warrior"]);
+    expect(silkStage(100, { captive: true })).toBe("captive");
+    expect(silkStage(100, { captive: true, legend: true })).toBe("legend");
+    expect(isDead("0:" + "0".repeat(64))).toBe(true); expect(isDead(undefined)).toBe(true); expect(isDead("0:" + "1".repeat(64))).toBe(false);
+  });
+  it("metadata says when it can be traded", () => {
+    const now = new Date("2026-12-01T00:00:00Z");
+    const young = silkMetadata({ index: 7, mintedAt: new Date("2026-11-20T00:00:00Z"), now }, "https://x");
+    expect(young.name).toContain("#7"); expect(young.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("After day 30");
+    expect(young.image).toBe("https://x/zenobia/stage-2-queen-sq.jpg");
+    const old = silkMetadata({ index: 7, mintedAt: new Date("2026-10-01T00:00:00Z"), now }, "https://x");
+    expect(old.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("Yes");
+    expect(old.image).toContain("stage-3-warrior-sq");
+    expect(silkMetadata({ index: 7, mintedAt: new Date("2026-10-01T00:00:00Z"), captive: true, now }, "https://x").image).toContain("stage-4-captive-sq");
+  });
+  it("reads the holder's balance against a minimum", async () => {
+    const bal = (b: string | null) => (async () => (b === null ? { ok: false, status: 404 } : { ok: true, status: 200, json: async () => ({ balance: b }) })) as any;
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("5") })).toBe(true);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("5"), minBalance: 6n })).toBe(false);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("0") })).toBe(false);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal(null) })).toBe(false);
   });
 });

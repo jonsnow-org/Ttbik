@@ -25,6 +25,13 @@ if [ -f "$OR/agent/ZENOBIA_COLLECTION_ON" ]; then
   [ -n "${BOT_TOKEN:-}" ] && EXTRA+=(-e ZNB_OPS_KEY="$(printf %s "$BOT_TOKEN" | sha256sum | cut -c1-48)")
   [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_TRIAL_MINT_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")")
 fi
+# Silk Road Passports (the paid, tradable passport): switched on only when the owner commits agent/ZENOBIA_SILK_ON. The ledger deploys the collection ONCE (0.04)
+# and mints only passports whose payment it has checked on the chain itself. Royalty (7% on resales) goes to the address in agent/ZENOBIA_MINT_TO.
+if [ -f "$OR/agent/ZENOBIA_SILK_ON" ]; then
+  EXTRA+=(-e ZNB_SILK_ON=1 -e ZNB_SILK_BASE="https://ttbik.vercel.app/api/zenobia/silk/" -e ZNB_SILK_COLLECTION_JSON="https://ttbik.vercel.app/zenobia/silk-collection.json")
+  [ -n "${BOT_TOKEN:-}" ] && ! printf '%s\n' "${EXTRA[@]}" | grep -q ZNB_OPS_KEY && EXTRA+=(-e ZNB_OPS_KEY="$(printf %s "$BOT_TOKEN" | sha256sum | cut -c1-48)")
+  [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_SILK_ROYALTY_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")")
+fi
 docker run -d --name zenobia-ledger --restart unless-stopped --memory 256m \
   -v "$ZDIR":/state -e ZNB_DIR=/state -e ZNB_NETWORK=mainnet -e ZNB_SITE="$SITE_URL" ${TC_KEY:+-e TONCENTER_API_KEY="$TC_KEY"} \
   ${EXTRA[@]+"${EXTRA[@]}"} zenobia-ledger >/dev/null

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Silk Road Passport · From Palmyra</title>
+<meta name="description" content="A limited, tradable passport for ZNB holders. Locked for 30 days, then free to trade. Not a promise of any return.">
+<style>
+  :root { --bg:#fffaf0; --fg:#2a1b0b; --card:#ffffff; --gold:#b8862b; --line:#ead9b4; --ok:#1a7f37; --err:#b42318; }
+  :root[data-theme="dark"] { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; padding:16px; box-sizing:border-box; }
+  main { max-width:520px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
+  h1 { font-size:21px; margin:0 0 4px; color:var(--gold); }
+  h2 { font-size:15px; margin:0 0 12px; font-weight:500; opacity:.8; }
+  img { width:100%; max-width:320px; display:block; margin:12px auto; border-radius:12px; }
+  ul { padding-inline-start:20px; margin:8px 0; }
+  .row { display:flex; justify-content:space-between; gap:8px; border-top:1px solid var(--line); padding:8px 0; }
+  #btn { margin:16px 0 8px; min-height:44px; display:flex; justify-content:center; }
+  button.buy { width:100%; min-height:48px; border:0; border-radius:12px; background:var(--gold); color:#1b1206; font:600 16px system-ui; cursor:pointer; }
+  button.buy:disabled { opacity:.5; cursor:default; }
+  #msg { min-height:24px; font-weight:600; margin-top:12px; }
+  .ok { color:var(--ok); } .err { color:var(--err); }
+  small { opacity:.75; display:block; margin-top:12px; }
+  .ar { direction:rtl; text-align:right; border-top:1px solid var(--line); margin-top:16px; padding-top:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Silk Road Passport · From Palmyra</h1>
+  <h2>جواز مرور طريق الحرير من تدمر</h2>
+  <img src="/zenobia/stage-2-queen-sq.jpg" alt="Zenobia" width="320" height="320">
+  <ul>
+    <li>Limited to <b id="cap">2500</b> passports. It grows with its own age: Child, Queen, Warrior.</li>
+    <li>Locked for the first <b>30 days</b> (the contract itself enforces it), then it can be sold or bought freely. A 7% royalty goes to the project on every resale.</li>
+    <li>For ZNB holders. If its holder holds no ZNB, the passport shows as Captive.</li>
+  </ul>
+  <div class="row"><span>Passports issued</span><b id="minted">…</b></div>
+  <div class="row"><span>Current price</span><b id="price">…</b></div>
+  <div id="btn"></div>
+  <button class="buy" id="buy" disabled>Buy passport</button>
+  <p id="msg" role="status"></p>
+  <small>You pay from your own wallet; the passport is minted to that same wallet after the payment is confirmed on the chain (usually within minutes). Pay only through this page's button: a payment that breaks the rules is returned minus a small network fee. Not financial advice and not a promise of any return.</small>
+  <div class="ar">
+    <ul>
+      <li>محدود بـ<b id="capAr">2500</b> جواز. يكبر بعمره: طفلة ثم ملكة ثم محاربة.</li>
+      <li>يُقفل أول <b>30 يومًا</b> (يفرضه العقد نفسه)، ثم يُباع ويُشترى بحرية. وللمشروع 7% عائد على كل إعادة بيع.</li>
+      <li>لحاملي ZNB. إن لم يملك حامله ZNB يظهر الجواز أسيرًا.</li>
+    </ul>
+    <small>تدفع من محفظتك وتُصَكّ إليها بعد تأكيد الدفع على السلسلة (عادةً خلال دقائق). ادفع عبر زر هذه الصفحة فقط: الدفعة التي تخالف القواعد تُعاد بعد خصم رسم الشبكة الصغير. ليس نصيحة مالية ولا وعدًا بأي عائد.</small>
+  </div>
+</main>
+<script src="https://unpkg.com/@tonconnect/ui@2.0.9/dist/tonconnect-ui.min.js"></script>
+<script>
+(function () {
+  // a TON text comment as a one-cell BOC (base64): 32 zero bits, then the UTF-8 text
+  function commentBoc(text) {
+    var t = new TextEncoder().encode(text), n = 4 + t.length;
+    if (n > 120) throw new Error("comment too long");
+    var cell = [0, n * 2, 0, 0, 0, 0].concat(Array.prototype.slice.call(t));
+    var boc = [0xb5, 0xee, 0x9c, 0x72, 0x01, 0x01, 0x01, 0x01, 0x00, cell.length, 0x00].concat(cell);
+    var s = ""; boc.forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s);
+  }
+  window.__commentBoc = commentBoc;
+  var $ = function (id) { return document.getElementById(id); };
+  var msg = $("msg");
+  function say(text, cls) { msg.textContent = text; msg.className = cls || ""; }
+  var status = null;
+  function refresh() {
+    return fetch("/api/zenobia/silk/status").then(function (r) { return r.json(); }).then(function (s) {
+      status = s;
+      $("minted").textContent = s.minted != null ? s.minted + " / " + s.cap : "…";
+      $("price").textContent = s.open ? (s.priceGram == null ? "Sold out" : s.priceGram + " GRAM") : "Not open yet / لم يُفتح بعد";
+      update();
+    }).catch(function () { say("Could not load the status. Try again. / تعذّر تحميل الحالة.", "err"); });
+  }
+  var ui = new TON_CONNECT_UI.TonConnectUI({ manifestUrl: location.origin + "/zenobia/tonconnect-manifest-v2.json", buttonRootId: "btn" });
+  function update() { $("buy").disabled = !(ui.account && status && status.open && status.priceGram != null); }
+  ui.onStatusChange(update);
+  refresh();
+  $("buy").addEventListener("click", function () {
+    if (!ui.account) return;
+    $("buy").disabled = true; say("Checking… / جارٍ التحقق…");
+    fetch("/api/zenobia/silk/quote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ wallet: ui.account.address }) })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          var m = { need_znb: "Hold enough ZNB in this wallet first. / احتفظ بقدر كافٍ من ZNB في هذه المحفظة أولًا.", not_open: "Passports are not open yet. / لم تُفتح الجوازات بعد.", sold_out: "Sold out. / نفدت الجوازات.", try_again: "Network busy, try again. / الشبكة مشغولة، أعد المحاولة." };
+          say(m[res.j.error] || "Could not start. / تعذّر البدء.", "err"); update(); return;
+        }
+        var q = res.j;
+        return ui.sendTransaction({ validUntil: Math.floor(Date.now() / 1000) + 600, messages: [{ address: q.to, amount: String(Math.round(q.priceGram * 1e9)), payload: commentBoc(q.comment) }] })
+          .then(function () { say("Payment sent ✅ Your passport will arrive in your wallet within minutes. / أُرسلت الدفعة ✅ سيصل جوازك إلى محفظتك خلال دقائق.", "ok"); })
+          .catch(function () { say("Cancelled. / أُلغيت العملية.", "err"); update(); });
+      })
+      .catch(function () { say("Network error. / خطأ في الشبكة.", "err"); update(); });
+  });
+})();
+</script>
+</body>
+</html>
