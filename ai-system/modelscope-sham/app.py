@@ -143,21 +143,61 @@ def status() -> str:
 _CHAT_SEEN: dict = {}
 
 
-def _studio_chat():
-    """The answer path lives in sham_small/sham_studio_chat.py. Prefer the SIGNED hot copy (_hot/sham_small, refreshed by the GitHub bridge without a
-    Redeploy click) over the copy deployed with this file, and reload it when it changes: later changes to how Sham answers need no manual deploy."""
+def _studio_modules():
+    """sham_studio_chat.py (the answer path) and sham_studio_media.py (pictures and sounds from the model's own tokens) live in sham_small. Prefer the
+    SIGNED hot copy (_hot/sham_small, refreshed by the GitHub bridge without a Redeploy click) over the copy deployed with this file, and reload when it
+    changes: later changes to how Sham answers need no manual deploy. Returns (chat module, media module)."""
     import importlib
     hot = HOT / "sham_small"
-    f = hot / "sham_studio_chat.py"
-    stamp = (str(f), f.stat().st_mtime) if f.exists() else ("deployed", 0)
+    files = [hot / "sham_studio_chat.py", hot / "sham_studio_media.py"]
+    stamp = tuple((str(f), f.stat().st_mtime) if f.exists() else ("deployed", 0) for f in files)
     if _CHAT_SEEN.get("stamp") != stamp:
-        if f.exists() and str(hot) not in sys.path:
+        if files[0].exists() and str(hot) not in sys.path:
             sys.path.insert(0, str(hot))
-        for name in ("sham_studio_chat", "sham_decoding", "sham_chat"):      # the hot copies replace the deployed ones
+        for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat"):      # the hot copies replace the deployed ones
             sys.modules.pop(name, None)
-        _CHAT_SEEN["mod"] = importlib.import_module("sham_studio_chat")
+        _CHAT_SEEN["mods"] = (importlib.import_module("sham_studio_chat"), importlib.import_module("sham_studio_media"))
         _CHAT_SEEN["stamp"] = stamp
-    return _CHAT_SEEN["mod"]
+    return _CHAT_SEEN["mods"]
+
+
+def _studio_chat():
+    return _studio_modules()[0]
+
+
+def _json_notice(text: str) -> str:
+    return json.dumps({"type": "notice", "text": text}, ensure_ascii=False)
+
+
+def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
+    """JSON {"type": text|image|audio|notice, ...}: the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any)."""
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    n = int(max(1, min(200, max_new_tokens)))
+    try:
+        with _LOCK:
+            res = _studio_modules()[1].generate_any(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+                                                    serve._state["audio_tokenizer"], prompt, n)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as exc:
+        print(f"generate_any failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return _json_notice("تعذّر توليد الرد الآن.")
+
+
+def generate_media(kind: str, prompt: str) -> str:
+    """JSON like generate_any, but the USER chose the kind (image | audio | video), e.g. the bot's /image command."""
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    try:
+        with _LOCK:
+            res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+                                                  serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as exc:
+        print(f"generate_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return _json_notice("تعذّر التوليد الآن.")
 
 
 def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
@@ -185,8 +225,12 @@ def build_ui():
     import gradio as gr
     chat = gr.Interface(generate_text, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)],
                         gr.Textbox(label="text"), api_name="generate_text", flagging_mode="never")
+    anyk = gr.Interface(generate_any, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
+                        api_name="generate_any", flagging_mode="never")
+    media = gr.Interface(generate_media, [gr.Textbox(label="kind"), gr.Textbox(label="prompt")], gr.Textbox(label="json"),
+                         api_name="generate_media", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, st], ["شام", "الحالة"], title="شام — Sham")
+    return gr.TabbedInterface([chat, anyk, media, st], ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "الحالة"], title="شام — Sham")
 
 
 if __name__ == "__main__":
