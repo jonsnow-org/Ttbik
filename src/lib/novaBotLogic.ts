@@ -755,8 +755,10 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 
 // Sham's answer as the Telegram message it is: words, a picture or a sound (from the model's own tokens). A notice is plain text; nothing is added or retouched.
 const SHAM_MEDIA_COMMANDS: Record<string, "image" | "audio" | "video"> = {
-  "/image": "image", "/صورة": "image", "/audio": "audio", "/صوت": "audio", "/video": "video", "/فيديو": "video",
+  "image": "image", "صورة": "image", "صوره": "image", "ارسم": "image", "audio": "audio", "صوت": "audio", "video": "video", "فيديو": "video",
 };
+// the kind the USER named with the first word of the message, with or without a leading "/"
+const shamMediaKind = (text: string) => SHAM_MEDIA_COMMANDS[text.split(/[\s@]/)[0].replace(/^\//, "").toLowerCase()];
 
 async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
   if (!reply) {
@@ -781,17 +783,18 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
       const chatId = update.message.chat.id;
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
+      const mediaKind = shamStudioEnabled() ? shamMediaKind(text) : undefined;
       // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
-      if (text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help" || SHAM_MEDIA_COMMANDS[firstWord])) {
+      if ((text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help")) || mediaKind) {
         const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
         const unavailable = "هذه الميزة غير متاحة الآن. اكتب جملة عادية وسأرد عليها.";
         const cmd = text.split(/[\s@]/)[0].toLowerCase();
-        const kind = SHAM_MEDIA_COMMANDS[cmd];
-        if (kind && shamStudioEnabled()) {
+        const kind = mediaKind;
+        if (kind) {
           // the USER chose the kind; the picture / sound is written by the model's own tokens (sham_studio_media.make_media)
           const caption = text.slice(text.indexOf(" ") + 1).trim();
           if (!caption || caption === text) {
-            await bot.api.sendMessage(chatId, "اكتب وصفك بعد الأمر، مثلاً: " + cmd + " أرنب أبيض").catch(() => null);
+            await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
             return;
           }
           await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : "upload_photo").catch(() => null);
