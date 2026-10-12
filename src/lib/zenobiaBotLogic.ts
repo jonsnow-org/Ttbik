@@ -183,7 +183,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (a: Date, b: Date) => Math.floor((b.getTime() - a.getTime()) / 86400000);
 const dayStr = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 
-/** The persistent menu at the bottom of the screen (stays across messages). */
+/** The menu at the bottom of the screen (collapsible with Back; reopened with the keyboard icon). */
 function menuKeyboard(l: Lang): Keyboard {
   const b = T[l].btn;
   return new Keyboard()
@@ -192,7 +192,7 @@ function menuKeyboard(l: Lang): Keyboard {
     .text(b.link).text(b.passport).row()
     .text(b.stages).text(b.about).row()
     .text(b.lang)
-    .resized().persistent();
+    .resized(); // not persistent: the Back button (or the keyboard icon) collapses it, and the icon opens it again
 }
 
 const ACT_BY_LABEL: Record<string, string> = {};
@@ -202,18 +202,21 @@ for (const lg of ["en", "ar"] as Lang[]) {
 }
 
 interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard }
-/** A normal reply. Every reply carries the persistent menu unless it has its own inline buttons (the menu stays on screen anyway). */
+/**
+ * A normal reply. The menu keyboard is sent only with the welcome (start, language change): replies do not resend it, so a person who
+ * collapsed it with the Back button is not interrupted by it popping up again; the keyboard icon next to the input opens it.
+ */
 async function reply(bot: TelegramBot, chatId: number, l: Lang, p: Panel): Promise<void> {
-  const kb = p.kb ?? menuKeyboard(l);
+  void l;
   if (p.photo) {
     try {
-      await bot.api.sendPhoto(chatId, p.photo, { caption: p.text, reply_markup: kb });
+      await bot.api.sendPhoto(chatId, p.photo, { caption: p.text, reply_markup: p.kb });
       return;
     } catch {
       /* fall through to plain text */
     }
   }
-  await bot.api.sendMessage(chatId, p.text, { reply_markup: kb });
+  await bot.api.sendMessage(chatId, p.text, { reply_markup: p.kb });
 }
 
 const STAGES: Stage[] = ["child", "queen", "warrior", "captive", "legend"];
