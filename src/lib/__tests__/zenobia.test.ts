@@ -1,6 +1,7 @@
 // Zenobia: season scoring (pure) and the bot (Telegram and the database are stubs).
 const rows = new Map<string, any>();
 const sql: string[] = [];
+let seasonRows: any[] = [];
 const channelSet: (string | null)[] = [];
 const members = new Set<number>();
 jest.mock("@/lib/prisma", () => ({
@@ -18,6 +19,7 @@ jest.mock("@/lib/prisma", () => ({
     bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } },
     $queryRawUnsafe: async (q: string, ...a: any[]) => {
       if (q.startsWith("SELECT lang")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
+      if (q.startsWith("SELECT season")) return seasonRows;
       if (q.includes("AS rank")) return [{ rank: 1, total: rows.size }];
       if (q.includes("ORDER BY points")) return [...rows.values()].filter((r) => r.points > 0).map((r) => ({ name: r.name, points: r.points }));
       return [{ n: rows.size }];
@@ -96,7 +98,7 @@ const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { i
 const flat = (kb: any) => JSON.stringify(kb);
 
 describe("Zenobia bot", () => {
-  beforeEach(() => { rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
+  beforeEach(() => { seasonRows = []; rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
   it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
@@ -203,5 +205,25 @@ describe("Zenobia bot", () => {
     bot.api.getChatMember = async () => { throw Object.assign(new Error("x"), { description: "Bad Request: member list is inaccessible" }); };
     await handleZenobiaBotUpdate(bot, { ...row, requiredChannel: "Zenobiaton" }, msg(9, "/start"));
     expect(bot.sent[0].text).toMatch(/Welcome to the Zenobia caravan/);
+  });
+  it("/season says so when nothing has closed, then shows the fingerprint and the seal link", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/season"));
+    expect(bot.sent.at(-1)!.text).toMatch(/No season has closed yet/);
+    seasonRows = [{ season: "2026-W42", hash: "ab".repeat(32), results: [{ id: "7", score: 0.5 }] }];
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/season"));
+    const txt = bot.sent.at(-1)!.text;
+    expect(txt).toMatch(/Season 2026-W42/); expect(txt).toContain("ab".repeat(32)); expect(txt).toContain("/api/zenobia/seal/2026-W42.svg");
+  });
+  it("only the owner can set the jetton, and a bad address is refused", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/jetton EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT"));
+    expect(bot.sent.some((s) => /Jetton set/.test(s.text))).toBe(false);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/jetton nonsense"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Usage: \/jetton/);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/jetton EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT 9"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Jetton set: .* \(decimals 9\)/);
+    expect(sql.some((q) => /zenobia_config/.test(q) && /jetton/.test(q))).toBe(true);
   });
 });
