@@ -479,6 +479,14 @@
       "reads": [],
       "writes": []
     },
+    "all_in_one": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_all_in_one.ipynb",
+      "title": "الدفتر الشامل: يدوّر المدرّب الحي والمرحلة الأولى والمرحلة الثانية في مقعد واحد (يكتب ما تكتبه تلك الدفاتر نفسها، ولا يُشغَّل معها في الوقت ذاته)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": ["sham-chat-checkpoint", "sham-checkpoint", "sham-crawl-checkpoint", "sham-multimodal-checkpoint"],
+      "writes": []
+    },
     "tokenizer_bench": {
       "file": ".github/workflows/sham-bench.yml",
       "title": "قياس سرعة تدريب المُرمِّزات على CPU (قراءة فقط)",
