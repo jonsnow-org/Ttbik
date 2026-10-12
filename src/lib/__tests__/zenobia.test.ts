@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => ({
     $executeRawUnsafe: async (q: string, ...a: any[]) => {
       sql.push(q);
       if (q.startsWith("INSERT INTO zenobia_user")) { const k = `${a[0]}:${a[1]}`; if (!rows.has(k)) rows.set(k, { lang: "en", name: a[2], joined_at: new Date(), points: 0, streak: 0, last_checkin: null, wallet: null, ref_by: a[3] }); }
+      else if (q.includes("SET panel_msg_id=")) rows.get(`${a[0]}:${a[1]}`).panel_msg_id = a[2];
       else if (q.includes("SET lang=")) rows.get(`${a[0]}:${a[1]}`).lang = a[2];
       else if (q.includes("SET points = points + $3")) { const r = rows.get(`${a[0]}:${a[1]}`); r.points += a[2]; r.streak = a[3]; r.last_checkin = new Date(); }
       else if (q.includes("SET points = points + 5")) rows.get(`${a[0]}:${a[1]}`).points += 5;
@@ -17,7 +18,7 @@ jest.mock("@/lib/prisma", () => ({
     $bogus: 0,
     bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } },
     $queryRawUnsafe: async (q: string, ...a: any[]) => {
-      if (q.startsWith("SELECT lang")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
+      if (q.startsWith("SELECT panel_msg_id")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
       if (q.includes("AS rank")) return [{ rank: 1, total: rows.size }];
       if (q.includes("ORDER BY points")) return [...rows.values()].filter((r) => r.points > 0).map((r) => ({ name: r.name, points: r.points }));
       return [{ n: rows.size }];
@@ -74,11 +75,16 @@ describe("Zenobia season scoring", () => {
   });
 });
 
+let mid = 100;
 function fakeBot() {
-  const sent: { chat: number; text: string; kb?: any }[] = [];
-  return { sent, api: {
-    sendMessage: async (chat: number, text: string, o?: any) => { sent.push({ chat, text, kb: o?.reply_markup }); return { message_id: 1 }; },
-    sendPhoto: async (chat: number, _p: string, o?: any) => { sent.push({ chat, text: "[photo] " + (o?.caption || "") }); return { message_id: 2 }; },
+  const sent: { chat: number; text: string; kb?: any; id: number }[] = [];
+  const deleted: number[] = [];
+  const edits: string[] = [];
+  return { sent, deleted, edits, api: {
+    sendMessage: async (chat: number, text: string, o?: any) => { const id = ++mid; sent.push({ chat, text, kb: o?.reply_markup, id }); return { message_id: id }; },
+    sendPhoto: async (chat: number, _p: string, o?: any) => { const id = ++mid; sent.push({ chat, text: "[photo] " + (o?.caption || ""), kb: o?.reply_markup, id }); return { message_id: id }; },
+    editMessageMedia: async (_c: number, _m: number, media: any) => { edits.push(media.caption); return {}; },
+    deleteMessage: async (_c: number, id: number) => { deleted.push(id); return true; },
     answerCallbackQuery: async () => undefined,
     getChatMember: async (_c: string, u: number) => { if (members.has(u)) return { status: "member" }; throw Object.assign(new Error("x"), { description: "Bad Request: user not found" }); },
     getMe: async () => ({ username: "ZenobiaBot" }),
@@ -86,34 +92,57 @@ function fakeBot() {
 }
 const row = { id: "z1", ownerId: "555001" } as any;
 const AR = /[؀-ۿ]/;
-const msg = (id: number, text: string, lang = "en") => ({ message: { chat: { id }, from: { id, first_name: "Sam", language_code: lang }, text } });
-const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { id, first_name: "Sam" }, data, message: { chat: { id } } } });
+const msg = (id: number, text: string, lang = "en") => ({ message: { message_id: ++mid, chat: { id }, from: { id, first_name: "Sam", language_code: lang }, text } });
+const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { id, first_name: "Sam" }, data, message: { message_id: 1, chat: { id } } } });
+const flat = (kb: any) => JSON.stringify(kb);
 
 describe("Zenobia bot", () => {
   beforeEach(() => { rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
-  it("greets in English even a user whose Telegram is Arabic, creating the table on first use", async () => {
+  it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
+    expect(bot.sent.length).toBe(1);
     expect(bot.sent[0].text).toMatch(/^🏛 Welcome to the Zenobia caravan/);
     expect(AR.test(bot.sent[0].text)).toBe(false);
+    expect(bot.sent[0].kb.is_persistent).toBe(true);
+    expect(flat(bot.sent[0].kb)).toContain("Invite friends");
     expect(sql[0]).toMatch(/CREATE TABLE IF NOT EXISTS zenobia_user/);
-    expect(bot.sent[1].text).toContain("start=ref_7");
   });
-  it("switches to Arabic and remembers it", async () => {
+  it("keeps the chat clean: each action removes the previous panel and the person's own message", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    await handleZenobiaBotUpdate(bot, row, cb(7, "zn:lang:ar"));
+    const first = bot.sent[0].id;
+    const m = msg(7, "🏆 Leaderboard");
+    await handleZenobiaBotUpdate(bot, row, m);
+    expect(bot.deleted).toContain(first);
+    expect(bot.deleted).toContain(m.message.message_id);
+    expect(bot.sent.length).toBe(2);
+  });
+  it("switches to Arabic with the menu button and remembers it", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🌐 العربية"));
     expect(AR.test(bot.sent.at(-1)!.text)).toBe(true);
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/about"));
+    expect(flat(bot.sent.at(-1)!.kb)).toContain("ادعُ صديقًا");
+    await handleZenobiaBotUpdate(bot, row, msg(7, "ℹ️ عن زنوبيا"));
     expect(bot.sent.at(-1)!.text).toMatch(/زنوبيا/);
   });
   it("daily check-in gives points once a day", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/checkin"));
+    await handleZenobiaBotUpdate(bot, row, msg(7, "✅ Check-in"));
     expect(bot.sent.at(-1)!.text).toMatch(/Checked in. Streak: 1 day · Points: 1/);
     await handleZenobiaBotUpdate(bot, row, msg(7, "/checkin"));
     expect(bot.sent.at(-1)!.text).toMatch(/already checked in/);
+  });
+  it("has an invite button that shares the person's own link", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    await handleZenobiaBotUpdate(bot, row, msg(7, "👥 Invite friends"));
+    const last = bot.sent.at(-1)!;
+    expect(last.text).toContain("t.me/ZenobiaBot?start=ref_7");
+    expect(flat(last.kb)).toContain("t.me/share/url?url=");
+    expect(flat(last.kb)).toContain(encodeURIComponent("https://t.me/ZenobiaBot?start=ref_7"));
   });
   it("a referral gives the inviter 5 points, and nobody can refer themselves", async () => {
     const bot = fakeBot();
@@ -131,13 +160,17 @@ describe("Zenobia bot", () => {
     await handleZenobiaBotUpdate(bot, row, msg(7, "/link " + new Address(0, Buffer.alloc(32, 7)).toString()));
     expect(bot.sent.at(-1)!.text).toMatch(/Saved \(unverified\)/);
   });
-  it("shows the journey stage and the captured quote on the captive/legend stages", async () => {
+  it("shows the journey stage, and the quote on the captive and legend stages in place", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/journey"));
-    expect(bot.sent.some((s) => /stage: Child/.test(s.text))).toBe(true);
-    await handleZenobiaBotUpdate(bot, row, msg(7, "/stages"));
-    expect(bot.sent.filter((s) => s.text.includes("A fine thing is a fetter on the wrist")).length).toBe(2);
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🗺 My journey"));
+    expect(bot.sent.at(-1)!.text).toMatch(/stage: Child/);
+    await handleZenobiaBotUpdate(bot, row, msg(7, "👑 Stages"));
+    const n = bot.sent.length;
+    await handleZenobiaBotUpdate(bot, row, cb(7, "zn:st:3"));
+    await handleZenobiaBotUpdate(bot, row, cb(7, "zn:st:4"));
+    expect(bot.sent.length).toBe(n); // edited in place, nothing new in the chat
+    expect(bot.edits.filter((c) => c.includes("A fine thing is a fetter on the wrist")).length).toBe(2);
   });
   it("only the owner sees stats", async () => {
     const bot = fakeBot();
@@ -157,7 +190,7 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/join the Zenobia channel first/);
     members.add(7);
     await handleZenobiaBotUpdate(bot, gated, cb(7, "zn:start"));
-    expect(bot.sent.some((s) => /Welcome to the Zenobia caravan/.test(s.text))).toBe(true);
+    expect(bot.sent.at(-1)!.text).toMatch(/Welcome to the Zenobia caravan/);
     await handleZenobiaBotUpdate(bot, row, msg(555001, "/channel off"));
     expect(channelSet.at(-1)).toBeNull();
   });

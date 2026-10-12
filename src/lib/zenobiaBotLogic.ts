@@ -1,4 +1,4 @@
-import { Bot as TelegramBot, InlineKeyboard } from "grammy";
+import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { Address } from "@ton/core";
 import { prisma } from "@/lib/prisma";
@@ -20,7 +20,7 @@ export const QUOTE_EN =
   "A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.";
 export const QUOTE_AR = "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»";
 
-export const COMMANDS = ["start", "journey", "checkin", "top", "link", "stages", "lang", "about"] as const;
+export const COMMANDS = ["start", "journey", "checkin", "top", "invite", "link", "stages", "lang", "about"] as const;
 
 const STAGE_IMG: Record<Stage, string> = {
   child: "stage-1-child.jpg",
@@ -34,7 +34,7 @@ const T = {
   en: {
     welcome:
       "🏛 Welcome to the Zenobia caravan.\n\nZenobia, queen of Palmyra: real history plus a transparent weekly game on TON.\n\n• Check in daily to build your streak\n• Invite friends with your link\n• Watch your passport grow from a child into a queen and a warrior\n\nPoints are ranks and titles only — not a promise of any reward. Not financial advice.",
-    btn: { journey: "🗺 My journey", checkin: "✅ Daily check-in", top: "🏆 Leaderboard", link: "🔗 Link wallet", stages: "👑 All stages", about: "ℹ️ About", lang: "🌐 العربية" },
+    btn: { journey: "🗺 My journey", checkin: "✅ Check-in", top: "🏆 Leaderboard", invite: "👥 Invite friends", link: "🔗 Wallet", stages: "👑 Stages", about: "ℹ️ About", lang: "🌐 العربية" },
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 Your journey\n\nDay ${d} · stage: ${stage}${nxt}\nPoints: ${pts}\nRank: #${rank} of ${total} · ${title}`,
     next: (n: number, s: string) => `\nNext stage (${s}) in ${n} day${n === 1 ? "" : "s"}`,
@@ -48,7 +48,9 @@ const T = {
     about:
       "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra. Seasons last a week; a score comes from holding, taking part and accumulating, and the leaderboard is public. Scores are ranks and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
-    ref: (l: string) => `Invite friends: ${l}\nEach friend who joins gives you +5 points.`,
+    ref: (l: string) => `👥 Invite friends\n\nYour link:\n${l}\n\nEach friend who joins gives you +5 points.`,
+    share: "📤 Share my link",
+    shareText: "Join the Zenobia caravan on TON 🏛",
     owner: (n: number) => `👑 Owner stats\nMembers: ${n}`,
     join: "📢 Please join the Zenobia channel first, then tap the button below.",
     joined: "✅ I joined",
@@ -60,7 +62,7 @@ const T = {
   ar: {
     welcome:
       "🏛 أهلًا بك في قافلة زنوبيا.\n\nزنوبيا ملكة تدمر: تاريخ حقيقي ولعبة أسبوعية شفافة على TON.\n\n• سجّل حضورك يوميًا لتبني سلسلتك\n• ادعُ أصدقاءك برابطك\n• شاهد جوازك يكبر من طفلة إلى ملكة ثم محاربة\n\nالنقاط ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. ليست نصيحة مالية.",
-    btn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", link: "🔗 ربط المحفظة", stages: "👑 كل المراحل", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
+    btn: { journey: "🗺 رحلتي", checkin: "✅ حضور اليوم", top: "🏆 الصدارة", invite: "👥 ادعُ صديقًا", link: "🔗 المحفظة", stages: "👑 المراحل", about: "ℹ️ عن زنوبيا", lang: "🌐 English" },
     journey: (d: number, pts: number, rank: number, total: number, title: string, stage: string, nxt: string) =>
       `🗺 رحلتك\n\nاليوم ${d} · المرحلة: ${stage}${nxt}\nالنقاط: ${pts}\nالترتيب: ${rank} من ${total} · ${title}`,
     next: (n: number, s: string) => `\nالمرحلة التالية (${s}) بعد ${n} يوم`,
@@ -74,7 +76,9 @@ const T = {
     about:
       "زنوبيا (ZNB) عملة مجتمعية على TON مستوحاة من ملكة تدمر. الموسم أسبوع، والدرجة تأتي من الاحتفاظ والمشاركة والتراكم، ولوحة الصدارة علنية. الدرجات ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. العملات الرقمية محفوفة بالمخاطر، فلا تضع ما لا تتحمل خسارته.",
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
-    ref: (l: string) => `ادعُ أصدقاءك: ${l}\nكل صديق ينضم يمنحك +5 نقاط.`,
+    ref: (l: string) => `👥 ادعُ أصدقاءك\n\nرابطك:\n${l}\n\nكل صديق ينضم يمنحك +5 نقاط.`,
+    share: "📤 شارك رابطي",
+    shareText: "انضم إلى قافلة زنوبيا على TON 🏛",
     owner: (n: number) => `👑 إحصائيات المالك\nالأعضاء: ${n}`,
     join: "📢 انضم أولًا إلى قناة زنوبيا، ثم اضغط الزر أدناه.",
     joined: "✅ انضممت",
@@ -128,19 +132,20 @@ function ensureTable(): Promise<void> {
           bot_id TEXT NOT NULL, tg_user_id TEXT NOT NULL, lang TEXT NOT NULL DEFAULT 'en',
           name TEXT, joined_at TIMESTAMPTZ NOT NULL DEFAULT now(), points INT NOT NULL DEFAULT 0,
           streak INT NOT NULL DEFAULT 0, last_checkin DATE, ref_by TEXT, wallet TEXT,
-          wallet_verified BOOLEAN NOT NULL DEFAULT false, PRIMARY KEY (bot_id, tg_user_id))`,
+          wallet_verified BOOLEAN NOT NULL DEFAULT false, panel_msg_id BIGINT, PRIMARY KEY (bot_id, tg_user_id))`,
       )
+      .then(() => prisma.$executeRawUnsafe(`ALTER TABLE zenobia_user ADD COLUMN IF NOT EXISTS panel_msg_id BIGINT`))
       .then(() => undefined)
       .catch((e) => { ready = null; throw e; });
   }
   return ready;
 }
 
-interface UserRow { lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
+interface UserRow { panel_msg_id: string | number | null; lang: Lang; name: string | null; joined_at: Date; points: number; streak: number; last_checkin: Date | null; wallet: string | null }
 
 async function getUser(botId: string, id: string): Promise<UserRow | null> {
   const rows = (await prisma.$queryRawUnsafe(
-    `SELECT lang, name, joined_at, points, streak, last_checkin, wallet FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
+    `SELECT panel_msg_id, lang, name, joined_at, points, streak, last_checkin, wallet FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, id,
   )) as UserRow[];
   return rows[0] ?? null;
 }
@@ -149,13 +154,49 @@ const today = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (a: Date, b: Date) => Math.floor((b.getTime() - a.getTime()) / 86400000);
 const dayStr = (d: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
 
-function mainMenu(l: Lang): InlineKeyboard {
+/** The persistent menu at the bottom of the screen (stays across messages). */
+function menuKeyboard(l: Lang): Keyboard {
   const b = T[l].btn;
-  return new InlineKeyboard()
-    .text(b.journey, "zn:journey").text(b.checkin, "zn:checkin").row()
-    .text(b.top, "zn:top").text(b.link, "zn:link").row()
-    .text(b.stages, "zn:stages").text(b.about, "zn:about").row()
-    .text(b.lang, `zn:lang:${l === "en" ? "ar" : "en"}`);
+  return new Keyboard()
+    .text(b.journey).text(b.checkin).row()
+    .text(b.top).text(b.invite).row()
+    .text(b.link).text(b.stages).row()
+    .text(b.about).text(b.lang)
+    .resized().persistent();
+}
+
+const ACT_BY_LABEL: Record<string, string> = {};
+for (const lg of ["en", "ar"] as Lang[]) {
+  const b = T[lg].btn;
+  Object.assign(ACT_BY_LABEL, { [b.journey]: "zn:journey", [b.checkin]: "zn:checkin", [b.top]: "zn:top", [b.invite]: "zn:invite", [b.link]: "zn:link", [b.stages]: "zn:stages", [b.about]: "zn:about", [b.lang]: "zn:lang" });
+}
+
+interface Panel { text: string; photo?: string; kb?: InlineKeyboard | Keyboard }
+/**
+ * One panel message per person: the previous panel is deleted and the new one sent, so the chat never piles up.
+ * The person's own button/command message is removed too.
+ */
+async function sendPanel(bot: TelegramBot, chatId: number, botId: string, id: string, prev: string | number | null, p: Panel, trigger?: number): Promise<void> {
+  if (prev) await bot.api.deleteMessage(chatId, Number(prev)).catch(() => null);
+  if (trigger) await bot.api.deleteMessage(chatId, trigger).catch(() => null);
+  let sent: { message_id: number };
+  if (p.photo) {
+    try {
+      sent = await bot.api.sendPhoto(chatId, p.photo, { caption: p.text, reply_markup: p.kb });
+    } catch {
+      sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: p.kb });
+    }
+  } else {
+    sent = await bot.api.sendMessage(chatId, p.text, { reply_markup: p.kb });
+  }
+  await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET panel_msg_id=$3 WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, sent.message_id);
+}
+
+const STAGES: Stage[] = ["child", "queen", "warrior", "captive", "legend"];
+function stagesKb(l: Lang, cur: number): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  STAGES.forEach((st, i) => kb.text(`${i === cur ? "• " : ""}${STAGE_NAME[l][st]}`, `zn:st:${i}`));
+  return kb;
 }
 
 async function rankOf(botId: string, id: string): Promise<{ rank: number; total: number }> {
@@ -166,14 +207,7 @@ async function rankOf(botId: string, id: string): Promise<{ rank: number; total:
   return { rank: Number(r[0]?.rank ?? 1), total: Math.max(1, Number(r[0]?.total ?? 1)) };
 }
 
-async function sendStage(bot: TelegramBot, chatId: number, stage: Stage, l: Lang, extra = "") {
-  const caption = (extra ? extra + "\n\n" : "") + STAGE_CAPTION[l][stage];
-  try {
-    await bot.api.sendPhoto(chatId, `${SITE}/zenobia/${STAGE_IMG[stage]}`, { caption });
-  } catch {
-    await bot.api.sendMessage(chatId, caption);
-  }
-}
+const stageUrl = (st: Stage) => `${SITE}/zenobia/${STAGE_IMG[st]}`;
 
 export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
   await ensureTable();
@@ -209,43 +243,51 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
   }
   const l: Lang = user.lang === "ar" ? "ar" : "en";
   const t = T[l];
+  const trigger: number | undefined = msg?.message_id;
+  const prev = user.panel_msg_id;
+  const panel = (p: Panel) => sendPanel(bot, chatId, botId, id, prev, p, trigger);
+  const botLink = async () => `https://t.me/${(await bot.api.getMe().catch(() => ({ username: "" }))).username}?start=ref_${id}`;
 
   // the owner sets (or stops) the mandatory channel
   if (id === ownerId && !cq && /^\/channel(@\w+)?(\s|$)/i.test(text)) {
     const arg = text.split(/\s+/)[1] || "";
-    if (!arg) { await bot.api.sendMessage(chatId, t.chUsage); return; }
+    if (!arg) { await panel({ text: t.chUsage }); return; }
     if (/^(off|cancel|إلغاء)$/i.test(arg)) {
       await prisma.bot.update({ where: { id: botId }, data: { requiredChannel: null } });
-      await bot.api.sendMessage(chatId, t.chOff);
+      await panel({ text: t.chOff });
       return;
     }
     const ch = normChannel(arg);
     await prisma.bot.update({ where: { id: botId }, data: { requiredChannel: ch } });
     const canCheck = await bot.api.getChatMember(`@${ch}`, Number(id)).then(() => true).catch(() => false);
-    await bot.api.sendMessage(chatId, t.chOn(ch, canCheck ? "" : t.chWarn));
+    await panel({ text: t.chOn(ch, canCheck ? "" : t.chWarn) });
     return;
   }
   // everyone else must have joined the channel first (when one is set)
   if (id !== ownerId && botRow.requiredChannel && !(await isMember(bot, botRow.requiredChannel, id))) {
-    await bot.api.sendMessage(chatId, `${t.join}\nhttps://t.me/${normChannel(botRow.requiredChannel)}`, {
-      reply_markup: new InlineKeyboard().url("📢 Zenobia", `https://t.me/${normChannel(botRow.requiredChannel)}`).row().text(t.joined, "zn:start"),
+    const ch = normChannel(botRow.requiredChannel);
+    await panel({
+      text: `${t.join}\nhttps://t.me/${ch}`,
+      kb: new InlineKeyboard().url("📢 Zenobia", `https://t.me/${ch}`).row().text(t.joined, "zn:start"),
     });
     return;
   }
 
-  const act = cq ? String(cq.data || "") : text.startsWith("/") ? "zn:" + text.slice(1).split(/[\s@]/)[0].toLowerCase() : "";
+  const act = cq ? String(cq.data || "") : text.startsWith("/") ? "zn:" + text.slice(1).split(/[\s@]/)[0].toLowerCase() : ACT_BY_LABEL[text] || "";
   if (cq) await bot.api.answerCallbackQuery(cq.id).catch(() => null);
 
-  if (act === "zn:start" || (!cq && text.startsWith("/start"))) {
-    await bot.api.sendMessage(chatId, t.welcome, { reply_markup: mainMenu(l) });
-    await bot.api.sendMessage(chatId, t.ref(`https://t.me/${(await bot.api.getMe().catch(() => ({ username: "" }))).username}?start=ref_${id}`));
+  const welcome = (lang: Lang) => ({ text: T[lang].welcome, kb: menuKeyboard(lang) });
+
+  if (act === "zn:start") {
+    // the first panel carries the persistent menu, which then stays at the bottom of the screen
+    await sendPanel(bot, chatId, botId, id, prev, welcome(l), trigger);
     return;
   }
 
-  if (act.startsWith("zn:lang")) {
-    const to: Lang = cq ? (act.endsWith(":ar") ? "ar" : "en") : l === "en" ? "ar" : "en";
+  if (act === "zn:lang") {
+    const to: Lang = l === "en" ? "ar" : "en";
     await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET lang=$3 WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, to);
-    await bot.api.sendMessage(chatId, T[to].welcome, { reply_markup: mainMenu(to) });
+    await sendPanel(bot, chatId, botId, id, prev, welcome(to), trigger);
     return;
   }
 
@@ -255,14 +297,16 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     const { rank, total } = await rankOf(botId, id);
     const nextAt = stage === "child" ? 7 : stage === "queen" ? 21 : 0;
     const nxt = nextAt ? t.next(nextAt - d, STAGE_NAME[l][stage === "child" ? "queen" : "warrior"]) : "";
-    await bot.api.sendMessage(chatId, t.journey(d, user.points, rank, total, titleFor(rank, total)[l], STAGE_NAME[l][stage], nxt));
-    await sendStage(bot, chatId, stage, l);
+    await panel({
+      text: `${t.journey(d, user.points, rank, total, titleFor(rank, total)[l], STAGE_NAME[l][stage], nxt)}\n\n${STAGE_CAPTION[l][stage]}`,
+      photo: stageUrl(stage),
+    });
     return;
   }
 
   if (act === "zn:checkin") {
     if (dayStr(user.last_checkin) === today()) {
-      await bot.api.sendMessage(chatId, t.already, { reply_markup: mainMenu(l) });
+      await panel({ text: t.already });
       return;
     }
     const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
@@ -271,7 +315,7 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     await prisma.$executeRawUnsafe(
       `UPDATE zenobia_user SET points = points + $3, streak=$4, last_checkin=CURRENT_DATE WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, gain, streak,
     );
-    await bot.api.sendMessage(chatId, t.checkedIn(streak, user.points + gain), { reply_markup: mainMenu(l) });
+    await panel({ text: t.checkedIn(streak, user.points + gain) });
     return;
   }
 
@@ -280,42 +324,61 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
       `SELECT name, points FROM zenobia_user WHERE bot_id=$1 AND points > 0 ORDER BY points DESC, joined_at ASC LIMIT 10`, botId,
     )) as { name: string | null; points: number }[];
     const lines = rows.map((r, i) => `${i + 1}. ${(r.name || "Caravan").split(" ")[0].slice(0, 14)} — ${r.points}`);
-    await bot.api.sendMessage(chatId, `${t.top}\n\n${lines.length ? lines.join("\n") : t.topEmpty}`, { reply_markup: mainMenu(l) });
+    await panel({ text: `${t.top}\n\n${lines.length ? lines.join("\n") : t.topEmpty}` });
+    return;
+  }
+
+  if (act === "zn:invite") {
+    const link = await botLink();
+    await panel({
+      text: t.ref(link),
+      kb: new InlineKeyboard().url(t.share, `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(t.shareText)}`),
+    });
     return;
   }
 
   if (act === "zn:link") {
-    const arg = !cq ? text.split(/\s+/)[1] : "";
+    const arg = !cq && text.startsWith("/") ? text.split(/\s+/)[1] : "";
     if (!arg) {
-      await bot.api.sendMessage(chatId, t.link, { reply_markup: mainMenu(l) });
+      await panel({ text: t.link });
       return;
     }
     try {
       const friendly = Address.parse(arg).toString({ bounceable: false });
       await prisma.$executeRawUnsafe(`UPDATE zenobia_user SET wallet=$3, wallet_verified=false WHERE bot_id=$1 AND tg_user_id=$2`, botId, id, friendly);
-      await bot.api.sendMessage(chatId, t.linkOk(friendly), { reply_markup: mainMenu(l) });
+      await panel({ text: t.linkOk(friendly) });
     } catch {
-      await bot.api.sendMessage(chatId, t.linkBad);
+      await panel({ text: t.linkBad });
     }
     return;
   }
 
   if (act === "zn:stages") {
-    for (const s of ["child", "queen", "warrior", "captive", "legend"] as Stage[]) await sendStage(bot, chatId, s, l);
-    await bot.api.sendMessage(chatId, t.stages.join("\n"), { reply_markup: mainMenu(l) });
+    await panel({ text: `${STAGE_CAPTION[l].child}\n\n${t.stages.join("\n")}`, photo: stageUrl("child"), kb: stagesKb(l, 0) });
+    return;
+  }
+
+  if (act.startsWith("zn:st:") && cq?.message?.message_id) {
+    const i = Math.max(0, Math.min(4, Number(act.slice(6)) || 0));
+    const st = STAGES[i];
+    try {
+      await bot.api.editMessageMedia(chatId, cq.message.message_id, { type: "photo", media: stageUrl(st), caption: `${STAGE_CAPTION[l][st]}\n\n${t.stages.join("\n")}` }, { reply_markup: stagesKb(l, i) });
+    } catch {
+      /* same stage tapped twice, or the message is gone */
+    }
     return;
   }
 
   if (act === "zn:about") {
-    await bot.api.sendMessage(chatId, t.about, { reply_markup: mainMenu(l) });
+    await panel({ text: t.about });
     return;
   }
 
   if (act === "zn:stats" && id === ownerId) {
     const r = (await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM zenobia_user WHERE bot_id=$1`, botId)) as { n: number }[];
-    await bot.api.sendMessage(chatId, t.owner(Number(r[0]?.n ?? 0)));
+    await panel({ text: t.owner(Number(r[0]?.n ?? 0)) });
     return;
   }
 
-  if (!cq) await bot.api.sendMessage(chatId, t.welcome, { reply_markup: mainMenu(l) });
+  if (!cq) await panel(welcome(l));
 }
