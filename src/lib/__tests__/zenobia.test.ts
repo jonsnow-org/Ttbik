@@ -255,37 +255,19 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/Passport #0 is now linked to you/);
     expect(sql.some((q) => /INSERT INTO zenobia_passport/.test(q))).toBe(true);
   });
-  it("the passport button: needs a verified wallet, waits while closed, requests when open, then shows the status", async () => {
+  it("the passport button points to the website, mints nothing from the bot, and still shows an older free passport", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/connect and verify your wallet/);
-    rows.get("z1:7").wallet = "UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz"; rows.get("z1:7").wallet_verified = true;
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/not open yet/);
+    expect(bot.sent.at(-1)!.text).toMatch(/Silk Road Passport/);
     expect(passInserts).toBe(0);
     passOpen = true;
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/not open yet/); // open, but the coin does not exist yet
-    jettonSet = "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT";
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/for ZNB holders/); // not a holder: nothing is minted
+    expect(bot.sent.at(-1)!.text).toMatch(/Silk Road Passport/); // the bot only points to the website; nothing is minted from here
     expect(passInserts).toBe(0);
-    holdsCoinNow = true;
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/paid by you/); expect(bot.sent.at(-1)!.text).toContain("ZNBP-7");
-    expect(passInserts).toBe(0); // no payment, no passport
-    paymentTx = "txhash1";
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/Passport #1 requested/);
-    expect(passInserts).toBe(1);
-    passRows = [{ idx: 1, status: "requested", item: null }];
-    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toMatch(/passport #1 is on its way/);
     passRows = [{ idx: 1, status: "minted", item: "EQabc" }];
     await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
-    expect(bot.sent.at(-1)!.text).toContain("https://tonviewer.com/EQabc");
-    expect(passInserts).toBe(1); // asking again never makes a second one
+    expect(bot.sent.at(-1)!.text).toContain("https://tonviewer.com/EQabc"); // an older free passport still shows
   });
   it("only the owner opens or closes passports, and the Arabic menu has the button", async () => {
     const bot = fakeBot();
@@ -301,28 +283,34 @@ describe("Zenobia bot", () => {
   });
 });
 
-describe("Zenobia passport payment checks", () => {
-  const { findPayment, holdsCoin, payComment, PASSPORT_PRICE_NANO } = require("../zenobiaPay");
-  const W = "UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz";
-  const raw = Address.parse(W).toRawString();
-  const tx = (o: any = {}) => ({ hash: "h1", success: true, in_msg: { source: { address: raw }, value: 60000000, decoded_body: { text: "ZNBP-7" }, ...o } });
-  const api = (txs: any[]) => (async () => ({ ok: true, status: 200, json: async () => ({ transactions: txs }) })) as any;
-  it("accepts only a payment from the person's wallet with their comment and at least the price", async () => {
-    expect(payComment("7")).toBe("ZNBP-7");
-    expect(PASSPORT_PRICE_NANO).toBe(60_000_000n);
-    expect(await findPayment(W, "7", { fetchFn: api([tx()]) })).toBe("h1");
-    expect(await findPayment(W, "7", { fetchFn: api([tx({ value: 59999999 })]) })).toBeNull();            // too little
-    expect(await findPayment(W, "7", { fetchFn: api([tx({ decoded_body: { text: "ZNBP-8" } })]) })).toBeNull(); // someone else's comment
-    expect(await findPayment(W, "7", { fetchFn: api([tx({ source: { address: Address.parse("EQDXLw2VpsvpKRAa0lJBAa8sVt8kINCE5_OMZIiSH2XsjgZf").toRawString() } })]) })).toBeNull(); // another sender
-    expect(await findPayment(W, "7", { fetchFn: api([{ ...tx(), success: false }]) })).toBeNull();        // failed transaction
+describe("Silk Road Passport", () => {
+  const { silkPriceGram, silkStage, silkMetadata, isDead, SILK_CAP, LOCK_DAYS } = require("../zenobiaSilk");
+  const { holdsCoin } = require("../zenobiaPay");
+  it("price rises with the number: 1, then 2, then 3 GRAM; 2500 in all", () => {
+    expect([0, 499, 500, 1499, 1500, 2499].map(silkPriceGram)).toEqual([1, 1, 2, 2, 3, 3]);
+    expect(SILK_CAP).toBe(2500); expect(LOCK_DAYS).toBe(30);
   });
-  it("a transaction already used for a passport is never accepted twice", async () => {
-    expect(await findPayment(W, "7", { fetchFn: api([tx()]), used: new Set(["h1"]) })).toBeNull();
+  it("stage follows the passport's age; Captive without ZNB; Legend when sent to the dead address", () => {
+    expect([0, 9, 10, 29, 30, 400].map((d) => silkStage(d))).toEqual(["child", "child", "queen", "queen", "warrior", "warrior"]);
+    expect(silkStage(100, { captive: true })).toBe("captive");
+    expect(silkStage(100, { captive: true, legend: true })).toBe("legend");
+    expect(isDead("0:" + "0".repeat(64))).toBe(true); expect(isDead(undefined)).toBe(true); expect(isDead("0:" + "1".repeat(64))).toBe(false);
   });
-  it("reads the holder's balance", async () => {
+  it("metadata says when it can be traded", () => {
+    const now = new Date("2026-12-01T00:00:00Z");
+    const young = silkMetadata({ index: 7, mintedAt: new Date("2026-11-20T00:00:00Z"), now }, "https://x");
+    expect(young.name).toContain("#7"); expect(young.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("After day 30");
+    expect(young.image).toBe("https://x/zenobia/stage-2-queen-sq.jpg");
+    const old = silkMetadata({ index: 7, mintedAt: new Date("2026-10-01T00:00:00Z"), now }, "https://x");
+    expect(old.attributes.find((a: any) => a.trait_type === "Tradable").value).toBe("Yes");
+    expect(old.image).toContain("stage-3-warrior-sq");
+    expect(silkMetadata({ index: 7, mintedAt: new Date("2026-10-01T00:00:00Z"), captive: true, now }, "https://x").image).toContain("stage-4-captive-sq");
+  });
+  it("reads the holder's balance against a minimum", async () => {
     const bal = (b: string | null) => (async () => (b === null ? { ok: false, status: 404 } : { ok: true, status: 200, json: async () => ({ balance: b }) })) as any;
-    expect(await holdsCoin(W, "EQx", { fetchFn: bal("5") })).toBe(true);
-    expect(await holdsCoin(W, "EQx", { fetchFn: bal("0") })).toBe(false);
-    expect(await holdsCoin(W, "EQx", { fetchFn: bal(null) })).toBe(false);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("5") })).toBe(true);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("5"), minBalance: 6n })).toBe(false);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal("0") })).toBe(false);
+    expect(await holdsCoin("UQx", "EQx", { fetchFn: bal(null) })).toBe(false);
   });
 });

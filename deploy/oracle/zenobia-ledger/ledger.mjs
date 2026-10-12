@@ -9,6 +9,10 @@
 //   3. A hard ceiling on the deploy and the trial passport in (2): 0.12 in total, tracked in /state/passport.json. Past it nothing is sent.
 //   4. Public passports (only while the owner has them open in the bot with /passports on): each one is 0.03, minted to the verified wallet
 //      of the person who asked, strictly in order. Hard limits: 1.0 in total and 20 per day. It also stops when the balance is low.
+//   5. Silk Road Passports (only when the owner switched them on with agent/ZENOBIA_SILK_ON): deploy the passport collection ONCE (0.04) and mint
+//      each passport that its buyer PAID for. The ledger checks the payment itself on the chain (sender, exact comment, amount >= the tier price)
+//      before it mints, and mints to the payer's address. A payment it cannot honour (sold out, or short of the price) is returned to its sender,
+//      minus a small fee, once. Hard limits: 2500 passports, 150 per day.
 // Each action is recorded BEFORE it is waited on, so a crash or a restart can never send twice.
 // The key is generated here on first run and stays in /state (mode 600, a folder that belongs to this container only).
 // It is never printed, logged or sent anywhere; only the public address is written to /state/address and status.json.
@@ -30,6 +34,14 @@ const COLLECTION_JSON = process.env.ZNB_COLLECTION_JSON || "";
 const TRIAL_TO = (process.env.ZNB_TRIAL_MINT_TO || "").trim();
 const OPS_KEY = process.env.ZNB_OPS_KEY || ""; // the same token-derived key the Oracle health report already uses
 const PUBLIC_MAX_SPEND = toNano("1"), PUBLIC_PER_DAY = 20;
+const PUBLIC_SBT_ON = process.env.ZNB_PUBLIC_SBT === "1"; // the old free queue: off (holders now buy Silk Road Passports and pay for them)
+const SILK_ON = process.env.ZNB_SILK_ON === "1";
+const SILK_BASE = process.env.ZNB_SILK_BASE || "";
+const SILK_JSON = process.env.ZNB_SILK_COLLECTION_JSON || "";
+const SILK_ROYALTY_TO = (process.env.ZNB_SILK_ROYALTY_TO || process.env.ZNB_TRIAL_MINT_TO || "").trim();
+const SILK_CAP = 2500, SILK_PER_DAY = 150, SILK_DEPLOY_VALUE = toNano("0.04"), SILK_REFUND_FEE = toNano("0.02");
+/** 1-500: 1, 501-1500: 2, 1501-2500: 3 (GRAM). Keep in sync with src/lib/zenobiaSilk.ts */
+const silkPrice = (idx) => (idx < 500 ? toNano("1") : idx < 1500 ? toNano("2") : toNano("3"));
 const endpoint = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v2/jsonRPC" : "https://toncenter.com/api/v2/jsonRPC";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -68,8 +80,9 @@ async function retry(fn) {
 
 /** The one place that sends money. Only to this wallet itself or to the passport collection address. */
 let collectionAddr = null;
-async function send(to, value, body, init) {
-  const ok = to.equals(wallet.address) || (collectionAddr && to.equals(collectionAddr));
+let silkAddr = null;
+async function send(to, value, body, init, refundOk = false) {
+  const ok = to.equals(wallet.address) || (collectionAddr && to.equals(collectionAddr)) || (silkAddr && to.equals(silkAddr)) || refundOk; // refundOk: returning a payer's own payment
   if (!ok) throw new Error("refusing to send to an address that is not ours");
   const seqno = await retry(() => wallet.getSeqno());
   await retry(() => wallet.sendTransfer({
@@ -187,7 +200,7 @@ async function finishMint(s, idx) {
 }
 
 async function queueTick() {
-  if (!OPS_KEY || !DEPLOY_ON || !collectionAddr) return;
+  if (!PUBLIC_SBT_ON || !OPS_KEY || !DEPLOY_ON || !collectionAddr) return;
   const s = pstate();
   if (!s.collection?.deployed) return;
   const res = await fetch(`${SITE}/api/zenobia/ledger/queue`, { headers: { accept: "application/json", "x-ops-key": OPS_KEY } });
@@ -224,10 +237,119 @@ async function queueTick() {
   }
 }
 
+
+// ---- 5. Silk Road Passports: paid by the buyer, minted to the payer ---------------------------------------------------------
+const silkFile = `${DIR}/silk.json`;
+const sstate = () => readJson(silkFile, { collection: null, claims: {}, day: null });
+const saveSstate = (s) => fs.writeFileSync(silkFile, JSON.stringify(s));
+
+function silkInit() {
+  const content = beginCell()
+    .storeRef(beginCell().storeUint(1, 8).storeBuffer(Buffer.from(SILK_JSON)).endCell())
+    .storeRef(beginCell().storeBuffer(Buffer.from(SILK_BASE)).endCell())
+    .endCell();
+  const royaltyTo = SILK_ROYALTY_TO ? Address.parse(SILK_ROYALTY_TO) : wallet.address;
+  const royalty = beginCell().storeUint(7, 16).storeUint(100, 16).storeAddress(royaltyTo).endCell(); // 7% on every resale
+  const data = beginCell().storeAddress(wallet.address).storeUint(0, 64).storeRef(content).storeRef(codeOf("silk-item")).storeRef(royalty).endCell();
+  return { code: codeOf("silk-collection"), data };
+}
+
+/** A payment on the chain: from `from`, with exactly this comment, and the value it carried. */
+async function findPayment(from, comment) {
+  const txs = await retry(() => client.getTransactions(wallet.address, { limit: 60 }));
+  for (const t of txs) {
+    const m = t.inMessage;
+    if (!m || m.info.type !== "internal" || !m.info.src || !m.info.src.equals(from)) continue;
+    try {
+      const sl = m.body.beginParse();
+      if (sl.remainingBits < 32 || sl.loadUint(32) !== 0 || sl.loadStringTail() !== comment) continue;
+    } catch { continue; }
+    return { value: m.info.value.coins, hash: t.hash().toString("hex") };
+  }
+  return null;
+}
+
+async function silkFinish(s, id) {
+  const c = s.claims[id];
+  if (c.refunded || !c.sentAt) return;
+  if (!c.item) {
+    const r = await retry(() => client.runMethod(silkAddr, "get_nft_address_by_index", [{ type: "int", value: BigInt(c.idx) }]));
+    const item = r.stack.readAddress();
+    for (let i = 0; i < 20 && !(await retry(() => client.isContractDeployed(item))); i++) await sleep(5000);
+    if (!(await retry(() => client.isContractDeployed(item)))) return;
+    c.item = item.toString({ testOnly: NETWORK === "testnet" }); saveSstate(s);
+  }
+  if (!c.told) {
+    const res = await fetch(`${SITE}/api/zenobia/silk/minted`, { method: "POST", headers: { "content-type": "application/json", "x-ops-key": OPS_KEY }, body: JSON.stringify({ id: Number(id), idx: c.idx, item: c.item }) });
+    if (res.ok) { c.told = true; saveSstate(s); }
+  }
+}
+
+async function silkTick() {
+  if (!SILK_ON) return;
+  if (!SILK_BASE.startsWith("https://") || !SILK_JSON.startsWith("https://")) { status({ note: "silk urls missing" }); return; }
+  const init = silkInit();
+  silkAddr = contractAddress(0, init);
+  const s = sstate();
+  if (!s.collection) {
+    const balance = await retry(() => client.getBalance(wallet.address));
+    if (balance < SILK_DEPLOY_VALUE + toNano("0.03")) { status({ note: `silk: waiting for funds (${fromNano(balance)})` }); return; }
+    s.collection = { address: silkAddr.toString({ testOnly: NETWORK === "testnet" }), sentAt: new Date().toISOString(), deployed: false };
+    saveSstate(s); // recorded first
+    await send(silkAddr, SILK_DEPLOY_VALUE, beginCell().endCell(), init);
+    log("silk collection deploy sent", s.collection.address);
+  }
+  if (!s.collection.deployed) {
+    for (let i = 0; i < 20 && !(await retry(() => client.isContractDeployed(silkAddr))); i++) await sleep(5000);
+    if (!(await retry(() => client.isContractDeployed(silkAddr)))) { status({ note: "waiting for the silk collection to deploy" }); return; }
+    s.collection.deployed = true; saveSstate(s); log("silk collection deployed", s.collection.address);
+  }
+  if (!OPS_KEY) return;
+  for (const id of Object.keys(s.claims)) if (!s.claims[id].told) await silkFinish(s, id); // a restart between the send and the notice never resends
+  const res = await fetch(`${SITE}/api/zenobia/silk/queue`, { headers: { accept: "application/json", "x-ops-key": OPS_KEY } });
+  if (!res.ok) return;
+  const q = await res.json();
+  if (!Array.isArray(q.claims)) return;
+  for (const cl of q.claims.slice(0, 5)) {
+    const id = String(cl.id);
+    if (s.claims[id]) continue;
+    let from;
+    try { from = Address.parse(String(cl.wallet)); } catch { continue; }
+    const pay = await findPayment(from, `SILK-${id}`);
+    if (!pay) continue; // not paid (yet): nothing is spent
+    const cd = await retry(() => client.runMethod(silkAddr, "get_collection_data"));
+    const next = Number(cd.stack.readBigNumber());
+    if (next >= SILK_CAP || pay.value < silkPrice(next)) {
+      // cannot honour it: give the money back to its sender, once, minus a small fee
+      const back = pay.value - SILK_REFUND_FEE;
+      s.claims[id] = { refunded: true, hash: pay.hash, sentAt: new Date().toISOString() };
+      saveSstate(s); // recorded first
+      if (back > 0n) { await send(from, back, beginCell().storeUint(0, 32).storeStringTail("ZNB refund").endCell(), undefined, true); log("silk refund sent", id); }
+      await fetch(`${SITE}/api/zenobia/silk/minted`, { method: "POST", headers: { "content-type": "application/json", "x-ops-key": OPS_KEY }, body: JSON.stringify({ id: Number(id), refunded: true }) }).catch(() => null);
+      continue;
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const day = s.day?.day === today ? s.day : { day: today, n: 0 };
+    if (day.n >= SILK_PER_DAY) { status({ note: "silk daily limit reached" }); break; }
+    const balance = await retry(() => client.getBalance(wallet.address));
+    if (balance < MINT_VALUE + toNano("0.02")) { status({ note: `silk: waiting for funds (${fromNano(balance)})` }); break; }
+    s.claims[id] = { to: from.toString({ testOnly: NETWORK === "testnet", bounceable: false }), idx: next, hash: pay.hash, sentAt: new Date().toISOString() };
+    s.day = { day: today, n: day.n + 1 };
+    saveSstate(s); // recorded first
+    const itemContent = beginCell().storeBuffer(Buffer.from(`${next}.json`)).endCell();
+    const nftContent = beginCell().storeAddress(from).storeRef(itemContent).endCell(); // owned by the payer
+    const body = beginCell().storeUint(1, 32).storeUint(0, 64).storeUint(next, 64).storeCoins(ITEM_VALUE).storeRef(nftContent).endCell();
+    await send(silkAddr, MINT_VALUE, body);
+    log("silk passport mint sent", id, next);
+    await silkFinish(s, id);
+  }
+}
+
 status({ note: "started" });
 for (;;) {
   try { await seasonTick(); } catch (e) { log("season tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "error: " + String(e?.message || e).slice(0, 120) }); }
   try { await passportTick(); } catch (e) { log("passport tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "passport error: " + String(e?.message || e).slice(0, 120) }); }
+  try { await silkTick(); } catch (e) { log("silk tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "silk error: " + String(e?.message || e).slice(0, 120) }); }
   try { await queueTick(); } catch (e) { log("queue tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "queue error: " + String(e?.message || e).slice(0, 120) }); }
   if (process.env.ZNB_ONCE) break;
   await sleep(EVERY_MS);

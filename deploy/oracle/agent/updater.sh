@@ -80,7 +80,7 @@ fi
 # The Zenobia ledger wallet (agent/install-zenobia.sh, owner-approved 2026-10-12; isolated like the Sham runner, never touches Athar or the media engine).
 # Done once per version of its files; a failure here changes nothing else.
 if [ -f "$OR/agent/ZENOBIA_ON" ] && [ -f "$OR/agent/install-zenobia.sh" ]; then
-  ZV=$(cat "$OR/agent/install-zenobia.sh" "$OR/zenobia-ledger/ledger.mjs" "$OR/zenobia-ledger/Dockerfile" "$OR/zenobia-ledger/package.json" "$OR/zenobia-ledger/contracts/"*.b64 "$OR/agent/ZENOBIA_COLLECTION_ON" "$OR/agent/ZENOBIA_MINT_TO" 2>/dev/null | sha1sum | cut -c1-12)
+  ZV=$(cat "$OR/agent/install-zenobia.sh" "$OR/zenobia-ledger/ledger.mjs" "$OR/zenobia-ledger/Dockerfile" "$OR/zenobia-ledger/package.json" "$OR/zenobia-ledger/contracts/"*.b64 "$OR/agent/ZENOBIA_COLLECTION_ON" "$OR/agent/ZENOBIA_SILK_ON" "$OR/agent/ZENOBIA_MINT_TO" 2>/dev/null | sha1sum | cut -c1-12)
   # a failed version is retried at most every 6 hours, and the owner is told only the first time
   if [ ! -f "$STATE/zenobia_ok_$ZV" ] && [ -z "$(find "$STATE" -maxdepth 1 -name "zenobia_fail_$ZV" -mmin -360 2>/dev/null)" ]; then
     if bash "$OR/agent/install-zenobia.sh" > "$STATE/zenobia_install.log" 2>&1; then
