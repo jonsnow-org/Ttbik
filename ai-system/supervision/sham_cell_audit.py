@@ -45,6 +45,51 @@ def classify(kaggle_cells: list[str], current: list[str], table: dict) -> dict:
             "unknown": [i for i, s in enumerate(status) if s == "unknown"]}
 
 
+def _analysable(code: str) -> str:
+    """IPython lines (`!cmd`, `%magic`) are not Python: drop them for the static read."""
+    return "\n".join(l for l in code.splitlines() if not l.lstrip().startswith(("!", "%")))
+
+
+def simulate(kaggle_cells: list[str], current: list[str], table: dict) -> dict:
+    """Runs the notebook on paper, in order, the way Kaggle will: cells after the first `import sham_inputs` that are old versions become their current
+    text; the engineer's cells (matching no version) stay as they are. For every cell: which names it reads that no earlier cell defined, and whether
+    the sync can heal that (the cell is a repository cell: the earlier repository cells that define the names run first) or not (the engineer's cell
+    needs something nothing defines: it would fail on its own)."""
+    import builtins
+    known = set(dir(builtins)) | {"get_ipython", "display"}
+    first_import = next((i for i, c in enumerate(kaggle_cells) if "sham_inputs" in c), len(kaggle_cells))
+    defined: set = set()
+    rows = []
+    for i, c in enumerate(kaggle_cells):
+        h = cs.digest(c)
+        replaced = i > first_import and h in table["map"] and table["map"][h] in table["text"]
+        kind = "current" if h in {cs.digest(x) for x in current} else ("replaced" if replaced else "engineer")
+        final = table["text"][table["map"][h]] if replaced else c
+        try:
+            needs, defs = cs._scope_names(_analysable(final))
+        except SyntaxError:
+            rows.append({"i": i, "kind": kind, "missing": [], "healed_by": [], "parse": False})
+            continue
+        missing = sorted(needs - defined - known)
+        healed_by: list[int] = []
+        if missing and kind != "engineer":
+            _text, healed_by = cs.with_prerequisites(final, defined | known)
+        rows.append({"i": i, "kind": kind, "missing": missing, "healed_by": healed_by, "defines": sorted(defs), "parse": True})
+        defined |= defs
+    return {"rows": rows}
+
+
+def findings(sim: dict) -> list[str]:
+    out = []
+    for r in sim["rows"]:
+        if r["kind"] == "engineer" and r.get("defines"):
+            out.append(f"  خلية المهندس {r['i']}: تعرّف {r['defines'][:10]}" + (f" وتقرأ ما لم يُعرَّف قبلها {r['missing'][:8]} (ستفشل وحدها)" if r["missing"] else ""))
+        elif r["missing"]:
+            how = f"ستعالجها المزامنة بتشغيل خلايا المستودع {r['healed_by']} قبلها" if r["healed_by"] else "لا خلية في المستودع تعرّفها"
+            out.append(f"  خلية {r['kind']} {r['i']} تقرأ {r['missing'][:8]} ولا تعرّفها خلية سابقة في دفتركِ — {how}")
+    return out
+
+
 def report(track: str, n: int, r: dict) -> str:
     st = r["status"]
     # cells that match no repository version are the engineer's edits/additions: they are kept as they are (owner's standing rule); a replaced cell
@@ -81,6 +126,8 @@ def main(workdir: Path) -> int:
         current = cs._code_cells(json.loads((NB_DIR / f"{name}.ipynb").read_text(encoding="utf-8")))
         counts[track] = counts.get(track, 0) + 1
         print(report(track, counts[track], classify(kaggle_cells, current, table)), flush=True)
+        for line in findings(simulate(kaggle_cells, current, table)):
+            print(line, flush=True)
     return 0
 
 
@@ -94,6 +141,23 @@ def _self_test() -> None:
     stuck = classify(["import os", "old collect()", "import sham_inputs", "new train()"], current, table)
     assert stuck["stuck"] == [1], stuck          # an old cell that runs before sham_inputs is imported can never be replaced
     assert "المهندس" in report("t", 1, half) and "⚠" not in report("t", 1, stuck)
+    # the engineer replaced the collection cell: his cell defines other names, the new training cell needs the old ones -> healed by the repository cell
+    cur = ["import os", "import sham_inputs", "A = 1\nITEMS = [A]", "TOTAL = sum(ITEMS)"]
+    eng = ["import os", "import sham_inputs", "OTHER = [5, 6]", "TOTAL = sum(ITEMS)"]
+    t2 = {"map": {}, "text": {}}
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:       # the repository notebook the sync reads its prerequisites from
+        (Path(td) / "n.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code", "source": c} for c in cur]}), encoding="utf-8")
+        saved, cs.NOTEBOOKS = cs.NOTEBOOKS, Path(td)
+        cs._STATE["nb_cells"] = {}
+        try:
+            sim = simulate(eng, cur, t2)
+        finally:
+            cs.NOTEBOOKS = saved
+            cs._STATE["nb_cells"] = {}
+    assert sim["rows"][2]["kind"] == "engineer" and sim["rows"][2]["defines"] == ["OTHER"]
+    assert sim["rows"][3]["kind"] == "current" and sim["rows"][3]["missing"] == ["ITEMS"] and sim["rows"][3]["healed_by"] == [2], sim["rows"][3]
+    assert any("خلية المهندس 2" in l for l in findings(sim)) and any("ستعالجها المزامنة" in l for l in findings(sim))
     print("sham_cell_audit self-test OK")
 
 
