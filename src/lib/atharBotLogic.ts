@@ -22,7 +22,7 @@ export const LANGS = [
 type Lang = (typeof LANGS)[number]["code"];
 const isLang = (x: string): x is Lang => LANGS.some((l) => l.code === x);
 
-type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; today: string; language: string; pick: string; changed: string; help: string; join: string; joined: string; back: string };
+type Text = { welcome: string; open: string; mystery: string; auctions: string; mine: string; board: string; today: string; language: string; pick: string; changed: string; help: string; join: string; joined: string; back: string; share: string; shareText: string; shareMsg: string };
 const T: Record<Lang, Text> = {
   en: {
     welcome:
@@ -35,6 +35,7 @@ const T: Record<Lang, Text> = {
     open: "🕰 Open Athar", mystery: "🎁 Mystery boxes", auctions: "🔨 Auctions", mine: "🖼 My tokens", board: "🗓 Calendar board", today: "📅 Today's token", language: "🌐 Language",
     pick: "Choose your language:", changed: "Language changed.", help: "Tap “Open Athar” to start.",
     join: "📢 Please join our channel first, then tap “✅ I joined”:", joined: "✅ I joined", back: "⬅️ Back",
+    share: "👥 Share Athar", shareText: "A living token for every day of the calendar: find your birthday on TON 🕰", shareMsg: "Tap to share Athar with your friends:",
   },
   ar: {
     welcome:
@@ -47,6 +48,7 @@ const T: Record<Lang, Text> = {
     open: "🕰 فتح أثر", mystery: "🎁 صندوق الغموض", auctions: "🔨 المزادات", mine: "🖼 رموزي", board: "🗓 لوحة التقويم", today: "📅 رمز اليوم", language: "🌐 اللغة",
     pick: "اختر لغتك:", changed: "تم تغيير اللغة.", help: "اضغط «فتح أثر» للبدء.",
     join: "📢 انضم إلى قناتنا أولاً ثم اضغط «✅ انضممت»:", joined: "✅ انضممت", back: "⬅️ رجوع",
+    share: "👥 شارك أثر", shareText: "رمز حيّ لكل يوم في التقويم: اعثر على يوم ميلادك على TON 🕰", shareMsg: "اضغط لمشاركة أثر مع أصدقائك:",
   },
   ru: {
     welcome:
@@ -59,6 +61,7 @@ const T: Record<Lang, Text> = {
     open: "🕰 Открыть Athar", mystery: "🎁 Мистери-боксы", auctions: "🔨 Аукционы", mine: "🖼 Мои токены", board: "🗓 Календарная доска", today: "📅 Токен дня", language: "🌐 Язык",
     pick: "Выберите язык:", changed: "Язык изменён.", help: "Нажмите «Открыть Athar», чтобы начать.",
     join: "📢 Сначала подпишитесь на наш канал, затем нажмите «✅ Я подписался»:", joined: "✅ Я подписался", back: "⬅️ Назад",
+    share: "👥 Поделиться Athar", shareText: "Живой токен на каждый день календаря: найдите свой день рождения в TON 🕰", shareMsg: "Нажмите, чтобы поделиться Athar с друзьями:",
   },
   tr: {
     welcome:
@@ -71,6 +74,7 @@ const T: Record<Lang, Text> = {
     open: "🕰 Athar'ı aç", mystery: "🎁 Gizem kutuları", auctions: "🔨 Müzayedeler", mine: "🖼 Tokenlarım", board: "🗓 Takvim panosu", today: "📅 Günün tokenı", language: "🌐 Dil",
     pick: "Dilini seç:", changed: "Dil değiştirildi.", help: "Başlamak için “Athar'ı aç”a dokun.",
     join: "📢 Önce kanalımıza katıl, sonra “✅ Katıldım”a dokun:", joined: "✅ Katıldım", back: "⬅️ Geri",
+    share: "👥 Athar'ı paylaş", shareText: "Takvimin her günü için canlı bir token: doğum gününü TON'da bul 🕰", shareMsg: "Athar'ı arkadaşlarınla paylaşmak için dokun:",
   },
   fa: {
     welcome:
@@ -83,9 +87,11 @@ const T: Record<Lang, Text> = {
     open: "🕰 باز کردن اثر", mystery: "🎁 جعبه‌های اسرار", auctions: "🔨 حراج‌ها", mine: "🖼 توکن‌های من", board: "🗓 تابلوی تقویم", today: "📅 توکن امروز", language: "🌐 زبان",
     pick: "زبان خود را انتخاب کنید:", changed: "زبان تغییر کرد.", help: "برای شروع «باز کردن اثر» را بزنید.",
     join: "📢 ابتدا در کانال ما عضو شوید، سپس «✅ عضو شدم» را بزنید:", joined: "✅ عضو شدم", back: "⬅️ بازگشت",
+    share: "👥 اشتراک‌گذاری اثر", shareText: "توکنی زنده برای هر روز تقویم: روز تولدتان را در TON پیدا کنید 🕰", shareMsg: "برای اشتراک‌گذاری اثر با دوستانتان بزنید:",
   },
 };
 
+const ATHAR_BOT_FALLBACK = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharDaysBot").trim();
 const withLang = (path: string, lang: Lang) => `${ATHAR_URL}${path}${path.includes("?") ? "&" : "?"}lang=${lang}`;
 
 // The owner is the Telegram id fixed when the bot was activated (or the platform owner's id): they get two extra buttons.
@@ -107,18 +113,20 @@ function adminMenu(): Keyboard {
     .text(OWNER_STATS).text(OWNER_ALERTS).row()
     .text(OWNER_CHECK).text(OWNER_CHANNEL).row();
   if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL).row();
-  return kb.text(OWNER_USERVIEW).resized().persistent();
+  return kb.text(OWNER_USERVIEW).resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
 
 function menu(lang: Lang, owner = false, preview = false): Keyboard {
   if (owner && !preview) return adminMenu();
   const t = T[lang];
+  // One button per different thing: the mini app (its sections - mystery boxes, auctions, calendar board - are inside it and keep their /commands),
+  // today's token, my tokens, share the bot, the birthday reminder and the language.
   const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
-    .webApp(t.mystery, withLang("/mystery", lang)).webApp(t.auctions, withLang("/auctions", lang)).row()
-    .webApp(t.mine, withLang("/mine", lang)).webApp(t.board, withLang("/board", lang)).row()
-    .webApp(t.today, withLang("/today", lang)).text(t.language).row().text(BD[lang].button);
+    .webApp(t.today, withLang("/today", lang)).webApp(t.mine, withLang("/mine", lang)).row()
+    .text(t.share).text(BD[lang].button).row()
+    .text(t.language);
   if (owner) kb.row().text(OWNER_BACK);
-  return kb.resized().persistent();
+  return kb.resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
 
 // mandatory-subscription channel (Bot.requiredChannel, the same field the other bots use): the owner sets it from the panel and people must join it first
@@ -136,7 +144,7 @@ const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions
   { cmd: "mine", path: "/mine", key: "mine", en: "My tokens" },
   { cmd: "board", path: "/board", key: "board", en: "Calendar board" },
 ];
-export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "birthday", description: "Birthday reminder" }, { command: "language", description: "Language" }];
+export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "share", description: "Share Athar" }, { command: "birthday", description: "Birthday reminder" }, { command: "language", description: "Language" }];
 
 // What Telegram shows on the bot's page before the first message, in search results and next to a shared link (short: up to 120 characters, long: up to 512).
 const ABOUT: Record<Lang, { short: string; long: string }> = {
@@ -282,12 +290,12 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   if (owner && msg.reply_to_message?.text === CHANNEL_ASK) {
     const channel = /^(إلغاء|cancel)$/i.test(text) ? null : normChannel(text);
     await prisma.bot.update({ where: { id: botRow.id }, data: { requiredChannel: channel } });
-    if (!channel) { await bot.api.sendMessage(chatId, "✅ تم إيقاف الاشتراك الإجباري.", { reply_markup: menu(lang, true) }); return; }
+    if (!channel) { await bot.api.sendMessage(chatId, "✅ تم إيقاف الاشتراك الإجباري."); return; }
     const found = await bot.api.getChat(`@${channel}`).catch(() => null);
     let warning = "";
     if (!found) warning = "\n⚠️ لم أجد هذه القناة، تأكد من المعرّف.";
     else if (!(await bot.api.getChatMember(`@${channel}`, Number(fromId)).catch(() => null))) warning = "\n⚠️ أضف البوت إلى القناة كمشرف (Admin) وإلا لن يستطيع التحقق من المشتركين.";
-    await bot.api.sendMessage(chatId, `✅ فُعّل الاشتراك الإجباري في @${channel}.${warning}`, { reply_markup: menu(lang, true) });
+    await bot.api.sendMessage(chatId, `✅ فُعّل الاشتراك الإجباري في @${channel}.${warning}`);
     return;
   }
   if (owner && text === OWNER_CHANNEL) {
@@ -296,7 +304,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   }
   // people who are not the owner must have joined the channel (when one is set)
   if (!owner && botRow.requiredChannel && !(await isMember(bot, botRow.requiredChannel, fromId))) {
-    await bot.api.sendMessage(chatId, `${T[lang].join}\nhttps://t.me/${normChannel(botRow.requiredChannel)}`, { reply_markup: new Keyboard().text(T[lang].joined).resized().persistent() });
+    await bot.api.sendMessage(chatId, `${T[lang].join}\nhttps://t.me/${normChannel(botRow.requiredChannel)}`, { reply_markup: new Keyboard().text(T[lang].joined).resized() });
     return;
   }
 
@@ -317,22 +325,22 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     return;
   }
   if (owner && text === OWNER_STATS) {
-    await bot.api.sendMessage(chatId, await statsText(botRow), { reply_markup: menu(lang, true) });
+    await bot.api.sendMessage(chatId, await statsText(botRow));
     return;
   }
   if (owner && text === OWNER_BALANCE) {
-    await bot.api.sendMessage(chatId, await balanceText(), { reply_markup: menu(lang, true), link_preview_options: { is_disabled: true } });
+    await bot.api.sendMessage(chatId, await balanceText(), { link_preview_options: { is_disabled: true } });
     return;
   }
   if (owner && text === OWNER_PAYMENTS) {
-    await bot.api.sendMessage(chatId, await paymentsText(), { reply_markup: menu(lang, true), link_preview_options: { is_disabled: true } });
+    await bot.api.sendMessage(chatId, await paymentsText(), { link_preview_options: { is_disabled: true } });
     return;
   }
   if (owner && text === OWNER_ALERTS) {
     const w = await loadWatch();
     const next = w.alerts === false;
     await setAlerts(next).catch(() => null);
-    await bot.api.sendMessage(chatId, next ? "🔔 تنبيهات الدفعات: تعمل. ستصلك رسالة عند كل دفعة جديدة (الفحص كل 5 دقائق تقريباً)." : "🔕 تنبيهات الدفعات: متوقفة. الرصيد والإحصائيات تبقى متاحة بالأزرار.", { reply_markup: menu(lang, true) });
+    await bot.api.sendMessage(chatId, next ? "🔔 تنبيهات الدفعات: تعمل. ستصلك رسالة عند كل دفعة جديدة (الفحص كل 5 دقائق تقريباً)." : "🔕 تنبيهات الدفعات: متوقفة. الرصيد والإحصائيات تبقى متاحة بالأزرار.");
     return;
   }
   if (owner && text === OWNER_CHECK) {
@@ -344,7 +352,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
         : res.fresh.length
           ? `🎉 ${res.fresh.length} دفعة جديدة منذ آخر فحص، آخرها +${tons(res.fresh[res.fresh.length - 1].nano)} TON.\n👛 الرصيد: ${res.balance == null ? "—" : tons(res.balance) + " TON"}`
           : `✅ لا دفعات جديدة منذ آخر فحص.\n👛 الرصيد: ${res.balance == null ? "—" : tons(res.balance) + " TON"}`;
-    await bot.api.sendMessage(chatId, msg, { reply_markup: menu(lang, true) });
+    await bot.api.sendMessage(chatId, msg);
     return;
   }
   if (owner && text === OWNER_USERVIEW) {
@@ -368,15 +376,23 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       const arg = (m ? m[1] : text).trim();
       if (BD_OFF.test(arg)) {
         const done = await saveBirthday(prisma as any, botRow.id, fromId, lang, null);
-        await bot.api.sendMessage(chatId, done ? bdText(lang, "off") : bdText(lang, "fail"), { reply_markup: menu(lang, owner) });
+        await bot.api.sendMessage(chatId, done ? bdText(lang, "off") : bdText(lang, "fail"));
         return;
       }
       const b = parseBirthday(arg);
       if (!b) { await bot.api.sendMessage(chatId, bdText(lang, "bad"), { reply_markup: { force_reply: true, input_field_placeholder: "14/3/2003" } }); return; }
       const done = await saveBirthday(prisma as any, botRow.id, fromId, lang, b);
-      await bot.api.sendMessage(chatId, done ? bdText(lang, b.year === null ? "savedNoYear" : "saved", b) : bdText(lang, "fail"), { reply_markup: menu(lang, owner) });
+      await bot.api.sendMessage(chatId, done ? bdText(lang, b.year === null ? "savedNoYear" : "saved", b) : bdText(lang, "fail"));
       return;
     }
+  }
+
+  if (LANGS.some((l) => T[l.code].share === text) || /^\/share(?:@\w+)?$/i.test(text)) {
+    const botLink = ATHAR_BOT_FALLBACK;
+    const uname = (await bot.api.getMe().catch(() => null))?.username;
+    const link = uname ? `https://t.me/${uname}` : botLink;
+    await bot.api.sendMessage(chatId, T[lang].shareMsg, { reply_markup: new InlineKeyboard().url(T[lang].share, `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(T[lang].shareText)}`) });
+    return;
   }
 
   const cmd = text.startsWith("/") ? text.slice(1).split(/[\s@]/)[0].toLowerCase() : text === "🕰 Athar" ? "open" : "";
@@ -398,5 +414,5 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     await bot.api.sendMessage(chatId, T[lang][section.key], { reply_markup: new InlineKeyboard().webApp(T[lang][section.key], withLang(section.path, lang)) });
     return;
   }
-  await bot.api.sendMessage(chatId, T[lang].help, { reply_markup: menu(lang, owner) });
+  await bot.api.sendMessage(chatId, T[lang].help);
 }
