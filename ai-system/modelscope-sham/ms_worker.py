@@ -29,6 +29,9 @@ TARGETS = {
     "modelscope.cn": "https://www.modelscope.cn",
     "telegram.org": "https://api.telegram.org",
     "wikipedia.org": "https://ar.wikipedia.org/w/api.php?action=query&meta=siteinfo&format=json",
+    "duckduckgo.com": "https://duckduckgo.com/html/?q=test",     # the model's live search needs a provider the Studio can reach
+    "html.duckduckgo.com": "https://html.duckduckgo.com/html/?q=test",
+    "searx (public)": "https://searx.be/",
 }
 
 

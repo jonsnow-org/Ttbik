@@ -150,6 +150,11 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     n = int(max(1, min(200, max_new_tokens)))
     with _LOCK:
         tok, model = serve._state["text_tokenizer"], serve._state["model"]
+        try:        # 2026-10-12: dialogue layout + today's date as context + the model's own learned web search (sham_studio_chat.py, hot code)
+            from sham_studio_chat import studio_generate
+            return studio_generate(model, tok, prompt, n)
+        except Exception as exc:        # never take the Studio down: the raw continuation below is the old behaviour
+            print(f"studio_generate failed ({type(exc).__name__}: {str(exc)[:120]}) — raw continuation", flush=True)
         ids = torch.tensor([tok.encode(prompt)], dtype=torch.long)
         out = generate_tokens(model, ids, max_new_tokens=n, temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS, repetition_penalty=1.3,
                               allowed_ranges=[(0, tok.vocab_size)] * n)
