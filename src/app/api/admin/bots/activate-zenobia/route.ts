@@ -14,6 +14,7 @@ const COMMAND_TEXT: Record<(typeof COMMANDS)[number], string> = {
   journey: "My journey",
   checkin: "Daily check-in",
   top: "Leaderboard",
+  invite: "Invite friends",
   link: "Link my TON wallet",
   stages: "All passport stages",
   lang: "Language: English / العربية",
