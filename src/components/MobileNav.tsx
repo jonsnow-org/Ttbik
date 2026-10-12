@@ -31,7 +31,6 @@ export default function MobileNav({ isOwner }: { isOwner?: boolean }) {
       label: "الأدوات",
       links: [
         { href: "/#free-tools", label: "🎁 الأدوات المجانية" },
-        { href: "/free-tools", label: "📂 كل الأدوات" },
       ],
     },
     {

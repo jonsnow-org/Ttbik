@@ -24,7 +24,8 @@ export const metadata: Metadata = {
   title: { default: SITE_TITLE, template: "%s | شام AI" },
   description: SITE_DESCRIPTION,
   keywords: ["شام AI", "Sham AI", "خدمات رقمية", "أدوات مجانية", "بوت تليجرام", "أدوات ذكاء اصطناعي", "متجر خدمات مصغرة"],
-  alternates: { canonical: "/" },
+  // "./" = this page's own URL (resolved against metadataBase). A fixed "/" told Google every page without its own canonical was a copy of the homepage.
+  alternates: { canonical: "./" },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION || "L8vGbLXr7dgW6fI-Z17Ahc85aCfxZP4JMLwyGMNhr_g",
     yandex: process.env.YANDEX_SITE_VERIFICATION || undefined,
