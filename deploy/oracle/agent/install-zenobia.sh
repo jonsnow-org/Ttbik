@@ -21,6 +21,8 @@ TC_KEY="$(getkv "$OR/.env" TONCENTER_API_KEY)"
 EXTRA=()
 if [ -f "$OR/agent/ZENOBIA_COLLECTION_ON" ]; then
   EXTRA+=(-e ZNB_DEPLOY_COLLECTION=1 -e ZNB_PASSPORT_BASE="https://ttbik.vercel.app/api/zenobia/passport/" -e ZNB_COLLECTION_JSON="https://ttbik.vercel.app/zenobia/collection.json")
+  # the key the Oracle health report already uses to talk to the site (never printed); lets the ledger read the passport queue
+  [ -n "${BOT_TOKEN:-}" ] && EXTRA+=(-e ZNB_OPS_KEY="$(printf %s "$BOT_TOKEN" | sha256sum | cut -c1-48)")
   [ -s "$OR/agent/ZENOBIA_MINT_TO" ] && EXTRA+=(-e ZNB_TRIAL_MINT_TO="$(tr -d ' \r\n' < "$OR/agent/ZENOBIA_MINT_TO")")
 fi
 docker run -d --name zenobia-ledger --restart unless-stopped --memory 256m \
