@@ -780,7 +780,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
       const chatId = update.message.chat.id;
-      if (text.startsWith("/")) {
+      const firstWord = text.split(/[\s@]/)[0].toLowerCase();
+      // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
+      if (text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help" || SHAM_MEDIA_COMMANDS[firstWord])) {
         const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
         const unavailable = "هذه الميزة غير متاحة الآن. اكتب جملة عادية وسأرد عليها.";
         const cmd = text.split(/[\s@]/)[0].toLowerCase();
