@@ -1,0 +1,9 @@
+{
+  "name": "Caravan Passport #0",
+  "description": "Soulbound passport of the Zenobia caravan. It cannot be transferred. Ranks and titles only; not a promise of any reward.",
+  "image": "https://ttbik.vercel.app/zenobia/stage-1-child.jpg",
+  "attributes": [
+    { "trait_type": "Stage", "value": "Child" },
+    { "trait_type": "Title", "value": "Bedouin" }
+  ]
+}
