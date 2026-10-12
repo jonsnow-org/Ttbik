@@ -23,6 +23,15 @@ export const STAGE_IMG_SQ: Record<Stage, string> = {
   legend: "stage-5-legend-sq.jpg",
 };
 
+/** The living (animated) picture of each stage: 6-second loops, square, served as mp4. */
+export const STAGE_ANIM: Record<Stage, string> = {
+  child: "stage-1-child.mp4",
+  queen: "stage-2-queen.mp4",
+  warrior: "stage-3-warrior.mp4",
+  captive: "stage-4-captive.mp4",
+  legend: "stage-5-legend.mp4",
+};
+
 const STAGE_LABEL: Record<Stage, string> = { child: "Child", queen: "Queen", warrior: "Warrior", captive: "Captive", legend: "Legend" };
 
 export interface PassportInput {
@@ -47,6 +56,9 @@ export function passportMetadata(p: PassportInput, site: string) {
       "Soulbound passport of the Zenobia caravan. It cannot be transferred and it grows with its holder's journey. Ranks and titles only; not a promise of any reward.\n" +
       "جواز قافلة زنوبيا. لا يُحوَّل، ويكبر مع رحلة حامله. ترتيب وألقاب فقط، وليس وعدًا بأي مقابل.",
     image: `${site.replace(/\/$/, "")}/zenobia/${STAGE_IMG_SQ[stage]}`,
+    content_url: `${site.replace(/\/$/, "")}/zenobia/anim/${STAGE_ANIM[stage]}`,
+    content_type: "video/mp4",
+    animation_url: `${site.replace(/\/$/, "")}/zenobia/anim/${STAGE_ANIM[stage]}`,
     attributes: [
       { trait_type: "Stage", value: STAGE_LABEL[stage] },
       { trait_type: "Title", value: title.en },

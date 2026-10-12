@@ -20,7 +20,7 @@ C['child']=dict(zoom=0.03,pan=6,focus=(950,380),dust=70,dust_dir=(0.6,-0.4),dust
  zones=[z(905,250,60,130,ax=3,ay=1,kx=0.04,ky=0.04,n=1), z(1020,230,60,70,ax=3,ay=1,kx=0.04,ky=0.04,n=1,ph=1),
         z(1330,150,130,190,ax=7,ay=2,kx=0.02,ky=0.03,n=1), z(105,300,80,130,ax=5,ay=2,kx=0.03,ky=0.03,n=1,ph=2),
         z(780,375,70,40,ax=2,ay=2,kx=0.05,ky=0.05,n=1), z(700,120,700,110,ax=5,kx=0.006,n=1)])
-C['queen']=dict(zoom=0.03,pan=6,focus=(780,380),dust=60,dust_dir=(0.5,-0.5),dust_col=(140,215,255),dust_amp=1.15,
+C['queen']=dict(protect=[(783,268,125,165)],zoom=0.03,pan=6,focus=(780,380),dust=60,dust_dir=(0.5,-0.5),dust_col=(140,215,255),dust_amp=1.15,
  bands=[(0,0.06,0.9),(0.5,0.05,0.55)],band_angle=28,nspark=46,vthr=220,spark_amp=1.0,
  sun=dict(x=1000,y=80,r=520,amp=0.18),
  zones=[z(590,360,130,260,ax=6,ay=2,kx=0.02,ky=0.03,n=1), z(1000,380,130,270,ax=6,ay=2,kx=0.02,ky=0.03,n=1,ph=1.5),
