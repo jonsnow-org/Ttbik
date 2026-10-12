@@ -3,6 +3,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { lifeStage, titleFor, type Stage } from "@/lib/zenobiaScore";
+import { Address } from "@ton/core";
 import { STAGE_IMG } from "@/lib/zenobiaPassport";
 import { makeLinkToken } from "@/lib/zenobiaTonProof";
 
@@ -21,7 +22,7 @@ export const QUOTE_EN =
   "A fine thing is a fetter on the wrist of a free, noble person, and a wretched thing is a crown on the head of a cringing, abject coward.";
 export const QUOTE_AR = "«نِعْمَ مَا قَيْدٌ فِي مِعْصَمِ حُرٍّ أَبِيٍّ، وَبِئْسَ مَا تَاجٌ عَلَى رَأْسِ خَانِعٍ ذَلِيلٍ»";
 
-export const COMMANDS = ["start", "journey", "checkin", "top", "invite", "link", "stages", "lang", "about"] as const;
+export const COMMANDS = ["start", "journey", "checkin", "top", "invite", "link", "stages", "lang", "about", "season"] as const;
 
 const T = {
   en: {
@@ -38,6 +39,10 @@ const T = {
     link: "🔐 Connect your TON wallet to prove it is yours. Only verified wallets count toward season scores.\n\nWe never ask for your recovery phrase: the wallet signs one harmless message.",
     linkVerified: (a: string) => `✅ Verified wallet:\n${a}\n\nYou can connect a different one below.`,
     connect: "🔐 Connect wallet",
+    seasonNone: "No season has closed yet. Seasons are weekly; the first result is published after the first full week of trading.",
+    seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 Season ${id}\nParticipants: ${n}\nResult fingerprint (SHA-256):\n${hash}\n\nSeal: ${seal}`,
+    jettonOn: (a: string, d: number) => `✅ Jetton set: ${a} (decimals ${d}). Daily snapshots start.`,
+    jettonUsage: "Usage: /jetton ADDRESS [decimals]",
     about:
       "Zenobia (ZNB) is a community coin on TON inspired by the queen of Palmyra. Seasons last a week; a score comes from holding, taking part and accumulating, and the leaderboard is public. Scores are ranks and titles only — not a promise of any reward. Crypto is risky; never put in more than you can lose.",
     stages: ["Child (days 0–6)", "Queen (days 7–20)", "Warrior (day 21+)", "Captive (sold everything)", "Legend (burned the passport)"],
@@ -66,6 +71,10 @@ const T = {
     link: "🔐 اربط محفظتك على TON لتثبت أنها لك. تُحتسب في درجات المواسم المحافظ الموثّقة فقط.\n\nلا نطلب منك عبارة الاسترداد أبدًا: المحفظة توقّع رسالة واحدة غير ضارة.",
     linkVerified: (a: string) => `✅ محفظة موثّقة:\n${a}\n\nيمكنك ربط محفظة أخرى بالزر أدناه.`,
     connect: "🔐 ربط المحفظة",
+    seasonNone: "لم يُغلق موسم بعد. المواسم أسبوعية، وتُنشر أول نتيجة بعد أول أسبوع كامل.",
+    seasonHead: (id: string, n: number, hash: string, seal: string) => `🗓 الموسم ${id}\nالمشاركون: ${n}\nبصمة النتيجة (SHA-256):\n${hash}\n\nالختم: ${seal}`,
+    jettonOn: (a: string, d: number) => `✅ تم تحديد العملة: ${a} (الخانات ${d}). تبدأ اللقطات اليومية.`,
+    jettonUsage: "الاستخدام: /jetton العنوان [الخانات]",
     about:
       "زنوبيا (ZNB) عملة مجتمعية على TON مستوحاة من ملكة تدمر. الموسم أسبوع، والدرجة تأتي من الاحتفاظ والمشاركة والتراكم، ولوحة الصدارة علنية. الدرجات ترتيب وألقاب فقط، وليست وعدًا بأي مقابل. العملات الرقمية محفوفة بالمخاطر، فلا تضع ما لا تتحمل خسارته.",
     stages: ["طفلة (الأيام 0–6)", "ملكة (الأيام 7–20)", "محاربة (من اليوم 21)", "أسيرة (بيع كل ما يملك)", "خلود (حرق الجواز)"],
@@ -128,6 +137,9 @@ export function ensureZenobiaTables(): Promise<void> {
           wallet_verified BOOLEAN NOT NULL DEFAULT false, PRIMARY KEY (bot_id, tg_user_id))`,
       )
       .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_passport (idx INT PRIMARY KEY, bot_id TEXT NOT NULL, tg_user_id TEXT NOT NULL, minted_at TIMESTAMPTZ NOT NULL DEFAULT now())`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_config (bot_id TEXT NOT NULL, k TEXT NOT NULL, v TEXT NOT NULL, PRIMARY KEY (bot_id, k))`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_snap (day DATE NOT NULL, owner TEXT NOT NULL, balance NUMERIC NOT NULL, PRIMARY KEY (day, owner))`))
+      .then(() => prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS zenobia_season (season TEXT PRIMARY KEY, hash TEXT NOT NULL, results JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`))
       .then(() => undefined)
       .catch((e) => { ready = null; throw e; });
   }
@@ -347,6 +359,28 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
 
   if (act === "zn:about") {
     await panel({ text: t.about });
+    return;
+  }
+
+  if (act === "zn:season") {
+    const rows = (await prisma.$queryRawUnsafe(`SELECT season, hash, results FROM zenobia_season ORDER BY season DESC LIMIT 1`)) as { season: string; hash: string; results: { id: string; score: number }[] }[];
+    if (!rows[0]) { await panel({ text: t.seasonNone }); return; }
+    const top = await Promise.all(rows[0].results.slice(0, 10).map(async (r, i) => {
+      const u = (await prisma.$queryRawUnsafe(`SELECT name FROM zenobia_user WHERE bot_id=$1 AND tg_user_id=$2`, botId, r.id)) as { name: string | null }[];
+      return `${i + 1}. ${(u[0]?.name || "Caravan").split(" ")[0].slice(0, 14)} — ${r.score.toFixed(4)}`;
+    }));
+    await panel({ text: `${t.seasonHead(rows[0].season, rows[0].results.length, rows[0].hash, `${SITE}/api/zenobia/seal/${rows[0].season}.svg`)}\n\n${top.join("\n")}` });
+    return;
+  }
+
+  if (act === "zn:jetton" && id === ownerId && !cq) {
+    const [, addr, dec] = text.split(/\s+/);
+    let raw = "";
+    try { raw = Address.parse(addr).toString(); } catch { await panel({ text: t.jettonUsage }); return; }
+    const decimals = Math.max(0, Math.min(18, Number(dec) || 9));
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'jetton',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, raw);
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'decimals',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, String(decimals));
+    await panel({ text: t.jettonOn(raw, decimals) });
     return;
   }
 
