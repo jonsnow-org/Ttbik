@@ -342,6 +342,7 @@ async function silkTick() {
     await send(silkAddr, MINT_VALUE, body);
     log("silk passport mint sent", id, next);
     await silkFinish(s, id);
+    if (!s.claims[id].item) { status({ note: "silk: waiting for the last passport to appear before the next one" }); break; } // never reuse an index
   }
 }
 
