@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -29,25 +30,27 @@ def run_seconds(log_text: str) -> float:
     return max((float(e.get("time", 0.0)) for e in entries if isinstance(e, dict)), default=0.0)
 
 
-def last_run_seconds(api, ref: str, workdir: Path) -> float:
+def last_run_seconds(api, ref: str, workdir: Path) -> float | None:
+    """None = the log could not be read (never report that as a zero-length run)."""
     d = workdir / ("dur__" + ref.replace("/", "__"))
     d.mkdir(parents=True, exist_ok=True)
     try:
         api.kernels_output(ref, str(d), file_pattern=r".*\.log$", force=True, quiet=True)
     except Exception:
-        return 0.0
-    best = 0.0
+        return None
+    best = None
     for p in d.rglob("*.log"):
-        best = max(best, run_seconds(p.read_text(encoding="utf-8", errors="ignore")))
-    return best
+        best = max(best or 0.0, run_seconds(p.read_text(encoding="utf-8", errors="ignore")))
+    return best if best else None
 
 
 def main(workdir: Path) -> int:
     from kaggle.api.kaggle_api_extended import KaggleApi
     api = KaggleApi()
     api.authenticate()
-    api = reg.RateLimitedApi(api)
+    api = reg.RateLimitedApi(api, min_interval=4.0, retries=8)
     kernels, _ds = reg.discover(api, workdir, with_logs=False)
+    time.sleep(90)                       # the scan above used up Kaggle's rate allowance: let it recover before reading logs
     reg.assign_roles(kernels)
     counts: dict[str, int] = {}
     rows = []
@@ -55,11 +58,12 @@ def main(workdir: Path) -> int:
         if not k.track or k.track in ("control_center",):
             continue
         counts[k.track] = counts.get(k.track, 0) + 1
-        hours = last_run_seconds(api, k.ref, workdir) / 3600 if k.status in ("complete", "error", "running", "cancelAcknowledged") else 0.0
-        rows.append((k.track, counts[k.track], k.role, k.status, "GPU" if k.gpu else "CPU", (k.last_run or "")[:10], hours))
+        sec = last_run_seconds(api, k.ref, workdir) if k.role == "primary" else None     # only the notebooks that actually run matter
+        rows.append((k.track, counts[k.track], k.role, k.status, "GPU" if k.gpu else "CPU", (k.last_run or "")[:10],
+                     f"{sec / 3600:.2f}" if sec else "؟"))
     print("المسار | رقم | الدور | الحالة | العتاد | آخر تشغيل | مدة التشغيل (ساعة)")
     for r in rows:
-        print(f"{r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} | {r[6]:.2f}")
+        print(f"{r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} | {r[6]}")
     return 0
 
 
