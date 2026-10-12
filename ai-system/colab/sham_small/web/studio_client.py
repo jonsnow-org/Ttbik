@@ -59,6 +59,28 @@ def generate_text(prompt: str, max_new_tokens: int = 60, **kw) -> str | None:
         return None
 
 
+def generate_any(prompt: str, max_new_tokens: int = 60, **kw) -> dict | None:
+    """The new answer path: {"type": text|image|audio|notice, ...} — the model decides what its answer is. None on an older text-only Studio."""
+    if not enabled():
+        return None
+    try:
+        out = _call("generate_any", {"prompt": prompt, "max_new_tokens": max_new_tokens}, **kw)
+        return json.loads(out) if isinstance(out, str) else out
+    except Exception:
+        return None
+
+
+def generate_media(kind: str, prompt: str, **kw) -> dict | None:
+    """The user chose the kind (image | audio | video), e.g. the bot's /image command."""
+    if not enabled():
+        return None
+    try:
+        out = _call("generate_media", {"kind": kind, "prompt": prompt}, **kw)
+        return json.loads(out) if isinstance(out, str) else out
+    except Exception:
+        return None
+
+
 def studio_status(**kw) -> dict | None:
     if not enabled():
         return None

@@ -5,6 +5,10 @@ name: Sham Studio Ask (read-only)
 on:
   workflow_dispatch:
     inputs:
+      api:
+        description: "text | any (النموذج يقرر: كلام أو صورة أو صوت) | image | audio | video (المستخدم يختار النوع)"
+        required: false
+        default: "text"
       ask:
         description: "الأسئلة مفصولة بـ |"
         required: false
@@ -34,4 +38,5 @@ jobs:
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
           ASK: ${{ inputs.ask }}
+          API: ${{ inputs.api }}
         run: python ai-system/supervision/sham_studio_ask.py
