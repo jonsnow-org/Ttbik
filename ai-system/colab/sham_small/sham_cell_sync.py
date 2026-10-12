@@ -56,6 +56,11 @@ def align(old: list[str], new: list[str]) -> dict[int, int]:
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, ha, hb, autojunk=False).get_opcodes():
         if tag == "equal":
             out.update({i1 + k: j1 + k for k in range(i2 - i1)})
+        elif tag == "replace" and i2 - i1 == j2 - j1:
+            # the same number of cells on both sides of a changed block: they are the same cells in the same order, however much each was rewritten.
+            # (2026-10-12, found on the owner's Kaggle run: a fully rewritten training cell was not paired by similarity, so an imported notebook got
+            # the new save cell but kept the OLD training cell, and the two did not fit — AttributeError 'TrainStats' has no 'steps'.)
+            out.update({i1 + k: j1 + k for k in range(i2 - i1)})
         elif tag == "replace":
             used: set[int] = set()
             for i in range(i1, i2):
@@ -148,6 +153,8 @@ if __name__ == "__main__":
     old = ["x = 1\n", "print('a')\nprint('b')\n", "keep = True\n"]
     new = ["x = 1\n", "print('a')\nprint('b')\nprint('c')\n", "keep = True\n", "extra = 0\n"]
     assert align(old, new) == {0: 0, 1: 1, 2: 2}
+    # a cell rewritten beyond recognition still pairs with its successor when the block has the same number of cells on both sides
+    assert align(["a = 1\n", "totally old code here\n"], ["a = 1\n", "import something_else\nprint(99)\n"]) == {0: 0, 1: 1}
     _STATE["table"] = {"map": {digest(old[1]): digest(new[1])}, "text": {digest(new[1]): new[1]}}
     assert sync_text(old[1]) == new[1] and sync_text("print('mine')") is None and sync_text(new[1]) is None
     out = transform(old[1].splitlines(keepends=True))
