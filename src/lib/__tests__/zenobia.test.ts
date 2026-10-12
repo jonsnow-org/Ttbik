@@ -8,6 +8,7 @@ jest.mock("@/lib/prisma", () => ({
     $executeRawUnsafe: async (q: string, ...a: any[]) => {
       sql.push(q);
       if (q.startsWith("INSERT INTO zenobia_user")) { const k = `${a[0]}:${a[1]}`; if (!rows.has(k)) rows.set(k, { lang: "en", name: a[2], joined_at: new Date(), points: 0, streak: 0, last_checkin: null, wallet: null, ref_by: a[3] }); }
+      else if (q.includes("SET anchor_msg_id=")) { const r = rows.get(`${a[0]}:${a[1]}`); r.anchor_msg_id = a[2]; r.panel_msg_id = null; }
       else if (q.includes("SET panel_msg_id=")) rows.get(`${a[0]}:${a[1]}`).panel_msg_id = a[2];
       else if (q.includes("SET lang=")) rows.get(`${a[0]}:${a[1]}`).lang = a[2];
       else if (q.includes("SET points = points + $3")) { const r = rows.get(`${a[0]}:${a[1]}`); r.points += a[2]; r.streak = a[3]; r.last_checkin = new Date(); }
@@ -108,15 +109,27 @@ describe("Zenobia bot", () => {
     expect(flat(bot.sent[0].kb)).toContain("Invite friends");
     expect(sql[0]).toMatch(/CREATE TABLE IF NOT EXISTS zenobia_user/);
   });
-  it("keeps the chat clean: each action removes the previous panel and the person's own message", async () => {
+  it("keeps the chat clean but never deletes the menu message", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    const first = bot.sent[0].id;
-    const m = msg(7, "🏆 Leaderboard");
-    await handleZenobiaBotUpdate(bot, row, m);
-    expect(bot.deleted).toContain(first);
-    expect(bot.deleted).toContain(m.message.message_id);
-    expect(bot.sent.length).toBe(2);
+    const anchor = bot.sent[0].id;
+    const m1 = msg(7, "🏆 Leaderboard");
+    await handleZenobiaBotUpdate(bot, row, m1);
+    const panel1 = bot.sent[1].id;
+    expect(bot.deleted).toContain(m1.message.message_id);
+    expect(bot.deleted).not.toContain(anchor);
+    await handleZenobiaBotUpdate(bot, row, msg(7, "ℹ️ About"));
+    expect(bot.deleted).toContain(panel1); // the old panel goes, only after the new one was sent
+    expect(bot.deleted).not.toContain(anchor);
+    expect(bot.sent.at(-1)!.kb.is_persistent).toBe(true); // plain panels carry the menu again
+  });
+  it("a new welcome (language switch) replaces the menu message only after the new one is sent", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    const anchor = bot.sent[0].id;
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🌐 العربية"));
+    expect(bot.deleted).toContain(anchor);
+    expect(bot.sent.at(-1)!.id).toBeGreaterThan(anchor);
   });
   it("switches to Arabic with the menu button and remembers it", async () => {
     const bot = fakeBot();
