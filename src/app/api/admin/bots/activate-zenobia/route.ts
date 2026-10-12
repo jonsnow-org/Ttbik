@@ -10,16 +10,14 @@ export const dynamic = "force-dynamic";
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
 
 const COMMAND_TEXT: Record<(typeof COMMANDS)[number], string> = {
-  start: "Start the caravan",
-  journey: "My journey",
-  checkin: "Daily check-in",
-  top: "Leaderboard",
+  start: "Start",
+  buy: "Buy ZNB",
+  passport: "Silk Road Passport",
+  board: "Caravan Board",
+  channel: "Zenobia channel",
   invite: "Invite friends",
-  link: "Link my TON wallet",
-  stages: "All passport stages",
-  lang: "Language: English / العربية",
   about: "About Zenobia",
-  season: "Latest season result",
+  lang: "Language: English / العربية",
 };
 
 export async function POST(req: NextRequest) {

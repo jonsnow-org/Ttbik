@@ -118,31 +118,40 @@ describe("Zenobia bot", () => {
   it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
-    expect(bot.sent.length).toBe(2); // the welcome with the menu, then the links
-    expect(bot.sent[1].text).toBe("Zenobia links:");
-    expect(JSON.stringify(bot.sent[1].kb)).toContain("t.me/Zenobiaton"); // the channel link is in the bot
-    expect(JSON.stringify(bot.sent[1].kb)).toContain("memepadjetton_ZNB"); // and the place to buy the coin
+    expect(bot.sent.length).toBe(1); // one welcome with the menu, nothing else
     expect(bot.sent[0].text).toMatch(/^🏛 Welcome to the Zenobia caravan/);
     expect(AR.test(bot.sent[0].text)).toBe(false);
     expect(bot.sent[0].kb.is_persistent).toBeFalsy(); // collapsible with the Back button
     expect(bot.sent[0].kb.keyboard.length).toBeGreaterThan(0);
-    expect(flat(bot.sent[0].kb)).toContain("Invite friends");
+    const menuLabels = flat(bot.sent[0].kb);
+    for (const b of ["🛒 Buy ZNB", "🪪 Passport", "🏆 Caravan Board", "📢 Channel", "👥 Invite friends", "ℹ️ About"]) expect(menuLabels).toContain(b);
+    for (const gone of ["Check-in", "My journey", "Leaderboard", "Wallet", "Stages"]) expect(menuLabels).not.toContain(gone); // the Telegram-points features are out of the menu
     expect(sql[0]).toMatch(/CREATE TABLE IF NOT EXISTS zenobia_user/);
   });
   it("replies to menu buttons do not resend the keyboard (so Back can collapse it); the welcome does", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    for (const label of ["🏆 Leaderboard", "✅ Check-in"]) {
+    for (const label of ["🛒 Buy ZNB", "🏆 Caravan Board", "📢 Channel", "ℹ️ About", "🪪 Passport"]) {
       await handleZenobiaBotUpdate(bot, row, msg(7, label));
-      expect(bot.sent.at(-1)!.kb).toBeUndefined();
+      expect(bot.sent.at(-1)!.kb.keyboard).toBeUndefined(); // inline link buttons, never the menu again
     }
-    await handleZenobiaBotUpdate(bot, row, msg(7, "ℹ️ About"));
-    expect(bot.sent.at(-1)!.kb.keyboard).toBeUndefined(); // About carries inline link buttons, never the menu
-    expect(JSON.stringify(bot.sent.at(-1)!.kb)).toContain("t.me/Zenobiaton");
     expect(bot.deleted).toEqual([]);
-    expect(bot.sent.length).toBe(5);
+    expect(bot.sent.length).toBe(6);
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
-    expect(bot.sent.at(-2)!.kb.keyboard.length).toBeGreaterThan(0);
+    expect(bot.sent.at(-1)!.kb.keyboard.length).toBeGreaterThan(0);
+  });
+  it("each menu button has one job and one link: buy, passport, board, channel", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    const press = async (label: string) => { await handleZenobiaBotUpdate(bot, row, msg(7, label)); return bot.sent.at(-1)!; };
+    expect(JSON.stringify((await press("🛒 Buy ZNB")).kb)).toContain("memepadjetton_ZNB");
+    const pass = await press("🪪 Passport");
+    expect(pass.text).toMatch(/Silk Road Passport/); expect(pass.text).toMatch(/1, then 2, then 3 GRAM/);
+    expect(JSON.stringify(pass.kb)).toContain("/zenobia/silk.html");
+    expect(JSON.stringify((await press("🏆 Caravan Board")).kb)).toContain("/zenobia/hall.html");
+    expect(JSON.stringify((await press("📢 Channel")).kb)).toContain("t.me/Zenobiaton");
+    // the older labels still work for people whose keyboard has not been refreshed
+    expect((await press("🏆 Leaderboard")).text).toMatch(/Top caravan members|No one on the board/);
   });
   it("switches to Arabic with the menu button and remembers it", async () => {
     const bot = fakeBot();
@@ -221,7 +230,7 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/join the Zenobia channel first/);
     members.add(7);
     await handleZenobiaBotUpdate(bot, gated, cb(7, "zn:start"));
-    expect(bot.sent.at(-2)!.text).toMatch(/Welcome to the Zenobia caravan/);
+    expect(bot.sent.at(-1)!.text).toMatch(/Welcome to the Zenobia caravan/);
     await handleZenobiaBotUpdate(bot, row, msg(555001, "/channel off"));
     expect(channelSet.at(-1)).toBeNull();
   });
