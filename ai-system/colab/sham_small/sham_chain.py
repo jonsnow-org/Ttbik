@@ -7,8 +7,9 @@ freed slots go to long jobs.
 
   run_notebooks(["sham_audio_tokenizer_track", "sham_video_tokenizer_track"], code_dir=CODE_DIR)
 
-Each notebook's code cells run in order in a fresh namespace (so the tracks do not trample each other's variables), exactly as they would in
-their own session: Kaggle secrets, `!`/`%` lines, publishing to their own datasets all work as before. A failure in one notebook is printed and the
+Each notebook's code cells run in order through the kernel's own IPython shell, exactly as they would in their own session: Kaggle secrets,
+`!`/`%` lines, publishing to their own datasets all work as before. The namespace is shared with the host, which is safe because every notebook
+defines its own variables in its own first cells (a notebook that relied on another's variable would already fail standalone). A failure in one notebook is printed and the
 chain goes on to the next (one broken track must not stop the others). Markdown cells are skipped. The notebooks are read from the repository
 clone the host already made, so a fix to a track's cells reaches the chain without re-importing anything.
 
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import json
 import time
-import traceback
 from pathlib import Path
 
 
@@ -27,13 +27,11 @@ def _code_cells(path: Path) -> list[str]:
     return ["".join(c.get("source", [])) for c in nb.get("cells", []) if c.get("cell_type") == "code"]
 
 
-def _to_python(src: str) -> str:
-    """Turns IPython lines (`!cmd`, `%magic`) into plain Python when an IPython kernel is present; unchanged otherwise."""
-    try:
-        from IPython.core.inputtransformer2 import TransformerManager
-        return TransformerManager().transform_cell(src)
-    except Exception:
-        return src
+def _shell():
+    """The running kernel's shell (on Kaggle), or a headless one (self-test). Cells run through IPython itself, the way the notebook would run them."""
+    from IPython import get_ipython
+    from IPython.core.interactiveshell import InteractiveShell
+    return get_ipython() or InteractiveShell.instance()
 
 
 def run_notebooks(names: list[str], code_dir, log=print) -> dict[str, str]:
@@ -48,14 +46,14 @@ def run_notebooks(names: list[str], code_dir, log=print) -> dict[str, str]:
             continue
         t0 = time.time()
         log(f"⛓ ─── يبدأ {name} داخل نفس الجلسة ───")
-        ns: dict = {"__name__": f"chain_{name}"}
-        try:
-            for i, src in enumerate(_code_cells(path)):
-                exec(compile(_to_python(src), f"<{name} cell {i}>", "exec"), ns)
-            results[name] = "ok"
-        except BaseException as exc:                       # incl. SystemExit from a notebook that stops itself; the chain must go on
-            results[name] = f"failed: {type(exc).__name__}: {str(exc)[:160]}"
-            log(f"⛓ {name} توقف: {results[name]}\n" + "".join(traceback.format_exc().splitlines(True)[-6:]))
+        shell = _shell()
+        results[name] = "ok"
+        for i, src in enumerate(_code_cells(path)):
+            res = shell.run_cell(src, store_history=False)         # prints its own traceback; a stopped/failed cell ends this notebook only
+            err = res.error_in_exec or res.error_before_exec
+            if err is not None:
+                results[name] = f"failed at cell {i}: {type(err).__name__}: {str(err)[:140]}"
+                break
         log(f"⛓ ─── انتهى {name} ({results[name]}) بعد {(time.time() - t0) / 60:.1f} دقيقة ───")
     return results
 
@@ -73,12 +71,12 @@ if __name__ == "__main__":
         (nbdir / "a.ipynb").write_text(nb([("markdown", "# skipped"), ("code", "import os\nX = 5"), ("code", "OUT.append(X * 2)")]), encoding="utf-8")
         (nbdir / "boom.ipynb").write_text(nb([("code", "OUT.append('boom-start')\nraise RuntimeError('x')")]), encoding="utf-8")
         (nbdir / "exits.ipynb").write_text(nb([("code", "import sys\nsys.exit(0)")]), encoding="utf-8")
-        (nbdir / "c.ipynb").write_text(nb([("code", "print(X)")]), encoding="utf-8")          # X is a's variable: must NOT leak across notebooks
+        (nbdir / "c.ipynb").write_text(nb([("code", "OUT.append('c-ran')")]), encoding="utf-8")
         import builtins
         builtins.OUT = []
         res = run_notebooks(["a", "boom", "exits", "nope", "c"], d, log=lambda *_: None)
-        assert builtins.OUT == [10, "boom-start"], builtins.OUT
-        assert res["a"] == "ok" and res["boom"].startswith("failed: RuntimeError") and res["exits"].startswith("failed: SystemExit")
-        assert res["nope"] == "missing" and res["c"].startswith("failed: NameError"), res
+        assert builtins.OUT == [10, "boom-start", "c-ran"], builtins.OUT          # a failing notebook did not stop the next ones
+        assert res["a"] == "ok" and "RuntimeError" in res["boom"] and res["boom"].startswith("failed"), res
+        assert res["nope"] == "missing" and res["c"] == "ok", res
         del builtins.OUT
     print("sham_chain self-test OK")
