@@ -2,6 +2,9 @@
 const rows = new Map<string, any>();
 const sql: string[] = [];
 let seasonRows: any[] = [];
+let passOpen = false;
+let passRows: any[] = [];
+let passInserts = 0;
 const channelSet: (string | null)[] = [];
 const members = new Set<number>();
 jest.mock("@/lib/prisma", () => ({
@@ -19,6 +22,9 @@ jest.mock("@/lib/prisma", () => ({
     bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } },
     $queryRawUnsafe: async (q: string, ...a: any[]) => {
       if (q.startsWith("SELECT lang")) { const r = rows.get(`${a[0]}:${a[1]}`); return r ? [{ ...r }] : []; }
+      if (q.startsWith("SELECT v FROM zenobia_config")) return passOpen ? [{ v: "on" }] : [];
+      if (q.startsWith("SELECT idx, status, item FROM zenobia_passport")) return passRows;
+      if (q.includes("INSERT INTO zenobia_passport") && q.includes("RETURNING idx")) { passInserts += 1; return [{ idx: 1 }]; }
       if (q.startsWith("SELECT season")) return seasonRows;
       if (q.includes("AS rank")) return [{ rank: 1, total: rows.size }];
       if (q.includes("ORDER BY points")) return [...rows.values()].filter((r) => r.points > 0).map((r) => ({ name: r.name, points: r.points }));
@@ -98,7 +104,7 @@ const cb = (id: number, data: string) => ({ callback_query: { id: "q", from: { i
 const flat = (kb: any) => JSON.stringify(kb);
 
 describe("Zenobia bot", () => {
-  beforeEach(() => { seasonRows = []; rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
+  beforeEach(() => { passOpen = false; passRows = []; passInserts = 0; seasonRows = []; rows.clear(); sql.length = 0; channelSet.length = 0; members.clear(); });
   it("greets in English even a user whose Telegram is Arabic, with a persistent menu and the table created on first use", async () => {
     const bot = fakeBot();
     await handleZenobiaBotUpdate(bot, row, msg(7, "/start", "ar"));
@@ -235,5 +241,38 @@ describe("Zenobia bot", () => {
     await handleZenobiaBotUpdate(bot, row, msg(555001, "/passport 0"));
     expect(bot.sent.at(-1)!.text).toMatch(/Passport #0 is now linked to you/);
     expect(sql.some((q) => /INSERT INTO zenobia_passport/.test(q))).toBe(true);
+  });
+  it("the passport button: needs a verified wallet, waits while closed, requests when open, then shows the status", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/start"));
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
+    expect(bot.sent.at(-1)!.text).toMatch(/connect and verify your wallet/);
+    rows.get("z1:7").wallet = "UQtest"; rows.get("z1:7").wallet_verified = true;
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
+    expect(bot.sent.at(-1)!.text).toMatch(/not open yet/);
+    expect(passInserts).toBe(0);
+    passOpen = true;
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Passport #1 requested/);
+    expect(passInserts).toBe(1);
+    passRows = [{ idx: 1, status: "requested", item: null }];
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
+    expect(bot.sent.at(-1)!.text).toMatch(/passport #1 is on its way/);
+    passRows = [{ idx: 1, status: "minted", item: "EQabc" }];
+    await handleZenobiaBotUpdate(bot, row, msg(7, "🪪 Passport"));
+    expect(bot.sent.at(-1)!.text).toContain("https://tonviewer.com/EQabc");
+    expect(passInserts).toBe(1); // asking again never makes a second one
+  });
+  it("only the owner opens or closes passports, and the Arabic menu has the button", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/passports on"));
+    expect(sql.some((q) => /INSERT INTO zenobia_config/.test(q) && /passports/.test(q))).toBe(false);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/passports maybe"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Usage: \/passports/);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/passports on"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Passports are open/);
+    await handleZenobiaBotUpdate(bot, row, msg(8, "/start"));
+    await handleZenobiaBotUpdate(bot, row, msg(8, "🌐 العربية"));
+    expect(JSON.stringify(bot.sent.at(-1)!.kb)).toContain("🪪 الجواز");
   });
 });

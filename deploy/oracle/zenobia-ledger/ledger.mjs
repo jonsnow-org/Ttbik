@@ -6,7 +6,9 @@
 //   2. Passport collection (only when the owner switched it on with agent/ZENOBIA_COLLECTION_ON): deploy the Caravan Passport
 //      collection ONCE (0.04) and mint passports (0.03 each) by sending to the collection's own address, which is derived from the
 //      committed contract code and this wallet's address. A mint goes only to the address the owner committed in agent/ZENOBIA_MINT_TO.
-//   3. A hard ceiling on everything in (2): 0.12 in total, tracked in /state/passport.json. Past it nothing is sent.
+//   3. A hard ceiling on the deploy and the trial passport in (2): 0.12 in total, tracked in /state/passport.json. Past it nothing is sent.
+//   4. Public passports (only while the owner has them open in the bot with /passports on): each one is 0.03, minted to the verified wallet
+//      of the person who asked, strictly in order. Hard limits: 1.0 in total and 20 per day. It also stops when the balance is low.
 // Each action is recorded BEFORE it is waited on, so a crash or a restart can never send twice.
 // The key is generated here on first run and stays in /state (mode 600, a folder that belongs to this container only).
 // It is never printed, logged or sent anywhere; only the public address is written to /state/address and status.json.
@@ -26,6 +28,8 @@ const DEPLOY_ON = process.env.ZNB_DEPLOY_COLLECTION === "1";
 const PASSPORT_BASE = process.env.ZNB_PASSPORT_BASE || "";
 const COLLECTION_JSON = process.env.ZNB_COLLECTION_JSON || "";
 const TRIAL_TO = (process.env.ZNB_TRIAL_MINT_TO || "").trim();
+const OPS_KEY = process.env.ZNB_OPS_KEY || ""; // the same token-derived key the Oracle health report already uses
+const PUBLIC_MAX_SPEND = toNano("1"), PUBLIC_PER_DAY = 20;
 const endpoint = NETWORK === "testnet" ? "https://testnet.toncenter.com/api/v2/jsonRPC" : "https://toncenter.com/api/v2/jsonRPC";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -164,10 +168,67 @@ async function passportTick() {
   }
 }
 
+// ---- 4. public passports (the queue lives on the site; it is empty unless the owner opened passports in the bot) -------------
+async function finishMint(s, idx) {
+  const m = s.mints[idx];
+  if (!m.item) {
+    const r = await retry(() => client.runMethod(collectionAddr, "get_nft_address_by_index", [{ type: "int", value: BigInt(idx) }]));
+    const item = r.stack.readAddress();
+    for (let i = 0; i < 20 && !(await retry(() => client.isContractDeployed(item))); i++) await sleep(5000);
+    if (!(await retry(() => client.isContractDeployed(item)))) return false;
+    m.item = item.toString({ testOnly: NETWORK === "testnet" });
+    savePstate(s);
+  }
+  if (!m.told) {
+    const res = await fetch(`${SITE}/api/zenobia/ledger/minted`, { method: "POST", headers: { "content-type": "application/json", "x-ops-key": OPS_KEY }, body: JSON.stringify({ idx: Number(idx), item: m.item }) });
+    if (res.ok) { m.told = true; savePstate(s); }
+  }
+  return true;
+}
+
+async function queueTick() {
+  if (!OPS_KEY || !DEPLOY_ON || !collectionAddr) return;
+  const s = pstate();
+  if (!s.collection?.deployed) return;
+  const res = await fetch(`${SITE}/api/zenobia/ledger/queue`, { headers: { accept: "application/json", "x-ops-key": OPS_KEY } });
+  if (!res.ok) return;
+  const q = await res.json();
+  // finish anything already sent (a restart between the send and the notice must never send again)
+  for (const idx of Object.keys(s.mints)) if (idx !== "0" && !s.mints[idx].told) await finishMint(s, idx);
+  if (!q.open || !Array.isArray(q.items)) return;
+  const cd = await retry(() => client.runMethod(collectionAddr, "get_collection_data"));
+  let next = cd.stack.readBigNumber();
+  const today = new Date().toISOString().slice(0, 10);
+  for (const it of q.items.slice(0, 3)) {
+    const idx = String(it.idx);
+    if (s.mints[idx]) continue;
+    if (BigInt(idx) !== next) { status({ note: `passport ${idx} waits: the next index on-chain is ${next}` }); break; } // strictly in order
+    let to;
+    try { to = Address.parse(String(it.wallet)); } catch { status({ note: `passport ${idx}: invalid wallet, skipped` }); break; }
+    const day = s.publicDay?.day === today ? s.publicDay : { day: today, n: 0 };
+    const pubSpent = BigInt(s.publicSpent || "0");
+    if (day.n >= PUBLIC_PER_DAY || pubSpent + MINT_VALUE > PUBLIC_MAX_SPEND) { status({ note: "public passport limit reached" }); break; }
+    const balance = await retry(() => client.getBalance(wallet.address));
+    if (balance < MINT_VALUE + toNano("0.02")) { status({ note: `public passports: waiting for funds (${fromNano(balance)})` }); break; }
+    s.mints[idx] = { to: to.toString({ testOnly: NETWORK === "testnet", bounceable: false }), sentAt: new Date().toISOString() };
+    s.publicSpent = String(pubSpent + MINT_VALUE); s.spent = String(BigInt(s.spent) + MINT_VALUE);
+    s.publicDay = { day: today, n: day.n + 1 };
+    savePstate(s); // recorded first
+    const itemContent = beginCell().storeBuffer(Buffer.from(`${idx}.json`)).endCell();
+    const nftContent = beginCell().storeAddress(to).storeRef(itemContent).storeAddress(null).endCell(); // no authority
+    const body = beginCell().storeUint(1, 32).storeUint(0, 64).storeUint(Number(idx), 64).storeCoins(ITEM_VALUE).storeRef(nftContent).endCell();
+    await send(collectionAddr, MINT_VALUE, body);
+    log("public passport mint sent", idx);
+    next += 1n;
+    await finishMint(s, idx);
+  }
+}
+
 status({ note: "started" });
 for (;;) {
   try { await seasonTick(); } catch (e) { log("season tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "error: " + String(e?.message || e).slice(0, 120) }); }
   try { await passportTick(); } catch (e) { log("passport tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "passport error: " + String(e?.message || e).slice(0, 120) }); }
+  try { await queueTick(); } catch (e) { log("queue tick failed:", String(e?.message || e).slice(0, 200)); status({ note: "queue error: " + String(e?.message || e).slice(0, 120) }); }
   if (process.env.ZNB_ONCE) break;
   await sleep(EVERY_MS);
 }
