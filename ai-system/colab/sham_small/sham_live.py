@@ -256,6 +256,28 @@ class Encoder:
                 out.append(([SpecialTokens.BOS] + r_ids, [-100] + r_lab))
         except Exception:
             pass
+        # live-search and date skills (owner, 2026-10-12: a model that only remembers says "the year is 2024"): a share of the documents that start
+        # with a short title line also yield «ابحث ثم أجب» (title → search → the document's own opening as the result → its first sentence as the
+        # answer; the date line in the prompt on half of them), and a small share teaches READING today's date from the context line.
+        try:
+            import datetime
+            import random as _random
+            import sham_auto_config
+            from sham_chat import build_date_example, build_search_example, date_context_line
+            import zlib
+            r2 = _random.Random(zlib.crc32(text.encode('utf-8')[:600]))      # from the text itself, so the choice does not follow the document's length
+            lines = [ln for ln in text.split("\n") if ln.strip()]
+            if len(lines) >= 2 and len(lines[0]) <= 100 and not lines[0].rstrip().endswith((".", "؟", "!", "…", ":")) \
+                    and r2.random() < float(sham_auto_config.get("search_share", 0.08)):
+                day = datetime.date(2024, 1, 1) + datetime.timedelta(days=r2.randrange(0, 365 * 5))
+                ex = build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2,
+                                          date_line=date_context_line(day) if r2.random() < 0.5 else None)
+                if ex:
+                    out.append(ex)
+            if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
+                out.append(build_date_example(self.tok.encode, r2))
+        except Exception:
+            pass
         return out
 
     def __call__(self, item, rng) -> list:
