@@ -10,6 +10,7 @@ set -euo pipefail
 . /opt/ttbik/deploy/oracle/agent/common.sh
 ZDIR=/var/lib/zenobia
 mkdir -p "$ZDIR"; chmod 700 "$ZDIR"
+chown 1000:1000 "$ZDIR"   # the container runs as the image's "node" user (uid 1000) and must be able to write its key here
 
 docker build -q -t zenobia-ledger "$OR/zenobia-ledger"
 docker rm -f zenobia-ledger >/dev/null 2>&1 || true
@@ -20,7 +21,13 @@ docker run -d --name zenobia-ledger --restart unless-stopped --memory 256m \
 
 # tell the owner the PUBLIC address once, so he can fund it with a little TON (0.2 is enough for years of weekly posts)
 for _ in $(seq 1 30); do [ -s "$ZDIR/address" ] && break; sleep 1; done
-if [ -s "$ZDIR/address" ] && [ ! -f "$ZDIR/notified" ]; then
+if [ ! -s "$ZDIR/address" ]; then
+  # the container did not come up: say why (its log never contains the key), and let the updater retry later
+  echo "zenobia-ledger did not write its address; last log lines:"; docker logs --tail 5 zenobia-ledger 2>&1 | mask
+  tg_notify "محفظة سجل زنوبيا لم تبدأ: $(docker logs --tail 3 zenobia-ledger 2>&1 | mask | tr '\n' ' ' | cut -c1-240)"
+  exit 1
+fi
+if [ ! -f "$ZDIR/notified" ]; then
   tg_notify "محفظة سجل زنوبيا جاهزة. عنوانها العام (أرسل إليها نحو 0.2 TON فقط، وهي لا تنفق إلا على نشر بصمة الموسم الأسبوعية):
 $(cat "$ZDIR/address")"
   touch "$ZDIR/notified"
