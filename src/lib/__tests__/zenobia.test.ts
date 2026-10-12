@@ -226,4 +226,14 @@ describe("Zenobia bot", () => {
     expect(bot.sent.at(-1)!.text).toMatch(/Jetton set: .* \(decimals 9\)/);
     expect(sql.some((q) => /zenobia_config/.test(q) && /jetton/.test(q))).toBe(true);
   });
+  it("only the owner can link a passport to himself, and the number is checked", async () => {
+    const bot = fakeBot();
+    await handleZenobiaBotUpdate(bot, row, msg(7, "/passport 0"));
+    expect(sql.some((q) => /zenobia_passport/.test(q) && /INSERT/.test(q))).toBe(false);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/passport x"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Usage: \/passport/);
+    await handleZenobiaBotUpdate(bot, row, msg(555001, "/passport 0"));
+    expect(bot.sent.at(-1)!.text).toMatch(/Passport #0 is now linked to you/);
+    expect(sql.some((q) => /INSERT INTO zenobia_passport/.test(q))).toBe(true);
+  });
 });
