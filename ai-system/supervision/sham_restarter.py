@@ -3,7 +3,10 @@ Keeps the owner's long-running Kaggle notebooks in a continuous cycle (owner, 20
 
 A notebook cannot restart itself after it ends (its session dies with it), so this watcher runs OUTSIDE Kaggle, on a free GitHub schedule, every 30 minutes:
 
-  for each notebook named in the repository secret SHAM_RESTART_KERNELS (comma-separated `owner/slug`, never printed):
+  which notebooks: the PRIMARY notebook of each track named in the repository variable SHAM_RESTART_TRACKS (e.g. cpu_training_track,research_track,chat_stage,
+  image_tokenizer,live_trainer), found on the owner's Kaggle account by the same content markers sham_registry already uses (no names needed from her);
+  and/or explicit `owner/slug`s in the secret SHAM_RESTART_KERNELS. Without SHAM_RESTART_LIVE=1 it only reports what it WOULD watch (dry run).
+  for each of them:
     running or queued                       -> nothing
     stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES)
     stopped for longer than the grace       -> push a new version (kaggle_auto_resume.resume_kernel, GPU when the owner chose it and the quota
@@ -93,9 +96,9 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
                 result = resume(slug, accel)
             except Exception as exc:
                 result = f"failed: {type(exc).__name__}"
-            if result == "pushed" or str(result).startswith("pushed"):
+            if result == "pushed" or str(result).startswith("pushed"):   # a dry run records nothing
                 entry.update(last_push=now, idle_since=None, counted_fail=False, pushes_today=int(entry.get("pushes_today", 0)) + 1)
-            line = f"{label}: كان {status} — دُفعت نسخة جديدة ({result})"
+            line = f"{label}: كان {status} — " + ("كانت ستُدفع نسخة جديدة (وضع تجريبي)" if result == "dry-run" else f"دُفعت نسخة جديدة ({result})")
         elif action == "blocked":
             line = f"{label}: ⚠ توقّف المراقب عن دفعه (فشل مرتين بسرعة بعد الدفع — افتحي الدفتر وتأكدي أن الأسرار والمسرّع كما كانا)"
         elif action == "wait":
@@ -107,10 +110,31 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
     return notes
 
 
+def resolve_tracks(api, tracks: list[str], workdir: Path, log=print) -> dict[str, str]:
+    """{track: real ref} of each track's primary notebook, found by sham_registry's content markers. Prints aliases only."""
+    import sham_registry as reg
+    rl = reg.RateLimitedApi(api, min_interval=4.0, retries=8)
+    kernels, _ds = reg.discover(rl, workdir, with_logs=False)
+    reg.assign_roles(kernels)
+    out = {}
+    for t in tracks:
+        mine = [k for k in kernels if k.track == t]
+        prim = [k for k in mine if k.role == "primary"]
+        if not prim:
+            log(f"{t}: لا دفتر أساسي على الحساب ({len(mine)} دفتر بهذا المسار) — يُتخطى")
+            continue
+        k = prim[0]
+        out[t] = k.ref
+        log(f"{t}: دفتر أساسي واحد من {len(mine)} (آخر تشغيل {(k.last_run or '')[:10]}، {'GPU' if k.gpu else 'CPU'}، الحالة {k.status})")
+    return out
+
+
 def main() -> int:
     slugs = [s.strip() for s in os.environ.get("SHAM_RESTART_KERNELS", "").split(",") if s.strip()]
-    if not slugs:
-        print("لا دفاتر في SHAM_RESTART_KERNELS — لا شيء يُراقَب (المراقب مُعطّل حتى تضعي الأسماء في السرّ).")
+    tracks = [s.strip() for s in os.environ.get("SHAM_RESTART_TRACKS", "").split(",") if s.strip()]
+    live = os.environ.get("SHAM_RESTART_LIVE") == "1"
+    if not slugs and not tracks:
+        print("لا مسارات في SHAM_RESTART_TRACKS ولا دفاتر في SHAM_RESTART_KERNELS — لا شيء يُراقَب.")
         return 0
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "colab" / "sham_small"))
@@ -123,12 +147,23 @@ def main() -> int:
     state = json.loads(files[0].read_text(encoding="utf-8")) if files else {}
     work = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "restarter"
     work.mkdir(parents=True, exist_ok=True)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    resolved = state.get("resolved", {})
+    if tracks and (resolved.get("day") != today or set(resolved.get("refs", {})) != set(tracks)):
+        resolved = {"day": today, "refs": resolve_tracks(api, tracks, work / "scan")}   # once a day: the scan reads every notebook (slow, rate-limited)
+        state["resolved"] = resolved
+    else:
+        print(f"المسارات محلولة اليوم: {len(resolved.get('refs', {}))} دفتراً")
+    watch = list(dict.fromkeys(list(resolved.get("refs", {}).values()) + slugs))
+    print(f"عدد الدفاتر المراقَبة: {len(watch)} | الوضع: {'حي' if live else 'تجريبي (لا دفع)'}")
 
     def resume(slug, accel):
+        if not live:
+            return "dry-run"
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel)
 
-    notes = run(slugs, api, state, resume)
-    if any("دُفعت" in n or "توقّف" in n for n in notes) or not files:
+    notes = run(watch, api, state, resume)
+    if live or not files:
         up = work / "upload"
         up.mkdir(exist_ok=True)
         (up / STATE_FILE).write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
@@ -194,7 +229,7 @@ def _self_test() -> None:
 
 
 if __name__ == "__main__":
-    if not os.environ.get("SHAM_RESTART_KERNELS") or "--selftest" in sys.argv:
+    if not (os.environ.get("SHAM_RESTART_KERNELS") or os.environ.get("SHAM_RESTART_TRACKS")) or "--selftest" in sys.argv:
         _self_test()
         sys.exit(0)
     sys.exit(main())
