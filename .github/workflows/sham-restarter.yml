@@ -1,0 +1,37 @@
+name: Sham Restarter (keeps the Kaggle notebooks in a continuous cycle)
+
+# دفتر كاكل لا يستطيع إعادة تشغيل نفسه بعد أن ينتهي، فيراقبه هذا المراقب من الخارج كل 30 دقيقة ويدفع له تشغيلاً جديداً بعد مهلة قصيرة من توقفه.
+# يعمل فقط على الدفاتر المسمّاة في سرّ المستودع SHAM_RESTART_KERNELS (owner/slug مفصولة بفاصلة)؛ بلا السرّ لا يفعل شيئاً. الأسماء لا تظهر في السجل أبداً.
+# مفتاح إيقاف: متغير المستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_RESTARTER = 1.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-restarter
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_RESTARTER != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle requests
+      - name: Watch and restart
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          SHAM_RESTART_KERNELS: ${{ secrets.SHAM_RESTART_KERNELS }}
+        run: python ai-system/supervision/sham_restarter.py

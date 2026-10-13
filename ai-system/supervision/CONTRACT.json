@@ -538,6 +538,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "restarter": {
+      "file": ".github/workflows/sham-restarter.yml",
+      "title": "مراقب إعادة التشغيل: يبقي دفاتر كاكل في دورة مستمرة (يُفعَّل بسرّ SHAM_RESTART_KERNELS)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
