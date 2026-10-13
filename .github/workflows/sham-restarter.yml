@@ -1,13 +1,13 @@
 name: Sham Restarter (keeps the Kaggle notebooks in a continuous cycle)
 
-# دفتر كاكل لا يستطيع إعادة تشغيل نفسه بعد أن ينتهي، فيراقبه هذا المراقب من الخارج كل 30 دقيقة ويدفع له تشغيلاً جديداً بعد مهلة قصيرة من توقفه.
+# دفتر كاكل لا يستطيع إعادة تشغيل نفسه بعد أن ينتهي، فيراقبه هذا المراقب من الخارج كل 15 دقيقة ويدفع له تشغيلاً جديداً بعد مهلة 15 دقيقة من توقفه.
 # الدفاتر: الدفتر الأساسي لكل مسار في متغير المستودع SHAM_RESTART_TRACKS (يجده من حسابك بعلامات المحتوى نفسها التي يستعملها سجل شام، فلا أسماء مطلوبة)،
-# و/أو أسماء صريحة في سرّ المستودع SHAM_RESTART_KERNELS. بلا SHAM_RESTART_LIVE=1 يعمل تجريبياً فقط. الأسماء لا تظهر في السجل أبداً.
+# و/أو أسماء صريحة في سرّ المستودع SHAM_RESTART_KERNELS. يعمل تجريبياً حتى يحتوي الملف ai-system/supervision/RESTARTER_LIVE على 1 (أو SHAM_RESTART_LIVE=1). الأسماء لا تظهر في السجل أبداً.
 # مفتاح إيقاف: متغير المستودع SHAM_PAUSE_ALL أو SHAM_PAUSE_RESTARTER = 1.
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       tracks:
@@ -44,6 +44,6 @@ jobs:
           KAGGLE_USERNAME: jonsnowjonsnow
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           SHAM_RESTART_KERNELS: ${{ secrets.SHAM_RESTART_KERNELS }}
-          SHAM_RESTART_TRACKS: ${{ github.event.inputs.tracks || vars.SHAM_RESTART_TRACKS }}
+          SHAM_RESTART_TRACKS: ${{ github.event.inputs.tracks || vars.SHAM_RESTART_TRACKS || 'all_in_one,ab_in_one,chat_image_in_one' }}
           SHAM_RESTART_LIVE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.live || vars.SHAM_RESTART_LIVE }}
         run: python ai-system/supervision/sham_restarter.py

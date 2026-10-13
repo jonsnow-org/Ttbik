@@ -1,11 +1,11 @@
 """
 Keeps the owner's long-running Kaggle notebooks in a continuous cycle (owner, 2026-10-13: "instead of working a few hours a day and stopping until tomorrow").
 
-A notebook cannot restart itself after it ends (its session dies with it), so this watcher runs OUTSIDE Kaggle, on a free GitHub schedule, every 30 minutes:
+A notebook cannot restart itself after it ends (its session dies with it), so this watcher runs OUTSIDE Kaggle, on a free GitHub schedule, every 15 minutes:
 
   which notebooks: the PRIMARY notebook of each track named in the repository variable SHAM_RESTART_TRACKS (e.g. cpu_training_track,research_track,chat_stage,
   image_tokenizer,live_trainer), found on the owner's Kaggle account by the same content markers sham_registry already uses (no names needed from her);
-  and/or explicit `owner/slug`s in the secret SHAM_RESTART_KERNELS. Without SHAM_RESTART_LIVE=1 it only reports what it WOULD watch (dry run).
+  and/or explicit `owner/slug`s in the secret SHAM_RESTART_KERNELS. Without the file ai-system/supervision/RESTARTER_LIVE containing 1 (or SHAM_RESTART_LIVE=1) it only reports what it WOULD do (dry run).
   for each of them:
     running or queued                       -> nothing
     stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES)
@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "30"))
+GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "15"))
 MAX_PER_DAY = 8
 QUICK_FAIL_MINUTES = 90
 BREAKER_AT = 2
@@ -132,7 +132,11 @@ def resolve_tracks(api, tracks: list[str], workdir: Path, log=print) -> dict[str
 def main() -> int:
     slugs = [s.strip() for s in os.environ.get("SHAM_RESTART_KERNELS", "").split(",") if s.strip()]
     tracks = [s.strip() for s in os.environ.get("SHAM_RESTART_TRACKS", "").split(",") if s.strip()]
-    live = os.environ.get("SHAM_RESTART_LIVE") == "1"
+    flag = Path(__file__).with_name("RESTARTER_LIVE")       # a file in the repository (owner's decision recorded in git); SHAM_RESTART_LIVE=1 also works
+    live = os.environ.get("SHAM_RESTART_LIVE") == "1" or (flag.exists() and flag.read_text(encoding="utf-8").strip() == "1")
+    if not live and os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+        print("الوضع التجريبي: التشغيلات المجدولة لا تفعل شيئاً (المسح بطيء ويرهق حدود كاكل). شغّليه يدوياً لترَي ما سيراقبه، أو فعّلي الملف RESTARTER_LIVE.")
+        return 0
     if not slugs and not tracks:
         print("لا مسارات في SHAM_RESTART_TRACKS ولا دفاتر في SHAM_RESTART_KERNELS — لا شيء يُراقَب.")
         return 0
