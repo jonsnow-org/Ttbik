@@ -2,7 +2,7 @@
 
 **What this is:** a new independent coin, Zenobia of Tadmor (ZNBt), on its own bonding curve (fork of the open-source TONresistor launchpad, MIT, unaudited). It is not the Blum coin; the Blum coin is untouched.
 
-**In the contract (tested):** holding journey per wallet (`get_journey`: Child 0-6 d, Queen 7-20 d, Warrior 21+ d, Captive = sold everything, Legend = burned everything; under 1 token counts as empty; buying again frees a captive), 9B supply, creator fee 2% + protocol fee 1% on every trade (both to the owner wallet), graduation at 1,000 TON into DeDust, on-chain name/symbol/description/small real Zenobia coin image (`image_data`) plus the animated Zenobia coin at `/zenobia/znbt-coin.webp` as `image`; the trade page uses the animated banner and the stage videos.
+**In the contract (tested):** holding journey per wallet (`get_journey`: Child 0-6 d, Queen 7-20 d, Warrior 21+ d, Captive = sold everything, Legend = burned everything; under 1 token counts as empty; buying again frees a captive), 9B supply, creator fee 2% + protocol fee 1% on every trade (both to the owner wallet), graduation at 1,000 TON into DeDust, on-chain name/symbol/description/small still of the new Zenobia coin (`image_data`, on-chain) plus the animated coin at `/zenobia/znbt-coin.webp` as `image`; the trade page uses the chapter-2 banner and stage videos in `/zenobia/znbt/art/` (made from the owner-generated stills by `docs/zenobia/animation/cfgs_znbt.py`).
 
 **Pay and launch (owner wallet only):**
 1. Open `/zenobia/launch.html`, connect the owner wallet.

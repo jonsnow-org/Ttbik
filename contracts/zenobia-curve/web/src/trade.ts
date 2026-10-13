@@ -66,7 +66,7 @@ async function loadMe() {
   $('stageNote').textContent = stage === 1 ? 'Queen at day 7, Warrior at day 21.' : stage === 4 ? 'You sold everything. Buy again to start a new journey.' : '';
   if (stage >= 1) {
     if (isZnbt) {
-      if (!v.src.endsWith(NAMES[stage] + '.mp4')) v.src = '/zenobia/anim/' + NAMES[stage] + '.mp4';
+      if (!v.src.endsWith(NAMES[stage] + '.mp4')) v.src = '/zenobia/znbt/art/' + NAMES[stage] + '.mp4';
       v.style.display = 'block';
       v.play().catch(() => {});
     } else {
