@@ -24,9 +24,12 @@ diagnostics only, behind SHAM_DIAGNOSTIC_UNTRAINED=1 (verify_serve.py).
 /generate/medical/image, /ask/image, /ask/video, and /ask/web are open endpoints
 (no organization API key, no fixed medical category gate). Callers send a
 free-form prompt or question; uploaded ask media is used once for one answer
-and is not stored or trained on. /ask/web may optionally run one self-learn
-weight step when SHAM_SELF_LEARN=1 and learn=true (saves a NEW checkpoint,
-never overwrites final_chat.pt).
+and is not stored or trained on — unless the caller sends `teach` (the user's
+own description of the media), which keeps that (media, description) pair as a
+self-learning experience. /ask/web keeps each answered turn as an experience.
+Experiences wait in self_learn.py's queue and are learned only by a guarded
+COPY (held-out check, then the usual publish + merge gate): the served weights
+never change. /ask/audio (sham_media_ask.py) is the sound counterpart.
 """
 
 import io
@@ -105,7 +108,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
 
     step = 0
     if real:
-        model, step, _ = load_checkpoint(checkpoint_path)
+        model, step, ckpt_extra = load_checkpoint(checkpoint_path)
         _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
         print(f"loaded the trained checkpoint {checkpoint_path} (step {step})")
     else:
@@ -119,6 +122,13 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
         print("DIAGNOSTIC MODE: serving an untrained model to test plumbing only")
     model.eval()
 
+    if real and tokenizer_path and Path(tokenizer_path).exists():
+        # 2026-10-14: the checkpoint says which text tokenizer it was trained with (sham_tok_id); a wrong file beside it is replaced by
+        # the general tokenizer when the checkpoint is general, refused otherwise — a wrong tokenizer turns every reply into noise.
+        from sham_tok_id import resolve
+        tokenizer_path, tok_note = resolve(ckpt_extra if isinstance(ckpt_extra, dict) else {}, tokenizer_path)
+        _state["tokenizer_check"] = tok_note
+        print(f"text tokenizer check: {tok_note}")
     if tokenizer_path and Path(tokenizer_path).exists():
         text_tokenizer = ShamTextTokenizer.load(tokenizer_path)
         print(f"loaded the saved text tokenizer from {tokenizer_path} (vocab={text_tokenizer.vocab_size})")
@@ -152,6 +162,18 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     _state["checkpoint_path"] = checkpoint_path
     _state["tokenizer_path"] = tokenizer_path
     _state["train_step"] = step if real else 0
+    if real and os.environ.get("SHAM_SERVE_CHAT", "1").strip().lower() not in ("0", "off", "false", "no"):
+        # The trained checkpoints went through the chat stage: answer in the dialogue layout they were trained on, with the guarded
+        # sampling — the engineer's own runtime wrap (sham_decoding.install_on_serve, what the bot notebook already calls), now also
+        # when serve.py runs on its own. SHAM_SERVE_CHAT=0 keeps the plain continuation; SHAM_SERVE_SEARCH=1 lets it search on its own.
+        try:
+            import sys as _sys
+
+            from sham_decoding import install_on_serve
+            install_on_serve(_sys.modules[__name__], chat=True, search=os.environ.get("SHAM_SERVE_SEARCH") == "1")
+            _state["chat_layout"] = True
+        except Exception as exc:
+            print(f"chat layout not installed ({type(exc).__name__}: {str(exc)[:120]}) — plain continuation")
 
 
 @app.on_event("startup")
@@ -328,6 +350,7 @@ def generate_medical_image_endpoint(req: MedicalGenerationRequest) -> Response:
 async def ask_image_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
+    teach: str | None = Form(None),
 ) -> dict:
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
@@ -350,7 +373,19 @@ async def ask_image_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    return {"answer": answer}
+    return {"answer": answer, **_keep_media("image", raw_bytes, teach)}
+
+
+def _keep_media(kind: str, raw_bytes: bytes, teach: str | None, num_frames: int = 2) -> dict:
+    """Optional: the user's own description of what they sent becomes a learning experience (sham_media_ask.keep_experience)."""
+    if not (teach or "").strip():
+        return {"queued": False}
+    try:
+        from sham_media_ask import keep_experience, media_ids
+        ids = media_ids(kind, raw_bytes, _state["image_tokenizer"], _state["audio_tokenizer"], num_frames)
+        return keep_experience(kind, ids, teach, _state)
+    except Exception as exc:          # learning is optional: the answer above is never lost because of it
+        return {"queued": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
 
 
 @app.post("/ask/video")
@@ -358,6 +393,7 @@ async def ask_video_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
     num_frames: int = Form(2),
+    teach: str | None = Form(None),
 ) -> dict:
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
@@ -392,8 +428,24 @@ async def ask_video_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    return {"answer": answer}
+    return {"answer": answer, **_keep_media("video", raw_bytes, teach, num_frames)}
 
+
+@app.post("/ask/audio")
+async def ask_audio_endpoint(
+    file: UploadFile = File(...),
+    question: str = Form(""),
+    teach: str | None = Form(None),
+) -> dict:
+    """Sound → text (speech, music, any format sham_media_load reads); optional `teach` keeps the pair as an experience."""
+    from sham_media_ask import understand
+
+    raw_bytes = await file.read()
+    res = understand(_state["model"], _state["text_tokenizer"], _state["image_tokenizer"], _state["audio_tokenizer"],
+                     "audio", raw_bytes, question, teach=teach, state=_state)
+    if res.get("type") != "text":
+        return {"answer": "", "queued": False, "reason": res.get("text", "")}
+    return {k: v for k, v in res.items() if k not in ("type", "text")}
 
 
 # Self-learn live web ask (POST /ask/web) — see ask_web_api.py / self_learn.py

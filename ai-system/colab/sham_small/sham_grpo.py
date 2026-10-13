@@ -181,7 +181,8 @@ def _guarded_grpo(model, tokenizer, device: str, gate_fn, seed: int = 0, toleran
     stats = grpo_round(model, tokenizer, device, seed=seed)
     after = gate_fn(model)
     rate_after = success_rate(model, tokenizer, device, seed=seed + 1)
-    if stats["groups"] and after <= before * (1 + tolerance):
+    from sham_reward import strictly_better
+    if stats["groups"] and strictly_better(before, after):       # 2026-10-14: only a real held-out improvement is kept
         return (f"🧮 الاستدلال المتحقَّق (GRPO): ✅ {stats['groups']} مجموعة — الإصابة {rate:.0%} → {rate_after:.0%}، "
                 f"خسارة التحقق {before:.3f} → {after:.3f}")
     with torch.no_grad():

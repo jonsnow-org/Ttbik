@@ -112,9 +112,22 @@ def dpo_round(model, pairs, device: str, lr: float = 2e-6, beta: float = 0.1, sf
     return sum(losses) / max(len(losses), 1)
 
 
+def strictly_better(before: float, after: float) -> bool:
+    """The acceptance rule for a guarded round (2026-10-14): the held-out loss must really go DOWN — by at least
+    SHAM_GUARD_MIN_DELTA (relative, default 0 = any real improvement). The old rule accepted a round that was up to 0.2% worse
+    (13.897 → 13.903 was kept); a round that does not help is now rolled back."""
+    import math
+    import os
+    try:
+        delta = max(0.0, float(os.environ.get("SHAM_GUARD_MIN_DELTA", "0")))
+    except ValueError:
+        delta = 0.0
+    return math.isfinite(after) and after < before * (1 - delta)
+
+
 def guarded_self_reward(model, tokenizer, qa, device: str, gate_fn, k: int = 4, tolerance: float = 0.002) -> str:
     """Full round with the guard. gate_fn(model) -> held-out loss (lower is
-    better). Returns a one-line Arabic report."""
+    better). Returns a one-line Arabic report. Kept only if strictly_better (`tolerance` is kept for old callers, unused)."""
     saved = {n: p.detach().clone() for n, p in model.named_parameters()}
     before = gate_fn(model)
     from sham_selfdev import record
@@ -124,7 +137,7 @@ def guarded_self_reward(model, tokenizer, qa, device: str, gate_fn, k: int = 4, 
         return "🔁 المكافأة الذاتية: لا أزواج مفيدة هذه الجلسة (كل المحاولات متقاربة)."
     dpo_loss = dpo_round(model, pairs, device)
     after = gate_fn(model)
-    if after <= before * (1 + tolerance):
+    if strictly_better(before, after):
         record("المكافأة الذاتية", f"✅ قُبلت — {len(pairs)} زوج، خسارة التحقق {before:.3f} → {after:.3f}")
         return (f"🔁 المكافأة الذاتية: ✅ قُبلت — {len(pairs)} زوج (أفضل/أسوأ من محاولاته)، "
                 f"خسارة التحقق {before:.3f} → {after:.3f}")
@@ -136,6 +149,12 @@ def guarded_self_reward(model, tokenizer, qa, device: str, gate_fn, k: int = 4, 
 
 
 if __name__ == "__main__":
+    import os
     assert char_ngram_f("عاصمة سوريا دمشق", "دمشق هي عاصمة سوريا") > char_ngram_f("القطة نائمة", "دمشق هي عاصمة سوريا")
     assert repetition_factor([1, 2, 1, 2, 1, 2, 1, 2]) < repetition_factor([1, 2, 3, 4, 5, 6, 7, 8])
+    assert not strictly_better(13.897, 13.903) and not strictly_better(5.0, 5.0) and strictly_better(5.0, 4.99)
+    assert not strictly_better(5.0, float("nan"))
+    os.environ["SHAM_GUARD_MIN_DELTA"] = "0.01"
+    assert not strictly_better(5.0, 4.99) and strictly_better(5.0, 4.9)
+    os.environ.pop("SHAM_GUARD_MIN_DELTA")
     print("sham_reward self-test OK")
