@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Launch your coin · Zenobia platform</title><link rel="stylesheet" href="/zenobia/znbt/style.css"></head><body><main>
+<h1>Launch your coin<br><span class="mut">أطلق عملتك على منصة زنوبيا</span></h1>
+<div id="connect"></div>
+<div class="card"><label for="name">Name · الاسم</label><input id="name" maxlength="32" placeholder="My Coin">
+<label for="symbol">Symbol · الرمز (letters/digits)</label><input id="symbol" maxlength="10" placeholder="MYC">
+<label for="desc">Description · الوصف</label><textarea id="desc" rows="3" maxlength="300"></textarea>
+<label for="image">Image link (https) · رابط الصورة</label><input id="image" inputmode="url" placeholder="https://…">
+<label for="supply">Supply · العرض</label><select id="supply"><option value="1000000000">1,000,000,000</option><option value="100000000">100,000,000</option><option value="9000000000">9,000,000,000</option><option value="10000000000">10,000,000,000</option></select>
+<label for="fee">Your creator fee per trade · نسبتك لكل صفقة</label><select id="fee"><option value="150">1.5%</option><option value="100">1%</option><option value="50">0.5%</option><option value="10">0.1%</option><option value="0">0%</option><option value="200">2%</option></select>
+<div class="mut">Platform fee 1.5% + your fee = total paid by traders: <b id="total">3%</b></div>
+<label for="threshold">Graduates to DeDust at · ينتقل إلى DeDust عند (TON)</label><select id="threshold"><option value="1000">1,000</option><option value="2000">2,000</option><option value="3000">3,000</option></select>
+<label for="dev">Your own first buy, TON (optional) · شراؤك الأول</label><input id="dev" inputmode="decimal" value="0">
+<div class="chk"><input id="agree" type="checkbox"><label for="agree">I understand: the contracts are experimental and unaudited; a launched coin cannot be deleted; the platform may hide coins from its pages; nothing here is financial advice. · أفهم أن العقود تجريبية وغير مدقّقة، وأن العملة المطلقة لا تُحذف، وأن المنصة قد تخفي العملات من صفحاتها، وأن هذا ليس نصيحة مالية.</label></div>
+<button id="go">Create coin (≈1 TON + first buy) · أنشئ العملة</button></div>
+<div id="result" class="card" style="display:none"><b>Sent ✅</b><br><span class="mut">Coin address:</span><br><code id="resultAddr"></code><a id="resultLink" class="btn" href="#">Open the coin page · افتح صفحة العملة</a></div>
+<div class="card mut" id="log"></div>
+<div class="card mut">Launches use the open-source bonding-curve contracts with the Zenobia holding journey (Child, Queen, Warrior, Captive, Legend, read from the coin itself). Abusive, scam and impersonating coins are hidden from our lists. · نخفي العملات المسيئة والاحتيالية وانتحال الأسماء من قوائمنا.</div>
+</main><script src="/zenobia/znbt/create.js"></script></body></html>

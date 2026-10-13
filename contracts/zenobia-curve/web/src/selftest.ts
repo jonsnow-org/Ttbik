@@ -1,11 +1,13 @@
-import { Address } from '@ton/core';
 import { BondingCurveMasterV2, deployMaster, launchOptions } from '../../sdk/dist/index.js';
+import { CreateLaunch } from '../../sdk/dist/generated/BondingCurveMasterV2.gen.js';
 import { onchainMetadata } from './metadata';
+import { readMeta } from './registry';
 import { OWNER } from './common';
 const m = deployMaster(OWNER, OWNER);
 console.log('master', m.to.toString({ bounceable: true }));
 const md = onchainMetadata();
-const body = BondingCurveMasterV2.createCellOfCreateLaunch({ queryId: 0n, salt: 1000001n, options: { ref: launchOptions({ supplyTokens: 9_000_000_000, creatorFeeBps: 150, graduationTon: 1000, reserveRatio: 5, devBuyAmount: 0n }) } as any, metadata: md });
-let cells = 0; const seen = new Set<string>();
-(function walk(c: any) { const h = c.hash().toString('hex'); if (seen.has(h)) return; seen.add(h); cells++; c.refs.forEach(walk); })(body);
-console.log('launch body cells', cells, 'boc bytes', body.toBoc().length);
+const opts = launchOptions({ supplyTokens: 9_000_000_000, creatorFeeBps: 150, graduationTon: 1000, reserveRatio: 5, devBuyAmount: 0n });
+const body = BondingCurveMasterV2.createCellOfCreateLaunch({ queryId: 0n, salt: 1000001n, options: { ref: opts } as any, metadata: md });
+const parsed = CreateLaunch.fromSlice(body.beginParse());
+console.log('parsed fee', parsed.options.ref.creatorFeeBps, 'supply', parsed.options.ref.supply);
+console.log(readMeta(parsed.metadata));
