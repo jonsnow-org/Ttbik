@@ -14,10 +14,10 @@ import "@contracts/v2/JettonWallet"
 
 const ZNB_T0 = 1800000000
 
-// Stand-in for the on-chain metadata (name, symbol, description, image URL and the animated SVG): about 5 KB in a chain of cells.
+// Stand-in for the on-chain metadata (name, symbol, description, image URL and the animated SVG): about 7.5 KB in a chain of cells.
 fun bigMetadata(): cell {
     var c = beginCell().storeUint(0, 8).endCell();
-    repeat (45) {
+    repeat (60) {
         c = beginCell().storeUint(0, 250).storeUint(0, 250).storeUint(0, 250).storeUint(0, 250).storeRef(c).endCell();
     }
     return c;

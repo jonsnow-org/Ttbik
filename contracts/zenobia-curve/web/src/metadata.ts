@@ -1,7 +1,7 @@
 import { beginCell, Builder, Cell, Dictionary } from '@ton/core';
 import { sha256_sync } from '@ton/crypto';
 // @ts-ignore
-import svg from '../../brand/znbt-coin.svg';
+import smallIcon from '../../../../public/zenobia/znbt-coin-small.webp';
 
 export const COIN = {
   name: 'Zenobia of Tadmor',
@@ -37,6 +37,6 @@ export function onchainMetadata(): Cell {
   set('decimals', COIN.decimals);
   set('description', COIN.description);
   set('image', COIN.image);
-  set('image_data', Buffer.from(svg as string, 'utf8'));
+  set('image_data', Buffer.from(smallIcon as Uint8Array));
   return beginCell().storeUint(0, 8).storeDict(dict).endCell();
 }

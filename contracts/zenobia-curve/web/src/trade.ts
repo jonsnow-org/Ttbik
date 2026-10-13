@@ -46,6 +46,13 @@ async function loadMe() {
     const stage = t.readNumber();
     const since = t.readNumber();
     const days = t.readNumber();
+    const v = $('stageVideo') as HTMLVideoElement;
+    const names = ['', 'stage-1-child', 'stage-2-queen', 'stage-3-warrior', 'stage-4-captive', 'stage-5-legend'];
+    if (stage >= 1) {
+      if (!v.src.endsWith(names[stage] + '.mp4')) v.src = '/zenobia/anim/' + names[stage] + '.mp4';
+      v.style.display = 'block';
+      v.play().catch(() => {});
+    } else v.style.display = 'none';
     $('stage').textContent = STAGES[stage] + (stage >= 1 && stage <= 3 ? ' · day ' + days : '');
     $('stageNote').textContent =
       stage === 1 ? 'Queen at day 7, Warrior at day 21.' : stage === 4 ? 'You sold everything. Buy again to start a new journey.' : '';
