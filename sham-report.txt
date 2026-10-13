@@ -1,4 +1,4 @@
-🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-13 02:41 UTC
+🧭 تقرير شام (نسخة مختصرة بلا أسماء) — 2026-10-13 10:47 UTC
 
 👉 الخطوة الحالية:
    شام متعدد الوسائط جاهز (نص + صورة + صوت).
@@ -6,7 +6,7 @@
 
 ✅ المرحلة الأولى — تدريب النص الأساسي (GPU)
 ✅ مسار ترميز الصورة (VQ-VAE)
-✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=2876 · step=303
+✅ مسار ترميز الصوت (VQ-VAE) — samples_consumed=14532 · step=1760 · codebook_usage=1960
 ✅ مسار جمع وترميز الفيديو
 ✅ المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)
 ✅ المسار A — التدريب النصي المستمر (CPU)
@@ -18,22 +18,20 @@
 ✅ اكتمل | المرحلة الثالثة 3 | duplicate
 ✅ اكتمل | المرحلة الثالثة 2 | duplicate
 ✅ اكتمل | مركز تحكم شام 1 | tool
-❌ فشل | المرحلة الثالثة 5 | duplicate | الخطأ: ---> 58             raise ConnectionError(
-     60         except HTTPError as e:
-ConnectionError: Connection error trying to communicate with service
+⏳ يعمل الآن | دفتر المحادثة والمرمزات 1 | primary
 ⛔ أُوقف | مسار ترميز الصورة 2 | duplicate
 ❌ فشل | مسار ترميز الصوت 2 | duplicate | الخطأ: ---> 58             raise ConnectionError(
      60         except HTTPError as e:
 ConnectionError: Connection error trying to communicate with service
-❌ فشل | المدرّب الحي 2 | duplicate
+❌ فشل | الدفتر الشامل 1 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
 ✅ اكتمل | المرحلة الثالثة 1 | duplicate
 ⛔ أُوقف | تجربة بوت شام 1 | tool
 ⛔ أُوقف | المرحلة الثانية 2 | duplicate
 ✅ اكتمل | مسار جمع وترميز الفيديو 1 | primary
 ❌ فشل | مسار ترميز الصوت 3 | primary | الخطأ: (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status "KernelWorkerStatus.ERROR"
-⏳ يعمل الآن | مسار ترميز الصورة 3 | primary
-⏳ يعمل الآن | المسار B 1 | primary
-⏳ يعمل الآن | المسار A 1 | primary
+✅ اكتمل | مسار ترميز الصورة 3 | primary
+⏳ يعمل الآن | دفتر المسارين A وB 1 | primary
+✅ اكتمل | المسار A 1 | primary
 ✅ اكتمل | المرحلة الأولى 2 | primary
 ✅ اكتمل | المرحلة الثانية 1 | primary
 ✅ اكتمل | مسار ترميز الصورة 1 | duplicate
