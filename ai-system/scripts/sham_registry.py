@@ -66,6 +66,15 @@ TRACKS: list[dict[str, Any]] = [
         "markers": ["sham_bot_test"],
         "kind": "tool",
     },
+    # The three COMBINED notebooks (owner, 2026-10-13: three notebooks in all). Each carries the cell-marker line `# SHAM_SECTION: <section>` that only the
+    # generated notebooks have, so they are recognised before the single-notebook tracks whose markers also appear inside them. kind "combined": roles
+    # primary/duplicate like any track, but never resumed by the old orchestrator (the GitHub restarter watches them).
+    {"id": "all_in_one", "name": "الدفتر الشامل (المدرّب الحي + المرحلة الأولى + المرحلة الثانية)",
+     "markers": ["# SHAM_SECTION: sham_live_trainer"], "kind": "combined"},
+    {"id": "ab_in_one", "name": "دفتر المسارين A وB",
+     "markers": ["# SHAM_SECTION: sham_cpu_research_track"], "kind": "combined"},
+    {"id": "chat_image_in_one", "name": "دفتر المحادثة والمرمزات",
+     "markers": ["# SHAM_SECTION: sham_chat_stage"], "kind": "combined"},
     {
         "id": "live_trainer",
         "name": "المدرّب الحي — زحف وترميز وتدريب في دفتر واحد",

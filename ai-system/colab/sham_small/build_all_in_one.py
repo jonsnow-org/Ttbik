@@ -72,6 +72,47 @@ install_section_gate()
 print("الجهاز:", "GPU" if CUDA else "CPU", "| الأقسام التي تعمل اليوم:", STAGES_TODAY)
 '''
 
+SELECT_GROUP = '''import datetime
+import os
+
+import torch
+
+import sham_inputs  # يثبّت إصلاحات التدريب المشتركة ويطبّق تحديثات الخلايا
+from sham_chain import STAGE_GROUPS, install_section_gate, pick_stages
+
+CUDA = torch.cuda.is_available()
+FORCE_SECTIONS = []   # مثال: ["%(first)s"]  — الأقسام: %(names)s
+STAGES_TODAY = FORCE_SECTIONS or pick_stages(datetime.date.today().toordinal(), 11.5, CUDA, STAGE_GROUPS["%(group)s"])
+os.environ["SHAM_ACTIVE_SECTIONS"] = ",".join(STAGES_TODAY)
+install_section_gate()
+print("الجهاز:", "GPU" if CUDA else "CPU", "| الأقسام التي تعمل اليوم:", STAGES_TODAY)
+'''
+
+INTRO_GROUP = """# %(title)s
+
+دفتر واحد يحوي **كل خلايا** دفترين: %(parts)s. كل قسم خلاياه كما هي في دفتره الأصلي (مرئية وقابلة للتعديل)، ويعمل القسمان في الجلسة نفسها بالتتابع؛ ميزانية وقت كل قسم هنا مخفّضة (%(budget)s) كي يتسع الاثنان في جلسة واحدة (حدّها 12 ساعة).
+
+- **المسرّع:** CPU (أو GPU إن شئتِ؛ كاكل لا يجدول دفتراً عليه GPU).
+- **Internet:** يجب أن يكون مفعّلاً. **الأسرار:** KAGGLE_USERNAME و KAGGLE_KEY و GITHUB_TOKEN. لا يحتاج أي Add Input.
+- **الاستئناف:** كل قسم يستأنف تلقائياً من آخر نقطة منشورة.
+- يُدار بمراقب إعادة التشغيل التلقائي (يعيد تشغيله بعد توقفه بمهلة قصيرة)، فلا تُجدوِليه من كاكل.
+- لتشغيل قسم بعينه يدوياً: غيّري السطر `FORCE_SECTIONS` في خلية الاختيار.
+"""
+
+# the other two combined notebooks: name -> (file, group key in sham_chain.STAGE_GROUPS, title, sources, budget note, {source: [(old text, new text)]})
+GROUPS = {
+    "sham_ab_in_one": ("ab", "شام — دفتر المسارين A وB (تدريب نصي مستمر + بحث ذاتي)",
+                       [("sham_cpu_training_track", "المسار A — التدريب النصي المستمر"), ("sham_cpu_research_track", "المسار B — البحث الذاتي من الإنترنت")],
+                       "خمس ساعات لكل منهما بدل 8.5",
+                       {"sham_cpu_training_track": [("MAX_TRAINING_HOURS = 8.5", "MAX_TRAINING_HOURS = 5.0")],
+                        "sham_cpu_research_track": [("MAX_SESSION_HOURS = 8.5", "MAX_SESSION_HOURS = 5.0")]}),
+    "sham_chat_image_in_one": ("chat_image", "شام — دفتر المحادثة والمرمزات (المرحلة الثالثة + ترميز الصورة ثم الصوت والفيديو)",
+                               [("sham_chat_stage", "المرحلة الثالثة — الدمج والمحادثة"), ("sham_image_tokenizer_track", "مسار ترميز الصورة (ثم الصوت والفيديو)")],
+                               "ست ساعات للمحادثة على CPU بدل 11",
+                               {"sham_chat_stage": [('SESSION_HOURS = 5.0 if device.startswith("cuda") else 11.0', 'SESSION_HOURS = 5.0 if device.startswith("cuda") else 6.0')]}),
+}
+
+
 RESET = '''get_ipython().run_line_magic("reset", "-f")   # قسم جديد = دفتر جديد: لا متغيرات من قسم سابق
 import gc
 
@@ -84,19 +125,23 @@ except Exception:
 '''
 
 
-def build(sources=None, nb_dir: Path | None = None) -> dict:
-    sources = sources or SOURCES
+def build(sources=None, nb_dir: Path | None = None, group: str | None = None) -> dict:
+    """group=None: the big all-in-one (unchanged). group=<key of GROUPS>: one of the two smaller combined notebooks."""
+    g = GROUPS[group] if group else None
+    sources = sources or (g[2] if g else SOURCES)
     nb_dir = nb_dir or NB_DIR
+    patches = g[4] if g else {}
     first = json.loads((nb_dir / f"{sources[0][0]}.ipynb").read_text(encoding="utf-8"))
     clone = next(_src(c) for c in first["cells"] if c["cell_type"] == "code" and "git" in _src(c) and "clone" in _src(c))
     cells = [
-        _md(INTRO),
+        _md(INTRO if not g else INTRO_GROUP % {"title": g[1], "parts": " و".join(t for _, t in sources), "budget": g[3]}),
         _md("## 1) سحب الكود الحقيقي من GitHub"),
         _code(clone),
         _md("## 2) تثبيت المكتبات"),
         _code('import subprocess, sys\nsubprocess.run([sys.executable, "-m", "pip", "install", "-q", "av", "soundfile", "tokenizers", "datasets", "kaggle"], check=False)\nprint("تم تجهيز المكتبات.")\n'),
         _md("## 3) ما يعمل اليوم"),
-        _code(SELECT % ", ".join(name for name, _ in sources)),
+        _code(SELECT % ", ".join(name for name, _ in sources) if not g else SELECT_GROUP % {"first": sources[0][0], "group": g[0],
+                                                                                       "names": ", ".join(n for n, _ in sources)}),
     ]
     for name, title in sources:
         nb = json.loads((nb_dir / f"{name}.ipynb").read_text(encoding="utf-8"))
@@ -106,7 +151,10 @@ def build(sources=None, nb_dir: Path | None = None) -> dict:
             if c["cell_type"] == "markdown":
                 cells.append(_md(_src(c)))
             elif c["cell_type"] == "code":
-                cells.append(_code(f"{MARK} {name}\n" + _src(c)))
+                text = _src(c)
+                for old, new in patches.get(name, []):      # the shortened session budget of a section
+                    text = text.replace(old, new)
+                cells.append(_code(f"{MARK} {name}\n" + text))
     base = {k: v for k, v in first.items() if k != "cells"}
     return {**base, "cells": cells}
 
@@ -115,8 +163,17 @@ def render(nb: dict) -> str:
     return json.dumps(nb, ensure_ascii=False, indent=1) + "\n"
 
 
+def outputs() -> dict:
+    """{path: rendered text} of every generated notebook."""
+    out = {OUT: render(build())}
+    for name, g in GROUPS.items():
+        out[NB_DIR / f"{name}.ipynb"] = render(build(group=name))
+    return out
+
+
 def write() -> None:
-    OUT.write_text(render(build()), encoding="utf-8")
+    for path, text in outputs().items():
+        path.write_text(text, encoding="utf-8")
 
 
 def _self_test() -> None:
@@ -165,12 +222,13 @@ def _self_test() -> None:
 
 if __name__ == "__main__":
     if "--check" in sys.argv:
-        ok = OUT.exists() and OUT.read_text(encoding="utf-8") == render(build())
+        ok = all(p.exists() and p.read_text(encoding="utf-8") == t for p, t in outputs().items())
         print("all-in-one is up to date" if ok else "all-in-one is OUT OF DATE: run build_all_in_one.py")
         sys.exit(0 if ok else 1)
     if "--write" in sys.argv or len(sys.argv) == 1:
         if len(sys.argv) == 1:
             _self_test()
         write()
-        nb = json.loads(OUT.read_text(encoding="utf-8"))
-        print(f"wrote {OUT.name}: {len(nb['cells'])} cells ({sum(1 for c in nb['cells'] if c['cell_type'] == 'code')} code)")
+        for path in outputs():
+            nb = json.loads(path.read_text(encoding="utf-8"))
+            print(f"wrote {path.name}: {len(nb['cells'])} cells ({sum(1 for c in nb['cells'] if c['cell_type'] == 'code')} code)")
