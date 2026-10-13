@@ -62,7 +62,7 @@ def text_loss(model, tok, text: str, device: str = "cpu", windows: int = 16, len
     return total / max(len(wins), 1)
 
 
-def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = ()):
+def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = (), hysteresis: float = HYSTERESIS):
     scores: dict[str, float] = {}
     for name, ckpt, tok in candidates:
         if tok is None:
@@ -74,7 +74,7 @@ def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: t
     if not scores:
         return (candidates[0][0] if candidates else None), {}
     best = min(scores, key=scores.get)
-    if keep in scores and scores[keep] <= scores[best] * HYSTERESIS:
+    if keep in scores and scores[keep] <= scores[best] * hysteresis:
         best = keep
     for name in prefer:                      # e.g. the grown checkpoint: more capacity, same function — wins any near-tie
         if name in scores and scores[name] <= scores[best] * HYSTERESIS:
