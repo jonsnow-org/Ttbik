@@ -1,0 +1,1017 @@
+{
+  "abi_schema_version": "1.0",
+  "contract_name": "BuybackBurnV2",
+  "version": "2.0.0",
+  "unique_types": [
+    {
+      "kind": "void"
+    },
+    {
+      "kind": "int"
+    },
+    {
+      "kind": "slice"
+    },
+    {
+      "kind": "cell"
+    },
+    {
+      "kind": "builder"
+    },
+    {
+      "kind": "bool"
+    },
+    {
+      "kind": "coins"
+    },
+    {
+      "kind": "address"
+    },
+    {
+      "kind": "intN",
+      "n": 32
+    },
+    {
+      "kind": "uintN",
+      "n": 32
+    },
+    {
+      "kind": "intN",
+      "n": 64
+    },
+    {
+      "kind": "uintN",
+      "n": 64
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "InitBuyback"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackConfig"
+    },
+    {
+      "kind": "uintN",
+      "n": 16
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 13
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ExecuteBuyback"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ClaimBuybackFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BurnAvailable"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackTakePoolState"
+    },
+    {
+      "kind": "AliasRef",
+      "alias_name": "BuybackPoolStatus"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPoolUninitialized"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPoolInitializing"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPoolInitialized"
+    },
+    {
+      "kind": "union",
+      "variants": [
+        {
+          "variant_ty_idx": 21,
+          "prefix_num": 0,
+          "prefix_len": 2,
+          "is_prefix_implicit": null,
+          "stack_type_id": 135,
+          "stack_width": 0
+        },
+        {
+          "variant_ty_idx": 22,
+          "prefix_num": 1,
+          "prefix_len": 2,
+          "is_prefix_implicit": null,
+          "stack_type_id": 136,
+          "stack_width": 1
+        },
+        {
+          "variant_ty_idx": 23,
+          "prefix_num": 2,
+          "prefix_len": 2,
+          "is_prefix_implicit": null,
+          "stack_type_id": 137,
+          "stack_width": 0
+        }
+      ],
+      "stack_width": 2
+    },
+    {
+      "kind": "remaining"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackRefund"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DedustNativePayout"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TransferNotificationForRecipient"
+    },
+    {
+      "kind": "addressOpt"
+    },
+    {
+      "kind": "AliasRef",
+      "alias_name": "ForwardPayloadRemainder"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "PayloadInline"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "PayloadInRef"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 25
+    },
+    {
+      "kind": "union",
+      "variants": [
+        {
+          "variant_ty_idx": 31,
+          "prefix_num": 0,
+          "prefix_len": 1,
+          "is_prefix_implicit": null,
+          "stack_type_id": 147,
+          "stack_width": 1
+        },
+        {
+          "variant_ty_idx": 32,
+          "prefix_num": 1,
+          "prefix_len": 1,
+          "is_prefix_implicit": null,
+          "stack_type_id": 148,
+          "stack_width": 1
+        }
+      ],
+      "stack_width": 2
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ReturnExcessesBack"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BurnDelivered"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BurnFailed"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TopUpTons"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackStorage"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackIdentity"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 40
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 15
+    },
+    {
+      "kind": "uintN",
+      "n": 40
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPendingSwap"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 44
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 45
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ClaimSplitFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackProvidePoolState"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPayNative"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackSwap"
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 3
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 50
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPayoutConfig"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackPayoutOptions"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 53
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "AskToBurnTracked"
+    }
+  ],
+  "struct_instantiations": [],
+  "alias_instantiations": [],
+  "declarations": [
+    {
+      "kind": "struct",
+      "name": "InitBuyback",
+      "ty_idx": 12,
+      "prefix": {
+        "prefix_num": 2694885472,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "config",
+          "ty_idx": 15
+        },
+        {
+          "name": "active",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ExecuteBuyback",
+      "ty_idx": 16,
+      "prefix": {
+        "prefix_num": 2694885473,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ClaimBuybackFees",
+      "ty_idx": 17,
+      "prefix": {
+        "prefix_num": 2694885474,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BurnAvailable",
+      "ty_idx": 18,
+      "prefix": {
+        "prefix_num": 2694885475,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackRefund",
+      "ty_idx": 26,
+      "prefix": {
+        "prefix_num": 2694885476,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackProvidePoolState",
+      "ty_idx": 48,
+      "prefix": {
+        "prefix_num": 14209913,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "includeConfig",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        },
+        {
+          "name": "includeFees",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        },
+        {
+          "name": "includeCodeHash",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        },
+        {
+          "name": "includeRewards",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPoolUninitialized",
+      "ty_idx": 21,
+      "prefix": {
+        "prefix_num": 0,
+        "prefix_len": 2
+      },
+      "fields": []
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPoolInitializing",
+      "ty_idx": 22,
+      "prefix": {
+        "prefix_num": 1,
+        "prefix_len": 2
+      },
+      "fields": [
+        {
+          "name": "initiatorAddress",
+          "ty_idx": 7
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPoolInitialized",
+      "ty_idx": 23,
+      "prefix": {
+        "prefix_num": 2,
+        "prefix_len": 2
+      },
+      "fields": []
+    },
+    {
+      "kind": "alias",
+      "name": "BuybackPoolStatus",
+      "ty_idx": 20,
+      "target_ty_idx": 24
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackTakePoolState",
+      "ty_idx": 19,
+      "prefix": {
+        "prefix_num": 2265617785,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "status",
+          "ty_idx": 20
+        },
+        {
+          "name": "depositActive",
+          "ty_idx": 5
+        },
+        {
+          "name": "swapActive",
+          "ty_idx": 5
+        },
+        {
+          "name": "liquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "reserveX",
+          "ty_idx": 6
+        },
+        {
+          "name": "reserveY",
+          "ty_idx": 6
+        },
+        {
+          "name": "rest",
+          "ty_idx": 25
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackSwap",
+      "ty_idx": 50,
+      "prefix": {
+        "prefix_num": 3292680207,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "minimalAmountOut",
+          "ty_idx": 6
+        },
+        {
+          "name": "deadline",
+          "ty_idx": 43
+        },
+        {
+          "name": "next",
+          "ty_idx": 51,
+          "default_value": {
+            "kind": "null"
+          }
+        },
+        {
+          "name": "partnerAbsent",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        },
+        {
+          "name": "referrerAbsent",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPayoutOptions",
+      "ty_idx": 54,
+      "fields": [
+        {
+          "name": "destination",
+          "ty_idx": 7
+        },
+        {
+          "name": "extraGas",
+          "ty_idx": 6
+        },
+        {
+          "name": "payload",
+          "ty_idx": 51
+        },
+        {
+          "name": "wrapPayload",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPayoutConfig",
+      "ty_idx": 53,
+      "fields": [
+        {
+          "name": "fulfill",
+          "ty_idx": 54
+        },
+        {
+          "name": "reject",
+          "ty_idx": 54
+        },
+        {
+          "name": "excessesTo",
+          "ty_idx": 7
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPayNative",
+      "ty_idx": 49,
+      "prefix": {
+        "prefix_num": 2779237368,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        },
+        {
+          "name": "paymentPayload",
+          "ty_idx": 52
+        },
+        {
+          "name": "payoutConfig",
+          "ty_idx": 55
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackConfig",
+      "ty_idx": 13,
+      "fields": [
+        {
+          "name": "minter",
+          "ty_idx": 7
+        },
+        {
+          "name": "collector",
+          "ty_idx": 7
+        },
+        {
+          "name": "splitter",
+          "ty_idx": 7
+        },
+        {
+          "name": "creatorFeeBps",
+          "ty_idx": 14
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackPendingSwap",
+      "ty_idx": 44,
+      "fields": [
+        {
+          "name": "id",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        },
+        {
+          "name": "minimumTokens",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackIdentity",
+      "ty_idx": 40,
+      "fields": [
+        {
+          "name": "curve",
+          "ty_idx": 7
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackStorage",
+      "ty_idx": 39,
+      "fields": [
+        {
+          "name": "identity",
+          "ty_idx": 41
+        },
+        {
+          "name": "config",
+          "ty_idx": 42,
+          "default_value": {
+            "kind": "null"
+          }
+        },
+        {
+          "name": "active",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        },
+        {
+          "name": "availableTon",
+          "ty_idx": 6,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "availableTokens",
+          "ty_idx": 6,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "nextId",
+          "ty_idx": 11,
+          "default_value": {
+            "kind": "int",
+            "v": "1"
+          }
+        },
+        {
+          "name": "quoteId",
+          "ty_idx": 11,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "quoteDeadline",
+          "ty_idx": 43,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "swap",
+          "ty_idx": 46,
+          "default_value": {
+            "kind": "null"
+          }
+        },
+        {
+          "name": "burnId",
+          "ty_idx": 11,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "burnAmount",
+          "ty_idx": 6,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "burned",
+          "ty_idx": 6,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ClaimSplitFees",
+      "ty_idx": 47,
+      "prefix": {
+        "prefix_num": 2694885443,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "protocol",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DedustNativePayout",
+      "ty_idx": 27,
+      "prefix": {
+        "prefix_num": 840354313,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "rest",
+          "ty_idx": 25
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "AskToBurnTracked",
+      "ty_idx": 56,
+      "prefix": {
+        "prefix_num": 2694885463,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BurnDelivered",
+      "ty_idx": 36,
+      "prefix": {
+        "prefix_num": 2694885465,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BurnFailed",
+      "ty_idx": 37,
+      "prefix": {
+        "prefix_num": 2694885466,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "alias",
+      "name": "ForwardPayloadRemainder",
+      "ty_idx": 30,
+      "target_ty_idx": 25
+    },
+    {
+      "kind": "struct",
+      "name": "PayloadInline",
+      "ty_idx": 31,
+      "prefix": {
+        "prefix_num": 0,
+        "prefix_len": 1
+      },
+      "fields": [
+        {
+          "name": "value",
+          "ty_idx": 25
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "PayloadInRef",
+      "ty_idx": 32,
+      "prefix": {
+        "prefix_num": 1,
+        "prefix_len": 1
+      },
+      "fields": [
+        {
+          "name": "value",
+          "ty_idx": 33
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TransferNotificationForRecipient",
+      "ty_idx": 28,
+      "prefix": {
+        "prefix_num": 1935855772,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "transferInitiator",
+          "ty_idx": 29
+        },
+        {
+          "name": "forwardPayload",
+          "ty_idx": 30,
+          "client_ty_idx": 34
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ReturnExcessesBack",
+      "ty_idx": 35,
+      "prefix": {
+        "prefix_num": 3576854235,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TopUpTons",
+      "ty_idx": 38,
+      "prefix": {
+        "prefix_num": 3547469196,
+        "prefix_len": 32
+      },
+      "fields": []
+    }
+  ],
+  "incoming_messages": [
+    {
+      "body_ty_idx": 12
+    },
+    {
+      "body_ty_idx": 16
+    },
+    {
+      "body_ty_idx": 17
+    },
+    {
+      "body_ty_idx": 18
+    },
+    {
+      "body_ty_idx": 19
+    },
+    {
+      "body_ty_idx": 26
+    },
+    {
+      "body_ty_idx": 27
+    },
+    {
+      "body_ty_idx": 28
+    },
+    {
+      "body_ty_idx": 35
+    },
+    {
+      "body_ty_idx": 36
+    },
+    {
+      "body_ty_idx": 37
+    },
+    {
+      "body_ty_idx": 38
+    }
+  ],
+  "incoming_external": [],
+  "outgoing_messages": [
+    {
+      "body_ty_idx": 47
+    },
+    {
+      "body_ty_idx": 48
+    },
+    {
+      "body_ty_idx": 49
+    },
+    {
+      "body_ty_idx": 56
+    }
+  ],
+  "emitted_events": [],
+  "storage": {
+    "storage_ty_idx": 39
+  },
+  "get_methods": [
+    {
+      "tvm_method_id": 108895,
+      "name": "get_buyback_data",
+      "parameters": [],
+      "return_ty_idx": 39
+    }
+  ],
+  "thrown_errors": [
+    {
+      "kind": "plain_int",
+      "err_code": 48
+    },
+    {
+      "kind": "plain_int",
+      "err_code": 49
+    },
+    {
+      "kind": "plain_int",
+      "err_code": 73
+    }
+  ],
+  "compiler_name": "tolk",
+  "compiler_version": "1.5.0"
+}

@@ -1,0 +1,225 @@
+/// Module for string parsing and formatting.
+///
+/// This module provides a universal `format` function for creating formatted strings.
+/// It accepts up to 5 typed arguments.
+///
+/// Supported placeholders:
+/// - `{}`: default formatting
+/// - `{:x}`: int formatted as lowercase hexadecimal without `0x`
+/// - `{:X}`: same lowercase hexadecimal as `{:x}`, but with `0x`
+/// - `{:b}`: int formatted as binary without `0b`
+/// - `{:B}`: same binary as `{:b}`, but with `0b`
+/// - `{:gram}` / `{:grams}`: integer nanograms formatted as `<value> GRAM`
+/// - `{:ton}`: legacy alias for `{:gram}` / `{:grams}`
+/// - `{:cell-tree}`: cell/slice/builder/Cell<T> formatted as a tree of cell references
+///
+/// Binary output, hexadecimal prefixes, width, fill, alignment, and sign-aware
+/// zero padding are available since Acton 1.2, as are the `gram` and `grams` aliases.
+///
+/// Placeholder syntax:
+/// - A placeholder is either `{}` or `{:<format-spec>}`.
+/// - `<format-spec>` is `[fill][align][width][type]`; every part is optional,
+///   but `fill` is only recognized together with `align`.
+/// - Common forms are `{:x}` (type only), `{:8}` (width only), `{:>8}` (align
+///   and width), `{:_>8}` (fill, align, and width), `{:08}` (sign-aware zero
+///   padding), and `{:08x}` or `{:0>8:x}` (width plus type).
+/// - `align` is `<` (left), `>` (right), or `^` (center).
+/// - `fill` is one character and is only recognized when it is followed by `align`;
+///   for example `{:_>8}` uses `_` as fill and `>` as alignment.
+/// - `width` is a decimal constant and means minimum visible width; longer values
+///   are not truncated. Dynamic width is not supported.
+/// - `type` is one of `x`, `X`, `b`, `B`, `gram`, `grams`, `ton`, or `cell-tree`.
+///   `X` and `B` only add prefixes; they do not uppercase digits.
+/// - After a width, the type may be written directly (`{:08x}`, `{:>12gram}`)
+///   or after an extra colon (`{:0>8:x}`, `{:>12:gram}`).
+///
+/// Width, alignment, and padding:
+/// - Without explicit alignment, strings are left-aligned; int-like values and numeric
+///   formatters (`x`, `X`, `b`, `B`, `gram`, `grams`, `ton`) are right-aligned.
+/// - The default fill character is a space.
+/// - `{:05}` is shorthand for zero fill and right alignment. For this shorthand,
+///   zeroes are inserted after a sign and after `0x`/`0b` prefixes:
+///   `format("{:06}", -42)` returns `"-00042"` and `format("{:08X}", 255)`
+///   returns `"0x0000ff"`.
+/// - Explicit fill/alignment pads the whole rendered value. For example,
+///   `format("{:0>6x}", -255)` returns `"000-ff"`.
+/// - Width is measured in visible characters, so ANSI color escape sequences produced
+///   by colored output do not count toward the width.
+///
+/// Format rules and edge cases:
+/// - Escape literal braces with `{{` and `}}`.
+/// - Extra arguments are ignored by `format`.
+/// - Missing arguments leave the full placeholder unchanged in output
+///   (`{}`, `{:x}`, `{:_>8}`, `{:cell-tree}`, etc.).
+/// - Invalid format strings (unknown modifier, unsupported placeholder, unmatched braces)
+///   fail at runtime with a parser error that includes a byte offset.
+/// - Named arguments and dynamic width are not supported.
+/// - For non-int arguments, `{:x}`, `{:X}`, `{:b}`, `{:B}`, `{:gram}`, `{:grams}`,
+///   and `{:ton}` fall back to default formatting.
+/// - For non-cell/slice/builder/Cell<T> arguments, `{:cell-tree}` falls back to default formatting.
+///
+/// Examples:
+/// ```tolk
+/// // Simple string substitution
+/// val greeting = format("Hello, {}!", "Tolk");
+///
+/// // Formatting numbers
+/// val hex = format("Value in hex: 0x{:x}", 255); // "Value in hex: 0xff"
+/// val padded = format("Padded: {:0>8x}", 255); // "Padded: 000000ff"
+/// val prefixedHex = format("Prefixed: {:X}", 255); // "Prefixed: 0xff"
+/// val binary = format("Binary: {:B}", 5); // "Binary: 0b101"
+/// val right = format("|{:>6}|", "hi"); // "|    hi|"
+/// val centered = format("|{:.^7}|", "hi"); // "|..hi...|"
+/// val prefixedPadded = format("|{:08X}|", 255); // "|0x0000ff|"
+///
+/// // Formatting GRAM amounts
+/// val balance = format("Balance: {:grams}", 500_000_000); // "Balance: 0.5 GRAM"
+///
+/// // Formatting cell references as a tree
+/// val tree = format("{:cell-tree}", bodyCell);
+///
+/// // Escaping braces
+/// val escaped = format("Use {{}} to print braces", 0); // "Use {} to print braces"
+///
+/// // Missing argument keeps placeholder as-is
+/// val partial = format("{} {}", "left"); // "left {}"
+///
+/// // Multiple arguments
+/// val info = format("User {} has {} items worth {:grams}", "Alice", 5, 1_000_000_000);
+///
+/// // Parse an integer from a string
+/// val num = parseInt("42");
+/// ```
+
+import "@stdlib/reflection"
+import "ffi"
+
+/// Formats a string with up to 5 arguments.
+///
+/// Uses the module-level format rules, including escaping (`{{`/`}}`), mismatch behavior,
+/// and runtime parser errors for invalid format strings.
+///
+/// Example:
+/// ```tolk
+/// val a = format("Hello {}", "world");
+/// val b = format("{} + {} = {}", 2, 3, 5);
+/// val c = format("hello");
+/// ```
+///
+/// Non-int fallback examples:
+/// ```tolk
+/// format("{:x}", "abc");   // "abc"
+/// format("{:b}", "abc");   // "abc"
+/// format("{:X}", true);    // "true"
+/// format("{:gram}", true); // "true"
+/// ```
+fun format<T1 = void, T2 = void, T3 = void, T4 = void, T5 = void>(
+    fmt: string,
+    arg1: T1,
+    arg2: T2,
+    arg3: T3,
+    arg4: T4,
+    arg5: T5,
+): string {
+    return ffi.format(
+        fmt,
+        reflect.typeUniqueIdxOfObject(arg1),
+        arg1.toTuple(),
+        reflect.typeUniqueIdxOfObject(arg2),
+        arg2.toTuple(),
+        reflect.typeUniqueIdxOfObject(arg3),
+        arg3.toTuple(),
+        reflect.typeUniqueIdxOfObject(arg4),
+        arg4.toTuple(),
+        reflect.typeUniqueIdxOfObject(arg5),
+        arg5.toTuple(),
+    );
+}
+
+/// Parse a decimal, hexadecimal (`0x`), or binary (`0b`) string into an int value.
+///
+/// Leading and trailing whitespace is ignored before parsing.
+/// Accepts an optional leading `+` or `-` before the digits or base prefix.
+/// Underscores are ignored within the number, as in Tolk integer literals.
+/// Invalid digits, an empty string, or a whitespace-only string
+/// cause an error.
+///
+/// Hexadecimal and binary inputs are available since Acton 1.2.
+///
+/// Example:
+/// ```tolk
+/// val n = parseInt("12345");
+/// val negative = parseInt("-42");
+/// val hex = parseInt("0xff");
+/// val withWhitespace = parseInt(" 42 ");
+/// ```
+fun parseInt(x: string): int {
+    val n = ffi.parseInt(x);
+    assert (n != null) throw 5; // 5 = "integer out of range"
+    return n;
+}
+
+/// Convert a string representation of address to an internal [address] value.
+///
+/// Accepted forms include raw addresses (`0:...`) and user-friendly TON addresses
+/// (base64/base64url with flags). Inputs copied from CLI output like
+/// `<address> (<name>)` are also accepted; the symbolic suffix is ignored.
+/// The returned value is normalized as an internal address; rendered formatting may
+/// differ from input flags, while representing the same account.
+/// Invalid input fails with an error like `Cannot parse address: <input>`.
+///
+/// Example:
+/// ```tolk
+/// val address = parseAddress("kQCPFJYFqhowz0BRAfqNPdLOC1_Rlupki_0BezWU6rHk5lbt");
+/// ```
+fun parseAddress(addr: string): address {
+    val cell = ffi.convertAddress(addr);
+    return cell.beginParse() as address;
+}
+
+/// Decode a root cell from hex-encoded BOC bytes.
+///
+/// `cellHex` must be a valid BOC serialized as hex.
+/// Invalid or malformed input (including non-BOC payloads) fails with an error like
+/// `Failed to decode cell hex <input>`.
+fun parseCellFromHex(cellHex: string): cell {
+    return ffi.cellFromHex(cellHex);
+}
+
+/// Decode a root cell from base64-encoded BOC bytes.
+///
+/// Available since Acton 1.1.
+///
+/// `cellBase64` must be a valid BOC serialized as base64.
+/// Invalid or malformed input (including non-BOC payloads) fails with an error like
+/// `Failed to decode cell base64 <input>`.
+fun parseCellFromBase64(cellBase64: string): cell {
+    return ffi.cellFromBase64(cellBase64);
+}
+
+fun ffi.format(
+    fmt: string,
+    type1: int,
+    arg1: tuple,
+    type2: int,
+    arg2: tuple,
+    type3: int,
+    arg3: tuple,
+    type4: int,
+    arg4: tuple,
+    type5: int,
+    arg5: tuple,
+): string
+    asm "200 EXTCALL"
+
+fun ffi.convertAddress(addr: string): cell
+    asm "19 EXTCALL"
+
+fun ffi.cellFromHex(cellHex: string): cell
+    asm "20 EXTCALL"
+
+fun ffi.cellFromBase64(cellBase64: string): cell
+    asm "57 EXTCALL"
+
+fun ffi.parseInt(x: string): int?
+    asm "47 EXTCALL"
