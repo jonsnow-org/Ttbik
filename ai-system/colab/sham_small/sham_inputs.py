@@ -394,7 +394,45 @@ def resume_text_lineage(own: str, forks: list[str] | tuple[str, ...] = (),
               f"+ {picked['tokenizer'].name}")
     else:
         print("لا توجد نقطة حفظ سابقة — يبدأ من الصفر (متوقَّع فقط في أول تشغيل حقيقي).")
+    return adopt_published_head(picked, pair_in)
+
+
+HEAD_DATASET = "sham-merged-checkpoint"
+
+
+def adopt_published_head(picked: dict | None, pair_in=None) -> dict | None:
+    """2026-10-13: every notebook continued only its OWN old lineage (Track A at step 43,587 on Arabic Wikipedia alone, Track B, …), while the model the Studio
+    serves is the published head (sham-merged-checkpoint). Lineages that diverge for weeks cannot be merged back (the gate refuses them), so two months of
+    training never reached the model. Now, when the head MEASURES at least as good as the notebook's own lineage on general text (the merge gate's
+    distribution), the notebook continues FROM THE HEAD; otherwise it keeps its own lineage exactly as before. Any failure leaves `picked` untouched."""
+    if picked is None or picked.get("dataset") == HEAD_DATASET or os.environ.get("SHAM_NO_HEAD") == "1":
+        return picked
+    try:
+        root = fetch_dataset(HEAD_DATASET)
+        files = sorted(root.rglob("final_merged.pt")) if root else []     # the head's file is not named step_N.pt / final.pt
+        toks = sorted(root.rglob("sham_small_tokenizer.json")) if root else []
+        if not files or not toks:
+            return picked
+        head = {"checkpoint": files[0], "step": _checkpoint_step(files[0])[0], "has_optimizer": False, "tokenizer": toks[0],
+                "dataset": HEAD_DATASET}
+        from sham_base_select import choose_base, make_probe
+        best, scores = choose_base([("own", picked["checkpoint"], picked["tokenizer"]), ("head", head["checkpoint"], head["tokenizer"])],
+                                   make_probe("cuda" if _cuda() else "cpu"), keep="own", hysteresis=1.0)
+        if best == "head" and "head" in scores and "own" in scores:
+            print(f"✅ النقطة المنشورة (رأس السلسلة) أفضل بالقياس من سلالة هذا الدفتر: يُكمل منها ({head['step']:,} خطوة)")
+            head.update(has_optimizer=False, forked=True)
+            return head
+    except Exception as exc:
+        print(f"⚠ تعذّر الاستئناف من الرأس المنشور ({type(exc).__name__}): تبقى سلالة الدفتر كما هي")
     return picked
+
+
+def _cuda() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
 
 CRAWL_PREFIX = "sham-crawl-"
