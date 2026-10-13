@@ -3,8 +3,17 @@
 // same address the sale contracts pay into (ATHAR_ADMIN, also written in docs/ATHAR_OPS_NOTES.md).
 // Nothing here can move money: it only reads.
 
+import { Address } from "@ton/core";
+
 const FALLBACK_ADMIN = "EQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQMl2";
 export const adminWallet = (): string => (process.env.ATHAR_ADMIN || process.env.NEXT_PUBLIC_ATHAR_ADMIN || FALLBACK_ADMIN).trim();
+
+// Not Athar sales: the owner's wallet also receives the Zenobia proceeds from the ledger wallet (and refunds); those must not look like Athar payments.
+const NOT_ATHAR_SENDERS = ["0:9eb094e339a542fdcae8bd2800bd3adb4fa9fbeceaa4b694ab46c7bf4cfeac91"]; // the Zenobia ledger wallet
+const rawOf = (a: string): string => {
+  try { return Address.parse(a).toRawString().toLowerCase(); } catch { return a.toLowerCase(); }
+};
+export const isAtharSender = (from: string): boolean => !NOT_ATHAR_SENDERS.includes(rawOf(from));
 
 const V3 = "https://toncenter.com/api/v3";
 const STATE_KEY = "athar_mint_watch";
@@ -45,6 +54,7 @@ export async function fetchIncoming(limit = 40): Promise<Incoming[] | null> {
     if (!m?.source || !m.value || t.description?.aborted) continue;
     const nano = BigInt(m.value);
     if (nano < MIN_NANO) continue;
+    if (!isAtharSender(m.source)) continue;
     out.push({ hash: t.hash, lt: t.lt, at: t.now * 1000, from: m.source, nano });
   }
   return out;
