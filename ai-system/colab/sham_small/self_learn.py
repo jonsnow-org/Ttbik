@@ -372,7 +372,7 @@ def learn_pending(model: ShamSmall, tokenizer: ShamTextTokenizer, device: str = 
     new_step = int(current_step) + steps
     for p in cand.parameters():
         p.requires_grad = False
-    save_checkpoint(d / "final.pt", cand, step=new_step, optimizer=None, extra={"self_learn": True, "text_tokenizer": "general-v1"})
+    save_checkpoint(d / "final.pt", cand, step=new_step, optimizer=None, extra={"self_learn": True, **_tok_stamp(tokenizer)})
     tokenizer.save(str(d / "sham_small_tokenizer.json"))
     published = None
     try:
@@ -390,6 +390,14 @@ def learn_pending(model: ShamSmall, tokenizer: ShamTextTokenizer, device: str = 
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
         _queue_path().write_text("", encoding="utf-8")
     return {**result, "learned": True, "step": new_step, "published": published}
+
+
+def _tok_stamp(tokenizer) -> dict:
+    try:
+        from sham_tok_id import stamp
+        return stamp(tokenizer)
+    except Exception:
+        return {"text_tokenizer": "general-v1"}
 
 
 def learn_in_background(state: dict, device: str = "cpu") -> bool:

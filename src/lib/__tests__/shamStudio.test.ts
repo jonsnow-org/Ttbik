@@ -1,4 +1,4 @@
-import { parseShamReply, parseShamSse, shamGenerate, shamGenerateAny, shamGenerateMedia } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
@@ -27,5 +27,13 @@ describe("shamStudio", () => {
     delete process.env.MODELSCOPE_API_TOKEN;
     expect(await shamGenerateAny("ارسم قطة")).toBeNull();
     expect(await shamGenerateMedia("image", "قطة")).toBeNull();
+  });
+  it("reads a video reply and the chat_auto route; chat_auto sends nothing without a token", async () => {
+    const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+    const v = parseShamReply(body({ type: "video", mime: "video/mp4", b64: "CCCC", text: "🎬", route: "video" }));
+    expect(v?.type).toBe("video");
+    expect(v?.route).toBe("video");
+    delete process.env.MODELSCOPE_API_TOKEN;
+    expect(await shamChatAuto("مرحبا")).toBeNull();
   });
 });
