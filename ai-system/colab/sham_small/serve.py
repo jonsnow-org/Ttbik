@@ -108,7 +108,7 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
 
     step = 0
     if real:
-        model, step, _ = load_checkpoint(checkpoint_path)
+        model, step, ckpt_extra = load_checkpoint(checkpoint_path)
         _state["source"] = f"{Path(checkpoint_path).name} — الخطوة {step:,}"
         print(f"loaded the trained checkpoint {checkpoint_path} (step {step})")
     else:
@@ -122,6 +122,13 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
         print("DIAGNOSTIC MODE: serving an untrained model to test plumbing only")
     model.eval()
 
+    if real and tokenizer_path and Path(tokenizer_path).exists():
+        # 2026-10-14: the checkpoint says which text tokenizer it was trained with (sham_tok_id); a wrong file beside it is replaced by
+        # the general tokenizer when the checkpoint is general, refused otherwise — a wrong tokenizer turns every reply into noise.
+        from sham_tok_id import resolve
+        tokenizer_path, tok_note = resolve(ckpt_extra if isinstance(ckpt_extra, dict) else {}, tokenizer_path)
+        _state["tokenizer_check"] = tok_note
+        print(f"text tokenizer check: {tok_note}")
     if tokenizer_path and Path(tokenizer_path).exists():
         text_tokenizer = ShamTextTokenizer.load(tokenizer_path)
         print(f"loaded the saved text tokenizer from {tokenizer_path} (vocab={text_tokenizer.vocab_size})")
@@ -155,6 +162,18 @@ def load_model(checkpoint_path: str | None = None, tokenizer_path: str | None = 
     _state["checkpoint_path"] = checkpoint_path
     _state["tokenizer_path"] = tokenizer_path
     _state["train_step"] = step if real else 0
+    if real and os.environ.get("SHAM_SERVE_CHAT", "1").strip().lower() not in ("0", "off", "false", "no"):
+        # The trained checkpoints went through the chat stage: answer in the dialogue layout they were trained on, with the guarded
+        # sampling — the engineer's own runtime wrap (sham_decoding.install_on_serve, what the bot notebook already calls), now also
+        # when serve.py runs on its own. SHAM_SERVE_CHAT=0 keeps the plain continuation; SHAM_SERVE_SEARCH=1 lets it search on its own.
+        try:
+            import sys as _sys
+
+            from sham_decoding import install_on_serve
+            install_on_serve(_sys.modules[__name__], chat=True, search=os.environ.get("SHAM_SERVE_SEARCH") == "1")
+            _state["chat_layout"] = True
+        except Exception as exc:
+            print(f"chat layout not installed ({type(exc).__name__}: {str(exc)[:120]}) — plain continuation")
 
 
 @app.on_event("startup")
