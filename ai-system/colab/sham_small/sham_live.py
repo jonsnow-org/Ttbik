@@ -472,20 +472,32 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     def general_feeder():
         """2026-10-13: this trainer used to learn only from what its spiders crawled (museum catalogues, Crossref, arXiv, …) while the merge gate
         measures the GENERAL mixture, so every lineage it produced improved on its own sources, got a little worse on general text, and was
-        refused by the gate: two months without a single merge. Now a steady share of general-mixture windows is trained on (and held out)."""
+        refused by the gate: two months without a single merge. Now a steady share of general-mixture windows is trained on (and held out).
+        The windows are the pre-tokenized, memory-mapped shards the GitHub job builds daily (sham_token_shards): no extra process, no sockets,
+        a few MB of RAM — a live stream of the same mixture took the whole runner down together with the model on its first try."""
         try:
-            import sham_text_stream
+            import sham_token_shards
             from model import SpecialTokens
-            gs = sham_text_stream.stream_for(tokenizer, min(512, max_len - 2))
+            wins = sham_token_shards.load(tokenizer, 1024)
+            if not wins and not os.environ.get("SHAM_NO_SHARD_DOWNLOAD"):
+                from sham_inputs import fetch_dataset
+                if fetch_dataset(sham_token_shards.DATASET):
+                    wins = sham_token_shards.load(tokenizer, 1024)
+            if not wins:
+                print("⚠ لا نوافذ نص عامة جاهزة لهذا المُرمِّز: يُدرَّب على المصادر المجموعة فقط")
+                return
+            print(f"🧱 المزيج العام: {len(wins):,} نافذة جاهزة تدخل التدريب والقياس")
         except Exception as exc:
             print(f"⚠ خط النص العام لا يعمل ({type(exc).__name__}): يُدرَّب على المصادر المجموعة فقط")
             return
         pause = float(os.environ.get("SHAM_GENERAL_PAUSE", "6"))   # seconds between windows ≈ a third of all examples on a 2-core runner
+        grng = random.Random(step)
+        room = min(512, max_len - 2)
         while not stop.is_set():
             try:
-                w = gs.next_window()
-                ids = [int(x) for x in (w.tolist() if hasattr(w, "tolist") else list(w))][: max_len - 2]
-                seq = [SpecialTokens.BOS] + ids + [SpecialTokens.EOS]
+                w = wins[grng.randrange(len(wins))]
+                off = grng.randrange(0, max(1, len(w) - room))
+                seq = [SpecialTokens.BOS] + [int(x) for x in w[off:off + room]] + [SpecialTokens.EOS]
                 enc_q.put(("general", (seq, list(seq))), timeout=5)
             except queue.Full:
                 pass

@@ -27,7 +27,7 @@ if [ -n "${KAGGLE_USERNAME:-}${KAGGLE_API_TOKEN:-}" ]; then
   fi
   if "$VENV/bin/python" -c "import torch, tokenizers, kaggle" >/dev/null 2>&1; then
     mkdir -p "$WORK/live"
-    ( cd "$HERE/colab/sham_small" && SHAM_LIVE_WORK="$WORK/live" SHAM_NO_SHARD_DOWNLOAD=1 SHAM_STREAM_THREADS=1 SHAM_STREAM_CHUNK=128 OMP_NUM_THREADS=1 \
+    ( cd "$HERE/colab/sham_small" && SHAM_LIVE_WORK="$WORK/live" OMP_NUM_THREADS=1 \
         timeout 5h30m "$VENV/bin/python" -c "import sham_live; print(sham_live.run(hours=5.0, name='oracle', source_set='gh', video=False, workers=2))" ) \
       || echo "live: ended with exit $?"
   fi

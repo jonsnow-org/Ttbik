@@ -219,6 +219,22 @@ def _repair(base: str, foreign: Path, good: Path) -> bool:
     return ok
 
 
+def _kaggle(cmd: list, tries: int = 6):
+    """subprocess.run for a kaggle command that waits and retries while Kaggle answers 429 / 5xx: a throttled answer used to be read as «this
+    dataset does not exist» (2026-10-13: a trainer started from a 9.4-loss checkpoint, the merged head and the grown line looked missing)."""
+    import time as _time
+    r = None
+    for attempt in range(tries):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        out = (r.stderr or "") + (r.stdout or "")
+        if r.returncode == 0 or not any(t in out for t in ("429", "Too Many Requests", "502", "503", "504", "timed out", "Connection")):
+            return r
+        wait = 15 * (attempt + 1)
+        print(f"  ⏳ Kaggle يتمهّل ({out.strip().splitlines()[-1][:80] if out.strip() else '?'}) — انتظار {wait} ث ثم إعادة {attempt + 2}/{tries}")
+        _time.sleep(wait)
+    return r
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -253,17 +269,16 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
         subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
     dest.mkdir(parents=True, exist_ok=True)
     ref = f"{owner or user}/{base}"
-    r = subprocess.run(["kaggle", "datasets", "download", "-d", ref, "-p", str(dest), "--unzip"],
-                       capture_output=True, text=True)
+    r = _kaggle(["kaggle", "datasets", "download", "-d", ref, "-p", str(dest), "--unzip"])
     _unzip_nested(dest)
     if r.returncode != 0 or not any(dest.iterdir()):
         # the whole-dataset archive can answer a bare 404 while every file of the dataset downloads fine one by one (found 2026-10-11 for
         # sham-merged-checkpoint: the lineage silently restarted on each run because this fetch returned None): fall back to file by file
-        listing = subprocess.run(["kaggle", "datasets", "files", ref, "--csv"], capture_output=True, text=True)
+        listing = _kaggle(["kaggle", "datasets", "files", ref, "--csv"])
         names = [l.split(",", 1)[0] for l in (listing.stdout or "").splitlines()[1:] if l.strip() and "," in l]
         got = 0
         for fname in names:
-            one = subprocess.run(["kaggle", "datasets", "download", "-d", ref, "-f", fname, "-p", str(dest), "--unzip"], capture_output=True, text=True)
+            one = _kaggle(["kaggle", "datasets", "download", "-d", ref, "-f", fname, "-p", str(dest), "--unzip"])
             got += int(one.returncode == 0)
         if got:
             print(f"  • {base}: التنزيل الكامل فشل فنُزّلت الملفات واحداً واحداً ({got}/{len(names)})")
