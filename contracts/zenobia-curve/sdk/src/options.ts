@@ -5,7 +5,7 @@ import { basechain, bps, coins } from './validation.js';
 
 export const NANO = 1_000_000_000n;
 export interface LaunchConfig {
-  supplyTokens: 100_000_000 | 1_000_000_000 | 10_000_000_000;
+  supplyTokens: 100_000_000 | 1_000_000_000 | 9_000_000_000 | 10_000_000_000;
   creatorFeeBps: 0 | 10 | 50 | 100 | 200;
   graduationTon?: 1000 | 2000 | 3000;
   reserveRatio?: 3 | 5 | 8;
@@ -30,7 +30,7 @@ export function launchOptions(config: LaunchConfig): LaunchOptions {
     buybackBurn = false,
   } = config;
   if (
-    ![100_000_000, 1_000_000_000, 10_000_000_000].includes(supplyTokens) ||
+    ![100_000_000, 1_000_000_000, 9_000_000_000, 10_000_000_000].includes(supplyTokens) ||
     ![0, 10, 50, 100, 200].includes(creatorFeeBps) ||
     ![1000, 2000, 3000].includes(graduationTon) ||
     ![3, 5, 8].includes(reserveRatio)

@@ -26,7 +26,7 @@ get fun `test zenobia: holding journey child, queen, warrior, captive, legend`()
     minter.sendMintNewJettons(
         owner.address, 1, alice.address, ton("0.2"),
         InternalTransferStep {
-            queryId: 1, jettonAmount: 1000, transferInitiator: null, sendExcessesTo: null,
+            queryId: 1, jettonAmount: 5000000000, transferInitiator: null, sendExcessesTo: null,
             forwardTonAmount: 0, forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         },
         { value: ton("0.3") },
@@ -38,14 +38,14 @@ get fun `test zenobia: holding journey child, queen, warrior, captive, legend`()
     expect(journeyOf(minter, alice.address).stage).toEqual(3);
     // send everything to bob: alice is a captive, bob starts as a child
     net.send(alice.address, createMessage({ bounce: true, dest: minter.getWalletAddress(alice.address), value: ton("0.4"), body: AskToTransfer {
-            queryId: 2, jettonAmount: 1000, transferRecipient: bob.address, sendExcessesTo: alice.address,
+            queryId: 2, jettonAmount: 5000000000, transferRecipient: bob.address, sendExcessesTo: alice.address,
             customPayload: null, forwardTonAmount: 0, forwardPayload: beginCell().storeUint(0, 1).toSlice(),
         } }));
     expect(journeyOf(minter, alice.address).stage).toEqual(4);
     expect(journeyOf(minter, bob.address).stage).toEqual(1);
     // bob burns everything: legend
     net.send(bob.address, createMessage({ bounce: true, dest: minter.getWalletAddress(bob.address), value: ton("0.4"), body: AskToBurn {
-            queryId: 3, jettonAmount: 1000, sendExcessesTo: bob.address, customPayload: null,
+            queryId: 3, jettonAmount: 5000000000, sendExcessesTo: bob.address, customPayload: null,
         } }));
     expect(journeyOf(minter, bob.address).stage).toEqual(5);
 }

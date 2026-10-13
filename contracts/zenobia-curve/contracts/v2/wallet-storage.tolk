@@ -4,6 +4,8 @@
 //   since = when the current holding began (0 = not holding), prev = kept to undo a bounced transfer,
 //   mark  = 0 never emptied, 1 sold everything (Captive), 2 burned everything (Legend).
 const HOLD_TAIL_BITS = 1 + 32 + 32 + 2
+// Less than one whole token left counts as empty: a curve sell leaves a few nano-tokens of rounding dust.
+const HOLD_DUST = 1000000000
 
 struct WalletStorageV2 {
     jettonBalance: coins
@@ -56,7 +58,7 @@ fun WalletStorageV2.setHold(mutate self, since: int, prev: int, mark: int) {
 
 // Called with the balance BEFORE tokens are added: a new holding starts when the balance goes from zero to something.
 fun WalletStorageV2.holdOnCredit(mutate self, amount: coins) {
-    if (self.isCurveWallet() || amount == 0 || self.jettonBalance != 0) {
+    if (self.isCurveWallet() || amount < HOLD_DUST || self.jettonBalance >= HOLD_DUST) {
         return;
     }
     self.setHold(blockchain.now(), 0, 0);
@@ -64,7 +66,7 @@ fun WalletStorageV2.holdOnCredit(mutate self, amount: coins) {
 
 // A transfer that emptied this wallet bounced back: the original clock is restored (called with the balance BEFORE it is restored).
 fun WalletStorageV2.holdOnBounce(mutate self, amount: coins) {
-    if (self.isCurveWallet() || amount == 0 || self.jettonBalance != 0) {
+    if (self.isCurveWallet() || amount == 0 || self.jettonBalance >= HOLD_DUST) {
         return;
     }
     if (self.holdMark() != 0 && self.holdSince() == 0 && self.holdPrev() != 0) {
@@ -74,7 +76,8 @@ fun WalletStorageV2.holdOnBounce(mutate self, amount: coins) {
 
 // Called with the balance BEFORE tokens leave: the clock stops when the balance reaches zero.
 fun WalletStorageV2.holdOnDebit(mutate self, amount: coins, burned: bool) {
-    if (self.isCurveWallet() || amount == 0 || self.jettonBalance != amount) {
+    if (self.isCurveWallet() || amount == 0 || self.jettonBalance < amount ||
+        self.jettonBalance - amount >= HOLD_DUST || self.holdSince() == 0) {
         return;
     }
     self.setHold(0, self.holdSince(), burned ? 2 : 1);
