@@ -18,3 +18,4 @@
 - **Hide a coin:** open `/zenobia/coins.html#admin`, connect the **owner wallet** (a ton_proof signature is checked on the server; only the owner address passes), write an optional reason, press Hide / Unhide. Hiding removes the coin from our lists only; it stays on-chain and its page shows a "hidden by the platform" notice.
 - **Collect platform fees:** in the same admin view press "Collect platform fees" on a coin (moves its 1.5% into the master), then "Withdraw platform fees".
 - Creators collect their own fees on the coin page: step 1 move fees, step 2 withdraw.
+- `public/zenobia/znbt/config.json` has `"open": false` until the owner decides: while false, `create.html` shows "Not open yet" and its button is disabled. Set `curve` (ZNBt address) and `"open": true` together at launch.

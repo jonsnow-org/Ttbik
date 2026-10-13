@@ -39,6 +39,8 @@ totalFee();
 
 $('go').onclick = async () => {
   try {
+    const cfgOpen = await loadConfig();
+    if (!(cfgOpen as any).open) throw new Error('Launches are not open yet / الإطلاق غير مفتوح بعد');
     if (!ui.account) throw new Error('Connect your wallet first / اربط محفظتك أولاً');
     const creator = Address.parse(ui.account.address);
     const name = val('name'), symbol = val('symbol'), description = val('desc'), image = val('image');
@@ -74,3 +76,5 @@ $('go').onclick = async () => {
   }
 };
 void client;
+
+loadConfig().then((c) => { if (!c.open) { $('closed').style.display = 'block'; ($('go') as HTMLButtonElement).disabled = true; } }).catch(() => {});
