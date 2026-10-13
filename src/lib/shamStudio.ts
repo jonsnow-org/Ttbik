@@ -46,7 +46,7 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // ---- pictures and sounds from the model's own tokens (sham_studio_media.py on the Studio). The Studio answers with JSON in the first data entry:
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
-export type ShamReply = { type: "text" | "image" | "audio" | "notice"; text?: string; mime?: string; b64?: string };
+export type ShamReply = { type: "text" | "image" | "audio" | "video" | "notice"; text?: string; mime?: string; b64?: string; route?: string };
 
 export function parseShamReply(body: string): ShamReply | null {
   const raw = parseShamSse(body);
@@ -83,5 +83,12 @@ export async function shamGenerateAny(prompt: string, maxNewTokens = 80, timeout
 
 export async function shamGenerateMedia(kind: "image" | "audio" | "video", prompt: string, timeoutMs = 55000): Promise<ShamReply | null> {
   const body = await shamCall("generate_media", { kind, prompt }, timeoutMs);
+  return body ? parseShamReply(body) : null;
+}
+
+// chat_auto (app.py): one entry for a plain message — the Studio's sham_intent routes the clear cases (media request, live search) and the rest goes to
+// generate_any. Same JSON as generate_any plus "route". An older Studio without chat_auto answers null, and the caller falls back to generate_any.
+export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000): Promise<ShamReply | null> {
+  const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
   return body ? parseShamReply(body) : null;
 }

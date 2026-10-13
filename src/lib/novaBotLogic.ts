@@ -4,7 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
-import { shamGenerate, shamGenerateAny, shamGenerateMedia, shamStudioEnabled, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamGenerateMedia, shamStudioEnabled, type ShamReply } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -769,6 +769,9 @@ async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply 
     await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png")).catch(() => null);
   } else if (reply.type === "audio" && reply.b64) {
     await bot.api.sendDocument(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.wav")).catch(() => null);
+  } else if (reply.type === "video" && reply.b64) {
+    // a short clip from the model's own image tokens (sham_studio_media, video/mp4); the caption is the Studio's own line
+    await bot.api.sendVideo(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.mp4"), reply.text ? { caption: reply.text.slice(0, 1000) } : {}).catch(() => null);
   } else if (reply.text) {
     await bot.api.sendMessage(chatId, reply.text.slice(0, 3500)).catch(() => null);
   }
@@ -797,7 +800,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
             await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
             return;
           }
-          await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : "upload_photo").catch(() => null);
+          await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : kind === "video" ? "upload_video" : "upload_photo").catch(() => null);
           await sendShamReply(bot, chatId, await shamGenerateMedia(kind, caption));
           return;
         }
@@ -806,12 +809,17 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       }
       if (text && shamStudioEnabled()) {
         // the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any); an older text-only Studio answers with plain text
-        const any = await shamGenerateAny(text, 80);
+        // plain message -> chat_auto (Studio-side intent routing), then generate_any for a Studio that has no chat_auto yet
+        // the webhook has 60 s (maxDuration): the fallback only runs with the time chat_auto left (a fast "no such api" leaves nearly all of it)
+        const t0 = Date.now();
+        let any = await shamChatAuto(text, 80, 48000);
+        const left = 52000 - (Date.now() - t0);
+        if (!any && left > 15000) any = await shamGenerateAny(text, 80, left);
         if (any) {
           await sendShamReply(bot, chatId, any);
           return;
         }
-        const reply = await shamGenerate(text, 80);
+        const reply = Date.now() - t0 < 40000 ? await shamGenerate(text, 80, Math.max(5000, 52000 - (Date.now() - t0))) : null;
         if (reply) {
           await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
           return;
