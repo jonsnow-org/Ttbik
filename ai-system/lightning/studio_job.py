@@ -43,10 +43,10 @@ JOBS = {
 
 
 def auto_mode(now: float | None = None) -> str:
-    """The scheduled run's job: one free Studio, two jobs. Tokenizer training gets two 4-hour windows of every three, the live text trainer one
-    (both resume from their own last published state, so a window's work is never lost)."""
+    """The scheduled run's job: one free Studio, two jobs, alternating 4-hour windows: the live model trainer (the model has priority: owner, 2026-10-13)
+    and the tokenizer training (both resume from their own last published state, so a window's work is never lost)."""
     slot = int((time.time() if now is None else now) // (4 * 3600))
-    return "run" if slot % 3 == 2 else "tokens"
+    return "run" if slot % 2 == 0 else "tokens"
 
 
 def say(msg: str) -> None:
