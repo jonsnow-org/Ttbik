@@ -73,7 +73,7 @@ export default async function BotsDeployPage() {
           <Link href="/bots/health-check" className="font-bold text-indigo-800 hover:underline">فاحص صحة البوت ←</Link>{" "}بلا حفظ التوكن.
         </p>
       </aside>
-      <BotsDeployForm isOwner={isOwner} adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" />} />
+      <BotsDeployForm isOwner={isOwner} adSlot={<AdSlot position="in-content" label="أسفل نموذج تفعيل البوت" isOwner={isOwner} />} />
       <aside className="relative mx-auto max-w-lg px-4 pb-6" aria-labelledby="bots-after">
         <h2 id="bots-after" className="mb-2 text-sm font-extrabold text-slate-900">بعد التفعيل</h2>
         <ul className="list-disc space-y-1 pr-5 text-xs leading-5 text-slate-600">

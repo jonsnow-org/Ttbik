@@ -1,0 +1,20 @@
+name: zenobia-watch
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: zenobia-watch
+  cancel-in-progress: false
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: tell the owner when ZNB's holders or supply change
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
+          code=$(curl -sS -m 90 -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/zenobia-watch?secret=${CRON_SECRET}")
+          echo "HTTP ${code}"; cat body.json; echo
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

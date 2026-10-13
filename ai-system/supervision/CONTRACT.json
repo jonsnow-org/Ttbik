@@ -101,6 +101,38 @@
     "sham-orchestrator-state": {
       "role": "حالة المُنسِّق (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج",
       "writer": null
+    },
+    "sham-keeper-state": {
+      "role": "حالة حارس الدفتر الشامل (accelerator_state.json) — ملف حالة نصي صغير، لا أوزان فيه فلا يدخل الدمج",
+      "writer": null
+    },
+    "sham-crawl-selflearn": {
+      "role": "نسخة متعلّمة من تجارب أسئلة الويب (تُدمج تلقائياً عبر الإصلاح والبوابة كأي مصدر sham-crawl-*)",
+      "writer": "selflearn"
+    },
+    "sham-crawl-selflearn-corpus": {
+      "role": "نصوص تجارب أسئلة الويب (تدخل خط النص ومرحلة المحادثة تلقائياً)",
+      "writer": "selflearn"
+    },
+    "sham-text-shards": {
+      "role": "نوافذ نص جاهزة التقطيع (احتياط حين تتوقف مصادر الإنترنت في جلسة التدريب)",
+      "writer": "token_shards"
+    },
+    "sham-crawl-modal": {
+      "role": "نموذج جلسات GPU على Modal (مرشّح لبوابة الدمج)",
+      "writer": "modal_gpu"
+    },
+    "sham-grown-checkpoint": {
+      "role": "أفضل نقطة حفظ بالقياس بعد التكبير (طبقات أكثر وسياق أطول، الدالة محفوظة) — يفضّلها الدمج والمدرّب الحي عند التعادل",
+      "writer": "model_grow"
+    },
+    "sham-image-tokenizer-v2-checkpoint": {
+      "role": "مُرمِّز الصورة v2 (128 بكسل، 64 رمزاً، يُدرَّب على CPU في استوديو Lightning)",
+      "writer": "lightning_probe"
+    },
+    "sham-audio-tokenizer-v2-checkpoint": {
+      "role": "مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning)",
+      "writer": "lightning_probe"
     }
   },
   "dynamic_dataset_patterns": [
@@ -251,6 +283,14 @@
       "reads": [],
       "writes": []
     },
+    "keeper": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_keeper.ipynb",
+      "title": "حارس الدفتر الشامل: يعيد تشغيله فور توقفه (CPU)",
+      "kind": "notebook (أداة)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
     "bot_test": {
       "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_bot_test.ipynb",
       "title": "تجربة البوت",
@@ -315,6 +355,187 @@
       "title": "فحص طلبات الدمج لمسار النموذج (عقد + اختبارات ذاتية، قراءة فقط)",
       "kind": "workflow",
       "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "selflearn": {
+      "file": "ai-system/colab/sham_small/self_learn.py",
+      "title": "التعلّم الذاتي من أسئلة الويب",
+      "kind": "module (يعمل داخل خادم البوت)",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": [
+        "sham-crawl-selflearn",
+        "sham-crawl-selflearn-corpus"
+      ]
+    },
+    "access_check": {
+      "file": ".github/workflows/sham-access-check.yml",
+      "title": "فحص ما تصل إليه الأتمتة (مفاتيح الخدمات)",
+      "kind": "workflow",
+      "accelerator": "CPU",
+      "reads": [],
+      "writes": []
+    },
+    "token_shards": {
+      "file": ".github/workflows/sham-token-shards.yml",
+      "title": "أقراص النص الجاهزة (تقطيع مسبق على GitHub)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-text-shards"
+      ]
+    },
+    "modelscope_sync": {
+      "file": ".github/workflows/sham-modelscope.yml",
+      "title": "استوديو ModelScope: استضافة شام + عامل (جسر Kaggle→ModelScope)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-merged-checkpoint"
+      ],
+      "writes": []
+    },
+    "oracle_vault": {
+      "file": "ai-system/oracle_job.sh",
+      "title": "خزنة نقاط الحفظ على خادم Oracle (نسخة احتياطية خارج Kaggle)",
+      "kind": "server-job",
+      "accelerator": "CPU (نواة واحدة، 4 جيجا)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-checkpoint",
+        "sham-checkpoint"
+      ],
+      "writes": []
+    },
+    "vault_modelscope": {
+      "file": ".github/workflows/sham-vault.yml",
+      "title": "خزنة نقاط الحفظ (نسخة احتياطية في ModelScope بلا خادم)",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-crawl-checkpoint",
+        "sham-checkpoint"
+      ],
+      "writes": []
+    },
+    "modal_gpu": {
+      "file": ".github/workflows/sham-modal.yml",
+      "title": "جلسة تدريب GPU على Modal (رصيد مجاني)",
+      "kind": "workflow",
+      "accelerator": "GPU T4 (Modal)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-text-shards"
+      ],
+      "writes": [
+        "sham-crawl-modal"
+      ]
+    },
+    "lightning_probe": {
+      "file": ".github/workflows/sham-lightning.yml",
+      "title": "استوديو Lightning المجاني (فحص التشغيل من GitHub)",
+      "kind": "workflow",
+      "accelerator": "CPU (استوديو Lightning المجاني)",
+      "reads": [],
+      "writes": [
+        "sham-audio-tokenizer-v2-checkpoint",
+        "sham-image-tokenizer-v2-checkpoint"
+      ]
+    },
+    "retrieval_parity": {
+      "file": ".github/workflows/sham-parity.yml",
+      "title": "قياس تكافؤ الاسترجاع مع السياق المتصل (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "checkpoint_audit": {
+      "file": ".github/workflows/sham-audit.yml",
+      "title": "فحص نقاط الحفظ (قراءة فقط): قياس كل نقطة بكل مُرمِّز على نص ثابت",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "model_grow": {
+      "file": ".github/workflows/sham-grow.yml",
+      "title": "تكبير النموذج: طبقات بمخرج صفري + سياق أطول (دالة محفوظة)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": [
+        "sham-grown-checkpoint"
+      ]
+    },
+    "dataset_probe": {
+      "file": ".github/workflows/sham-dataset-probe.yml",
+      "title": "فحص مجموعات Kaggle (الحالة والملفات والتنزيل) — قراءة فقط",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "lightning_peek": {
+      "file": ".github/workflows/sham-lightning-peek.yml",
+      "title": "نظرة للقراءة فقط على استوديو Lightning",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "all_in_one": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_all_in_one.ipynb",
+      "title": "الدفتر الشامل: يدوّر المدرّب الحي والمرحلة الأولى والمرحلة الثانية في مقعد واحد (يكتب ما تكتبه تلك الدفاتر نفسها، ولا يُشغَّل معها في الوقت ذاته)",
+      "kind": "notebook",
+      "accelerator": "GPU (يعود إلى CPU)",
+      "reads": ["sham-chat-checkpoint", "sham-checkpoint", "sham-crawl-checkpoint", "sham-multimodal-checkpoint"],
+      "writes": []
+    },
+    "cell_audit": {
+      "file": ".github/workflows/sham-cell-audit.yml",
+      "title": "أي دفاتر كاكل ستتعطل بنصف تحديث للخلايا (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "lightning_limits": {
+      "file": ".github/workflows/sham-lightning-limits.yml",
+      "title": "قياس عدد استوديوهات Lightning المجانية المسموحة (ينشئ استوديو فحص ويحذفه)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "studio_ask": {
+      "file": ".github/workflows/sham-studio-ask.yml",
+      "title": "اسأل شام المستضاف على الاستوديو واطبع الجواب (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "tokenizer_bench": {
+      "file": ".github/workflows/sham-bench.yml",
+      "title": "قياس سرعة تدريب المُرمِّزات على CPU (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "kaggle_runs": {
+      "file": ".github/workflows/sham-kaggle-runs.yml",
+      "title": "مدة تشغيل كل دفتر على كاكل فعلياً (قراءة فقط)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
     }

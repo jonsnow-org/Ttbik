@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import ShareCard from "@/components/ShareCard";
 
 function parseNum(v: string): number {
   const n = parseFloat(v.replace(/,/g, "").replace(/[^0-9.-]/g, ""));
@@ -180,6 +181,11 @@ export default function ZakatCalculator() {
           }} className="mt-3 w-full rounded-lg border border-slate-300 bg-white py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">
           {copied ? "تم النسخ ✓" : "نسخ النتيجة"}
         </button>
+        {result.reached && (
+          <div className="mt-3 text-right">
+            <ShareCard kicker="حاسبة الزكاة" title={fmt(result.zakatDue)} lines={[{ label: "إجمالي الأصول", value: fmt(result.assetsValue) }, { label: "الزكاة (2.5%)", value: fmt(result.zakatDue) }]} path="/free-tools/zakat-calculator" />
+          </div>
+        )}
       </div>
 
       <p className="text-[11px] text-slate-400 text-center leading-relaxed">حاسبة تقريبية للزكاة على النقد والمعادن والأسهم وعروض التجارة. لا تشمل الزروع والأنعام. تعمل بالكامل داخل المتصفح — بلا تسجيل وبلا تخزين.</p>

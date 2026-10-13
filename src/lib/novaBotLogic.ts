@@ -4,6 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
+import { shamGenerate, shamGenerateAny, shamGenerateMedia, shamStudioEnabled, type ShamReply } from "@/lib/shamStudio";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -752,11 +753,73 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
   }
 }
 
+// Sham's answer as the Telegram message it is: words, a picture or a sound (from the model's own tokens). A notice is plain text; nothing is added or retouched.
+const SHAM_MEDIA_COMMANDS: Record<string, "image" | "audio" | "video"> = {
+  "image": "image", "صورة": "image", "صوره": "image", "ارسم": "image", "audio": "audio", "صوت": "audio", "video": "video", "فيديو": "video",
+};
+// the kind the USER named with the first word of the message, with or without a leading "/" (the content itself is always written by the model)
+const shamMediaKind = (text: string) => SHAM_MEDIA_COMMANDS[text.split(/[\s@]/)[0].replace(/^\//, "").toLowerCase()];
+
+async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
+  if (!reply) {
+    await bot.api.sendMessage(chatId, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
+    return;
+  }
+  if (reply.type === "image" && reply.b64) {
+    await bot.api.sendPhoto(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.png")).catch(() => null);
+  } else if (reply.type === "audio" && reply.b64) {
+    await bot.api.sendDocument(chatId, new InputFile(Buffer.from(reply.b64, "base64"), "sham.wav")).catch(() => null);
+  } else if (reply.text) {
+    await bot.api.sendMessage(chatId, reply.text.slice(0, 3500)).catch(() => null);
+  }
+}
+
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (NOVA_PAUSED) {
     if (update.callback_query?.id) {
       await bot.api.answerCallbackQuery(update.callback_query.id, { text: NOVA_PAUSED_TEXT, show_alert: true }).catch(() => null);
     } else if (update.message?.chat?.id) {
+      // Nova's backend stays off, but this bot now speaks with Sham (the owner's own model on ModelScope) when the Studio is configured
+      const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
+      const chatId = update.message.chat.id;
+      const firstWord = text.split(/[\s@]/)[0].toLowerCase();
+      const mediaKind = shamStudioEnabled() ? shamMediaKind(text) : undefined;
+      // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
+      if ((text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help")) || mediaKind) {
+        const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
+        const unavailable = "هذه الميزة غير متاحة الآن. اكتب جملة عادية وسأرد عليها.";
+        const cmd = text.split(/[\s@]/)[0].toLowerCase();
+        const kind = mediaKind;
+        if (kind) {
+          // the USER chose the kind; the picture / sound is written by the model's own tokens (sham_studio_media.make_media)
+          const caption = text.slice(text.indexOf(" ") + 1).trim();
+          if (!caption || caption === text) {
+            await bot.api.sendMessage(chatId, "اكتب وصفك بعد الكلمة، مثلاً: صورة أرنب أبيض").catch(() => null);
+            return;
+          }
+          await bot.api.sendChatAction(chatId, kind === "audio" ? "record_voice" : "upload_photo").catch(() => null);
+          await sendShamReply(bot, chatId, await shamGenerateMedia(kind, caption));
+          return;
+        }
+        await bot.api.sendMessage(chatId, cmd === "/start" || cmd === "/help" ? welcome : unavailable, { reply_markup: { remove_keyboard: true } }).catch(() => null);
+        return;
+      }
+      if (text && shamStudioEnabled()) {
+        // the MODEL decides whether its answer is words, a picture or a sound (sham_studio_media.generate_any); an older text-only Studio answers with plain text
+        const any = await shamGenerateAny(text, 80);
+        if (any) {
+          await sendShamReply(bot, chatId, any);
+          return;
+        }
+        const reply = await shamGenerate(text, 80);
+        if (reply) {
+          await bot.api.sendMessage(update.message.chat.id, reply.slice(0, 3500)).catch(() => null);
+          return;
+        }
+        // the Studio did not answer in time (asleep or still loading): say so instead of Nova's pause notice
+        await bot.api.sendMessage(update.message.chat.id, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
+        return;
+      }
       await bot.api.sendMessage(update.message.chat.id, NOVA_PAUSED_TEXT, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     }
     return;

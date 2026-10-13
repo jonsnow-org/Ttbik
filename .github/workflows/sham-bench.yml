@@ -1,0 +1,28 @@
+name: Sham Tokenizer CPU Bench (read-only)
+
+# كم صورة/مقطع صوت في الثانية يتحمل المعالج العادي لكل تصميم مُرمِّز (التدريب على CPU فقط: لا GPU عند المالكة). قياس لا تخمين.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install numpy pillow
+      - run: python ai-system/supervision/sham_vq_bench.py

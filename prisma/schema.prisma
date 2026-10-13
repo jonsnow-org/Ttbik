@@ -108,6 +108,28 @@ model BotUpdateAnnouncement {
   @@index([template, sentAt])
 }
 
+
+// One Google account link per Telegram user, used only to check YouTube
+// channel subscriptions for YOUTUBE ad tasks. Refresh token stays server-side.
+model YoutubeLink {
+  tgUserId     String   @id
+  googleSub    String?
+  refreshToken String
+  channelId    String?
+  linkedAt     DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model SocialLink {
+  id         String   @id @default(uuid())
+  tgUserId   String
+  platform   String
+  profileUrl String
+  handle     String?
+  linkedAt   DateTime @default(now())
+  @@unique([tgUserId, platform])
+}
+
 model User {
   id             String        @id // Telegram User ID
   botId          String
@@ -1494,4 +1516,23 @@ model MatchProfilePrivacy {
   userId      String   @id // MatchUser.id (Telegram id)
   countryOnly Boolean  @default(false)
   updated_at  DateTime @default(now()) @updatedAt
+}
+
+
+model SiteBannerAd {
+  id              String   @id @default(uuid())
+  reservationCode String   @unique
+  bannerUrl       String
+  targetUrl       String
+  altText         String
+  placement       String   @default("sitewide")
+  kind            String   @default("image")
+  durationDays    Int
+  totalPrice      Float
+  paymentStatus   String   @default("PENDING")
+  adStatus        String   @default("PENDING_PAYMENT")
+  startsAt        DateTime?
+  endsAt          DateTime?
+  credited        Boolean  @default(false)
+  createdAt       DateTime @default(now())
 }

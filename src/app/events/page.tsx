@@ -3,16 +3,19 @@ import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ContentCard from "@/components/editorial/ContentCard";
 import EditorialHero from "@/components/editorial/EditorialHero";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
+import { EVENT_EXTRAS } from "@/lib/eventsExtra";
 import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 const PATH = "/events";
 
+export const revalidate = 300;
+
 export const metadata: Metadata = {
-  title: "أحداث عالمية | شام AI",
-  description:
-    "حدث عالمي كل يوم: مناسبات فلكية وثقافية موثّقة بمصادر، مع أسئلة شائعة وملخص واضح بالعربية.",
+  title: "أحداث عالمية",
+  description: "حدث عالمي كل يوم: مناسبات موثّقة بمصادر، مع أسئلة شائعة وملخص واضح بالعربية.",
   keywords: ["أحداث عالمية", "حدث اليوم", "شام AI", "مناسبات"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
@@ -25,10 +28,29 @@ export const metadata: Metadata = {
   },
 };
 
+function istanbulToday(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export default function EventsHubPage() {
-  const featured = EVENT_ITEMS[0];
+  const today = istanbulToday();
+  const byDate = [...EVENT_EXTRAS, ...EVENT_ITEMS]
+    .filter((e, i, all) => all.findIndex((x) => x.slug === e.slug) === i)
+    .sort((a, b) => b.dateIso.localeCompare(a.dateIso));
+  const featured =
+    byDate.find((e) => e.dateIso === today && !e.slug.includes("microsoft")) ||
+    byDate.find((e) => !e.slug.includes("microsoft")) ||
+    byDate[0];
+  const isToday = featured?.dateIso === today;
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-8" dir="rtl" lang="ar">
+      <EditorialHubNav active="events" />
       <EditorialHero
         crumbs={[{ href: "/", label: "الرئيسة" }, { label: "أحداث" }]}
         title="أحداث عالمية"
@@ -39,68 +61,44 @@ export default function EventsHubPage() {
           { href: "/articles", label: "مقالات" },
         ]}
       />
-
       {featured && (
         <section className="mb-8 overflow-hidden rounded-3xl border border-indigo-100 bg-gradient-to-l from-indigo-50 via-white to-sky-50 shadow-sm">
           {featured.imageUrl && (
             <div className="relative aspect-[21/9] w-full overflow-hidden bg-indigo-50">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={featured.imageUrl}
-                alt={featured.title}
-                className="h-full w-full object-cover"
-                loading="eager"
-                decoding="async"
-              />
+              <img src={featured.imageUrl} alt={featured.title} className="h-full w-full object-cover" loading="eager" decoding="async" />
               <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-white via-white/40 to-transparent" />
             </div>
           )}
           <div className="p-5 sm:p-6">
-            <p className="text-[11px] font-black tracking-wide text-indigo-600">حدث اليوم</p>
+            <p className="text-[11px] font-black tracking-wide text-indigo-600">{isToday ? "حدث اليوم" : "أحدث حدث"}</p>
             <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
-              <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">
-                {featured.title}
-              </Link>
+              <Link href={`/events/${featured.slug}`} className="hover:text-sky-800">{featured.title}</Link>
             </h2>
             <p className="mt-2 text-sm leading-7 text-slate-600">{featured.blurb}</p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link
-                href={`/events/${featured.slug}`}
-                className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-sky-600"
-              >
-                اقرأ التغطية كاملة
-              </Link>
-              <span className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-100">
-                {featured.dateLabel}
-              </span>
+              <Link href={`/events/${featured.slug}`} className="rounded-full bg-sky-500 px-4 py-2 text-xs font-black text-white shadow-sm hover:bg-sky-600">اقرأ التغطية كاملة</Link>
+              <span className="rounded-full bg-white px-3 py-2 text-[11px] font-bold text-slate-500 ring-1 ring-slate-100">{featured.dateLabel}</span>
             </div>
           </div>
         </section>
       )}
-
-      <div className="mb-6">
-        <AdSlot position="in-content" label="أعلى قائمة الأحداث" />
-      </div>
-
+      <div className="mb-6"><AdSlot position="in-content" label="أعلى قائمة الأحداث" /></div>
       <ul className="space-y-4">
-        {EVENT_ITEMS.map((e) => (
+        {byDate.map((e) => (
           <ContentCard
             key={e.slug}
             href={`/events/${e.slug}`}
             title={e.title}
             blurb={e.blurb}
             dateLabel={e.dateLabel}
-            badge={e.category || "حدث"}
+            badge={e.dateIso === today ? "اليوم" : e.category === "حدث اليوم" ? "فضاء" : e.category || "حدث"}
             badgeTone="indigo"
             imageUrl={e.imageUrl}
             imageAlt={e.title}
           />
         ))}
       </ul>
-
-      <div className="mt-8">
-        <AdSlot position="footer-banner" label="أسفل الأحداث" />
-      </div>
+      <div className="mt-8"><AdSlot position="footer-banner" label="أسفل الأحداث" /></div>
     </main>
   );
 }

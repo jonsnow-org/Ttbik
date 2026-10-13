@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import BusinessNameGenerator from "./BusinessNameGenerator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مولد أسماء المشاريع والمتاجر مجاناً | شام AI",
   description: "احصل على 8 اقتراحات أسماء لمشروعك أو متجرك خلال ثوانٍ، مجاناً بالكامل وبدون تسجيل.",
 };
 
-export default function BusinessNameGeneratorPage() {
+function BusinessNameGeneratorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -25,5 +26,14 @@ export default function BusinessNameGeneratorPage() {
         <AdSlot position="in-content" label="أسفل مولد الأسماء" />
       </div>
     </div>
+  );
+}
+
+export default function BusinessNameGeneratorPage() {
+  return (
+    <>
+      <BusinessNameGeneratorPageBody />
+      <ToolSeoSection slug="business-name-generator" />
+    </>
   );
 }

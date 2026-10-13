@@ -159,6 +159,7 @@ file explicitly in the completion report — every time, no exceptions.
   adding any admin/debug/export endpoint that touches Bot rows, make sure
   it can't leak a working token, template code, or webhook secret to
   anyone but the owner.
+- **Docs / README / `templates/` must not imply paid code or ZIP delivery.** Owner-facing and agent-facing copy: hosted Telegram bots (token on our servers), free browser tools, and real Done-for-you services only. The `templates/` tree is legacy samples / free FAQ-style source — not a downloadable paid catalog. README and `templates/README.md` must stay aligned with this section.
 - Locked-code-for-sale catalog products (order-manager-bot, ad-slot-bot,
   landing-page-generator, workflow-templates, invoice-generator,
   whatsapp-catalog) are permanently deleted, not just deactivated — the

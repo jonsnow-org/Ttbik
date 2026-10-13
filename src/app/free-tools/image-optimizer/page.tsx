@@ -3,6 +3,7 @@ import Link from "next/link";
 import ImageOptimizer from "./ImageOptimizer";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/image-optimizer";
 
@@ -36,7 +37,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function ImageOptimizerPage() {
+function ImageOptimizerPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <div className="flex items-center justify-between gap-3">
@@ -80,5 +81,14 @@ export default function ImageOptimizerPage() {
         </p>
       </section>
     </div>
+  );
+}
+
+export default function ImageOptimizerPage() {
+  return (
+    <>
+      <ImageOptimizerPageBody />
+      <ToolSeoSection slug="image-optimizer" />
+    </>
   );
 }

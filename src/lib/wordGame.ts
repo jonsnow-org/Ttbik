@@ -3,7 +3,7 @@
 // so the whole site's visitors get the same word on the same day.
 
 export const WORD_LEN = 5;
-export const MAX_GUESSES = 6;
+export const MAX_GUESSES = 35;
 
 // Curated, real, common Arabic words — no proper nouns, no religious terms.
 // Letter count verified after stripping diacritics (ة and ء count as their
