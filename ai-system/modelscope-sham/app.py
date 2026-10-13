@@ -5,6 +5,8 @@ What it does
   * serves the trained Sham (text now; the same load path as ai-system/colab/sham_small/serve.py) through Gradio's own API, the
     mechanism this Studio's platform proxy already speaks (gradio 6.17.3):  /gradio_api/call/generate_text , /gradio_api/call/status
   * keeps itself current: every REFRESH_SECONDS it asks the ModelScope hub for the newest published checkpoint and hot-swaps it
+  * reads media too (understand_media: picture / sound / video → answer; optional `teach` keeps the pair for guarded self-learning) and
+    writes short videos (generate_media kind=video); media calls answer {"type": "busy"} instead of queueing behind a slow one
   * never crashes on a missing model or token: it says what it is waiting for in `status` and retries
 
 Where the model comes from (no github.com here — ModelScope's network cannot reach it):
@@ -33,6 +35,7 @@ sys.path.insert(0, str(HERE))
 import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
+os.environ.setdefault("SHAM_SELF_LEARN_DIR", str(HERE / "_selflearn"))      # experiences from understand_media wait here (self_learn.py)
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
 _LOCK = threading.Lock()
@@ -154,7 +157,7 @@ def _studio_modules():
     if _CHAT_SEEN.get("stamp") != stamp:
         if files[0].exists() and str(hot) not in sys.path:
             sys.path.insert(0, str(hot))
-        for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat"):      # the hot copies replace the deployed ones
+        for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat", "sham_media_ask", "sham_intent"):      # the hot copies replace the deployed ones
             sys.modules.pop(name, None)
         _CHAT_SEEN["mods"] = (importlib.import_module("sham_studio_chat"), importlib.import_module("sham_studio_media"))
         _CHAT_SEEN["stamp"] = stamp
@@ -185,19 +188,115 @@ def generate_any(prompt: str, max_new_tokens: float = 60) -> str:
         return _json_notice("تعذّر توليد الرد الآن.")
 
 
+def _busy() -> str:
+    """The 2-core box is writing another answer: say so at once instead of queueing behind it (callers fall back to serve.py)."""
+    return json.dumps({"type": "busy", "text": "شام مشغول بطلب آخر الآن — أعد المحاولة بعد قليل."}, ensure_ascii=False)
+
+
+def _busy_wait() -> float:
+    try:
+        return max(0.0, float(os.environ.get("SHAM_STUDIO_BUSY_WAIT", "25")))
+    except ValueError:
+        return 25.0
+
+
 def generate_media(kind: str, prompt: str) -> str:
-    """JSON like generate_any, but the USER chose the kind (image | audio | video), e.g. the bot's /image command."""
+    """JSON like generate_any, but the USER chose the kind (image | audio | video), e.g. the bot's /image command.
+    Media is slow on this CPU: if another request holds the model for more than SHAM_STUDIO_BUSY_WAIT seconds, {"type": "busy"} comes back."""
     if STATE["phase"] != "ready":
         return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
     import serve
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
     try:
-        with _LOCK:
-            res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
-                                                  serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
+        res = _studio_modules()[1].make_media(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"],
+                                              serve._state["audio_tokenizer"], kind.strip().lower(), prompt)
         return json.dumps(res, ensure_ascii=False)
     except Exception as exc:
         print(f"generate_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
         return _json_notice("تعذّر التوليد الآن.")
+    finally:
+        _LOCK.release()
+
+
+def understand_media(kind: str, b64: str, question: str = "", teach: str = "", num_frames: float = 2) -> str:
+    """Sham reads a picture / sound / video (base64 of the file, any format) and answers `question` about it — the same function as serve.py's
+    /ask/audio (sham_media_ask.understand). `teach` = the user's own description of what they sent: the pair is kept as a self-learning
+    experience (the guarded queue; the served weights never change). JSON {"type": "text", "text", "queued", "pending"?, "reason"?} | notice | busy."""
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import base64
+
+    import serve
+    from sham_media_ask import max_upload_bytes, understand
+    try:
+        raw = base64.b64decode((b64 or "").split(",")[-1], validate=False)
+    except Exception:
+        return _json_notice("الملف غير صالح.")
+    if not raw or len(raw) > max_upload_bytes():
+        return _json_notice("الملف فارغ أو أكبر من الحد المسموح.")
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        res = understand(serve._state["model"], serve._state["text_tokenizer"], serve._state["image_tokenizer"], serve._state["audio_tokenizer"],
+                         kind, raw, question, teach=teach or None, num_frames=int(max(1, min(4, num_frames or 2))), state=serve._state)
+        return json.dumps(res, ensure_ascii=False)
+    except Exception as exc:
+        print(f"understand_media failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return _json_notice("تعذّرت قراءة الملف الآن.")
+    finally:
+        _LOCK.release()
+
+
+def ask_web(question: str, max_new_tokens: float = 60) -> str:
+    """The engineer's live web answer (self_learn.ask_web_generate: sources in the prompt), now on the Studio too, and — exactly like serve.py's
+    /ask/web — the turn is kept as an experience for the guarded learning round. JSON {"type": "text", "text", "hits", "queued", ...}."""
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+    from self_learn import ask_web_generate, learn_in_background, record_experience, self_learn_enabled
+    q = (question or "").strip()
+    if not q:
+        return _json_notice("اكتب سؤالك.")
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        answer, hits, sources = ask_web_generate(serve._state["model"], serve._state["text_tokenizer"], q,
+                                                 max_new_tokens=int(max(1, min(200, max_new_tokens))), use_chat_wrap=True)
+    except Exception as exc:
+        print(f"ask_web failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        return _json_notice("تعذّر البحث الآن.")
+    finally:
+        _LOCK.release()
+    res = {"type": "text", "text": answer, "hits": len(hits), "queued": False}
+    if self_learn_enabled():
+        rec = record_experience(q, hits, sources)
+        res.update(queued=rec["queued"], pending=rec.get("pending"))
+        if not rec["queued"]:
+            res["reason"] = rec.get("reason", "")
+        elif learn_in_background(serve._state):
+            res["learning_started"] = True
+    return json.dumps(res, ensure_ascii=False)
+
+
+def chat_auto(prompt: str, max_new_tokens: float = 60) -> str:
+    """One entry for a plain message, no slash commands (owner, 2026-10-14): sham_intent.route_text catches the clear cases — «قم بتوليد صورة
+    ارنب» → generate_media, «ابحث عن سعر الذهب اليوم» → ask_web (live search + experience) — and everything else goes to generate_any, where the
+    model itself decides between words and media and may search on its own. JSON like generate_any, plus "route"."""
+    from sham_intent import route_text
+    route, arg = route_text(prompt)
+    if route in ("image", "audio", "video"):
+        out = generate_media(route, arg)
+    elif route == "web":
+        out = ask_web(arg, max_new_tokens)
+    else:
+        out = generate_any(prompt, max_new_tokens)
+    try:
+        obj = json.loads(out)
+        obj["route"] = route
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        return out
 
 
 def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
@@ -229,8 +328,16 @@ def build_ui():
                         api_name="generate_any", flagging_mode="never")
     media = gr.Interface(generate_media, [gr.Textbox(label="kind"), gr.Textbox(label="prompt")], gr.Textbox(label="json"),
                          api_name="generate_media", flagging_mode="never")
+    read = gr.Interface(understand_media, [gr.Textbox(label="kind"), gr.Textbox(label="b64"), gr.Textbox(label="question"),
+                                          gr.Textbox(label="teach"), gr.Number(label="num_frames", value=2)],
+                        gr.Textbox(label="json"), api_name="understand_media", flagging_mode="never")
+    web = gr.Interface(ask_web, [gr.Textbox(label="question"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
+                       api_name="ask_web", flagging_mode="never")
+    auto = gr.Interface(chat_auto, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
+                        api_name="chat_auto", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, anyk, media, st], ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "الحالة"], title="شام — Sham")
+    return gr.TabbedInterface([chat, anyk, media, read, web, auto, st],
+                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"], title="شام — Sham")
 
 
 if __name__ == "__main__":
