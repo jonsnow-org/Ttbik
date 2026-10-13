@@ -153,7 +153,7 @@ fun effectiveFeeRates(creatorBps: int): FeeRatesReply {
     val combined = base * 400000000 / (10000 + base);
     val protocol = combined * 10 / (creatorBps + 10);
     return {
-        curveProtocolBps: 100,
+        curveProtocolBps: V2_PROTOCOL_FEE_BPS,
         curveCreatorBps: creatorBps,
         poolBaseFeeBps: base,
         poolCreatorAllocationBps: 5000,

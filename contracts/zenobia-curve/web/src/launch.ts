@@ -14,7 +14,7 @@ const NANO = 1_000_000_000n;
 const SALT = 1_000_001n;
 const CONFIG = {
   supplyTokens: 9_000_000_000 as const,
-  creatorFeeBps: 200 as const,
+  creatorFeeBps: 150 as const,
   graduationTon: 1000 as const,
   reserveRatio: 5 as const,
 };

@@ -9,8 +9,8 @@ import "@contracts/v2/bonding-storage"
 import "@contracts/v2/wallet-messages"
 
 fun thresholdGross(target: coins): coins {
-    var gross = target * 100 / 99;
-    while (gross - gross / 100 < target) {
+    var gross = target * 10000 / 9850;
+    while (gross - gross * 150 / 10000 < target) {
         gross += 1;
     }
     return gross;

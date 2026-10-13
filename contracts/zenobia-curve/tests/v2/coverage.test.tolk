@@ -67,7 +67,7 @@ get fun `test v2: exact sell payout and both commissions for all fifteen presets
             val gross = before.virtualTonReserve + before.realTonReserve -
                 (before.virtualTonReserve + before.realTonReserve) * before.curveJettonBalance /
                     (before.curveJettonBalance + amount);
-            val protocolFee = gross / 100;
+            val protocolFee = gross * 150 / 10000;
             val creatorFee = gross * fee / 10000;
             val netOut = gross - protocolFee - creatorFee;
             val reserveCut = min(
@@ -123,7 +123,7 @@ get fun `test v2: migration reserve reaches cap without taking creator fees`() {
     var i = 0;
     repeat (5) {
         val fee = fees.get(i);
-        val gross = ton("1500") - 1;
+        val gross = ton("1000") - 1;
         val (_, curve, _, buyer) = coverageSetup(1000000000000000000, fee, gross, 2000 + i);
         expect(curve.getCurveData().migrationReserve).toEqual(MIGRATION_RESERVE_TARGET - 1);
         expect(curve.getLaunchProgress().creatorAccrued).toEqual(gross * fee / 10000);
@@ -131,10 +131,10 @@ get fun `test v2: migration reserve reaches cap without taking creator fees`() {
         curve.sendBuyJettons(buyer, 2, 0, { value: ton("1.05") });
         val atCap = curve.getCurveData();
         expect(atCap.migrationReserve).toEqual(MIGRATION_RESERVE_TARGET);
-        expect(atCap.feeAccrued - before.feeAccrued).toEqual(ton("0.01") - 1);
+        expect(atCap.feeAccrued - before.feeAccrued).toEqual(ton("0.015") - 1);
         curve.sendBuyJettons(buyer, 3, 0, { value: ton("1.05") });
         expect(curve.getCurveData().migrationReserve).toEqual(MIGRATION_RESERVE_TARGET);
-        expect(curve.getCurveData().feeAccrued - atCap.feeAccrued).toEqual(ton("0.01"));
+        expect(curve.getCurveData().feeAccrued - atCap.feeAccrued).toEqual(ton("0.015"));
         expect(curve.getLaunchProgress().creatorAccrued).toEqual(
             gross * fee / 10000 + 2 * ton("1") * fee / 10000,
         );
@@ -158,10 +158,10 @@ get fun `test v2: dev buy one nanoton below at and above migration threshold`() 
                 val fee = fees.get(b);
                 val target = GRADUATION_THRESHOLD_TON + delta;
                 var gross = target * 10000 / (9900 - fee);
-                while (gross - gross / 100 - gross * fee / 10000 > target) {
+                while (gross - gross * 150 / 10000 - gross * fee / 10000 > target) {
                     gross -= 1;
                 }
-                while (gross - gross / 100 - gross * fee / 10000 < target) {
+                while (gross - gross * 150 / 10000 - gross * fee / 10000 < target) {
                     gross += 1;
                 }
                 val options = LaunchOptions {

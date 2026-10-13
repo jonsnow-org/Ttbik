@@ -169,7 +169,7 @@ get fun `test v2: initialization event distinguishes public trading from immedia
         expect(event!.loadBody().status).toEqual(
             i == 0 ? LaunchStatus.Trading : LaunchStatus.Migrating,
         );
-        expect(event!.loadBody().realTonReserve).toEqual(options.devBuyAmount * 98 / 100);
+        expect(event!.loadBody().realTonReserve).toEqual(options.devBuyAmount * 975 / 1000);
         expect(curve.getLaunchStatus()).toEqual(
             i == 0 ? LaunchStatus.Trading : LaunchStatus.Migrated,
         );
@@ -252,11 +252,11 @@ get fun `test v2: buy and sell logs expose gross net fees and reserves for every
         expect(
             afterBuy.feeAccrued + afterBuy.migrationReserve - beforeBuy.feeAccrued -
                 beforeBuy.migrationReserve,
-        ).toEqual(gross / 100);
-        expect(buy.feeTon - gross / 100).toEqual(
+        ).toEqual(gross * 150 / 10000);
+        expect(buy.feeTon - gross * 150 / 10000).toEqual(
             curve.getLaunchProgress().creatorAccrued - creatorBeforeBuy,
         );
-        expect(buy.feeTon - gross / 100).toEqual(gross * rates.get(i) / 10000);
+        expect(buy.feeTon - gross * 150 / 10000).toEqual(gross * rates.get(i) / 10000);
         val minter = JettonMinterV2.fromAddress(afterBuy.jettonMinter!);
         val creatorBeforeSell = curve.getLaunchProgress().creatorAccrued;
         val amount = buy.jettonsOut / 2;
@@ -289,11 +289,11 @@ get fun `test v2: buy and sell logs expose gross net fees and reserves for every
         expect(
             afterSell.feeAccrued + afterSell.migrationReserve - afterBuy.feeAccrued -
                 afterBuy.migrationReserve,
-        ).toEqual(sell.tonOutGross / 100);
-        expect(sell.feeTon - sell.tonOutGross / 100).toEqual(
+        ).toEqual(sell.tonOutGross * 150 / 10000);
+        expect(sell.feeTon - sell.tonOutGross * 150 / 10000).toEqual(
             curve.getLaunchProgress().creatorAccrued - creatorBeforeSell,
         );
-        expect(sell.feeTon - sell.tonOutGross / 100).toEqual(
+        expect(sell.feeTon - sell.tonOutGross * 150 / 10000).toEqual(
             sell.tonOutGross * rates.get(i) / 10000,
         );
         expect(

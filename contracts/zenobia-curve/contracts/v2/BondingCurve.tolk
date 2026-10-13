@@ -94,7 +94,7 @@ fun onInternalMessage(in: InMessage) {
                 progress.devTokens = tokens;
                 storage.realTonReserve = o.devBuyAmount - fees;
                 progress.creatorAccrued = o.devBuyAmount * o.creatorFeeBps / 10000;
-                val protocolFee = o.devBuyAmount * PROTOCOL_FEE_BPS / 10000;
+                val protocolFee = o.devBuyAmount * V2_PROTOCOL_FEE_BPS / 10000;
                 storage.migrationReserve = min(protocolFee / 10, MIGRATION_RESERVE_TARGET);
                 storage.feeAccrued = protocolFee - storage.migrationReserve;
             } else {
@@ -206,7 +206,7 @@ fun onInternalMessage(in: InMessage) {
 
             var progress = storage.progress.load();
             val creatorFee = tonIn * config.options.load().creatorFeeBps / 10000;
-            val protocolFee = tonIn * PROTOCOL_FEE_BPS / 10000;
+            val protocolFee = tonIn * V2_PROTOCOL_FEE_BPS / 10000;
             progress.creatorAccrued += creatorFee;
             storage.progress = progress.toCell();
             val tonInNet = tonIn - feeTon;

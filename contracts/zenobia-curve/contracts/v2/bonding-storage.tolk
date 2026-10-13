@@ -1,3 +1,6 @@
+// Zenobia platform: the protocol takes 1.5% of every trade on every curve launched from this master.
+const V2_PROTOCOL_FEE_BPS: int = 150
+
 import "fee-storage"
 
 struct MigrationProgress {

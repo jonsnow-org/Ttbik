@@ -9,7 +9,7 @@ fun computeBuyOut(
     jettonBalance: coins,
     creatorFeeBps: int = 0,
 ): (coins, coins) {
-    val feeTon = tonIn * PROTOCOL_FEE_BPS / BPS_DENOMINATOR +
+    val feeTon = tonIn * V2_PROTOCOL_FEE_BPS / BPS_DENOMINATOR +
         tonIn * creatorFeeBps / BPS_DENOMINATOR;
     val tonInNet = tonIn - feeTon;
 
@@ -35,7 +35,7 @@ fun computeSellOut(
     val yAfter = yBefore + jettonIn;
 
     val gross = xBefore - (xBefore * yBefore) / yAfter;
-    val feeTon = gross * PROTOCOL_FEE_BPS / BPS_DENOMINATOR +
+    val feeTon = gross * V2_PROTOCOL_FEE_BPS / BPS_DENOMINATOR +
         gross * creatorFeeBps / BPS_DENOMINATOR;
 
     val xAfter = (xBefore * yBefore) / yAfter;
@@ -67,7 +67,7 @@ fun validateLaunchOptions(o: LaunchOptions) {
     ) throw 49;
     assert (
         o.creatorFeeBps == 0 || o.creatorFeeBps == 10 || o.creatorFeeBps == 50 ||
-        o.creatorFeeBps == 100 ||
+        o.creatorFeeBps == 100 || o.creatorFeeBps == 150 ||
         o.creatorFeeBps == 200
     ) throw 49;
     assert (

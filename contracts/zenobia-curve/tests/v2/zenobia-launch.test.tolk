@@ -24,7 +24,7 @@ fun bigMetadata(): cell {
 }
 
 // The exact launch the owner will pay for: 9B supply, 2% creator fee, 1,000 TON graduation, treasury = creator.
-get fun `test zenobia: 9B launch, creator earns 2 percent, journey follows buy and sell`() {
+get fun `test zenobia: 9B launch, creator earns 1.5 percent, journey follows buy and sell`() {
     testing.setNow(ZNB_T0);
     val owner = testing.treasury("znbt-owner");
     val buyer = testing.treasury("znbt-buyer");
@@ -32,7 +32,7 @@ get fun `test zenobia: 9B launch, creator earns 2 percent, journey follows buy a
     master.deploy(owner.address, { value: ton("2") });
     val options = LaunchOptions {
         supply: 9000000000 * 1000000000,
-        creatorFeeBps: 200,
+        creatorFeeBps: 150,
         devBuyAmount: 0,
         minDevTokens: 0,
         graduationThreshold: ton("1000"),
@@ -47,7 +47,7 @@ get fun `test zenobia: 9B launch, creator earns 2 percent, journey follows buy a
     curve.sendBuyJettons(buyer.address, 2, quote, { value: ton("10.05"), bounce: true });
     val wallet = JettonWallet.fromAddress(minter.getWalletAddress(buyer.address));
     expect(wallet.getWalletData().jettonBalance).toEqual(quote);
-    expect(curve.getLaunchProgress().creatorAccrued).toEqual(ton("10") * 200 / 10000);
+    expect(curve.getLaunchProgress().creatorAccrued).toEqual(ton("10") * 150 / 10000);
     val j = JettonWalletV2.fromAddress(wallet.address);
     expect(j.getJourney().stage).toEqual(1);
     testing.setNow(ZNB_T0 + 9 * 86400);
