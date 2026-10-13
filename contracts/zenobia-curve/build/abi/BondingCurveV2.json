@@ -1,0 +1,2044 @@
+{
+  "abi_schema_version": "1.0",
+  "contract_name": "BondingCurveV2",
+  "author": "bonding-curve-contracts",
+  "version": "2.0.0",
+  "description": "Per-launch x*y=k bonding curve. Holds fixed Jetton inventory, swaps TON<->Jetton.",
+  "unique_types": [
+    {
+      "kind": "void"
+    },
+    {
+      "kind": "int"
+    },
+    {
+      "kind": "slice"
+    },
+    {
+      "kind": "cell"
+    },
+    {
+      "kind": "builder"
+    },
+    {
+      "kind": "bool"
+    },
+    {
+      "kind": "coins"
+    },
+    {
+      "kind": "address"
+    },
+    {
+      "kind": "intN",
+      "n": 32
+    },
+    {
+      "kind": "uintN",
+      "n": 32
+    },
+    {
+      "kind": "intN",
+      "n": 64
+    },
+    {
+      "kind": "uintN",
+      "n": 64
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "InitializeCurve"
+    },
+    {
+      "kind": "addressOpt"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "MintDelivered"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "MinterAdminDropped"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ReturnExcessesBack"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchMintFailed"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ClaimCurveCreatorFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "FlushCreatorFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuyJettons"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "FlushFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "Graduate"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "RetryMigration"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ConfirmMigration"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "PrepareBuyback"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DepositNotification"
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 3
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TakePositionState"
+    },
+    {
+      "kind": "remaining"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TransferFailed"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TransferDelivered"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "InitPoolResultMessage"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TransferNotificationForRecipient"
+    },
+    {
+      "kind": "AliasRef",
+      "alias_name": "ForwardPayloadRemainder"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "PayloadInline"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "PayloadInRef"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 29
+    },
+    {
+      "kind": "union",
+      "variants": [
+        {
+          "variant_ty_idx": 35,
+          "prefix_num": 0,
+          "prefix_len": 1,
+          "is_prefix_implicit": null,
+          "stack_type_id": 154,
+          "stack_width": 1
+        },
+        {
+          "variant_ty_idx": 36,
+          "prefix_num": 1,
+          "prefix_len": 1,
+          "is_prefix_implicit": null,
+          "stack_type_id": 155,
+          "stack_width": 1
+        }
+      ],
+      "stack_width": 2
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "TopUpTons"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BondingCurveStorage"
+    },
+    {
+      "kind": "uintN",
+      "n": 8
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchConfig"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchOptions"
+    },
+    {
+      "kind": "uintN",
+      "n": 16
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "FeeBeneficiaries"
+    },
+    {
+      "kind": "mapKV",
+      "key_ty_idx": 7,
+      "value_ty_idx": 44
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 45
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 47
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 43
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 42
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchProgress"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 51
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "MigrationProgress"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 53
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 54
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "MintCurveWallet"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "AskToTransfer"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuyEvent"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "SlippageParseFailedEvent"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "SellEvent"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DepositProtocolFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DropMinterAdmin"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DedustInit"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "InitBuyback"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BuybackConfig"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 65
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ProvidePositionState"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "BondingCurveDataReply"
+    },
+    {
+      "kind": "EnumRef",
+      "enum_name": "LaunchStatus"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "MintNewJettons"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "InternalTransferStep"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 71
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchInitializedEvent"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "ConfirmLaunch"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "CancelLaunchFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "CreditCurveFees"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "LaunchPreview"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "FeeRatesReply"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DedustPayNative"
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "DedustDepositPayload"
+    },
+    {
+      "kind": "cellOf",
+      "inner_ty_idx": 80
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "AskToTransferTracked"
+    },
+    {
+      "kind": "nullable",
+      "inner_ty_idx": 53,
+      "stack_type_id": 135,
+      "stack_width": 7
+    },
+    {
+      "kind": "StructRef",
+      "struct_name": "GraduateEvent"
+    }
+  ],
+  "struct_instantiations": [],
+  "alias_instantiations": [],
+  "declarations": [
+    {
+      "kind": "struct",
+      "name": "DepositProtocolFees",
+      "ty_idx": 61,
+      "prefix": {
+        "prefix_num": 2694885382,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        },
+        {
+          "name": "creator",
+          "ty_idx": 7
+        },
+        {
+          "name": "salt",
+          "ty_idx": 11
+        },
+        {
+          "name": "options",
+          "ty_idx": 49
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "InitializeCurve",
+      "ty_idx": 12,
+      "prefix": {
+        "prefix_num": 2694881296,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonMinter",
+          "ty_idx": 7
+        },
+        {
+          "name": "refundTo",
+          "ty_idx": 13
+        },
+        {
+          "name": "protocolTreasury",
+          "ty_idx": 7
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuyJettons",
+      "ty_idx": 20,
+      "prefix": {
+        "prefix_num": 2694881297,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "minJettonsOut",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "FlushFees",
+      "ty_idx": 21,
+      "prefix": {
+        "prefix_num": 2694881299,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "Graduate",
+      "ty_idx": 22,
+      "prefix": {
+        "prefix_num": 2694881298,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "InitPoolResultMessage",
+      "ty_idx": 32,
+      "prefix": {
+        "prefix_num": 3457702871,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "exitCode",
+          "ty_idx": 8
+        },
+        {
+          "name": "customPayload",
+          "ty_idx": 27
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DedustInit",
+      "ty_idx": 63,
+      "prefix": {
+        "prefix_num": 3733193422,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "customPayload",
+          "ty_idx": 27
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DedustDepositPayload",
+      "ty_idx": 80,
+      "prefix": {
+        "prefix_num": 3382711770,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "amountX",
+          "ty_idx": 6
+        },
+        {
+          "name": "amountY",
+          "ty_idx": 6
+        },
+        {
+          "name": "minimalLiquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "lockedLiquidityShare",
+          "ty_idx": 44
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DedustPayNative",
+      "ty_idx": 79,
+      "prefix": {
+        "prefix_num": 2779237368,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        },
+        {
+          "name": "paymentPayload",
+          "ty_idx": 81
+        },
+        {
+          "name": "payoutConfig",
+          "ty_idx": 3
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchInitializedEvent",
+      "ty_idx": 73,
+      "fields": [
+        {
+          "name": "status",
+          "ty_idx": 69
+        },
+        {
+          "name": "realTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveJettonBalance",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuyEvent",
+      "ty_idx": 58,
+      "fields": [
+        {
+          "name": "buyer",
+          "ty_idx": 7
+        },
+        {
+          "name": "tonInNet",
+          "ty_idx": 6
+        },
+        {
+          "name": "jettonsOut",
+          "ty_idx": 6
+        },
+        {
+          "name": "feeTon",
+          "ty_idx": 6
+        },
+        {
+          "name": "realTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveJettonBalance",
+          "ty_idx": 6
+        },
+        {
+          "name": "tonInGross",
+          "ty_idx": 6
+        },
+        {
+          "name": "migrationStarted",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "SellEvent",
+      "ty_idx": 60,
+      "fields": [
+        {
+          "name": "seller",
+          "ty_idx": 7
+        },
+        {
+          "name": "jettonsIn",
+          "ty_idx": 6
+        },
+        {
+          "name": "tonOutNet",
+          "ty_idx": 6
+        },
+        {
+          "name": "feeTon",
+          "ty_idx": 6
+        },
+        {
+          "name": "realTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveJettonBalance",
+          "ty_idx": 6
+        },
+        {
+          "name": "tonOutGross",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "GraduateEvent",
+      "ty_idx": 84,
+      "fields": [
+        {
+          "name": "poolAddress",
+          "ty_idx": 7
+        },
+        {
+          "name": "poolSeedTon",
+          "ty_idx": 6
+        },
+        {
+          "name": "poolSeedJettons",
+          "ty_idx": 6
+        },
+        {
+          "name": "migrationFee",
+          "ty_idx": 6
+        },
+        {
+          "name": "strandedJettons",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "SlippageParseFailedEvent",
+      "ty_idx": 59,
+      "fields": [
+        {
+          "name": "seller",
+          "ty_idx": 7
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchMintFailed",
+      "ty_idx": 17,
+      "prefix": {
+        "prefix_num": 2694885424,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ClaimCurveCreatorFees",
+      "ty_idx": 18,
+      "prefix": {
+        "prefix_num": 2694885425,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "FlushCreatorFees",
+      "ty_idx": 19,
+      "prefix": {
+        "prefix_num": 2694885428,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "CancelLaunchFees",
+      "ty_idx": 75,
+      "prefix": {
+        "prefix_num": 2694885426,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "creator",
+          "ty_idx": 7
+        },
+        {
+          "name": "salt",
+          "ty_idx": 11
+        },
+        {
+          "name": "options",
+          "ty_idx": 49
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ConfirmLaunch",
+      "ty_idx": 74,
+      "prefix": {
+        "prefix_num": 2694885427,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "creator",
+          "ty_idx": 7
+        },
+        {
+          "name": "salt",
+          "ty_idx": 11
+        },
+        {
+          "name": "options",
+          "ty_idx": 49
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "RetryMigration",
+      "ty_idx": 23,
+      "prefix": {
+        "prefix_num": 2694885472,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ConfirmMigration",
+      "ty_idx": 24,
+      "prefix": {
+        "prefix_num": 2694885473,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DepositNotification",
+      "ty_idx": 26,
+      "prefix": {
+        "prefix_num": 1666531680,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "liquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "lockedLiquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "payload",
+          "ty_idx": 27
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ProvidePositionState",
+      "ty_idx": 67,
+      "prefix": {
+        "prefix_num": 2651595816,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "includePoolAddress",
+          "ty_idx": 5
+        },
+        {
+          "name": "includeOwnerAddress",
+          "ty_idx": 5
+        },
+        {
+          "name": "includeFees",
+          "ty_idx": 5
+        },
+        {
+          "name": "includeRewards",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TakePositionState",
+      "ty_idx": 28,
+      "prefix": {
+        "prefix_num": 1390827968,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "liquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "lockedLiquidity",
+          "ty_idx": 6
+        },
+        {
+          "name": "rest",
+          "ty_idx": 29
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "MigrationProgress",
+      "ty_idx": 53,
+      "fields": [
+        {
+          "name": "nativeQueryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonQueryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "tonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "nativeRetry",
+          "ty_idx": 5
+        },
+        {
+          "name": "jettonRetry",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchOptions",
+      "ty_idx": 43,
+      "fields": [
+        {
+          "name": "supply",
+          "ty_idx": 6
+        },
+        {
+          "name": "creatorFeeBps",
+          "ty_idx": 44
+        },
+        {
+          "name": "devBuyAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "minDevTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "graduationThreshold",
+          "ty_idx": 6,
+          "default_value": {
+            "kind": "castTo",
+            "inner": {
+              "kind": "int",
+              "v": "2000000000000"
+            },
+            "cast_to_ty_idx": 6
+          }
+        },
+        {
+          "name": "reserveRatio",
+          "ty_idx": 41,
+          "default_value": {
+            "kind": "int",
+            "v": "5"
+          }
+        },
+        {
+          "name": "minBuyBps",
+          "ty_idx": 44,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "maxBuyBps",
+          "ty_idx": 44,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        },
+        {
+          "name": "beneficiaries",
+          "ty_idx": 48,
+          "default_value": {
+            "kind": "null"
+          }
+        },
+        {
+          "name": "buybackBurn",
+          "ty_idx": 5,
+          "default_value": {
+            "kind": "bool",
+            "v": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchProgress",
+      "ty_idx": 51,
+      "fields": [
+        {
+          "name": "protocolTreasury",
+          "ty_idx": 13
+        },
+        {
+          "name": "curveReceived",
+          "ty_idx": 5
+        },
+        {
+          "name": "devReceived",
+          "ty_idx": 5
+        },
+        {
+          "name": "devTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "creatorAccrued",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "enum",
+      "name": "LaunchStatus",
+      "ty_idx": 69,
+      "encoded_as_ty_idx": 41,
+      "members": [
+        {
+          "name": "Initializing",
+          "value": "0"
+        },
+        {
+          "name": "Trading",
+          "value": "1"
+        },
+        {
+          "name": "Migrating",
+          "value": "2"
+        },
+        {
+          "name": "Migrated",
+          "value": "3"
+        },
+        {
+          "name": "Cancelled",
+          "value": "4"
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchConfig",
+      "ty_idx": 42,
+      "fields": [
+        {
+          "name": "master",
+          "ty_idx": 7
+        },
+        {
+          "name": "creator",
+          "ty_idx": 7
+        },
+        {
+          "name": "salt",
+          "ty_idx": 11
+        },
+        {
+          "name": "curveSupply",
+          "ty_idx": 6
+        },
+        {
+          "name": "dexReserveSupply",
+          "ty_idx": 6
+        },
+        {
+          "name": "graduationThreshold",
+          "ty_idx": 6
+        },
+        {
+          "name": "options",
+          "ty_idx": 49
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BondingCurveStorage",
+      "ty_idx": 40,
+      "fields": [
+        {
+          "name": "state",
+          "ty_idx": 41
+        },
+        {
+          "name": "jettonMinter",
+          "ty_idx": 13
+        },
+        {
+          "name": "virtualTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "realTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveJettonBalance",
+          "ty_idx": 6
+        },
+        {
+          "name": "feeAccrued",
+          "ty_idx": 6
+        },
+        {
+          "name": "migrationReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "config",
+          "ty_idx": 50
+        },
+        {
+          "name": "dropAdminPending",
+          "ty_idx": 5
+        },
+        {
+          "name": "pendingBuyTonInNet",
+          "ty_idx": 6
+        },
+        {
+          "name": "progress",
+          "ty_idx": 52
+        },
+        {
+          "name": "migration",
+          "ty_idx": 55,
+          "default_value": {
+            "kind": "null"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BondingCurveDataReply",
+      "ty_idx": 68,
+      "fields": [
+        {
+          "name": "state",
+          "ty_idx": 41
+        },
+        {
+          "name": "creator",
+          "ty_idx": 7
+        },
+        {
+          "name": "salt",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonMinter",
+          "ty_idx": 13
+        },
+        {
+          "name": "virtualTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "realTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveJettonBalance",
+          "ty_idx": 6
+        },
+        {
+          "name": "curveSupply",
+          "ty_idx": 6
+        },
+        {
+          "name": "dexReserveSupply",
+          "ty_idx": 6
+        },
+        {
+          "name": "graduationThreshold",
+          "ty_idx": 6
+        },
+        {
+          "name": "feeAccrued",
+          "ty_idx": 6
+        },
+        {
+          "name": "migrationReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "dropAdminPending",
+          "ty_idx": 5
+        },
+        {
+          "name": "pendingBuyTonInNet",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "FeeRatesReply",
+      "ty_idx": 78,
+      "fields": [
+        {
+          "name": "curveProtocolBps",
+          "ty_idx": 1
+        },
+        {
+          "name": "curveCreatorBps",
+          "ty_idx": 1
+        },
+        {
+          "name": "poolBaseFeeBps",
+          "ty_idx": 1
+        },
+        {
+          "name": "poolCreatorAllocationBps",
+          "ty_idx": 1
+        },
+        {
+          "name": "poolProtocolPpb",
+          "ty_idx": 1
+        },
+        {
+          "name": "poolCreatorPpb",
+          "ty_idx": 1
+        },
+        {
+          "name": "poolLpPpb",
+          "ty_idx": 1
+        },
+        {
+          "name": "dedustPpb",
+          "ty_idx": 1
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "LaunchPreview",
+      "ty_idx": 77,
+      "fields": [
+        {
+          "name": "minBuyTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "maxBuyTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "virtualTonReserve",
+          "ty_idx": 6
+        },
+        {
+          "name": "graduationThreshold",
+          "ty_idx": 6
+        },
+        {
+          "name": "soldTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "poolTon",
+          "ty_idx": 6
+        },
+        {
+          "name": "poolTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "remainingTokens",
+          "ty_idx": 6
+        },
+        {
+          "name": "initialPriceNanoPerBillion",
+          "ty_idx": 1
+        },
+        {
+          "name": "graduationPriceNanoPerBillion",
+          "ty_idx": 1
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "InitBuyback",
+      "ty_idx": 64,
+      "prefix": {
+        "prefix_num": 2694885472,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "config",
+          "ty_idx": 66
+        },
+        {
+          "name": "active",
+          "ty_idx": 5
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "PrepareBuyback",
+      "ty_idx": 25,
+      "prefix": {
+        "prefix_num": 2694885477,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "BuybackConfig",
+      "ty_idx": 65,
+      "fields": [
+        {
+          "name": "minter",
+          "ty_idx": 7
+        },
+        {
+          "name": "collector",
+          "ty_idx": 7
+        },
+        {
+          "name": "splitter",
+          "ty_idx": 7
+        },
+        {
+          "name": "creatorFeeBps",
+          "ty_idx": 44
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "FeeBeneficiaries",
+      "ty_idx": 45,
+      "fields": [
+        {
+          "name": "shares",
+          "ty_idx": 46
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "CreditCurveFees",
+      "ty_idx": 76,
+      "prefix": {
+        "prefix_num": 2694885444,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "MintCurveWallet",
+      "ty_idx": 56,
+      "prefix": {
+        "prefix_num": 2694885461,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "tonAmount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "MintDelivered",
+      "ty_idx": 14,
+      "prefix": {
+        "prefix_num": 2694885456,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TransferDelivered",
+      "ty_idx": 31,
+      "prefix": {
+        "prefix_num": 2694885457,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TransferFailed",
+      "ty_idx": 30,
+      "prefix": {
+        "prefix_num": 2694885458,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "amount",
+          "ty_idx": 6
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "AskToTransferTracked",
+      "ty_idx": 82,
+      "prefix": {
+        "prefix_num": 2694885459,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "transferRecipient",
+          "ty_idx": 7
+        },
+        {
+          "name": "sendExcessesTo",
+          "ty_idx": 13
+        },
+        {
+          "name": "customPayload",
+          "ty_idx": 27
+        },
+        {
+          "name": "forwardTonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "forwardPayload",
+          "ty_idx": 34
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "MinterAdminDropped",
+      "ty_idx": 15,
+      "prefix": {
+        "prefix_num": 2694885467,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "alias",
+      "name": "ForwardPayloadRemainder",
+      "ty_idx": 34,
+      "target_ty_idx": 29
+    },
+    {
+      "kind": "struct",
+      "name": "PayloadInline",
+      "ty_idx": 35,
+      "prefix": {
+        "prefix_num": 0,
+        "prefix_len": 1
+      },
+      "fields": [
+        {
+          "name": "value",
+          "ty_idx": 29
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "PayloadInRef",
+      "ty_idx": 36,
+      "prefix": {
+        "prefix_num": 1,
+        "prefix_len": 1
+      },
+      "fields": [
+        {
+          "name": "value",
+          "ty_idx": 37
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "AskToTransfer",
+      "ty_idx": 57,
+      "prefix": {
+        "prefix_num": 260734629,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "transferRecipient",
+          "ty_idx": 7
+        },
+        {
+          "name": "sendExcessesTo",
+          "ty_idx": 13
+        },
+        {
+          "name": "customPayload",
+          "ty_idx": 27
+        },
+        {
+          "name": "forwardTonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "forwardPayload",
+          "ty_idx": 34,
+          "client_ty_idx": 38
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TransferNotificationForRecipient",
+      "ty_idx": 33,
+      "prefix": {
+        "prefix_num": 1935855772,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "transferInitiator",
+          "ty_idx": 13
+        },
+        {
+          "name": "forwardPayload",
+          "ty_idx": 34,
+          "client_ty_idx": 38
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "InternalTransferStep",
+      "ty_idx": 71,
+      "prefix": {
+        "prefix_num": 395134233,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "jettonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "transferInitiator",
+          "ty_idx": 13
+        },
+        {
+          "name": "sendExcessesTo",
+          "ty_idx": 13
+        },
+        {
+          "name": "forwardTonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "forwardPayload",
+          "ty_idx": 34,
+          "client_ty_idx": 38
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "ReturnExcessesBack",
+      "ty_idx": 16,
+      "prefix": {
+        "prefix_num": 3576854235,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "MintNewJettons",
+      "ty_idx": 70,
+      "prefix": {
+        "prefix_num": 1680571655,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        },
+        {
+          "name": "mintRecipient",
+          "ty_idx": 7
+        },
+        {
+          "name": "tonAmount",
+          "ty_idx": 6
+        },
+        {
+          "name": "internalTransferMsg",
+          "ty_idx": 72
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "DropMinterAdmin",
+      "ty_idx": 62,
+      "prefix": {
+        "prefix_num": 1949430305,
+        "prefix_len": 32
+      },
+      "fields": [
+        {
+          "name": "queryId",
+          "ty_idx": 11
+        }
+      ]
+    },
+    {
+      "kind": "struct",
+      "name": "TopUpTons",
+      "ty_idx": 39,
+      "prefix": {
+        "prefix_num": 3547469196,
+        "prefix_len": 32
+      },
+      "fields": []
+    }
+  ],
+  "incoming_messages": [
+    {
+      "body_ty_idx": 12
+    },
+    {
+      "body_ty_idx": 14
+    },
+    {
+      "body_ty_idx": 15
+    },
+    {
+      "body_ty_idx": 16
+    },
+    {
+      "body_ty_idx": 17
+    },
+    {
+      "body_ty_idx": 18
+    },
+    {
+      "body_ty_idx": 19
+    },
+    {
+      "body_ty_idx": 20
+    },
+    {
+      "body_ty_idx": 21
+    },
+    {
+      "body_ty_idx": 22
+    },
+    {
+      "body_ty_idx": 23
+    },
+    {
+      "body_ty_idx": 24
+    },
+    {
+      "body_ty_idx": 25
+    },
+    {
+      "body_ty_idx": 26
+    },
+    {
+      "body_ty_idx": 28
+    },
+    {
+      "body_ty_idx": 30
+    },
+    {
+      "body_ty_idx": 31
+    },
+    {
+      "body_ty_idx": 32
+    },
+    {
+      "body_ty_idx": 33
+    },
+    {
+      "body_ty_idx": 39
+    }
+  ],
+  "incoming_external": [],
+  "outgoing_messages": [
+    {
+      "body_ty_idx": 56
+    },
+    {
+      "body_ty_idx": 57
+    },
+    {
+      "body_ty_idx": 22
+    },
+    {
+      "body_ty_idx": 16
+    },
+    {
+      "body_ty_idx": 61
+    },
+    {
+      "body_ty_idx": 62
+    },
+    {
+      "body_ty_idx": 63
+    },
+    {
+      "body_ty_idx": 64
+    },
+    {
+      "body_ty_idx": 67
+    },
+    {
+      "body_ty_idx": 70
+    },
+    {
+      "body_ty_idx": 39
+    },
+    {
+      "body_ty_idx": 74
+    },
+    {
+      "body_ty_idx": 75
+    },
+    {
+      "body_ty_idx": 76
+    },
+    {
+      "body_ty_idx": 79
+    },
+    {
+      "body_ty_idx": 82
+    }
+  ],
+  "emitted_events": [
+    {
+      "body_ty_idx": 58
+    },
+    {
+      "body_ty_idx": 59
+    },
+    {
+      "body_ty_idx": 60
+    },
+    {
+      "body_ty_idx": 73
+    },
+    {
+      "body_ty_idx": 84
+    }
+  ],
+  "storage": {
+    "storage_ty_idx": 40
+  },
+  "get_methods": [
+    {
+      "tvm_method_id": 79150,
+      "name": "get_curve_data",
+      "parameters": [],
+      "return_ty_idx": 68
+    },
+    {
+      "tvm_method_id": 86957,
+      "name": "get_state",
+      "parameters": [],
+      "return_ty_idx": 41
+    },
+    {
+      "tvm_method_id": 123568,
+      "name": "get_launch_status",
+      "parameters": [],
+      "return_ty_idx": 69
+    },
+    {
+      "tvm_method_id": 126682,
+      "name": "get_quote_buy",
+      "parameters": [
+        {
+          "name": "tonIn",
+          "ty_idx": 6
+        }
+      ],
+      "return_ty_idx": 6
+    },
+    {
+      "tvm_method_id": 112956,
+      "name": "get_quote_sell",
+      "parameters": [
+        {
+          "name": "jettonIn",
+          "ty_idx": 6
+        }
+      ],
+      "return_ty_idx": 6
+    },
+    {
+      "tvm_method_id": 105916,
+      "name": "get_max_safe_sell",
+      "parameters": [],
+      "return_ty_idx": 6
+    },
+    {
+      "tvm_method_id": 82320,
+      "name": "get_version",
+      "parameters": [],
+      "return_ty_idx": 1
+    },
+    {
+      "tvm_method_id": 95249,
+      "name": "get_progress_bps",
+      "parameters": [],
+      "return_ty_idx": 1
+    },
+    {
+      "tvm_method_id": 111752,
+      "name": "get_launch_options",
+      "parameters": [],
+      "return_ty_idx": 43
+    },
+    {
+      "tvm_method_id": 90464,
+      "name": "get_launch_progress",
+      "parameters": [],
+      "return_ty_idx": 51
+    },
+    {
+      "tvm_method_id": 77053,
+      "name": "get_collector_address",
+      "parameters": [],
+      "return_ty_idx": 7
+    },
+    {
+      "tvm_method_id": 97591,
+      "name": "get_fee_manager_address",
+      "parameters": [],
+      "return_ty_idx": 7
+    },
+    {
+      "tvm_method_id": 118214,
+      "name": "get_launch_preview",
+      "parameters": [],
+      "return_ty_idx": 77
+    },
+    {
+      "tvm_method_id": 101789,
+      "name": "get_pool_address",
+      "parameters": [],
+      "return_ty_idx": 7
+    },
+    {
+      "tvm_method_id": 100888,
+      "name": "get_fee_rates",
+      "parameters": [],
+      "return_ty_idx": 78
+    },
+    {
+      "tvm_method_id": 77742,
+      "name": "get_migration_data",
+      "parameters": [],
+      "return_ty_idx": 83
+    },
+    {
+      "tvm_method_id": 122990,
+      "name": "get_buyback_address",
+      "parameters": [],
+      "return_ty_idx": 13
+    }
+  ],
+  "thrown_errors": [
+    {
+      "kind": "enum_member",
+      "name": "Errors.BalanceError",
+      "err_code": 47
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.NotEnoughGas",
+      "err_code": 48
+    },
+    {
+      "kind": "plain_int",
+      "err_code": 49
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.InvalidMessage",
+      "err_code": 49
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.InvalidOp",
+      "err_code": 72
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.NotOwner",
+      "err_code": 73
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.NotValidWallet",
+      "err_code": 74
+    },
+    {
+      "kind": "enum_member",
+      "name": "Errors.WrongWorkchain",
+      "err_code": 333
+    },
+    {
+      "kind": "plain_int",
+      "err_code": 65535
+    }
+  ],
+  "compiler_name": "tolk",
+  "compiler_version": "1.5.0"
+}
