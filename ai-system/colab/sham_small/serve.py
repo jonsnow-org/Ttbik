@@ -24,9 +24,12 @@ diagnostics only, behind SHAM_DIAGNOSTIC_UNTRAINED=1 (verify_serve.py).
 /generate/medical/image, /ask/image, /ask/video, and /ask/web are open endpoints
 (no organization API key, no fixed medical category gate). Callers send a
 free-form prompt or question; uploaded ask media is used once for one answer
-and is not stored or trained on. /ask/web may optionally run one self-learn
-weight step when SHAM_SELF_LEARN=1 and learn=true (saves a NEW checkpoint,
-never overwrites final_chat.pt).
+and is not stored or trained on — unless the caller sends `teach` (the user's
+own description of the media), which keeps that (media, description) pair as a
+self-learning experience. /ask/web keeps each answered turn as an experience.
+Experiences wait in self_learn.py's queue and are learned only by a guarded
+COPY (held-out check, then the usual publish + merge gate): the served weights
+never change. /ask/audio (sham_media_ask.py) is the sound counterpart.
 """
 
 import io
@@ -328,6 +331,7 @@ def generate_medical_image_endpoint(req: MedicalGenerationRequest) -> Response:
 async def ask_image_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
+    teach: str | None = Form(None),
 ) -> dict:
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
@@ -350,7 +354,19 @@ async def ask_image_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    return {"answer": answer}
+    return {"answer": answer, **_keep_media("image", raw_bytes, teach)}
+
+
+def _keep_media(kind: str, raw_bytes: bytes, teach: str | None, num_frames: int = 2) -> dict:
+    """Optional: the user's own description of what they sent becomes a learning experience (sham_media_ask.keep_experience)."""
+    if not (teach or "").strip():
+        return {"queued": False}
+    try:
+        from sham_media_ask import keep_experience, media_ids
+        ids = media_ids(kind, raw_bytes, _state["image_tokenizer"], _state["audio_tokenizer"], num_frames)
+        return keep_experience(kind, ids, teach, _state)
+    except Exception as exc:          # learning is optional: the answer above is never lost because of it
+        return {"queued": False, "reason": f"{type(exc).__name__}: {str(exc)[:120]}"}
 
 
 @app.post("/ask/video")
@@ -358,6 +374,7 @@ async def ask_video_endpoint(
     file: UploadFile = File(...),
     question: str = Form(...),
     num_frames: int = Form(2),
+    teach: str | None = Form(None),
 ) -> dict:
     model: ShamSmall = _state["model"]
     tokenizer: ShamTextTokenizer = _state["text_tokenizer"]
@@ -392,8 +409,24 @@ async def ask_video_endpoint(
     answer_ids = [i for i in out[0, prompt.shape[1]:].tolist() if i != SpecialTokens.EOS]
     answer = tokenizer.decode(answer_ids)
 
-    return {"answer": answer}
+    return {"answer": answer, **_keep_media("video", raw_bytes, teach, num_frames)}
 
+
+@app.post("/ask/audio")
+async def ask_audio_endpoint(
+    file: UploadFile = File(...),
+    question: str = Form(""),
+    teach: str | None = Form(None),
+) -> dict:
+    """Sound → text (speech, music, any format sham_media_load reads); optional `teach` keeps the pair as an experience."""
+    from sham_media_ask import understand
+
+    raw_bytes = await file.read()
+    res = understand(_state["model"], _state["text_tokenizer"], _state["image_tokenizer"], _state["audio_tokenizer"],
+                     "audio", raw_bytes, question, teach=teach, state=_state)
+    if res.get("type") != "text":
+        return {"answer": "", "queued": False, "reason": res.get("text", "")}
+    return {k: v for k, v in res.items() if k not in ("type", "text")}
 
 
 # Self-learn live web ask (POST /ask/web) — see ask_web_api.py / self_learn.py

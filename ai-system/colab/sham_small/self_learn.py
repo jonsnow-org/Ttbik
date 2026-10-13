@@ -204,13 +204,88 @@ def record_experience(question: str, hits: list[SearchHit], sources: str) -> dic
     return {"queued": True, "pending": pending()}
 
 
+MEDIA_KINDS = ("image", "audio", "video")
+
+
+def record_media_experience(kind: str, description: str, media_ids: list[int] | None = None, *,
+                            frame_ids: list[list[int]] | None = None, audio_ids: list[int] | None = None) -> dict:
+    """Keep one (media, description) pair for learning — added 2026-10-14 for image / audio / video, inside the same design as the web
+    experiences above: never changes weights; the SAME switch, credential filter, never-twice rule and daily cap (one shared count with
+    the web experiences); it waits in the SAME queue and is learned by the SAME guarded copy → held-out check → publish → merge gate.
+
+    The target is the user's OWN description of the media they sent (never the model's own answer), and one pair teaches BOTH directions
+    in the chat stage's exact formats (sham_chat.build_media_chat_examples / build_video_chat_examples): media → description
+    (understanding) and description → media (generation). media_ids / frame_ids / audio_ids are offset vocabulary ids WITHOUT delimiters."""
+    if not self_learn_enabled():
+        return {"queued": False, "reason": "التعلّم الذاتي مغلق (SHAM_SELF_LEARN=0)", "pending": pending()}
+    if kind not in MEDIA_KINDS:
+        return {"queued": False, "reason": f"نوع وسائط غير معروف: {kind}", "pending": pending()}
+    cap = re.sub(r"\s+", " ", description or "").strip()
+    if len(cap) < 4 or len(cap) > 300:
+        return {"queued": False, "reason": "الوصف قصير جداً أو طويل جداً", "pending": pending()}
+    if kind == "video":
+        frames = [list(map(int, f)) for f in (frame_ids or []) if f]
+        if not frames:
+            return {"queued": False, "reason": "لا إطارات صالحة في الفيديو", "pending": pending()}
+        sound = list(map(int, audio_ids or []))
+        size = sum(len(f) + 2 for f in frames) + len(sound) + 4
+        payload = {"frames": frames, "audio": sound}
+    else:
+        ids = list(map(int, media_ids or []))
+        if not ids:
+            return {"queued": False, "reason": "لا رموز وسائط صالحة", "pending": pending()}
+        size = len(ids) + 2
+        payload = {"media": ids}
+    if size > int(os.environ.get("SHAM_SELF_LEARN_MEDIA_MAX_TOKENS", "1100")):
+        return {"queued": False, "reason": "الوسائط أطول من حد التعلّم", "pending": pending()}
+    try:
+        from autonomous_knowledge_crawler import contains_credential_risk
+        if contains_credential_risk(cap):
+            return {"queued": False, "reason": "نص يشبه كلمة مرور/مفتاح — لا يدخل التعلّم", "pending": pending()}
+    except Exception:
+        pass
+    digest = hashlib.sha1(json.dumps([kind, _norm(cap), payload], separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+    key = f"m{digest[:15]}"
+    with _lock:
+        d = _dir()
+        seen_p = d / "seen.json"
+        seen = set(json.loads(seen_p.read_text(encoding="utf-8"))) if seen_p.exists() else set()
+        if key in seen:
+            return {"queued": False, "reason": "الوسائط نفسها بالوصف نفسه سُجّلت من قبل", "pending": pending()}
+        today = time.strftime("%Y-%m-%d")
+        counts_p = d / "daily.json"
+        counts = json.loads(counts_p.read_text(encoding="utf-8")) if counts_p.exists() else {}
+        if counts.get(today, 0) >= int(os.environ.get("SHAM_SELF_LEARN_DAILY_MAX", "300")):
+            return {"queued": False, "reason": "بلغ سقف تجارب اليوم", "pending": pending()}
+        entry = {"key": key, "kind": kind, "q": cap, "target": cap, "ts": time.time(), **payload}
+        with _queue_path().open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        # the text corpus gets the description only (media ids are not text)
+        (d / "corpus" / "text" / f"selflearn_{key}.txt").write_text(cap, encoding="utf-8")
+        seen.add(key)
+        seen_p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
+        counts[today] = counts.get(today, 0) + 1
+        counts_p.write_text(json.dumps(counts), encoding="utf-8")
+    return {"queued": True, "pending": pending()}
+
+
 # ----------------------------------------------------------------------------- learning
 def build_examples(encode, entries: list[dict]) -> tuple[list, list]:
     """(training examples, held-out examples) in Sham's own formats; each experience gives:
        «ابحث ثم أجب»: <USER> q <SHAM> <SEARCH> query </SEARCH> <RESULT> text </RESULT> answer   (result not trained on)
-       grounded chat: <USER> prompt-with-sources <SHAM> answer                                  (what the web route asks)"""
+       grounded chat: <USER> prompt-with-sources <SHAM> answer                                  (what the web route asks)
+       a media experience (kind image|audio|video) gives its two chat-stage turns instead: media → description, description → media."""
     train, held = [], []
     for i, e in enumerate(entries):
+        if e.get("kind") in MEDIA_KINDS:          # (media, description) pair → both directions, the chat stage's own formats
+            from sham_chat import build_media_chat_examples, build_video_chat_examples
+            rng = random.Random(e.get("key", str(i)))
+            if e["kind"] == "video":
+                pair = tuple(build_video_chat_examples(encode, e["target"], e["frames"], e.get("audio") or None, rng))
+            else:
+                pair = tuple(build_media_chat_examples(encode, e["target"], e["media"], e["kind"], rng))
+            (held if i % 10 == 9 else train).append(pair)
+            continue
         q, ans = encode(e["q"]), encode(e["target"])[:96]
         prefix = [SpecialTokens.BOS, USER_TURN] + q[:160] + [SHAM_TURN]
         call = [SpecialTokens.SEARCH_START] + encode(e["query"])[:48] + [SpecialTokens.SEARCH_END]
@@ -263,6 +338,10 @@ def learn_pending(model: ShamSmall, tokenizer: ShamTextTokenizer, device: str = 
     rng = random.Random(len(entries))
     rng.shuffle(entries)
     train_ex, held_ex = build_examples(tokenizer.encode, entries)
+    limit = int(getattr(getattr(model, "cfg", None), "max_seq_len", 0) or 0)
+    if limit:                                     # a long media example never reaches the model past its context
+        train_ex = [x for x in train_ex if len(x[0]) <= limit]
+        held_ex = [x for x in held_ex if len(x[0]) <= limit]
     if not train_ex or not held_ex:
         return {"learned": False, "reason": "لا أمثلة كافية بعد التقسيم"}
     cand = copy.deepcopy(model).to(device)
@@ -341,7 +420,7 @@ if __name__ == "__main__":
     import tempfile
 
     from checkpoint import load_checkpoint
-    from model import ShamSmallConfig, TOTAL_VOCAB_SIZE
+    from model import AUDIO_VOCAB_BASE, IMAGE_VOCAB_BASE, ShamSmallConfig, TOTAL_VOCAB_SIZE
     from text_tokenizer import train_text_tokenizer
 
     torch.manual_seed(0)
@@ -380,6 +459,35 @@ if __name__ == "__main__":
         assert step2 == out["step"] > 100 and extra.get("self_learn")
         assert pending() == 0 and (Path(td) / "sl" / "done.jsonl").exists()
         assert list((Path(td) / "sl" / "corpus" / "text").glob("selflearn_*.txt")), "the experiences must also be published as text"
+        # 3b) media experiences: same filters, same queue, both directions in the examples, learned with the text ones
+        img = list(range(IMAGE_VOCAB_BASE, IMAGE_VOCAB_BASE + 16))
+        aud = list(range(AUDIO_VOCAB_BASE, AUDIO_VOCAB_BASE + 12))
+        assert not record_media_experience("image", "قط", img)["queued"], "too short a description"
+        assert not record_media_experience("image", "صورة كلمة السر password = abcdefghijklmnop1234567890", img)["queued"]
+        assert not record_media_experience("image", "صورة بلا رموز", [])["queued"]
+        assert not record_media_experience("gif", "نوع غير معروف هنا", img)["queued"]
+        assert record_media_experience("image", "قطة بيضاء على كرسي خشبي", img)["queued"]
+        assert not record_media_experience("image", "قطة بيضاء على كرسي خشبي", img)["queued"], "the same pair twice"
+        assert record_media_experience("audio", "صوت رجل يقول مرحبا", aud)["queued"]
+        assert record_media_experience("video", "سيارة حمراء تسير في شارع", frame_ids=[img, img[::-1]], audio_ids=aud)["queued"]
+        os.environ["SHAM_SELF_LEARN_MEDIA_MAX_TOKENS"] = "10"
+        assert not record_media_experience("image", "صورة أطول من الحد هنا", img)["queued"]
+        os.environ.pop("SHAM_SELF_LEARN_MEDIA_MAX_TOKENS")
+        assert pending() == 3, pending()
+        rows = _read_jsonl(_queue_path())
+        tr, he = build_examples(tok.encode, rows * 4)
+        spans = [x for x in tr + he if SpecialTokens.IMAGE_START in x[0] or SpecialTokens.AUDIO_START in x[0]]
+        assert any(SpecialTokens.VIDEO_START in x[0] for x in spans)
+        # understanding: the media is in the question, only the description is learned; creation: the media span itself is learned
+        assert any(x[1].count(-100) and IMAGE_VOCAB_BASE in x[1] for x in spans), "the create direction learns the media tokens"
+        assert any(IMAGE_VOCAB_BASE in x[0] and IMAGE_VOCAB_BASE not in x[1] for x in spans), "the understand direction does not"
+        for i in range(50, 60):
+            record_experience(f"سؤال وسائط مختلط رقم {i} هنا؟", hit(i), format_sources_context(hit(i)))
+        pubs = []
+        out = learn_pending(model, tok, "cpu", current_step=200, publisher=lambda: pubs.append(1) or "sham-crawl-selflearn")
+        assert all(torch.equal(v, model.state_dict()[k]) for k, v in before_w.items()), "the served model must never change"
+        assert out["learned"] and out["experiences"] == 13 and pending() == 0, out
+        assert (Path(td) / "sl" / "corpus" / "text").glob("selflearn_m*.txt")
         # 4) a copy that is NOT better is rejected
         for i in range(30, 42):
             record_experience(f"سؤال آخر مختلف رقم {i} للفحص؟", hit(i), format_sources_context(hit(i)))
