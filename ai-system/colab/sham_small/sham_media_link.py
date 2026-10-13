@@ -119,7 +119,10 @@ def _pairs(kind, manifest, tokenizer, media_tok):
         encode = AudioMultimodalCollator(tokenizer, media_tok).encode_batch_audio
     items = [ds[i] for i in range(len(ds))]
     with torch.no_grad():
-        media = encode(items).tolist() if items else []
+        encoded = encode(items) if items else []
+        # audio clips of several segments come back as a LIST of id tensors (one per clip), a single-segment batch as one tensor:
+        # `.tolist()` on the list stopped the all-in-one notebook's link-measuring cell (2026-10-13)
+        media = [m.tolist() if hasattr(m, "tolist") else list(m) for m in encoded] if isinstance(encoded, (list, tuple)) else encoded.tolist()
     return [(c, tokenizer.encode(c), m) for (c, _), m in zip(items, media)]
 
 
