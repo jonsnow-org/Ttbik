@@ -144,6 +144,45 @@ type coins = bigint
 type uint64 = bigint
 
 /**
+ > struct JourneyReply {
+ >     stage: int
+ >     since: int
+ >     days: int
+ >     mark: int
+ > }
+ */
+export interface JourneyReply {
+    readonly $: 'JourneyReply'
+    stage: bigint
+    since: bigint
+    days: bigint
+    mark: bigint
+}
+
+export const JourneyReply = {
+    create(args: {
+        stage: bigint
+        since: bigint
+        days: bigint
+        mark: bigint
+    }): JourneyReply {
+        return {
+            $: 'JourneyReply',
+            ...args
+        }
+    },
+    fromSlice(s: c.Slice): JourneyReply {
+        throw new Error(`Can't unpack 'JourneyReply' from cell, because 'JourneyReply.stage' is 'int' (not int32/uint64/etc.)`);
+    },
+    store(self: JourneyReply, b: c.Builder): void {
+        throw new Error(`Can't pack 'JourneyReply' to cell, because 'self.stage' is 'int' (not int32/uint64/etc.)`);
+    },
+    toCell(self: JourneyReply): c.Cell {
+        return makeCellFrom<JourneyReply>(self, JourneyReply.store);
+    }
+}
+
+/**
  > struct (0xa0a0b056) InternalCurveMint {
  >     queryId: uint64
  >     jettonAmount: coins
@@ -1207,7 +1246,7 @@ function calculateDeployedAddress(code: c.Cell, data: c.Cell, options: DeployedA
 }
 
 export class JettonWalletV2 implements c.Contract {
-    static CodeCell = c.Cell.fromBase64('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');
+    static CodeCell = c.Cell.fromBase64('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');
 
     static Errors = {
         'ERROR_BALANCE_ERROR': 47,
@@ -1440,6 +1479,17 @@ export class JettonWalletV2 implements c.Contract {
             ownerAddress: r.readSlice().loadAddress(),
             minterAddress: r.readSlice().loadAddress(),
             jettonWalletCode: r.readCell(),
+        });
+    }
+
+    async getJourney(provider: ContractProvider): Promise<JourneyReply> {
+        const r = StackReader.fromGetMethod(4, await provider.get('get_journey', []));
+        return ({
+            $: 'JourneyReply',
+            stage: r.readBigInt(),
+            since: r.readBigInt(),
+            days: r.readBigInt(),
+            mark: r.readBigInt(),
         });
     }
 

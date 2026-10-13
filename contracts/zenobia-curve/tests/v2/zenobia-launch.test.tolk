@@ -14,6 +14,15 @@ import "@contracts/v2/JettonWallet"
 
 const ZNB_T0 = 1800000000
 
+// Stand-in for the on-chain metadata (name, symbol, description, image URL and the animated SVG): about 5 KB in a chain of cells.
+fun bigMetadata(): cell {
+    var c = beginCell().storeUint(0, 8).endCell();
+    repeat (45) {
+        c = beginCell().storeUint(0, 250).storeUint(0, 250).storeUint(0, 250).storeUint(0, 250).storeRef(c).endCell();
+    }
+    return c;
+}
+
 // The exact launch the owner will pay for: 9B supply, 2% creator fee, 1,000 TON graduation, treasury = creator.
 get fun `test zenobia: 9B launch, creator earns 2 percent, journey follows buy and sell`() {
     testing.setNow(ZNB_T0);
@@ -29,7 +38,7 @@ get fun `test zenobia: 9B launch, creator earns 2 percent, journey follows buy a
         graduationThreshold: ton("1000"),
         reserveRatio: 5,
     };
-    master.sendCreateLaunch(owner.address, 1, beginCell().endCell(), 777, options, { value: ton("1"), bounce: true });
+    master.sendCreateLaunch(owner.address, 1, bigMetadata(), 777, options, { value: ton("1"), bounce: true });
     val curve = BondingCurveV2.fromAddress(master.getLaunchAddress(owner.address, 777, options));
     val minter = JettonMinterV2.fromAddress(curve.getCurveData().jettonMinter!);
     expect(minter.getJettonData().totalSupply).toEqual(9000000000 * 1000000000);
