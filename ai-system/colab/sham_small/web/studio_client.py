@@ -6,6 +6,8 @@ parameter names -> {"event_id": ...}; GET {base}/gradio_api/call/<api_name>/<eve
 The Studio is private: every call carries the account token as a Bearer header (env MODELSCOPE_API_TOKEN — a secret, never printed or logged).
 
     generate_text(prompt, max_new_tokens)  -> the model's text, or None when the Studio did not answer (the caller decides what to do)
+    generate_media(kind, prompt)           -> {"type": image|audio|video|notice|busy, ...} (the user chose the kind), or None
+    understand_media(kind, raw, question, teach) -> {"type": text|notice|busy, ...}: the model reads a picture / sound / video, or None
     studio_status()                        -> the Studio's own status dict (phase/step/...), or None
     enabled()                              -> True when a token is configured
 """
@@ -81,6 +83,36 @@ def generate_media(kind: str, prompt: str, **kw) -> dict | None:
         return None
 
 
+def chat_auto(prompt: str, max_new_tokens: int = 60, **kw) -> dict | None:
+    """A plain message, routed on the Studio (sham_intent + generate_any): {"type": text|image|audio|video|notice|busy, "route", ...} or None."""
+    if not enabled():
+        return None
+    try:
+        out = _call("chat_auto", {"prompt": prompt, "max_new_tokens": max_new_tokens}, **kw)
+        return json.loads(out) if isinstance(out, str) else out
+    except Exception:
+        return None
+
+
+def understand_media(kind: str, raw: bytes, question: str = "", teach: str | None = None, num_frames: int = 2, **kw) -> dict | None:
+    """Sham reads a picture / sound / video (any format) and answers about it; `teach` (the user's own description) keeps the pair for guarded
+    self-learning on the Studio. {"type": "text", "text", "queued", ...} | {"type": "busy"|"notice", "text"} | None (Studio off / older app)."""
+    if not enabled() or not raw:
+        return None
+    import base64
+    try:
+        out = _call("understand_media", {"kind": kind, "b64": base64.b64encode(raw).decode("ascii"), "question": question or "",
+                                         "teach": teach or "", "num_frames": num_frames}, **kw)
+        return json.loads(out) if isinstance(out, str) else out
+    except Exception:
+        return None
+
+
+def usable(res: dict | None, *types: str) -> bool:
+    """True when the Studio really answered with one of `types` (not busy, not a notice, not an older app) — otherwise fall back to serve.py."""
+    return isinstance(res, dict) and res.get("type") in types and bool(res.get("b64") or res.get("text"))
+
+
 def studio_status(**kw) -> dict | None:
     if not enabled():
         return None
@@ -127,4 +159,11 @@ if __name__ == "__main__":
     assert generate_text("x", post=boom, get=fake_get) is None                               # a failed call never raises into the bot
     stat_get = lambda url, headers=None, timeout=None, stream=None: R(lines=['data: ["{\\"phase\\": \\"ready\\", \\"step\\": 5}"]'])
     assert studio_status(post=fake_post, get=stat_get) == {"phase": "ready", "step": 5}
+    seen.clear()
+    media_get = lambda url, headers=None, timeout=None, stream=None: R(lines=['data: ["{\\"type\\": \\"text\\", \\"text\\": \\"قطة\\", \\"queued\\": true}"]'])
+    r = understand_media("image", b"\x89PNG", "ما هذا؟", teach="قطة بيضاء", post=fake_post, get=media_get)
+    assert r == {"type": "text", "text": "قطة", "queued": True} and usable(r, "text"), r
+    assert seen["post_url"].endswith("/understand_media") and seen["body"]["kind"] == "image" and seen["body"]["teach"] == "قطة بيضاء"
+    assert not usable({"type": "busy", "text": "x"}, "text") and not usable(None, "text") and not usable({"type": "image"}, "image")
+    assert understand_media("image", b"", post=fake_post, get=media_get) is None
     print("studio_client self-test OK")
