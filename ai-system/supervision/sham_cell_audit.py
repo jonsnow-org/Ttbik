@@ -29,6 +29,7 @@ TRACK_FILE = {
     "image_tokenizer": "sham_image_tokenizer_track", "audio_tokenizer": "sham_audio_tokenizer_track", "video_corpus": "sham_video_tokenizer_track",
     "cpu_training_track": "sham_cpu_training_track", "research_track": "sham_cpu_research_track", "chat_stage": "sham_chat_stage",
     "stage2_multimodal": "sham_small_training_stage2_multimodal", "text_stage1": "sham_small_training", "live_trainer": "sham_live_trainer",
+    "all_in_one": "sham_all_in_one", "ab_in_one": "sham_ab_in_one", "chat_image_in_one": "sham_chat_image_in_one",
 }
 
 

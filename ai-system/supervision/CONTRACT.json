@@ -499,6 +499,22 @@
       "reads": ["sham-chat-checkpoint", "sham-checkpoint", "sham-crawl-checkpoint", "sham-multimodal-checkpoint"],
       "writes": []
     },
+    "ab_in_one": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_ab_in_one.ipynb",
+      "title": "دفتر المسارين A وB معاً (تدريب نصي مستمر + بحث ذاتي) بخمس ساعات لكل قسم؛ يكتب ما يكتبه دفتراهما الأصليان، ولا يُشغَّل معهما",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": ["sham-checkpoint", "sham-cpu-track-checkpoint-v2", "sham-research-track-checkpoint-v2"],
+      "writes": []
+    },
+    "chat_image_in_one": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/sham_chat_image_in_one.ipynb",
+      "title": "دفتر المحادثة والمرمزات معاً (المرحلة الثالثة 6 ساعات ثم ترميز الصورة والصوت والفيديو)؛ يكتب ما يكتبه دفتراهما الأصليان، ولا يُشغَّل معهما",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": ["sham-chat-checkpoint", "sham-multimodal-checkpoint", "sham-research-track-checkpoint-v2", "sham-crawl-*", "sham-image-tokenizer-checkpoint", "sham-audio-tokenizer-checkpoint"],
+      "writes": []
+    },
     "cell_audit": {
       "file": ".github/workflows/sham-cell-audit.yml",
       "title": "أي دفاتر كاكل ستتعطل بنصف تحديث للخلايا (قراءة فقط)",

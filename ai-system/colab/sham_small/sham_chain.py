@@ -93,6 +93,19 @@ ALL_IN_ONE_STAGES = {
 }
 
 
+# The two other combined notebooks (owner, 2026-10-13: three notebooks in all — the big all-in-one, A+B, chat+image). Their sections' own time budgets are
+# trimmed by build_all_in_one.GROUPS so that BOTH sections of a notebook fit in one session (they used to be 8.5 + 8.5 h and 11 h + 4.4 h).
+AB_STAGES = {
+    "sham_cpu_training_track": (5.0, 5.0),
+    "sham_cpu_research_track": (5.0, 5.0),
+}
+CHAT_IMAGE_STAGES = {
+    "sham_chat_stage": (6.0, 5.0),
+    "sham_image_tokenizer_track": (4.5, 4.5),
+}
+STAGE_GROUPS = {"all_in_one": ALL_IN_ONE_STAGES, "ab": AB_STAGES, "chat_image": CHAT_IMAGE_STAGES}
+
+
 def pick_stages(day_ordinal: int, session_hours: float, cuda: bool, stages: dict | None = None) -> list[str]:
     """Which stages this session runs: the order rotates daily so every stage gets its turn; the first always runs, later ones only if their own
     budget still fits in the session (a session is at most 12 hours; the default keeps 1 hour spare)."""
