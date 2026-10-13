@@ -27,6 +27,8 @@ Data (licensed, human-written, verified before use):
   - CohereLabs/aya_dataset — apache-2.0, human-written; only rows whose
     `language` contains "Arabic". Its TEST split's Arabic rows are never
     trained on — sham_eval.py uses them as the fixed yardstick.
+  - FreedomIntelligence/alpaca-gpt4-arabic, 2A2I/Arabic-OpenHermes-2.5 — apache-2.0 (added 2026-10-14);
+    every source gives its share each session and starts again when used up (several epochs).
 """
 
 from __future__ import annotations
@@ -216,36 +218,87 @@ def _is_arabic_row(row: dict) -> bool:
     return "Arabic" in (row.get("language") or "")
 
 
-def load_arabic_dialogues(progress: dict, max_examples: int) -> tuple[list[tuple[str, str]], dict]:
-    """Next `max_examples` NEW (question, answer) pairs, continuing where
-    `progress` (saved next to the checkpoint) stopped: CIDAR first, then
-    Aya's Arabic training rows. Returns (pairs, updated progress)."""
-    from datasets import load_dataset
+def _conversation_pair(row: dict) -> tuple[str, str]:
+    """First user turn and the reply after it, from a ShareGPT-style `conversations` list (from: human/gpt or role/content)."""
+    if row.get("user") and row.get("gpt") and isinstance(row["user"], str):        # Arabic-OpenHermes: ready columns
+        return row["user"].strip(), str(row["gpt"]).strip()
+    conv = row.get("conversations") or []
+    if isinstance(conv, str):                                                      # a JSON string in some sets
+        try:
+            conv = json.loads(conv)
+        except Exception:
+            return "", ""
+    for k, t in enumerate(conv[:-1]):
+        if not isinstance(t, dict) or not isinstance(conv[k + 1], dict):
+            continue
+        who = (t.get("from") or t.get("role") or "").lower()
+        nxt = conv[k + 1]
+        if who in ("human", "user") and (nxt.get("from") or nxt.get("role") or "").lower() in ("gpt", "assistant"):
+            return (t.get("value") or t.get("content") or "").strip(), (nxt.get("value") or nxt.get("content") or "").strip()
+    return "", ""
 
-    progress = dict(progress or {})
-    pairs: list[tuple[str, str]] = []
-    plan = [
-        ("cidar", lambda: load_dataset("arbml/CIDAR", split="train"), "instruction", "output", None),
-        ("aya_ar", lambda: load_dataset("CohereLabs/aya_dataset", split="train"), "inputs", "targets", _is_arabic_row),
+
+# (progress key, loader, question column, answer column, keep-filter, streaming). The first two are the original plan, unchanged; the
+# last two were added 2026-10-14 (apache-2.0 on their dataset cards; both are GPT-4-written / translated Arabic conversations):
+#   FreedomIntelligence/alpaca-gpt4-arabic — 49,969 Arabic instruction → answer conversations
+#   2A2I/Arabic-OpenHermes-2.5           — 981,618 Arabic conversations (streamed: never downloaded whole)
+def _chat_plan():
+    from datasets import load_dataset
+    return [
+        ("cidar", lambda: load_dataset("arbml/CIDAR", split="train"), "instruction", "output", None, False),
+        ("aya_ar", lambda: load_dataset("CohereLabs/aya_dataset", split="train"), "inputs", "targets", _is_arabic_row, False),
+        ("alpaca_gpt4_ar", lambda: load_dataset("FreedomIntelligence/alpaca-gpt4-arabic", split="train"), None, None, None, False),
+        ("openhermes_ar", lambda: load_dataset("2A2I/Arabic-OpenHermes-2.5", split="train", streaming=True), None, None, None, True),
     ]
-    for key, loader, q_col, a_col, keep in plan:
-        if len(pairs) >= max_examples:
+
+
+CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618}      # a streamed source has no len(): its wrap-around point
+
+
+def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple[list[tuple[str, str]], dict]:
+    """Next `max_examples` NEW (question, answer) pairs, continuing where `progress` (saved next to the checkpoint) stopped.
+
+    2026-10-14: every source gives its SHARE each session (before, the plan was strictly sequential, so with 4,000 per session the
+    second source waited until CIDAR was used up), and a source that is used up starts again from its beginning by itself
+    (progress["<key>_epoch"] counts the passes) — several epochs over the chat data, and a session never comes back empty.
+    SHAM_CHAT_SOURCES=cidar,aya_ar limits the plan. Returns (pairs, updated progress)."""
+    import os
+    progress = dict(progress or {})
+    plan = plan if plan is not None else _chat_plan()
+    only = {k.strip() for k in os.environ.get("SHAM_CHAT_SOURCES", "").split(",") if k.strip()}
+    if only:
+        plan = [p for p in plan if p[0] in only]
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    share = max(1, max_examples // max(1, len(plan)))
+    for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
+        want = min(share if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
+        if want <= 0:
             break
-        start = int(progress.get(key, 0))
         try:
             ds = loader()
+            if keep is not None:
+                ds = ds.filter(keep)
         except Exception as exc:  # one source down must not stop the run
             print(f"⚠ تعذّر تحميل {key}: {exc}")
             continue
-        if keep is not None:
-            ds = ds.filter(keep)
-        end = min(len(ds), start + (max_examples - len(pairs)))
-        for row in ds.select(range(start, end)):
-            q, a = (row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()
-            if q and a:
+        size = CHAT_SOURCE_SIZES.get(key) if streaming else len(ds)
+        start = int(progress.get(key, 0))
+        if size and start >= size:                      # used up: the next pass over this source
+            start = 0
+            progress[f"{key}_epoch"] = int(progress.get(f"{key}_epoch", 0)) + 1
+        end = min(size, start + want) if size else start + want
+        rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
+        got = 0
+        for row in rows:
+            q, a = ((row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()) if q_col else _conversation_pair(row)
+            norm_q = " ".join(q.split())
+            if q and a and norm_q not in seen:            # the same question from two sources is kept once
+                seen.add(norm_q)
                 pairs.append((q, a))
+                got += 1
         progress[key] = end
-        print(f"{key}: الأمثلة {start:,}..{end:,} من {len(ds):,}")
+        print(f"{key}: الأمثلة {start:,}..{end:,} من {size or '?'} (الدورة {progress.get(f'{key}_epoch', 0)}) — {got:,} زوج")
     return pairs, progress
 
 
@@ -318,6 +371,22 @@ def interleave(groups: list[list], weights: list[float], seed: int = 0) -> list:
 
 if __name__ == "__main__":
     # Offline self-test (no network): format, labels, media turns, batching.
+    class _DS(list):
+        def filter(self, f):
+            return _DS(r for r in self if f(r))
+
+        def select(self, r):
+            return [self[i] for i in r]
+
+    _plan = [("a", lambda: _DS({"q": f"س{i}", "a": f"ج{i}"} for i in range(5)), "q", "a", None, False),
+             ("b", lambda: _DS({"conversations": [{"from": "human", "value": f"سؤال{i}"}, {"from": "gpt", "value": f"جواب{i}"}]}
+                               for i in range(3)), None, None, None, False)]
+    _p, _prog = load_arabic_dialogues({}, 4, plan=_plan)
+    assert len(_p) == 4 and _prog == {"a": 2, "b": 2} and ("سؤال0", "جواب0") in _p, (_p, _prog)       # both sources give a share
+    _p, _prog = load_arabic_dialogues(_prog, 4, plan=_plan)
+    assert _prog["b"] == 3 and _prog["a"] == 4
+    _p, _prog = load_arabic_dialogues(_prog, 4, plan=_plan)
+    assert _prog.get("b_epoch") == 1 and _p, _prog                                                      # used up → next pass
     rng = random.Random(0)
     fake = lambda s: [ord(c) % 1000 for c in s]
     ids, labels = build_chat_example(fake("سؤال"), fake("جواب"))

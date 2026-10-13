@@ -69,7 +69,8 @@ def probe(model, tokenizer, device: str = "cpu", minutes: float | None = None, w
         rng = random.Random(424242)
         held = [build_chat_example(enc(p["question"]), enc(p["solution"]), max_len=384)
                 for p in (make_problem(rng) for _ in range(48))]
-        files = sham_text_mix.stream_mix(str(Path(workdir) / "gate_text"), max_documents=140, seed=4242, documents_per_file=70)
+        files = sham_text_mix.stream_mix(str(Path(workdir) / "gate_text"), max_documents=140, seed=4242, documents_per_file=70,
+                                         sources=sham_text_mix.GATE_SOURCES)
         text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if str(f).endswith(".txt"))
         ids = tokenizer.encode(text)
         L = 256
