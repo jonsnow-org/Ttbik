@@ -61,6 +61,15 @@ SOURCES: dict[str, list[dict[str, Any]]] = {
         # Only the human-recorded part (the Synthetic config is TTS output).
         {"id": "arvoice-human", "dataset": "MBZUAI/ArVoice", "config": "Human_3",
          "splits": ["train", "test"], "audio": "original_wav", "text": "transcription", "license": "CC-BY-4.0"},
+        # 2026-10-13: the four Arabic sources above ran out ("كل المصادر استُنفدت": 0 new samples for days) — speech in other languages and
+        # voices (verified to exist on the Hub 2026-10-13). Same two corpora, more configs; each its own ledger cursor.
+        *[{"id": f"fleurs-{c}", "dataset": "google/fleurs", "config": c, "splits": ["train", "validation", "test"], "audio": "audio",
+           "text": "transcription", "license": "CC-BY-4.0"}
+          for c in ("en_us", "fr_fr", "es_419", "de_de", "ru_ru", "tr_tr", "fa_ir", "ur_pk", "hi_in", "id_id", "ja_jp", "ko_kr", "pt_br",
+                    "it_it", "nl_nl", "pl_pl", "sw_ke", "he_il", "cmn_hans_cn")],
+        *[{"id": f"cv17-{c}", "dataset": "fixie-ai/common_voice_17_0", "config": c, "splits": ["train", "validation", "test"], "audio": "audio",
+           "text": "sentence", "license": "CC0-1.0"}
+          for c in ("en", "fr", "es", "de", "tr", "fa", "ur", "hi", "ru", "it", "pt", "ja", "ko", "nl", "pl", "sw")],
     ],
     "image": [
         {"id": "flickr30k", "dataset": "nlphuji/flickr30k", "config": None, "parquet_config": "TEST",
