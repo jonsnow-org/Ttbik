@@ -70,6 +70,25 @@ SOURCES = [
     ("how-to", "HuggingFaceTB/cosmopedia", "wikihow", "text", 2, 6000),
     ("textbooks", "HuggingFaceTB/cosmopedia", "openstax", "text", 2, 6000),
 ]
+# The merge gate's text yardstick is a fixed sample of THIS list (sham_ci_merge / sham_reasoning_probe pass it explicitly): sources added
+# for training below never move the yardstick again. (2026-10-14 finding: the 2026-10-12 additions above changed the gate sample, so
+# the published model's "text" loss jumped 3.29 → 4.08 at the SAME step 61,555 — the measure moved, not the model.)
+GATE_SOURCES = list(SOURCES)
+
+# 2026-10-14 — more Arabic for training (owner: as much of the Arabic internet as possible), streamed like the rest, never downloaded
+# whole, and only sources no notebook, registry or crawler used before (Wikipedia, Wikisource/Wikinews via sham_spider, news, Aya are
+# already in). Checked on the dataset cards: fineweb-2 is ODC-BY (dialects: Egyptian, North Levantine, Moroccan, Najdi — fineweb-2's
+# arb_Arab above is Standard Arabic only); 101 Billion Arabic Words (Common Crawl, cleaned) is Apache-2.0. Nothing gated or non-commercial.
+ARABIC_EXTRA = [
+    ("ar-101b-web", "ClusterlabAi/101_billion_arabic_words_dataset", None, "text", 5, 6000),
+    ("ar-egy", "HuggingFaceFW/fineweb-2", "arz_Arab", "text", 2, 6000),
+    ("ar-levant", "HuggingFaceFW/fineweb-2", "apc_Arab", "text", 1, 6000),
+    ("ar-najdi", "HuggingFaceFW/fineweb-2", "ars_Arab", "text", 1, 6000),
+    ("ar-maghreb", "HuggingFaceFW/fineweb-2", "ary_Arab", "text", 1, 6000),
+]
+if os.environ.get("SHAM_ARABIC_EXTRA", "1").strip().lower() not in ("0", "off", "false", "no"):
+    SOURCES = SOURCES + ARABIC_EXTRA
+
 MAX_PARALLEL = 4   # sources read at the same time (each HF stream holds ~1-2 GB: 6 reached 10 GB peak)
 MIN_CHARS = 200  # a stub is not worth a training window
 

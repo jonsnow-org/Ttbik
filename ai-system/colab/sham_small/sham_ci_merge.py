@@ -88,7 +88,8 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
     gate: dict = {}
     max_len = min(1024, model.cfg.max_seq_len)
     # text: a fixed-seed sample of the general mixture
-    files = sham_text_mix.stream_mix(str(WORK / "gate_text"), max_documents=140, seed=4242, documents_per_file=70)
+    files = sham_text_mix.stream_mix(str(WORK / "gate_text"), max_documents=140, seed=4242, documents_per_file=70,
+                                     sources=sham_text_mix.GATE_SOURCES)
     text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if f.endswith(".txt"))
     ids = tokenizer.encode(text)
     L = min(512, max_len)
@@ -217,7 +218,8 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     if publish_on_change and (changed or auto_changed or not fetch(OWN)):
         up = WORK / "upload"
         up.mkdir()
-        save_checkpoint(up / "final_merged.pt", model, step)
+        from sham_tok_id import stamp
+        save_checkpoint(up / "final_merged.pt", model, step, extra=stamp(tokenizer))     # which text tokenizer it was trained with (served checks it)
         tokenizer.save(str(up / "sham_small_tokenizer.json"))
         for f in ("image_tokenizer.pt", "audio_tokenizer.pt"):
             for src in base_dir.rglob(f):
