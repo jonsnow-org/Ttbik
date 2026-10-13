@@ -198,16 +198,25 @@ def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), toler
         base = {n: p.detach().clone() for n, p in model.named_parameters()}
         other_sd = dict(other.named_parameters())
         best = None
+        nearest = None      # the attempt closest to passing (lowest mean relative loss): says WHICH skill blocked the merge
         for lam in ratios:
             _interpolate(model, base, other_sd, lam, rows)
             s = score_fn(model)
+            rel_mean = sum(s[k] / base_score[k] for k in base_score) / len(base_score)
+            if nearest is None or rel_mean < nearest[0]:
+                nearest = (rel_mean, lam, s)
             if _passes(s, base_score, tolerance) and (best is None or sum(s.values()) < sum(best[1].values())):
                 best = (lam, s)
         if best is None:
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     p.copy_(base[n])
-            report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً)")
+            why = ""
+            if nearest is not None:
+                _, lam_n, s_n = nearest
+                why = (f" — أقرب محاولة (نسبة {lam_n:.2f}): "
+                       + ", ".join(f"{k} {base_score[k]:.3f}→{s_n[k]:.3f} ({(s_n[k] / base_score[k] - 1) * 100:+.1f}%)" for k in base_score))
+            report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً){why}")
             _record("دمج المعرفة", f"❌ {name}: رُفض (لم يحسّن كل المهارات معاً)")
         else:
             _interpolate(model, base, other_sd, best[0], rows)

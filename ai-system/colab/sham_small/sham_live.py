@@ -51,7 +51,7 @@ import torch
 
 import sham_amp
 
-WORK = Path("/kaggle/working")
+WORK = Path(os.environ.get("SHAM_LIVE_WORK", "/kaggle/working"))   # the Oracle runner (user `sham`, no /kaggle) sets SHAM_LIVE_WORK
 MODEL_DATASET = "sham-crawl-checkpoint"
 CORPUS_DATASET = "sham-crawl-corpus"
 
@@ -110,7 +110,8 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
 
     mains = []
     for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
-                          ("sham-grown-checkpoint", "final_grown.pt")):
+                          ("sham-grown-checkpoint", "final_grown.pt"),
+                          ("sham-merged-checkpoint", "final_merged.pt")):   # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
@@ -468,6 +469,32 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     for i in range(3):
         threading.Thread(target=encode_loop, args=(i,), daemon=True).start()
 
+    def general_feeder():
+        """2026-10-13: this trainer used to learn only from what its spiders crawled (museum catalogues, Crossref, arXiv, …) while the merge gate
+        measures the GENERAL mixture, so every lineage it produced improved on its own sources, got a little worse on general text, and was
+        refused by the gate: two months without a single merge. Now a steady share of general-mixture windows is trained on (and held out)."""
+        try:
+            import sham_text_stream
+            from model import SpecialTokens
+            gs = sham_text_stream.stream_for(tokenizer, min(512, max_len - 2))
+        except Exception as exc:
+            print(f"⚠ خط النص العام لا يعمل ({type(exc).__name__}): يُدرَّب على المصادر المجموعة فقط")
+            return
+        pause = float(os.environ.get("SHAM_GENERAL_PAUSE", "6"))   # seconds between windows ≈ a third of all examples on a 2-core runner
+        while not stop.is_set():
+            try:
+                w = gs.next_window()
+                ids = [int(x) for x in (w.tolist() if hasattr(w, "tolist") else list(w))][: max_len - 2]
+                seq = [SpecialTokens.BOS] + ids + [SpecialTokens.EOS]
+                enc_q.put(("general", (seq, list(seq))), timeout=5)
+            except queue.Full:
+                pass
+            except Exception:
+                time.sleep(5)
+            time.sleep(pause)
+
+    threading.Thread(target=general_feeder, daemon=True).start()
+
     # — dialogue rehearsal (chat must not be forgotten). The HF download can fail (a live report had no
     # chat at all, so no "before" and no rehearsal): retry, then fall back to the copy saved with the checkpoint.
     dialogues = []
@@ -497,6 +524,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     # — held-out yardstick: the first examples of each modality are never trained on
     holdout = {k: [] for k in TARGETS}
     holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
+    holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
 
     optimizer = build_optimizer(model, lr=LR, weight_decay=0.1)
@@ -511,7 +539,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
     model.train()
     start_step, pending, losses = step, [], []
-    trained_kind = {k: 0 for k in list(TARGETS) + ["chat"]}
+    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general"]}
     last_log = last_save = last_pub = time.time()
     t_train = time.time()
 
