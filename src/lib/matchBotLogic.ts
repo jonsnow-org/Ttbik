@@ -209,11 +209,16 @@ function adminMenu(botId?: string): Keyboard {
     .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
     .text("🩺 فحص البحث");
   // 📱 opens the Mini App straight on «🛡 لوحة القيادة» (same isMatchAdmin / SUPER_ADMIN_TELEGRAM_ID check server-side).
-  if (botId && process.env.MATCH_ADMIN_APP_BUTTON !== "0") kb.row().webApp("📱 التطبيق المصغر", `${miniAppUrl(botId)}?tab=admin`);
+  // Reply-keyboard web_app buttons get an EMPTY initData (Telegram design), so the app could not
+  // authenticate the admin. This is a plain text button; the bot answers with an INLINE web_app
+  // button (which carries signed initData) and sets the admin's menu button to the dashboard.
+  if (botId && process.env.MATCH_ADMIN_APP_BUTTON !== "0") kb.row().text(ADMIN_APP_BUTTON);
   return kb.resized();
 }
+const ADMIN_APP_BUTTON = "📱 التطبيق المصغر";
 const ADMIN_COMMANDS = new Set([
   "/start",
+  ADMIN_APP_BUTTON,
   "📊 الإحصائيات",
   "📋 الملفات المعلقة",
   "🚩 بلاغات المطابقة",
@@ -2377,7 +2382,14 @@ export async function runUnban(bot: TelegramBot, chatId: number, rawId: string) 
 
 async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
+    await ensureMatchBotSetup(bot, botId).catch(() => null);
+    await setAdminMenuButton(bot, botId, chatId).catch(() => null);
     await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu(botId) });
+    return;
+  }
+  if (text === ADMIN_APP_BUTTON) {
+    await setAdminMenuButton(bot, botId, chatId).catch(() => null);
+    await bot.api.sendMessage(chatId, "📱 لوحة القيادة في التطبيق المصغر:", { reply_markup: new InlineKeyboard().webApp("🛡 فتح لوحة القيادة", `${miniAppUrl(botId)}?tab=admin`) });
     return;
   }
   if (text === "🩺 فحص البحث") {
@@ -2691,6 +2703,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // Hybrid mode (2026-10-14): Mini App menu button + /start profile_<id> deep
   // links from inline results. Runs after the ban/mute/phone gates on purpose.
   if (typeof msg.text === "string" && msg.text.startsWith("/start")) {
+    await ensureMatchBotSetup(bot, botRow.id).catch(() => null);
     await ensureMiniAppMenu(bot, botRow, chatId);
     const profileRef = parseProfileStart(startPayload);
     const curMode = (user.pendingAction as any)?.mode;
@@ -3276,4 +3289,27 @@ export async function cleanupExpiredFakeChats() {
     cleaned++;
   }
   return cleaned;
+}
+
+
+// ---- bot menu setup (match bot only, its own token): commands + web_app menu button ----
+// The bot showed another project's command list (/website /articles /write …) left on
+// this token from an earlier use. Every scope we can reach is reset to this bot's own
+// /start, and the default menu button opens the Mini App. Runs once per instance.
+const setupDone = new Set<string>();
+export const MATCH_BOT_COMMANDS = [{ command: "start", description: "القائمة الرئيسية" }];
+export async function ensureMatchBotSetup(bot: TelegramBot, botId: string) {
+  if (setupDone.has(botId)) return;
+  setupDone.add(botId);
+  const scopes: any[] = [{ type: "all_private_chats" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }];
+  for (const scope of scopes) await bot.api.deleteMyCommands({ scope }).catch(() => null);
+  for (const language_code of ["ar", "en", "ru", "tr", "fa"] as const) {
+    await bot.api.deleteMyCommands({ language_code: language_code as any }).catch(() => null);
+    await bot.api.deleteMyCommands({ scope: { type: "all_private_chats" }, language_code: language_code as any }).catch(() => null);
+  }
+  await bot.api.setMyCommands(MATCH_BOT_COMMANDS).catch(() => null);
+  await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: miniAppUrl(botId) } } }).catch(() => null);
+}
+async function setAdminMenuButton(bot: TelegramBot, botId: string, chatId: number) {
+  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
 }

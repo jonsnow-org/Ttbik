@@ -204,7 +204,7 @@ export async function ensureMiniAppMenu(bot: TelegramBot, botRow: BotRow, chatId
   if (menuSet.has(key) || process.env.MATCH_MINIAPP_MENU === "0") return;
   menuSet.add(key);
   await bot.api
-    .setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "التطبيق 💍", web_app: { url: miniAppUrl(botRow.id) } } })
+    .setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "التطبيق", web_app: { url: miniAppUrl(botRow.id) } } })
     .catch(() => null);
 }
 

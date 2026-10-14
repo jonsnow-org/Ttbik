@@ -217,6 +217,11 @@ export async function POST(req: NextRequest) {
     if (tpl === "SITE_BANNER_ADMIN") {
       await tempBot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: siteUrl } } }).catch(() => null);
     }
+    if (tpl === "MARRIAGE_BOT") {
+      // Own commands + Mini App menu button (clears any command list left on the token).
+      const { ensureMatchBotSetup } = await import("@/lib/matchBotLogic");
+      await ensureMatchBotSetup(tempBot, botId).catch(() => null);
+    }
 
     let newBot;
     try {
