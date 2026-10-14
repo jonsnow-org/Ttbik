@@ -33,7 +33,7 @@ import { containsContactInfo, normalizeDigits } from "@/lib/match/contactGuard";
 import { chargeMatchUser } from "@/lib/match/entitlements";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import * as appStore from "@/lib/match/appStore";
-import { decideProfileByUserId, fileMatchReport, isMatchAdmin, requestRandomChatContact, resolveMatchReport, sweepIdleRandomSessions } from "@/lib/matchBotLogic";
+import { clearReviewCards, decideProfileByUserId, removeReviewMessage, fileMatchReport, isMatchAdmin, requestRandomChatContact, resolveMatchReport, sweepIdleRandomSessions } from "@/lib/matchBotLogic";
 import { handleAdminAction } from "@/lib/match/adminApp";
 
 const fakeBot = () => ({ api: { sendMessage: jest.fn(async () => ({})) } }) as any;
@@ -219,5 +219,34 @@ describe("admin ✅ on an edited (already APPROVED) profile", () => {
     const bot = fakeBot();
     await decideProfileByUserId(bot, 999, "1", true);
     expect(bot.api.sendMessage.mock.calls[0][1]).toContain("غير موجود");
+  });
+});
+
+
+describe("admin review cards disappear after a decision", () => {
+  const cardBot = (deleteOk = true) => ({ api: {
+    sendMessage: jest.fn(async () => ({})),
+    deleteMessage: jest.fn(async () => { if (!deleteOk) throw new Error("message can't be deleted"); return true; }),
+    editMessageReplyMarkup: jest.fn(async () => ({})), editMessageText: jest.fn(async () => ({})), editMessageCaption: jest.fn(async () => ({})),
+  } }) as any;
+  it("quiet (button) decision: no extra admin message, short result returned, stored cards deleted", async () => {
+    db.matchProfile.findUnique.mockResolvedValueOnce({ userId: "367969", name: "سامي", status: "APPROVED", isHidden: false });
+    rawQueue.push([{ chat_id: "999", message_id: 11 }, { chat_id: "999", message_id: 12 }]);
+    const bot = cardBot();
+    const r = await decideProfileByUserId(bot, 999, "367969", true, { quiet: true });
+    expect(r).toContain("سامي");
+    expect(bot.api.sendMessage).not.toHaveBeenCalled();
+    expect(bot.api.deleteMessage.mock.calls.map((c: any[]) => c[1])).toEqual([11, 12]);
+  });
+  it("delete refused (>48h): buttons removed and result shown", async () => {
+    const bot = cardBot(false);
+    expect(await removeReviewMessage(bot, 999, 5, "✅ تم القبول", true)).toBe("edited");
+    expect(bot.api.editMessageReplyMarkup).toHaveBeenCalled();
+    expect(bot.api.editMessageCaption).toHaveBeenCalledWith(999, 5, { caption: "✅ تم القبول" });
+  });
+  it("clearReviewCards with nothing stored is a no-op", async () => {
+    const bot = cardBot();
+    await clearReviewCards(bot, "1", "x");
+    expect(bot.api.deleteMessage).not.toHaveBeenCalled();
   });
 });

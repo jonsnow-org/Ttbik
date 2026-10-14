@@ -19,7 +19,7 @@ import { randomUUID } from "crypto";
 import { after } from "next/server";
 import { CONTACT_BLOCKED_TEXT, containsContactInfo } from "@/lib/match/contactGuard";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
-import { auditAdmin, idleRandomSessions } from "@/lib/match/appStore";
+import { auditAdmin, ensureMatchAppTables, idleRandomSessions } from "@/lib/match/appStore";
 import { pushNotification } from "@/lib/match/social";
 import { pingAnonSession } from "@/lib/match/realtime";
 import { deliverToUser } from "@/lib/match/surface";
@@ -454,17 +454,19 @@ export async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProf
     `التواصل: ${profile.contactMethod === "TELEGRAM" ? "تلجرام" : "واتساب"} — ${profile.contactValue}`;
   const kb = new InlineKeyboard().text("✅ قبول", `madmin_approve|${profile.userId}`).text("❌ رفض", `madmin_reject|${profile.userId}`);
   try {
-    if (profile.photoFileId) {
-      await bot.api.sendPhoto(Number(SUPER_ADMIN_ID), profile.photoFileId, { caption: text, reply_markup: kb });
-    } else {
-      await bot.api.sendMessage(Number(SUPER_ADMIN_ID), text, { reply_markup: kb });
-    }
+    // Duplicates: an older pending card for the same profile is removed before the new one.
+    await clearReviewCards(bot, profile.userId, "↪️ استُبدل ببطاقة أحدث").catch(() => null);
+    const sent = profile.photoFileId
+      ? await bot.api.sendPhoto(Number(SUPER_ADMIN_ID), profile.photoFileId, { caption: text, reply_markup: kb })
+      : await bot.api.sendMessage(Number(SUPER_ADMIN_ID), text, { reply_markup: kb });
+    if (sent?.message_id) await storeReviewCard(profile.userId, Number(SUPER_ADMIN_ID), [sent.message_id]).catch(() => null);
     // Admin review is always the one context that sees the real photo
     // directly (the consent-gating on sendSearchCard is for other members
     // browsing search results, not for moderation) — same for the voice
     // intro, so the admin can actually judge it before approving.
     if (profile.voiceFileId) {
-      await bot.api.sendVoice(Number(SUPER_ADMIN_ID), profile.voiceFileId).catch(() => null);
+      const v = await bot.api.sendVoice(Number(SUPER_ADMIN_ID), profile.voiceFileId).catch(() => null);
+      if (v?.message_id) await storeReviewCard(profile.userId, Number(SUPER_ADMIN_ID), [v.message_id]).catch(() => null);
     }
   } catch {
     // admin unreachable — not fatal, they can still review later once they message the bot
@@ -2080,10 +2082,11 @@ export async function grantReferralReward(bot: TelegramBot, profileUserId: strin
   }
 }
 
-async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profile: MatchProfile, approve: boolean) {
+async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profile: MatchProfile, approve: boolean, say?: (t: string) => Promise<unknown>) {
   await prisma.matchProfile.update({ where: { userId: profile.userId }, data: { status: approve ? "APPROVED" : "REJECTED" } });
   await auditAdmin(String(adminChatId), approve ? "profile_approve" : "profile_reject", profile.userId, null, adminVia);
-  await bot.api.sendMessage(adminChatId, approve ? `✅ تم اعتماد ملف ${profile.name}.` : `❌ تم رفض ملف ${profile.name}.`);
+  const note = approve ? `✅ تم اعتماد ملف ${profile.name}.` : `❌ تم رفض ملف ${profile.name}.`;
+  if (say) await say(note); else await bot.api.sendMessage(adminChatId, note);
   await bot.api
     .sendMessage(
       Number(profile.userId),
@@ -2106,28 +2109,64 @@ async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string,
   await decideProfileByUserId(bot, chatId, profile.userId, approve);
 }
 
-export async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean) {
+/**
+ * opts.quiet (✅/❌ buttons): no extra admin chat message — the short result is
+ * returned for the callback toast. Every decision (button, text command, app
+ * dashboard) removes the stored review cards for that profile.
+ */
+export async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean, opts: { quiet?: boolean } = {}): Promise<string> {
+  let result = "";
+  const say = async (t: string) => { result = t; if (!opts.quiet) await bot.api.sendMessage(chatId, t); };
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
   // Profiles now go live automatically, so the admin must still be able to
   // reject an already-APPROVED profile afterwards.
   if (!profile || (profile.status === "REJECTED" && !approve)) {
-    await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
-    return;
+    await say("الملف غير موجود أو رُوجع مسبقاً.");
+    await clearReviewCards(bot, userId, profile ? "❌ مرفوض مسبقاً" : "").catch(() => null);
+    return result;
   }
   // Edited/old profiles are auto-live (APPROVED) — the admin's ✅ on the
   // «ملف جديد/معدّل» notice is a confirmation, not an error.
   if (approve && profile.status === "APPROVED") {
-    await confirmApprovedProfile(bot, chatId, profile);
-    return;
+    await confirmApprovedProfile(bot, chatId, profile, say);
+  } else {
+    await applyProfileDecision(bot, chatId, profile, approve, say);
   }
-  await applyProfileDecision(bot, chatId, profile, approve);
+  await clearReviewCards(bot, userId, approve ? "✅ تم القبول" : "❌ تم الرفض").catch(() => null);
+  return result;
 }
 
-async function confirmApprovedProfile(bot: TelegramBot, adminChatId: number, profile: MatchProfile) {
+// ---- admin review cards: stored so a decision removes every card for that profile ----
+async function storeReviewCard(userId: string, chatId: number, messageIds: number[]) {
+  await ensureMatchAppTables();
+  for (const m of messageIds) await prisma.$executeRaw`INSERT INTO match_review_cards (user_id, chat_id, message_id) VALUES (${userId}, ${String(chatId)}, ${m}) ON CONFLICT DO NOTHING`;
+}
+/** Delete (fallback: strip buttons + mark result) one admin card. */
+export async function removeReviewMessage(bot: TelegramBot, chatId: number | string, messageId: number, resultLabel: string, isMedia = false) {
+  const deleted = await bot.api.deleteMessage(Number(chatId), messageId).then(() => true).catch(() => false);
+  if (deleted) return "deleted" as const;
+  // e.g. older than 48h: Telegram refuses to delete → remove the buttons and show the result instead.
+  await bot.api.editMessageReplyMarkup(Number(chatId), messageId, { reply_markup: new InlineKeyboard() }).catch(() => null);
+  if (resultLabel) {
+    const edit = isMedia
+      ? bot.api.editMessageCaption(Number(chatId), messageId, { caption: resultLabel })
+      : bot.api.editMessageText(Number(chatId), messageId, resultLabel);
+    await edit.catch(() => null);
+  }
+  return "edited" as const;
+}
+export async function clearReviewCards(bot: TelegramBot, userId: string, resultLabel: string) {
+  await ensureMatchAppTables();
+  const rows = await prisma.$queryRaw<{ chat_id: string; message_id: number }[]>`DELETE FROM match_review_cards WHERE user_id = ${userId} RETURNING chat_id, message_id`;
+  for (const r of rows) await removeReviewMessage(bot, r.chat_id, Number(r.message_id), resultLabel);
+}
+
+async function confirmApprovedProfile(bot: TelegramBot, adminChatId: number, profile: MatchProfile, say?: (t: string) => Promise<unknown>) {
+  const out = say ?? ((t: string) => bot.api.sendMessage(adminChatId, t));
   if (profile.isHidden) {
-    await bot.api.sendMessage(adminChatId, `✅ ملف ${profile.name} معتمد، لكن صاحبه أخفاه مؤقتاً بنفسه (لن يظهر حتى يعيد إظهاره).`);
+    await out(`✅ ملف ${profile.name} معتمد، لكن صاحبه أخفاه مؤقتاً بنفسه (لن يظهر حتى يعيد إظهاره).`);
   } else {
-    await bot.api.sendMessage(adminChatId, `✅ تم تأكيد ملف ${profile.name} — معتمد وظاهر في البحث وبطاقات التطبيق.`);
+    await out(`✅ تم تأكيد ملف ${profile.name} — معتمد وظاهر في البحث وبطاقات التطبيق.`);
   }
   await auditAdmin(String(adminChatId), "profile_confirm", profile.userId, null, adminVia).catch(() => null);
 }
@@ -2467,8 +2506,10 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
   if (data.startsWith("madmin_approve|") || data.startsWith("madmin_reject|")) {
     const approve = data.startsWith("madmin_approve|");
     const userId = data.split("|")[1];
-    await decideProfileByUserId(bot, chatId, userId, approve);
-    await bot.api.answerCallbackQuery(cq.id, { text: approve ? "✅ تم القبول" : "❌ تم الرفض" }).catch(() => null);
+    const result = await decideProfileByUserId(bot, chatId, userId, approve, { quiet: true });
+    // The tapped card disappears at once (also cards sent before ids were stored).
+    if (cq.message) await removeReviewMessage(bot, cq.message.chat.id, cq.message.message_id, approve ? "✅ تم القبول" : "❌ تم الرفض", !!cq.message.photo).catch(() => null);
+    await bot.api.answerCallbackQuery(cq.id, { text: (result || (approve ? "✅ تم القبول" : "❌ تم الرفض")).slice(0, 190) }).catch(() => null);
     return;
   }
   if (data.startsWith("madmin_msgread|")) {

@@ -79,3 +79,7 @@ CREATE TABLE IF NOT EXISTS match_card_filter (user_id TEXT PRIMARY KEY, gender T
 CREATE TABLE IF NOT EXISTS match_notifications (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS match_notifications_user_idx ON match_notifications (user_id, id DESC);
 CREATE TABLE IF NOT EXISTS match_broadcast_log (campaign TEXT NOT NULL, user_id TEXT NOT NULL, ok BOOLEAN NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (campaign, user_id));
+
+-- v8 (2026-10-14): admin profile review cards (removed after a decision)
+CREATE TABLE IF NOT EXISTS match_review_cards (user_id TEXT NOT NULL, chat_id TEXT NOT NULL, message_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (chat_id, message_id));
+CREATE INDEX IF NOT EXISTS match_review_cards_user_idx ON match_review_cards (user_id);
