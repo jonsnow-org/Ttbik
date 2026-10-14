@@ -301,6 +301,108 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
         print(f"{key}: الأمثلة {start:,}..{end:,} من {size or '?'} (الدورة {progress.get(f'{key}_epoch', 0)}) — {got:,} زوج")
     return pairs, progress
 
+# ---------------------------------------------------------------- multi-turn dialogues (memory, 2026-10-14)
+# build_chat_example trains ONE turn, so the model never saw a conversation that refers back to something said earlier. The functions below are
+# additive: the single-turn path is untouched; sham_live uses them only when SHAM_CHAT_MULTITURN=1, and what it trains still passes the same
+# held-out gate (the yardstick examples stay single-turn, exactly as before).
+
+def multiturn_enabled() -> bool:
+    import os
+    return os.environ.get("SHAM_CHAT_MULTITURN", "0").strip().lower() in ("1", "on", "true", "yes")
+
+
+def _conversation_turns(row: dict, max_turns: int = 8) -> list[tuple[str, str]]:
+    """EVERY (user, assistant) pair of a ShareGPT-style conversation, in order (the single-turn loader keeps only the first)."""
+    if row.get("user") and row.get("gpt") and isinstance(row["user"], str):
+        return [(row["user"].strip(), str(row["gpt"]).strip())]
+    conv = row.get("conversations") or []
+    if isinstance(conv, str):
+        try:
+            conv = json.loads(conv)
+        except Exception:
+            return []
+    turns: list[tuple[str, str]] = []
+    k = 0
+    while k < len(conv) - 1 and len(turns) < max_turns:
+        t, nxt = conv[k], conv[k + 1]
+        if isinstance(t, dict) and isinstance(nxt, dict):
+            who = (t.get("from") or t.get("role") or "").lower()
+            if who in ("human", "user") and (nxt.get("from") or nxt.get("role") or "").lower() in ("gpt", "assistant"):
+                q = (t.get("value") or t.get("content") or "").strip()
+                a = (nxt.get("value") or nxt.get("content") or "").strip()
+                if q and a:
+                    turns.append((q, a))
+                k += 2
+                continue
+        k += 1
+    return turns
+
+
+def build_multiturn_example(turns: list[tuple[list[int], list[int]]], max_len: int = 1024, max_user: int = 192,
+                            max_answer: int = 256) -> tuple[list[int], list[int]]:
+    """<BOS> [<USER> q <SHAM> a <EOS>]* — the layout sham_decoding.chat_prompt_ids(history=...) builds at answer time. Labels: every SHAM answer
+    and its <EOS>; user turns and markers are IGNORE. Too long: the OLDEST turns are dropped (the last turn is always kept), the way the live
+    memory window drops them. One turn gives exactly build_chat_example's ids and labels (when it fits)."""
+    pieces = []
+    for q, a in turns:
+        q, a = q[:max_user], a[:max_answer]
+        pieces.append(([USER_TURN] + q + [SHAM_TURN], a + [SpecialTokens.EOS]))
+    while len(pieces) > 1 and 1 + sum(len(u) + len(a) for u, a in pieces) > max_len:
+        pieces.pop(0)
+    ids, labels = [SpecialTokens.BOS], [IGNORE]
+    for u, a in pieces:
+        room = max_len - len(ids) - len(u)
+        if room <= 1:
+            break
+        a = a if len(a) <= room else a[:room - 1] + [SpecialTokens.EOS]
+        ids += u + a
+        labels += [IGNORE] * len(u) + a
+    return ids, labels
+
+
+def load_arabic_conversations(progress: dict, max_examples: int, plan=None, min_turns: int = 2, max_turns: int = 8):
+    """Like load_arabic_dialogues, but whole conversations (lists of (q, a)) with at least `min_turns` turns, from the sources that HAVE
+    conversations (column sources are single-turn and skipped). Its own progress keys ("<key>_mt"), so the single-turn positions never move."""
+    import os
+    progress = dict(progress or {})
+    plan = plan if plan is not None else _chat_plan()
+    only = {k.strip() for k in os.environ.get("SHAM_CHAT_SOURCES", "").split(",") if k.strip()}
+    plan = [p for p in plan if p[2] is None and (not only or p[0] in only)]
+    convs: list[list[tuple[str, str]]] = []
+    share = max(1, max_examples // max(1, len(plan)))
+    for key, loader, _q, _a, keep, streaming in plan:
+        try:
+            ds = loader()
+            if keep is not None:
+                ds = ds.filter(keep)
+        except Exception as exc:
+            print(f"⚠ تعذّر تحميل {key}: {exc}")
+            continue
+        size = CHAT_SOURCE_SIZES.get(key) if streaming else len(ds)
+        pk = f"{key}_mt"
+        start = int(progress.get(pk, 0))
+        if size and start >= size:
+            start = 0
+        scan = share * 20                                    # most rows are single-turn: read further to find enough conversations
+        end = min(size, start + scan) if size else start + scan
+        rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
+        got, pos = 0, start
+        for row in rows:
+            pos += 1
+            t = _conversation_turns(row, max_turns)
+            if len(t) >= min_turns:
+                convs.append(t)
+                got += 1
+                if got >= share:
+                    break
+        progress[pk] = pos
+        print(f"{key}: محادثات متعددة الأدوار {got:,} (حتى الصف {pos:,})")
+    return convs, progress
+
+
+def conversation_examples(convs: list[list[tuple[str, str]]], encode, max_len: int = 1024) -> list[tuple[list[int], list[int]]]:
+    return [build_multiturn_example([(encode(q), encode(a)) for q, a in c], max_len=max_len) for c in convs if c]
+
 
 def load_progress(search_paths: list[Path]) -> dict:
     """Furthest position per source over every chat_progress.json found."""
@@ -418,4 +520,25 @@ if __name__ == "__main__":
     assert seen[-4].startswith("التاريخ اليوم: 2026-01-05") and dated[0].count(SpecialTokens.SEARCH_START) == 1
     tr, ho = split_holdout(list(range(100)))
     assert len(ho) == 5 and not set(tr) & set(ho)
+    # multi-turn: every turn, labels only on Sham's answers, oldest turns dropped first, one turn == build_chat_example
+    row = {"conversations": [{"from": "system", "value": "x"}, {"from": "human", "value": "اسمي سامر"}, {"from": "gpt", "value": "أهلاً سامر"},
+                             {"from": "human", "value": "ما اسمي؟"}, {"from": "gpt", "value": "اسمك سامر"}]}
+    assert _conversation_turns(row) == [("اسمي سامر", "أهلاً سامر"), ("ما اسمي؟", "اسمك سامر")]
+    assert _conversation_pair(row) == ("اسمي سامر", "أهلاً سامر")                       # the single-turn loader is unchanged
+    one = build_multiturn_example([(fake("سؤال"), fake("جواب"))])
+    assert one == build_chat_example(fake("سؤال"), fake("جواب")), "one turn must equal the single-turn layout"
+    mt_ids, mt_lab = build_multiturn_example([(fake("اسمي سامر"), fake("أهلاً سامر")), (fake("ما اسمي؟"), fake("اسمك سامر"))])
+    assert mt_ids.count(USER_TURN) == 2 and mt_ids.count(SHAM_TURN) == 2 and mt_ids.count(SpecialTokens.EOS) == 2
+    scored = [i for i, l in zip(mt_ids, mt_lab) if l != IGNORE]
+    assert scored == fake("أهلاً سامر") + [SpecialTokens.EOS] + fake("اسمك سامر") + [SpecialTokens.EOS], scored
+    for i, (tok, lab) in enumerate(zip(mt_ids, mt_lab)):
+        if tok in (USER_TURN, SHAM_TURN, SpecialTokens.BOS):
+            assert lab == IGNORE
+    long_ids, long_lab = build_multiturn_example([(fake("ق" * 50), fake("ج" * 50))] * 10 + [(fake("آخر"), fake("رد"))], max_len=120)
+    assert len(long_ids) <= 120 and long_ids[-len(fake("رد")) - 1:-1] == fake("رد") and long_ids.count(USER_TURN) < 11
+    _mplan = [("q", lambda: _DS({"q": "س", "a": "ج"} for _ in range(3)), "q", "a", None, False),
+              ("c", lambda: _DS({"conversations": row["conversations"] if i % 2 else row["conversations"][:3]} for i in range(10)), None, None, None, False)]
+    _c, _cp = load_arabic_conversations({}, 2, plan=_mplan)
+    assert len(_c) == 2 and all(len(x) == 2 for x in _c) and "c_mt" in _cp and "q_mt" not in _cp, (_c, _cp)
+    assert len(conversation_examples(_c, fake)) == 2
     print("sham_chat self-test OK")

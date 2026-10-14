@@ -30,6 +30,34 @@ import torch.nn.functional as F
 CHUNK = 64
 
 
+
+def _env_int(name: str, default: int) -> int:
+    import os
+    try:
+        v = int(os.environ.get(name, "") or default)
+        return v if v > 0 else default
+    except ValueError:
+        return default
+
+
+def recall_budget() -> int:
+    """Context length of a recall example (2026-10-14). 512 = the behaviour before; SHAM_LONGCTX_BUDGET=2048 trains the look-back across 2048
+    tokens. The checkpoint's RoPE table already covers 8192 positions (theta 85550), so no weight or config change is needed."""
+    return _env_int("SHAM_LONGCTX_BUDGET", 512)
+
+
+def train_max_len() -> int:
+    """Longest training example in the live trainer. 1024 = before; SHAM_LONGCTX_MAXLEN=2048 for the long-context option (CPU: attention cost
+    grows with the square of the length — use it on a GPU session)."""
+    return _env_int("SHAM_LONGCTX_MAXLEN", 1024)
+
+
+def prepare_long_context(model, length: int) -> None:
+    """Make sure the model can take `length` positions: only grows the computed RoPE table (model.resize_max_seq_len), never a weight, never theta."""
+    if model.cfg.max_seq_len < length:
+        model.resize_max_seq_len(length)
+
+
 def build_recall_example(doc: list[int], rng: random.Random, budget: int = 512, span: int = 24) -> tuple[list[int], list[int]]:
     """Context = [part of the document] [needle passage somewhere in it] [more document] [needle's first half again] -> needle's second half.
     Total length <= budget. Loss only on the second half (labels elsewhere -100)."""
@@ -142,6 +170,20 @@ def train(model, docs: list[list[int]], minutes: float, budget: int = 512, batch
 
 if __name__ == "__main__":
     from model import ShamSmall, ShamSmallConfig
+    import os as _os
+    assert recall_budget() == 512 and train_max_len() == 1024                       # defaults = the behaviour before
+    _os.environ["SHAM_LONGCTX_BUDGET"], _os.environ["SHAM_LONGCTX_MAXLEN"] = "2048", "2048"
+    assert recall_budget() == 2048 and train_max_len() == 2048
+    _doc = [random.Random(3).randrange(5, 800) for _ in range(2200)]
+    _ids, _lab = build_recall_example(_doc, random.Random(4), recall_budget())
+    assert len(_ids) <= 2048 and any(l != -100 for l in _lab)
+    _m = ShamSmall(ShamSmallConfig(vocab_size=800, d_model=32, n_layers=1, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=1024))
+    _w = {k: v.clone() for k, v in _m.state_dict().items()}
+    prepare_long_context(_m, 2048)
+    assert _m.cfg.max_seq_len == 2048 and all(torch.equal(_w[k], v) for k, v in _m.state_dict().items())
+    _m(torch.tensor([_ids]))
+    del _os.environ["SHAM_LONGCTX_BUDGET"], _os.environ["SHAM_LONGCTX_MAXLEN"]
+    print("long-context 2048 option OK")
 
     torch.manual_seed(0)
     rng = random.Random(1)
