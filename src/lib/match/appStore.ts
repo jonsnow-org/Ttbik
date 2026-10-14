@@ -1,0 +1,103 @@
+/**
+ * Storage for the premium Mini App: a few small additive tables (see
+ * prisma/migration_match_app.sql), created lazily with CREATE IF NOT EXISTS
+ * and accessed with parameterised raw SQL so prisma/schema.prisma and the
+ * existing MARRIAGE_BOT models stay untouched.
+ */
+import { prisma } from "@/lib/prisma";
+import { dayKey } from "@/lib/match/premium";
+
+let ready: Promise<void> | null = null;
+const DDL_FALLBACK = `CREATE TABLE IF NOT EXISTS match_app_messages (id BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL, sender_id TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_app_messages_session_idx ON match_app_messages (session_id, id);
+CREATE TABLE IF NOT EXISTS match_app_daily (user_id TEXT NOT NULL, day TEXT NOT NULL, spins INT NOT NULL DEFAULT 0, superlikes INT NOT NULL DEFAULT 0, extra_superlikes INT NOT NULL DEFAULT 0, anon_chats INT NOT NULL DEFAULT 0, extra_anon INT NOT NULL DEFAULT 0, compliments INT NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day));
+CREATE TABLE IF NOT EXISTS match_app_passes (user_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, target_id));
+CREATE TABLE IF NOT EXISTS match_app_compliments (sender_id TEXT NOT NULL, target_id TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (sender_id, target_id, day));
+CREATE TABLE IF NOT EXISTS match_app_perks (user_id TEXT PRIMARY KEY, referral_vip_claimed BOOLEAN NOT NULL DEFAULT false, anon_filter JSONB)`;
+
+export function ensureMatchAppTables(): Promise<void> {
+  if (!ready) {
+    ready = (async () => {
+      // Same statements as prisma/migration_match_app.sql (keep both in sync).
+      for (const stmt of DDL_FALLBACK.split(";").map((s) => s.trim()).filter(Boolean)) await prisma.$executeRawUnsafe(stmt);
+    })().catch((e) => { ready = null; throw e; });
+  }
+  return ready;
+}
+
+export type Daily = { spins: number; superlikes: number; extra_superlikes: number; anon_chats: number; extra_anon: number; compliments: number };
+export async function getDaily(userId: string): Promise<Daily> {
+  await ensureMatchAppTables();
+  const day = dayKey();
+  const rows = await prisma.$queryRaw<Daily[]>`SELECT spins, superlikes, extra_superlikes, anon_chats, extra_anon, compliments FROM match_app_daily WHERE user_id = ${userId} AND day = ${day}`;
+  return rows[0] ?? { spins: 0, superlikes: 0, extra_superlikes: 0, anon_chats: 0, extra_anon: 0, compliments: 0 };
+}
+const DAILY_COLS = new Set(["spins", "superlikes", "extra_superlikes", "anon_chats", "extra_anon", "compliments"]);
+export async function bumpDaily(userId: string, col: keyof Daily, by = 1): Promise<void> {
+  if (!DAILY_COLS.has(col)) throw new Error("bad column");
+  await ensureMatchAppTables();
+  const day = dayKey();
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO match_app_daily (user_id, day, ${col}) VALUES ($1, $2, $3) ON CONFLICT (user_id, day) DO UPDATE SET ${col} = match_app_daily.${col} + $3`,
+    userId, day, by,
+  );
+}
+/** Atomic "use one if below limit"; returns false when the limit is reached. */
+export async function takeDaily(userId: string, col: "spins" | "superlikes" | "anon_chats" | "compliments", limit: number, extraCol?: "extra_superlikes" | "extra_anon"): Promise<boolean> {
+  await ensureMatchAppTables();
+  const day = dayKey();
+  await prisma.$executeRawUnsafe(`INSERT INTO match_app_daily (user_id, day) VALUES ($1, $2) ON CONFLICT DO NOTHING`, userId, day);
+  const extra = extraCol ? ` + ${extraCol}` : "";
+  const n = await prisma.$executeRawUnsafe(
+    `UPDATE match_app_daily SET ${col} = ${col} + 1 WHERE user_id = $1 AND day = $2 AND ${col} < $3${extra}`,
+    userId, day, limit,
+  );
+  return n > 0;
+}
+
+export async function recordAnonMessage(sessionId: string, senderId: string, text: string): Promise<void> {
+  try {
+    await ensureMatchAppTables();
+    await prisma.$executeRaw`INSERT INTO match_app_messages (session_id, sender_id, text) VALUES (${sessionId}, ${senderId}, ${text.slice(0, 2000)})`;
+  } catch { /* the bot relay must never fail because of the app's history */ }
+}
+export async function anonMessagesSince(sessionId: string, afterId: number): Promise<{ id: number; sender_id: string; text: string; created_at: Date }[]> {
+  await ensureMatchAppTables();
+  const rows = await prisma.$queryRaw<{ id: bigint; sender_id: string; text: string; created_at: Date }[]>`
+    SELECT id, sender_id, text, created_at FROM match_app_messages WHERE session_id = ${sessionId} AND id > ${afterId} ORDER BY id ASC LIMIT 100`;
+  return rows.map((r) => ({ ...r, id: Number(r.id) }));
+}
+
+export async function addPass(userId: string, targetId: string) {
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_app_passes (user_id, target_id) VALUES (${userId}, ${targetId}) ON CONFLICT (user_id, target_id) DO UPDATE SET created_at = now()`;
+}
+export async function recentPasses(userId: string): Promise<Set<string>> {
+  await ensureMatchAppTables();
+  const rows = await prisma.$queryRaw<{ target_id: string }[]>`SELECT target_id FROM match_app_passes WHERE user_id = ${userId} AND created_at > now() - interval '7 days'`;
+  return new Set(rows.map((r) => r.target_id));
+}
+
+export async function addComplimentOnce(senderId: string, targetId: string): Promise<boolean> {
+  await ensureMatchAppTables();
+  const n = await prisma.$executeRaw`INSERT INTO match_app_compliments (sender_id, target_id, day) VALUES (${senderId}, ${targetId}, ${dayKey()}) ON CONFLICT DO NOTHING`;
+  return n > 0;
+}
+
+export async function referralClaimed(userId: string): Promise<boolean> {
+  await ensureMatchAppTables();
+  const rows = await prisma.$queryRaw<{ c: boolean }[]>`SELECT referral_vip_claimed AS c FROM match_app_perks WHERE user_id = ${userId}`;
+  return !!rows[0]?.c;
+}
+/** Atomic one-time claim. */
+export async function claimReferral(userId: string): Promise<boolean> {
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_app_perks (user_id) VALUES (${userId}) ON CONFLICT DO NOTHING`;
+  const n = await prisma.$executeRaw`UPDATE match_app_perks SET referral_vip_claimed = true WHERE user_id = ${userId} AND referral_vip_claimed = false`;
+  return n > 0;
+}
+export async function saveAnonFilter(userId: string, filter: unknown) {
+  await ensureMatchAppTables();
+  const j = JSON.stringify(filter ?? {});
+  await prisma.$executeRaw`INSERT INTO match_app_perks (user_id, anon_filter) VALUES (${userId}, ${j}::jsonb) ON CONFLICT (user_id) DO UPDATE SET anon_filter = ${j}::jsonb`;
+}

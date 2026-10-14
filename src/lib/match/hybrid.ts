@@ -124,7 +124,7 @@ export async function openProfileDeepLink(bot: TelegramBot, botRow: BotRow, chat
 // ---------------------------------------------------------------------------
 export type RequestResult = { ok: boolean; message: string };
 
-export async function sendChatRequest(bot: TelegramBot, botRow: BotRow, fromId: string, toId: string): Promise<RequestResult> {
+export async function sendChatRequest(bot: TelegramBot, botRow: BotRow, fromId: string, toId: string, kind: "chat" | "proposal" = "chat"): Promise<RequestResult> {
   if (fromId === toId) return { ok: false, message: "لا يمكنك مراسلة نفسك." };
   if (!rateLimit(`req:${botRow.id}:${fromId}`, 10, 3600_000)) return { ok: false, message: "وصلت للحد المسموح من الطلبات. حاول بعد ساعة." };
   const [from, to] = await Promise.all([
@@ -140,7 +140,7 @@ export async function sendChatRequest(bot: TelegramBot, botRow: BotRow, fromId: 
   const card = publicCardText(toPublicProfile(from.profile));
   const kb = new InlineKeyboard().text("✅ قبول", `mh_acc|${fromId}|${ts}`).text("❌ رفض", `mh_dec|${fromId}`).row().text("⛔ حظر", `mblock|${fromId}`);
   const sent = await bot.api
-    .sendMessage(Number(toId), `💌 طلب دردشة مجهولة الهوية من:\n\n${card}\n\nلن يُكشف أي شيء عنك ما لم تقبل. صالح 24 ساعة.`, { reply_markup: kb })
+    .sendMessage(Number(toId), `${kind === "proposal" ? "💍 طلب تعارف جادّ بغرض الزواج من:" : "💌 طلب دردشة مجهولة الهوية من:"}\n\n${card}\n\nلن يُكشف أي شيء عنك ما لم تقبل. صالح 24 ساعة.`, { reply_markup: kb })
     .catch(() => null);
   if (!sent) return { ok: false, message: "تعذّر إيصال الطلب الآن." };
   return { ok: true, message: "✅ أُرسل طلبك. ستصلك رسالة إذا وافق الطرف الآخر." };

@@ -12,6 +12,7 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
 import { parseProfileStart } from "@/lib/match/inline";
+import { recordAnonMessage } from "@/lib/match/appStore";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -75,7 +76,7 @@ const MATCH_BANNED_WORDS = [
   "scam",
   "phishing",
 ];
-function containsMatchBannedWords(text: string): boolean {
+export function containsMatchBannedWords(text: string): boolean {
   const lower = text.toLowerCase();
   return MATCH_BANNED_WORDS.some((w) => lower.includes(w.toLowerCase()));
 }
@@ -1006,7 +1007,7 @@ async function resumeBrowsing(userId: string, resume: { queue: string[]; index: 
 }
 
 // Both people liked each other: tell both, once, with a button to message.
-async function notifyMutualLike(bot: TelegramBot, fromId: string, toId: string) {
+export async function notifyMutualLike(bot: TelegramBot, fromId: string, toId: string) {
   const back = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: toId, toUserId: fromId } } });
   if (!back) return;
   const [a, b] = await Promise.all([
@@ -1701,7 +1702,7 @@ function exitReasonKeyboard(): InlineKeyboard {
 // contactValue already used on the search-result card's "💬 رسالة"
 // button. Random chat has no MatchProfile requirement, so either side may
 // not have one — handled gracefully rather than erroring.
-async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
+export async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
   const [profileA, profileB] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId: userA } }),
     prisma.matchProfile.findUnique({ where: { userId: userB } }),
@@ -1714,7 +1715,7 @@ async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
   await bot.api.sendMessage(Number(userB), `✅ تم الاتفاق على تبادل التواصل الرسمي.\n${contactLine(profileA)}`).catch(() => null);
 }
 
-async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
+export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
   await prisma.randomChatSession.update({ where: { id: sessionId }, data: { status: "ENDED", ended_at: new Date() } }).catch(() => null);
   if (reason === "block") {
     await prisma.matchBlock.upsert({
@@ -2382,6 +2383,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       return;
     }
     await bot.api.sendMessage(Number(pending.partnerId), text).catch(() => null);
+    // Mini App chat window reads this history (additive, never throws).
+    await recordAnonMessage(pending.sessionId, tgUserId, text);
 
     const updatedSession = await prisma.randomChatSession
       .update({ where: { id: pending.sessionId }, data: { messageCount: { increment: 1 } } })
