@@ -249,7 +249,8 @@ class Encoder:
             import random as _random
             import sham_auto_config
             share = float(sham_auto_config.get("longctx_share", 0.15))
-            budget = min(512, self.max_len - 4)
+            from sham_longctx_train import recall_budget
+            budget = min(recall_budget(), self.max_len - 4)        # 512 unless SHAM_LONGCTX_BUDGET (e.g. 2048) is set
             rr = _random.Random(len(ids) * 2654435761 % 2**32)
             if share > 0 and len(ids) >= budget + 64 and rr.random() < share:
                 from sham_longctx_train import build_recall_example
@@ -406,7 +407,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tokenizer, (img_tok, img_step, _), (aud_tok, aud_step, _) = _load_tokenizers(ckpt_dir)
     img_tok, aud_tok = img_tok.to(device).eval(), aud_tok.to(device).eval()
-    max_len = min(1024, model.cfg.max_seq_len)
+    from sham_longctx_train import train_max_len
+    max_len = min(train_max_len(), model.cfg.max_seq_len)        # 1024 unless SHAM_LONGCTX_MAXLEN (e.g. 2048) is set
     print(f"نقطة الانطلاق: {origin} — {ckpt.name}، الخطوة {step:,}")
 
     out = WORK / "checkpoints"
@@ -538,6 +540,19 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
     holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
+    # multi-turn conversations (memory, 2026-10-14; off unless SHAM_CHAT_MULTITURN=1): added to the TRAINING rehearsal only — the held-out
+    # yardstick above stays the same single-turn examples, so the guard judges a multi-turn round by the very same measure as before.
+    try:
+        from sham_chat import conversation_examples, load_arabic_conversations, multiturn_enabled
+        if multiturn_enabled():
+            convs, cprog = load_arabic_conversations(progress.get("conversations", {}), 1500)
+            progress["conversations"] = cprog
+            mt = conversation_examples(convs, tokenizer.encode, max_len=max_len)
+            rehearsal += mt
+            random.Random(step + 1).shuffle(rehearsal)
+            print(f"محادثات متعددة الأدوار في التذكّر: {len(mt):,}")
+    except Exception as exc:
+        print(f"⚠ تعذّر تحميل المحادثات متعددة الأدوار: {str(exc)[:120]}")
 
     optimizer = build_optimizer(model, lr=LR, weight_decay=0.1)
     use_amp = sham_amp.enabled(device)

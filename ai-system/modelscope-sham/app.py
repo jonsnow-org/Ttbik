@@ -36,6 +36,7 @@ import codesign
 
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 os.environ.setdefault("SHAM_SELF_LEARN_DIR", str(HERE / "_selflearn"))      # experiences from understand_media wait here (self_learn.py)
+os.environ.setdefault("SHAM_MEMORY_DIR", str(HERE / "_memory"))           # Palmyra Memory: one hashed directory per user (sham_memory.py)
 REFRESH_SECONDS = int(os.environ.get("SHAM_REFRESH_SECONDS", 1200))
 STATE = {"phase": "starting", "detail": "", "step": 0, "revision": "", "loaded_at": 0, "error": ""}
 _LOCK = threading.Lock()
@@ -157,7 +158,7 @@ def _studio_modules():
     if _CHAT_SEEN.get("stamp") != stamp:
         if files[0].exists() and str(hot) not in sys.path:
             sys.path.insert(0, str(hot))
-        for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat", "sham_media_ask", "sham_intent"):      # the hot copies replace the deployed ones
+        for name in ("sham_studio_chat", "sham_studio_media", "sham_decoding", "sham_chat", "sham_media_ask", "sham_intent", "sham_memory"):      # the hot copies replace the deployed ones
             sys.modules.pop(name, None)
         _CHAT_SEEN["mods"] = (importlib.import_module("sham_studio_chat"), importlib.import_module("sham_studio_media"))
         _CHAT_SEEN["stamp"] = stamp
@@ -299,6 +300,67 @@ def chat_auto(prompt: str, max_new_tokens: float = 60) -> str:
         return out
 
 
+def chat_memory(prompt: str, max_new_tokens: float = 60, user_id: str = "", history: str = "", summary: str = "", facts: str = "") -> str:
+    """chat_auto WITH Palmyra Memory (sham_memory.py, 2026-10-14). A new entry — chat_auto and every other endpoint are unchanged.
+    user_id: the caller's id for this person (hashed on disk); history: JSON [{"q","a"}] of the recent turns from the site's database (optional:
+    without it the Studio's own log is used); summary: the site's rolling summary; facts: JSON {"name", "city", ...}. Without user_id, or with
+    SHAM_MEMORY=0, this answers exactly like chat_auto. Media and live-search routes go the same way as chat_auto; a plain message gets the
+    memory answer, and «انسَ معلوماتي» deletes this user's memory. JSON like chat_auto, plus "memory" stats."""
+    from sham_intent import route_text
+    if not (user_id or "").strip():
+        return chat_auto(prompt, max_new_tokens)
+    try:
+        import sham_memory
+    except Exception as exc:
+        print(f"sham_memory unavailable ({type(exc).__name__}) — chat_auto", flush=True)
+        return chat_auto(prompt, max_new_tokens)
+    if not sham_memory.memory_enabled():
+        return chat_auto(prompt, max_new_tokens)
+    if sham_memory.is_forget_command(prompt):
+        sham_memory.UserMemory(user_id).forget()
+        return json.dumps({"type": "notice", "text": "تم. حذفت كل ما أتذكّره عنك.", "forgotten": True, "route": "forget"}, ensure_ascii=False)
+    route, _arg = route_text(prompt)
+    if route != "chat" or prompt.strip().startswith("#"):
+        return chat_auto(prompt, max_new_tokens)
+    if STATE["phase"] != "ready":
+        return _json_notice("(شام يتهيأ بعد: " + STATE["phase"] + ")")
+    import serve
+
+    def _json(s, default):
+        try:
+            v = json.loads(s) if (s or "").strip() else default
+            return v if isinstance(v, type(default)) else default
+        except Exception:
+            return default
+    hist = _json(history, [])
+    hist = [{"q": str(t.get("q", ""))[:2000], "a": str(t.get("a", ""))[:2000]} for t in hist if isinstance(t, dict)][-60:] if (history or "").strip() else None
+    if not _LOCK.acquire(timeout=_busy_wait()):
+        return _busy()
+    try:
+        res = sham_memory.memory_answer(serve._state["model"], serve._state["text_tokenizer"], user_id.strip(), prompt,
+                                        int(max(1, min(200, max_new_tokens))), history=hist, summary=(summary or "")[:1500],
+                                        site_facts=_json(facts, {}))
+    except Exception as exc:
+        print(f"chat_memory failed ({type(exc).__name__}: {str(exc)[:160]}) — chat_auto", flush=True)
+        res = None
+    finally:
+        _LOCK.release()
+    if res is None or (res.get("type") == "text" and not res.get("text")):
+        return chat_auto(prompt, max_new_tokens)
+    res["route"] = "memory"
+    return json.dumps(res, ensure_ascii=False)
+
+
+def memory_forget(user_id: str) -> str:
+    """Delete everything Palmyra Memory keeps for this user (the bot also calls this when the user asks it to forget)."""
+    try:
+        import sham_memory
+        gone = sham_memory.UserMemory((user_id or "").strip()).forget() if (user_id or "").strip() else False
+    except Exception:
+        gone = False
+    return json.dumps({"type": "notice", "forgotten": bool(gone)}, ensure_ascii=False)
+
+
 def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     if STATE["phase"] != "ready":
         return "(شام يتهيأ بعد: " + STATE["phase"] + ")"
@@ -335,9 +397,14 @@ def build_ui():
                        api_name="ask_web", flagging_mode="never")
     auto = gr.Interface(chat_auto, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)], gr.Textbox(label="json"),
                         api_name="chat_auto", flagging_mode="never")
+    mem = gr.Interface(chat_memory, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60), gr.Textbox(label="user_id"),
+                                     gr.Textbox(label="history"), gr.Textbox(label="summary"), gr.Textbox(label="facts")],
+                       gr.Textbox(label="json"), api_name="chat_memory", flagging_mode="never")
+    forget = gr.Interface(memory_forget, [gr.Textbox(label="user_id")], gr.Textbox(label="json"), api_name="memory_forget", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, anyk, media, read, web, auto, st],
-                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "الحالة"], title="شام — Sham")
+    return gr.TabbedInterface([chat, anyk, media, read, web, auto, mem, forget, st],
+                              ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "رسالة مع ذاكرة",
+                               "مسح الذاكرة", "الحالة"], title="شام — Sham")
 
 
 if __name__ == "__main__":
