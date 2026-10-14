@@ -1,0 +1,7 @@
+{
+  "name": "match-app-e2e",
+  "private": true,
+  "description": "Local-only Playwright QA for the MARRIAGE_BOT mini app (not part of the site build / CI). See scripts/qa/env.sh.",
+  "scripts": { "test": "playwright test" },
+  "devDependencies": { "@playwright/test": "1.48.2" }
+}

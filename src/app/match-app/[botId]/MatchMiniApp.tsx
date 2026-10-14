@@ -533,13 +533,19 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
   const [lookup, setLookup] = useState<any>(null);
   const [reply, setReply] = useState<Record<string, string>>({});
   const [bc, setBc] = useState("");
+  const loadSeq = useRef(0);
+  const [badges, setBadges] = useState<any>({});
 
   const load = useCallback(async (s: Sec = sec) => {
     const act = { overview: "admin_overview", profiles: "admin_profiles", verify: "admin_verifications", rsearch: "admin_reports", rchat: "admin_reports", inbox: "admin_inbox", users: null, broadcast: null, audit: "admin_audit" }[s];
+    const seq = ++loadSeq.current;
     if (!act) { setData(null); return; }
     const r = await api(act, { source: s === "rchat" ? "RANDOM_CHAT" : "SEARCH" });
+    // QA fix: a slower response for a previous section must not render under the new one
+    if (seq !== loadSeq.current) return;
     if (!r.ok) { say(r.error, "error"); return; }
-    setData(r);
+    if (r.badges) setBadges(r.badges);
+    setData({ ...r, __sec: s });
   }, [api, say, sec]);
   useEffect(() => { setData(null); load(sec); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -552,7 +558,8 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
     await load(); onChange();
   };
 
-  const b = data?.badges || {};
+  const b = badges || {};
+  const view = data?.__sec === sec ? data : null;
   const secs: [Sec, string, number?][] = [
     ["overview", "📊 نظرة عامة"], ["profiles", "📋 الملفات", b.profiles], ["verify", "☑️ التوثيق", b.verifications],
     ["rsearch", "🚩 بلاغات المطابقة", b.reportsSearch], ["rchat", "🚩 بلاغات العشوائية", b.reportsChat], ["inbox", "📥 الوارد", b.inbox],
@@ -581,7 +588,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         </div>
       )}
 
-      {sec === "profiles" && (data?.items?.length ? data.items.map((p: any) => (
+      {sec === "profiles" && (view?.items?.length ? view.items.map((p: any) => (
         <div key={p.userId} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
           <p className="font-bold">{p.name} · {p.age} · {p.gender === "MALE" ? "ذكر" : "أنثى"} <span className="text-white/40">#{p.shortId}</span></p>
           <p className="text-[12px] text-white/60">{[p.country, p.city, p.job, p.education, p.maritalStatus].filter(Boolean).join(" · ")}{p.hasPhoto ? " · 📷 (الصورة في البوت)" : ""}</p>
@@ -594,7 +601,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
 
       {sec === "verify" && (<>
         {data?.note && <p className="px-1 text-[11px] text-white/50">{data.note}</p>}
-        {data?.items?.length ? data.items.map((p: any) => (
+        {view?.items?.length ? view.items.map((p: any) => (
           <div key={p.userId} className={`flex items-center justify-between rounded-3xl p-4 text-sm ${GLASS}`}>
             <span>{p.name} <span className="text-white/40">#{p.shortId}</span></span>
             <span className="flex gap-2">
@@ -605,7 +612,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         )) : data && <Empty icon="☑️" text="لا توجد طلبات توثيق معلقة." />}
       </>)}
 
-      {(sec === "rsearch" || sec === "rchat") && (data?.items?.length ? data.items.map((r: any) => (
+      {(sec === "rsearch" || sec === "rchat") && (view?.items?.length ? view.items.map((r: any) => (
         <div key={r.id} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
           <p>المُبلِّغ: {r.reporter.name || "بلا ملف"} <span className="text-white/40">#{r.reporter.shortId}</span></p>
           <p>المُبلَّغ عنه: <b>{r.target.name || "بلا ملف"}</b> <span className="text-white/40">#{r.target.shortId}</span>{r.target.pending > 1 && <span className="mr-1 rounded-full bg-red-500/80 px-1.5 text-[10px]">{r.target.pending} بلاغات</span>}</p>
@@ -619,7 +626,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         </div>
       )) : data && <Empty icon="✅" text="لا توجد بلاغات بانتظار المراجعة في هذا القسم." />)}
 
-      {sec === "inbox" && (data?.items?.length ? data.items.map((m: any) => (
+      {sec === "inbox" && (view?.items?.length ? view.items.map((m: any) => (
         <div key={m.id} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
           <p className="font-bold">{m.name || "بلا ملف"} <span className="text-white/40">#{m.shortId} · {m.senderId}</span></p>
           <p className="my-1 whitespace-pre-wrap text-white/80">{m.text}</p>
@@ -668,9 +675,9 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         </div>
       )}
 
-      {sec === "audit" && (data?.items?.length ? (
+      {sec === "audit" && (view?.items?.length ? (
         <div className={`rounded-3xl p-3 text-[12px] ${GLASS}`}>
-          {data.items.map((a: any) => (
+          {view.items.map((a: any) => (
             <p key={a.id} className="border-b border-white/5 py-1.5"><span className="text-white/40">{when(a.created_at)}</span> · {a.action}{a.target ? ` → ${a.target}` : ""} <span className="text-white/40">({a.via === "app" ? "التطبيق" : a.admin_id === "system" ? "تلقائي" : "البوت"})</span></p>
           ))}
         </div>
