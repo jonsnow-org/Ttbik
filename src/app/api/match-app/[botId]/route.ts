@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { randomInt } from "crypto";
 import { Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -333,10 +333,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       // Exactly the bot's queue order; like the bot's «➡️ الملف التالي» we only
       // re-check block + APPROVED per card (advanceSearch), nothing app-specific.
       const [perms, blocks] = await Promise.all([
-        prisma.matchPhotoPermission.findMany({ where: { viewerId: tg.id, ownerId: { in: pick }, status: "GRANTED" }, select: { ownerId: true } }),
+        prisma.matchPhotoPermission.findMany({ where: { viewerId: tg.id, ownerId: { in: pick }, status: "DENIED" }, select: { ownerId: true } }),
         prisma.matchBlock.findMany({ where: { OR: [{ blockerId: tg.id, blockedId: { in: pick } }, { blockedId: tg.id, blockerId: { in: pick } }] } }),
       ]);
-      const granted = new Set(perms.map((p) => p.ownerId));
+      // Owner spec (2026-10-14): app cards show the photo by default; only an explicit
+      // refusal by the photo's owner (DENIED for this viewer) hides it.
+      const denied = new Set(perms.map((p) => p.ownerId));
       const blockedIds = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
       const profiles = await prisma.matchProfile.findMany({
         where: { userId: { in: pick.filter((id) => !blockedIds.has(id)) }, status: "APPROVED" },
@@ -346,11 +348,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const now = new Date();
       const items = pick.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => ({
         ...toPublicProfile(p),
+        name: cardName(p.name), // the display name typed in the bot profile (app cards only; inline sharing stays nameless)
         flag: countryFlag(p.country),
         compat: compatibilityPercent(p, pref, advanced), // bot's own «💞 توافق X%»
         presence: onlineLabel(p.user.lastActiveAt),
-        photo: !!p.photoFileId && granted.has(p.userId),
-        photoLocked: !!p.photoFileId && !granted.has(p.userId),
+        photo: !!p.photoFileId && !denied.has(p.userId),
+        photoLocked: !!p.photoFileId && denied.has(p.userId),
         boosted: (!!p.boostedUntil && p.boostedUntil > now) || (!!p.user.vipUntil && p.user.vipUntil > now),
       }));
       return items;
@@ -434,7 +437,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     if (action === "photo") {
       const perm = await prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: target, viewerId: tg.id } } });
-      if (blocked || perm?.status !== "GRANTED" || !targetProfile.photoFileId) return err("الصورة غير متاحة", 403);
+      if (blocked || perm?.status === "DENIED" || !targetProfile.photoFileId) return err("الصورة غير متاحة", 403);
       if (photoCache.has(targetProfile.photoFileId)) {
         return NextResponse.json({ ok: true, src: `data:image/jpeg;base64,${photoCache.get(targetProfile.photoFileId)}` }, { headers: { "Cache-Control": "private, max-age=600" } });
       }
@@ -471,7 +474,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     if (action === "swipe") {
       const kind = String(body.kind);
-      if (kind === "pass") { await recordPass(tg.id, target).catch(() => null); return NextResponse.json({ ok: true }); } // like the bot's «➡️ الملف التالي» (kept for ↩️)
+      if (kind === "pass") { after(() => recordPass(tg.id, target).catch(() => null)); return NextResponse.json({ ok: true }); } // like the bot's «➡️ الملف التالي» (kept for ↩️)
       if (kind === "propose") {
         if (!(await pgRateLimit(`prop:${tg.id}`, 5, 3600))) return err("حد طلبات الزواج: 5 في الساعة");
         const r = await sendChatRequest(bot, botRow, tg.id, target, "proposal");
@@ -494,7 +497,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       }
       const back = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: target, toUserId: tg.id } } });
       if (back && !existed && kind === "like") await notifyMutualLike(bot, tg.id, target).catch(() => null); // bot alerts both (existing behaviour)
-      return NextResponse.json({ ok: true, match: !!back && !existed, card: back ? { ...toPublicProfile(targetProfile), flag: countryFlag(targetProfile.country) } : null, message: kind === "super" ? "⭐ تم إرسال إعجابك المميز مع رسالتك." : undefined });
+      return NextResponse.json({ ok: true, match: !!back && !existed, card: back ? { ...toPublicProfile(targetProfile), name: cardName(targetProfile.name), flag: countryFlag(targetProfile.country) } : null, message: kind === "super" ? "⭐ تم إرسال إعجابك المميز مع رسالتك." : undefined });
     }
 
     if (action === "dm_thread") {
@@ -557,4 +560,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     console.error("match-app", action, (e as Error)?.message);
     return err("حدث خطأ، حاول مجدداً", 500);
   }
+}
+
+/** Card title = the profile's own name (contacts scrubbed, clipped); null → client falls back to #id. */
+function cardName(v: string | null | undefined): string | null {
+  const t = scrubContacts(v || "").replace(/\s+/g, " ").trim();
+  return t ? (t.length > 24 ? t.slice(0, 23) + "…" : t) : null;
 }

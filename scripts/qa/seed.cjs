@@ -6,12 +6,12 @@ const prisma = new PrismaClient();
 const BOT = { id: "qa-bot", token: "123456:QA-FAKE-TOKEN", ownerId: "9000", template: "MARRIAGE_BOT", webhookSecret: "qa-secret" };
 const day = 86400000;
 const people = [
-  { id: "1001", name: "أحمد", gender: "MALE", age: 30, country: "مصر", status: "APPROVED", balance: 20 },
-  { id: "1002", name: "سارة", gender: "FEMALE", age: 26, country: "مصر", status: "APPROVED", balance: 0.5, vip: true },
-  { id: "1003", name: "منى", gender: "FEMALE", age: 28, country: "السعودية", status: "APPROVED", balance: 5, verify: "PENDING" },
+  { id: "1001", photo: "qa-photo-1001", name: "أحمد", gender: "MALE", age: 30, country: "مصر", status: "APPROVED", balance: 20 },
+  { id: "1002", photo: "qa-photo-1002", name: "سارة", gender: "FEMALE", age: 26, country: "مصر", status: "APPROVED", balance: 0.5, vip: true },
+  { id: "1003", photo: "qa-photo-1003", name: "منى", gender: "FEMALE", age: 28, country: "السعودية", status: "APPROVED", balance: 5, verify: "PENDING" },
   { id: "1004", name: "عمر", gender: "MALE", age: 35, country: "السعودية", status: "PENDING", balance: 0 },
   { id: "1005", name: "ليلى", gender: "FEMALE", age: 24, country: "مصر", status: "APPROVED", balance: 0.3, photo: "qa-photo-1005" },
-  { id: "1006", name: "خالد", gender: "MALE", age: 40, country: "مصر", status: "APPROVED", balance: 0 },
+  { id: "1006", photo: "qa-photo-1006", name: "خالد", gender: "MALE", age: 40, country: "مصر", status: "APPROVED", balance: 0 },
   { id: "1007", name: null },
   { id: "9000", name: null }, // admin (SUPER_ADMIN_TELEGRAM_ID)
 ];

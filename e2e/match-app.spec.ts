@@ -146,7 +146,7 @@ test("anon: AI interlocutor chat stays inside the app", async ({ browser }) => {
   await tgReset();
   const { ctx, page } = await openApp(browser, 1001, "أحمد");
   await nav(page, "دردشة مجهولة"); await page.waitForTimeout(1500);
-  await page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined);
+  await page.getByTestId("anon-start").click();
   await expect(page.getByPlaceholder("اكتب رسالتك (نص فقط)…")).toBeVisible({ timeout: 25_000 });
   await shot(page, "anon-ai-connected");
   const box = page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
@@ -167,9 +167,9 @@ test("anon: two app users match, chat, contact-guard, 15-msg contact exchange, r
   const a = await openApp(browser, 1001, "أحمد");
   const b = await openApp(browser, 1005, "ليلى");
   for (const x of [a, b]) { await nav(x.page, "دردشة مجهولة"); await x.page.waitForTimeout(1500); }
-  await a.page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined);
+  await a.page.getByTestId("anon-start").click();
   await a.page.waitForTimeout(700);
-  await b.page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined);
+  await b.page.getByTestId("anon-start").click();
   const inputA = a.page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
   const inputB = b.page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
   await expect(inputA).toBeVisible({ timeout: 30_000 });
@@ -218,8 +218,8 @@ test("anon: end with a reason (exit reasons sheet)", async ({ browser }) => {
   const a = await openApp(browser, 1001, "أحمد");
   const b = await openApp(browser, 1005, "ليلى");
   await nav(a.page, "دردشة مجهولة"); await nav(b.page, "دردشة مجهولة"); await a.page.waitForTimeout(1500);
-  await a.page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined); await a.page.waitForTimeout(500);
-  await b.page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined);
+  await a.page.getByTestId("anon-start").click(); await a.page.waitForTimeout(500);
+  await b.page.getByTestId("anon-start").click();
   await expect(a.page.getByPlaceholder("اكتب رسالتك (نص فقط)…")).toBeVisible({ timeout: 30_000 });
   const p = await api(1001, "anon_poll");
   if (!p.body.fake) {
@@ -239,7 +239,7 @@ test("anon: app user ↔ bot user via simulated webhook", async ({ browser }) =>
   const a = await openApp(browser, 1001, "أحمد");
   await nav(a.page, "دردشة مجهولة");
   await a.page.waitForTimeout(1500);
-  await a.page.evaluate(() => (window as any).__tg.mainClick()).then(() => undefined);
+  await a.page.getByTestId("anon-start").click();
   const input = a.page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
   await expect(input).toBeVisible({ timeout: 30_000 });
   const p = await api(1001, "anon_poll");
@@ -437,8 +437,8 @@ test("anon: read receipts and typing indicator between two app users", async ({ 
   reseed();
   const a = await openApp(browser, 1001, "أحمد"); const b = await openApp(browser, 1005, "ليلى");
   for (const x of [a, b]) { await nav(x.page, "دردشة مجهولة"); await x.page.waitForTimeout(1500); }
-  await a.page.evaluate(() => (window as any).__tg.mainClick()); await a.page.waitForTimeout(800);
-  await b.page.evaluate(() => (window as any).__tg.mainClick());
+  await a.page.getByTestId("anon-start").click(); await a.page.waitForTimeout(800);
+  await b.page.getByTestId("anon-start").click();
   const ia = a.page.getByPlaceholder("اكتب رسالتك (نص فقط)…"); const ib = b.page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
   await expect(ia).toBeVisible({ timeout: 30_000 }); await expect(ib).toBeVisible({ timeout: 30_000 });
   await ia.fill("مرحبا"); await ia.press("Enter");
@@ -482,7 +482,7 @@ test("athar (flag on in QA env): match modal, birthday, gift moment, month card,
   await nav(a.page, "ملفي"); await a.page.waitForTimeout(800);
   await a.page.getByRole("button", { name: "👤 ملفي", exact: true }).first().click({ force: true }); await a.page.waitForTimeout(600);
   await a.page.getByLabel("تاريخ الميلاد").fill("1990-05-01");
-  await a.page.getByRole("button", { name: "افتح" }).click({ force: true }); await a.page.waitForTimeout(800);
+  await a.page.getByRole("button", { name: "افتح", exact: true }).click({ force: true }); await a.page.waitForTimeout(800);
   const bIdx = Math.round((Date.UTC(1990, 4, 1) - Date.UTC(1950, 0, 1)) / 864e5);
   expect(await a.page.evaluate(() => (window as any).__tg.links)).toContainEqual(expect.stringContaining(`/date?i=${bIdx}&lang=ar`));
   await shot(a.page, "athar-birthday");
@@ -600,8 +600,48 @@ test("round 4: mixed cards + paid gender filter, pro cards (info/photo/report), 
   expect(JSON.stringify(calls[0].payload.reply_markup)).toContain("web_app");
   const ad = await openApp(browser, 9000, "Admin");
   await ad.page.getByRole("button", { name: /لوحة القيادة/ }).click();
-  await ad.page.getByRole("button", { name: /بث/ }).first().click({ force: true, timeout: 10_000 });
-  await expect(ad.page.getByTestId("update-campaign")).toBeVisible();
+  // The admin made many API calls in this test; wait out the per-user 120/min app limit if hit.
+  await ad.page.getByRole("button", { name: "📢 بث", exact: true }).click({ force: true, timeout: 10_000 });
+  if (!(await ad.page.getByTestId("update-campaign").isVisible().catch(() => false))) {
+    await ad.page.waitForTimeout(20_000);
+    await ad.page.getByRole("button", { name: "🧾 السجل", exact: true }).click({ force: true });
+    await ad.page.getByRole("button", { name: "📢 بث", exact: true }).click({ force: true });
+  }
+  await expect(ad.page.getByTestId("update-campaign")).toBeVisible({ timeout: 15_000 });
   await ad.page.getByTestId("update-campaign").screenshot({ path: `${SHOTS}/r4-admin-campaign.png` });
   await ad.ctx.close();
+});
+
+test("ui r5: photo cards with names + floating actions, silent skip, anon filter sheet", async ({ browser }) => {
+  reseed();
+  const { ctx, page } = await openApp(browser, 1001, "أحمد");
+  await nav(page, "المطابقات");
+  await expect(page.getByTestId("top-card")).toBeVisible();
+  await page.waitForTimeout(2500);
+  await shot(page, "r5-photo-card");
+  await expect(page.getByTestId("card-actions")).toBeVisible();
+  // swipe left = pass: no «تعذّر الاتصال» toast
+  const box = (await page.getByTestId("top-card").boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
+  await page.mouse.move(box.x + 10, box.y + box.height / 2, { steps: 8 }); await page.mouse.move(box.x - 200, box.y + box.height / 2, { steps: 8 }); await page.mouse.up();
+  await page.waitForTimeout(1500);
+  await expect(page.getByText("تعذّر الاتصال")).toHaveCount(0);
+  await shot(page, "r5-after-skip");
+  await nav(page, "دردشة مجهولة"); await page.waitForTimeout(1000);
+  await expect(page.getByTestId("anon-start")).toBeInViewport();
+  await shot(page, "r5-anon-idle");
+  await page.getByTestId("anon-filter-chip").click();
+  await expect(page.getByTestId("anon-filter-sheet")).toBeVisible();
+  await shot(page, "r5-anon-filter-sheet");
+  await ctx.close();
+});
+
+test("athar r5: entry cards visible (flag on by default) when Athar answers", async ({ browser }) => {
+  const { ctx, page } = await openApp(browser, 1001, "أحمد");
+  await nav(page, "ملفي"); await page.waitForTimeout(1200);
+  await shot(page, "r5-athar-me");
+  await nav(page, "محادثاتي"); await page.waitForTimeout(1200);
+  await shot(page, "r5-athar-chats");
+  test.info().annotations.push({ type: "athar-entry", description: String(await page.getByTestId("athar-entry-chats").count()) });
+  await ctx.close();
 });

@@ -3,7 +3,7 @@ const http = require("http");
 const PORT = Number(process.env.TG_MOCK_PORT || 54400);
 let calls = [];
 let mid = 1000;
-const JPEG = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDA==", "base64");
+const JPEG = (() => { try { return require("fs").readFileSync(process.env.QA_PHOTO || "/workspace/qa/qa-photo.jpg"); } catch { return Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDA==", "base64"); } })(); // a real image when available so photo cards render in screenshots
 http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));

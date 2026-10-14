@@ -7,10 +7,13 @@ import { atharClientConfig, atharDateLink, atharEnabled, parseYmd } from "@/lib/
 describe("Athar promotion (flag MATCH_ENABLE_ATHAR)", () => {
   const env = process.env.MATCH_ENABLE_ATHAR;
   afterEach(() => { process.env.MATCH_ENABLE_ATHAR = env; });
-  it("is OFF by default", async () => {
+  it("is ON by default (owner 2026-10-14) and OFF with MATCH_ENABLE_ATHAR=0", async () => {
     delete process.env.MATCH_ENABLE_ATHAR;
+    expect(atharEnabled()).toBe(true);
+    process.env.MATCH_ENABLE_ATHAR = "0";
     expect(atharEnabled()).toBe(false);
     expect(await atharClientConfig()).toBeNull();
+    delete process.env.MATCH_ENABLE_ATHAR;
   });
   it("uses Athar's own /date?i=<index> link (index from athar/lib/rules, 1950-01-01 = 0)", () => {
     expect(atharDateLink({ y: 1950, m: 1, d: 1 })).toBe("https://athar.example/date?i=0&lang=ar");

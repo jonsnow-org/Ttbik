@@ -138,6 +138,7 @@ type PendingAction =
   | { mode: "admin_reject_reason"; profileId: string }
   | { mode: "confirm_delete_profile" }
   | { mode: "admin_broadcast" }
+  | { mode: "admin_broadcast_confirm"; text: string }
   | { mode: "admin_lookup" }
   | { mode: "admin_unban" }
   | { mode: "contact_admin_compose" }
@@ -2306,23 +2307,41 @@ async function sendInboxMessages(bot: TelegramBot, chatId: number) {
   }
 }
 
-export async function runBroadcast(bot: TelegramBot, chatId: number, text: string) {
+export const BROADCAST_CONFIRM = "✅ تأكيد البث";
+export const BROADCAST_CANCEL = "❌ إلغاء البث";
+function broadcastWhere(botId?: string) {
+  // Scoped to THIS bot's members (was: every match bot's users, sent through this bot's token).
+  return { phoneVerified: true, isBanned: false, id: { not: SUPER_ADMIN_ID || "__none__" }, ...(botId ? { botId } : {}) };
+}
+export async function broadcastAudience(botId?: string): Promise<number> {
+  return prisma.matchUser.count({ where: broadcastWhere(botId) });
+}
+export async function runBroadcast(bot: TelegramBot, chatId: number, text: string, botId?: string) {
+  // Double-send guard (double tap / Telegram webhook retry): one broadcast per minute.
+  if (!(await pgRateLimit(`bcast:${botId || "all"}`, 1, 60).catch(() => true))) {
+    await bot.api.sendMessage(chatId, "⏳ أُرسل بث قبل أقل من دقيقة — انتظر قليلاً ثم أعد المحاولة.");
+    return;
+  }
   await auditAdmin(String(chatId), "broadcast", null, text, adminVia);
-  const recipients = await prisma.matchUser.findMany({
-    where: { phoneVerified: true, isBanned: false, id: { not: SUPER_ADMIN_ID || "__none__" } },
-    select: { id: true },
-  });
+  const recipients = await prisma.matchUser.findMany({ where: broadcastWhere(botId), select: { id: true } });
   const messageText = formatBroadcastText(text);
   let sent = 0;
-  for (const r of recipients) {
-    try {
-      await bot.api.sendMessage(Number(r.id), messageText);
-      sent++;
-    } catch {
-      // user blocked the bot or is unreachable — skip and keep going
+  for (const [i, r] of recipients.entries()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await bot.api.sendMessage(Number(r.id), messageText);
+        sent++;
+        break;
+      } catch (e: any) {
+        // 429: honour Telegram's retry_after once; other errors (blocked bot…) → skip.
+        const wait = Number(e?.parameters?.retry_after || 0);
+        if (e?.error_code === 429 && wait > 0 && wait <= 10 && attempt === 0) { await new Promise((res) => setTimeout(res, wait * 1000)); continue; }
+        break;
+      }
     }
+    if (i % 25 === 24) await new Promise((res) => setTimeout(res, 1000)); // stay under ~30 msg/s
   }
-  await bot.api.sendMessage(chatId, `✅ تم إرسال البث إلى ${sent} من أصل ${recipients.length} مستخدم.`);
+  await bot.api.sendMessage(chatId, `✅ تم إرسال البث إلى ${sent} من أصل ${recipients.length} مستخدم.`, { reply_markup: adminMenu(botId) });
 }
 
 async function sendUserLookup(bot: TelegramBot, chatId: number, rawId: string) {
@@ -2588,7 +2607,21 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     if (adminPending && !ADMIN_COMMANDS.has(text)) {
       await setPending(tgUserId, null);
       if (adminPending.mode === "admin_broadcast") {
-        await runBroadcast(bot, chatId, text);
+        // Preview + confirmation before anything is sent.
+        await setPending(tgUserId, { mode: "admin_broadcast_confirm", text });
+        const n = await broadcastAudience(botRow.id);
+        await bot.api.sendMessage(chatId, `👁 معاينة البث (سيصل إلى ${n} مستخدم):\n\n${formatBroadcastText(text)}`, {
+          reply_markup: new Keyboard().text(BROADCAST_CONFIRM).text(BROADCAST_CANCEL).resized(),
+        });
+        return;
+      }
+      if (adminPending.mode === "admin_broadcast_confirm") {
+        if (text === BROADCAST_CONFIRM) {
+          await bot.api.sendMessage(chatId, "📤 جارٍ الإرسال…");
+          await runBroadcast(bot, chatId, adminPending.text, botRow.id);
+        } else {
+          await bot.api.sendMessage(chatId, "❎ أُلغي البث.", { reply_markup: adminMenu(botRow.id) });
+        }
         return;
       }
       if (adminPending.mode === "admin_lookup") {

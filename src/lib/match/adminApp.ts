@@ -139,7 +139,7 @@ export async function handleAdminAction(bot: TelegramBot, botRow: BotRow, adminI
       case "admin_broadcast": {
         const text = String(body.text || "").trim();
         if (!text) return bad("اكتب نص البث");
-        await runBroadcast(bot, chatId, text);
+        await runBroadcast(bot, chatId, text, botRow.id); // app already shows a confirm dialog
         return ok({ message: "📢 تم البث — النتيجة وصلتك في محادثة البوت" });
       }
       case "admin_update_broadcast_preview": {

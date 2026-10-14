@@ -1,7 +1,8 @@
 # Athar promotion inside the match Mini App (step 3, 2026-10-14)
 
-**Off by default.** Enable: set `MATCH_ENABLE_ATHAR=1` in the site's environment (Vercel → Project → Settings →
-Environment Variables → Production), then redeploy. Remove it (or set `0`) to switch everything off.
+**ON by default since 2026-10-14 (owner approved).** Switch off: set `MATCH_ENABLE_ATHAR=0` in the site's environment
+(Vercel → Project → Settings → Environment Variables → Production) and redeploy. Every Athar card still auto-hides when
+Athar's public `/api/date/0` does not answer (checked every 10 min, 3 s timeout).
 Optional: `NEXT_PUBLIC_ATHAR_BOT_URL` (default `https://t.me/AtharDaysBot`, same as Athar's own fallback) and
 `NEXT_PUBLIC_ATHAR_URL` (Athar web, already used by the Athar bot).
 
@@ -12,6 +13,7 @@ Optional: `NEXT_PUBLIC_ATHAR_BOT_URL` (default `https://t.me/AtharDaysBot`, same
 | Chats tab, after a contact exchange or an accepted 💍 | 🎁 أهدِ شريكك تاريخ أول محادثة / ذكرى يوم القبول (dismissable) | date of the first chat / acceptance |
 | Chats tab, mutual match ≥ 30 days | 🗓 مرّ شهر على تعارفكما | mutual-like date |
 | Profile section | 🎂 تاريخ ميلادك في أثر (1950-2049, not stored) + «تعرّف على أثر» | chosen date / Athar bot |
+| 💎 Prominent entry (Profile/Upgrades tab top + Chats tab top) | 💎 أثر — امتلك يوماً للأبد | `ATHAR_URL/` — Athar's own web app; TonConnect + TON payment stay inside Athar |
 | Shared match page `/match-share/<token>` | 🕰 ذكرى هذا اليوم في أثر | match date |
 
 Deep-link format verified, not guessed: Athar's birthday reminder (`src/app/api/cron/athar-birthdays/route.ts`) opens
@@ -36,3 +38,8 @@ No payments, wallet, prices or investment wording in the match app — gift / me
 `/match-share/<random token>` shows only «تطابق جديد على توافق», the date, a link to the bot and (flag on) the Athar
 date card. No names, ids, photos, ages or countries; `noindex`. Created only by one of the two members of a mutual
 match (rate limited 10/h).
+
+## Payments
+The match app contains no wallet or payment code for Athar. Users who buy a day do it inside Athar's own web app
+(TonConnect, TON — Athar's existing flow). Telegram Stars for Athar are NOT active; see
+docs/SPEC_FOR_ATHAR_STARS.md and docs/FOR_ATHAR_CREATOR_REVIEW_stars_payments.md for the engineer.

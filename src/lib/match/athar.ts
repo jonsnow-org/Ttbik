@@ -11,8 +11,13 @@ import { ensureMatchAppTables } from "@/lib/match/appStore";
 import { ATHAR_URL } from "@/lib/atharBotLogic";
 import { indexOf, TOTAL_DATES } from "../../../athar/lib/rules";
 
+/** ON by default (owner approved 2026-10-14); MATCH_ENABLE_ATHAR=0|false|off switches it off. */
 export function atharEnabled(): boolean {
-  return /^(1|true|on|yes)$/i.test(String(process.env.MATCH_ENABLE_ATHAR || "").trim());
+  return !/^(0|false|off|no)$/i.test(String(process.env.MATCH_ENABLE_ATHAR ?? "").trim());
+}
+/** Athar web app home (TonConnect + TON payments live there, in Athar's own flow). */
+export function atharHomeLink(): string {
+  return `${ATHAR_URL}/`;
 }
 /** Same env/fallback as atharBotLogic's ATHAR_BOT_FALLBACK (that constant is not exported). */
 export function atharBotLink(): string {
@@ -52,11 +57,11 @@ export async function atharHealthy(now = Date.now()): Promise<boolean> {
   return ok;
 }
 /** What the app may show; null = render nothing (flag off or Athar down). */
-export async function atharClientConfig(now = new Date()): Promise<{ bot: string; today: string } | null> {
+export async function atharClientConfig(now = new Date()): Promise<{ bot: string; today: string; home: string } | null> {
   if (!atharEnabled()) return null;
   const today = atharDateLink(ymdOf(now));
   if (!today || !(await atharHealthy())) return null;
-  return { bot: atharBotLink(), today };
+  return { bot: atharBotLink(), today, home: atharHomeLink() };
 }
 
 // ---- "moments": first-chat date after a contact exchange / accepted 💍 request -------------------

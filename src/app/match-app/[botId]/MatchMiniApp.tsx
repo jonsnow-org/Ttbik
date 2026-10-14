@@ -11,7 +11,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 type Tab = "anon" | "discover" | "chats" | "me" | "admin";
 type Card = {
-  ref: string; shortId: string; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
+  ref: string; shortId: string; name?: string | null; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
   education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null;
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
@@ -317,6 +317,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [exitOpen, setExitOpen] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
   const typingAt = useRef(0);
   const lastId = useRef(0);
   const sessionRef = useRef<string | undefined>(undefined);
@@ -426,11 +427,9 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
   useEffect(() => {
     const w = tg();
     if (!w?.MainButton) return;
-    const show = active && (poll.state === "idle" || poll.state === "ended" || poll.state === "timeout");
-    w.MainButton.setParams({ text: "🔀 مراسلة عشوائية", color: "#ff2e93", text_color: "#ffffff", is_visible: show });
-    const h = () => start();
-    if (show) w.MainButton.onClick(h);
-    return () => { w.MainButton.offClick(h); w.MainButton.hide(); };
+    // The native MainButton sits under our floating nav (system area); the start button is
+    // now an in-page button above the nav, so keep the native one hidden on this tab.
+    if (active) w.MainButton.hide();
   }, [active, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (poll.state === "chatting") {
@@ -503,9 +502,13 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
   }
 
   const waiting = poll.state === "waiting";
+  const filterLabel = filter.gender === "FEMALE" ? "👩 أنثى" : filter.gender === "MALE" ? "👨 ذكر" : "🎲 عشوائي";
   return (
-    <div>
-      <div className="relative mx-auto my-6 grid h-56 w-56 place-items-center">
+    <div className="relative pb-28">
+      <div className="flex justify-end">
+        <button data-testid="anon-filter-chip" onClick={() => setFilterOpen(true)} className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs">🎛 فلتر · {filterLabel}</button>
+      </div>
+      <div className="relative mx-auto my-4 grid h-56 w-56 place-items-center">
         {[0, 1, 2].map((i) => (
           <motion.span key={i} className="absolute inset-0 rounded-full border border-pink-400/40"
             animate={waiting ? { scale: [0.4, 1.25], opacity: [0.8, 0] } : { scale: 0.9 - i * 0.2, opacity: 0.25 }}
@@ -529,33 +532,45 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
           {poll.state === "timeout" && poll.filter && (
             <button onClick={() => start(true)} className="mx-auto mt-4 block rounded-2xl border border-white/15 px-5 py-2 text-sm">🌐 ابحث هذه المرة بدون فلاتر</button>
           )}
-          {!tg()?.MainButton && <button onClick={() => start()} className={`mt-4 w-full rounded-2xl py-3 font-bold ${GRAD}`}>🔀 مراسلة عشوائية</button>}
-          <div className={`mt-6 rounded-3xl p-4 ${GLASS}`}>
-            <p className="mb-1 text-sm font-bold">🎛 فلاتر الدردشة العشوائية</p>
+          <button data-testid="anon-start" onClick={() => start()} className={`mt-4 w-full rounded-2xl py-3.5 font-bold shadow-[0_8px_30px_rgba(255,46,147,0.35)] ${GRAD}`}>🔀 مراسلة عشوائية</button>
+        </>
+      )}
+      {filterOpen && (
+        <div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setFilterOpen(false)}>
+          <div onClick={(e) => e.stopPropagation()} data-testid="anon-filter-sheet" className={`max-h-[85vh] w-full overflow-y-auto rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+            <p className="mb-3 text-base font-bold">🎛 فلتر الدردشة العشوائية</p>
+            <div className="space-y-2">
+              {([["", "🎲 عشوائي", "مجاني · الافتراضي"], ["FEMALE", "👩 أنثى فقط", af.owned ? "مفعّل" : `🔒 $${af.price ?? 2} / 30 يوماً`], ["MALE", "👨 ذكر فقط", af.owned ? "مفعّل" : `🔒 $${af.price ?? 2} / 30 يوماً`]] as const).map(([g, label, hint]) => {
+                const on = (filter.gender || "") === g;
+                const locked = !!g && !af.owned;
+                return (
+                  <button key={g} disabled={locked} onClick={() => setFilter({ ...filter, gender: g || undefined })}
+                    className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-right ${on ? `${GRAD} font-bold` : "border border-white/10 bg-white/5"} ${locked ? "opacity-60" : ""}`}>
+                    <span>{label}</span><span className="text-[11px] opacity-80">{hint}</span>
+                  </button>
+                );
+              })}
+            </div>
             {!af.owned ? (
-              <>
-                <p className="text-[12px] leading-5 text-white/55">اختر جنس ودولة وعمر من تُطابَق معه. $2 لمدة 30 يوماً — مشمولة في العضوية الذهبية. بدون تجديد تلقائي.</p>
-                <button onClick={buyFilters} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>تفعيل ($2 / 30 يوماً)</button>
-              </>
+              <div className="mt-4 rounded-2xl border border-[#e8b4a0]/30 bg-white/5 p-3">
+                <p className="text-[12px] leading-5 text-white/60">فلتر الجنس والدولة والعمر ميزة مدفوعة: ${af.price ?? 2} لمدة 30 يوماً — مشمولة في العضوية الذهبية. بدون تجديد تلقائي.</p>
+                <button onClick={buyFilters} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>تفعيل (${af.price ?? 2} / 30 يوماً)</button>
+              </div>
             ) : (
-              <>
+              <div className="mt-4">
                 <p className="mb-2 text-[11px] text-emerald-300">✓ {af.viaVip ? "ضمن العضوية الذهبية" : `مفعّلة حتى ${new Date(af.until).toLocaleDateString("ar")}`}</p>
-                <div className="mb-3 flex gap-2">
-                  <Pill active={!filter.gender} onClick={() => setFilter({ ...filter, gender: undefined })}>الكل</Pill>
-                  <Pill active={filter.gender === "MALE"} onClick={() => setFilter({ ...filter, gender: "MALE" })}>👨 ذكر</Pill>
-                  <Pill active={filter.gender === "FEMALE"} onClick={() => setFilter({ ...filter, gender: "FEMALE" })}>👩 أنثى</Pill>
-                </div>
                 <Field label="الدولة" value={filter.country} onChange={(v) => setFilter({ ...filter, country: v })} placeholder="فارغ = أي دولة" />
                 <div className="flex gap-2">
                   <div className="flex-1"><Field label="العمر من" type="number" value={filter.ageMin} onChange={(v) => setFilter({ ...filter, ageMin: v })} /></div>
                   <div className="flex-1"><Field label="إلى" type="number" value={filter.ageMax} onChange={(v) => setFilter({ ...filter, ageMax: v })} /></div>
                 </div>
                 <p className="text-[11px] text-white/40">تتم المطابقة فقط مع من يحقق فلاترك، وإن كان لديه فلاتر فيجب أن تحققها أنت أيضاً.</p>
-                <button onClick={saveFilter} className="mt-2 w-full rounded-2xl border border-white/15 py-2.5 text-sm">حفظ الفلاتر</button>
-              </>
+                <button onClick={async () => { await saveFilter(); setFilterOpen(false); }} className={`mt-2 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>حفظ</button>
+              </div>
             )}
           </div>
-        </>
+        </div>
       )}
     </div>
   );
@@ -783,7 +798,8 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   useEffect(() => {
     const top = deck?.[0];
     if (top) api("seen", { target: top.ref }); // same visit tracking as the bot's card
-    if (top?.photo && !photos[top.ref]) api("photo", { target: top.ref }).then((r: any) => r.ok && setPhotos((p) => ({ ...p, [top.ref]: r.src })));
+    // Prefetch the photos of the visible stack (top 3) so the next card is ready.
+    for (const c of (deck || []).slice(0, 3)) if (c.photo && !photos[c.ref]) api("photo", { target: c.ref }).then((r: any) => r.ok && setPhotos((p) => ({ ...p, [c.ref]: r.src })));
   }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -802,6 +818,12 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     if (kind === "super") { onSuper(card, () => setDeck((d) => (d ? d.filter((x) => x.ref !== card.ref) : d))); return; }
     if (kind !== "propose") setDeck((d) => (d ? d.slice(1) : d));
     if (kind === "pass") setCanRewind(true);
+    if (kind === "pass") {
+      // A skip is fire-and-forget: the card already advanced, so a slow/dropped request
+      // must never surface «تعذّر الاتصال». One quiet retry, then ignore.
+      void api("swipe", { target: card.ref, kind }).then((r: any) => (r?.ok ? r : api("swipe", { target: card.ref, kind })));
+      return;
+    }
     const r = await api("swipe", { target: card.ref, kind });
     if (!r.ok) { say(r.error, "error"); return; }
     if (r.message) say(r.message);
@@ -841,7 +863,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   return (
     <div>
       {strictBar}
-      <div className="relative mt-2 h-[430px]">
+      <div className="relative mt-2 h-[540px]">
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
             <SwipeCard key={c.ref} card={c} photo={photos[c.ref]} isTop={i === arr.length - 1} depth={arr.length - 1 - i}
@@ -850,7 +872,8 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
           ))}
         </AnimatePresence>
       </div>
-      <div className="mt-5 flex items-center justify-center gap-4">
+      {/* Floating actions over the photo (Tinder-style), above the bottom gradient */}
+      <div data-testid="card-actions" className="pointer-events-none relative z-20 -mt-[92px] flex items-center justify-center gap-4 [&>*]:pointer-events-auto">
         <ActionBtn label="تخطي" size="md" onClick={() => act("pass")}>✖️</ActionBtn>
         <ActionBtn label="رسالة" size="md" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
         <ActionBtn label="إعجاب" size="lg" glow="#ff2e93" gradient onClick={() => act("like")}>❤️</ActionBtn>
@@ -914,7 +937,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
             <div className={`grid h-32 w-32 place-items-center rounded-full text-6xl ring-4 ring-white/10 shadow-[0_0_60px_rgba(255,46,147,0.35)] ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>
               {card.gender === "FEMALE" ? "👩" : "👨"}
             </div>
-            <p className="mt-3 text-[11px] text-white/45">{card.photoLocked ? "🔒 الصورة تظهر بموافقة صاحبها" : "بطاقة تعريف — بلا صورة"}</p>
+            <p className="mt-3 text-[11px] text-white/45">{card.photo ? "… جارٍ تحميل الصورة" : card.photoLocked ? "🔒 الصورة تظهر بموافقة صاحبها" : "بطاقة تعريف — بلا صورة"}</p>
           </div>
         )}
       <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
@@ -932,9 +955,9 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
       <motion.span style={{ opacity: nopeOp }} className="absolute top-20 right-6 rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
       <motion.span style={{ opacity: superOp }} className="absolute bottom-40 inset-x-0 mx-auto w-fit rounded-xl border-4 border-sky-400 px-3 py-1 text-2xl font-black text-sky-300">⭐ مميز</motion.span>
 
-      <div className="absolute bottom-0 inset-x-0 p-5">
+      <div className="absolute bottom-0 inset-x-0 p-5 pb-28">
         <h2 className="text-2xl font-extrabold">
-          {card.flag} #{card.shortId}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}
+          {card.flag} {card.name || `#${card.shortId}`}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}
           {card.boosted && <span className="mr-2 text-sm">🚀</span>}
         </h2>
         <p className="text-sm text-white/70">{card.country}{card.city ? ` · ${card.city}` : ""}</p>
@@ -954,7 +977,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
 // ---------------------------------------------------------------------------------------------
 // 💬 Chats
 type Thread = Card & { last: string; at: string; lastMine: boolean; unread: number; matched: boolean };
-function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenChat, onRead }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string } | null; onOpenChat: (c: Card) => void; onRead?: () => void }) {
+function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenChat, onRead }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string; home?: string } | null; onOpenChat: (c: Card) => void; onRead?: () => void }) {
   const [seg, setSeg] = useState<"matches" | "requests">("matches");
   const [threads, setThreads] = useState<Thread[] | null>(null);
   useEffect(() => { if (hasProfile) api("dm_threads").then((r: any) => { setThreads(r.ok ? r.items : []); onRead?.(); }); else setThreads([]); }, [api, hasProfile]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -965,7 +988,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
     <motion.button key={"t" + t.ref} whileTap={{ scale: 0.98 }} onClick={() => onOpenChat(t)} className={`flex w-full items-center gap-3 rounded-3xl p-3 text-right ${GLASS}`}>
       <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-xl ${t.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>{t.gender === "FEMALE" ? "👩" : "👨"}</div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">{t.flag} #{t.shortId} · {t.age}</p>
+        <p className="text-sm font-bold">{t.flag} {t.name || `#${t.shortId}`} · {t.age}</p>
         <p className="truncate text-xs text-white/55">{t.lastMine ? "أنت: " : ""}{t.last}</p>
       </div>
       {t.unread > 0 && <span className="min-w-5 rounded-full bg-pink-500 px-1.5 text-center text-[10px] font-bold leading-5">{t.unread}</span>}
@@ -1005,6 +1028,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
     <div className="space-y-4">
       <h2 className="text-lg font-bold">المحادثات</h2>
       {segBar}
+      {athar && <AtharEntry athar={athar} api={api} where="chats" />}
       {matchThreads.length > 0 && <div className="space-y-2">{matchThreads.map(threadRow)}</div>}
       <motion.button whileTap={{ scale: 0.98 }} onClick={goAnon} className={`flex w-full items-center gap-3 rounded-3xl p-4 text-right ${GLASS}`}>
         <div className={`grid h-12 w-12 place-items-center rounded-full ${GRAD}`}>🎭</div>
@@ -1036,7 +1060,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
               {c.presence.online && <span className="absolute bottom-0 left-0 h-3 w-3 rounded-full border-2 border-[#0b1020] bg-emerald-400" />}
             </div>
             <div className="flex-1">
-              <p className="font-bold">{c.flag} #{c.shortId} · {c.age}</p>
+              <p className="font-bold">{c.flag} {c.name || `#${c.shortId}`} · {c.age}</p>
               <p className="text-xs text-white/50">{c.country}{c.compat != null ? ` · 💞 ${c.compat}%` : ""} · {c.presence.label}</p>
             </div>
           </div>
@@ -1060,7 +1084,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
         {likedMe?.filter((c) => !matches?.some((m) => m.ref === c.ref)).map((c) => (
           <div key={c.ref} className={`min-w-[140px] rounded-3xl p-3 text-center ${GLASS}`}>
             <div className="text-2xl">{c.gender === "FEMALE" ? "👩" : "👨"}</div>
-            <p className="text-sm font-bold">{c.flag} #{c.shortId} · {c.age}</p>
+            <p className="text-sm font-bold">{c.flag} {c.name || `#${c.shortId}`} · {c.age}</p>
             {c.note && <p className="mt-1 line-clamp-2 text-[11px] text-[#f3cbbd]">⭐ «{c.note}»</p>}
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "like" }); say(r.ok ? (r.match ? "💞 إعجاب متبادل!" : "❤️ تم") : r.error, r.ok ? "success" : "error"); if (r.ok) { setLikedMe((l) => l?.filter((x) => x.ref !== c.ref) ?? l); if (r.match) setMatches((m) => [...(m || []), c]); } }}
               className={`mt-2 w-full rounded-2xl py-1.5 text-xs font-bold ${GRAD}`}>❤️ أعجبني أيضاً</button>
@@ -1117,6 +1141,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
           </div>
         </div>
       )}
+      {me?.athar && <AtharEntry athar={me.athar} api={api} where="me" />}
       <div className="mb-4 flex gap-1.5 overflow-x-auto">
         {([["upgrades", "⭐ الترقيات"], ["profile", "👤 ملفي"], ["pref", "💍 معايير الزواج"], ["privacy", "🔒 الخصوصية"]] as const).map(([k, l]) => (
           <Pill key={k} active={section === k} onClick={() => setSection(k)}>{l}</Pill>
@@ -1366,7 +1391,7 @@ function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: (
   );
 }
 
-function MatchModal({ card, onClose, onChat, athar, api }: { card: Card; onClose: () => void; onChat: () => void; athar?: { bot: string; today: string } | null; api?: any }) {
+function MatchModal({ card, onClose, onChat, athar, api }: { card: Card; onClose: () => void; onChat: () => void; athar?: { bot: string; today: string; home?: string } | null; api?: any }) {
   useEffect(() => { haptic("success"); }, []);
   const hearts = useMemo(() => Array.from({ length: 18 }, (_, i) => ({ i, x: Math.random() * 100, d: 2 + Math.random() * 2, s: 14 + Math.random() * 18 })), []);
   return (
@@ -1376,7 +1401,7 @@ function MatchModal({ card, onClose, onChat, athar, api }: { card: Card; onClose
       ))}
       <motion.div initial={{ scale: 0.6, rotate: -6 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 14 }} className="relative text-center">
         <h2 className="text-4xl font-black bg-gradient-to-l from-[#ff2e93] to-[#e8b4a0] bg-clip-text text-transparent drop-shadow">إنه توافق! 🎉</h2>
-        <p className="mt-2 text-white/70">أنت و #{card.shortId} أُعجب كلٌّ منكما بالآخر</p>
+        <p className="mt-2 text-white/70">أنت و {card.name || `#${card.shortId}`} أُعجب كلٌّ منكما بالآخر</p>
         <div className="my-6 flex items-center justify-center">
           <div className={`grid h-24 w-24 place-items-center rounded-full border-4 border-[#0b1020] text-4xl ${GRAD}`}>💞</div>
           <div className="-mr-6 grid h-24 w-24 place-items-center rounded-full border-4 border-[#0b1020] bg-gradient-to-br from-[#6d8cff] to-[#ff7ab8] text-4xl">{card.gender === "FEMALE" ? "👩" : "👨"}</div>
@@ -1494,6 +1519,19 @@ function Notifier({ api, say, enabled, onOpen }: { api: any; say: (m: string) =>
 
 // ---------------------------------------------------------------------------------------------
 // 🕰 Athar (flag MATCH_ENABLE_ATHAR; me.athar === null → nothing renders). Links only — no payments.
+/** 💎 Prominent entry: opens Athar's own web app (TonConnect/TON payment stay inside Athar). */
+function AtharEntry({ athar, api, where }: { athar: { bot: string; today: string; home?: string }; api?: any; where: string }) {
+  return (
+    <button data-testid={`athar-entry-${where}`} onClick={() => openAthar(athar.home || athar.today, `entry_${where}`, api)}
+      className="mb-4 flex w-full items-center gap-3 rounded-3xl border border-amber-300/30 bg-gradient-to-l from-amber-400/15 via-[#e8b4a0]/10 to-transparent p-4 text-right">
+      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-amber-300 to-amber-600 text-2xl">💎</span>
+      <span className="flex-1">
+        <span className="block font-bold">أثر — امتلك يوماً للأبد</span>
+        <span className="block text-[11px] text-white/60">يوم تعارفكما، ميلادك، أو ذكرى عزيزة — هدية تبقى. افتح أثر ←</span>
+      </span>
+    </button>
+  );
+}
 function openAthar(url: string, where: string, api?: any) {
   haptic("light");
   try { api?.("athar_click", { where }); } catch { /* analytics only */ }
@@ -1501,7 +1539,7 @@ function openAthar(url: string, where: string, api?: any) {
   if (url.startsWith("https://t.me/") && w?.openTelegramLink) w.openTelegramLink(url);
   else if (w?.openLink) w.openLink(url); else window.open(url, "_blank");
 }
-function AtharBirthday({ api, say, athar }: { api: any; say: any; athar: { bot: string; today: string } }) {
+function AtharBirthday({ api, say, athar }: { api: any; say: any; athar: { bot: string; today: string; home?: string } }) {
   const [date, setDate] = useState("");
   return (
     <div className={`mb-3 rounded-3xl p-4 text-sm ${GLASS}`}>
@@ -1578,7 +1616,7 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
             {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : card.gender === "FEMALE" ? "👩" : "👨"}
           </button>
           <div>
-            <p className="text-xl font-extrabold">#{card.shortId} {card.verified && <span className="text-sky-300">☑️</span>}</p>
+            <p className="text-xl font-extrabold">{card.name || `#${card.shortId}`} {card.verified && <span className="text-sky-300">☑️</span>}</p>
             <p className="text-xs text-white/55">{card.presence.online ? "● " : ""}{card.presence.label}{card.compat != null ? ` · 💞 ${card.compat}%` : ""}</p>
             {card.photoLocked && <button onClick={async () => { const r = await api("photo_request", { target: card.ref }); say(r.message || r.error); }} className="mt-2 rounded-full border border-[#e8b4a0]/50 px-3 py-1 text-[11px] text-[#f3cbbd]">🔒 اطلب رؤية الصورة</button>}
           </div>
@@ -1655,7 +1693,7 @@ function ChatSheet({ card, api, say, onClose, onUpgrade }: { card: Card; api: an
         <button onClick={onClose} aria-label="رجوع" className="text-xl">→</button>
         <div className={`grid h-10 w-10 place-items-center rounded-full ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>{card.gender === "FEMALE" ? "👩" : "👨"}</div>
         <div className="flex-1">
-          <p className="font-bold">{card.flag} #{card.shortId} · {card.age}</p>
+          <p className="font-bold">{card.flag} {card.name || `#${card.shortId}`} · {card.age}</p>
           <p className="text-[11px] text-white/50">{state?.matched ? "💞 إعجاب متبادل — مراسلة مفتوحة" : state?.unlocked || state?.vip ? "🔓 محادثة مفتوحة" : state ? `📨 طلب تعارف · متبقٍ لك ${state.freeLeft} رسائل مجانية` : "…"}</p>
         </div>
       </div>
