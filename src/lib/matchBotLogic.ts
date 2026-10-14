@@ -12,7 +12,7 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
 import { parseProfileStart } from "@/lib/match/inline";
-import { recordAnonMessage, getAnonFilterRow, getAnonFilterRows, setAnonActiveQueue, setAnonFilterValue, markAnonNotified } from "@/lib/match/appStore";
+import { clearAnonHistory, recordAnonMessage, getAnonFilterRow, getAnonFilterRows, setAnonActiveQueue, setAnonFilterValue, markAnonNotified } from "@/lib/match/appStore";
 import { anonPairOk, activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
 import { sanitizeAnonFilter, anonFilterIsEmpty, type AnonFilter } from "@/lib/match/premium";
 import { randomUUID } from "crypto";
@@ -21,6 +21,7 @@ import { CONTACT_BLOCKED_TEXT, containsContactInfo } from "@/lib/match/contactGu
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import { auditAdmin, idleRandomSessions } from "@/lib/match/appStore";
 import { pingAnonSession } from "@/lib/match/realtime";
+import { deliverToUser } from "@/lib/match/surface";
 import {
   PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
@@ -1425,19 +1426,27 @@ export async function expireFakeChatIfIdle(userId: string, lastAt: number): Prom
   await setPending(userId, null);
   const botRow = await prisma.bot.findUnique({ where: { id: user.botId } });
   if (botRow) {
-    await new TelegramBot(botRow.token).api
-      .sendMessage(Number(userId), "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() })
-      .catch(() => null);
+    await pingAnonSession(fakeSessionId(userId));
+    await deliverToUser(new TelegramBot(botRow.token), userId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
   }
   return "ended";
 }
 
+/** Fake-partner chats live in the same history table under "fake:<uid>" so the app can render them. */
+export const fakeSessionId = (uid: string) => `fake:${uid}`;
+export const FAKE_SENDER = "partner";
+async function fakeSay(bot: TelegramBot, tgUserId: string, text: string) {
+  await recordAnonMessage(fakeSessionId(tgUserId), FAKE_SENDER, text);
+  await pingAnonSession(fakeSessionId(tgUserId));
+  await deliverToUser(bot, tgUserId, text);
+}
 async function endFakeChat(bot: TelegramBot, chatId: number, tgUserId: string) {
   await setPending(tgUserId, null);
-  await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
+  await pingAnonSession(fakeSessionId(tgUserId));
+  await deliverToUser(bot, tgUserId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
 }
 
-async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number; lastAt: number }, userText: string) {
+export async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number; lastAt: number }, userText: string) {
   if (Date.now() - pending.lastAt > FAKE_CHAT_TIMEOUT_MS) {
     await endFakeChat(bot, chatId, tgUserId);
     return;
@@ -1451,7 +1460,7 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 
   if (node.reply) {
     await new Promise((r) => setTimeout(r, node.delayMs ?? 2000));
-    await bot.api.sendMessage(chatId, node.reply).catch(() => null);
+    await fakeSay(bot, tgUserId, node.reply);
   }
 
   if (node.disconnect) {
@@ -1571,8 +1580,9 @@ async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: Bo
       if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { sessionId: session.id } }).catch(() => null);
       await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
       await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
-      await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
-      await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
+      await deliverToUser(bot, tgUserId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await deliverToUser(bot, partnerEntry.userId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await pingAnonSession(session.id);
       return true;
     }
   }
@@ -1647,10 +1657,12 @@ export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: 
       const fakeBotId = availableIds[Math.floor(Math.random() * availableIds.length)];
       const script = FAKE_BOT_SCRIPTS[fakeBotId];
       await prisma.randomChatQueue.update({ where: { id: queueEntry.id }, data: { status: "MATCHED" } }).catch(() => null);
+      await clearAnonHistory(fakeSessionId(tgUserId));
       await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt: Date.now() });
-      await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await deliverToUser(bot, tgUserId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await pingAnonSession(fakeSessionId(tgUserId));
       await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
-      await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
+      await fakeSay(bot, tgUserId, script.greeting);
       // Restart the 5-minute clock from the greeting itself, unless the user
       // already replied during the greeting delay (that reply owns the clock).
       const now = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
@@ -1666,8 +1678,8 @@ export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: 
     }
   }
   };
-  if (opts.quiet) await rest();
-  else runAfterResponse(rest);
+  // App path too: the app polls for the result, so its request returns at once.
+  runAfterResponse(rest);
 }
 
 /** Schedule work after the HTTP response when inside a request; otherwise run now. */
@@ -1863,7 +1875,7 @@ export async function relayRandomChatText(bot: TelegramBot, chatId: number, tgUs
       await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها.").catch(() => null);
       return "banned";
     }
-    await bot.api.sendMessage(Number(pending.partnerId), text).catch(() => null);
+    await deliverToUser(bot, pending.partnerId, text);
     // Mini App chat window reads this history (additive, never throws).
     await recordAnonMessage(pending.sessionId, tgUserId, text);
     await pingAnonSession(pending.sessionId);
@@ -1875,8 +1887,8 @@ export async function relayRandomChatText(bot: TelegramBot, chatId: number, tgUs
       await prisma.randomChatSession.update({ where: { id: pending.sessionId }, data: { contactOfferSent: true } }).catch(() => null);
       const offerKb = new InlineKeyboard().text("📇 طلب تبادل التواصل الرسمي", "mcontact");
       const offerText = "💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي لمتابعة الأمر بجدية أكبر:";
-      await bot.api.sendMessage(chatId, offerText, { reply_markup: offerKb }).catch(() => null);
-      await bot.api.sendMessage(Number(pending.partnerId), offerText, { reply_markup: offerKb }).catch(() => null);
+      await deliverToUser(bot, tgUserId, offerText, { reply_markup: offerKb });
+      await deliverToUser(bot, pending.partnerId, offerText, { reply_markup: offerKb });
     }
     return "sent";
 }
@@ -1922,11 +1934,9 @@ export async function requestRandomChatContact(bot: TelegramBot, tgUserId: strin
     // loser falls through to the consent branch below and the exchange happens.
     const claimed = await prisma.randomChatSession.updateMany({ where: { id: session.id, contactRequestedBy: null }, data: { contactRequestedBy: tgUserId } });
     if (claimed.count === 1) {
-      await bot.api
-        .sendMessage(Number(pending.partnerId), "📇 يرغب الطرف الآخر بتبادل بيانات التواصل الرسمي معك. إن وافقت، اضغط الزر:", {
-          reply_markup: new InlineKeyboard().text("✅ أوافق على التبادل", "mcontact"),
-        })
-        .catch(() => null);
+      await deliverToUser(bot, pending.partnerId, "📇 يرغب الطرف الآخر بتبادل بيانات التواصل الرسمي معك. إن وافقت، اضغط الزر:", {
+        reply_markup: new InlineKeyboard().text("✅ أوافق على التبادل", "mcontact"),
+      });
       await pingAnonSession(pending.sessionId);
       return "requested";
     }
@@ -1995,8 +2005,9 @@ export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionI
     reason === "block" || !exitReasonLabel
       ? "انتهت المحادثة."
       : `🙏 أنهى الطرف الآخر المحادثة (السبب: ${exitReasonLabel}). شكراً لوقتك، ونتمنى لك التوفيق في إيجاد شريك مناسب.`;
-  await bot.api.sendMessage(Number(tgUserId), "انتهت المحادثة.", { reply_markup: mainMenu() }).catch(() => null);
-  await bot.api.sendMessage(Number(partnerId), partnerText, { reply_markup: mainMenu() }).catch(() => null);
+  await pingAnonSession(sessionId);
+  await deliverToUser(bot, tgUserId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+  await deliverToUser(bot, partnerId, partnerText, { reply_markup: mainMenu() });
 }
 
 // ---------------------------------------------------------------------

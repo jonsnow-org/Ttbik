@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS match_rate_limits (key TEXT PRIMARY KEY, window_start
 CREATE TABLE IF NOT EXISTS match_admin_audit (id BIGSERIAL PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, via TEXT NOT NULL DEFAULT 'bot', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS match_admin_audit_created_idx ON match_admin_audit (created_at DESC);
 CREATE TABLE IF NOT EXISTS match_anon_rt (session_id TEXT PRIMARY KEY, token TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_app_presence (user_id TEXT PRIMARY KEY, last_seen TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL);
 
 -- Recommended indexes on the existing MARRIAGE_BOT tables (additive, run manually once;

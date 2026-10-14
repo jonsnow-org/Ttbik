@@ -19,9 +19,10 @@ CREATE TABLE IF NOT EXISTS match_rate_limits (key TEXT PRIMARY KEY, window_start
 CREATE TABLE IF NOT EXISTS match_admin_audit (id BIGSERIAL PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, via TEXT NOT NULL DEFAULT 'bot', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS match_admin_audit_created_idx ON match_admin_audit (created_at DESC);
 CREATE TABLE IF NOT EXISTS match_anon_rt (session_id TEXT PRIMARY KEY, token TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_app_presence (user_id TEXT PRIMARY KEY, last_seen TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL)`;
 /** Bump when DDL_FALLBACK changes; the DDL then runs once per database, not on every cold start. */
-export const MATCH_APP_SCHEMA_VERSION = 3;
+export const MATCH_APP_SCHEMA_VERSION = 4;
 
 export function ensureMatchAppTables(): Promise<void> {
   if (!ready) {
@@ -151,4 +152,11 @@ export async function idleRandomSessions(minutes: number): Promise<{ id: string;
     WHERE s.status = 'ACTIVE'
       AND COALESCE((SELECT max(m.created_at) FROM match_app_messages m WHERE m.session_id = s.id), s.created_at) < now() - make_interval(mins => ${minutes})
     LIMIT 200`;
+}
+
+export async function clearAnonHistory(sessionId: string): Promise<void> {
+  try {
+    await ensureMatchAppTables();
+    await prisma.$executeRaw`DELETE FROM match_app_messages WHERE session_id = ${sessionId}`;
+  } catch { /* best effort */ }
 }

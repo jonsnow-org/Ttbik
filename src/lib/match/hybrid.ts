@@ -10,6 +10,7 @@
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow, MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { deliverToUser } from "@/lib/match/surface";
 import {
   INLINE_PAGE_SIZE, buildInlineArticle, deepLink, matchesFilter, paginate, parseInlineQuery, publicCardText,
   rateLimit, shortRef, toPublicProfile, type InlineFilter, type PublicProfile,
@@ -166,7 +167,8 @@ async function acceptChatRequest(bot: TelegramBot, botRow: BotRow, accepterId: s
   await prisma.matchUser.update({ where: { id: requesterId }, data: { pendingAction: { mode: "random_chatting", sessionId: session.id, partnerId: accepterId } as any } });
   await prisma.matchUser.update({ where: { id: accepterId }, data: { pendingAction: { mode: "random_chatting", sessionId: session.id, partnerId: requesterId } as any } });
   const hello = "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل). لا تشارك أرقامك أو حساباتك قبل أن تطمئن.";
-  await bot.api.sendMessage(Number(requesterId), hello, { reply_markup: chatMenu() }).catch(() => null);
+  // Requester may be in the app: then the chat opens in the app pane, no Telegram duplicate.
+  await deliverToUser(bot, requesterId, hello, { reply_markup: chatMenu() });
   await bot.api.sendMessage(Number(accepterId), hello, { reply_markup: chatMenu() }).catch(() => null);
   return "تم القبول ✅";
 }

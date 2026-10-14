@@ -16,7 +16,7 @@ type Card = {
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
-type Poll = { state: "idle" | "waiting" | "timeout" | "fake" | "chatting" | "ended"; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" };
+type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" };
 
 const tg = (): any => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null);
 const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select" = "light") => {
@@ -41,6 +41,9 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
   const [tab, setTab] = useState<Tab>("discover");
   const [me, setMe] = useState<any>(null);
   const [toast, setToast] = useState("");
+  const [anonUnread, setAnonUnread] = useState(0);
+  const anonLastId = useRef(0);
+  const anonWasChatting = useRef(false);
   const [modal, setModal] = useState<null | { kind: "match"; card: Card } | { kind: "compliment"; card: Card } | { kind: "super"; card: Card; done: () => void }>(null);
 
   const api = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
@@ -81,6 +84,27 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     reloadMe().then((r) => { if (r && r.registered && !r.profile) setTab("me"); });
   }, [reloadMe]);
 
+  // While the app is open on another tab: keep the app the active surface (so partner
+  // messages stay in the app, not Telegram) and show an unread badge on 🔀.
+  useEffect(() => {
+    if (boot !== "ready" || tab === "anon" || !me?.registered) return;
+    let stop = false;
+    const tick = async () => {
+      if (document.visibilityState !== "visible") return;
+      const r = await api("anon_poll", { after: anonLastId.current });
+      if (stop || !r?.ok) return;
+      if (r.state === "chatting") {
+        const n = (r.messages || []).filter((m: Msg) => !m.mine).length;
+        if (n) setAnonUnread(n);
+        if (!anonWasChatting.current) { anonWasChatting.current = true; say("✅ تم الاتصال في الدردشة المجهولة — افتح تبويب 🔀"); setAnonUnread((u) => Math.max(u, 1)); }
+      } else anonWasChatting.current = false;
+    };
+    tick();
+    const id = window.setInterval(tick, 10000);
+    return () => { stop = true; window.clearInterval(id); };
+  }, [boot, tab, me?.registered]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === "anon") setAnonUnread(0); }, [tab]);
+
   // BackButton: closes a modal, otherwise returns to discovery.
   useEffect(() => {
     const w = tg();
@@ -119,7 +143,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
       <Header me={me} onUpgrade={() => setTab("me")} />
       <AnimatePresence mode="wait">
         <motion.section key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.18 }} className="pb-32">
-          {tab === "anon" && <AnonTab api={api} say={say} me={me} active={tab === "anon"} onUsed={reloadMe} />}
+          {tab === "anon" && <AnonTab api={api} say={say} me={me} active={tab === "anon"} onUsed={reloadMe} onSeen={(id, chatting) => { anonLastId.current = id; anonWasChatting.current = chatting; }} />}
           {tab === "discover" && (hasProfile
             ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
@@ -129,7 +153,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
         </motion.section>
       </AnimatePresence>
 
-      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} />
+      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} unread={anonUnread} />
 
       <AnimatePresence>
         {modal?.kind === "match" && <MatchModal card={modal.card} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
@@ -184,7 +208,7 @@ function Header({ me, onUpgrade }: { me: any; onUpgrade: () => void }) {
   );
 }
 
-function BottomNav({ tab, setTab, admin }: { tab: Tab; setTab: (t: Tab) => void; admin: number | null }) {
+function BottomNav({ tab, setTab, admin, unread = 0 }: { tab: Tab; setTab: (t: Tab) => void; admin: number | null; unread?: number }) {
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
   if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
@@ -195,6 +219,7 @@ function BottomNav({ tab, setTab, admin }: { tab: Tab; setTab: (t: Tab) => void;
             <button onClick={() => setTab(t)} className="relative w-full rounded-3xl py-2 text-center">
               {tab === t && <motion.span layoutId="navpill" className={`absolute inset-0 rounded-3xl ${GRAD} opacity-90`} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
               <span className="relative block text-lg leading-none">{icon}</span>
+              {t === "anon" && !!unread && tab !== "anon" && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-4">{unread > 9 ? "9+" : unread}</span>}
               {t === "admin" && !!admin && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[9px] font-bold leading-4">{admin > 99 ? "99+" : admin}</span>}
               <span className={`relative mt-1 block text-[10px] ${tab === t ? "text-white font-bold" : "text-white/60"}`}>{label}</span>
             </button>
@@ -249,7 +274,9 @@ function Toggle({ on, label, hint, onChange }: { on: boolean; label: string; hin
 
 // ---------------------------------------------------------------------------------------------
 // 🔀 Anonymous chat — a window onto the BOT's own random chat (same queue, rules, buttons).
-function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any; active: boolean; onUsed: () => void }) {
+function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any; me: any; active: boolean; onUsed: () => void; onSeen?: (lastId: number, chatting: boolean) => void }) {
+  const [outbox, setOutbox] = useState<{ tmp: number; text: string; status: "sending" | "failed"; error?: string }[]>([]);
+  const [offline, setOffline] = useState(false);
   const af = me?.anonFilters || { owned: false, filter: {} };
   const [filter, setFilter] = useState<{ gender?: string; country: string; ageMin: string; ageMax: string }>(() => ({
     gender: af.filter?.gender, country: af.filter?.country ?? "", ageMin: af.filter?.ageMin != null ? String(af.filter.ageMin) : "", ageMax: af.filter?.ageMax != null ? String(af.filter.ageMax) : "",
@@ -263,7 +290,8 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
   const listRef = useRef<HTMLDivElement>(null);
 
   const apply = useCallback((r: any) => {
-    if (!r?.ok) { if (r?.error) say(r.error, "error"); return; }
+    if (!r?.ok) { setOffline(r?.error === "تعذّر الاتصال"); if (r?.error && r.error !== "تعذّر الاتصال") say(r.error, "error"); return; }
+    setOffline(false);
     if (r.state === "chatting" && r.sessionId !== sessionRef.current) { sessionRef.current = r.sessionId; lastId.current = 0; setMsgs([]); haptic("success"); }
     if (r.messages?.length) {
       lastId.current = r.messages[r.messages.length - 1].id;
@@ -272,7 +300,8 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
     }
     if (r.state === "ended" && sessionRef.current) { say("انتهت المحادثة"); sessionRef.current = undefined; }
     setPoll(r);
-  }, [say]);
+    onSeen?.(lastId.current, r.state === "chatting");
+  }, [say]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pollNow = async () => apply(await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current }));
   const [rtTopic, setRtTopic] = useState<string | null>(null);
@@ -311,14 +340,18 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
       if (cancelled) return;
       const client = createClient(cfg.url, cfg.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
       const ch = client.channel(rtTopic).on("broadcast", { event: "ping" }, () => { pollNow(); })
-        .subscribe((status: string) => { rtLive.current = status === "SUBSCRIBED"; });
+        .subscribe((status: string) => {
+          rtLive.current = status === "SUBSCRIBED";
+          // Reconnect: drop the topic and fetch a fresh one shortly; polling covers the gap.
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") window.setTimeout(() => { if (!cancelled) setRtTopic(null); }, 5000);
+        });
       cleanup = () => { rtLive.current = false; client.removeChannel(ch); };
     }).catch(() => { rtLive.current = false; });
     return () => { cancelled = true; cleanup?.(); };
   }, [active, rtTopic, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (poll.state !== "chatting") setRtTopic(null); }, [poll.state]);
 
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [msgs.length]);
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [msgs.length, outbox.length]);
 
   // Same as pressing «🔀 مراسلة عشوائية» in the bot.
   const start = async (ignoreFilter = false) => {
@@ -338,14 +371,22 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
     say(r.message || r.error, r.ok ? "success" : "error");
     onUsed();
   };
-  const send = async (t = text) => {
+  // Optimistic send: the bubble shows at once (⏳), then the server copy (✓) replaces it.
+  const send = async (t = text, retryTmp?: number) => {
     const v = t.trim();
     if (!v) return;
     setText("");
+    const tmp = retryTmp ?? Date.now();
+    setOutbox((o) => [...o.filter((x) => x.tmp !== tmp), { tmp, text: v, status: "sending" }]);
     const r = await api("anon_send", { text: v });
-    if (!r.ok) { say(r.error, "error"); setText(v); return; }
+    if (!r.ok) {
+      setOutbox((o) => o.map((x) => (x.tmp === tmp ? { ...x, status: "failed", error: r.error } : x)));
+      if (r.error && r.error !== "تعذّر الاتصال") say(r.error, "error");
+      return;
+    }
     haptic("light");
-    pollNow();
+    await pollNow();
+    setOutbox((o) => o.filter((x) => x.tmp !== tmp));
   };
   const end = async (reason: string) => { setExitOpen(false); await api("anon_end", { reason }); setPoll({ state: "idle" }); sessionRef.current = undefined; };
 
@@ -359,16 +400,6 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
     return () => { w.MainButton.offClick(h); w.MainButton.hide(); };
   }, [active, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (poll.state === "fake") {
-    return (
-      <div className={`mt-6 rounded-3xl p-5 text-center ${GLASS}`}>
-        <p className="font-bold">💬 محادثتك جارية داخل البوت</p>
-        <p className="mt-1 text-sm text-white/60">تابعها من محادثة البوت مباشرة.</p>
-        <button onClick={() => tg()?.close?.()} className={`mt-4 rounded-2xl px-6 py-3 font-bold ${GRAD}`}>فتح البوت</button>
-      </div>
-    );
-  }
-
   if (poll.state === "chatting") {
     return (
       <div className={`flex h-[calc(100vh-190px)] flex-col rounded-3xl ${GLASS}`}>
@@ -377,13 +408,13 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
             <div className={`grid h-10 w-10 place-items-center rounded-full ${GRAD}`}>🎭</div>
             <div>
               <p className="text-sm font-bold">شخص مجهول</p>
-              <p className="text-[11px] text-emerald-300">● مجهولة الهوية بالكامل</p>
+              <p className={`text-[11px] ${offline ? "text-amber-300" : "text-emerald-300"}`}>{offline ? "⚠️ إعادة الاتصال…" : "● مجهولة الهوية بالكامل"}</p>
             </div>
           </div>
           <div className="flex gap-1">
-            <IconBtn title="إبلاغ" onClick={async () => { const r = await api("anon_report"); say(r.message || r.error); }}>🚩</IconBtn>
-            <IconBtn title="حظر" onClick={async () => { if (await confirmTg("حظر هذا الشخص وإنهاء المحادثة؟")) { const r = await api("anon_block"); setPoll({ state: "idle" }); sessionRef.current = undefined; say(r.message || "⛔ تم الحظر"); } }}>⛔</IconBtn>
-            <IconBtn title="إنهاء المحادثة" onClick={() => setExitOpen(true)}>⏹</IconBtn>
+            {!poll.fake && <IconBtn title="إبلاغ" onClick={async () => { const r = await api("anon_report"); say(r.message || r.error); }}>🚩</IconBtn>}
+            {!poll.fake && <IconBtn title="حظر" onClick={async () => { if (await confirmTg("حظر هذا الشخص وإنهاء المحادثة؟")) { const r = await api("anon_block"); setPoll({ state: "idle" }); sessionRef.current = undefined; say(r.message || "⛔ تم الحظر"); } }}>⛔</IconBtn>}
+            <IconBtn title="إنهاء المحادثة" onClick={() => (poll.fake ? end("other") : setExitOpen(true))}>⏹</IconBtn>
           </div>
         </div>
         {exitOpen && (
@@ -400,7 +431,19 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
             <motion.div key={m.id} initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`max-w-[80%] rounded-2xl px-3 py-2 text-[15px] leading-6 ${m.mine ? `mr-auto ${GRAD} rounded-bl-md` : "ml-auto bg-white/10 rounded-br-md"}`}>
               {m.text}
+              {m.mine && <span className="mr-1 align-bottom text-[10px] opacity-70">✓</span>}
             </motion.div>
+          ))}
+          {outbox.map((o) => (
+            <div key={o.tmp} className={`mr-auto max-w-[80%] rounded-2xl rounded-bl-md px-3 py-2 text-[15px] leading-6 ${o.status === "failed" ? "border border-red-400/60 bg-red-500/10" : `${GRAD} opacity-70`}`}>
+              {o.text}
+              {o.status === "sending" ? <span className="mr-1 text-[10px]">⏳</span> : (
+                <span className="mt-1 block text-[11px] text-red-200">⚠️ لم تُرسل{o.error && o.error !== "تعذّر الاتصال" ? "" : " — "}
+                  {(!o.error || o.error === "تعذّر الاتصال") && <button onClick={() => send(o.text, o.tmp)} className="underline">إعادة المحاولة</button>}
+                  <button onClick={() => setOutbox((x) => x.filter((y) => y.tmp !== o.tmp))} className="mr-2 opacity-70">✕</button>
+                </span>
+              )}
+            </div>
           ))}
         </div>
         {poll.contact && poll.contact !== "hidden" && (
@@ -843,13 +886,13 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; sa
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <button onClick={async () => { const r = await api("request", { target: c.ref }); say(r.message || r.error, r.ok ? "success" : "error"); }} className={`flex-1 rounded-2xl py-2 text-sm font-bold ${GRAD}`}>💌 دردشة مجهولة</button>
+            <button onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className={`flex-1 rounded-2xl py-2 text-sm font-bold ${GRAD}`}>💌 دردشة مجهولة</button>
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
           </div>
         </motion.div>
       ))}
-      <p className="text-center text-[11px] text-white/35">عند الإعجاب المتبادل يرسل البوت تنبيهاً لكما في تلجرام.</p>
+      <p className="text-center text-[11px] text-white/35">عند قبول طلب الدردشة تُفتح المحادثة داخل التطبيق (تبويب 🔀) ما دام التطبيق مفتوحاً، وإلا تصلك في البوت.</p>
     </div>
   );
 }

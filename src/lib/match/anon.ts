@@ -13,7 +13,12 @@ import { prisma } from "@/lib/prisma";
 import { anonMessagesSince, getAnonFilterRow } from "@/lib/match/appStore";
 import { CONTACT_BLOCKED_TEXT } from "@/lib/match/contactGuard";
 import { activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
+import { after } from "next/server";
+import { recordAnonMessage } from "@/lib/match/appStore";
+import { pingAnonSession } from "@/lib/match/realtime";
+import { touchAppPresence } from "@/lib/match/surface";
 import {
+  fakeSessionId, handleFakeBotReply,
   EXIT_REASON_LABELS, endRandomChat, relayRandomChatText, reportRandomChat, requestRandomChatContact, startRandomChat,
 } from "@/lib/matchBotLogic";
 
@@ -32,6 +37,7 @@ export const ANON_EXIT_REASONS = [
 export async function anonStart(bot: TelegramBot, botRow: BotRow, me: string, ignoreFilter = false): Promise<void> {
   const p = await pendingOf(me);
   if (p?.mode === "random_chatting" || p?.mode === "fake_chatting") return;
+  await touchAppPresence(me); // started from the app → deliver here, not to Telegram
   await startRandomChat(bot, Number(me), botRow, me, { quiet: true, ignoreFilter });
 }
 
@@ -39,11 +45,11 @@ export type AnonPoll =
   | { state: "idle" }
   | { state: "waiting"; filter: string | null }
   | { state: "timeout"; filter: string | null }
-  | { state: "fake" }
-  | { state: "chatting"; sessionId: string; messages: { id: number; mine: boolean; text: string; at: string }[]; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" }
+  | { state: "chatting"; sessionId: string; fake?: boolean; messages: { id: number; mine: boolean; text: string; at: string }[]; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" }
   | { state: "ended" };
 
 export async function anonPoll(me: string, afterId: number, lastSessionId?: string): Promise<AnonPoll> {
+  await touchAppPresence(me); // app is the active surface while it polls
   const p = await pendingOf(me);
   if (p?.mode === "random_waiting") {
     // Like the bot: no auto-extension. After the 60s window the user re-presses.
@@ -54,7 +60,12 @@ export async function anonPoll(me: string, afterId: number, lastSessionId?: stri
     if (!row || row.status !== "WAITING" || row.expiresAt <= new Date()) return { state: "timeout", filter };
     return { state: "waiting", filter };
   }
-  if (p?.mode === "fake_chatting") return { state: "fake" };
+  if (p?.mode === "fake_chatting") {
+    // Same scripted partner as the bot, rendered in the app from the shared history.
+    const sid = fakeSessionId(me);
+    const msgs = await anonMessagesSince(sid, afterId);
+    return { state: "chatting", sessionId: sid, fake: true, contact: "hidden", messages: msgs.map((m) => ({ id: m.id, mine: m.sender_id === me, text: m.text, at: m.created_at.toISOString() })) };
+  }
   if (p?.mode === "random_chatting" && p.sessionId && p.partnerId) {
     const [session, msgs] = await Promise.all([
       prisma.randomChatSession.findUnique({ where: { id: p.sessionId } }),
@@ -79,6 +90,15 @@ export async function anonSend(bot: TelegramBot, me: string, text: string): Prom
   const t = text.trim();
   if (!t) return { ok: false, error: "رسالة فارغة" };
   const p = await pendingOf(me);
+  await touchAppPresence(me);
+  if (p?.mode === "fake_chatting") {
+    // Exactly the bot's fake-chat step (same script, same 5-min timeout), run after the response.
+    await recordAnonMessage(fakeSessionId(me), me, t);
+    await pingAnonSession(fakeSessionId(me));
+    const step = async () => { await handleFakeBotReply(bot, Number(me), me, p as any, t); };
+    try { after(() => step().catch(() => null)); } catch { await step(); }
+    return { ok: true };
+  }
   if (p?.mode !== "random_chatting" || !p.sessionId || !p.partnerId) return { ok: false, error: "لا توجد محادثة نشطة" };
   const r = await relayRandomChatText(bot, Number(me), me, { sessionId: p.sessionId, partnerId: p.partnerId }, t);
   if (r === "contact") return { ok: false, error: CONTACT_BLOCKED_TEXT };
@@ -91,6 +111,8 @@ export async function anonEnd(bot: TelegramBot, me: string, kind: "end" | "block
   if (p?.mode === "random_chatting" && p.sessionId && p.partnerId) {
     const label = kind === "end" && reasonCode ? EXIT_REASON_LABELS[reasonCode] || EXIT_REASON_LABELS.other : undefined;
     await endRandomChat(bot, me, p.sessionId, p.partnerId, kind, label);
+  } else if (p?.mode === "fake_chatting") {
+    await prisma.matchUser.update({ where: { id: me }, data: { pendingAction: null as any } }); // bot's «⏹» on a fake chat
   } else if (p?.mode === "random_waiting") {
     await prisma.randomChatQueue.updateMany({ where: { userId: me, status: "WAITING" }, data: { status: "CANCELLED" } });
     await prisma.matchUser.update({ where: { id: me }, data: { pendingAction: null as any } });
