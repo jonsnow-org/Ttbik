@@ -34,6 +34,13 @@ const PASSWORD_TEMPLATES = [
   "CAPSULE_BOT",
   "SITE_BANNER_ADMIN",
   "CHANNEL_PUBLISH_BOT",
+  // creator hub (/create) — src/lib/hubBotLogic.ts
+  "HUB_APP_BOT",
+  "HUB_LEGAL_BOT",
+  "HUB_MIND_BOT",
+  "HUB_DIALECT_BOT",
+  "HUB_REPURPOSE_BOT",
+  "HUB_POINTS_BOT",
 ] as const;
 
 const ALLOWED_TEMPLATES = new Set<string>([...PUBLIC_TEMPLATES, ...PASSWORD_TEMPLATES]);

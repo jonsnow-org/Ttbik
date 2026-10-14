@@ -43,6 +43,7 @@ async function notifyGrok(botId: string, template: string, body: any) {
 }
 
 import { handleZenobiaBotUpdate } from "@/lib/zenobiaBotLogic";
+import { handleHubBotUpdate, isHubTemplate } from "@/lib/hubBotLogic";
 
 export const maxDuration = 60;
 
@@ -166,6 +167,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await handleAtharBotUpdate(bot, botRow, body);
       } else if (botRow.template === "ZENOBIA_BOT") {
         await handleZenobiaBotUpdate(bot, botRow, body);
+      } else if (isHubTemplate(botRow.template)) {
+        await handleHubBotUpdate(bot, botRow, body); // creator hub (/create) templates, tables created on first use
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {

@@ -177,6 +177,12 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             {gatedOption("STREAK_BOT", "بوت السلاسل اليومية")}
             {gatedOption("PRAYER_BOT", "بوت مواقيت الصلاة")}
             {gatedOption("CAPSULE_BOT", "بوت كبسولة الزمن")}
+            {isOwner && <option value="HUB_APP_BOT">المنشئ: صانع التطبيقات المصغّرة بالكلام</option>}
+            {isOwner && <option value="HUB_LEGAL_BOT">المنشئ: المساعد القانوني (معلومات عامة)</option>}
+            {isOwner && <option value="HUB_MIND_BOT">المنشئ: الدعم النفسي الأولي</option>}
+            {isOwner && <option value="HUB_DIALECT_BOT">المنشئ: مترجم اللهجات العربية</option>}
+            {isOwner && <option value="HUB_REPURPOSE_BOT">المنشئ: محوّل المحتوى</option>}
+            {isOwner && <option value="HUB_POINTS_BOT">المنشئ: النقاط والمكافآت</option>}
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
@@ -202,7 +208,7 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
         </div>
         {template === "SITE_BANNER_ADMIN" || template === "CHANNEL_PUBLISH_BOT" ? (
           <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل.</p>
-        ) : template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
+        ) : template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" || template.startsWith("HUB_") ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>
             <input
