@@ -10,6 +10,8 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
+import { parseProfileStart } from "@/lib/match/inline";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -437,7 +439,7 @@ async function saveProfile(bot: TelegramBot, chatId: number, userId: string, dat
   }
 }
 
-async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
+export async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
   // Buttons carry the full userId in callback_data — see handleAdminCallback.
   // The text commands (موافقة ملف/رفض ملف <رمز>) still work too, as a
   // fallback for whenever a message with buttons has scrolled out of view.
@@ -1737,7 +1739,7 @@ async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: stri
 // Referral reward (owner spec, 2026-09-05) — 24h free Boost for the referrer,
 // granted exactly once per referred person, only when the referred profile goes
 // live (never on rejection).
-async function grantReferralReward(bot: TelegramBot, profileUserId: string) {
+export async function grantReferralReward(bot: TelegramBot, profileUserId: string) {
   const referredUser = await prisma.matchUser.findUnique({ where: { id: profileUserId } });
   if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
     await prisma.matchUser.update({ where: { id: profileUserId }, data: { referralRewardGranted: true } }).catch(() => null);
@@ -2124,6 +2126,12 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
 // Main dispatcher
 // ---------------------------------------------------------------------
 export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  // Hybrid mode (2026-10-14, additive): inline search + consent chat requests.
+  if (update.inline_query) {
+    await handleMatchInlineQuery(bot, botRow, update.inline_query);
+    return;
+  }
+  if (update.callback_query && (await handleHybridCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query) {
     await handleMatchCallback(bot, botRow, update.callback_query);
     return;
@@ -2235,6 +2243,24 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       { reply_markup: new Keyboard().requestContact("📱 مشاركة رقم الهاتف").resized() }
     );
     return;
+  }
+
+  // Hybrid mode (2026-10-14): Mini App menu button + /start profile_<id> deep
+  // links from inline results. Runs after the ban/mute/phone gates on purpose.
+  if (typeof msg.text === "string" && msg.text.startsWith("/start")) {
+    await ensureMiniAppMenu(bot, botRow, chatId);
+    const profileRef = parseProfileStart(startPayload);
+    const curMode = (user.pendingAction as any)?.mode;
+    if (profileRef && curMode !== "random_chatting" && curMode !== "fake_chatting") {
+      await openProfileDeepLink(bot, botRow, chatId, tgUserId, profileRef);
+      return;
+    }
+    if (startPayload === "app") {
+      await bot.api.sendMessage(chatId, "💍 افتح التطبيق لإدارة ملفك وتصفّح المطابقات:", {
+        reply_markup: new InlineKeyboard().webApp("فتح التطبيق 💍", miniAppUrl(botRow.id)),
+      });
+      return;
+    }
   }
 
   const pending = user.pendingAction as PendingAction | null;

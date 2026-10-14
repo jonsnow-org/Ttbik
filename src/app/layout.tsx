@@ -74,7 +74,7 @@ const ORGANIZATION_JSON_LD = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = (await headers()).get("x-pathname") || "";
-  const isMiniApp = pathname.startsWith("/mini-app") || pathname.startsWith("/fadaa");
+  const isMiniApp = pathname.startsWith("/mini-app") || pathname.startsWith("/fadaa") || pathname.startsWith("/match-app");
 
   // Embeddable widgets (/embed/*) are shown inside other sites' iframes:
   // no header, ads or footer — just the widget.
