@@ -148,22 +148,24 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
       <Notifier api={api} say={say} enabled={hasProfile} onOpen={() => setTab("chats")} />
       <Onboarding hasProfile={hasProfile} goProfile={() => setTab("me")} />
       <Header me={me} onUpgrade={() => setTab("me")} />
-      <AnimatePresence mode="wait">
-        <motion.section key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.18 }} className="pb-32">
+      {/* QA fix: no exit-wait here — an exiting tab with a pending layout/infinite animation could block
+          the next tab forever (blank «المطابقات» after visiting a «ملفي» section). Enter animation only. */}
+      <>
+        <motion.section key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="pb-32">
           {tab === "anon" && <AnonTab api={api} say={say} me={me} active={tab === "anon"} onUsed={reloadMe} onSeen={(id, chatting) => { anonLastId.current = id; anonWasChatting.current = chatting; }} />}
           {tab === "discover" && (hasProfile
             ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} onGo={(t) => setTab(t)} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
-          {tab === "chats" && <ChatsTab api={api} say={say} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
+          {tab === "chats" && <ChatsTab api={api} say={say} athar={me?.athar} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
           {tab === "me" && (me?.registered === false ? <Empty icon="🛡" text="حساب الإدارة بلا ملف عضو" /> : <MeTab api={api} say={say} me={me} reload={reloadMe} />)}
           {tab === "admin" && me?.isAdmin && <AdminTab api={api} say={say} onChange={reloadMe} />}
         </motion.section>
-      </AnimatePresence>
+      </>
 
       <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} unread={anonUnread} />
 
       <AnimatePresence>
-        {modal?.kind === "match" && <MatchModal card={modal.card} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
+        {modal?.kind === "match" && <MatchModal card={modal.card} athar={me?.athar} api={api} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
         {modal?.kind === "super" && <SuperLikeSheet balance={me?.ent?.balance ?? 0} onClose={() => setModal(null)} onSend={async (note) => {
           const r = await api("swipe", { target: modal.card.ref, kind: "super", note });
           say(r.message || r.error, r.ok ? "success" : "error");
@@ -902,7 +904,9 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { car
 
 // ---------------------------------------------------------------------------------------------
 // 💬 Chats
-function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void }) {
+function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string } | null }) {
+  const [moments, setMoments] = useState<{ kind: string; day: string; link: string }[]>([]);
+  useEffect(() => { if (athar) api("athar_moments").then((r: any) => r?.ok && setMoments(r.items || [])); }, [api, athar]);
   const [matches, setMatches] = useState<Card[] | null>(null);
   const [anon, setAnon] = useState<Poll | null>(null);
   const [likedMe, setLikedMe] = useState<(Card & { note?: string | null })[] | null>(null);
@@ -926,6 +930,14 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; sa
         {anon?.state === "chatting" && <span className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_10px_#34d399]" />}
       </motion.button>
 
+      {moments.map((m) => (
+        <div key={m.kind + m.day} className="relative rounded-3xl border border-[#e8b4a0]/40 bg-gradient-to-l from-[#ff2e93]/15 to-[#e8b4a0]/10 p-4 text-sm">
+          <button onClick={() => { api("athar_dismiss", { kind: m.kind, day: m.day }); setMoments((x) => x.filter((y) => y !== m)); }} className="absolute left-3 top-2 text-white/40" aria-label="إخفاء">✕</button>
+          <p className="font-bold">🎁 {m.kind === "proposal" ? "أهدِ شريكك ذكرى يوم القبول" : "أهدِ شريكك تاريخ أول محادثة"}</p>
+          <p className="mt-1 text-[11px] text-white/60">{new Date(m.day + "T00:00:00Z").toLocaleDateString("ar", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} — ذكرى خاصة بكما في «أثر».</p>
+          <button onClick={() => openAthar(m.link, "gift", api)} className={`mt-2 rounded-2xl px-4 py-2 text-xs font-bold ${GRAD}`}>🕰 افتح التاريخ في أثر</button>
+        </div>
+      ))}
       <h3 className="pt-2 text-sm text-white/60">💞 إعجابات متبادلة</h3>
       {!matches && <div className={`h-20 animate-pulse rounded-3xl ${GLASS}`} />}
       {matches?.length === 0 && <p className="text-sm text-white/40">لا توجد إعجابات متبادلة بعد. استمر في التصفح 🔥</p>}
@@ -945,7 +957,13 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; sa
             <button onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className={`flex-1 rounded-2xl py-2 text-sm font-bold ${GRAD}`}>💌 دردشة مجهولة</button>
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
+            <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent("💞 تطابق جديد على توافق")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
           </div>
+          {(c as any).metLink && (
+            <button onClick={() => openAthar((c as any).metLink, "month", api)} className="mt-2 w-full rounded-2xl border border-[#e8b4a0]/30 bg-white/5 px-3 py-2 text-right text-[12px]">
+              🗓 مرّ {Math.floor(((c as any).metDays || 30) / 30) > 1 ? `${Math.floor((c as any).metDays / 30)} أشهر` : "شهر"} على تعارفكما — احتفظا بذكرى يوم الإعجاب المتبادل في «أثر»
+            </button>
+          )}
         </motion.div>
       ))}
       <h3 className="pt-2 text-sm text-white/60">💌 من أعجب بي {likedMe?.length ? <span className="rounded-full bg-pink-500/80 px-1.5 text-[10px] font-bold text-white">{likedMe.length}</span> : null}</h3>
@@ -1019,6 +1037,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
 
       {section === "upgrades" && <UpgradeScreen api={api} say={say} me={me} reload={reload} />}
 
+      {section === "profile" && me?.athar && <AtharBirthday api={api} say={say} athar={me.athar} />}
       {section === "profile" && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <div className="mb-3 flex gap-2">
@@ -1259,7 +1278,7 @@ function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: (
   );
 }
 
-function MatchModal({ card, onClose, onChat }: { card: Card; onClose: () => void; onChat: () => void }) {
+function MatchModal({ card, onClose, onChat, athar, api }: { card: Card; onClose: () => void; onChat: () => void; athar?: { bot: string; today: string } | null; api?: any }) {
   useEffect(() => { haptic("success"); }, []);
   const hearts = useMemo(() => Array.from({ length: 18 }, (_, i) => ({ i, x: Math.random() * 100, d: 2 + Math.random() * 2, s: 14 + Math.random() * 18 })), []);
   return (
@@ -1275,6 +1294,12 @@ function MatchModal({ card, onClose, onChat }: { card: Card; onClose: () => void
           <div className="-mr-6 grid h-24 w-24 place-items-center rounded-full border-4 border-[#0b1020] bg-gradient-to-br from-[#6d8cff] to-[#ff7ab8] text-4xl">{card.gender === "FEMALE" ? "👩" : "👨"}</div>
         </div>
         <p className="mb-4 text-xs text-white/50">أرسل البوت تنبيهاً لكما في تلجرام</p>
+        {athar?.today && (
+          <button onClick={() => openAthar(athar.today, "match", api)} className="mb-3 w-full rounded-2xl border border-[#e8b4a0]/40 bg-white/5 px-4 py-3 text-right text-sm">
+            🕰 <b>يومكم في أثر</b> — {new Date().toLocaleDateString("ar", { day: "numeric", month: "long", year: "numeric" })}
+            <span className="block text-[11px] text-white/50">احتفظا بذكرى يوم تعارفكما في «أثر» 🎁</span>
+          </button>
+        )}
         <button onClick={onChat} className={`w-full rounded-2xl py-3.5 font-bold ${GRAD}`}>💌 ابدأ دردشة مجهولة</button>
         <button onClick={onClose} className="mt-2 w-full rounded-2xl border border-white/15 py-3">متابعة التصفح</button>
       </motion.div>
@@ -1375,5 +1400,32 @@ function Notifier({ api, say, enabled, onOpen }: { api: any; say: (m: string) =>
     <button onClick={() => { setBadge(null); onOpen(); }} className={`fixed left-4 top-20 z-40 max-w-[60%] truncate rounded-full px-3 py-1.5 text-[11px] ${GLASS}`} aria-label="إشعارات">
       🔔 {badge}
     </button>
+  );
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// 🕰 Athar (flag MATCH_ENABLE_ATHAR; me.athar === null → nothing renders). Links only — no payments.
+function openAthar(url: string, where: string, api?: any) {
+  haptic("light");
+  try { api?.("athar_click", { where }); } catch { /* analytics only */ }
+  const w = tg();
+  if (url.startsWith("https://t.me/") && w?.openTelegramLink) w.openTelegramLink(url);
+  else if (w?.openLink) w.openLink(url); else window.open(url, "_blank");
+}
+function AtharBirthday({ api, say, athar }: { api: any; say: any; athar: { bot: string; today: string } }) {
+  const [date, setDate] = useState("");
+  return (
+    <div className={`mb-3 rounded-3xl p-4 text-sm ${GLASS}`}>
+      <p className="font-bold">🎂 تاريخ ميلادك في أثر <span className="text-[11px] font-normal text-white/40">(اختياري — لا يُحفظ)</span></p>
+      <p className="mt-1 text-[11px] text-white/50">كل يوم من 1950 إلى 2049 له ذكرى في «أثر». اختر تاريخك وافتحه.</p>
+      <div className="mt-2 flex gap-2">
+        <input type="date" min="1950-01-01" max="2049-12-31" value={date} onChange={(e) => setDate(e.target.value)} aria-label="تاريخ الميلاد"
+          className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 outline-none" />
+        <button disabled={!date} onClick={async () => { const r = await api("athar_link", { date }); if (r.ok) openAthar(r.link, "birthday", api); else if (!r.hidden) say(r.error, "error"); }}
+          className={`rounded-2xl px-3 text-xs font-bold disabled:opacity-50 ${GRAD}`}>افتح</button>
+      </div>
+      <button onClick={() => openAthar(athar.bot, "promo", api)} className="mt-2 text-[11px] text-[#f3cbbd] underline">🕰 تعرّف على «أثر» — ذكرى لكل يوم</button>
+    </div>
   );
 }

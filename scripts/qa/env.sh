@@ -8,7 +8,7 @@ QA="${QA_DIR:-/workspace/qa}"
 PGBIN="${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin | tail -1)}"
 export PGPORT=54329 TG_MOCK_PORT=54400 PORT=3100
 export DATABASE_URL="postgresql://qa@localhost:54329/matchqa"
-export SUPER_ADMIN_TELEGRAM_ID=9000 NEXT_PUBLIC_SITE_URL="http://localhost:3100" MATCH_REALTIME=off
+export MATCH_ENABLE_ATHAR="${MATCH_ENABLE_ATHAR:-1}" SUPER_ADMIN_TELEGRAM_ID=9000 NEXT_PUBLIC_SITE_URL="http://localhost:3100" MATCH_REALTIME=off
 export NEXT_PUBLIC_SUPABASE_URL="http://127.0.0.1:54400/sb" NEXT_PUBLIC_SUPABASE_ANON_KEY="qa-anon" SUPABASE_SERVICE_ROLE_KEY="qa-service"
 export NODE_OPTIONS="--require $ROOT/scripts/qa/intercept.cjs"
 mkdir -p "$QA"

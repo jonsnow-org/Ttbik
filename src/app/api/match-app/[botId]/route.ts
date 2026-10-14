@@ -15,6 +15,7 @@ import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
 import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
 import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { trackFunnel } from "@/lib/match/growth";
+import { atharClientConfig, atharDateLink, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
 import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         anonFilters: await anonFiltersStatus(tg.id).catch(() => ({ owned: false, until: null, viaVip: false, filter: {} })),
         anonExitReasons: ANON_EXIT_REASONS,
         firstDiscount: (await firstPurchaseEligible(tg.id)) ? FIRST_PURCHASE_DISCOUNT : 0,
+        athar: await atharClientConfig().catch(() => null), // null = flag off or Athar unreachable → app hides every Athar card
         rewindPrice: PRICE_REWIND,
         buyNowKeys: BUY_NOW_KEYS,
         catalogue: UPGRADE_CATALOGUE,
@@ -202,6 +204,20 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (!link) return err("تعذّر إنشاء الفاتورة");
       void trackFunnel(tg.id, "stars_invoice", key);
       return NextResponse.json({ ok: true, link, stars, usd });
+    }
+    // ---- 🕰 Athar (flag MATCH_ENABLE_ATHAR; links only, no payments) ----
+    if (action.startsWith("athar_")) {
+      const cfg = await atharClientConfig().catch(() => null);
+      if (!cfg) return NextResponse.json({ ok: false, hidden: true });
+      if (action === "athar_moments") return NextResponse.json({ ok: true, items: await pendingMoments(tg.id).catch(() => []) });
+      if (action === "athar_dismiss") { await dismissMoment(tg.id, String(body.kind || ""), String(body.day || "")).catch(() => null); return NextResponse.json({ ok: true }); }
+      if (action === "athar_link") {
+        const y = parseYmd(String(body.date || ""));
+        const link = y && atharDateLink(y);
+        return link ? NextResponse.json({ ok: true, link }) : err("اختر تاريخاً بين 1950 و2049");
+      }
+      if (action === "athar_click") { void trackFunnel(tg.id, "athar_click", String(body.where || "").slice(0, 20)); return NextResponse.json({ ok: true }); }
+      return err("إجراء غير معروف");
     }
     if (action === "track") {
       const ev = String(body.event);
@@ -346,6 +362,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const advanced = hasAdvancedFilters(user);
       const strict = action === "discover" && !!body.strict && advanced && !!user.preference; // «🎯 بحث دقيق» — same gate as the bot
       let ids: string[];
+      const matchedAt = new Map<string, Date>(); // mutual date = the later of the two likes
       if (action === "discover") {
         ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict); // the bot's own ranking engine
       } else {
@@ -355,8 +372,19 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         ]);
         const back = new Set(theirs.map((l) => l.fromUserId));
         ids = mine.map((l) => l.toUserId).filter((id) => back.has(id));
+        const likedAt = await prisma.matchLike.findMany({ where: { OR: [{ fromUserId: tg.id, toUserId: { in: ids } }, { toUserId: tg.id, fromUserId: { in: ids } }] }, select: { fromUserId: true, toUserId: true, created_at: true } });
+        for (const l of likedAt) { const other = l.fromUserId === tg.id ? l.toUserId : l.fromUserId; const t = matchedAt.get(other); if (!t || l.created_at > t) matchedAt.set(other, l.created_at); }
       }
-      const items = await cards(ids.slice(0, 30), pref, advanced);
+      let items: any[] = await cards(ids.slice(0, 30), pref, advanced);
+      if (action === "matches" && matchedAt.size) {
+        const athar = await atharClientConfig().catch(() => null);
+        const refToUser = new Map((await prisma.matchProfile.findMany({ where: { userId: { in: [...matchedAt.keys()] } }, select: { id: true, userId: true } })).map((p) => [p.id, p.userId]));
+        items = items.map((c) => {
+          const at = matchedAt.get(refToUser.get(c.ref) || "");
+          const days = at ? Math.floor((Date.now() - at.getTime()) / 86400_000) : 0;
+          return { ...c, since: at ? at.toISOString().slice(0, 10) : null, metDays: days, metLink: athar && at && days >= 30 ? atharDateLink(ymdOf(at)) : null };
+        });
+      }
       return NextResponse.json({ ok: true, me: myPub, items, strict, advanced });
     }
 
@@ -387,6 +415,19 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     if (blocked && action !== "report") return err("هذا الملف غير متاح");
 
+    if (action === "share_match") {
+      // Privacy-safe public page: only the match date and the app name (no ids, names, photos, countries).
+      const [ab, ba] = await Promise.all([
+        prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: tg.id, toUserId: target } } }),
+        prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: target, toUserId: tg.id } } }),
+      ]);
+      if (!ab || !ba) return err("المشاركة متاحة للإعجاب المتبادل فقط");
+      if (!(await pgRateLimit(`share:${tg.id}`, 10, 3600))) return err("تمهّل قليلاً");
+      const at = ab.created_at > ba.created_at ? ab.created_at : ba.created_at;
+      const token = await createShare(botId, at);
+      const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+      return NextResponse.json({ ok: true, url: `${base}/match-share/${token}` });
+    }
     if (action === "seen") {
       // The bot records a visit each time it shows a card (sendSearchCard); same here.
       await trackProfileVisit(target, tg.id).catch(() => null);

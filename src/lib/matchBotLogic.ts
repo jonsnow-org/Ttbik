@@ -26,9 +26,10 @@ import {
   PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
   purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
-  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, PRICE_REWIND,
+  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
 } from "@/lib/match/entitlements";
 import { trackFunnel } from "@/lib/match/growth";
+import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -161,18 +162,35 @@ function mainMenu(): Keyboard {
     .text("⭐ الترقيات والمزايا")
     .resized();
 }
-function upgradesMenu(): Keyboard {
+// Upgrade button labels. With the first-purchase discount (server-checked) the label shows the
+// discounted price; handlers accept BOTH variants (isUpgradeLabel), so old keyboards keep working.
+const UPGRADE_LABELS = {
+  boost: ["🚀 رفع ملفي", PRICE_BOOST_24H, "/24س"],
+  verify: ["☑️ طلب التوثيق", PRICE_VERIFIED_BADGE, ""],
+  photos: ["🖼 صور إضافية", PRICE_EXTRA_PHOTOS, ""],
+  visitors: ["👀 من زار ملفي", PRICE_PROFILE_VISITORS, ""],
+  filters: ["🎯 فلاتر متقدمة", PRICE_ADVANCED_FILTERS, ""],
+  vip: ["👑 العضوية الذهبية", PRICE_VIP_30D, "/شهر"],
+} as const;
+export function upgradeLabel(k: keyof typeof UPGRADE_LABELS, discount = false): string {
+  const [name, price, unit] = UPGRADE_LABELS[k];
+  return discount ? `${name} ($${discountedPrice(price, true)} بدل $${price}${unit})` : `${name} ($${price}${unit})`;
+}
+export function isUpgradeLabel(text: string, k: keyof typeof UPGRADE_LABELS): boolean {
+  return text === upgradeLabel(k, false) || text === upgradeLabel(k, true);
+}
+function upgradesMenu(discount = false): Keyboard {
   const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb
-    .text(`🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`).row()
-    .text(`☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`).row()
-    .text(`🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`).row()
-    .text(`👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`).row()
-    .text(`🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`).row()
-    .text(ANON_FILTERS_BUTTON()).row()
+    .text(upgradeLabel("boost", discount)).row()
+    .text(upgradeLabel("verify", discount)).row()
+    .text(upgradeLabel("photos", discount)).row()
+    .text(upgradeLabel("visitors", discount)).row()
+    .text(upgradeLabel("filters", discount)).row()
+    .text(ANON_FILTERS_BUTTON(discount)).row()
     .text("🎯 بحث دقيق (للمشتركين)").row()
-    .text(`👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`).row()
+    .text(upgradeLabel("vip", discount)).row()
     .text("🕶 وضع التخفي (ضمن الذهبية)").row()
     .text(backLabel())
     .resized();
@@ -263,7 +281,9 @@ function photoStepMenu(): Keyboard {
 function randomChatMenu(): Keyboard {
   return new Keyboard().text("⏹ إنهاء المحادثة").row().text("🎛 فلاتر الدردشة").resized();
 }
-const ANON_FILTERS_BUTTON = () => `🎛 فلاتر الدردشة العشوائية ($${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`;
+const ANON_FILTERS_BUTTON = (discount = false) => discount
+  ? `🎛 فلاتر الدردشة العشوائية ($${discountedPrice(PRICE_ANON_FILTERS, true)} بدل $${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`
+  : `🎛 فلاتر الدردشة العشوائية ($${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`;
 function isBack(text: string): boolean {
   return text === backLabel() || text === "/cancel";
 }
@@ -1969,6 +1989,8 @@ export async function requestRandomChatContact(bot: TelegramBot, tgUserId: strin
     if (!fresh?.contactRequestedBy || fresh.contactRequestedBy === tgUserId) return "already";
   } else if (session.contactRequestedBy === tgUserId) return "already";
   await revealContacts(bot, tgUserId, pending.partnerId);
+  // Athar «gift the date of your first chat» suggestion (flag-gated; nothing visible in the bot).
+  if (atharEnabled()) await recordMoment([tgUserId, pending.partnerId], "contact", session.created_at).catch(() => null);
   return "revealed";
 }
 
@@ -2524,7 +2546,9 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // Referral capture (owner spec, 2026-09-05) — only meaningful on a
   // brand-new user's very first /start; ensureMatchUser only writes
   // referredBy on creation, never overwrites an existing row.
-  const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+ref_(\d+)/) : null;
+  // ref_<id> (own link) or ath_<id> (the same referral, shared from Athar — see docs/MATCH_ATHAR.md).
+  const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+(?:ref|ath)_(\d+)/) : null;
+  if (typeof msg.text === "string" && /^\/start(?:@\w+)?\s+ath_\d+/.test(msg.text)) void trackFunnel(tgUserId, "athar_arrival", refMatch?.[1], "bot");
   const user = await ensureMatchUser(botRow.id, tgUserId, refMatch?.[1]);
   await recordBotVisit(botRow.id, tgUserId);
   await prisma.matchUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
@@ -2849,7 +2873,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await startSearch(bot, chatId, tgUserId, botRow.id, undefined, true);
     return;
   }
-  if (text === ANON_FILTERS_BUTTON() || text === "🎛 فلاتر الدردشة") {
+  if (text === ANON_FILTERS_BUTTON() || text === ANON_FILTERS_BUTTON(true) || text === "🎛 فلاتر الدردشة") {
     await showAnonFiltersMenu(bot, chatId, tgUserId);
     return;
   }
@@ -2915,7 +2939,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // Paid features menu (owner spec, 2026-09-05)
   // ---------------------------------------------------------------------
   if (text === "⭐ الترقيات والمزايا") {
-    await bot.api.sendMessage(chatId, "⭐ الترقيات والمزايا المدفوعة — اختر ما يناسبك:", { reply_markup: upgradesMenu() });
+    const disc = await firstPurchaseEligible(tgUserId).catch(() => false);
+    await bot.api.sendMessage(chatId, `⭐ الترقيات والمزايا المدفوعة — اختر ما يناسبك:${disc ? `\n🎁 خصم ${Math.round(FIRST_PURCHASE_DISCOUNT * 100)}% على أول ترقية (مرة واحدة) — الأسعار أدناه بعد الخصم.` : ""}`, { reply_markup: upgradesMenu(disc) });
     return;
   }
   if (text === "💰 رصيدي وإيداع") {
@@ -2935,7 +2960,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     );
     return;
   }
-  if (text === `🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`) {
+  if (isUpgradeLabel(text, "boost")) {
     const r = await purchaseBoost(tgUserId);
     if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
@@ -2956,7 +2981,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, `🚀 تم رفع ملفك! سيظهر أولاً في نتائج البحث حتى ${r.boostedUntil.toLocaleString("ar")}.`, { reply_markup: upgradesMenu() });
     return;
   }
-  if (text === `☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`) {
+  if (isUpgradeLabel(text, "verify")) {
     const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
@@ -2978,7 +3003,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     );
     return;
   }
-  if (text === `🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`) {
+  if (isUpgradeLabel(text, "photos")) {
     const r = await unlockExtraPhotos(tgUserId);
     if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
@@ -2998,7 +3023,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, "🖼 أرسل الصورة الإضافية الآن:", { reply_markup: plainBackMenu() });
     return;
   }
-  if (text === `👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`) {
+  if (isUpgradeLabel(text, "visitors")) {
     const r = await unlockProfileVisitors(tgUserId);
     if (!r.ok) {
       if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
@@ -3018,7 +3043,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, `👀 آخر زوار ملفك:\n\n${lines.join("\n")}`, { reply_markup: upgradesMenu() });
     return;
   }
-  if (text === `🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`) {
+  if (isUpgradeLabel(text, "filters")) {
     const r = await unlockAdvancedFilters(tgUserId);
     if (!r.ok && r.reason === "no_pref") {
       await bot.api.sendMessage(chatId, "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", { reply_markup: upgradesMenu() });
@@ -3032,7 +3057,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, "🎯 المدينة المطلوبة للشريك:", { reply_markup: skipMenu() });
     return;
   }
-  if (text === `👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`) {
+  if (isUpgradeLabel(text, "vip")) {
     const r = await purchaseVip(tgUserId);
     if (!r.ok) {
       if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });

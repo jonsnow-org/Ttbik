@@ -450,3 +450,57 @@ test("anon: read receipts and typing indicator between two app users", async ({ 
   await api(1001, "anon_end", { reason: "other" });
   await a.ctx.close(); await b.ctx.close();
 });
+
+const psql = (sql: string) => execSync(`psql -h /tmp -p 54329 -U qa matchqa -qAt -c ${JSON.stringify(sql)}`).toString().trim();
+
+test("athar (flag on in QA env): match modal, birthday, gift moment, month card, share page, ath_ referral; bot discount labels", async ({ browser }) => {
+  test.setTimeout(240_000);
+  reseed(); await tgReset();
+  const me = await api(1001, "me"); expect(me.body.athar?.today, "athar config when flag on + Athar reachable").toMatch(/\/date\?i=\d+&lang=ar$/);
+  // gift moment + month card (data set directly in the local QA DB)
+  psql(`INSERT INTO match_athar_moments (user_id, kind, day) VALUES ('1001','contact','2026-09-01')`);
+  psql(`UPDATE "MatchLike" SET created_at = now() - interval '40 days' WHERE ("fromUserId"='1001' AND "toUserId"='1005') OR ("fromUserId"='1005' AND "toUserId"='1001')`);
+  const a = await openApp(browser, 1001, "أحمد");
+  await nav(a.page, "محادثاتي"); await a.page.waitForTimeout(1500);
+  await expect(a.page.getByText("أهدِ شريكك تاريخ أول محادثة")).toBeVisible();
+  await expect(a.page.getByText(/مرّ شهر على تعارفكما/)).toBeVisible();
+  await shot(a.page, "athar-chats-gift-month");
+  await a.page.getByText("🕰 افتح التاريخ في أثر").click({ force: true });
+  const idx = Math.round((Date.UTC(2026, 8, 1) - Date.UTC(1950, 0, 1)) / 864e5);
+  expect(await a.page.evaluate(() => (window as any).__tg.links)).toContainEqual(expect.stringContaining(`/date?i=${idx}&lang=ar`));
+  // share page: privacy-safe
+  await a.page.getByRole("button", { name: "مشاركة" }).first().click({ force: true }); await a.page.waitForTimeout(1200);
+  const shareLink = (await a.page.evaluate(() => (window as any).__tg.links)).find((u: string) => u.includes("t.me/share"));
+  expect(shareLink).toBeTruthy();
+  const url = decodeURIComponent(/url=([^&]+)/.exec(shareLink)![1]);
+  const p2 = await a.ctx.newPage(); await p2.goto(url);
+  await expect(p2.getByText("تطابق جديد على «توافق»")).toBeVisible();
+  const body = await p2.locator("main").first().innerText();
+  for (const leak of ["ليلى", "أحمد", "1005", "1001", "مصر"]) expect(body, `share page must not leak ${leak}`).not.toContain(leak);
+  await p2.screenshot({ path: `${SHOTS}/athar-share-page.png`, fullPage: true }); await p2.close();
+  // birthday card
+  await nav(a.page, "ملفي"); await a.page.waitForTimeout(800);
+  await a.page.getByRole("button", { name: "👤 ملفي", exact: true }).first().click({ force: true }); await a.page.waitForTimeout(600);
+  await a.page.getByLabel("تاريخ الميلاد").fill("1990-05-01");
+  await a.page.getByRole("button", { name: "افتح" }).click({ force: true }); await a.page.waitForTimeout(800);
+  const bIdx = Math.round((Date.UTC(1990, 4, 1) - Date.UTC(1950, 0, 1)) / 864e5);
+  expect(await a.page.evaluate(() => (window as any).__tg.links)).toContainEqual(expect.stringContaining(`/date?i=${bIdx}&lang=ar`));
+  await shot(a.page, "athar-birthday");
+  // match modal: 1001 likes 1002 (who already liked 1001) from the deck
+  await nav(a.page, "المطابقات"); await a.page.waitForTimeout(1200);
+  for (let i = 0; i < 6; i++) {
+    if (await a.page.getByText("يومكم في أثر").count()) break;
+    await a.page.getByRole("button", { name: "إعجاب", exact: true }).first().click({ force: true, timeout: 5000 }).catch(() => {}); await a.page.waitForTimeout(1500);
+  }
+  await expect(a.page.getByText("يومكم في أثر")).toBeVisible();
+  await shot(a.page, "athar-match-modal");
+  await a.ctx.close();
+  // ath_ referral from Athar → referredBy set (reward on approval = the existing 24h boost)
+  expect(await tgText(1010, "/start ath_1001")).toBe(200);
+  expect(psql(`SELECT "referredBy" FROM "MatchUser" WHERE id='1010'`)).toBe("1001");
+  // bot price labels show the first-purchase discount
+  await tgReset();
+  expect(await tgText(1005, "⭐ الترقيات والمزايا")).toBe(200);
+  const kb = JSON.stringify((await tgCalls()).filter((c) => /sendMessage/.test(c.method)).map((c) => c.payload));
+  expect(kb).toContain("بدل $2");
+});

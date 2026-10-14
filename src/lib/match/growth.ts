@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureMatchAppTables } from "@/lib/match/appStore";
 import { EXPIRY_REMINDER_DAYS, PRICE_ANON_FILTERS, PRICE_VIP_30D } from "@/lib/match/entitlementRules";
 
-export const FUNNEL_EVENTS = ["app_open", "upgrades_view", "purchase_attempt", "purchase_insufficient", "purchase_success", "stars_invoice", "stars_paid", "rewind", "reminder_sent"] as const;
+export const FUNNEL_EVENTS = ["app_open", "upgrades_view", "purchase_attempt", "purchase_insufficient", "purchase_success", "stars_invoice", "stars_paid", "rewind", "reminder_sent", "athar_arrival", "athar_click"] as const;
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[number];
 
 /** Fire-and-forget; never throws into the caller. */

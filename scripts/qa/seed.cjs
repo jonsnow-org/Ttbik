@@ -18,7 +18,7 @@ const people = [
 (async () => {
   const tables = ["MatchReport", "AdminMessage", "MatchLike", "MatchBlock", "MatchProfileVisit", "MatchPhotoPermission", "RandomChatQueue", "RandomChatSession", "MatchTransaction", "PartnerPreference", "MatchProfilePrivacy", "MatchProfile", "MatchUser"];
   for (const t of tables) await prisma.$executeRawUnsafe(`DELETE FROM "${t}"`).catch(() => null);
-  for (const t of ["match_app_messages", "match_anon_filters", "match_rate_limits", "match_admin_audit", "match_anon_rt", "match_app_presence", "match_app_daily", "match_app_passes", "match_app_compliments", "match_first_discount", "match_funnel_events", "match_expiry_reminders", "match_app_passes_log", "match_anon_state"]) await prisma.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => null);
+  for (const t of ["match_app_messages", "match_anon_filters", "match_rate_limits", "match_admin_audit", "match_anon_rt", "match_app_presence", "match_app_daily", "match_app_passes", "match_app_compliments", "match_first_discount", "match_funnel_events", "match_expiry_reminders", "match_app_passes_log", "match_anon_state", "match_athar_moments", "match_share"]) await prisma.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => null);
   await prisma.bot.upsert({ where: { id: BOT.id }, update: BOT, create: BOT });
   for (const p of people) {
     await prisma.matchUser.create({ data: { id: p.id, botId: BOT.id, phoneVerified: true, balance: p.balance ?? 0, vipUntil: p.vip ? new Date(Date.now() + 20 * day) : null } });

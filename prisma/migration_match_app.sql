@@ -65,3 +65,7 @@ CREATE TABLE IF NOT EXISTS match_expiry_reminders (user_id TEXT NOT NULL, kind T
 CREATE TABLE IF NOT EXISTS match_app_passes_log (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE INDEX IF NOT EXISTS match_app_passes_log_user_idx ON match_app_passes_log (user_id, id DESC);
 CREATE TABLE IF NOT EXISTS match_anon_state (session_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read BIGINT NOT NULL DEFAULT 0, typing_at TIMESTAMPTZ, PRIMARY KEY (session_id, user_id));
+
+-- v6 (2026-10-14): Athar moments (flag MATCH_ENABLE_ATHAR) + privacy-safe share page
+CREATE TABLE IF NOT EXISTS match_athar_moments (user_id TEXT NOT NULL, kind TEXT NOT NULL, day TEXT NOT NULL, dismissed BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, kind, day));
+CREATE TABLE IF NOT EXISTS match_share (token TEXT PRIMARY KEY, bot_id TEXT NOT NULL, day TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());

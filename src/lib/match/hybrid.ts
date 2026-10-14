@@ -7,6 +7,7 @@
  * accepted request to the existing random-chat relay (pendingAction
  * "random_chatting"), so ending/reporting/contact-exchange keep working as-is.
  */
+import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
 import type { Bot as BotRow, MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -184,6 +185,8 @@ export async function handleHybridCallback(bot: TelegramBot, botRow: BotRow, cq:
     note = (await sendChatRequest(bot, botRow, userId, target)).message;
   } else if (kind === "mh_acc" && target) {
     note = await acceptChatRequest(bot, botRow, userId, target, Number(tsRaw));
+    // Athar «gift» suggestion after an accepted 💍 (flag-gated, invisible to the bot flow).
+    if (note === "تم القبول ✅" && String(cq.message?.text || "").startsWith("💍") && atharEnabled()) await recordMoment([userId, target], "proposal", new Date()).catch(() => null);
     if (cq.message) await bot.api.editMessageReplyMarkup(cq.message.chat.id, cq.message.message_id, { reply_markup: new InlineKeyboard() }).catch(() => null);
   } else if (kind === "mh_dec" && target) {
     note = "تم الرفض.";

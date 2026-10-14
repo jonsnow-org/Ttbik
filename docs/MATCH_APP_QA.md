@@ -14,6 +14,7 @@ simulated webhooks). NOT run in CI. Screenshots: `/workspace/qa/shots/`, capture
 | 3 | Anon chat | Two app users press 🔀 within ~1 s | App path has no search animation, so the first searcher falls back to an AI partner immediately (FAKE threshold 100) — real app users rarely meet each other | App (quiet) path now waits `appSearchWaitMs()` = the bot animation length (8 frames × 650 ms) after enqueueing; the client keeps polling; second pairing attempt + AI fallback only after that. Bot path untouched. | Fixed (round 2) |
 | 5 | Anon filters purchase (bot + app) | Buy «🎛 فلاتر الدردشة» | `make_interval(days => $1)` received a bigint parameter → Postgres 42883; the balance was already charged, the filter never activated | Cast `${days}::int` (and `${minutes}::int` in the idle-session sweep, same error) | Fixed (round 2) |
 | 6 | Anon idle sweep | Session idle > N min | Same bigint → `make_interval(mins)` error; idle sessions never auto-ended | `::int` cast | Fixed (round 2) |
+| 7 | Tabs | Open «ملفي», tap any section pill, then «المطابقات» | `AnimatePresence mode="wait"` waited forever for the exiting tab → blank screen | Enter-only tab animation (no exit wait) | Fixed (round 3) |
 | 4 | QA env | `env.sh up` never returned | Background processes inherited the pipe | `setsid … < /dev/null` | Fixed |
 
 ## Verified OK
@@ -36,3 +37,7 @@ All server-side, on the bot's balance/entitlement system (no new money path):
 - **↩️ Rewind** (new, $0.5, `PRICE_REWIND` in entitlementRules): skips are logged (bot «➡️ الملف التالي» and app ✖️); bot card button «↩️ السابق» and app button use the same `purchaseRewind` (pass popped atomically, put back if the balance is short).
 - UX: first-run onboarding, ✓/✓✓ read receipts and "يكتب الآن…" (app↔app), useful empty states, in-app notifications (likes / matches / visitors).
 
+
+## Round 3 — Athar promotion (flag `MATCH_ENABLE_ATHAR`, off by default) — see docs/MATCH_ATHAR.md
+Bot «⭐ الترقيات والمزايا» now shows the first-purchase price (e.g. «$1.6 بدل $2») while eligible; both label variants are accepted.
+Full e2e: 15/15 passed (QA env runs with the flag ON; unit test covers OFF + hide-on-failure).
