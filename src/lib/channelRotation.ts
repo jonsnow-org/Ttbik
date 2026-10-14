@@ -177,7 +177,7 @@ function atharItem(): Item {
   return {
     kind: "athar",
     title: "أثر على Getgems",
-    blurb: "مجموعة أثر على شبكة TON: رمز لكل يوم في التقويم بين 1950 و2049. الصفحة للعرض فقط، بلا وعد ربح.",
+    blurb: "مجموعة أثر على شبكة TON: رمز لكل يوم في التقويم بين 1950 و2049. الصفحة للعرض والتعريف بالمجموعة فقط.",
     url: ATHAR_GETGEMS,
     athar: true,
     label: "أثر · رمز لكل يوم",
@@ -325,9 +325,30 @@ export async function publishRotation(slot: number, opts: { dry?: boolean } = {}
     return { ok: false, slot, reason: "nothing-new" };
   }
 
-  const text = await caption(item);
+  let text = await caption(item);
   if (!captionOk(item, text)) {
-    return { ok: false, slot, topic: item.title, kind: item.kind, reason: "blocked" };
+    // A blocked Literium/Athar caption must not hold the whole channel: before
+    // 2026-10-14 the Athar fallback itself matched ATHAR_BANNED, Athar stayed
+    // "due" forever and every run returned "blocked" without posting anything.
+    // Postpone that item one cycle and post the next pool item instead.
+    if (item.kind === "athar") state.lastAtharAt = new Date().toISOString();
+    if (item.kind === "literium") state.lastLiteriumAt = new Date().toISOString();
+    const pick = pickPool(state);
+    const alt = pick ? formatPost(pick, state.cursor) : "";
+    if (!pick || !isSafeForChannel(alt)) {
+      if (!opts.dry) await saveState(state).catch(() => null);
+      return { ok: false, slot, topic: item.title, kind: item.kind, reason: "blocked" };
+    }
+    if (opts.dry) return { ok: true, slot, topic: pick.title, kind: pick.kind, text: alt, reason: "dry-run" };
+    const sent = await sendPost(pick, alt);
+    if (!sent.ok) return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: `telegram: ${sent.error}` };
+    const at = new Date().toISOString();
+    state.recent.push({ title: pick.title, link: pick.url, at });
+    state.seenAt[pick.id] = at;
+    state.lastPostAt = at;
+    state.cursor += 1;
+    await saveState(state).catch((e) => console.error("[channel-rotation] state save failed", e));
+    return { ok: true, slot, topic: pick.title, kind: pick.kind, text: alt };
   }
 
   if (opts.dry) return { ok: true, slot, topic: item.title, kind: item.kind, text, reason: "dry-run" };
