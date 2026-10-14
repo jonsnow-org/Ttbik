@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-13 19:24 UTC",
+  "generated_at": "2026-10-14 00:25 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -48,15 +48,6 @@
       "failure": ""
     },
     {
-      "alias": "دفتر المحادثة والمرمزات 1",
-      "track": "chat_image_in_one",
-      "status": "running",
-      "role": "primary",
-      "last_run": "2026-10-13",
-      "gpu": false,
-      "failure": ""
-    },
-    {
       "alias": "مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "status": "cancelAcknowledged",
@@ -77,11 +68,11 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "error",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-12",
-      "gpu": false,
-      "failure": "(بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\""
+      "last_run": "2026-10-13",
+      "gpu": true,
+      "failure": ""
     },
     {
       "alias": "المرحلة الثالثة 1",
@@ -89,6 +80,15 @@
       "status": "complete",
       "role": "duplicate",
       "last_run": "2026-09-28",
+      "gpu": false,
+      "failure": ""
+    },
+    {
+      "alias": "دفتر المحادثة والمرمزات 1",
+      "track": "chat_image_in_one",
+      "status": "complete",
+      "role": "primary",
+      "last_run": "2026-10-13",
       "gpu": false,
       "failure": ""
     },
@@ -140,7 +140,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-13",
       "gpu": false,
@@ -207,7 +207,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 718.4,
+      "size_mb": 0.0,
       "last_updated": "2026-10-13",
       "progress": {},
       "has_key_files": true
@@ -215,7 +215,7 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 368.2,
+      "size_mb": 0.0,
       "last_updated": "2026-10-13",
       "progress": {},
       "has_key_files": true
@@ -357,10 +357,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 1.2,
+      "size_mb": 1.7,
       "last_updated": "2026-10-13",
       "progress": {
-        "videos_consumed": 667
+        "videos_consumed": 767
       },
       "has_key_files": true
     }
@@ -406,7 +406,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 667
+          "videos_consumed": 767
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
