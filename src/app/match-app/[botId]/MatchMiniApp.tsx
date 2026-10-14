@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 type Tab = "anon" | "discover" | "chats" | "me";
 type Card = {
   ref: string; shortId: string; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
-  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number;
+  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null;
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
@@ -31,10 +31,9 @@ const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select"
 
 const GRAD = "bg-gradient-to-l from-[#ff2e93] via-[#e0708a] to-[#e8b4a0]";
 const GLASS = "bg-white/[0.06] backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.35)]";
-const SPIN_LABELS = ["⭐ إعجابان مميزان", "🔀 5 دردشات", "🚀 رفع 6 س", "🚀 رفع 24 س", "👑 VIP يوم"];
 
 const emptyProfile = { gender: "", name: "", age: "", country: "", city: "", job: "", education: "", maritalStatus: "", attributes: "", contactMethod: "TELEGRAM", contactValue: "" };
-const emptyPref = { country: "", ageMin: "", ageMax: "", job: "", education: "", attributes: "" };
+const emptyPref = { country: "", ageMin: "", ageMax: "", job: "", education: "", attributes: "", city: "", maritalStatus: "" };
 const blank = (o: Record<string, any>, base: Record<string, any>) => Object.fromEntries(Object.keys(base).map((k) => [k, o?.[k] ?? base[k] ?? ""]));
 
 export default function MatchMiniApp({ botId }: { botId: string }) {
@@ -42,7 +41,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
   const [tab, setTab] = useState<Tab>("discover");
   const [me, setMe] = useState<any>(null);
   const [toast, setToast] = useState("");
-  const [modal, setModal] = useState<null | { kind: "match"; card: Card } | { kind: "spin" } | { kind: "compliment"; card: Card }>(null);
+  const [modal, setModal] = useState<null | { kind: "match"; card: Card } | { kind: "compliment"; card: Card } | { kind: "super"; card: Card; done: () => void }>(null);
 
   const api = useCallback(async (action: string, extra: Record<string, unknown> = {}) => {
     try {
@@ -113,15 +112,15 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
 
   return (
     <Shell>
-      <Header me={me} onSpin={() => setModal({ kind: "spin" })} />
+      <Header me={me} onUpgrade={() => setTab("me")} />
       <AnimatePresence mode="wait">
         <motion.section key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.18 }} className="pb-32">
           {tab === "anon" && <AnonTab api={api} say={say} me={me} active={tab === "anon"} onUsed={reloadMe} />}
           {tab === "discover" && (hasProfile
-            ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onUsed={reloadMe} />
+            ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
           {tab === "chats" && <ChatsTab api={api} say={say} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
-          {tab === "me" && <MeTab api={api} say={say} me={me} reload={reloadMe} onSpin={() => setModal({ kind: "spin" })} />}
+          {tab === "me" && <MeTab api={api} say={say} me={me} reload={reloadMe} />}
         </motion.section>
       </AnimatePresence>
 
@@ -129,8 +128,12 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
 
       <AnimatePresence>
         {modal?.kind === "match" && <MatchModal card={modal.card} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
-        {modal?.kind === "spin" && <SpinModal api={api} say={say} available={!!me?.daily?.spinAvailable} onClose={() => { setModal(null); reloadMe(); }} />}
-        {modal?.kind === "compliment" && <ComplimentSheet list={me?.compliments || []} left={me?.daily?.complimentsLeft} onClose={() => setModal(null)} onPick={async (i) => { const r = await api("compliment", { target: modal.card.ref, index: i }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); reloadMe(); }} />}
+        {modal?.kind === "super" && <SuperLikeSheet balance={me?.ent?.balance ?? 0} onClose={() => setModal(null)} onSend={async (note) => {
+          const r = await api("swipe", { target: modal.card.ref, kind: "super", note });
+          say(r.message || r.error, r.ok ? "success" : "error");
+          if (r.ok) { modal.done(); setModal(null); reloadMe(); if (r.match) setModal({ kind: "match", card: { ...modal.card, ...r.card } }); }
+        }} />}
+        {modal?.kind === "compliment" && <ComplimentSheet list={me?.compliments || []} left={me?.complimentsLeft} onClose={() => setModal(null)} onPick={async (i) => { const r = await api("compliment", { target: modal.card.ref, index: i }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); reloadMe(); }} />}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -157,21 +160,20 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Header({ me, onSpin }: { me: any; onSpin: () => void }) {
-  const vip = !!me?.vipUntil;
+function Header({ me, onUpgrade }: { me: any; onUpgrade: () => void }) {
+  const vip = !!me?.ent?.vip;
   return (
     <header className="mb-4 flex items-center justify-between">
       <div>
         <p className="text-xs text-white/50">أهلاً {me?.firstName || ""} 👋</p>
         <h1 className="text-xl font-extrabold">
           <span className="bg-gradient-to-l from-[#ff7ab8] to-[#e8b4a0] bg-clip-text text-transparent">توافق</span>
-          {vip && <span className="mr-2 rounded-full bg-gradient-to-l from-amber-300 to-amber-500 px-2 py-0.5 text-[10px] font-bold text-black align-middle">👑 VIP</span>}
+          {vip && <span className="mr-2 rounded-full bg-gradient-to-l from-amber-300 to-amber-500 px-2 py-0.5 text-[10px] font-bold text-black align-middle">👑 ذهبية</span>}
         </h1>
       </div>
-      <motion.button whileTap={{ scale: 0.9 }} onClick={() => { haptic("medium"); onSpin(); }}
-        className={`relative grid h-11 w-11 place-items-center rounded-2xl ${GLASS}`} aria-label="عجلة الحظ">
-        <motion.span animate={me?.daily?.spinAvailable ? { rotate: [0, 20, -20, 0] } : {}} transition={{ repeat: Infinity, duration: 2.4 }}>🎡</motion.span>
-        {me?.daily?.spinAvailable && <span className="absolute -top-1 -left-1 h-3 w-3 rounded-full bg-[#ff2e93] shadow-[0_0_12px_#ff2e93]" />}
+      <motion.button whileTap={{ scale: 0.92 }} onClick={() => { haptic("medium"); onUpgrade(); }}
+        className={`flex items-center gap-1.5 rounded-2xl px-3 py-2 text-sm ${GLASS}`} aria-label="الرصيد والترقيات">
+        <span>💰</span><b>${Number(me?.ent?.balance ?? 0).toFixed(2)}</b><span className="text-[#f3cbbd]">⭐</span>
       </motion.button>
     </header>
   );
@@ -359,7 +361,6 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
           className={`relative grid h-24 w-24 place-items-center rounded-full text-4xl shadow-[0_0_40px_rgba(255,46,147,0.5)] ${GRAD}`}>🎭</motion.div>
       </div>
       <p className="text-center text-white/70">{poll.state === "waiting" ? "نبحث عن شخص مناسب… يمكنك البقاء هنا" : "دردشة مجهولة الهوية مع شخص جديد — من التطبيق أو البوت"}</p>
-      {me?.daily?.anonLeft != null && <p className="mt-1 text-center text-xs text-white/40">متبقٍ اليوم: {me.daily.anonLeft} دردشة</p>}
 
       {poll.state === "waiting" ? (
         <button onClick={async () => { await api("anon_end"); setPoll({ state: "idle" }); }} className="mx-auto mt-6 block rounded-2xl border border-white/15 px-6 py-3">إلغاء البحث</button>
@@ -394,20 +395,22 @@ function confirmTg(text: string): Promise<boolean> {
 
 // ---------------------------------------------------------------------------------------------
 // 🔥 Swipe discovery
-function DiscoverTab({ api, say, me, onMatch, onCompliment, onUsed }: { api: any; say: any; me: any; onMatch: (c: Card) => void; onCompliment: (c: Card) => void; onUsed: () => void }) {
+function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed }: { api: any; say: any; me: any; onMatch: (c: Card) => void; onCompliment: (c: Card) => void; onSuper: (c: Card, done: () => void) => void; onUsed: () => void }) {
   const [deck, setDeck] = useState<Card[] | null>(null);
+  const [strict, setStrict] = useState(false);
   const [photos, setPhotos] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setDeck(null);
-    const r = await api("discover");
+    const r = await api("discover", { strict });
     if (!r.ok) { say(r.error, "error"); setDeck([]); return; }
     setDeck(r.items);
-  }, [api, say]);
+  }, [api, say, strict]);
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     const top = deck?.[0];
+    if (top) api("seen", { target: top.ref }); // same visit tracking as the bot's card
     if (top?.photo && !photos[top.ref]) api("photo", { target: top.ref }).then((r: any) => r.ok && setPhotos((p) => ({ ...p, [top.ref]: r.src })));
   }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -424,19 +427,28 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onUsed }: { api: any
     const card = deck?.[0];
     if (!card) return;
     haptic(kind === "pass" ? "light" : kind === "super" ? "heavy" : "medium");
+    if (kind === "super") { onSuper(card, () => setDeck((d) => (d ? d.filter((x) => x.ref !== card.ref) : d))); return; }
     if (kind !== "propose") setDeck((d) => (d ? d.slice(1) : d));
     const r = await api("swipe", { target: card.ref, kind });
-    if (!r.ok) { say(r.error, "error"); if (kind === "super") setDeck((d) => (d ? [card, ...d] : d)); return; }
+    if (!r.ok) { say(r.error, "error"); return; }
     if (r.message) say(r.message);
     if (r.match) onMatch({ ...card, ...r.card });
-    if (kind === "super") onUsed();
   };
 
-  if (!deck) return <div className={`mt-6 h-[460px] animate-pulse rounded-[32px] ${GLASS}`} />;
-  if (deck.length === 0) return <Empty icon="✨" text="شاهدت كل المطابقات الحالية. عد لاحقاً أو وسّع مواصفات الشريك." action="تحديث" onAction={load} />;
+  const strictBar = (
+    <div className="mb-2 flex items-center justify-between text-xs">
+      <span className="text-white/50">{strict ? "🎯 بحث دقيق: كل مواصفاتك" : "🔍 البحث عن شريك (نفس ترتيب البوت)"}</span>
+      {me?.ent?.advancedFilters
+        ? <button onClick={() => { haptic("select"); setStrict((v) => !v); }} className={`rounded-full px-3 py-1 ${strict ? GRAD : "border border-white/15"}`}>🎯 بحث دقيق</button>
+        : <span className="rounded-full border border-white/10 px-3 py-1 text-white/35">🎯 بحث دقيق (للمشتركين)</span>}
+    </div>
+  );
+  if (!deck) return <div>{strictBar}<div className={`mt-2 h-[460px] animate-pulse rounded-[32px] ${GLASS}`} /></div>;
+  if (deck.length === 0) return <div>{strictBar}<Empty icon="✨" text="شاهدت كل المطابقات الحالية. عد لاحقاً أو وسّع مواصفات الشريك." action="تحديث" onAction={load} /></div>;
 
   return (
     <div>
+      {strictBar}
       <div className="relative mt-2 h-[470px]">
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
@@ -448,7 +460,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onUsed }: { api: any
       </div>
       <div className="mt-5 flex items-center justify-center gap-4">
         <ActionBtn label="تخطي" size="md" onClick={() => act("pass")}>✖️</ActionBtn>
-        <ActionBtn label={`مميز (${me?.daily?.superlikesLeft ?? 0})`} size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
+        <ActionBtn label="مميز $1" size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
         <ActionBtn label="إعجاب" size="lg" glow="#ff2e93" gradient onClick={() => act("like")}>❤️</ActionBtn>
         <ActionBtn label="طلب زواج" size="sm" glow="#e8b4a0" onClick={() => act("propose")}>💍</ActionBtn>
         <ActionBtn label="مجاملة" size="md" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
@@ -512,11 +524,9 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { car
           {card.presence.online ? "● " : ""}{card.presence.label}
         </span>
         <div className="flex flex-col items-end gap-1">
-          <span className={`rounded-full px-3 py-1 text-xs font-bold ${GRAD}`}>💞 {card.compat}%</span>
-          <span className="text-[9px] text-white/60">توافق تقديري</span>
+          {card.compat != null && <span className={`rounded-full px-3 py-1 text-xs font-bold ${GRAD}`}>💞 {card.compat}%</span>}
         </div>
       </div>
-      {card.likedYou && <span className="absolute top-14 right-4 rounded-full bg-pink-500/30 px-3 py-1 text-[11px] text-pink-100 backdrop-blur">💗 أُعجب بك</span>}
 
       <motion.span style={{ opacity: likeOp }} className="absolute top-20 left-6 -rotate-12 rounded-xl border-4 border-emerald-400 px-3 py-1 text-2xl font-black text-emerald-300">إعجاب</motion.span>
       <motion.span style={{ opacity: nopeOp }} className="absolute top-20 right-6 rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
@@ -578,7 +588,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; sa
             </div>
             <div className="flex-1">
               <p className="font-bold">{c.flag} #{c.shortId} · {c.age}</p>
-              <p className="text-xs text-white/50">{c.country} · 💞 {c.compat}% · {c.presence.label}</p>
+              <p className="text-xs text-white/50">{c.country}{c.compat != null ? ` · 💞 ${c.compat}%` : ""} · {c.presence.label}</p>
             </div>
           </div>
           <div className="mt-3 flex gap-2">
@@ -594,9 +604,9 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment }: { api: any; sa
 }
 
 // ---------------------------------------------------------------------------------------------
-// 👤 Profile, criteria, privacy, rewards
-function MeTab({ api, say, me, reload, onSpin }: { api: any; say: any; me: any; reload: () => Promise<any>; onSpin: () => void }) {
-  const [section, setSection] = useState<"profile" | "pref" | "privacy" | "rewards">(me?.profile ? "rewards" : "profile");
+// 👤 Profile, criteria, privacy, and ⭐ upgrades (the bot's own paid system)
+function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: () => Promise<any> }) {
+  const [section, setSection] = useState<"upgrades" | "profile" | "pref" | "privacy">(me?.profile ? "upgrades" : "profile");
   const [profile, setProfile] = useState<Record<string, any>>(blank(me?.profile, emptyProfile));
   const [pref, setPref] = useState<Record<string, any>>(blank(me?.preference, emptyPref));
   const busy = useRef(false);
@@ -623,8 +633,8 @@ function MeTab({ api, say, me, reload, onSpin }: { api: any; say: any; me: any; 
   }, [section, save]);
 
   const p = me?.profile;
+  const ent = me?.ent || {};
   const set = (o: any, f: any, k: string) => (v: string) => f({ ...o, [k]: v });
-  const ref = me?.referral;
 
   return (
     <div>
@@ -632,17 +642,19 @@ function MeTab({ api, say, me, reload, onSpin }: { api: any; say: any; me: any; 
         <div className={`mb-4 flex items-center gap-3 rounded-3xl p-4 ${GLASS}`}>
           <div className={`grid h-14 w-14 place-items-center rounded-full text-3xl ${GRAD}`}>{p.gender === "FEMALE" ? "👩" : "👨"}</div>
           <div className="flex-1">
-            <p className="font-bold">{p.flag} #{p.shortId} {p.verified && "☑️"}</p>
+            <p className="font-bold">{p.flag} #{p.shortId} {p.verified && "☑️"} {ent.vip && <span className="text-amber-300 text-xs">👑</span>}</p>
             <p className="text-xs text-white/50">{p.status === "APPROVED" ? (p.isHidden ? "⏸ مخفي" : "🟢 ظاهر في البحث") : p.status === "PENDING" ? "⏳ قيد المراجعة" : "❌ مرفوض"}
-              {p.boostedUntil && new Date(p.boostedUntil) > new Date() ? " · 🚀 مرفوع" : ""}</p>
+              {ent.boosted ? " · 🚀 مرفوع" : ""}</p>
           </div>
         </div>
       )}
       <div className="mb-4 flex gap-1.5 overflow-x-auto">
-        {([["rewards", "🎁 المكافآت"], ["profile", "👤 ملفي"], ["pref", "💍 معايير الزواج"], ["privacy", "🔒 الخصوصية"]] as const).map(([k, l]) => (
+        {([["upgrades", "⭐ الترقيات"], ["profile", "👤 ملفي"], ["pref", "💍 معايير الزواج"], ["privacy", "🔒 الخصوصية"]] as const).map(([k, l]) => (
           <Pill key={k} active={section === k} onClick={() => setSection(k)}>{l}</Pill>
         ))}
       </div>
+
+      {section === "upgrades" && <UpgradeScreen api={api} say={say} me={me} reload={reload} />}
 
       {section === "profile" && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
@@ -681,7 +693,13 @@ function MeTab({ api, say, me, reload, onSpin }: { api: any; say: any; me: any; 
           <Field label="العمل" value={pref.job} onChange={set(pref, setPref, "job")} />
           <Field label="التعليم" value={pref.education} onChange={set(pref, setPref, "education")} />
           <Field label="صفات أخرى (كلمات مفتاحية)" area value={pref.attributes} onChange={set(pref, setPref, "attributes")} />
-          <p className="text-[11px] text-white/40">تُستخدم لحساب «التوافق التقديري» وترتيب المطابقات.</p>
+          <div className={`mt-2 rounded-2xl border p-3 ${ent.advancedFilters ? "border-pink-400/30" : "border-white/10 opacity-60"}`}>
+            <p className="mb-2 text-xs font-bold">🎯 فلاتر متقدمة {ent.advancedFilters ? "(مفعّلة)" : "— من «⭐ الترقيات»"}</p>
+            {ent.advancedFilters ? <>
+              <Field label="مدينة الشريك" value={pref.city} onChange={set(pref, setPref, "city")} />
+              <Field label="الحالة الاجتماعية" value={pref.maritalStatus} onChange={set(pref, setPref, "maritalStatus")} />
+            </> : <button onClick={() => setSection("upgrades")} className="text-xs text-[#f3cbbd]">فعّلها لإضافة المدينة والحالة الاجتماعية والبحث الدقيق ←</button>}
+          </div>
           {!tg()?.MainButton && <button onClick={save} className={`mt-3 w-full rounded-2xl py-3 font-bold ${GRAD}`}>💾 حفظ</button>}
         </div>
       )}
@@ -692,45 +710,146 @@ function MeTab({ api, say, me, reload, onSpin }: { api: any; say: any; me: any; 
           {p && <>
             <Toggle on={!p.isHidden} label="إظهار ملفي في البحث" hint="يشمل البحث المضمّن والتطبيق" onChange={async (v) => { const r = await api("privacy", { visible: v }); say(r.ok ? "تم" : r.error); reload(); }} />
             <Toggle on={!!me?.privacy?.countryOnly} label="إظهار ملفي لدولتي فقط" onChange={async (v) => { const r = await api("privacy", { countryOnly: v }); say(r.ok ? "تم" : r.error); reload(); }} />
-            {me?.vipUntil && <Toggle on={!!p.isIncognito} label="👑 وضع التخفي (VIP)" hint="تتصفح دون أن تُسجَّل زيارتك ولا يظهر ملفك خارج البوت" onChange={async (v) => { const r = await api("privacy", { incognito: v }); say(r.ok ? "تم" : r.error); reload(); }} />}
+            {ent.incognitoAvailable
+              ? <Toggle on={!!ent.incognitoOn} label="🕶 وضع التخفي (ضمن الذهبية)" hint="تتصفح دون تسجيل زيارتك" onChange={async (v) => { const r = await api("upgrade", { key: "incognito", on: v }); say(r.message || r.error, r.ok ? "success" : "error"); reload(); }} />
+              : <p className="py-3 text-xs text-white/40">🕶 وضع التخفي متاح ضمن 👑 العضوية الذهبية.</p>}
           </>}
           <p className="py-3 text-[11px] leading-5 text-white/40">لا نعرض اسمك أو حسابك أو رقمك لأي عضو. الصورة تظهر فقط لمن تسمح له. الحظر والإبلاغ متاحان في كل بطاقة ومحادثة.</p>
         </div>
       )}
+    </div>
+  );
+}
 
-      {section === "rewards" && (
-        <div className="space-y-3">
-          <motion.button whileTap={{ scale: 0.98 }} onClick={onSpin} className={`relative w-full overflow-hidden rounded-3xl p-5 text-right ${GLASS}`}>
-            <div className={`absolute -left-6 -top-6 h-24 w-24 rounded-full opacity-40 blur-2xl ${GRAD}`} />
-            <p className="text-lg font-bold">🎡 عجلة التوافق اليومية</p>
-            <p className="text-xs text-white/50">{me?.daily?.spinAvailable ? "متاحة الآن! دوّرها لربح رفع أو إعجابات مميزة أو VIP" : "دوّرتها اليوم — عد غداً"}</p>
-          </motion.button>
-          {ref && (
-            <div className={`rounded-3xl p-5 ${GLASS}`}>
-              <p className="text-lg font-bold">🤝 ادعُ واربح VIP</p>
-              <p className="text-xs text-white/50">{ref.needed} دعوات موثّقة (رقم موثّق + ملف معتمد) = VIP لمدة {ref.days} أيام ودردشات مجهولة بلا حد.</p>
-              <div className="mt-3 flex gap-1.5">
-                {Array.from({ length: ref.needed }).map((_, i) => (
-                  <motion.div key={i} initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: i * 0.1 }}
-                    className={`h-2.5 flex-1 origin-right rounded-full ${i < ref.verified ? GRAD : "bg-white/10"}`} />
-                ))}
+// ⭐ Upgrade screen — mirrors the bot's «⭐ الترقيات والمزايا» keyboard and its purchase path
+// (balance in USD, topped up by the same Stars invoice / payment page / TON memo).
+function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; reload: () => Promise<any> }) {
+  const ent = me?.ent || {};
+  const [visitors, setVisitors] = useState<any[] | null>(null);
+  const [ton, setTon] = useState<{ address: string; memo: string } | null>(null);
+  const [buying, setBuying] = useState<string | null>(null);
+  const depositRef = useRef<HTMLDivElement>(null);
+
+  const state = (key: string): string | null => {
+    if (key === "vip") return ent.vip ? `مفعّلة حتى ${new Date(ent.vipUntil).toLocaleDateString("ar")}` : null;
+    if (key === "boost") return ent.vip ? "ضمن الذهبية" : ent.boostedUntil ? `مرفوع حتى ${new Date(ent.boostedUntil).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}` : null;
+    if (key === "filters") return ent.advancedFilters ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
+    if (key === "visitors") return ent.profileVisitors ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
+    if (key === "photos") return ent.extraPhotos ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
+    if (key === "verify") return ent.verification === "VERIFIED" ? "موثّق ☑️" : ent.verification === "PENDING" ? "قيد المراجعة" : null;
+    return null;
+  };
+
+  const buy = async (key: string, price: number) => {
+    if (key === "visitors" && ent.profileVisitors) { openVisitors(); return; }
+    const paidAlready = !!state(key) && key !== "photos" && key !== "verify";
+    if (paidAlready && key !== "boost") return;
+    const ok = key === "verify" || key === "photos" && ent.extraPhotos ? true
+      : await confirmTg(`تأكيد الشراء بـ $${price} من رصيدك؟`);
+    if (!ok) return;
+    setBuying(key); haptic("medium");
+    const r = await api("upgrade", { key });
+    setBuying(null);
+    say(r.message || r.error, r.ok ? "success" : "error");
+    if (!r.ok && /لا يكفي/.test(r.error || "")) depositRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (r.toBot) tg()?.close?.();
+    if (r.open === "visitors") openVisitors();
+    reload();
+  };
+  const openVisitors = async () => { const r = await api("visitors"); if (r.ok) setVisitors(r.items); else say(r.error, "error"); };
+
+  const payStars = async (stars: number) => {
+    haptic("medium");
+    const r = await api("deposit_stars", { stars });
+    if (!r.ok) { say(r.error, "error"); return; }
+    const w = tg();
+    if (w?.openInvoice) w.openInvoice(r.link, (status: string) => { if (status === "paid") { say("✅ تم الدفع — يُضاف الرصيد خلال لحظات"); window.setTimeout(reload, 2500); } });
+    else window.open(r.link);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className={`relative overflow-hidden rounded-3xl p-5 ${GLASS}`}>
+        <div className={`absolute -left-8 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl ${GRAD}`} />
+        <p className="text-xs text-white/50">💰 رصيدك</p>
+        <p className="text-3xl font-black">${Number(ent.balance ?? 0).toFixed(2)}</p>
+        <p className="mt-1 text-[11px] text-white/40">نفس رصيد البوت — كل الميزات تُخصم منه.</p>
+      </div>
+
+      <div className="space-y-2">
+        {(me?.catalogue || []).map((c: any) => {
+          const st = state(c.key);
+          const isVipCard = c.key === "vip";
+          return (
+            <motion.div key={c.key} layout className={`rounded-3xl p-4 ${GLASS} ${isVipCard ? "border-amber-300/40 shadow-[0_0_30px_rgba(251,191,36,0.15)]" : ""}`}>
+              <div className="flex items-center gap-3">
+                <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl ${isVipCard ? "bg-gradient-to-br from-amber-300 to-amber-600" : "bg-white/10"}`}>{c.icon}</div>
+                <div className="flex-1">
+                  <p className="font-bold">{c.title} <span className="text-xs font-normal text-white/45">· ${c.price} / {c.unit}</span></p>
+                  <p className="text-[11px] leading-5 text-white/50">{c.desc}</p>
+                  {st && <p className="mt-0.5 text-[11px] text-emerald-300">✓ {st}</p>}
+                </div>
+                <motion.button whileTap={{ scale: 0.9 }} disabled={buying === c.key} onClick={() => buy(c.key, c.price)}
+                  className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${st && !["boost", "photos", "visitors"].includes(c.key) ? "border border-white/15 text-white/50" : isVipCard ? "bg-gradient-to-l from-amber-300 to-amber-500 text-black" : GRAD}`}>
+                  {buying === c.key ? "…" : c.key === "visitors" && ent.profileVisitors ? "عرض" : c.key === "photos" && ent.extraPhotos ? "رفع" : st && !["boost"].includes(c.key) ? "مفعّل" : c.key === "verify" ? "ابدأ" : isVipCard && ent.vip ? "تمديد" : "شراء"}
+                </motion.button>
               </div>
-              <p className="mt-2 text-xs text-white/60">{Math.min(ref.verified, ref.needed)} / {ref.needed}</p>
-              <div className="mt-3 flex gap-2">
-                {ref.link && <button onClick={() => { haptic("medium"); const u = `https://t.me/share/url?url=${encodeURIComponent(ref.link)}&text=${encodeURIComponent("انضم معي لبوت التعارف بغرض الزواج 💍")}`; tg()?.openTelegramLink ? tg().openTelegramLink(u) : window.open(u); }} className={`flex-1 rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>}
-                {ref.canClaim && <button onClick={async () => { const r = await api("referral_claim"); say(r.message || r.error, r.ok ? "success" : "error"); reload(); }} className="flex-1 rounded-2xl bg-gradient-to-l from-amber-300 to-amber-500 py-2.5 text-sm font-bold text-black">👑 استلم VIP</button>}
-                {ref.claimed && <span className="flex-1 py-2.5 text-center text-sm text-amber-300">✅ استلمت المكافأة</span>}
-              </div>
-            </div>
-          )}
-          <div className={`grid grid-cols-3 gap-2 rounded-3xl p-4 text-center ${GLASS}`}>
-            <Stat n={me?.daily?.superlikesLeft ?? 0} l="⭐ مميز اليوم" />
-            <Stat n={me?.daily?.anonLeft ?? "∞"} l="🔀 دردشات" />
-            <Stat n={me?.daily?.complimentsLeft ?? 0} l="💌 مجاملات" />
+            </motion.div>
+          );
+        })}
+        {ent.vip && <p className="px-2 text-[11px] text-white/40">«🎯 بحث دقيق» في تبويب المطابقات، و«🕶 وضع التخفي» في الخصوصية.</p>}
+      </div>
+
+      <AnimatePresence>
+        {visitors && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className={`rounded-3xl p-4 ${GLASS}`}>
+            <div className="mb-2 flex justify-between"><p className="font-bold">👀 آخر زوار ملفك</p><button onClick={() => setVisitors(null)} className="text-white/40">✖</button></div>
+            {visitors.length === 0 && <p className="text-sm text-white/50">😔 لا يوجد زوار لملفك حتى الآن.</p>}
+            {visitors.map((v, i) => <p key={i} className="border-b border-white/5 py-2 text-sm">{v.flag || "👤"} #{v.shortId}{v.age ? ` · ${v.age} · ${v.country}` : ""} <span className="text-xs text-white/40">— {v.at}</span></p>)}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div ref={depositRef} className={`rounded-3xl p-4 ${GLASS}`}>
+        <p className="font-bold">💳 شحن الرصيد</p>
+        <p className="mb-3 text-[11px] text-white/45">⭐ نجوم تيليجرام (نفس فاتورة البوت) — 100 نجمة = $1</p>
+        <div className="grid grid-cols-3 gap-2">
+          {(me?.deposit?.stars || []).map((t: any) => (
+            <motion.button key={t.stars} whileTap={{ scale: 0.92 }} onClick={() => payStars(t.stars)} className="rounded-2xl border border-[#e8b4a0]/30 bg-white/5 py-2.5 text-sm">
+              ⭐ {t.stars}<span className="block text-[10px] text-white/45">${t.usd.toFixed(2)}</span>
+            </motion.button>
+          ))}
+        </div>
+        <div className="mt-3 flex gap-2">
+          {me?.deposit?.web && <button onClick={() => (tg()?.openLink ? tg().openLink(me.deposit.web) : window.open(me.deposit.web))} className="flex-1 rounded-2xl border border-white/15 py-2.5 text-xs">🌐 دفع بالعملات الرقمية</button>}
+          {me?.deposit?.ton && <button onClick={async () => { const r = await api("deposit_ton"); if (r.ok) setTon(r); else say(r.error, "error"); }} className="flex-1 rounded-2xl border border-white/15 py-2.5 text-xs">🔷 TON / USDT مباشر</button>}
+        </div>
+        {ton && (
+          <div className="mt-3 space-y-2 rounded-2xl bg-black/30 p-3 text-[11px] leading-5">
+            <p>أرسل TON أو USDT (شبكة TON فقط) مع المذكرة بالضبط — بدونها لن يُحتسب الإيداع:</p>
+            <CopyRow label="العنوان" value={ton.address} say={say} />
+            <CopyRow label="المذكرة" value={ton.memo} say={say} />
           </div>
+        )}
+      </div>
+
+      {me?.referral?.link && (
+        <div className={`rounded-3xl p-4 ${GLASS}`}>
+          <p className="font-bold">🔗 ادعُ أصدقاءك</p>
+          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل تلقائياً على رفع مجاني لملفك 24 ساعة (نظام البوت). حصلت عليه {me.referral.rewarded} مرة.</p>
+          <button onClick={() => { haptic("medium"); const u = `https://t.me/share/url?url=${encodeURIComponent(me.referral.link)}&text=${encodeURIComponent("انضم معي لبوت التعارف بغرض الزواج 💍")}`; tg()?.openTelegramLink ? tg().openTelegramLink(u) : window.open(u); }}
+            className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>
         </div>
       )}
     </div>
+  );
+}
+
+function CopyRow({ label, value, say }: { label: string; value: string; say: any }) {
+  return (
+    <button onClick={() => { navigator.clipboard?.writeText(value).then(() => say("نُسخ ✅")); }} className="flex w-full items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-right">
+      <span className="text-white/50">{label}</span><span className="truncate font-mono" dir="ltr">{value}</span><span>📋</span>
+    </button>
   );
 }
 
@@ -771,43 +890,22 @@ function MatchModal({ card, onClose, onChat }: { card: Card; onClose: () => void
   );
 }
 
-function SpinModal({ api, say, available, onClose }: { api: any; say: any; available: boolean; onClose: () => void }) {
-  const [angle, setAngle] = useState(0);
-  const [result, setResult] = useState<string | null>(null);
-  const [spinning, setSpinning] = useState(false);
-  const seg = 360 / SPIN_LABELS.length;
-  const colors = ["#ff2e93", "#b76e79", "#6d4aff", "#e8b4a0", "#f59e0b"];
-  const spin = async () => {
-    if (spinning || !available) return;
-    setSpinning(true); haptic("heavy");
-    const r = await api("spin");
-    if (!r.ok) { say(r.error, "error"); setSpinning(false); return; }
-    const target = 360 * 6 + (360 - (r.index * seg + seg / 2));
-    setAngle(target);
-    window.setTimeout(() => { setResult(r.prize + (r.note ? ` — ${r.note}` : "")); haptic("success"); setSpinning(false); }, 3600);
-  };
-  const bg = `conic-gradient(${SPIN_LABELS.map((_, i) => `${colors[i]} ${i * seg}deg ${(i + 1) * seg}deg`).join(",")})`;
+function SuperLikeSheet({ balance, onSend, onClose }: { balance: number; onSend: (note: string) => Promise<void>; onClose: () => void }) {
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
   return (
-    <Backdrop onClose={() => !spinning && onClose()}>
-      <div className={`rounded-[32px] p-6 text-center ${GLASS} bg-[#0f1530]/90`}>
-        <h3 className="text-xl font-bold">🎡 عجلة التوافق</h3>
-        <p className="text-xs text-white/50">مرة واحدة يومياً · النتيجة تُحدَّد على الخادم</p>
-        <div className="relative mx-auto my-6 h-64 w-64">
-          <div className="absolute -top-2 left-1/2 z-10 -translate-x-1/2 text-3xl drop-shadow">🔻</div>
-          <motion.div className="h-full w-full rounded-full border-4 border-white/20 shadow-[0_0_50px_rgba(255,46,147,0.4)]" style={{ background: bg }}
-            animate={{ rotate: angle }} transition={{ duration: 3.5, ease: [0.17, 0.67, 0.12, 0.99] }}>
-            {SPIN_LABELS.map((l, i) => (
-              <span key={l} className="absolute left-1/2 top-1/2 origin-[0_0] text-[11px] font-bold" style={{ transform: `rotate(${i * seg + seg / 2 - 90}deg) translate(38px, -6px)` }}>{l}</span>
-            ))}
-          </motion.div>
-          <div className="absolute inset-0 m-auto grid h-14 w-14 place-items-center rounded-full bg-[#0b1020] text-2xl border-2 border-white/20">💞</div>
-        </div>
-        {result
-          ? <motion.p initial={{ scale: 0.5 }} animate={{ scale: 1 }} className="mb-3 text-lg font-bold text-[#f3cbbd]">🎉 {result}</motion.p>
-          : <button disabled={!available || spinning} onClick={spin} className={`w-full rounded-2xl py-3 font-bold disabled:opacity-40 ${GRAD}`}>{available ? (spinning ? "…" : "دوّر الآن") : "عد غداً"}</button>}
-        <button onClick={onClose} disabled={spinning} className="mt-2 w-full rounded-2xl border border-white/15 py-2.5 text-sm">إغلاق</button>
-      </div>
-    </Backdrop>
+    <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }}
+        className={`w-full rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+        <h3 className="font-bold">⭐ إعجاب مميز — $1</h3>
+        <p className="mb-3 text-xs text-white/50">اكتب رسالة قصيرة ترافق إعجابك (تظهر في «💌 من أعجب بي»). رصيدك: ${balance.toFixed(2)}</p>
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} rows={3} placeholder="مثلاً: أعجبني جدّيتك وطموحك 🌹"
+          className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none focus:border-pink-400/60" />
+        <button disabled={!note.trim() || busy} onClick={async () => { setBusy(true); await onSend(note.trim()); setBusy(false); }}
+          className={`mt-3 w-full rounded-2xl py-3 font-bold disabled:opacity-40 ${GRAD}`}>{busy ? "…" : "إرسال ($1)"}</button>
+      </motion.div>
+    </motion.div>
   );
 }
 

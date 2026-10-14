@@ -39,7 +39,7 @@ Owner steps:
 - 💍 sends a proposal request through `sendChatRequest(kind:"proposal")`, and the other side must accept.
 - A real photo appears only when `MatchPhotoPermission` is GRANTED. The server proxies it as a data URL, so the token never reaches the browser.
 
-### Innovation
+### Innovation (superseded by v3: spin and referral VIP removed)
 - Daily spin: server-side `crypto.randomInt`, atomic once per day.
 - Secret-admirer compliments: preset sentences only, 5 per day, one per target per day.
 - Referral: 3 verified invites (phone verified, approved profile, not banned) give 7 days of VIP, claimable once.
@@ -50,3 +50,32 @@ Owner steps:
 ### State management
 - Client: plain React state per tab. `me` is reloaded after any action that changes limits. Polling uses `setInterval`, and its interval follows the chat state.
 - Server: everything is stored in Postgres. In-memory rate limits apply per instance and are best-effort.
+
+## v3: one system with the bot (2026-10-14)
+
+### The bot's paid system (unchanged), now shared
+- **Single source:** `src/lib/match/entitlementRules.ts` holds the prices and checks, and `src/lib/match/entitlements.ts` holds the purchase steps. Both the bot and the app call them.
+- **Wallet:** `MatchUser.balance` (USD). Every charge is atomic and logs a `MatchTransaction`.
+- **Top-up** (three ways, all crediting `balance`):
+  - Telegram Stars, 100 stars per $1, in tiers of 100, 300, 500, 1000 or 2000. The invoice payload is `MATCH_DEPOSIT:<uid>`, and the bot's `successful_payment` handler credits it.
+  - NOWPayments, through `/pay/marriage?uid=`.
+  - Native TON/USDT with a memo.
+- **Features:**
+
+| Feature | Price | Duration | DB field |
+|---|---|---|---|
+| Boost | $2 | 24 h | `boostedUntil`; VIP already includes it |
+| Verification | $3 | one-time | charged when the ID photo is sent in the bot; admin approves (`verificationStatus`) |
+| Extra photos | $2 | permanent | `extraPhotosUnlocked` |
+| Who viewed me | $2 | permanent | `profileVisitorsUnlocked` |
+| Advanced filters | $2 | permanent | `advancedFiltersUnlocked`; adds city and marital status, plus «بحث دقيق» |
+| Super Like | $1 each | per like | note stored on `MatchLike.note` |
+| Gold VIP | $8 | 30 days, stacking | `vipUntil`; includes boost, filters, visitors, photos and incognito (`isIncognito`) |
+
+- **Referral:** a 24 h boost for each invited friend whose profile goes live (`grantReferralReward`).
+
+### App changes
+- **Upgrade screen:** mirrors the bot's «⭐ الترقيات والمزايا». It buys through the same shared functions, uses the same Stars invoice through `createInvoiceLink` and `openInvoice`, the same payment link, and the same TON memo.
+- **Verification and extra photos:** these set the same `pendingAction` (`verify_badge_photo` / `extra_photo_upload`), and the user finishes by sending the photo in the bot chat.
+- **Matching:** uses the bot's own `buildSearchQueue` (normal and strict), `defaultPref`, `compatibilityPercent` (the bot's «💞 توافق X%») and `trackProfileVisit`.
+- **Removed:** the spin wheel, referral VIP, free daily super likes and the anonymous-chat quota. Compliments remain because they grant nothing; they are rate-limited only.

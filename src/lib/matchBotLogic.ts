@@ -13,6 +13,11 @@ import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
 import { parseProfileStart } from "@/lib/match/inline";
 import { recordAnonMessage } from "@/lib/match/appStore";
+import {
+  PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
+  isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
+  purchaseBoost, purchaseVip, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
+} from "@/lib/match/entitlements";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -41,14 +46,7 @@ const CONTACT_REQUEST_THRESHOLD = 15; // messages exchanged before offering the 
 // Paid feature pricing (owner spec, 2026-09-05) — USD-equivalent, charged
 // from MatchUser.balance (see the MARRIAGE_BOT ledger). All one-time
 // purchases are permanent unlocks except Boost (24h) and VIP (30 days).
-const PRICE_BOOST_24H = 2;
-const PRICE_VERIFIED_BADGE = 3;
-const PRICE_EXTRA_PHOTOS = 2;
-const PRICE_PROFILE_VISITORS = 2;
-const PRICE_ADVANCED_FILTERS = 2;
-const PRICE_SUPER_LIKE = 1;
-const PRICE_VIP_30D = 8;
-const VIP_DAYS = 30;
+// Prices/durations now live in src/lib/match/entitlements.ts (shared with the Mini App).
 
 // Duplicated (not imported) from adBotLogic.ts's own BANNED_WORDS list on
 // purpose — MARRIAGE_BOT's logic never imports from or edits AD_BOT's
@@ -234,7 +232,7 @@ function isManual(text: string): boolean {
 function skipMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
-function plainBackMenu(): Keyboard {
+export function plainBackMenu(): Keyboard {
   return new Keyboard().text(backLabel()).resized();
 }
 function genderMenu(): Keyboard {
@@ -297,41 +295,8 @@ async function isMutuallyBlocked(aId: string, bId: string): Promise<boolean> {
 // ---------------------------------------------------------------------
 // Paid features — shared helpers (owner spec, 2026-09-05)
 // ---------------------------------------------------------------------
-function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
-  return !!user.vipUntil && user.vipUntil > new Date();
-}
-function hasAdvancedFilters(user: Pick<MatchUser, "advancedFiltersUnlocked" | "vipUntil">): boolean {
-  return user.advancedFiltersUnlocked || isVipActive(user);
-}
-function hasProfileVisitors(user: Pick<MatchUser, "profileVisitorsUnlocked" | "vipUntil">): boolean {
-  return user.profileVisitorsUnlocked || isVipActive(user);
-}
-function isEffectivelyBoosted(profile: Pick<MatchProfile, "boostedUntil">, user: Pick<MatchUser, "vipUntil">): boolean {
-  return (!!profile.boostedUntil && profile.boostedUntil > new Date()) || isVipActive(user);
-}
-
-function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-  return `${base}/pay/marriage?uid=${userId}`;
-}
-function insufficientBalanceText(userId: string, needed: number, have: number): string {
-  return `❌ رصيدك الحالي $${have.toFixed(2)} لا يكفي (المطلوب $${needed.toFixed(2)}). أودِع من هنا:\n${depositLink(userId)}`;
-}
-
-// Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
-// MatchTransaction — atomically, so a crash between the two is
-// impossible. Returns ok:false (charging nothing) if the balance is too
-// low; the caller is responsible for showing insufficientBalanceText.
-async function chargeMatchUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  const user = await prisma.matchUser.findUnique({ where: { id: userId } });
-  const balance = Number(user?.balance || 0);
-  if (balance < amount) return { ok: false, balance };
-  await prisma.$transaction([
-    prisma.matchUser.update({ where: { id: userId }, data: { balance: { decrement: amount } } }),
-    prisma.matchTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
-  return { ok: true, balance: balance - amount };
-}
+// isVipActive / hasAdvancedFilters / hasProfileVisitors / isEffectivelyBoosted /
+// depositLink / insufficientBalanceText / chargeMatchUser: see src/lib/match/entitlements.ts.
 
 // ---------------------------------------------------------------------
 // Profile wizard
@@ -668,7 +633,7 @@ async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
 
 // strict = "🎯 بحث دقيق" (paid): the original all-requirements-must-match
 // filter. Normal search only weights them.
-async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false): Promise<string[]> {
+export async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
   const where = { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } };
 
@@ -746,7 +711,7 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
 // Share of the searcher's stated preferences this profile meets (0-100),
 // shown on the card as "💞 توافق X%". Country and age count double; age
 // outside the range still earns partial credit when it is close.
-function compatibilityPercent(profile: MatchProfile, pref: PartnerPreference | null, advanced: boolean): number | null {
+export function compatibilityPercent(profile: MatchProfile, pref: PartnerPreference | null, advanced: boolean): number | null {
   if (!pref) return null;
   let got = 0;
   let total = 0;
@@ -864,7 +829,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
 // Records the visit for the paid "who viewed my profile" feature (skipped
 // while the VIEWER has incognito active -- their own activity, not the
 // profile owner's, is what incognito hides).
-async function trackProfileVisit(targetUserId: string, viewerId: string) {
+export async function trackProfileVisit(targetUserId: string, viewerId: string) {
   const viewer = await prisma.matchUser.findUnique({ where: { id: viewerId }, include: { profile: true } });
   const viewerIncognito = !!viewer && !!viewer.profile?.isIncognito && isVipActive(viewer);
   if (targetUserId !== viewerId && !viewerIncognito) {
@@ -906,7 +871,7 @@ async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: st
 }
 
 // Used when the user never filled in partner preferences: own country only.
-function defaultPref(userId: string, profile: MatchProfile): PartnerPreference {
+export function defaultPref(userId: string, profile: MatchProfile): PartnerPreference {
   return { id: "", userId, country: profile.country, ageMin: null, ageMax: null, job: null, education: null, attributes: null, city: null, maritalStatus: null, updated_at: new Date() } as PartnerPreference;
 }
 
@@ -2595,13 +2560,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === `🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`) {
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+    const r = await purchaseBoost(tgUserId);
+    if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (dbUser && isVipActive(dbUser)) {
+    if (!r.ok && r.reason === "vip_included") {
       await bot.api.sendMessage(
         chatId,
         "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل — لا حاجة لشراء رفع إضافي.",
@@ -2609,14 +2573,11 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       );
       return;
     }
-    const charge = await chargeMatchUser(tgUserId, PRICE_BOOST_24H, "BOOST");
-    if (!charge.ok) {
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_BOOST_24H, charge.balance), { reply_markup: upgradesMenu() });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
       return;
     }
-    const boostedUntil = new Date(Date.now() + 24 * 3600 * 1000);
-    await prisma.matchProfile.update({ where: { userId: tgUserId }, data: { boostedUntil } });
-    await bot.api.sendMessage(chatId, `🚀 تم رفع ملفك! سيظهر أولاً في نتائج البحث حتى ${boostedUntil.toLocaleString("ar")}.`, { reply_markup: upgradesMenu() });
+    await bot.api.sendMessage(chatId, `🚀 تم رفع ملفك! سيظهر أولاً في نتائج البحث حتى ${r.boostedUntil.toLocaleString("ar")}.`, { reply_markup: upgradesMenu() });
     return;
   }
   if (text === `☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`) {
@@ -2642,20 +2603,16 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === `🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`) {
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+    const r = await unlockExtraPhotos(tgUserId);
+    if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser?.extraPhotosUnlocked && !(dbUser && isVipActive(dbUser))) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_EXTRA_PHOTOS, "EXTRA_PHOTOS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_EXTRA_PHOTOS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { extraPhotosUnlocked: true } });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
+    const profile = r.profile;
     const slot: 2 | 3 | null = !profile.photoFileId2 ? 2 : !profile.photoFileId3 ? 3 : null;
     if (!slot) {
       await bot.api.sendMessage(chatId, "لديك بالفعل الحد الأقصى من الصور (3).", { reply_markup: upgradesMenu() });
@@ -2666,15 +2623,10 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === `👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`) {
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser) return;
-    if (!hasProfileVisitors(dbUser)) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_PROFILE_VISITORS, "PROFILE_VISITORS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_PROFILE_VISITORS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { profileVisitorsUnlocked: true } });
+    const r = await unlockProfileVisitors(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
     const visits = await prisma.matchProfileVisit.findMany({ where: { ownerId: tgUserId }, orderBy: { visitedAt: "desc" }, take: 20 });
     if (visits.length === 0) {
@@ -2691,35 +2643,26 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === `🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`) {
-    const pref = await prisma.partnerPreference.findUnique({ where: { userId: tgUserId } });
-    if (!pref) {
+    const r = await unlockAdvancedFilters(tgUserId);
+    if (!r.ok && r.reason === "no_pref") {
       await bot.api.sendMessage(chatId, "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser) return;
-    if (!hasAdvancedFilters(dbUser)) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_ADVANCED_FILTERS, "ADVANCED_FILTERS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_ADVANCED_FILTERS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { advancedFiltersUnlocked: true } });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
     await setPending(tgUserId, { mode: "advanced_filter_wizard", step: "city", data: {} });
     await bot.api.sendMessage(chatId, "🎯 المدينة المطلوبة للشريك:", { reply_markup: skipMenu() });
     return;
   }
   if (text === `👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`) {
-    const charge = await chargeMatchUser(tgUserId, PRICE_VIP_30D, "VIP_MEMBERSHIP");
-    if (!charge.ok) {
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_VIP_30D, charge.balance), { reply_markup: upgradesMenu() });
+    const r = await purchaseVip(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    const base = dbUser?.vipUntil && dbUser.vipUntil > new Date() ? dbUser.vipUntil : new Date();
-    const vipUntil = new Date(base.getTime() + VIP_DAYS * 24 * 3600 * 1000);
-    await prisma.matchUser.update({ where: { id: tgUserId }, data: { vipUntil } });
+    const vipUntil = r.vipUntil;
     await bot.api.sendMessage(
       chatId,
       `👑 تم تفعيل العضوية الذهبية حتى ${vipUntil.toLocaleString("ar")}!\nتشمل: رفع مستمر للملف، فلاتر متقدمة، من زار ملفي، ووضع التخفي.`,
@@ -2728,18 +2671,16 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === "🕶 وضع التخفي (ضمن الذهبية)") {
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser || !isVipActive(dbUser)) {
+    const r = await toggleIncognito(tgUserId);
+    if (!r.ok && r.reason === "not_vip") {
       await bot.api.sendMessage(chatId, "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين. فعّل «👑 العضوية الذهبية» أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+    if (!r.ok) {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const newState = !profile.isIncognito;
-    await prisma.matchProfile.update({ where: { userId: tgUserId }, data: { isIncognito: newState } });
+    const newState = r.on;
     await bot.api.sendMessage(chatId, newState ? "🕶 تم تفعيل وضع التخفي." : "👁 تم إيقاف وضع التخفي.", { reply_markup: upgradesMenu() });
     return;
   }
@@ -2828,19 +2769,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به.");
       return;
     }
-    const charge = await chargeMatchUser(tgUserId, PRICE_SUPER_LIKE, "SUPER_LIKE");
+    const charge = await chargeSuperLike(tgUserId, pending.targetUserId, text);
     if (!charge.ok) {
       if (!(await resumeBrowsing(tgUserId, pending.resume))) await setPending(tgUserId, null);
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_SUPER_LIKE, charge.balance), { reply_markup: mainMenu() });
+      if (charge.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, charge.needed, charge.balance), { reply_markup: mainMenu() });
       return;
     }
-    await prisma.matchLike
-      .upsert({
-        where: { fromUserId_toUserId: { fromUserId: tgUserId, toUserId: pending.targetUserId } },
-        update: { note: text },
-        create: { fromUserId: tgUserId, toUserId: pending.targetUserId, note: text },
-      })
-      .catch(() => null);
     const resumed = await resumeBrowsing(tgUserId, pending.resume);
     if (!resumed) await setPending(tgUserId, null);
     await notifyMutualLike(bot, tgUserId, pending.targetUserId);
