@@ -1,4 +1,4 @@
-import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia } from "@/lib/shamStudio";
+import { parseShamReply, parseShamSse, shamChatAuto, shamGenerate, shamGenerateAny, shamGenerateMedia, shamJobResult, shamPendingText, shamStatusText, shamThink, shamThinkUnavailable } from "@/lib/shamStudio";
 
 describe("shamStudio", () => {
   it("reads the first data list of an SSE body", () => {
@@ -35,5 +35,29 @@ describe("shamStudio", () => {
     expect(v?.route).toBe("video");
     delete process.env.MODELSCOPE_API_TOKEN;
     expect(await shamChatAuto("مرحبا")).toBeNull();
+  });
+});
+
+describe("shamStudio think", () => {
+  const body = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
+  it("reads pending / later / decision", () => {
+    const p = parseShamReply(body({ type: "pending", job: "abc", decision: "image", later: [{ type: "text", text: "قديم" }] }));
+    expect(p?.job).toBe("abc");
+    expect(p?.decision).toBe("image");
+    expect(p?.later?.[0].text).toBe("قديم");
+  });
+  it("is off without a token and says why", async () => {
+    delete process.env.MODELSCOPE_API_TOKEN;
+    const o = await shamThink("مرحبا", "1");
+    expect(shamThinkUnavailable({ reply: null, failure: "http" })).toBe(true);
+    expect(shamThinkUnavailable({ reply: null, failure: "timeout" })).toBe(false);
+    expect(o).toEqual({ reply: null, failure: "off" });
+    expect((await shamJobResult("x")).failure).toBe("off");
+  });
+  it("says 'loading' only when the Studio says it is loading", () => {
+    expect(shamStatusText({ reply: { type: "loading", text: "downloading" } })).toContain("يحمّل");
+    expect(shamStatusText({ reply: null, failure: "timeout" })).not.toContain("يحمّل");
+    expect(shamStatusText({ reply: { type: "busy" } })).toContain("مشغول");
+    expect(shamPendingText("image")).toContain("الصورة");
   });
 });

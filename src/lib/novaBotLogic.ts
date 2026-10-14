@@ -4,7 +4,7 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
-import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamMemoryForget, shamStudioEnabled, type ShamReply } from "@/lib/shamStudio";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamMemoryForget, shamStudioEnabled, shamThink, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
 import { forgetMemory, isForgetCommand, loadMemory, saveTurn, chatKey, shamMemoryEnabled } from "@/lib/shamMemory";
 
 // Recognized the same way as every other bot template on this platform
@@ -763,7 +763,12 @@ const shamMediaKind = (text: string) => SHAM_MEDIA_COMMANDS[text.split(/[\s@]/)[
 
 async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
   if (!reply) {
-    await bot.api.sendMessage(chatId, "⏳ شام يتهيأ الآن. أعد إرسال رسالتك بعد دقيقة.").catch(() => null);
+    // REVIEW (2026-10-14): was always "⏳ شام يتهيأ الآن…" for ANY missing answer (timeout, error, old Studio). Now an honest status line.
+    await bot.api.sendMessage(chatId, "تعذّر الحصول على رد من شام الآن (انتهى الوقت أو تعذّر الاتصال). أعد المحاولة بعد قليل.").catch(() => null);
+    return;
+  }
+  if (reply.type === "loading" || reply.type === "busy" || reply.type === "gone") {
+    await bot.api.sendMessage(chatId, shamStatusText({ reply })).catch(() => null);
     return;
   }
   if (reply.type === "image" && reply.b64) {
@@ -778,6 +783,47 @@ async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply 
   }
 }
 
+async function sendShamLater(bot: TelegramBot, chatId: number, later?: ShamReply[]) {
+  for (const r of later || []) if (r && r.type !== "pending") await sendShamReply(bot, chatId, r);
+}
+
+// true = handled. false = this Studio has no `think` yet: the caller uses the older path (no dead "older version" reply to the user).
+// The webhook has 60 s (maxDuration): think waits up to ~28 s on the Studio, then job_result is polled with short calls until ~50 s.
+async function shamThinkAndSend(bot: TelegramBot, chatId: number, text: string, mem: Awaited<ReturnType<typeof loadMemory>>): Promise<boolean> {
+  const t0 = Date.now();
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  const first = await shamThink(text, mem?.chatKey || chatKey(chatId), mem, 80, 28000);
+  if (shamThinkUnavailable(first)) return false;
+  const r = first.reply;
+  await sendShamLater(bot, chatId, r?.later);
+  const done = async (x: ShamReply) => {
+    await sendShamReply(bot, chatId, x);
+    if (x.type === "text" && x.text) await saveTurn(chatId, text, x.text);
+  };
+  if (!r || r.type === "loading" || r.type === "busy" || r.type === "gone") {
+    await bot.api.sendMessage(chatId, shamStatusText(first)).catch(() => null);
+    return true;
+  }
+  if (r.type !== "pending" || !r.job) {
+    await done(r);
+    return true;
+  }
+  await bot.api.sendMessage(chatId, shamPendingText(r.decision)).catch(() => null);
+  while (Date.now() - t0 < 47000) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const left = 50000 - (Date.now() - t0);
+    if (left < 2000) break;
+    const o = await shamJobResult(r.job, false, Math.min(8000, left));
+    if (o.reply && o.reply.type !== "pending") {
+      await done(o.reply.type === "gone" ? { type: "notice", text: shamStatusText(o) } : o.reply);
+      return true;
+    }
+  }
+  await shamJobResult(r.job, true, 4000);       // detach: the Studio hands it over with this user's next message
+  await bot.api.sendMessage(chatId, "ما زال شام يعمل على ردّك — سيصلك مع رسالتك القادمة.").catch(() => null);
+  return true;
+}
+
 export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, update: any) {
   if (NOVA_PAUSED) {
     if (update.callback_query?.id) {
@@ -787,7 +833,9 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const text = typeof update.message.text === "string" ? update.message.text.trim() : "";
       const chatId = update.message.chat.id;
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
-      const mediaKind = shamStudioEnabled() ? shamMediaKind(text) : undefined;
+      // 2026-10-14: with SHAM_THINK on, a bare word («صورة …») is no longer a keyword rule — only the explicit slash command (/image, /صورة …)
+      // is the user's own choice; everything else is for the model to decide. REVIEW: the bare-word form is kept for SHAM_THINK=0.
+      const mediaKind = shamStudioEnabled() && (process.env.SHAM_THINK === "0" || text.startsWith("/")) ? shamMediaKind(text) : undefined;
       // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
       if ((text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help")) || mediaKind) {
         const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
@@ -822,6 +870,10 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         }
         // the chat's recent turns + rolling summary + facts go with the message (chat_memory); an older Studio, or no database, falls back to chat_auto
         const mem = await loadMemory(chatId, text);
+        // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
+        // router, no fallback chain. A Studio without `think` yet (500 / unknown endpoint) falls through to the older path below at once.
+        // REVIEW: the chat_memory / chat_auto / generate_any / generate_text chain below is superseded; kept for SHAM_THINK=0 and for old Studios.
+        if (process.env.SHAM_THINK !== "0" && (await shamThinkAndSend(bot, chatId, text, mem))) return;
         let any = mem ? await shamChatMemory(text, { userId: mem.chatKey, history: mem.history, summary: mem.summary, facts: mem.facts }, 80, 45000) : null;
         if (!any) any = await shamChatAuto(text, 80, Math.max(5000, 48000 - (Date.now() - t0)));
         const left = 52000 - (Date.now() - t0);
