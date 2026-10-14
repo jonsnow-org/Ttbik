@@ -201,14 +201,16 @@ function infoMenu(): Keyboard {
   if (novaAssistConfigured()) kb.text("✨ اسأل نوفا (ذكاء اصطناعي)").row();
   return kb.text(backLabel()).resized();
 }
-function adminMenu(): Keyboard {
-  return new Keyboard()
+function adminMenu(botId?: string): Keyboard {
+  const kb = new Keyboard()
     .text("📊 الإحصائيات").text("📋 الملفات المعلقة").row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
     .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
-    .text("🩺 فحص البحث")
-    .resized();
+    .text("🩺 فحص البحث");
+  // 📱 opens the Mini App straight on «🛡 لوحة القيادة» (same isMatchAdmin / SUPER_ADMIN_TELEGRAM_ID check server-side).
+  if (botId && process.env.MATCH_ADMIN_APP_BUTTON !== "0") kb.row().webApp("📱 التطبيق المصغر", `${miniAppUrl(botId)}?tab=admin`);
+  return kb.resized();
 }
 const ADMIN_COMMANDS = new Set([
   "/start",
@@ -2375,7 +2377,7 @@ export async function runUnban(bot: TelegramBot, chatId: number, rawId: string) 
 
 async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
-    await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+    await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu(botId) });
     return;
   }
   if (text === "🩺 فحص البحث") {
@@ -2423,7 +2425,7 @@ async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: numbe
     if (idSuffix) await decideProfile(bot, chatId, idSuffix, approve);
     return;
   }
-  await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+  await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu(botId) });
 }
 
 // ---- shared admin actions (bot buttons AND the Mini App «🛡 لوحة القيادة») -------------------

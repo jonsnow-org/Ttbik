@@ -92,7 +92,11 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     reloadMe().then((r) => {
       if (r && r.registered && !r.profile) setTab("me");
       // Broadcast button «✏️ حدّث ملفي» opens ?tab=me
-      try { if (new URLSearchParams(window.location.search).get("tab") === "me") setTab("me"); } catch { /* ignore */ }
+      try {
+        const want = new URLSearchParams(window.location.search).get("tab");
+        if (want === "me") setTab("me");
+        if (want === "admin" && r?.isAdmin) setTab("admin"); // admin keyboard «📱 التطبيق المصغر»
+      } catch { /* ignore */ }
       if (r?.dmUnread) setDmUnread(r.dmUnread);
     });
   }, [reloadMe]);
