@@ -11,24 +11,32 @@
  */
 import type { MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getAnonFilterRow, setAnonPaidUntil } from "@/lib/match/appStore";
+import { extendAnonPaidUntilAtomic, getAnonFilterRow } from "@/lib/match/appStore";
+import { pgRateLimit } from "@/lib/match/rateLimitPg";
 
 export * from "@/lib/match/entitlementRules";
-import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, extendAnonFilters, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive } from "@/lib/match/entitlementRules";
+import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
 // impossible. Returns ok:false (charging nothing) if the balance is too
 // low; the caller is responsible for showing insufficientBalanceText.
 export async function chargeMatchUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  const user = await prisma.matchUser.findUnique({ where: { id: userId } });
-  const balance = Number(user?.balance || 0);
-  if (balance < amount) return { ok: false, balance };
-  await prisma.$transaction([
-    prisma.matchUser.update({ where: { id: userId }, data: { balance: { decrement: amount } } }),
-    prisma.matchTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
-  return { ok: true, balance: balance - amount };
+  // Shared (cross-instance) purchase limiter: 20 charges / minute / user.
+  if (!(await pgRateLimit(`charge:${userId}`, 20, 60))) {
+    const u = await prisma.matchUser.findUnique({ where: { id: userId }, select: { balance: true } });
+    return { ok: false, balance: Number(u?.balance || 0) };
+  }
+  // Atomic: conditional decrement (balance >= amount) + ledger row in ONE
+  // transaction; zero rows updated → nothing charged, no negative balance.
+  const charged = await prisma.$transaction(async (tx) => {
+    const n = await tx.matchUser.updateMany({ where: { id: userId, balance: { gte: amount } }, data: { balance: { decrement: amount } } });
+    if (n.count !== 1) return false;
+    await tx.matchTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } });
+    return true;
+  });
+  const after = await prisma.matchUser.findUnique({ where: { id: userId }, select: { balance: true } });
+  return { ok: charged, balance: Number(after?.balance || 0) };
 }
 
 // ---- purchase steps (shared by bot buttons and Mini App) -----------------------
@@ -130,11 +138,9 @@ export async function purchaseAnonFilters(userId: string): Promise<Purchase<{ ch
   const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
   if (!dbUser) return { ok: false, reason: "no_user" };
   if (isVipActive(dbUser)) return { ok: true, charged: false, until: dbUser.vipUntil, viaVip: true };
-  const row = await getAnonFilterRow(userId);
   const charge = await chargeMatchUser(userId, PRICE_ANON_FILTERS, "ANON_FILTERS");
   if (!charge.ok) return insufficient(PRICE_ANON_FILTERS, charge.balance);
-  const until = extendAnonFilters(row?.paid_until ?? null);
-  await setAnonPaidUntil(userId, until);
+  const until = await extendAnonPaidUntilAtomic(userId, ANON_FILTERS_DAYS);
   return { ok: true, charged: true, until, viaVip: false };
 }
 export async function anonFiltersStatus(userId: string): Promise<{ owned: boolean; until: Date | null; viaVip: boolean; filter: any }> {

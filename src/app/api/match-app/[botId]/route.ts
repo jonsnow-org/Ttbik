@@ -10,11 +10,14 @@ import {
   PRICE_VERIFIED_BADGE, UPGRADE_CATALOGUE, depositLink, chargeSuperLike, entitlementSummary, hasAdvancedFilters, isVipActive,
   purchaseBoost, purchaseVip, purchaseAnonFilters, anonFiltersStatus, toggleIncognito, unlockAdvancedFilters, unlockExtraPhotos, unlockProfileVisitors, type Purchase,
 } from "@/lib/match/entitlements";
+import { pgRateLimit } from "@/lib/match/rateLimitPg";
+import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
+import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
 import { STAR_DEPOSIT_TIERS, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { ANON_EXIT_REASONS, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
-import { trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
+import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
 import { scrubContacts } from "@/lib/match/inline";
 
 /**
@@ -26,6 +29,8 @@ import { scrubContacts } from "@/lib/match/inline";
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
+// Per-instance cache of permitted photos (keyed by Telegram file_id; permission is checked BEFORE every read).
+const photoCache = new Map<string, string>();
 const err = (message: string, status = 400) => NextResponse.json({ ok: false, error: message }, { status });
 // Purchase result -> app message (same wording as the bot's insufficient-balance reply, minus the raw link).
 function purchaseError(r: Exclude<Purchase, { ok: true }>): string {
@@ -43,10 +48,22 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
   if (!tg) return err("افتح التطبيق من داخل تلجرام", 401);
   if (!rateLimit(`app:${botId}:${tg.id}`, 120, 60_000)) return err("طلبات كثيرة، تمهّل قليلاً", 429);
 
+  // 🛡 Admin dashboard: gated server-side by the bot's own admin check, on EVERY call.
+  const isAdmin = isMatchAdmin(tg.id);
+  if (typeof body.action === "string" && body.action.startsWith("admin_")) {
+    if (!isAdmin) return err("غير مصرح", 403);
+    const r = await handleAdminAction(new TelegramBot(botRow.token), botRow, tg.id, body.action, body).catch((e) => {
+      console.error("match-app admin", body.action, (e as Error)?.message);
+      return { status: 500, body: { ok: false, error: "حدث خطأ، حاول مجدداً" } };
+    });
+    return NextResponse.json(r.body, { status: r.status });
+  }
+  const adminInfo = isAdmin ? { isAdmin: true, adminBadges: await adminBadges(botId).catch(() => null) } : {};
+
   const user = await prisma.matchUser.findUnique({ where: { id: tg.id }, include: { profile: true, preference: true } });
-  if (!user) return NextResponse.json({ ok: true, registered: false, reason: "start" });
+  if (!user) return NextResponse.json({ ok: true, registered: false, reason: "start", ...adminInfo });
   if (user.isBanned) return err("حسابك محظور", 403);
-  if (!user.phoneVerified) return NextResponse.json({ ok: true, registered: false, reason: "phone" });
+  if (!user.phoneVerified) return NextResponse.json({ ok: true, registered: false, reason: "phone", ...adminInfo });
   if (user.mutedUntil && user.mutedUntil > new Date() && body.action !== "me") return err("حسابك مقيّد مؤقتاً", 403);
   void prisma.matchUser.update({ where: { id: tg.id }, data: { lastActiveAt: new Date() } }).catch(() => null);
 
@@ -67,6 +84,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       return NextResponse.json({
         ok: true,
         registered: true,
+        ...adminInfo,
+        realtime: realtimeConfig(),
         firstName: tg.firstName ?? null,
         profile: p && {
           gender: p.gender, name: p.name, age: p.age, country: p.country, job: p.job, education: p.education,
@@ -90,7 +109,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     // ---- upgrades: exactly the bot's «⭐ الترقيات والمزايا» (shared functions) ----
     if (action === "upgrade") {
-      if (!rateLimit(`buy:${tg.id}`, 10, 60_000)) return err("تمهّل قليلاً");
+      if (!rateLimit(`buy:${tg.id}`, 10, 60_000) || !(await pgRateLimit(`buy:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
       const key = String(body.key);
       if (key === "boost") { const r = await purchaseBoost(tg.id); return r.ok ? NextResponse.json({ ok: true, message: `🚀 تم رفع ملفك حتى ${r.boostedUntil.toLocaleString("ar")}` }) : err(purchaseError(r)); }
       if (key === "vip") { const r = await purchaseVip(tg.id); return r.ok ? NextResponse.json({ ok: true, message: `👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}` }) : err(purchaseError(r)); }
@@ -195,7 +214,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await anonStart(bot, botRow, tg.id, body.ignoreFilter === true);
         return NextResponse.json({ ok: true, ...(await anonPoll(tg.id, 0)) });
       }
-      if (action === "anon_poll") return NextResponse.json({ ok: true, ...(await anonPoll(tg.id, Math.max(0, Number(body.after) || 0), body.sessionId ? String(body.sessionId) : undefined)) });
+      if (action === "anon_poll") {
+        const p = await anonPoll(tg.id, Math.max(0, Number(body.after) || 0), body.sessionId ? String(body.sessionId) : undefined);
+        // Realtime doorbell topic: issued only to a participant of this ACTIVE session.
+        const rt = p.state === "chatting" && body.wantTopic ? await anonSessionTopic(p.sessionId) : null;
+        return NextResponse.json({ ok: true, ...p, ...(rt ? { rtTopic: rt } : {}) });
+      }
       if (action === "anon_send") {
         const r = await anonSend(bot, tg.id, String(body.text || ""));
         return r.ok ? NextResponse.json({ ok: true }) : err(r.error || "تعذّر الإرسال");
@@ -265,12 +289,17 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     if (action === "photo") {
       const perm = await prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: target, viewerId: tg.id } } });
       if (blocked || perm?.status !== "GRANTED" || !targetProfile.photoFileId) return err("الصورة غير متاحة", 403);
+      if (photoCache.has(targetProfile.photoFileId)) {
+        return NextResponse.json({ ok: true, src: `data:image/jpeg;base64,${photoCache.get(targetProfile.photoFileId)}` }, { headers: { "Cache-Control": "private, max-age=600" } });
+      }
       const file = await bot.api.getFile(targetProfile.photoFileId).catch(() => null);
       if (!file?.file_path || (file.file_size ?? 0) > 2_000_000) return err("الصورة غير متاحة", 404);
       const res = await fetch(`https://api.telegram.org/file/bot${botRow.token}/${file.file_path}`).catch(() => null);
       if (!res?.ok) return err("الصورة غير متاحة", 404);
-      const b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-      return NextResponse.json({ ok: true, src: `data:image/jpeg;base64,${b64}` });
+      const cached = photoCache.get(targetProfile.photoFileId);
+      const b64 = cached ?? Buffer.from(await res.arrayBuffer()).toString("base64");
+      if (!cached) { photoCache.set(targetProfile.photoFileId, b64); if (photoCache.size > 40) photoCache.delete(photoCache.keys().next().value as string); }
+      return NextResponse.json({ ok: true, src: `data:image/jpeg;base64,${b64}` }, { headers: { "Cache-Control": "private, max-age=600" } });
     }
 
     if (blocked && action !== "report") return err("هذا الملف غير متاح");
@@ -285,7 +314,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const kind = String(body.kind);
       if (kind === "pass") return NextResponse.json({ ok: true }); // bot's «➡️ الملف التالي»: no stored state
       if (kind === "propose") {
-        if (!rateLimit(`prop:${tg.id}`, 5, 3600_000)) return err("حد طلبات الزواج: 5 في الساعة");
+        if (!(await pgRateLimit(`prop:${tg.id}`, 5, 3600))) return err("حد طلبات الزواج: 5 في الساعة");
         const r = await sendChatRequest(bot, botRow, tg.id, target, "proposal");
         return NextResponse.json({ ok: r.ok, message: r.message });
       }
@@ -310,11 +339,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     if (action === "request") {
+      if (!(await pgRateLimit(`req:${tg.id}`, 20, 3600))) return err("حد الطلبات، حاول لاحقاً", 429);
       const r = await sendChatRequest(bot, botRow, tg.id, target);
       return NextResponse.json({ ok: r.ok, message: r.message });
     }
     if (action === "photo_request") {
-      if (!rateLimit(`preq:${tg.id}`, 10, 3600_000)) return err("حد الطلبات");
+      if (!(await pgRateLimit(`preq:${tg.id}`, 10, 3600))) return err("حد الطلبات");
       const existing = await prisma.matchPhotoPermission.findUnique({ where: { ownerId_viewerId: { ownerId: target, viewerId: tg.id } } });
       if (existing) return NextResponse.json({ ok: true, message: existing.status === "PENDING" ? "طلبك قيد الانتظار" : existing.status === "GRANTED" ? "مسموح لك" : "رفض صاحب الملف" });
       await prisma.matchPhotoPermission.create({ data: { ownerId: target, viewerId: tg.id } });
@@ -336,8 +366,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       return NextResponse.json({ ok: true, message: "تم الحظر" });
     }
     if (action === "report") {
-      if (!rateLimit(`rep:${botId}:${tg.id}`, 5, 3600_000)) return err("حد البلاغات", 429);
-      await prisma.matchReport.create({ data: { reporterId: tg.id, targetId: target, reason: String(body.reason || "من التطبيق").slice(0, 200), source: "SEARCH" } });
+      if (!(await pgRateLimit(`apprep:${tg.id}`, 5, 3600))) return err("حد البلاغات", 429);
+      // Same path as the bot's 🚩 (admin alert + auto-mute after 3 distinct reporters).
+      const r = await fileMatchReport(bot, tg.id, target, "SEARCH", `🚩 بلاغ جديد على ملف ${targetProfile.name} (${target}) من المستخدم ${tg.id} (من التطبيق).\nراجعه من «🚩 بلاغات المطابقة».`, String(body.reason || "من التطبيق").slice(0, 200));
+      if (r === "limited") return err("حد البلاغات", 429);
       return NextResponse.json({ ok: true, message: "شكراً، وصل البلاغ للإدارة" });
     }
     return err("إجراء غير معروف");

@@ -9,7 +9,7 @@
 import { AnimatePresence, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Tab = "anon" | "discover" | "chats" | "me";
+type Tab = "anon" | "discover" | "chats" | "me" | "admin";
 type Card = {
   ref: string; shortId: string; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
   education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null;
@@ -64,7 +64,11 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
   const reloadMe = useCallback(async () => {
     const r = await api("me");
     if (!r.ok) { say(r.error, "error"); setBoot("outside"); return null; }
-    if (!r.registered) { setBoot(r.reason === "phone" ? "phone" : "start"); return null; }
+    if (!r.registered) {
+      // The admin may use the dashboard without a member profile (server re-checks every admin call).
+      if (r.isAdmin) { setMe(r); setTab("admin"); setBoot("ready"); return r; }
+      setBoot(r.reason === "phone" ? "phone" : "start"); return null;
+    }
     setMe(r); setBoot("ready");
     return r;
   }, [api, say]);
@@ -74,7 +78,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     if (!w?.initData) { setBoot("outside"); return; }
     w.ready(); w.expand();
     try { w.setHeaderColor?.("#0b1020"); w.setBackgroundColor?.("#0b1020"); w.disableVerticalSwipes?.(); } catch { /* optional */ }
-    reloadMe().then((r) => { if (r && !r.profile) setTab("me"); });
+    reloadMe().then((r) => { if (r && r.registered && !r.profile) setTab("me"); });
   }, [reloadMe]);
 
   // BackButton: closes a modal, otherwise returns to discovery.
@@ -120,11 +124,12 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
             ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
           {tab === "chats" && <ChatsTab api={api} say={say} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
-          {tab === "me" && <MeTab api={api} say={say} me={me} reload={reloadMe} />}
+          {tab === "me" && (me?.registered === false ? <Empty icon="🛡" text="حساب الإدارة بلا ملف عضو" /> : <MeTab api={api} say={say} me={me} reload={reloadMe} />)}
+          {tab === "admin" && me?.isAdmin && <AdminTab api={api} say={say} onChange={reloadMe} />}
         </motion.section>
       </AnimatePresence>
 
-      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} />
+      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} />
 
       <AnimatePresence>
         {modal?.kind === "match" && <MatchModal card={modal.card} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
@@ -179,16 +184,18 @@ function Header({ me, onUpgrade }: { me: any; onUpgrade: () => void }) {
   );
 }
 
-function BottomNav({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+function BottomNav({ tab, setTab, admin }: { tab: Tab; setTab: (t: Tab) => void; admin: number | null }) {
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
+  if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
     <nav className={`fixed bottom-4 inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ paddingBottom: "max(6px, env(safe-area-inset-bottom))" }}>
-      <ul className="grid grid-cols-4 gap-1">
+      <ul className={`grid gap-1 ${admin !== null ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map(([t, icon, label]) => (
           <li key={t}>
             <button onClick={() => setTab(t)} className="relative w-full rounded-3xl py-2 text-center">
               {tab === t && <motion.span layoutId="navpill" className={`absolute inset-0 rounded-3xl ${GRAD} opacity-90`} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
               <span className="relative block text-lg leading-none">{icon}</span>
+              {t === "admin" && !!admin && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[9px] font-bold leading-4">{admin > 99 ? "99+" : admin}</span>}
               <span className={`relative mt-1 block text-[10px] ${tab === t ? "text-white font-bold" : "text-white/60"}`}>{label}</span>
             </button>
           </li>
@@ -268,14 +275,48 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
   }, [say]);
 
   const pollNow = async () => apply(await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current }));
+  const [rtTopic, setRtTopic] = useState<string | null>(null);
+  const rtLive = useRef(false);
+  // Polling with backoff (4s → 12s when quiet; 30s when Realtime is live), paused while hidden.
   useEffect(() => {
     if (!active) return;
     let stop = false;
-    const tick = async () => { const r = await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current }); if (!stop) apply(r); };
+    let delay = 4000;
+    let timer: number | undefined;
+    const tick = async () => {
+      if (stop) return;
+      if (document.visibilityState === "visible") {
+        const r = await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current, wantTopic: !!me?.realtime && poll.state === "chatting" && !rtTopic });
+        if (stop) return;
+        apply(r);
+        if (r?.rtTopic) setRtTopic(r.rtTopic);
+        delay = r?.messages?.length ? 4000 : Math.min(12000, Math.round(delay * 1.5));
+      }
+      const base = poll.state === "idle" || poll.state === "ended" ? 15000 : rtLive.current && poll.state === "chatting" ? 30000 : delay;
+      timer = window.setTimeout(tick, base);
+    };
     tick();
-    const id = window.setInterval(() => { if (document.visibilityState === "visible") tick(); }, poll.state === "chatting" ? 2500 : poll.state === "waiting" ? 2000 : 8000);
-    return () => { stop = true; window.clearInterval(id); };
-  }, [active, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
+    const onVis = () => { if (document.visibilityState === "visible") { delay = 4000; window.clearTimeout(timer); tick(); } };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop = true; window.clearTimeout(timer); document.removeEventListener("visibilitychange", onVis); };
+  }, [active, poll.state, rtTopic]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Optional Supabase Realtime doorbell: content-free "ping" → fetch via the authenticated API.
+  useEffect(() => {
+    const cfg = me?.realtime;
+    if (!active || !cfg || !rtTopic || poll.state !== "chatting") return;
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
+    import("@supabase/supabase-js").then(({ createClient }) => {
+      if (cancelled) return;
+      const client = createClient(cfg.url, cfg.anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+      const ch = client.channel(rtTopic).on("broadcast", { event: "ping" }, () => { pollNow(); })
+        .subscribe((status: string) => { rtLive.current = status === "SUBSCRIBED"; });
+      cleanup = () => { rtLive.current = false; client.removeChannel(ch); };
+    }).catch(() => { rtLive.current = false; });
+    return () => { cancelled = true; cleanup?.(); };
+  }, [active, rtTopic, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (poll.state !== "chatting") setRtTopic(null); }, [poll.state]);
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [msgs.length]);
 
@@ -434,6 +475,163 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// 🛡 Admin dashboard — every call is re-checked server-side (isMatchAdmin); actions = the bot's own.
+function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => void }) {
+  type Sec = "overview" | "profiles" | "verify" | "rsearch" | "rchat" | "inbox" | "users" | "broadcast" | "audit";
+  const [sec, setSec] = useState<Sec>("overview");
+  const [data, setData] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [q, setQ] = useState("");
+  const [lookup, setLookup] = useState<any>(null);
+  const [reply, setReply] = useState<Record<string, string>>({});
+  const [bc, setBc] = useState("");
+
+  const load = useCallback(async (s: Sec = sec) => {
+    const act = { overview: "admin_overview", profiles: "admin_profiles", verify: "admin_verifications", rsearch: "admin_reports", rchat: "admin_reports", inbox: "admin_inbox", users: null, broadcast: null, audit: "admin_audit" }[s];
+    if (!act) { setData(null); return; }
+    const r = await api(act, { source: s === "rchat" ? "RANDOM_CHAT" : "SEARCH" });
+    if (!r.ok) { say(r.error, "error"); return; }
+    setData(r);
+  }, [api, say, sec]);
+  useEffect(() => { setData(null); load(sec); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const act = async (action: string, extra: Record<string, unknown>, confirmText?: string) => {
+    if (confirmText && !(await confirmTg(confirmText))) return;
+    setBusy(true);
+    const r = await api(action, extra);
+    setBusy(false);
+    say(r.message || r.error, r.ok ? "success" : "error");
+    await load(); onChange();
+  };
+
+  const b = data?.badges || {};
+  const secs: [Sec, string, number?][] = [
+    ["overview", "📊 نظرة عامة"], ["profiles", "📋 الملفات", b.profiles], ["verify", "☑️ التوثيق", b.verifications],
+    ["rsearch", "🚩 بلاغات المطابقة", b.reportsSearch], ["rchat", "🚩 بلاغات العشوائية", b.reportsChat], ["inbox", "📥 الوارد", b.inbox],
+    ["users", "🔎 مستخدم / رفع حظر"], ["broadcast", "📢 بث"], ["audit", "🧾 السجل"],
+  ];
+  const Btn = ({ children, onClick, tone = "" }: { children: React.ReactNode; onClick: () => void; tone?: string }) => (
+    <button disabled={busy} onClick={onClick} className={`rounded-xl px-3 py-1.5 text-xs disabled:opacity-50 ${tone || "bg-white/10"}`}>{children}</button>
+  );
+  const when = (d: string) => new Date(d).toLocaleString("ar", { dateStyle: "short", timeStyle: "short" });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {secs.map(([k, l, n]) => (
+          <Pill key={k} active={sec === k} onClick={() => setSec(k)}>{l}{n ? <span className="mr-1 rounded-full bg-red-500 px-1.5 text-[10px] font-bold">{n}</span> : null}</Pill>
+        ))}
+      </div>
+      <p className="px-1 text-[11px] text-white/40">نفس أزرار لوحة البوت — التنبيهات والتأكيدات تصلك في محادثة البوت كالمعتاد.</p>
+
+      {sec === "overview" && data?.stats && (
+        <div className={`grid grid-cols-2 gap-2 rounded-3xl p-4 text-sm ${GLASS}`}>
+          {([["👥 المستخدمون", data.stats.totalUsers], ["🟢 متصلون", data.stats.onlineUsers], ["⏳ ملفات معلقة", data.stats.pendingProfiles], ["✅ معتمدة", data.stats.approvedProfiles], ["❌ مرفوضة", data.stats.rejectedProfiles], ["🚩 بلاغات بحث", data.stats.pendingSearchReports], ["🚩 بلاغات عشوائية", data.stats.pendingChatReports], ["💬 محادثات نشطة", data.stats.activeSessions], ["⏳ بالطابور", data.stats.waitingQueue], ["📥 وارد", data.stats.pendingInbox]] as [string, number][]).map(([l, v]) => (
+            <div key={l} className="rounded-2xl bg-white/5 p-3"><p className="text-[11px] text-white/50">{l}</p><p className="text-xl font-black">{v}</p></div>
+          ))}
+          <button disabled={busy} onClick={() => act("admin_diagnostics", {})} className="col-span-2 rounded-2xl bg-white/10 py-2 text-xs">🩺 فحص البحث (يُرسل للبوت)</button>
+        </div>
+      )}
+
+      {sec === "profiles" && (data?.items?.length ? data.items.map((p: any) => (
+        <div key={p.userId} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
+          <p className="font-bold">{p.name} · {p.age} · {p.gender === "MALE" ? "ذكر" : "أنثى"} <span className="text-white/40">#{p.shortId}</span></p>
+          <p className="text-[12px] text-white/60">{[p.country, p.city, p.job, p.education, p.maritalStatus].filter(Boolean).join(" · ")}{p.hasPhoto ? " · 📷 (الصورة في البوت)" : ""}</p>
+          <div className="mt-2 flex gap-2">
+            <Btn tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: true })}>✅ قبول</Btn>
+            <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: p.userId, approve: false }, "رفض هذا الملف؟")}>❌ رفض</Btn>
+          </div>
+        </div>
+      )) : data && <Empty icon="✅" text="لا توجد ملفات بانتظار المراجعة." />)}
+
+      {sec === "verify" && (<>
+        {data?.note && <p className="px-1 text-[11px] text-white/50">{data.note}</p>}
+        {data?.items?.length ? data.items.map((p: any) => (
+          <div key={p.userId} className={`flex items-center justify-between rounded-3xl p-4 text-sm ${GLASS}`}>
+            <span>{p.name} <span className="text-white/40">#{p.shortId}</span></span>
+            <span className="flex gap-2">
+              <Btn tone="bg-emerald-500/80" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: true })}>☑️ توثيق</Btn>
+              <Btn tone="bg-red-500/70" onClick={() => act("admin_verify_decide", { userId: p.userId, approve: false }, "رفض طلب التوثيق؟")}>رفض</Btn>
+            </span>
+          </div>
+        )) : data && <Empty icon="☑️" text="لا توجد طلبات توثيق معلقة." />}
+      </>)}
+
+      {(sec === "rsearch" || sec === "rchat") && (data?.items?.length ? data.items.map((r: any) => (
+        <div key={r.id} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
+          <p>المُبلِّغ: {r.reporter.name || "بلا ملف"} <span className="text-white/40">#{r.reporter.shortId}</span></p>
+          <p>المُبلَّغ عنه: <b>{r.target.name || "بلا ملف"}</b> <span className="text-white/40">#{r.target.shortId}</span>{r.target.pending > 1 && <span className="mr-1 rounded-full bg-red-500/80 px-1.5 text-[10px]">{r.target.pending} بلاغات</span>}</p>
+          {r.reason && <p className="text-[12px] text-white/50">{r.reason}</p>}
+          <p className="text-[11px] text-white/40">{when(r.at)}</p>
+          <div className="mt-2 flex gap-2">
+            <Btn onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ignore" })}>🙈 تجاهل</Btn>
+            <Btn tone="bg-amber-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "mute" })}>🔇 كتم 24س</Btn>
+            <Btn tone="bg-red-500/70" onClick={() => act("admin_report_resolve", { reportId: r.id, act: "ban" }, "حظر نهائي لهذا المستخدم؟")}>⛔ حظر نهائي</Btn>
+          </div>
+        </div>
+      )) : data && <Empty icon="✅" text="لا توجد بلاغات بانتظار المراجعة في هذا القسم." />)}
+
+      {sec === "inbox" && (data?.items?.length ? data.items.map((m: any) => (
+        <div key={m.id} className={`rounded-3xl p-4 text-sm ${GLASS}`}>
+          <p className="font-bold">{m.name || "بلا ملف"} <span className="text-white/40">#{m.shortId} · {m.senderId}</span></p>
+          <p className="my-1 whitespace-pre-wrap text-white/80">{m.text}</p>
+          <p className="text-[11px] text-white/40">{when(m.at)}</p>
+          <div className="mt-2 flex gap-2">
+            <input value={reply[m.id] || ""} onChange={(e) => setReply({ ...reply, [m.id]: e.target.value })} placeholder="↩️ اكتب ردك" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs outline-none" />
+            <Btn tone={GRAD} onClick={() => act("admin_inbox_reply", { messageId: m.id, text: reply[m.id] || "" })}>إرسال</Btn>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <Btn onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "read" })}>✅ مقروء</Btn>
+            <Btn tone="bg-amber-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "mute" })}>🔇 كتم المرسل</Btn>
+            <Btn tone="bg-red-500/70" onClick={() => act("admin_inbox_action", { messageId: m.id, kind: "ban" }, "حظر المرسل نهائياً؟")}>⛔ حظر المرسل</Btn>
+          </div>
+        </div>
+      )) : data && <Empty icon="📭" text="لا توجد رسائل واردة جديدة." />)}
+
+      {sec === "users" && (
+        <div className={`rounded-3xl p-4 text-sm ${GLASS}`}>
+          <div className="flex gap-2">
+            <input value={q} onChange={(e) => setQ(e.target.value)} inputMode="numeric" placeholder="آيدي المستخدم (Telegram ID)" className="flex-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 outline-none" />
+            <Btn tone={GRAD} onClick={async () => { const r = await api("admin_lookup", { userId: q }); if (r.ok) setLookup(r); else { setLookup(null); say(r.error, "error"); } }}>🔎 بحث</Btn>
+          </div>
+          {lookup && (
+            <div className="mt-3 space-y-1 text-[13px]">
+              <p>🆔 {lookup.user.id} · 📱 {lookup.user.phoneVerified ? "✅" : "❌"} · 💰 ${lookup.user.balance.toFixed(2)}</p>
+              <p>🚫 محظور: {lookup.user.isBanned ? "نعم" : "لا"} · 🔇 مكتوم: {lookup.user.mutedUntil ? `حتى ${when(lookup.user.mutedUntil)}` : "لا"}</p>
+              <p>❤️ {lookup.user.likesReceived} · 🚩 ضده {lookup.user.reportsReceived} · 🚩 قدّمها {lookup.user.reportsGiven}</p>
+              <p>👤 {lookup.profile ? `${lookup.profile.name} · ${lookup.profile.status} · توثيق ${lookup.profile.verification}${lookup.profile.isHidden ? " · مخفي" : ""}` : "لا يوجد ملف"}</p>
+              <div className="flex gap-2 pt-1">
+                {(lookup.user.isBanned || lookup.user.mutedUntil) && <Btn tone="bg-emerald-500/80" onClick={() => act("admin_unban", { userId: lookup.user.id }, "رفع الحظر/الكتم؟")}>🔓 رفع حظر/كتم</Btn>}
+                {lookup.profile?.status === "PENDING" && <>
+                  <Btn tone="bg-emerald-500/80" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: true })}>✅ قبول الملف</Btn>
+                  <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false })}>❌ رفض الملف</Btn>
+                </>}
+                {lookup.profile?.status === "APPROVED" && <Btn tone="bg-red-500/70" onClick={() => act("admin_profile_decide", { userId: lookup.user.id, approve: false }, "رفض ملف معتمد؟")}>❌ رفض الملف</Btn>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {sec === "broadcast" && (
+        <div className={`rounded-3xl p-4 text-sm ${GLASS}`}>
+          <textarea value={bc} onChange={(e) => setBc(e.target.value)} rows={5} placeholder="📢 نص الرسالة لجميع المستخدمين المُفعّلين" className="w-full rounded-xl border border-white/10 bg-white/5 p-3 outline-none" />
+          <button disabled={busy || !bc.trim()} onClick={async () => { await act("admin_broadcast", { text: bc }, "إرسال هذا البث لجميع المستخدمين؟"); setBc(""); }} className={`mt-2 w-full rounded-2xl py-2.5 font-bold disabled:opacity-50 ${GRAD}`}>إرسال البث</button>
+        </div>
+      )}
+
+      {sec === "audit" && (data?.items?.length ? (
+        <div className={`rounded-3xl p-3 text-[12px] ${GLASS}`}>
+          {data.items.map((a: any) => (
+            <p key={a.id} className="border-b border-white/5 py-1.5"><span className="text-white/40">{when(a.created_at)}</span> · {a.action}{a.target ? ` → ${a.target}` : ""} <span className="text-white/40">({a.via === "app" ? "التطبيق" : a.admin_id === "system" ? "تلقائي" : "البوت"})</span></p>
+          ))}
+        </div>
+      ) : data && <Empty icon="🧾" text="لا توجد إجراءات مسجّلة بعد." />)}
     </div>
   );
 }

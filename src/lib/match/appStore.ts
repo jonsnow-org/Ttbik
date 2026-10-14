@@ -14,13 +14,26 @@ CREATE TABLE IF NOT EXISTS match_app_daily (user_id TEXT NOT NULL, day TEXT NOT 
 CREATE TABLE IF NOT EXISTS match_app_passes (user_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, target_id));
 CREATE TABLE IF NOT EXISTS match_app_compliments (sender_id TEXT NOT NULL, target_id TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (sender_id, target_id, day));
 CREATE TABLE IF NOT EXISTS match_app_perks (user_id TEXT PRIMARY KEY, referral_vip_claimed BOOLEAN NOT NULL DEFAULT false, anon_filter JSONB);
-CREATE TABLE IF NOT EXISTS match_anon_filters (user_id TEXT PRIMARY KEY, filter JSONB, paid_until TIMESTAMPTZ, active_queue_id TEXT, notified_queue_id TEXT)`;
+CREATE TABLE IF NOT EXISTS match_anon_filters (user_id TEXT PRIMARY KEY, filter JSONB, paid_until TIMESTAMPTZ, active_queue_id TEXT, notified_queue_id TEXT);
+CREATE TABLE IF NOT EXISTS match_rate_limits (key TEXT PRIMARY KEY, window_start TIMESTAMPTZ NOT NULL DEFAULT now(), n INT NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS match_admin_audit (id BIGSERIAL PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, via TEXT NOT NULL DEFAULT 'bot', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_admin_audit_created_idx ON match_admin_audit (created_at DESC);
+CREATE TABLE IF NOT EXISTS match_anon_rt (session_id TEXT PRIMARY KEY, token TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL)`;
+/** Bump when DDL_FALLBACK changes; the DDL then runs once per database, not on every cold start. */
+export const MATCH_APP_SCHEMA_VERSION = 3;
 
 export function ensureMatchAppTables(): Promise<void> {
   if (!ready) {
     ready = (async () => {
+      // Run-once flag: a single cheap SELECT on warm databases.
+      try {
+        const v = await prisma.$queryRaw<{ version: number }[]>`SELECT version FROM match_app_schema WHERE id = 1`;
+        if (Number(v[0]?.version) >= MATCH_APP_SCHEMA_VERSION) return;
+      } catch { /* table missing → run DDL below */ }
       // Same statements as prisma/migration_match_app.sql (keep both in sync).
       for (const stmt of DDL_FALLBACK.split(";").map((s) => s.trim()).filter(Boolean)) await prisma.$executeRawUnsafe(stmt);
+      await prisma.$executeRaw`INSERT INTO match_app_schema (id, version) VALUES (1, ${MATCH_APP_SCHEMA_VERSION}) ON CONFLICT (id) DO UPDATE SET version = ${MATCH_APP_SCHEMA_VERSION}`;
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;
@@ -104,4 +117,38 @@ export async function markAnonNotified(userId: string, queueId: string): Promise
   await ensureMatchAppTables();
   const n = await prisma.$executeRaw`UPDATE match_anon_filters SET notified_queue_id = ${queueId} WHERE user_id = ${userId} AND notified_queue_id IS DISTINCT FROM ${queueId}`;
   return n > 0;
+}
+
+/** Atomic +30d extension that stacks on remaining time (no read-then-write race). */
+export async function extendAnonPaidUntilAtomic(userId: string, days: number): Promise<Date> {
+  await ensureMatchAppTables();
+  const r = await prisma.$queryRaw<{ paid_until: Date }[]>`
+    INSERT INTO match_anon_filters (user_id, paid_until) VALUES (${userId}, now() + make_interval(days => ${days}))
+    ON CONFLICT (user_id) DO UPDATE SET paid_until = GREATEST(COALESCE(match_anon_filters.paid_until, now()), now()) + make_interval(days => ${days})
+    RETURNING paid_until`;
+  return r[0].paid_until;
+}
+
+// ---- admin audit log -------------------------------------------------------------------------
+export async function auditAdmin(adminId: string, action: string, target?: string | null, detail?: string | null, via: "bot" | "app" = "bot"): Promise<void> {
+  try {
+    await ensureMatchAppTables();
+    await prisma.$executeRaw`INSERT INTO match_admin_audit (admin_id, action, target, detail, via) VALUES (${adminId}, ${action}, ${target ?? null}, ${detail ? detail.slice(0, 300) : null}, ${via})`;
+  } catch { /* audit must never break moderation */ }
+}
+export async function recentAudit(limit = 30) {
+  await ensureMatchAppTables();
+  const r = await prisma.$queryRaw<{ id: bigint; admin_id: string; action: string; target: string | null; detail: string | null; via: string; created_at: Date }[]>`
+    SELECT id, admin_id, action, target, detail, via, created_at FROM match_admin_audit ORDER BY created_at DESC LIMIT ${limit}`;
+  return r.map((x) => ({ ...x, id: Number(x.id) }));
+}
+
+/** ACTIVE random sessions whose last message (or start) is older than `minutes`. */
+export async function idleRandomSessions(minutes: number): Promise<{ id: string; user1Id: string; user2Id: string; botId: string }[]> {
+  await ensureMatchAppTables();
+  return prisma.$queryRaw<{ id: string; user1Id: string; user2Id: string; botId: string }[]>`
+    SELECT s.id, s."user1Id", s."user2Id", s."botId" FROM "RandomChatSession" s
+    WHERE s.status = 'ACTIVE'
+      AND COALESCE((SELECT max(m.created_at) FROM match_app_messages m WHERE m.session_id = s.id), s.created_at) < now() - make_interval(mins => ${minutes})
+    LIMIT 200`;
 }

@@ -11,6 +11,7 @@ import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { anonMessagesSince, getAnonFilterRow } from "@/lib/match/appStore";
+import { CONTACT_BLOCKED_TEXT } from "@/lib/match/contactGuard";
 import { activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
 import {
   EXIT_REASON_LABELS, endRandomChat, relayRandomChatText, reportRandomChat, requestRandomChatContact, startRandomChat,
@@ -80,6 +81,7 @@ export async function anonSend(bot: TelegramBot, me: string, text: string): Prom
   const p = await pendingOf(me);
   if (p?.mode !== "random_chatting" || !p.sessionId || !p.partnerId) return { ok: false, error: "لا توجد محادثة نشطة" };
   const r = await relayRandomChatText(bot, Number(me), me, { sessionId: p.sessionId, partnerId: p.partnerId }, t);
+  if (r === "contact") return { ok: false, error: CONTACT_BLOCKED_TEXT };
   return r === "banned" ? { ok: false, error: "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها." } : { ok: true };
 }
 

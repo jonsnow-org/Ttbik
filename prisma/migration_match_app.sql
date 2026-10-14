@@ -37,3 +37,21 @@ CREATE TABLE IF NOT EXISTS match_app_perks (
 );
 
 CREATE TABLE IF NOT EXISTS match_anon_filters (user_id TEXT PRIMARY KEY, filter JSONB, paid_until TIMESTAMPTZ, active_queue_id TEXT, notified_queue_id TEXT);
+CREATE TABLE IF NOT EXISTS match_rate_limits (key TEXT PRIMARY KEY, window_start TIMESTAMPTZ NOT NULL DEFAULT now(), n INT NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS match_admin_audit (id BIGSERIAL PRIMARY KEY, admin_id TEXT NOT NULL, action TEXT NOT NULL, target TEXT, detail TEXT, via TEXT NOT NULL DEFAULT 'bot', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_admin_audit_created_idx ON match_admin_audit (created_at DESC);
+CREATE TABLE IF NOT EXISTS match_anon_rt (session_id TEXT PRIMARY KEY, token TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL);
+
+-- Recommended indexes on the existing MARRIAGE_BOT tables (additive, run manually once;
+-- not executed by the app so no lock is ever taken during a request).
+CREATE INDEX IF NOT EXISTS match_profile_search_idx ON "MatchProfile" (status, gender, "isHidden");
+CREATE INDEX IF NOT EXISTS match_profile_verif_idx ON "MatchProfile" ("verificationStatus");
+CREATE INDEX IF NOT EXISTS random_queue_wait_idx ON "RandomChatQueue" ("botId", status, "expiresAt");
+CREATE INDEX IF NOT EXISTS random_queue_user_idx ON "RandomChatQueue" ("userId", created_at DESC);
+CREATE INDEX IF NOT EXISTS random_session_pair_idx ON "RandomChatSession" ("user1Id", "user2Id", created_at);
+CREATE INDEX IF NOT EXISTS random_session_status_idx ON "RandomChatSession" (status);
+CREATE INDEX IF NOT EXISTS match_report_target_idx ON "MatchReport" ("targetId", status);
+CREATE INDEX IF NOT EXISTS match_report_status_idx ON "MatchReport" (status, source, created_at);
+CREATE INDEX IF NOT EXISTS match_visit_viewer_idx ON "MatchProfileVisit" ("viewerId", "visitedAt");
+CREATE INDEX IF NOT EXISTS match_block_blocked_idx ON "MatchBlock" ("blockedId");
