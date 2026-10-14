@@ -55,6 +55,20 @@ def main() -> int:
             a = studio_client.generate_text(q, 60, timeout=170)
             print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): {(a or '— لا جواب')[:600]}")
             continue
+        if api == "think":         # 2026-10-14: the bot's new one-step path (app.py think + job_result), timed end to end
+            try:
+                r = json.loads(studio_client._call("think", {"prompt": q, "max_new_tokens": 60, "user_id": "ci-ask", "history": "", "summary": "",
+                                                              "facts": ""}, timeout=60))
+                first = time.time() - t0
+                while r.get("type") == "pending" and time.time() - t0 < 120:
+                    time.sleep(3)
+                    r = json.loads(studio_client._call("job_result", {"job_id": r["job"], "detach": ""}, timeout=20))
+            except Exception as exc:
+                print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): — فشل think ({type(exc).__name__}: {str(exc)[:200]})")
+                continue
+            print(f"\nس: {q}\nج (أول رد {first:.1f} ث، نهائي {time.time() - t0:.1f} ث): النوع={r.get('type')} القرار={r.get('decision')} "
+                  f"{(r.get('text') or '')[:400]}")
+            continue
         r = studio_client.generate_any(q, 60, timeout=170) if api == "any" else studio_client.generate_media(api, q, timeout=300)
         if r is None:
             print(f"\nس: {q}\nج ({time.time() - t0:.0f} ث): — لا جواب (الاستوديو ما زال على النسخة القديمة؟)")

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       api:
-        description: "text | any (النموذج يقرر: كلام أو صورة أو صوت) | image | audio | video (المستخدم يختار النوع)"
+        description: "text | think (خطوة النموذج الواحدة) | any (النموذج يقرر: كلام أو صورة أو صوت) | image | audio | video (المستخدم يختار النوع)"
         required: false
         default: "text"
       ask:
