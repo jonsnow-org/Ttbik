@@ -33,7 +33,7 @@ import { containsContactInfo, normalizeDigits } from "@/lib/match/contactGuard";
 import { chargeMatchUser } from "@/lib/match/entitlements";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import * as appStore from "@/lib/match/appStore";
-import { fileMatchReport, isMatchAdmin, requestRandomChatContact, resolveMatchReport, sweepIdleRandomSessions } from "@/lib/matchBotLogic";
+import { decideProfileByUserId, fileMatchReport, isMatchAdmin, requestRandomChatContact, resolveMatchReport, sweepIdleRandomSessions } from "@/lib/matchBotLogic";
 import { handleAdminAction } from "@/lib/match/adminApp";
 
 const fakeBot = () => ({ api: { sendMessage: jest.fn(async () => ({})) } }) as any;
@@ -201,5 +201,23 @@ describe("admin gating (server-side, bot's exact check)", () => {
     db.matchProfile.count.mockResolvedValue(0); db.matchReport.count.mockResolvedValue(0); db.adminMessage.count.mockResolvedValue(0);
     const r = await handleAdminAction(fakeBot(), { id: "b" } as any, "999", "admin_audit", {});
     expect(r.status).toBe(200);
+  });
+});
+
+
+describe("admin ✅ on an edited (already APPROVED) profile", () => {
+  it("confirms instead of replying «غير موجود»", async () => {
+    db.matchProfile.findUnique.mockResolvedValueOnce({ userId: "367969", name: "سامي", status: "APPROVED", isHidden: false });
+    const bot = fakeBot();
+    await decideProfileByUserId(bot, 999, "367969", true);
+    const txt = bot.api.sendMessage.mock.calls.map((c: any[]) => c[1]).join("|");
+    expect(txt).toContain("تم تأكيد ملف سامي");
+    expect(txt).not.toContain("غير موجود");
+  });
+  it("still reports a truly missing profile", async () => {
+    db.matchProfile.findUnique.mockResolvedValueOnce(null);
+    const bot = fakeBot();
+    await decideProfileByUserId(bot, 999, "1", true);
+    expect(bot.api.sendMessage.mock.calls[0][1]).toContain("غير موجود");
   });
 });

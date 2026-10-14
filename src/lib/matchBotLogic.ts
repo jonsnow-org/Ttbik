@@ -2092,24 +2092,39 @@ async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profi
 }
 
 async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string, approve: boolean) {
-  const candidates = await prisma.matchProfile.findMany({ where: { status: approve ? "PENDING" : { in: ["PENDING", "APPROVED"] } }, take: 500 });
+  const candidates = await prisma.matchProfile.findMany({ where: { status: approve ? { in: ["PENDING", "APPROVED", "REJECTED"] } : { in: ["PENDING", "APPROVED"] } }, take: 500 });
   const profile = candidates.find((p) => shortId(p.userId) === idSuffix);
   if (!profile) {
     await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
     return;
   }
-  await applyProfileDecision(bot, chatId, profile, approve);
+  await decideProfileByUserId(bot, chatId, profile.userId, approve);
 }
 
 export async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean) {
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
   // Profiles now go live automatically, so the admin must still be able to
   // reject an already-APPROVED profile afterwards.
-  if (!profile || profile.status === "REJECTED" || (profile.status === "APPROVED" && approve)) {
+  if (!profile || (profile.status === "REJECTED" && !approve)) {
     await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
     return;
   }
+  // Edited/old profiles are auto-live (APPROVED) — the admin's ✅ on the
+  // «ملف جديد/معدّل» notice is a confirmation, not an error.
+  if (approve && profile.status === "APPROVED") {
+    await confirmApprovedProfile(bot, chatId, profile);
+    return;
+  }
   await applyProfileDecision(bot, chatId, profile, approve);
+}
+
+async function confirmApprovedProfile(bot: TelegramBot, adminChatId: number, profile: MatchProfile) {
+  if (profile.isHidden) {
+    await bot.api.sendMessage(adminChatId, `✅ ملف ${profile.name} معتمد، لكن صاحبه أخفاه مؤقتاً بنفسه (لن يظهر حتى يعيد إظهاره).`);
+  } else {
+    await bot.api.sendMessage(adminChatId, `✅ تم تأكيد ملف ${profile.name} — معتمد وظاهر في البحث وبطاقات التطبيق.`);
+  }
+  await auditAdmin(String(adminChatId), "profile_confirm", profile.userId, null, adminVia).catch(() => null);
 }
 
 export async function adminStatsData(botId: string) {
