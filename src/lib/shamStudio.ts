@@ -92,3 +92,25 @@ export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs 
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
   return body ? parseShamReply(body) : null;
 }
+
+// chat_memory (app.py, 2026-10-14): chat_auto WITH memory — the chat's recent turns, rolling summary and facts from the database
+// (src/lib/shamMemory.ts) plus the Studio's own per-user memory (sham_memory.py). An older Studio without chat_memory answers null, and the
+// caller falls back to chat_auto. memory_forget deletes the Studio-side memory of one user.
+export async function shamChatMemory(
+  prompt: string,
+  mem: { userId: string; history: { q: string; a: string }[]; summary: string; facts: Record<string, string> },
+  maxNewTokens = 80,
+  timeoutMs = 48000,
+): Promise<ShamReply | null> {
+  const body = await shamCall(
+    "chat_memory",
+    { prompt, max_new_tokens: maxNewTokens, user_id: mem.userId, history: JSON.stringify(mem.history), summary: mem.summary, facts: JSON.stringify(mem.facts) },
+    timeoutMs,
+  );
+  return body ? parseShamReply(body) : null;
+}
+
+export async function shamMemoryForget(userId: string, timeoutMs = 15000): Promise<boolean> {
+  const body = await shamCall("memory_forget", { user_id: userId }, timeoutMs);
+  return Boolean(body && parseShamSse(body));
+}
