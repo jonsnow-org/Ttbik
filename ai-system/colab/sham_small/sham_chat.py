@@ -303,12 +303,13 @@ def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple
 
 # ---------------------------------------------------------------- multi-turn dialogues (memory, 2026-10-14)
 # build_chat_example trains ONE turn, so the model never saw a conversation that refers back to something said earlier. The functions below are
-# additive: the single-turn path is untouched; sham_live uses them only when SHAM_CHAT_MULTITURN=1, and what it trains still passes the same
+# additive: the single-turn path is untouched; sham_live and the chat-stage notebook add them unless SHAM_CHAT_MULTITURN=0, and what they train still passes the same
 # held-out gate (the yardstick examples stay single-turn, exactly as before).
 
 def multiturn_enabled() -> bool:
+    """ON by default since 2026-10-14 (owner: multi-turn training must actually run); SHAM_CHAT_MULTITURN=0 switches it off."""
     import os
-    return os.environ.get("SHAM_CHAT_MULTITURN", "0").strip().lower() in ("1", "on", "true", "yes")
+    return os.environ.get("SHAM_CHAT_MULTITURN", "1").strip().lower() not in ("0", "off", "false", "no", "")
 
 
 def _conversation_turns(row: dict, max_turns: int = 8) -> list[tuple[str, str]]:
