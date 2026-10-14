@@ -46,7 +46,12 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
 // ---- pictures and sounds from the model's own tokens (sham_studio_media.py on the Studio). The Studio answers with JSON in the first data entry:
 // {"type": "text" | "image" | "audio" | "notice", "text"?, "mime"?, "b64"?}. generate_any: the MODEL decides what its answer is; generate_media: the user chose
 // the kind with a command. Nothing here decides for the model or edits what comes back.
-export type ShamReply = { type: "text" | "image" | "audio" | "video" | "notice"; text?: string; mime?: string; b64?: string; route?: string };
+export type ShamReply = {
+  type: "text" | "image" | "audio" | "video" | "notice" | "busy" | "loading" | "pending" | "gone";
+  text?: string; mime?: string; b64?: string; route?: string;
+  // think (2026-10-14): the model's own decision, a job id while it is still working, and results finished after an earlier request gave up waiting
+  decision?: string; job?: string; later?: ShamReply[];
+};
 
 export function parseShamReply(body: string): ShamReply | null {
   const raw = parseShamSse(body);
@@ -91,4 +96,55 @@ export async function shamGenerateMedia(kind: "image" | "audio" | "video", promp
 export async function shamChatAuto(prompt: string, maxNewTokens = 80, timeoutMs = 55000): Promise<ShamReply | null> {
   const body = await shamCall("chat_auto", { prompt, max_new_tokens: maxNewTokens }, timeoutMs);
   return body ? parseShamReply(body) : null;
+}
+
+// ---- think (2026-10-14): ONE step where the model decides (reply / its own search / picture / sound / clip). No keyword rules on this path.
+// Each call has its own short timeout; the outcome says WHY when there is no answer, so the bot can tell the user the truth.
+export type ShamOutcome = { reply: ShamReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
+
+export async function shamCallOutcome(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ShamOutcome> {
+  if (!shamStudioEnabled()) return { reply: null, failure: "off" };
+  const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
+  const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
+  const deadline = Date.now() + timeoutMs;
+  try {
+    const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
+    if (!sub.ok) return { reply: null, failure: "http" };
+    const { event_id } = (await sub.json()) as { event_id?: string };
+    if (!event_id) return { reply: null, failure: "http" };
+    const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())) });
+    if (!res.ok) return { reply: null, failure: "http" };
+    const reply = parseShamReply(await res.text());
+    return reply ? { reply } : { reply: null, failure: "unreadable" };
+  } catch (e) {
+    const name = (e as { name?: string })?.name || "";
+    return { reply: null, failure: name === "TimeoutError" || name === "AbortError" ? "timeout" : "network" };
+  }
+}
+
+export function shamThink(prompt: string, userId: string, maxNewTokens = 80, timeoutMs = 28000): Promise<ShamOutcome> {
+  return shamCallOutcome("think", { prompt, max_new_tokens: maxNewTokens, user_id: userId, history: "", summary: "", facts: "" }, timeoutMs);
+}
+
+export function shamJobResult(job: string, detach = false, timeoutMs = 8000): Promise<ShamOutcome> {
+  return shamCallOutcome("job_result", { job_id: job, detach: detach ? "1" : "" }, timeoutMs);
+}
+
+// what the user is told when there is no answer (never "loading" unless the Studio itself says it is loading)
+export function shamStatusText(o: ShamOutcome): string {
+  const r = o.reply;
+  if (r?.type === "loading") return "⏳ شام يحمّل النموذج الآن. أعد إرسال رسالتك بعد دقيقة.";
+  if (r?.type === "busy") return "⌛ شام مشغول بطلب آخر الآن. أعد المحاولة بعد قليل.";
+  if (r?.type === "gone") return "انتهت صلاحية هذا الطلب على الخادم. أعد إرسال رسالتك.";
+  if (o.failure === "timeout") return "⌛ لم يكمل شام الرد في الوقت المتاح. أعد المحاولة بعد قليل.";
+  if (o.failure === "http" || o.failure === "network") return "تعذّر الاتصال بخادم شام الآن. أعد المحاولة بعد قليل.";
+  if (o.failure === "unreadable") return "خادم شام يعمل بنسخة أقدم لا تعرف هذا الطلب بعد.";
+  return "تعذّر الرد الآن.";
+}
+
+export function shamPendingText(decision?: string): string {
+  if (decision === "image") return "🎨 قرّر شام أن يرسم — سأرسل الصورة حين تجهز.";
+  if (decision === "audio") return "🔊 قرّر شام أن يرد بصوت — سأرسله حين يجهز.";
+  if (decision === "video") return "🎬 قرّر شام أن يصنع مقطعاً — سأرسله حين يجهز.";
+  return "🧠 شام ما زال يفكّر (وقد يبحث) — سأرسل الرد حين يجهز.";
 }

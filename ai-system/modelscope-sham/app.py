@@ -57,9 +57,40 @@ def _download() -> Path:
     return Path(snapshot_download(MODEL_ID, cache_dir=str(HERE / "_models")))
 
 
+# 2026-10-14: the chat checkpoint is preferred by NAME; media/tokenizer files are never picked as the language model.
+CKPT_ORDER = ("final_chat_self.pt", "final_chat.pt", "final_merged.pt")
+_NOT_LM = ("image_tokenizer.pt", "audio_tokenizer.pt")
+
+
+def _pick_checkpoint(model_dir: Path):
+    for name in CKPT_ORDER:
+        hit = next(iter(sorted(model_dir.rglob(name))), None)
+        if hit is not None:
+            return hit
+    return next(iter(p for p in sorted(model_dir.rglob("*.pt")) if p.name not in _NOT_LM), None)
+
+
+def _ckpt_key(model_dir: Path, man: dict) -> str:
+    """What decides a reload: the checkpoint that would be served (its name + the merge's sha / per-file sha from the manifest, else size+mtime).
+    A code-only bridge update (new code_sig) or an unchanged merge never reloads the weights. A manifest that says merge_ok=false never reloads."""
+    ck = _pick_checkpoint(model_dir)
+    if ck is None:
+        return ""
+    shas = man.get("ckpt_sha") or {}
+    if ck.name in shas:
+        return ck.name + ":" + str(shas[ck.name])
+    if ck.name == "final_merged.pt" and man.get("sha"):
+        return ck.name + ":" + str(man["sha"])
+    st = ck.stat()
+    return f"{ck.name}:{st.st_size}:{int(st.st_mtime)}"
+
+
 def _load(model_dir: Path) -> None:
     import serve
+    # REVIEW (2026-10-14): superseded by _pick_checkpoint (chat checkpoint by name). Old line kept; SHAM_CKPT_BY_NAME=0 restores it.
     ckpt = next(iter(sorted(model_dir.rglob("final_merged.pt"))), None) or next(iter(sorted(model_dir.rglob("*.pt"))), None)
+    if os.environ.get("SHAM_CKPT_BY_NAME", "1") != "0":
+        ckpt = _pick_checkpoint(model_dir) or ckpt
     tok = next(iter(sorted(model_dir.rglob("sham_small_tokenizer.json"))), None)
     if ckpt is None or tok is None:
         raise RuntimeError("المستودع لا يحوي نقطة الحفظ أو مقطّع النص بعد")
@@ -122,8 +153,16 @@ def _worker() -> None:
             STATE.update(phase="downloading" if STATE["phase"] != "ready" else STATE["phase"])
             model_dir = _download()
             man = next(iter(sorted(model_dir.rglob("bridge_manifest.json"))), None)
-            sha = json.loads(man.read_text(encoding="utf-8")).get("sha") if man else None
-            if sha is None or sha != last_sha or STATE["phase"] != "ready":
+            man_obj = json.loads(man.read_text(encoding="utf-8")) if man else {}
+            sha = man_obj.get("sha") if man else None
+            if os.environ.get("SHAM_RELOAD_ON_MERGE_ONLY", "1") != "0":
+                # 2026-10-14: reload only when the SERVED checkpoint changed by a successful merge (see _ckpt_key); the old test is below for review
+                sha = _ckpt_key(model_dir, man_obj) or sha
+                must = STATE["phase"] != "ready" or (sha != last_sha and man_obj.get("merge_ok", True) is not False)
+            else:
+                must = sha is None or sha != last_sha or STATE["phase"] != "ready"
+            # REVIEW (2026-10-14): old reload test `sha is None or sha != last_sha or phase != ready` kept above behind SHAM_RELOAD_ON_MERGE_ONLY=0
+            if must:
                 _load(model_dir)
                 last_sha = sha
             _hot_sync(model_dir)
@@ -281,7 +320,9 @@ def ask_web(question: str, max_new_tokens: float = 60) -> str:
 
 
 def chat_auto(prompt: str, max_new_tokens: float = 60) -> str:
-    """One entry for a plain message, no slash commands (owner, 2026-10-14): sham_intent.route_text catches the clear cases — «قم بتوليد صورة
+    """REVIEW (2026-10-14): superseded by `think` (the model decides; no keyword router). Kept as is so the old behaviour can be restored
+    (site env SHAM_THINK=0). sham_intent.route_text is a keyword rule and is no longer on the bot's hot path.
+    One entry for a plain message, no slash commands (owner, 2026-10-14): sham_intent.route_text catches the clear cases — «قم بتوليد صورة
     ارنب» → generate_media, «ابحث عن سعر الذهب اليوم» → ask_web (live search + experience) — and everything else goes to generate_any, where the
     model itself decides between words and media and may search on its own. JSON like generate_any, plus "route"."""
     from sham_intent import route_text
@@ -301,7 +342,8 @@ def chat_auto(prompt: str, max_new_tokens: float = 60) -> str:
 
 
 def chat_memory(prompt: str, max_new_tokens: float = 60, user_id: str = "", history: str = "", summary: str = "", facts: str = "") -> str:
-    """chat_auto WITH Palmyra Memory (sham_memory.py, 2026-10-14). A new entry — chat_auto and every other endpoint are unchanged.
+    """REVIEW (2026-10-14): superseded by `think` (it uses route_text, a keyword rule). Kept unchanged for SHAM_THINK=0.
+    chat_auto WITH Palmyra Memory (sham_memory.py, 2026-10-14). A new entry — chat_auto and every other endpoint are unchanged.
     user_id: the caller's id for this person (hashed on disk); history: JSON [{"q","a"}] of the recent turns from the site's database (optional:
     without it the Studio's own log is used); summary: the site's rolling summary; facts: JSON {"name", "city", ...}. Without user_id, or with
     SHAM_MEMORY=0, this answers exactly like chat_auto. Media and live-search routes go the same way as chat_auto; a plain message gets the
@@ -382,6 +424,159 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
     return tok.decode(new)
 
 
+# ---------------------------------------------------------------------------------------------------------------------------------------
+# think (2026-10-14, owner): ONE step where the MODEL decides. No keyword rules, no regex intent, no fallback chain.
+#   1. the model's own first token over text ∪ {image, audio, video starts} (sham_studio_media.first_choice) = its decision;
+#   2. media start -> the model writes the picture / sound / clip from its own tokens;
+#      text        -> its answer with Palmyra Memory (compact) when a user_id is given, else studio_generate — inside which the model may
+#                     write <SEARCH_START> q <SEARCH_END> itself (its own learned search; SHAM_STUDIO_SEARCH=0 switches the real search off).
+#   3. every step runs as a job: `think` waits at most SHAM_THINK_WAIT seconds; a slower job answers {"type":"pending","job"} and the site
+#      polls `job_result`. Results nobody collected come back with the same user's next `think` as "later".
+# Status is honest: "loading" only while the weights are really loading, "busy" when the model is held by another request.
+_JOBS: dict = {}
+_JOBS_LOCK = threading.Lock()
+
+
+def _envf(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
+
+def _compact_history(history: str):
+    """Memory stays, but compact in the prompt: the last SHAM_THINK_TURNS turns, each side capped at SHAM_THINK_TURN_CHARS."""
+    if not (history or "").strip():
+        return None
+    try:
+        h = json.loads(history)
+    except Exception:
+        return None
+    if not isinstance(h, list):
+        return None
+    n, c = int(_envf("SHAM_THINK_TURNS", 6)), int(_envf("SHAM_THINK_TURN_CHARS", 300))
+    return [{"q": str(t.get("q", ""))[:c], "a": str(t.get("a", ""))[:c]} for t in h if isinstance(t, dict)][-n:]
+
+
+def _think_run(job: dict, prompt: str, n: int, user_id: str, history: str, summary: str, facts: str) -> None:
+    import serve
+    st = serve._state
+    if not _LOCK.acquire(timeout=_envf("SHAM_THINK_LOCK_WAIT", 20)):
+        job.update(done=True, result=json.loads(_busy()))
+        return
+    try:
+        media = _studio_modules()[1]
+        from model import SpecialTokens
+        from sham_decoding import chat_prompt_ids
+        from sham_studio_chat import build_user_text
+        tok = st["text_tokenizer"]
+        wrapped = chat_prompt_ids(tok.encode(build_user_text(prompt))[-384:])
+        first = media.first_choice(st["model"], wrapped, tok.vocab_size)        # the model's own decision
+        kinds = {SpecialTokens.IMAGE_START: "image", SpecialTokens.AUDIO_START: "audio", SpecialTokens.VIDEO_START: "video"}
+        job["decision"] = kinds.get(first, "text")
+        if first == SpecialTokens.IMAGE_START:
+            res = media._image_result(st["model"], st["image_tokenizer"], wrapped, [SpecialTokens.BOS, wrapped[1]])
+        elif first == SpecialTokens.AUDIO_START:
+            res = media._audio_result(st["model"], st["audio_tokenizer"], wrapped, [SpecialTokens.BOS, wrapped[1]])
+        elif first == SpecialTokens.VIDEO_START:
+            frames = media.video_frames()
+            res = media._video_result(st["model"], st["image_tokenizer"], wrapped, [SpecialTokens.BOS, wrapped[1]], frames) if frames else dict(media.NO_VIDEO)
+        else:
+            res = None
+            if (user_id or "").strip():
+                try:
+                    import sham_memory
+                    if sham_memory.memory_enabled():
+                        try:
+                            fx = json.loads(facts) if (facts or "").strip() else {}
+                        except Exception:
+                            fx = {}
+                        res = sham_memory.memory_answer(st["model"], tok, user_id.strip(), prompt, n, history=_compact_history(history),
+                                                        summary=(summary or "")[:int(_envf("SHAM_THINK_SUMMARY_CHARS", 600))],
+                                                        site_facts=fx if isinstance(fx, dict) else {})
+                        if res.get("type") == "text" and not res.get("text"):
+                            res = None
+                except Exception as exc:
+                    print(f"think memory failed ({type(exc).__name__}: {str(exc)[:160]}) — plain answer", flush=True)
+                    res = None
+            if res is None:
+                res = {"type": "text", "text": _studio_chat().studio_generate(st["model"], tok, prompt, n)}
+        res["decision"] = job["decision"]
+        job.update(done=True, result=res)
+    except Exception as exc:
+        print(f"think failed ({type(exc).__name__}: {str(exc)[:160]})", flush=True)
+        job.update(done=True, result={"type": "notice", "text": "تعذّر على شام إكمال الرد الآن.", "error": type(exc).__name__})
+    finally:
+        _LOCK.release()
+
+
+def _gc_jobs() -> None:
+    cut = time.time() - _envf("SHAM_THINK_KEEP", 3600)
+    with _JOBS_LOCK:
+        for k in [k for k, j in _JOBS.items() if j["t"] < cut or j.get("delivered")]:
+            _JOBS.pop(k, None)
+
+
+def _later(user_id: str) -> list:
+    out = []
+    if not (user_id or "").strip():
+        return out
+    with _JOBS_LOCK:
+        for j in _JOBS.values():
+            if j["user"] == user_id.strip() and j.get("done") and not j.get("delivered") and j.get("detached"):
+                j["delivered"] = True
+                out.append(j["result"])
+    return out
+
+
+def think(prompt: str, max_new_tokens: float = 60, user_id: str = "", history: str = "", summary: str = "", facts: str = "") -> str:
+    import uuid
+    if STATE["phase"] != "ready":
+        return json.dumps({"type": "loading", "text": STATE["phase"]}, ensure_ascii=False)
+    q = (prompt or "").strip()
+    if not q:
+        return _json_notice("اكتب رسالتك.")
+    _gc_jobs()
+    later = _later(user_id)
+    if q.startswith("#"):          # the owner's diagnostics (#info, #raw, #pmedia) stay on generate_any
+        out = json.loads(generate_any(q, max_new_tokens))
+        if later:
+            out["later"] = later
+        return json.dumps(out, ensure_ascii=False)
+    jid = uuid.uuid4().hex[:16]
+    job = {"t": time.time(), "user": (user_id or "").strip(), "done": False, "decision": "thinking"}
+    with _JOBS_LOCK:
+        _JOBS[jid] = job
+    threading.Thread(target=_think_run, args=(job, q, int(max(1, min(200, max_new_tokens))), user_id or "", history or "", summary or "", facts or ""),
+                     daemon=True).start()
+    end = time.time() + _envf("SHAM_THINK_WAIT", 20)
+    while time.time() < end and not job["done"]:
+        time.sleep(0.2)
+    if job["done"]:
+        job["delivered"] = True
+        out = dict(job["result"])
+    else:
+        out = {"type": "pending", "job": jid, "decision": job.get("decision", "thinking")}
+    if later:
+        out["later"] = later
+    return json.dumps(out, ensure_ascii=False)
+
+
+def job_result(job_id: str, detach: str = "") -> str:
+    """The result of a `think` job: the result once, or {"type":"pending","decision"}. detach="1": the caller gives up waiting — the result
+    is then handed over with this user's next `think` ("later")."""
+    with _JOBS_LOCK:
+        job = _JOBS.get((job_id or "").strip())
+    if job is None:
+        return json.dumps({"type": "gone"}, ensure_ascii=False)
+    if job["done"] and not job.get("delivered"):
+        job["delivered"] = True
+        return json.dumps(job["result"], ensure_ascii=False)
+    if (detach or "").strip() == "1":
+        job["detached"] = True
+    return json.dumps({"type": "pending", "job": job_id, "decision": job.get("decision", "thinking")}, ensure_ascii=False)
+
+
 def build_ui():
     import gradio as gr
     chat = gr.Interface(generate_text, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60)],
@@ -402,9 +597,14 @@ def build_ui():
                        gr.Textbox(label="json"), api_name="chat_memory", flagging_mode="never")
     forget = gr.Interface(memory_forget, [gr.Textbox(label="user_id")], gr.Textbox(label="json"), api_name="memory_forget", flagging_mode="never")
     st = gr.Interface(status, None, gr.Textbox(label="status"), api_name="status", flagging_mode="never")
-    return gr.TabbedInterface([chat, anyk, media, read, web, auto, mem, forget, st],
+    th = gr.Interface(think, [gr.Textbox(label="prompt"), gr.Number(label="max_new_tokens", value=60), gr.Textbox(label="user_id"),
+                              gr.Textbox(label="history"), gr.Textbox(label="summary"), gr.Textbox(label="facts")],
+                      gr.Textbox(label="json"), api_name="think", flagging_mode="never", concurrency_limit=4)
+    jr = gr.Interface(job_result, [gr.Textbox(label="job_id"), gr.Textbox(label="detach")], gr.Textbox(label="json"), api_name="job_result",
+                      flagging_mode="never", concurrency_limit=8)
+    return gr.TabbedInterface([chat, anyk, media, read, web, auto, mem, forget, st, th, jr],
                               ["شام", "شام (نص أو وسائط)", "وسائط بطلب", "فهم وسائط", "بحث حي", "رسالة عادية (توجيه تلقائي)", "رسالة مع ذاكرة",
-                               "مسح الذاكرة", "الحالة"], title="شام — Sham")
+                               "مسح الذاكرة", "الحالة", "شام يقرّر (تفكير)", "نتيجة مهمة"], title="شام — Sham")
 
 
 if __name__ == "__main__":
