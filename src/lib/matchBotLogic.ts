@@ -12,11 +12,14 @@ import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
 import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
 import { parseProfileStart } from "@/lib/match/inline";
-import { recordAnonMessage } from "@/lib/match/appStore";
+import { recordAnonMessage, getAnonFilterRow, getAnonFilterRows, setAnonActiveQueue, setAnonFilterValue, markAnonNotified } from "@/lib/match/appStore";
+import { anonPairOk, activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
+import { sanitizeAnonFilter, anonFilterIsEmpty, type AnonFilter } from "@/lib/match/premium";
+import { randomUUID } from "crypto";
 import {
   PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
-  purchaseBoost, purchaseVip, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
+  purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
 } from "@/lib/match/entitlements";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
@@ -155,6 +158,7 @@ function upgradesMenu(): Keyboard {
     .text(`🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`).row()
     .text(`👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`).row()
     .text(`🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`).row()
+    .text(ANON_FILTERS_BUTTON()).row()
     .text("🎯 بحث دقيق (للمشتركين)").row()
     .text(`👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`).row()
     .text("🕶 وضع التخفي (ضمن الذهبية)").row()
@@ -245,8 +249,9 @@ function photoStepMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
 function randomChatMenu(): Keyboard {
-  return new Keyboard().text("⏹ إنهاء المحادثة").resized();
+  return new Keyboard().text("⏹ إنهاء المحادثة").row().text("🎛 فلاتر الدردشة").resized();
 }
+const ANON_FILTERS_BUTTON = () => `🎛 فلاتر الدردشة العشوائية ($${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`;
 function isBack(text: string): boolean {
   return text === backLabel() || text === "/cancel";
 }
@@ -1191,6 +1196,11 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     await bot.api.answerCallbackQuery(cq.id, { text: approve ? "✅ تم السماح" : "تم الرفض" }).catch(() => null);
     return;
   }
+  if (data.startsWith("maf|")) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await handleAnonFilterCallback(bot, botRow, chatId, tgUserId, data, messageId);
+    return;
+  }
   if (data.startsWith("mexit|")) {
     const code = data.split("|")[1];
     const label = EXIT_REASON_LABELS[code] || EXIT_REASON_LABELS.other;
@@ -1492,14 +1502,29 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 // ---------------------------------------------------------------------
 // Random anonymous chat
 // ---------------------------------------------------------------------
-async function findWaitingPartner(botId: string, selfId: string) {
+type AnonSelf = { profile: { gender: string; age: number; country: string } | null; filter: AnonFilter | null };
+async function anonSelfSide(userId: string, filter: AnonFilter | null): Promise<AnonSelf> {
+  const profile = await prisma.matchProfile.findUnique({ where: { userId }, select: { gender: true, age: true, country: true } });
+  return { profile, filter };
+}
+
+// Returns waiting partners in queue order that pass the bot's rules (no
+// mutual block, 24h cooldown) AND the mutual 🎛 anon-filter rule.
+async function findWaitingPartners(botId: string, selfId: string, self: AnonSelf, skip: Set<string>) {
   const now = new Date();
   const waiting = await prisma.randomChatQueue.findMany({
     where: { botId, status: "WAITING", expiresAt: { gt: now }, userId: { not: selfId } },
     orderBy: { created_at: "asc" },
     take: 50,
+    include: { user: { select: { vipUntil: true, profile: { select: { gender: true, age: true, country: true } } } } },
   });
+  const filters = await getAnonFilterRows(waiting.map((w) => w.userId)).catch(() => new Map());
+  const out: typeof waiting = [];
   for (const w of waiting) {
+    if (skip.has(w.id)) continue;
+    const fr: any = filters.get(w.userId) ?? null;
+    const other = { profile: w.user.profile, filter: activeFilterFor(fr, w.id, hasAnonFilters(w.user, fr?.paid_until)) };
+    if (!anonPairOk(self, other)) continue;
     if (await isMutuallyBlocked(selfId, w.userId)) continue;
     const recentSession = await prisma.randomChatSession.findFirst({
       where: {
@@ -1511,9 +1536,9 @@ async function findWaitingPartner(botId: string, selfId: string) {
       },
     });
     if (recentSession) continue;
-    return w;
+    out.push(w);
   }
-  return null;
+  return out;
 }
 
 async function getAvailableFakeBotIds(): Promise<number[]> {
@@ -1527,33 +1552,99 @@ async function getAvailableFakeBotIds(): Promise<number[]> {
   return FAKE_BOT_SCRIPTS.map((_, i) => i).filter((id) => !busyIds.has(id));
 }
 
-async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, ownQueueId?: string) {
-  const partnerEntry = await findWaitingPartner(botRow.id, tgUserId);
-  if (!partnerEntry) return false;
-  const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
-  await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { status: "MATCHED", sessionId: session.id } });
-  if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { status: "MATCHED", sessionId: session.id } }).catch(() => null);
-  await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
-  await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
-  await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
-  await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
-  return true;
+async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, ownQueueId?: string, self?: AnonSelf) {
+  const me = self ?? (await anonSelfSide(tgUserId, null));
+  const tried = new Set<string>();
+  for (let round = 0; round < 3; round++) {
+    const candidates = await findWaitingPartners(botRow.id, tgUserId, me, tried);
+    if (!candidates.length) return false;
+    for (const partnerEntry of candidates) {
+      tried.add(partnerEntry.id);
+      // Own row first (if any): if someone already took us, stop here.
+      if (ownQueueId) {
+        const mine = await prisma.randomChatQueue.updateMany({ where: { id: ownQueueId, status: "WAITING" }, data: { status: "MATCHED" } });
+        if (mine.count === 0) return false;
+      }
+      // Atomic claim of the partner's row: only one matcher can flip WAITING→MATCHED.
+      const claimed = await prisma.randomChatQueue.updateMany({
+        where: { id: partnerEntry.id, status: "WAITING", expiresAt: { gt: new Date() } },
+        data: { status: "MATCHED" },
+      });
+      if (claimed.count === 0) {
+        if (ownQueueId) await prisma.randomChatQueue.updateMany({ where: { id: ownQueueId, status: "MATCHED", sessionId: null }, data: { status: "WAITING" } });
+        continue;
+      }
+      const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
+      await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { sessionId: session.id } }).catch(() => null);
+      if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { sessionId: session.id } }).catch(() => null);
+      await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
+      await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
+      await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
+      await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
+      return true;
+    }
+  }
+  return false;
 }
 
-async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string) {
-  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId)) return;
+function anonWidenKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("🌐 ابحث هذه المرة بدون فلاتر", "maf|once").row().text("🎛 تعديل / توسيع الفلاتر", "maf|menu");
+}
+const anonTimeoutText = (f: AnonFilter | null) =>
+  `⌛ لم نجد خلال دقيقة شريكاً يطابق فلاترك (${describeAnonFilter(f)}).\nلم نتجاهل فلاترك — يمكنك توسيعها، أو البحث هذه المرة بدون فلاتر، أو الضغط على «🔀 مراسلة عشوائية» للمحاولة مجدداً.`;
+
+// Resolves which filter applies to this search and tells the user (never silently).
+async function resolveAnonFilter(bot: TelegramBot, chatId: number, tgUserId: string, ignoreFilter: boolean): Promise<AnonFilter | null> {
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  // A previous filtered queue entry that expired unmatched → tell the user once.
+  if (row?.active_queue_id) {
+    const prev = await prisma.randomChatQueue.findUnique({ where: { id: row.active_queue_id } }).catch(() => null);
+    if (prev && prev.status === "WAITING" && prev.expiresAt <= new Date() && (await markAnonNotified(tgUserId, prev.id).catch(() => false))) {
+      await bot.api.sendMessage(chatId, anonTimeoutText(row.filter), { reply_markup: anonWidenKeyboard() }).catch(() => null);
+    }
+  }
+  const f = row?.filter ? sanitizeAnonFilter(row.filter) : null;
+  if (!f || anonFilterIsEmpty(f) || ignoreFilter) return null;
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  if (!hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until)) {
+    await bot.api
+      .sendMessage(chatId, `ℹ️ انتهى اشتراك «🎛 فلاتر الدردشة العشوائية»، لذا سيكون هذا البحث بدون فلاتر (لم يُخصم شيء).\nللتجديد: $${PRICE_ANON_FILTERS} لمدة ${ANON_FILTERS_DAYS} يوماً.`, {
+        reply_markup: new InlineKeyboard().text(`🎛 تجديد ($${PRICE_ANON_FILTERS})`, "maf|buy"),
+      })
+      .catch(() => null);
+    return null;
+  }
+  return f;
+}
+
+export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, opts: { ignoreFilter?: boolean; quiet?: boolean } = {}) {
+  const filter = await resolveAnonFilter(bot, chatId, tgUserId, !!opts.ignoreFilter);
+  const self = await anonSelfSide(tgUserId, filter);
+  await prisma.randomChatQueue.updateMany({ where: { userId: tgUserId, status: "WAITING" }, data: { status: "CANCELLED" } });
+  // Snapshot the filter onto THIS queue row id before the row exists, so no
+  // matcher can ever see the row without its filter.
+  const queueId = randomUUID();
+  await setAnonActiveQueue(tgUserId, filter ? queueId : null).catch(() => null);
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, undefined, self)) return;
 
   const queueEntry = await prisma.randomChatQueue.create({
-    data: { userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
+    data: { id: queueId, userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
   });
   await setPending(tgUserId, { mode: "random_waiting" });
-  await animateSearchingMessage(bot, chatId);
+  if (filter) {
+    await bot.api
+      .sendMessage(chatId, `🎛 البحث بفلاترك: ${describeAnonFilter(filter)}\nننتظر شريكاً يطابقها (ويطابق هو فلاتره عليك) لمدة دقيقة.`, { reply_markup: anonWidenKeyboard() })
+      .catch(() => null);
+  }
+  if (!opts.quiet) await animateSearchingMessage(bot, chatId);
 
   const current = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
   if ((current?.pendingAction as any)?.mode === "random_chatting") return;
 
-  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, queueEntry.id)) return;
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, queueEntry.id, self)) return;
 
+  // Filtered users are never handed a scripted fake partner (it can't satisfy a filter).
+  if (filter) return;
   if (await shouldUseFakeBots(botRow.id)) {
     const availableIds = await getAvailableFakeBotIds();
     if (availableIds.length > 0) {
@@ -1637,13 +1728,159 @@ async function animateSearchingMessage(bot: TelegramBot, chatId: number) {
     .catch((e) => console.error("[randomChat] final edit FAILED", e));
 }
 
+
+// ---- 🎛 فلاتر الدردشة العشوائية (paid, $2/30d, included in VIP) --------------------------------
+const AGE_PRESETS: [string, number | undefined, number | undefined][] = [["أي عمر", undefined, undefined], ["18–25", 18, 25], ["26–35", 26, 35], ["36–45", 36, 45], ["46+", 46, undefined]];
+async function anonFilterKeyboard(tgUserId: string, f: AnonFilter): Promise<InlineKeyboard> {
+  const mark = (on: boolean, t: string) => (on ? `✅ ${t}` : t);
+  const kb = new InlineKeyboard()
+    .text(mark(!f.gender, "الجنس: الكل"), "maf|g|any").text(mark(f.gender === "MALE", "ذكر"), "maf|g|MALE").text(mark(f.gender === "FEMALE", "أنثى"), "maf|g|FEMALE").row();
+  const me = await prisma.matchProfile.findUnique({ where: { userId: tgUserId }, select: { country: true } });
+  kb.text(mark(!f.country, "أي دولة"), "maf|c|any");
+  if (me?.country) kb.text(mark(f.country === me.country, `دولتي (${me.country})`), "maf|c|mine");
+  kb.row();
+  AGE_PRESETS.forEach(([label, a, b], i) => {
+    kb.text(mark(f.ageMin === a && f.ageMax === b, label), `maf|a|${i}`);
+    if (i === 2) kb.row();
+  });
+  return kb.row().text("🔀 ابدأ البحث بهذه الفلاتر", "maf|go");
+}
+export async function showAnonFiltersMenu(bot: TelegramBot, chatId: number, tgUserId: string) {
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  const owned = hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until);
+  if (!owned) {
+    await bot.api.sendMessage(
+      chatId,
+      `🎛 فلاتر الدردشة العشوائية\n\nاختر من تُطابَق معه في «🔀 مراسلة عشوائية»: الجنس، الدولة، والفئة العمرية. تتم المطابقة فقط مع من يحقق فلاترك (وإن كان لديه فلاتر فيجب أن تحققها أنت أيضاً).\n\nالسعر: $${PRICE_ANON_FILTERS} لمدة ${ANON_FILTERS_DAYS} يوماً — ومشمولة مجاناً في «👑 العضوية الذهبية».\nلا تجديد تلقائي.`,
+      { reply_markup: new InlineKeyboard().text(`✅ تفعيل ($${PRICE_ANON_FILTERS} / ${ANON_FILTERS_DAYS} يوماً)`, "maf|buy") }
+    ).catch(() => null);
+    return;
+  }
+  const f = sanitizeAnonFilter(row?.filter ?? {});
+  const until = u?.vipUntil && u.vipUntil > new Date() ? "ضمن العضوية الذهبية" : `حتى ${row?.paid_until?.toLocaleDateString("ar")}`;
+  await bot.api
+    .sendMessage(chatId, `🎛 فلاتر الدردشة العشوائية (${until})\nالحالية: ${describeAnonFilter(f)}\n\nاختر ثم اضغط «🔀 ابدأ البحث»:`, { reply_markup: await anonFilterKeyboard(tgUserId, f) })
+    .catch(() => null);
+}
+async function handleAnonFilterCallback(bot: TelegramBot, botRow: BotRow, chatId: number, tgUserId: string, data: string, messageId?: number) {
+  const [, kind, val] = data.split("|");
+  if (kind === "menu") return showAnonFiltersMenu(bot, chatId, tgUserId);
+  if (kind === "once") return startRandomChat(bot, chatId, botRow, tgUserId, { ignoreFilter: true });
+  if (kind === "go") return startRandomChat(bot, chatId, botRow, tgUserId);
+  if (kind === "buy") {
+    const r = await purchaseAnonFilters(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() }).catch(() => null);
+      return;
+    }
+    await bot.api.sendMessage(chatId, r.viaVip ? "👑 الفلاتر مشمولة في عضويتك الذهبية — لم يُخصم شيء." : `✅ تم تفعيل فلاتر الدردشة العشوائية حتى ${r.until?.toLocaleDateString("ar")} (خُصم $${PRICE_ANON_FILTERS}).`).catch(() => null);
+    return showAnonFiltersMenu(bot, chatId, tgUserId);
+  }
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  if (!hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until)) return showAnonFiltersMenu(bot, chatId, tgUserId);
+  const f = sanitizeAnonFilter(row?.filter ?? {});
+  if (kind === "g") { if (val === "any") delete f.gender; else f.gender = val as any; }
+  if (kind === "c") {
+    if (val === "any") delete f.country;
+    else { const me = await prisma.matchProfile.findUnique({ where: { userId: tgUserId }, select: { country: true } }); if (me?.country) f.country = me.country; }
+  }
+  if (kind === "a") {
+    const p = AGE_PRESETS[Number(val)] ?? AGE_PRESETS[0];
+    delete f.ageMin; delete f.ageMax;
+    if (p[1] != null) f.ageMin = p[1];
+    if (p[2] != null) f.ageMax = p[2];
+  }
+  await setAnonFilterValue(tgUserId, f);
+  if (messageId) {
+    await bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: await anonFilterKeyboard(tgUserId, f) }).catch(() => null);
+  }
+}
+
+/** Every minute (fake-chat sweeper): filtered queue entries that expired unmatched get a "widen?" notice. */
+export async function sweepAnonFilterTimeouts(): Promise<number> {
+  const expired = await prisma.randomChatQueue.findMany({
+    where: { status: "WAITING", expiresAt: { lte: new Date(), gt: new Date(Date.now() - 15 * 60_000) } },
+    take: 100,
+  });
+  if (!expired.length) return 0;
+  const rows = await getAnonFilterRows(expired.map((q) => q.userId));
+  const tokens = new Map<string, string>();
+  let n = 0;
+  for (const q of expired) {
+    const fr: any = rows.get(q.userId) ?? null;
+    const pending = await prisma.matchUser.findUnique({ where: { id: q.userId }, select: { pendingAction: true, vipUntil: true } });
+    const f = activeFilterFor(fr, q.id, !!pending && hasAnonFilters(pending, fr?.paid_until));
+    if (!f) continue;
+    if ((pending?.pendingAction as any)?.mode !== "random_waiting") continue;
+    if (!(await markAnonNotified(q.userId, q.id))) continue;
+    let token = tokens.get(q.botId);
+    if (!token) { const b = await prisma.bot.findUnique({ where: { id: q.botId } }); if (!b) continue; token = b.token; tokens.set(q.botId, token); }
+    await new TelegramBot(token).api.sendMessage(Number(q.userId), anonTimeoutText(f), { reply_markup: anonWidenKeyboard() }).catch(() => null);
+    n++;
+  }
+  return n;
+}
+
+/** The bot's random-chat relay (text only), shared verbatim with the Mini App. */
+export async function relayRandomChatText(bot: TelegramBot, chatId: number, tgUserId: string, pending: { sessionId: string; partnerId: string }, text: string): Promise<"sent" | "banned"> {
+    if (containsMatchBannedWords(text)) {
+      await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها.").catch(() => null);
+      return "banned";
+    }
+    await bot.api.sendMessage(Number(pending.partnerId), text).catch(() => null);
+    // Mini App chat window reads this history (additive, never throws).
+    await recordAnonMessage(pending.sessionId, tgUserId, text);
+
+    const updatedSession = await prisma.randomChatSession
+      .update({ where: { id: pending.sessionId }, data: { messageCount: { increment: 1 } } })
+      .catch(() => null);
+    if (updatedSession && !updatedSession.contactOfferSent && updatedSession.messageCount >= CONTACT_REQUEST_THRESHOLD) {
+      await prisma.randomChatSession.update({ where: { id: pending.sessionId }, data: { contactOfferSent: true } }).catch(() => null);
+      const offerKb = new InlineKeyboard().text("📇 طلب تبادل التواصل الرسمي", "mcontact");
+      const offerText = "💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي لمتابعة الأمر بجدية أكبر:";
+      await bot.api.sendMessage(chatId, offerText, { reply_markup: offerKb }).catch(() => null);
+      await bot.api.sendMessage(Number(pending.partnerId), offerText, { reply_markup: offerKb }).catch(() => null);
+    }
+    return "sent";
+}
+
+/** 🚩 إبلاغ during a random chat (bot button and Mini App). */
+export async function reportRandomChat(bot: TelegramBot, chatId: number, tgUserId: string, partnerId: string) {
+  await prisma.matchReport.create({ data: { reporterId: tgUserId, targetId: partnerId, source: "RANDOM_CHAT" } }).catch(() => null);
+  if (SUPER_ADMIN_ID) {
+    await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`).catch(() => null);
+  }
+  await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.").catch(() => null);
+}
+
+/** «📇 طلب تبادل التواصل الرسمي» — same consent flow for bot and app. Only after the 15-message offer. */
+export async function requestRandomChatContact(bot: TelegramBot, tgUserId: string, pending: { sessionId: string; partnerId: string }): Promise<"ended" | "not_offered" | "requested" | "already" | "revealed"> {
+  const session = await prisma.randomChatSession.findUnique({ where: { id: pending.sessionId } });
+  if (!session || session.status !== "ACTIVE") return "ended";
+  if (!session.contactOfferSent) return "not_offered";
+  if (!session.contactRequestedBy) {
+    await prisma.randomChatSession.update({ where: { id: session.id }, data: { contactRequestedBy: tgUserId } }).catch(() => null);
+    await bot.api
+      .sendMessage(Number(pending.partnerId), "📇 يرغب الطرف الآخر بتبادل بيانات التواصل الرسمي معك. إن وافقت، اضغط الزر:", {
+        reply_markup: new InlineKeyboard().text("✅ أوافق على التبادل", "mcontact"),
+      })
+      .catch(() => null);
+    return "requested";
+  }
+  if (session.contactRequestedBy === tgUserId) return "already";
+  await revealContacts(bot, tgUserId, pending.partnerId);
+  return "revealed";
+}
+
 // Respectful exit system (owner spec, 2026-09-05) — ending a random chat
 // used to just vanish on the other side with a bare "انتهت المحادثة."
 // Now the leaving side picks a short polite reason first (see
 // exitReasonKeyboard below) and the partner gets a proper closing message
 // instead of an abrupt cutoff. The reason is optional (a plain "⛔ حظر" or
 // the global back-button escape hatch still end instantly without one).
-const EXIT_REASON_LABELS: Record<string, string> = {
+export const EXIT_REASON_LABELS: Record<string, string> = {
   no_match: "عدم توافق في الشروط",
   satisfied: "اكتفيت من المحادثة، شكراً",
   no_time: "لا يوجد وقت كافٍ حالياً",
@@ -2336,31 +2573,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       return;
     }
     if (text === "🚩 إبلاغ") {
-      await prisma.matchReport.create({ data: { reporterId: tgUserId, targetId: pending.partnerId, source: "RANDOM_CHAT" } }).catch(() => null);
-      if (SUPER_ADMIN_ID) {
-        await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${pending.partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`).catch(() => null);
-      }
-      await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.");
+      await reportRandomChat(bot, chatId, tgUserId, pending.partnerId);
       return;
     }
-    if (containsMatchBannedWords(text)) {
-      await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها.").catch(() => null);
+    if (text === "🎛 فلاتر الدردشة") {
+      await showAnonFiltersMenu(bot, chatId, tgUserId);
       return;
     }
-    await bot.api.sendMessage(Number(pending.partnerId), text).catch(() => null);
-    // Mini App chat window reads this history (additive, never throws).
-    await recordAnonMessage(pending.sessionId, tgUserId, text);
-
-    const updatedSession = await prisma.randomChatSession
-      .update({ where: { id: pending.sessionId }, data: { messageCount: { increment: 1 } } })
-      .catch(() => null);
-    if (updatedSession && !updatedSession.contactOfferSent && updatedSession.messageCount >= CONTACT_REQUEST_THRESHOLD) {
-      await prisma.randomChatSession.update({ where: { id: pending.sessionId }, data: { contactOfferSent: true } }).catch(() => null);
-      const offerKb = new InlineKeyboard().text("📇 طلب تبادل التواصل الرسمي", "mcontact");
-      const offerText = "💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي لمتابعة الأمر بجدية أكبر:";
-      await bot.api.sendMessage(chatId, offerText, { reply_markup: offerKb }).catch(() => null);
-      await bot.api.sendMessage(Number(pending.partnerId), offerText, { reply_markup: offerKb }).catch(() => null);
-    }
+    await relayRandomChatText(bot, chatId, tgUserId, pending as any, text);
     return;
   }
 
@@ -2475,6 +2695,10 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       return;
     }
     await startSearch(bot, chatId, tgUserId, botRow.id, undefined, true);
+    return;
+  }
+  if (text === ANON_FILTERS_BUTTON() || text === "🎛 فلاتر الدردشة") {
+    await showAnonFiltersMenu(bot, chatId, tgUserId);
     return;
   }
   if (text === "🔀 مراسلة عشوائية") {

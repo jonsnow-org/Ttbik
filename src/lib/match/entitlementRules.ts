@@ -13,6 +13,10 @@ export const PRICE_ADVANCED_FILTERS = 2;
 export const PRICE_SUPER_LIKE = 1;
 export const PRICE_VIP_30D = 8;
 export const VIP_DAYS = 30;
+/** 🎛 فلاتر الدردشة العشوائية (الجنس/الدولة/العمر) — $2 لكل 30 يوماً، مشمولة في العضوية الذهبية.
+ *  نفس سعر «🎯 فلاتر متقدمة» وأقل من ربع الذهبية ($8)، ومدة 30 يوماً مثل الذهبية لأنها خدمة مطابقة مستمرة. */
+export const PRICE_ANON_FILTERS = 2;
+export const ANON_FILTERS_DAYS = 30;
 export const BOOST_HOURS = 24;
 
 export function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
@@ -20,6 +24,15 @@ export function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
 }
 export function hasAdvancedFilters(user: Pick<MatchUser, "advancedFiltersUnlocked" | "vipUntil">): boolean {
   return user.advancedFiltersUnlocked || isVipActive(user);
+}
+/** Paid anon-chat filters are active while VIP or before the paid-until date (no auto-renew, never charged mid-queue). */
+export function hasAnonFilters(user: Pick<MatchUser, "vipUntil">, paidUntil: Date | null | undefined, now: Date = new Date()): boolean {
+  return (!!user.vipUntil && user.vipUntil > now) || (!!paidUntil && paidUntil > now);
+}
+/** New paid-until when buying: stacks on top of any remaining time. */
+export function extendAnonFilters(paidUntil: Date | null | undefined, now: Date = new Date()): Date {
+  const base = paidUntil && paidUntil > now ? paidUntil : now;
+  return new Date(base.getTime() + ANON_FILTERS_DAYS * 86400_000);
 }
 export function hasProfileVisitors(user: Pick<MatchUser, "profileVisitorsUnlocked" | "vipUntil">): boolean {
   return user.profileVisitorsUnlocked || isVipActive(user);
@@ -68,5 +81,6 @@ export const UPGRADE_CATALOGUE = [
   { key: "photos", icon: "🖼", title: "صور إضافية", price: PRICE_EXTRA_PHOTOS, unit: "دائم", desc: "صورتان إضافيتان لملفك (الرفع داخل البوت)." },
   { key: "visitors", icon: "👀", title: "من زار ملفي", price: PRICE_PROFILE_VISITORS, unit: "دائم", desc: "اعرف من زار ملفك مؤخراً." },
   { key: "filters", icon: "🎯", title: "فلاتر متقدمة", price: PRICE_ADVANCED_FILTERS, unit: "دائم", desc: "المدينة والحالة الاجتماعية + البحث الدقيق." },
-  { key: "vip", icon: "👑", title: "العضوية الذهبية", price: PRICE_VIP_30D, unit: `${VIP_DAYS} يوماً`, desc: "رفع مستمر، فلاتر متقدمة، من زار ملفي، صور إضافية، ووضع التخفي." },
+  { key: "anonFilters", icon: "🎛", title: "فلاتر الدردشة العشوائية", price: PRICE_ANON_FILTERS, unit: `${ANON_FILTERS_DAYS} يوماً`, desc: "اختر جنس ودولة وعمر من تُطابَق معه في المراسلة العشوائية." },
+  { key: "vip", icon: "👑", title: "العضوية الذهبية", price: PRICE_VIP_30D, unit: `${VIP_DAYS} يوماً`, desc: "رفع مستمر، فلاتر متقدمة، من زار ملفي، صور إضافية، ووضع التخفي، وفلاتر الدردشة العشوائية." },
 ] as const;

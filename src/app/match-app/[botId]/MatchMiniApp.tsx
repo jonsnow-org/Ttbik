@@ -16,7 +16,7 @@ type Card = {
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
-type Poll = { state: "idle" | "waiting" | "chatting" | "ended"; sessionId?: string; partner?: { age: number; country: string; gender: string } | null; messages?: Msg[]; reveal?: "first" | "waiting" | "mutual" };
+type Poll = { state: "idle" | "waiting" | "timeout" | "fake" | "chatting" | "ended"; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" };
 
 const tg = (): any => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null);
 const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select" = "light") => {
@@ -241,12 +241,16 @@ function Toggle({ on, label, hint, onChange }: { on: boolean; label: string; hin
 }
 
 // ---------------------------------------------------------------------------------------------
-// 🔀 Anonymous chat
+// 🔀 Anonymous chat — a window onto the BOT's own random chat (same queue, rules, buttons).
 function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any; active: boolean; onUsed: () => void }) {
-  const [filter, setFilter] = useState<{ gender?: string; country: string; ageMin: string; ageMax: string }>({ country: "", ageMin: "", ageMax: "" });
+  const af = me?.anonFilters || { owned: false, filter: {} };
+  const [filter, setFilter] = useState<{ gender?: string; country: string; ageMin: string; ageMax: string }>(() => ({
+    gender: af.filter?.gender, country: af.filter?.country ?? "", ageMin: af.filter?.ageMin != null ? String(af.filter.ageMin) : "", ageMax: af.filter?.ageMax != null ? String(af.filter.ageMax) : "",
+  }));
   const [poll, setPoll] = useState<Poll>({ state: "idle" });
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
+  const [exitOpen, setExitOpen] = useState(false);
   const lastId = useRef(0);
   const sessionRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
@@ -263,14 +267,11 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
     setPoll(r);
   }, [say]);
 
-  // Initial state + short polling (2s waiting / 2.5s chatting).
+  const pollNow = async () => apply(await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current }));
   useEffect(() => {
     if (!active) return;
     let stop = false;
-    const tick = async () => {
-      const r = await api("anon_poll", { filter, after: lastId.current, sessionId: sessionRef.current });
-      if (!stop) apply(r);
-    };
+    const tick = async () => { const r = await api("anon_poll", { after: lastId.current, sessionId: sessionRef.current }); if (!stop) apply(r); };
     tick();
     const id = window.setInterval(() => { if (document.visibilityState === "visible") tick(); }, poll.state === "chatting" ? 2500 : poll.state === "waiting" ? 2000 : 8000);
     return () => { stop = true; window.clearInterval(id); };
@@ -278,10 +279,22 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
 
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [msgs.length]);
 
-  const start = async (next = false) => {
+  // Same as pressing «🔀 مراسلة عشوائية» in the bot.
+  const start = async (ignoreFilter = false) => {
     haptic("medium");
     setMsgs([]); lastId.current = 0;
-    apply(await api(next ? "anon_next" : "anon_start", { filter }));
+    apply(await api("anon_start", { ignoreFilter }));
+    onUsed();
+  };
+  const saveFilter = async () => {
+    const r = await api("anon_filter", { filter });
+    say(r.message || r.error, r.ok ? "success" : "error");
+    onUsed();
+  };
+  const buyFilters = async () => {
+    if (!(await confirmTg(`تفعيل «🎛 فلاتر الدردشة العشوائية» بـ $${af.price ?? 2} لمدة 30 يوماً من رصيدك؟`))) return;
+    const r = await api("upgrade", { key: "anonFilters" });
+    say(r.message || r.error, r.ok ? "success" : "error");
     onUsed();
   };
   const send = async (t = text) => {
@@ -291,22 +304,31 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
     const r = await api("anon_send", { text: v });
     if (!r.ok) { say(r.error, "error"); setText(v); return; }
     haptic("light");
-    apply(await api("anon_poll", { filter, after: lastId.current, sessionId: sessionRef.current }));
+    pollNow();
   };
+  const end = async (reason: string) => { setExitOpen(false); await api("anon_end", { reason }); setPoll({ state: "idle" }); sessionRef.current = undefined; };
 
-  // MainButton: start searching while idle.
   useEffect(() => {
     const w = tg();
     if (!w?.MainButton) return;
-    const show = active && (poll.state === "idle" || poll.state === "ended");
-    w.MainButton.setParams({ text: "🔀 ابدأ البحث", color: "#ff2e93", text_color: "#ffffff", is_visible: show });
+    const show = active && (poll.state === "idle" || poll.state === "ended" || poll.state === "timeout");
+    w.MainButton.setParams({ text: "🔀 مراسلة عشوائية", color: "#ff2e93", text_color: "#ffffff", is_visible: show });
     const h = () => start();
     if (show) w.MainButton.onClick(h);
     return () => { w.MainButton.offClick(h); w.MainButton.hide(); };
   }, [active, poll.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (poll.state === "fake") {
+    return (
+      <div className={`mt-6 rounded-3xl p-5 text-center ${GLASS}`}>
+        <p className="font-bold">💬 محادثتك جارية داخل البوت</p>
+        <p className="mt-1 text-sm text-white/60">تابعها من محادثة البوت مباشرة.</p>
+        <button onClick={() => tg()?.close?.()} className={`mt-4 rounded-2xl px-6 py-3 font-bold ${GRAD}`}>فتح البوت</button>
+      </div>
+    );
+  }
+
   if (poll.state === "chatting") {
-    const p = poll.partner;
     return (
       <div className={`flex h-[calc(100vh-190px)] flex-col rounded-3xl ${GLASS}`}>
         <div className="flex items-center justify-between border-b border-white/10 p-3">
@@ -314,18 +336,25 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
             <div className={`grid h-10 w-10 place-items-center rounded-full ${GRAD}`}>🎭</div>
             <div>
               <p className="text-sm font-bold">شخص مجهول</p>
-              <p className="text-[11px] text-emerald-300">● متصل{p ? ` · ${p.age} · ${p.country}` : ""}</p>
+              <p className="text-[11px] text-emerald-300">● مجهولة الهوية بالكامل</p>
             </div>
           </div>
           <div className="flex gap-1">
-            <IconBtn title="التالي" onClick={() => start(true)}>⏭</IconBtn>
             <IconBtn title="إبلاغ" onClick={async () => { const r = await api("anon_report"); say(r.message || r.error); }}>🚩</IconBtn>
-            <IconBtn title="حظر" onClick={async () => { if (await confirmTg("حظر هذا الشخص وإنهاء المحادثة؟")) { await api("anon_block"); setPoll({ state: "idle" }); sessionRef.current = undefined; say("تم الحظر"); } }}>⛔</IconBtn>
-            <IconBtn title="إنهاء" onClick={async () => { await api("anon_end"); setPoll({ state: "idle" }); sessionRef.current = undefined; }}>✖️</IconBtn>
+            <IconBtn title="حظر" onClick={async () => { if (await confirmTg("حظر هذا الشخص وإنهاء المحادثة؟")) { const r = await api("anon_block"); setPoll({ state: "idle" }); sessionRef.current = undefined; say(r.message || "⛔ تم الحظر"); } }}>⛔</IconBtn>
+            <IconBtn title="إنهاء المحادثة" onClick={() => setExitOpen(true)}>⏹</IconBtn>
           </div>
         </div>
+        {exitOpen && (
+          <div className="space-y-2 border-b border-white/10 p-3">
+            <p className="text-xs text-white/60">قبل الإنهاء — اختر سبباً مختصراً (تُرسَل رسالة شكر لطيفة تلقائياً للطرف الآخر):</p>
+            {(me?.anonExitReasons || []).map((r: any) => (
+              <button key={r.code} onClick={() => end(r.code)} className="block w-full rounded-2xl bg-white/5 px-3 py-2 text-right text-sm">{r.label}</button>
+            ))}
+            <button onClick={() => setExitOpen(false)} className="text-xs text-white/40">رجوع</button>
+          </div>
+        )}
         <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-3">
-          <p className="mx-auto w-fit rounded-full bg-white/5 px-3 py-1 text-[11px] text-white/50">🔒 هويتكما مخفية · لا تشارك أرقاماً قبل الكشف المتبادل</p>
           {msgs.map((m) => (
             <motion.div key={m.id} initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`max-w-[80%] rounded-2xl px-3 py-2 text-[15px] leading-6 ${m.mine ? `mr-auto ${GRAD} rounded-bl-md` : "ml-auto bg-white/10 rounded-br-md"}`}>
@@ -333,53 +362,77 @@ function AnonTab({ api, say, me, active, onUsed }: { api: any; say: any; me: any
             </motion.div>
           ))}
         </div>
-        <div className="flex gap-2 px-3 pb-1">
-          <button onClick={async () => { haptic("light"); const r = await api("anon_icebreaker"); if (r.text) setText(r.text); }} className="rounded-full bg-white/5 px-3 py-1.5 text-xs border border-white/10">✨ كسر الجليد</button>
-          <button onClick={async () => { const r = await api("anon_reveal"); say(r.message || r.error); apply(await api("anon_poll", { filter, after: lastId.current, sessionId: sessionRef.current })); }}
-            className="rounded-full bg-white/5 px-3 py-1.5 text-xs border border-[#e8b4a0]/40 text-[#f3cbbd]">
-            {poll.reveal === "waiting" ? "⏳ بانتظار الموافقة" : poll.reveal === "mutual" ? "🔓 وافق على الكشف" : "🔓 طلب كشف الهوية"}
-          </button>
-        </div>
+        {poll.contact && poll.contact !== "hidden" && (
+          <div className="px-3 pb-1">
+            <p className="mb-1 text-[11px] text-white/50">💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي:</p>
+            <button disabled={poll.contact === "requested_by_me"} onClick={async () => { const r = await api("anon_contact"); say(r.message || r.error); pollNow(); }}
+              className="rounded-full border border-[#e8b4a0]/40 bg-white/5 px-3 py-1.5 text-xs text-[#f3cbbd] disabled:opacity-50">
+              {poll.contact === "requested_by_partner" ? "✅ أوافق على التبادل" : poll.contact === "requested_by_me" ? "⏳ بانتظار موافقة الطرف الآخر" : "📇 طلب تبادل التواصل الرسمي"}
+            </button>
+          </div>
+        )}
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2 p-3">
-          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={1000} placeholder="اكتب رسالتك…" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-pink-400/60" />
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder="اكتب رسالتك (نص فقط)…" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-pink-400/60" />
           <motion.button whileTap={{ scale: 0.9 }} className={`rounded-2xl px-4 font-bold ${GRAD}`}>إرسال</motion.button>
         </form>
       </div>
     );
   }
 
+  const waiting = poll.state === "waiting";
   return (
     <div>
       <div className="relative mx-auto my-6 grid h-56 w-56 place-items-center">
         {[0, 1, 2].map((i) => (
           <motion.span key={i} className="absolute inset-0 rounded-full border border-pink-400/40"
-            animate={poll.state === "waiting" ? { scale: [0.4, 1.25], opacity: [0.8, 0] } : { scale: 0.9 - i * 0.2, opacity: 0.25 }}
-            transition={poll.state === "waiting" ? { repeat: Infinity, duration: 2.4, delay: i * 0.8, ease: "easeOut" } : { duration: 0.3 }} />
+            animate={waiting ? { scale: [0.4, 1.25], opacity: [0.8, 0] } : { scale: 0.9 - i * 0.2, opacity: 0.25 }}
+            transition={waiting ? { repeat: Infinity, duration: 2.4, delay: i * 0.8, ease: "easeOut" } : { duration: 0.3 }} />
         ))}
-        {poll.state === "waiting" && <motion.span className="absolute inset-4 rounded-full" style={{ background: "conic-gradient(from 0deg, rgba(255,46,147,0.45), transparent 35%)" }} animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: "linear" }} />}
-        <motion.div animate={{ scale: poll.state === "waiting" ? [1, 1.08, 1] : 1 }} transition={{ repeat: Infinity, duration: 1.6 }}
+        {waiting && <motion.span className="absolute inset-4 rounded-full" style={{ background: "conic-gradient(from 0deg, rgba(255,46,147,0.45), transparent 35%)" }} animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 2, ease: "linear" }} />}
+        <motion.div animate={{ scale: waiting ? [1, 1.08, 1] : 1 }} transition={{ repeat: Infinity, duration: 1.6 }}
           className={`relative grid h-24 w-24 place-items-center rounded-full text-4xl shadow-[0_0_40px_rgba(255,46,147,0.5)] ${GRAD}`}>🎭</motion.div>
       </div>
-      <p className="text-center text-white/70">{poll.state === "waiting" ? "نبحث عن شخص مناسب… يمكنك البقاء هنا" : "دردشة مجهولة الهوية مع شخص جديد — من التطبيق أو البوت"}</p>
+      <p className="text-center text-white/70">
+        {waiting ? "🔍 يتم البحث الآن عن شريك للمحادثة… إن لم يُعثر على أحد خلال دقيقة واحدة، اضغط الزر مجدداً."
+          : poll.state === "timeout" ? (poll.filter ? `⌛ لم نجد خلال دقيقة شريكاً يطابق فلاترك (${poll.filter}). لم نتجاهل فلاترك — وسّعها أو ابحث هذه المرة بدونها.` : "⌛ لم يُعثر على أحد خلال دقيقة. اضغط «🔀 مراسلة عشوائية» للتحقق مجدداً.")
+          : "دردشة مجهولة الهوية بالكامل — نفس المراسلة العشوائية في البوت"}
+      </p>
+      {waiting && poll.filter && <p className="mt-1 text-center text-xs text-[#f3cbbd]">🎛 {poll.filter}</p>}
 
-      {poll.state === "waiting" ? (
+      {waiting ? (
         <button onClick={async () => { await api("anon_end"); setPoll({ state: "idle" }); }} className="mx-auto mt-6 block rounded-2xl border border-white/15 px-6 py-3">إلغاء البحث</button>
       ) : (
-        <div className={`mt-6 rounded-3xl p-4 ${GLASS}`}>
-          <p className="mb-2 text-sm font-bold">فلاتر (اختياري)</p>
-          <div className="mb-3 flex gap-2">
-            <Pill active={!filter.gender} onClick={() => setFilter({ ...filter, gender: undefined })}>الكل</Pill>
-            <Pill active={filter.gender === "MALE"} onClick={() => setFilter({ ...filter, gender: "MALE" })}>👨 ذكر</Pill>
-            <Pill active={filter.gender === "FEMALE"} onClick={() => setFilter({ ...filter, gender: "FEMALE" })}>👩 أنثى</Pill>
+        <>
+          {poll.state === "timeout" && poll.filter && (
+            <button onClick={() => start(true)} className="mx-auto mt-4 block rounded-2xl border border-white/15 px-5 py-2 text-sm">🌐 ابحث هذه المرة بدون فلاتر</button>
+          )}
+          {!tg()?.MainButton && <button onClick={() => start()} className={`mt-4 w-full rounded-2xl py-3 font-bold ${GRAD}`}>🔀 مراسلة عشوائية</button>}
+          <div className={`mt-6 rounded-3xl p-4 ${GLASS}`}>
+            <p className="mb-1 text-sm font-bold">🎛 فلاتر الدردشة العشوائية</p>
+            {!af.owned ? (
+              <>
+                <p className="text-[12px] leading-5 text-white/55">اختر جنس ودولة وعمر من تُطابَق معه. $2 لمدة 30 يوماً — مشمولة في العضوية الذهبية. بدون تجديد تلقائي.</p>
+                <button onClick={buyFilters} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>تفعيل ($2 / 30 يوماً)</button>
+              </>
+            ) : (
+              <>
+                <p className="mb-2 text-[11px] text-emerald-300">✓ {af.viaVip ? "ضمن العضوية الذهبية" : `مفعّلة حتى ${new Date(af.until).toLocaleDateString("ar")}`}</p>
+                <div className="mb-3 flex gap-2">
+                  <Pill active={!filter.gender} onClick={() => setFilter({ ...filter, gender: undefined })}>الكل</Pill>
+                  <Pill active={filter.gender === "MALE"} onClick={() => setFilter({ ...filter, gender: "MALE" })}>👨 ذكر</Pill>
+                  <Pill active={filter.gender === "FEMALE"} onClick={() => setFilter({ ...filter, gender: "FEMALE" })}>👩 أنثى</Pill>
+                </div>
+                <Field label="الدولة" value={filter.country} onChange={(v) => setFilter({ ...filter, country: v })} placeholder="فارغ = أي دولة" />
+                <div className="flex gap-2">
+                  <div className="flex-1"><Field label="العمر من" type="number" value={filter.ageMin} onChange={(v) => setFilter({ ...filter, ageMin: v })} /></div>
+                  <div className="flex-1"><Field label="إلى" type="number" value={filter.ageMax} onChange={(v) => setFilter({ ...filter, ageMax: v })} /></div>
+                </div>
+                <p className="text-[11px] text-white/40">تتم المطابقة فقط مع من يحقق فلاترك، وإن كان لديه فلاتر فيجب أن تحققها أنت أيضاً.</p>
+                <button onClick={saveFilter} className="mt-2 w-full rounded-2xl border border-white/15 py-2.5 text-sm">حفظ الفلاتر</button>
+              </>
+            )}
           </div>
-          <Field label="الدولة" value={filter.country} onChange={(v) => setFilter({ ...filter, country: v })} placeholder="مثلاً: مصر" />
-          <div className="flex gap-2">
-            <div className="flex-1"><Field label="العمر من" type="number" value={filter.ageMin} onChange={(v) => setFilter({ ...filter, ageMin: v })} /></div>
-            <div className="flex-1"><Field label="إلى" type="number" value={filter.ageMax} onChange={(v) => setFilter({ ...filter, ageMax: v })} /></div>
-          </div>
-          <p className="text-[11px] text-white/40">الفلاتر تطابق من لديهم ملف فقط. بدون فلاتر تتصل بأي شخص بالغ.</p>
-          {!tg()?.MainButton && <button onClick={() => start()} className={`mt-3 w-full rounded-2xl py-3 font-bold ${GRAD}`}>🔀 ابدأ البحث</button>}
-        </div>
+        </>
       )}
     </div>
   );
@@ -736,6 +789,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
     if (key === "filters") return ent.advancedFilters ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
     if (key === "visitors") return ent.profileVisitors ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
     if (key === "photos") return ent.extraPhotos ? (ent.vip ? "ضمن الذهبية" : "مفعّلة") : null;
+    if (key === "anonFilters") return me?.anonFilters?.owned ? (me.anonFilters.viaVip ? "ضمن الذهبية" : `مفعّلة حتى ${new Date(me.anonFilters.until).toLocaleDateString("ar")}`) : null;
     if (key === "verify") return ent.verification === "VERIFIED" ? "موثّق ☑️" : ent.verification === "PENDING" ? "قيد المراجعة" : null;
     return null;
   };
@@ -743,7 +797,8 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
   const buy = async (key: string, price: number) => {
     if (key === "visitors" && ent.profileVisitors) { openVisitors(); return; }
     const paidAlready = !!state(key) && key !== "photos" && key !== "verify";
-    if (paidAlready && key !== "boost") return;
+    if (paidAlready && key !== "boost" && !(key === "anonFilters" && !me?.anonFilters?.viaVip)) return;
+    if (key === "anonFilters" && me?.anonFilters?.viaVip) return;
     const ok = key === "verify" || key === "photos" && ent.extraPhotos ? true
       : await confirmTg(`تأكيد الشراء بـ $${price} من رصيدك؟`);
     if (!ok) return;
@@ -790,8 +845,8 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
                   {st && <p className="mt-0.5 text-[11px] text-emerald-300">✓ {st}</p>}
                 </div>
                 <motion.button whileTap={{ scale: 0.9 }} disabled={buying === c.key} onClick={() => buy(c.key, c.price)}
-                  className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${st && !["boost", "photos", "visitors"].includes(c.key) ? "border border-white/15 text-white/50" : isVipCard ? "bg-gradient-to-l from-amber-300 to-amber-500 text-black" : GRAD}`}>
-                  {buying === c.key ? "…" : c.key === "visitors" && ent.profileVisitors ? "عرض" : c.key === "photos" && ent.extraPhotos ? "رفع" : st && !["boost"].includes(c.key) ? "مفعّل" : c.key === "verify" ? "ابدأ" : isVipCard && ent.vip ? "تمديد" : "شراء"}
+                  className={`shrink-0 rounded-2xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${st && !["boost", "photos", "visitors"].includes(c.key) && !(c.key === "anonFilters" && !me?.anonFilters?.viaVip) ? "border border-white/15 text-white/50" : isVipCard ? "bg-gradient-to-l from-amber-300 to-amber-500 text-black" : GRAD}`}>
+                  {buying === c.key ? "…" : c.key === "visitors" && ent.profileVisitors ? "عرض" : c.key === "photos" && ent.extraPhotos ? "رفع" : c.key === "anonFilters" && st && !me?.anonFilters?.viaVip ? "تمديد" : st && !["boost"].includes(c.key) ? "مفعّل" : c.key === "verify" ? "ابدأ" : isVipCard && ent.vip ? "تمديد" : "شراء"}
                 </motion.button>
               </div>
             </motion.div>

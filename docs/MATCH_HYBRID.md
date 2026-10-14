@@ -79,3 +79,12 @@ Owner steps:
 - **Verification and extra photos:** these set the same `pendingAction` (`verify_badge_photo` / `extra_photo_upload`), and the user finishes by sending the photo in the bot chat.
 - **Matching:** uses the bot's own `buildSearchQueue` (normal and strict), `defaultPref`, `compatibilityPercent` (the bot's «💞 توافق X%») and `trackProfileVisit`.
 - **Removed:** the spin wheel, referral VIP, free daily super likes and the anonymous-chat quota. Compliments remain because they grant nothing; they are rate-limited only.
+
+## v4 — Anonymous chat = the bot's random chat + 🎛 paid filters (2026-10-14)
+- The app's anon tab now calls the bot's own functions (startRandomChat, relayRandomChatText, endRandomChat + EXIT_REASON_LABELS, reportRandomChat, requestRandomChatContact). Same queue, 60s window (no auto-extension), 24h same-pair cooldown, mutual-block check, text-only relay, banned words, 📇 contact exchange after 15 messages with mutual consent, fake partners when the admin enables them (shown as "continue in the bot").
+- Removed app inventions (code kept and marked REVIEW where shared): ⏭ next, ✨ icebreaker, partner age/country in chat header, phone/handle blocking in messages, reveal before 15 messages, queue auto-extension while the app is open.
+- 🎛 Anon-chat filters: gender / country / age range. $2 per 30 days (stacks, no auto-renew), included in 👑 Gold. Table match_anon_filters (filter, paid_until, active_queue_id, notified_queue_id).
+- Pairing (src/lib/match/anonRules.ts, anonPairOk): each side's ACTIVE filter must be satisfied by the other side's profile. A filter is active only for the queue row it was snapshotted on (active_queue_id set before the row is created) and only while still entitled — expiry mid-queue drops the filter, never charges.
+- Queue claim is atomic (updateMany WAITING→MATCHED on the partner row and on our own row).
+- Filtered users never get scripted fake partners. After the 60s window the fake-chat sweeper (every minute) sends "no match — widen?" with 🌐 once-without-filters / 🎛 edit buttons; also shown on the next press and in the app.
+- Entry points: bot «⭐ الترقيات» → «🎛 فلاتر الدردشة العشوائية ($2/30 يوم)», «🎛 فلاتر الدردشة» in the in-chat menu, app Upgrade screen + anon tab.

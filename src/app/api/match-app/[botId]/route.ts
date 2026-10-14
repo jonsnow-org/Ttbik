@@ -4,19 +4,18 @@ import { Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, toPublicProfile, validatePrefInput, validateProfileInput, verifyInitData } from "@/lib/match/inline";
 import { availableProfiles, botUsername, sendChatRequest } from "@/lib/match/hybrid";
-import { COMPLIMENTS, COMPLIMENTS_PER_DAY, ICEBREAKERS, SUPERLIKE_NOTE_MAX, complimentText, countryFlag, onlineLabel, sanitizeAnonFilter } from "@/lib/match/premium";
-import { addComplimentOnce, getDaily, saveAnonFilter, takeDaily } from "@/lib/match/appStore";
+import { COMPLIMENTS, COMPLIMENTS_PER_DAY, SUPERLIKE_NOTE_MAX, complimentText, countryFlag, onlineLabel, sanitizeAnonFilter } from "@/lib/match/premium";
+import { addComplimentOnce, getDaily, setAnonFilterValue, takeDaily } from "@/lib/match/appStore";
 import {
   PRICE_VERIFIED_BADGE, UPGRADE_CATALOGUE, depositLink, chargeSuperLike, entitlementSummary, hasAdvancedFilters, isVipActive,
-  purchaseBoost, purchaseVip, toggleIncognito, unlockAdvancedFilters, unlockExtraPhotos, unlockProfileVisitors, type Purchase,
+  purchaseBoost, purchaseVip, purchaseAnonFilters, anonFiltersStatus, toggleIncognito, unlockAdvancedFilters, unlockExtraPhotos, unlockProfileVisitors, type Purchase,
 } from "@/lib/match/entitlements";
 import { STAR_DEPOSIT_TIERS, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
-import { anonEnd, anonPoll, anonReport, anonReveal, anonSend, anonStart } from "@/lib/match/anon";
+import { ANON_EXIT_REASONS, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
 import { trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
 import { scrubContacts } from "@/lib/match/inline";
-import { hubGenerate } from "@/lib/hub/ai";
 
 /**
  * Premium Mini App backend for one MARRIAGE_BOT instance (/match-app/<botId>).
@@ -78,6 +77,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         preference: user.preference,
         privacy: { countryOnly },
         ent: entitlementSummary(user, p),
+        anonFilters: await anonFiltersStatus(tg.id).catch(() => ({ owned: false, until: null, viaVip: false, filter: {} })),
+        anonExitReasons: ANON_EXIT_REASONS,
         catalogue: UPGRADE_CATALOGUE,
         deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
         complimentsLeft: daily ? Math.max(0, COMPLIMENTS_PER_DAY - daily.compliments) : COMPLIMENTS_PER_DAY,
@@ -95,6 +96,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       if (key === "vip") { const r = await purchaseVip(tg.id); return r.ok ? NextResponse.json({ ok: true, message: `👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}` }) : err(purchaseError(r)); }
       if (key === "visitors") { const r = await unlockProfileVisitors(tg.id); return r.ok ? NextResponse.json({ ok: true, message: "👀 تم التفعيل", open: "visitors" }) : err(purchaseError(r)); }
       if (key === "filters") { const r = await unlockAdvancedFilters(tg.id); return r.ok ? NextResponse.json({ ok: true, message: "🎯 الفلاتر المتقدمة مفعّلة — أضف المدينة والحالة الاجتماعية في معايير الزواج" }) : err(purchaseError(r)); }
+      if (key === "anonFilters") {
+        const r = await purchaseAnonFilters(tg.id);
+        return r.ok ? NextResponse.json({ ok: true, message: r.viaVip ? "👑 فلاتر الدردشة مشمولة في عضويتك الذهبية" : `🎛 تم تفعيل فلاتر الدردشة العشوائية حتى ${r.until?.toLocaleDateString("ar")}` }) : err(purchaseError(r));
+      }
       if (key === "photos") {
         const r = await unlockExtraPhotos(tg.id);
         if (!r.ok) return err(purchaseError(r));
@@ -180,32 +185,25 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     // ---- anonymous chat (profile not required, same as the bot) ----
     if (action.startsWith("anon_")) {
-      const filter = sanitizeAnonFilter(body.filter);
-      if (action === "anon_start" || action === "anon_next") {
-        if (action === "anon_next") await anonEnd(bot, tg.id, "end");
-        await saveAnonFilter(tg.id, filter).catch(() => null);
-        await anonStart(bot, botRow, tg.id, filter);
-        return NextResponse.json({ ok: true, ...(await anonPoll(bot, botRow, tg.id, filter, 0)) });
+      if (action === "anon_filter") {
+        const st = await anonFiltersStatus(tg.id);
+        if (!st.owned) return err("🎛 فعّل «فلاتر الدردشة العشوائية» أولاً");
+        await setAnonFilterValue(tg.id, sanitizeAnonFilter(body.filter));
+        return NextResponse.json({ ok: true, message: "تم حفظ الفلاتر" });
       }
-      if (action === "anon_poll") return NextResponse.json({ ok: true, ...(await anonPoll(bot, botRow, tg.id, filter, Math.max(0, Number(body.after) || 0), body.sessionId ? String(body.sessionId) : undefined)) });
+      if (action === "anon_start") {
+        await anonStart(bot, botRow, tg.id, body.ignoreFilter === true);
+        return NextResponse.json({ ok: true, ...(await anonPoll(tg.id, 0)) });
+      }
+      if (action === "anon_poll") return NextResponse.json({ ok: true, ...(await anonPoll(tg.id, Math.max(0, Number(body.after) || 0), body.sessionId ? String(body.sessionId) : undefined)) });
       if (action === "anon_send") {
-        if (!rateLimit(`anonmsg:${tg.id}`, 30, 60_000)) return err("أبطئ قليلاً");
         const r = await anonSend(bot, tg.id, String(body.text || ""));
         return r.ok ? NextResponse.json({ ok: true }) : err(r.error || "تعذّر الإرسال");
       }
-      if (action === "anon_end") { await anonEnd(bot, tg.id, "end"); return NextResponse.json({ ok: true }); }
-      if (action === "anon_block") { await anonEnd(bot, tg.id, "block"); return NextResponse.json({ ok: true, message: "تم الحظر" }); }
-      if (action === "anon_report") { await anonReport(bot, tg.id); return NextResponse.json({ ok: true, message: "🚩 وصل البلاغ للإدارة" }); }
-      if (action === "anon_reveal") return NextResponse.json({ ok: true, ...(await anonReveal(bot, tg.id)) });
-      if (action === "anon_icebreaker") {
-        if (!rateLimit(`ice:${tg.id}`, 6, 60_000)) return NextResponse.json({ ok: true, text: ICEBREAKERS[randomInt(ICEBREAKERS.length)] });
-        const ai = await hubGenerate(
-          "أنت تقترح سؤالاً واحداً قصيراً ولطيفاً ومحترماً لكسر الجليد بين شخصين يتعارفان بغرض الزواج في دردشة مجهولة. بالعربية، سطر واحد، بلا أسئلة شخصية حساسة، بلا طلب أرقام أو حسابات.",
-          "اقترح سؤالاً لبدء الحديث", 60,
-        ).catch(() => null);
-        const text = ai?.text?.split("\n").map((l) => l.trim()).find(Boolean)?.slice(0, 160);
-        return NextResponse.json({ ok: true, text: text || ICEBREAKERS[randomInt(ICEBREAKERS.length)], ai: !!text });
-      }
+      if (action === "anon_end") { await anonEnd(bot, tg.id, "end", body.reason ? String(body.reason) : undefined); return NextResponse.json({ ok: true }); }
+      if (action === "anon_block") { await anonEnd(bot, tg.id, "block"); return NextResponse.json({ ok: true, message: "⛔ تم الحظر" }); }
+      if (action === "anon_report") { await anonReport(bot, tg.id); return NextResponse.json({ ok: true, message: "🚩 تم إرسال بلاغك." }); }
+      if (action === "anon_contact") return NextResponse.json({ ok: true, message: await anonContact(bot, tg.id) });
       return err("إجراء غير معروف");
     }
 

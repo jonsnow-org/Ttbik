@@ -35,3 +35,5 @@ CREATE TABLE IF NOT EXISTS match_app_perks (
   referral_vip_claimed BOOLEAN NOT NULL DEFAULT false,
   anon_filter JSONB
 );
+
+CREATE TABLE IF NOT EXISTS match_anon_filters (user_id TEXT PRIMARY KEY, filter JSONB, paid_until TIMESTAMPTZ, active_queue_id TEXT, notified_queue_id TEXT);

@@ -11,9 +11,10 @@
  */
 import type { MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getAnonFilterRow, setAnonPaidUntil } from "@/lib/match/appStore";
 
 export * from "@/lib/match/entitlementRules";
-import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive } from "@/lib/match/entitlementRules";
+import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, extendAnonFilters, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
@@ -123,3 +124,22 @@ export async function chargeSuperLike(userId: string, targetUserId: string, note
   return { ok: true };
 }
 
+
+/** 🎛 فلاتر الدردشة العشوائية — $2 / 30 يوماً (تتراكم)، مشمولة في الذهبية بلا خصم. */
+export async function purchaseAnonFilters(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
+  if (!dbUser) return { ok: false, reason: "no_user" };
+  if (isVipActive(dbUser)) return { ok: true, charged: false, until: dbUser.vipUntil, viaVip: true };
+  const row = await getAnonFilterRow(userId);
+  const charge = await chargeMatchUser(userId, PRICE_ANON_FILTERS, "ANON_FILTERS");
+  if (!charge.ok) return insufficient(PRICE_ANON_FILTERS, charge.balance);
+  const until = extendAnonFilters(row?.paid_until ?? null);
+  await setAnonPaidUntil(userId, until);
+  return { ok: true, charged: true, until, viaVip: false };
+}
+export async function anonFiltersStatus(userId: string): Promise<{ owned: boolean; until: Date | null; viaVip: boolean; filter: any }> {
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId }, select: { vipUntil: true } });
+  const row = await getAnonFilterRow(userId);
+  const viaVip = !!dbUser?.vipUntil && dbUser.vipUntil > new Date();
+  return { owned: hasAnonFilters({ vipUntil: dbUser?.vipUntil ?? null }, row?.paid_until), until: viaVip ? dbUser!.vipUntil : row?.paid_until ?? null, viaVip, filter: row?.filter ?? {} };
+}

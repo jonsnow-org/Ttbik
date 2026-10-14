@@ -13,7 +13,8 @@ CREATE INDEX IF NOT EXISTS match_app_messages_session_idx ON match_app_messages 
 CREATE TABLE IF NOT EXISTS match_app_daily (user_id TEXT NOT NULL, day TEXT NOT NULL, spins INT NOT NULL DEFAULT 0, superlikes INT NOT NULL DEFAULT 0, extra_superlikes INT NOT NULL DEFAULT 0, anon_chats INT NOT NULL DEFAULT 0, extra_anon INT NOT NULL DEFAULT 0, compliments INT NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day));
 CREATE TABLE IF NOT EXISTS match_app_passes (user_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, target_id));
 CREATE TABLE IF NOT EXISTS match_app_compliments (sender_id TEXT NOT NULL, target_id TEXT NOT NULL, day TEXT NOT NULL, PRIMARY KEY (sender_id, target_id, day));
-CREATE TABLE IF NOT EXISTS match_app_perks (user_id TEXT PRIMARY KEY, referral_vip_claimed BOOLEAN NOT NULL DEFAULT false, anon_filter JSONB)`;
+CREATE TABLE IF NOT EXISTS match_app_perks (user_id TEXT PRIMARY KEY, referral_vip_claimed BOOLEAN NOT NULL DEFAULT false, anon_filter JSONB);
+CREATE TABLE IF NOT EXISTS match_anon_filters (user_id TEXT PRIMARY KEY, filter JSONB, paid_until TIMESTAMPTZ, active_queue_id TEXT, notified_queue_id TEXT)`;
 
 export function ensureMatchAppTables(): Promise<void> {
   if (!ready) {
@@ -68,4 +69,39 @@ export async function saveAnonFilter(userId: string, filter: unknown) {
   await ensureMatchAppTables();
   const j = JSON.stringify(filter ?? {});
   await prisma.$executeRaw`INSERT INTO match_app_perks (user_id, anon_filter) VALUES (${userId}, ${j}::jsonb) ON CONFLICT (user_id) DO UPDATE SET anon_filter = ${j}::jsonb`;
+}
+
+// ---- 🎛 paid anon-chat filters ----------------------------------------------------------------
+export type AnonFilterStore = { filter: any; paid_until: Date | null; active_queue_id: string | null; notified_queue_id: string | null };
+export async function getAnonFilterRow(userId: string): Promise<AnonFilterStore | null> {
+  await ensureMatchAppTables();
+  const r = await prisma.$queryRaw<AnonFilterStore[]>`SELECT filter, paid_until, active_queue_id, notified_queue_id FROM match_anon_filters WHERE user_id = ${userId}`;
+  return r[0] ?? null;
+}
+export async function getAnonFilterRows(userIds: string[]): Promise<Map<string, AnonFilterStore>> {
+  const m = new Map<string, AnonFilterStore>();
+  if (!userIds.length) return m;
+  await ensureMatchAppTables();
+  const r = await prisma.$queryRaw<(AnonFilterStore & { user_id: string })[]>`SELECT user_id, filter, paid_until, active_queue_id, notified_queue_id FROM match_anon_filters WHERE user_id = ANY(${userIds})`;
+  for (const x of r) m.set(x.user_id, x);
+  return m;
+}
+export async function setAnonFilterValue(userId: string, filter: unknown) {
+  await ensureMatchAppTables();
+  const j = JSON.stringify(filter ?? {});
+  await prisma.$executeRaw`INSERT INTO match_anon_filters (user_id, filter) VALUES (${userId}, ${j}::jsonb) ON CONFLICT (user_id) DO UPDATE SET filter = ${j}::jsonb`;
+}
+export async function setAnonPaidUntil(userId: string, until: Date) {
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_anon_filters (user_id, paid_until) VALUES (${userId}, ${until}) ON CONFLICT (user_id) DO UPDATE SET paid_until = ${until}`;
+}
+export async function setAnonActiveQueue(userId: string, queueId: string | null) {
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_anon_filters (user_id, active_queue_id) VALUES (${userId}, ${queueId}) ON CONFLICT (user_id) DO UPDATE SET active_queue_id = ${queueId}`;
+}
+/** Returns true only the first time for this queue row (so the timeout notice is sent once). */
+export async function markAnonNotified(userId: string, queueId: string): Promise<boolean> {
+  await ensureMatchAppTables();
+  const n = await prisma.$executeRaw`UPDATE match_anon_filters SET notified_queue_id = ${queueId} WHERE user_id = ${userId} AND notified_queue_id IS DISTINCT FROM ${queueId}`;
+  return n > 0;
 }

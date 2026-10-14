@@ -25,6 +25,7 @@ export function dayKey(d = new Date()): string {
 
 // ---- reveal consent ----------------------------------------------------------------
 /** contactRequestedBy is RandomChatSession's existing column. */
+/** REVIEW (owner 2026-10-14): no longer used by the app — the anon chat now uses the bot's 15-message «📇» flow. Kept, not deleted. */
 export function revealStep(contactRequestedBy: string | null | undefined, me: string): "first" | "waiting" | "mutual" {
   if (!contactRequestedBy) return "first";
   if (contactRequestedBy === me) return "waiting";
@@ -90,6 +91,7 @@ export function onlineLabel(lastActiveAt: Date, now = Date.now()): { online: boo
   return { online: false, label: `قبل ${Math.floor(h / 24)} يوم` };
 }
 
+/** REVIEW (owner 2026-10-14): «✨ كسر الجليد» removed from the app (the bot has no such button). Kept, not deleted. */
 export const ICEBREAKERS = [
   "لو تقدر تعيش في أي مدينة بالعالم، وين تختار؟ 🌍",
   "إيش أكثر شي يخليك تبتسم في يومك؟ 😊",
