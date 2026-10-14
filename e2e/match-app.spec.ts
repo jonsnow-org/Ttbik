@@ -504,3 +504,104 @@ test("athar (flag on in QA env): match modal, birthday, gift moment, month card,
   const kb = JSON.stringify((await tgCalls()).filter((c) => /sendMessage/.test(c.method)).map((c) => c.payload));
   expect(kb).toContain("بدل $2");
 });
+
+test("round 4: mixed cards + paid gender filter, pro cards (info/photo/report), stranger DMs paywall, bell vs chats badge, update campaign", async ({ browser }) => {
+  test.setTimeout(420_000);
+  reseed(); await tgReset();
+  // 1) mixed by default: a man (1001) also sees men (1006); gender filter is paid.
+  const d = await api(1001, "discover");
+  const genders = new Set((d.body.items || []).map((c: any) => c.gender));
+  expect(genders.has("MALE") && genders.has("FEMALE")).toBeTruthy();
+  expect((await api(1001, "card_gender", { gender: "FEMALE" })).status).toBe(400);
+  const buy = await api(1001, "upgrade", { key: "cardGender" });
+  expect(buy.body.ok).toBeTruthy();
+  expect((await api(1001, "card_gender", { gender: "FEMALE" })).body.ok).toBeTruthy();
+  const onlyF = await api(1001, "discover");
+  expect((onlyF.body.items || []).every((c: any) => c.gender === "FEMALE")).toBeTruthy();
+  expect((await api(1002, "card_gender", { gender: "MALE" })).body.ok).toBeTruthy(); // Gold includes it
+  await api(1001, "card_gender", { gender: null });
+
+  // 2) stranger DMs: 1006 (man, no match with 1003) → 3 free then paywall; 1003 replies.
+  const p1003 = (await api(1001, "discover")).body.items.find((c: any) => c.gender === "FEMALE" && c.age === 28);
+  for (let i = 1; i <= 3; i++) expect((await api(1006, "dm_send", { target: p1003.ref, text: `مرحباً ${i}` })).body.ok).toBeTruthy();
+  const fourth = await api(1006, "dm_send", { target: p1003.ref, text: "رابعة" });
+  expect(fourth.status).toBe(400); expect(fourth.body.paywall).toBeTruthy();
+  expect((await api(1006, "dm_send", { target: p1003.ref, text: "x" })).body.ok).toBeFalsy();
+  const contact = await api(1001, "dm_send", { target: p1003.ref, text: "رقمي 0123456789" });
+  expect(contact.body.ok).toBeFalsy(); // contacts blocked for strangers
+  const unl = await api(1006, "dm_unlock", { target: p1003.ref });
+  expect(unl.status).toBe(400); expect(unl.body.insufficient).toBeTruthy(); // balance 0
+  expect((await api(1003, "dm_unread")).body.n).toBe(3);
+  const thr = await api(1003, "dm_threads");
+  expect(thr.body.items[0].matched).toBeFalsy();
+  // match pair 1001↔1005 is free beyond 3
+  const p1005 = (await api(1001, "matches")).body.items[0];
+  for (let i = 0; i < 4; i++) expect((await api(1001, "dm_send", { target: p1005.ref, text: `أهلاً ${i}` })).body.ok).toBeTruthy();
+
+  // 3) report with reason + note → admin dashboard + owner notified in bot; resolution → reporter bell.
+  await tgReset();
+  const rep = await api(1003, "report", { target: (await api(1001, "discover")).body.items.find((c: any) => c.age === 40).ref, code: "harass", note: "رسائل مزعجة" });
+  expect(rep.body.ok).toBeTruthy();
+  expect(sentTo(await tgCalls(), 9000).some((c) => /تحرّش/.test(c.payload.text))).toBeTruthy();
+  const reports = await api(9000, "admin_reports", { source: "SEARCH" });
+  expect(JSON.stringify(reports.body)).toContain("تحرّش");
+  const myRep = (reports.body.items || []).find((r: any) => /تحرّش/.test(JSON.stringify(r)));
+  expect((await api(9000, "admin_report_resolve", { reportId: myRep.id, act: "ignore" })).body.ok).toBeTruthy();
+  expect(JSON.stringify((await api(1003, "notifications_feed")).body.items)).toContain("راجعت الإدارة بلاغك");
+  expect(JSON.stringify((await api(1003, "notifications_feed")).body.items)).not.toContain("مرحباً"); // messages never in the bell
+
+  // UI: cards, info sheet, report form, chats tabs + badge, bell, chat paywall
+  const a = await openApp(browser, 1001, "أحمد");
+  await expect(a.page.getByTestId("top-card")).toBeVisible();
+  await shot(a.page, "r4-cards-mixed");
+  await a.page.getByRole("button", { name: "معلومات" }).click();
+  await expect(a.page.getByTestId("info-sheet")).toBeVisible();
+  await a.page.getByRole("button", { name: "🚩 إبلاغ" }).click();
+  await expect(a.page.getByTestId("report-form")).toBeVisible();
+  await shot(a.page, "r4-info-report");
+  await a.page.mouse.click(195, 60);
+  await a.ctx.close();
+
+  const m = await openApp(browser, 1003, "منى");
+  await expect(m.page.getByTestId("chats-badge")).toBeVisible();
+  await m.page.getByRole("button", { name: /محادثاتي/ }).click();
+  await m.page.getByRole("tab", { name: /طلبات من غرباء/ }).click();
+  await shot(m.page, "r4-chats-requests");
+  await m.page.getByText("مرحباً 3").click();
+  await expect(m.page.getByTestId("chat-sheet")).toBeVisible();
+  await m.page.waitForTimeout(500);
+  await m.page.screenshot({ path: `${SHOTS}/r4-chat-thread.png` });
+  await m.page.getByRole("button", { name: "رجوع" }).click();
+  await m.page.getByTestId("bell").click();
+  await expect(m.page.getByText("🔔 الإشعارات")).toBeVisible();
+  await expect(m.page.getByText(/راجعت الإدارة بلاغك/)).toBeVisible();
+  await m.page.waitForTimeout(800);
+  await m.page.screenshot({ path: `${SHOTS}/r4-bell.png` });
+  await m.ctx.close();
+
+  const k = await openApp(browser, 1006, "خالد");
+  await k.page.getByRole("button", { name: /محادثاتي/ }).click();
+  await k.page.getByRole("tab", { name: /طلبات من غرباء/ }).click();
+  await k.page.getByText(/مرحباً 3/).click();
+  await expect(k.page.getByTestId("dm-paywall")).toBeVisible();
+  await shot(k.page, "r4-dm-paywall");
+  await k.ctx.close();
+
+  // 4) admin campaign: preview count, send once (idempotent), counts reported
+  const prev = await api(9000, "admin_update_broadcast_preview");
+  expect(prev.body.pending).toBe(7);
+  await tgReset();
+  const sent = await api(9000, "admin_update_broadcast_send", { confirm: true });
+  expect(sent.body.totalDelivered + sent.body.totalFailed).toBe(7);
+  const again = await api(9000, "admin_update_broadcast_send", { confirm: true });
+  expect(again.body.delivered).toBe(0);
+  const calls = (await tgCalls()).filter((c) => /sendMessage/.test(c.method) && /طوّرنا البوت/.test(c.payload?.text || ""));
+  expect(calls.length).toBe(sent.body.totalDelivered);
+  expect(JSON.stringify(calls[0].payload.reply_markup)).toContain("web_app");
+  const ad = await openApp(browser, 9000, "Admin");
+  await ad.page.getByRole("button", { name: /لوحة القيادة/ }).click();
+  await ad.page.getByRole("button", { name: /بث/ }).first().click({ force: true, timeout: 10_000 });
+  await expect(ad.page.getByTestId("update-campaign")).toBeVisible();
+  await ad.page.getByTestId("update-campaign").screenshot({ path: `${SHOTS}/r4-admin-campaign.png` });
+  await ad.ctx.close();
+});

@@ -9,7 +9,9 @@ import { funnelSummary } from "@/lib/match/growth";
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { recentAudit } from "@/lib/match/appStore";
+import { auditAdmin, recentAudit } from "@/lib/match/appStore";
+import { UPDATE_BROADCAST_TEXT, runUpdateBroadcast, updateBroadcastAudience } from "@/lib/match/social";
+import { miniAppUrl } from "@/lib/match/hybrid";
 import {
   adminStatsData, decideProfileByUserId, decideVerification, inboxAction, isMatchAdmin, replyToInbox, resolveMatchReport,
   runBroadcast, runUnban, sendSearchDiagnostics, withAdminVia,
@@ -139,6 +141,18 @@ export async function handleAdminAction(bot: TelegramBot, botRow: BotRow, adminI
         if (!text) return bad("اكتب نص البث");
         await runBroadcast(bot, chatId, text);
         return ok({ message: "📢 تم البث — النتيجة وصلتك في محادثة البوت" });
+      }
+      case "admin_update_broadcast_preview": {
+        // 📢 «حدّث ملفك» campaign: preview (exact text + audience) before sending.
+        const a = await updateBroadcastAudience(botRow.id, adminId);
+        return ok({ text: UPDATE_BROADCAST_TEXT, ...a });
+      }
+      case "admin_update_broadcast_send": {
+        if (body.confirm !== true) return bad("أكّد الإرسال");
+        const r = await runUpdateBroadcast(bot, botRow.id, miniAppUrl(botRow.id), adminId);
+        await auditAdmin(adminId, "update_broadcast", null, `delivered=${r.totalDelivered} failed=${r.totalFailed} remaining=${r.remaining}`, "app");
+        await bot.api.sendMessage(chatId, `📢 بث «حدّث ملفك»: وصل ${r.totalDelivered} · فشل ${r.totalFailed}${r.remaining ? ` · متبقٍ ${r.remaining} (اضغط الإرسال مرة أخرى للمتابعة)` : ""} من أصل ${r.audience}.`).catch(() => null);
+        return ok({ ...r, message: `وصل ${r.totalDelivered} · فشل ${r.totalFailed}${r.remaining ? ` · متبقٍ ${r.remaining}` : ""}` });
       }
       case "admin_diagnostics": {
         await sendSearchDiagnostics(bot, botRow.id, chatId);

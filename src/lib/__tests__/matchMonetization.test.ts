@@ -20,7 +20,7 @@ describe("monetization rules", () => {
     expect(discountedPrice(2, false)).toBe(2);
   });
   it("buy-now only covers instant upgrades (not verify/photos which need a bot upload)", () => {
-    expect([...BUY_NOW_KEYS].sort()).toEqual(["anonFilters", "boost", "filters", "vip", "visitors"]);
+    expect([...BUY_NOW_KEYS].sort()).toEqual(["anonFilters", "boost", "cardGender", "filters", "vip", "visitors"]);
     expect(isBuyNowKey("verify")).toBe(false);
   });
   it("shortfall is the exact missing amount (min 1 cent) → stars", () => {

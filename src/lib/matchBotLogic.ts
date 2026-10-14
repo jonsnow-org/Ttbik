@@ -20,6 +20,7 @@ import { after } from "next/server";
 import { CONTACT_BLOCKED_TEXT, containsContactInfo } from "@/lib/match/contactGuard";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import { auditAdmin, idleRandomSessions } from "@/lib/match/appStore";
+import { pushNotification } from "@/lib/match/social";
 import { pingAnonSession } from "@/lib/match/realtime";
 import { deliverToUser } from "@/lib/match/surface";
 import {
@@ -670,9 +671,11 @@ async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
 
 // strict = "🎯 بحث دقيق" (paid): the original all-requirements-must-match
 // filter. Normal search only weights them.
-export async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false): Promise<string[]> {
+// genderMode (Mini App only): "all" = mixed cards, or an explicit gender (paid 🚻 filter).
+// The bot never passes it, so its search stays opposite-gender exactly as before.
+export async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false, genderMode?: "all" | Gender): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
-  const where = { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } };
+  const where = { status: "APPROVED", isHidden: false, ...(genderMode === "all" ? {} : { gender: genderMode ?? oppositeGender }), userId: { not: selfId }, user: { botId } };
 
   const total = await prisma.matchProfile.count({ where });
   const candidates = await prisma.matchProfile.findMany({
@@ -2089,6 +2092,8 @@ async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profi
     .catch(() => null);
 
   if (approve) await grantReferralReward(bot, profile.userId);
+  // 🔔 Mini App feed (additive; never affects the bot flow).
+  await pushNotification(profile.userId, approve ? "profile_ok" : "profile_rejected", approve ? "✅ تم اعتماد ملفك — أنت الآن ظاهر في البطاقات" : "❌ لم يُعتمد ملفك — راجع بياناتك من «ملفي»").catch(() => null);
 }
 
 async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string, approve: boolean) {
@@ -2447,6 +2452,7 @@ export async function resolveMatchReport(bot: TelegramBot, chatId: number, repor
     await bot.api.sendMessage(chatId, "🙈 تم تجاهل البلاغ.").catch(() => null);
   }
   await auditAdmin(String(chatId), `report_${action}`, report.targetId, report.source, adminVia);
+  await pushNotification(report.reporterId, "report", action === "ignore" ? "🚩 راجعت الإدارة بلاغك — لم تثبت مخالفة" : "🚩 راجعت الإدارة بلاغك واتخذت إجراءً بحق الحساب. شكراً لك").catch(() => null);
   return "ok";
 }
 

@@ -22,6 +22,12 @@ import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
 import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
 import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
 import { scrubContacts } from "@/lib/match/inline";
+import { cardGenderStatus, setCardGender } from "@/lib/match/entitlements";
+import { PRICE_CARD_GENDER } from "@/lib/match/entitlementRules";
+import { dmState, dmThread, dmThreads, dmUnreadCount, notificationFeed, sendDm, unlockDm } from "@/lib/match/social";
+import { miniAppUrl } from "@/lib/match/hybrid";
+
+const REPORT_REASONS: Record<string, string> = { fake: "ملف مزيّف", photo: "صورة غير لائقة", harass: "تحرّش أو إزعاج", scam: "احتيال أو طلب مال", minor: "قاصر (أقل من 18)", other: "سبب آخر" };
 
 /**
  * Premium Mini App backend for one MARRIAGE_BOT instance (/match-app/<botId>).
@@ -108,6 +114,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         firstDiscount: (await firstPurchaseEligible(tg.id)) ? FIRST_PURCHASE_DISCOUNT : 0,
         athar: await atharClientConfig().catch(() => null), // null = flag off or Athar unreachable → app hides every Athar card
         rewindPrice: PRICE_REWIND,
+        cardGender: { ...(await cardGenderStatus(tg.id).catch(() => ({ owned: false, until: null, viaVip: false, gender: null }))), price: PRICE_CARD_GENDER },
+        dmUnread: await dmUnreadCount(tg.id).catch(() => 0),
+        reportReasons: REPORT_REASONS,
         buyNowKeys: BUY_NOW_KEYS,
         catalogue: UPGRADE_CATALOGUE,
         deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
@@ -236,6 +245,15 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const visitors = await prisma.matchProfileVisit.count({ where: { ownerId: tg.id, visitedAt: { gt: since } } }).catch(() => 0);
       return NextResponse.json({ ok: true, likes: likes.length - matches, matches, visitors, now: Date.now() });
     }
+    if (action === "notifications_feed") {
+      // 🔔 bell: likes, matches, profile decisions, report outcomes (messages are NOT here — Chats badge only).
+      return NextResponse.json({ ok: true, items: await notificationFeed(tg.id).catch(() => []), dmUnread: await dmUnreadCount(tg.id).catch(() => 0) });
+    }
+    if (action === "dm_unread") return NextResponse.json({ ok: true, n: await dmUnreadCount(tg.id).catch(() => 0) });
+    if (action === "card_gender") {
+      const g = body.gender === "MALE" || body.gender === "FEMALE" ? body.gender : null;
+      return (await setCardGender(tg.id, g)) ? NextResponse.json({ ok: true }) : err("🚻 فلتر جنس البطاقات ميزة مدفوعة — فعّلها من الترقيات");
+    }
     if (action === "deposit_ton") {
       if (!isNativeTonConfigured()) return err("غير متاح");
       return NextResponse.json({ ok: true, address: getMasterHotWalletAddress(), memo: await getOrCreateMatchTonMemo(tg.id) });
@@ -337,6 +355,20 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       }));
       return items;
     };
+    if (action === "dm_threads") {
+      // 💬 Organised chats: matches vs. requests from strangers (non-matches).
+      const threads = await dmThreads(tg.id, botId);
+      const pref = user.preference ?? defaultPref(tg.id, user.profile);
+      const items = await cards(threads.map((t) => t.peer), pref, hasAdvancedFilters(user));
+      const refToUser = new Map((await prisma.matchProfile.findMany({ where: { userId: { in: threads.map((t) => t.peer) } }, select: { id: true, userId: true } })).map((p) => [p.id, p.userId]));
+      const byPeer = new Map(threads.map((t) => [t.peer, t]));
+      const [mine, theirs] = await Promise.all([
+        prisma.matchLike.findMany({ where: { fromUserId: tg.id, toUserId: { in: threads.map((t) => t.peer) } }, select: { toUserId: true } }),
+        prisma.matchLike.findMany({ where: { toUserId: tg.id, fromUserId: { in: threads.map((t) => t.peer) } }, select: { fromUserId: true } }),
+      ]);
+      const a = new Set(mine.map((l) => l.toUserId)); const b = new Set(theirs.map((l) => l.fromUserId));
+      return NextResponse.json({ ok: true, items: items.map((c: any) => { const peer = refToUser.get(c.ref) || ""; const t = byPeer.get(peer)!; return { ...c, last: t.last, at: t.at, lastMine: t.mine, unread: t.unread, matched: a.has(peer) && b.has(peer) }; }) });
+    }
     if (action === "rewind") {
       // ↩️ paid ($PRICE_REWIND), same function as the bot's «↩️ السابق»; skips are recorded on ✖️.
       const r = await purchaseRewind(tg.id);
@@ -364,7 +396,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       let ids: string[];
       const matchedAt = new Map<string, Date>(); // mutual date = the later of the two likes
       if (action === "discover") {
-        ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict); // the bot's own ranking engine
+        // Cards are MIXED by default; a specific gender only with the paid 🚻 filter (server-checked).
+        const cg = await cardGenderStatus(tg.id).catch(() => null);
+        const genderMode = cg?.owned && cg.gender ? cg.gender : "all";
+        ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict, genderMode); // the bot's own ranking engine
       } else {
         const [mine, theirs] = await Promise.all([
           prisma.matchLike.findMany({ where: { fromUserId: tg.id }, select: { toUserId: true } }),
@@ -462,6 +497,23 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       return NextResponse.json({ ok: true, match: !!back && !existed, card: back ? { ...toPublicProfile(targetProfile), flag: countryFlag(targetProfile.country) } : null, message: kind === "super" ? "⭐ تم إرسال إعجابك المميز مع رسالتك." : undefined });
     }
 
+    if (action === "dm_thread") {
+      const after = Math.max(0, Number(body.after) || 0);
+      const [messages, state] = await Promise.all([dmThread(tg.id, target, after), dmState(tg.id, target)]);
+      return NextResponse.json({ ok: true, messages, state });
+    }
+    if (action === "dm_send") {
+      if (targetProfile.status !== "APPROVED") return err("هذا الملف غير متاح");
+      const r = await sendDm(bot, botId, miniAppUrl(botId), tg.id, target, String(body.text || ""), containsMatchBannedWords);
+      if (!r.ok) return NextResponse.json({ ok: false, error: r.error, paywall: !!r.paywall, state: await dmState(tg.id, target) }, { status: 400 });
+      return NextResponse.json({ ok: true, id: r.id, state: await dmState(tg.id, target) });
+    }
+    if (action === "dm_unlock") {
+      if (!(await pgRateLimit(`buy:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
+      const r = await unlockDm(tg.id, target);
+      if (!r.ok) return NextResponse.json({ ok: false, error: insufficientMsg(r.needed, r.balance), insufficient: true, shortfall: shortfallUsd(r.needed, r.balance), stars: starsForUsd(shortfallUsd(r.needed, r.balance)) }, { status: 400 });
+      return NextResponse.json({ ok: true, message: r.message, state: await dmState(tg.id, target) });
+    }
     if (action === "request") {
       if (!(await pgRateLimit(`req:${tg.id}`, 20, 3600))) return err("حد الطلبات، حاول لاحقاً", 429);
       const r = await sendChatRequest(bot, botRow, tg.id, target);
@@ -491,8 +543,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
     if (action === "report") {
       if (!(await pgRateLimit(`apprep:${tg.id}`, 5, 3600))) return err("حد البلاغات", 429);
-      // Same path as the bot's 🚩 (admin alert + auto-mute after 3 distinct reporters).
-      const r = await fileMatchReport(bot, tg.id, target, "SEARCH", `🚩 بلاغ جديد على ملف ${targetProfile.name} (${target}) من المستخدم ${tg.id} (من التطبيق).\nراجعه من «🚩 بلاغات المطابقة».`, String(body.reason || "من التطبيق").slice(0, 200));
+      // Reason from a fixed list + optional note (contacts scrubbed). Same path as the bot's 🚩
+      // (admin alert in the bot + «🚩 بلاغات» in the app dashboard + auto-mute after 3 distinct reporters).
+      const label = REPORT_REASONS[String(body.code || "")] || String(body.reason || "من التطبيق").slice(0, 60);
+      const note = scrubContacts(String(body.note || "")).slice(0, 200);
+      const reason = note ? `${label} — ${note}` : label;
+      const r = await fileMatchReport(bot, tg.id, target, "SEARCH", `🚩 بلاغ جديد على ملف ${targetProfile.name} (${target}) من المستخدم ${tg.id} (من التطبيق).\nالسبب: ${reason}\nراجعه من «🚩 بلاغات المطابقة» أو لوحة القيادة في التطبيق.`, reason.slice(0, 200));
       if (r === "limited") return err("حد البلاغات", 429);
       return NextResponse.json({ ok: true, message: "شكراً، وصل البلاغ للإدارة" });
     }

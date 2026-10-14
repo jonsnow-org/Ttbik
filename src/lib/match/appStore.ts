@@ -29,9 +29,17 @@ CREATE INDEX IF NOT EXISTS match_app_passes_log_user_idx ON match_app_passes_log
 CREATE TABLE IF NOT EXISTS match_anon_state (session_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read BIGINT NOT NULL DEFAULT 0, typing_at TIMESTAMPTZ, PRIMARY KEY (session_id, user_id));
 CREATE TABLE IF NOT EXISTS match_athar_moments (user_id TEXT NOT NULL, kind TEXT NOT NULL, day TEXT NOT NULL, dismissed BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, kind, day));
 CREATE TABLE IF NOT EXISTS match_share (token TEXT PRIMARY KEY, bot_id TEXT NOT NULL, day TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_dm (id BIGSERIAL PRIMARY KEY, bot_id TEXT NOT NULL, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), read_at TIMESTAMPTZ);
+CREATE INDEX IF NOT EXISTS match_dm_pair_idx ON match_dm (sender_id, recipient_id, id);
+CREATE INDEX IF NOT EXISTS match_dm_recipient_idx ON match_dm (recipient_id, read_at);
+CREATE TABLE IF NOT EXISTS match_dm_unlock (user_id TEXT NOT NULL, peer_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, peer_id));
+CREATE TABLE IF NOT EXISTS match_card_filter (user_id TEXT PRIMARY KEY, gender TEXT, paid_until TIMESTAMPTZ);
+CREATE TABLE IF NOT EXISTS match_notifications (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_notifications_user_idx ON match_notifications (user_id, id DESC);
+CREATE TABLE IF NOT EXISTS match_broadcast_log (campaign TEXT NOT NULL, user_id TEXT NOT NULL, ok BOOLEAN NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (campaign, user_id));
 CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL)`;
 /** Bump when DDL_FALLBACK changes; the DDL then runs once per database, not on every cold start. */
-export const MATCH_APP_SCHEMA_VERSION = 6;
+export const MATCH_APP_SCHEMA_VERSION = 7;
 
 export function ensureMatchAppTables(): Promise<void> {
   if (!ready) {

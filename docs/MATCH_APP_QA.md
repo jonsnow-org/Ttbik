@@ -41,3 +41,11 @@ All server-side, on the bot's balance/entitlement system (no new money path):
 ## Round 3 — Athar promotion (flag `MATCH_ENABLE_ATHAR`, off by default) — see docs/MATCH_ATHAR.md
 Bot «⭐ الترقيات والمزايا» now shows the first-purchase price (e.g. «$1.6 بدل $2») while eligible; both label variants are accepted.
 Full e2e: 15/15 passed (QA env runs with the flag ON; unit test covers OFF + hide-on-failure).
+
+## Round 4 (2026-10-14)
+- Discovery cards are mixed by default; 🚻 card gender filter = paid ($2 / 30 days, Gold included, first-purchase discount applies). The bot's own search is unchanged (opposite gender).
+- Pro cards: tap → info sheet (all fields, like/message, 🚩 report with reasons + note, ⛔ block); tap photo → full viewer (photos stay consent-gated as in the bot).
+- In-app messages: matches free; strangers 3 per side, then $1 unlock per conversation or Gold. Contacts blocked for strangers. Tabs: 💞 matches / 📨 requests from strangers. Unread → badge on «محادثاتي» only.
+- 🔔 bell: likes, matches, profile approval/rejection, report outcome (no messages).
+- 📢 Admin «حدّث ملفك» campaign in the dashboard (📢 بث): preview + one-tap send, idempotent per user (match_broadcast_log), resumable.
+- e2e: 16/16 (new «round 4» test). Screenshots: /workspace/qa/shots/r4-*.png

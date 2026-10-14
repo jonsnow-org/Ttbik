@@ -47,6 +47,9 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
   const [me, setMe] = useState<any>(null);
   const [toast, setToast] = useState("");
   const [anonUnread, setAnonUnread] = useState(0);
+  const [dmUnread, setDmUnread] = useState(0);
+  const [chatWith, setChatWith] = useState<Card | null>(null);
+  const [info, setInfo] = useState<Card | null>(null);
   const anonLastId = useRef(0);
   const anonWasChatting = useRef(false);
   const [modal, setModal] = useState<null | { kind: "match"; card: Card } | { kind: "compliment"; card: Card } | { kind: "super"; card: Card; done: () => void }>(null);
@@ -86,7 +89,12 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     if (!w?.initData) { setBoot("outside"); return; }
     w.ready(); w.expand();
     try { w.setHeaderColor?.("#0b1020"); w.setBackgroundColor?.("#0b1020"); w.disableVerticalSwipes?.(); } catch { /* optional */ }
-    reloadMe().then((r) => { if (r && r.registered && !r.profile) setTab("me"); });
+    reloadMe().then((r) => {
+      if (r && r.registered && !r.profile) setTab("me");
+      // Broadcast button «✏️ حدّث ملفي» opens ?tab=me
+      try { if (new URLSearchParams(window.location.search).get("tab") === "me") setTab("me"); } catch { /* ignore */ }
+      if (r?.dmUnread) setDmUnread(r.dmUnread);
+    });
   }, [reloadMe]);
 
   // While the app is open on another tab: keep the app the active surface (so partner
@@ -109,6 +117,13 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     return () => { stop = true; window.clearInterval(id); };
   }, [boot, tab, me?.registered]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (tab === "anon") setAnonUnread(0); }, [tab]);
+  // 💬 unread direct messages → badge on the Chats tab only (never in the 🔔 bell).
+  useEffect(() => {
+    if (boot !== "ready" || !me?.registered) return;
+    const tick = async () => { if (document.visibilityState !== "visible") return; const r = await api("dm_unread"); if (r?.ok) setDmUnread(r.n || 0); };
+    const id = window.setInterval(tick, 15000);
+    return () => window.clearInterval(id);
+  }, [boot, me?.registered, api]);
 
   // BackButton: closes a modal, otherwise returns to discovery.
   useEffect(() => {
@@ -147,25 +162,27 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     <Shell>
       <Notifier api={api} say={say} enabled={hasProfile} onOpen={() => setTab("chats")} />
       <Onboarding hasProfile={hasProfile} goProfile={() => setTab("me")} />
-      <Header me={me} onUpgrade={() => setTab("me")} />
+      <Header me={me} onUpgrade={() => setTab("me")} bell={hasProfile ? <Bell api={api} /> : null} />
       {/* QA fix: no exit-wait here — an exiting tab with a pending layout/infinite animation could block
           the next tab forever (blank «المطابقات» after visiting a «ملفي» section). Enter animation only. */}
       <>
         <motion.section key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18 }} className="pb-32">
           {tab === "anon" && <AnonTab api={api} say={say} me={me} active={tab === "anon"} onUsed={reloadMe} onSeen={(id, chatting) => { anonLastId.current = id; anonWasChatting.current = chatting; }} />}
           {tab === "discover" && (hasProfile
-            ? <DiscoverTab api={api} say={say} me={me} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} onGo={(t) => setTab(t)} />
+            ? <DiscoverTab api={api} say={say} me={me} onInfo={setInfo} onMessage={setChatWith} onMatch={(card) => setModal({ kind: "match", card })} onCompliment={(card) => setModal({ kind: "compliment", card })} onSuper={(card, done) => setModal({ kind: "super", card, done })} onUsed={reloadMe} onGo={(t) => setTab(t)} />
             : <Empty icon="👤" text="أنشئ ملفك أولاً لتظهر لك المطابقات" action="إنشاء الملف" onAction={() => setTab("me")} />)}
-          {tab === "chats" && <ChatsTab api={api} say={say} athar={me?.athar} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
+          {tab === "chats" && <ChatsTab api={api} say={say} athar={me?.athar} onOpenChat={setChatWith} onRead={() => api("dm_unread").then((r: any) => r?.ok && setDmUnread(r.n || 0))} hasProfile={hasProfile} goAnon={() => setTab("anon")} onCompliment={(card) => setModal({ kind: "compliment", card })} />}
           {tab === "me" && (me?.registered === false ? <Empty icon="🛡" text="حساب الإدارة بلا ملف عضو" /> : <MeTab api={api} say={say} me={me} reload={reloadMe} />)}
           {tab === "admin" && me?.isAdmin && <AdminTab api={api} say={say} onChange={reloadMe} />}
         </motion.section>
       </>
 
-      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} unread={anonUnread} />
+      <BottomNav tab={tab} setTab={(t) => { haptic("select"); setTab(t); }} admin={me?.isAdmin ? (me?.adminBadges?.total ?? 0) : null} unread={anonUnread} chatsUnread={dmUnread} />
 
       <AnimatePresence>
-        {modal?.kind === "match" && <MatchModal card={modal.card} athar={me?.athar} api={api} onClose={() => setModal(null)} onChat={async () => { const r = await api("request", { target: modal.card.ref }); say(r.message || r.error, r.ok ? "success" : "error"); setModal(null); }} />}
+        {info && <InfoSheet key={"i" + info.ref} card={info} api={api} say={say} reasons={me?.reportReasons || {}} onClose={() => setInfo(null)} onMessage={() => { setChatWith(info); setInfo(null); }} />}
+        {chatWith && <ChatSheet key={"c" + chatWith.ref} card={chatWith} api={api} say={say} onUpgrade={() => { setChatWith(null); setTab("me"); }} onClose={() => { setChatWith(null); api("dm_unread").then((r: any) => r?.ok && setDmUnread(r.n || 0)); }} />}
+        {modal?.kind === "match" && <MatchModal card={modal.card} athar={me?.athar} api={api} onClose={() => setModal(null)} onChat={() => { setChatWith(modal.card); setModal(null); }} />}
         {modal?.kind === "super" && <SuperLikeSheet balance={me?.ent?.balance ?? 0} onClose={() => setModal(null)} onSend={async (note) => {
           const r = await api("swipe", { target: modal.card.ref, kind: "super", note });
           say(r.message || r.error, r.ok ? "success" : "error");
@@ -198,7 +215,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Header({ me, onUpgrade }: { me: any; onUpgrade: () => void }) {
+function Header({ me, onUpgrade, bell }: { me: any; onUpgrade: () => void; bell?: React.ReactNode }) {
   const vip = !!me?.ent?.vip;
   return (
     <header className="mb-4 flex items-center justify-between">
@@ -209,15 +226,16 @@ function Header({ me, onUpgrade }: { me: any; onUpgrade: () => void }) {
           {vip && <span className="mr-2 rounded-full bg-gradient-to-l from-amber-300 to-amber-500 px-2 py-0.5 text-[10px] font-bold text-black align-middle">👑 ذهبية</span>}
         </h1>
       </div>
+      <div className="flex items-center gap-2">{bell}
       <motion.button whileTap={{ scale: 0.92 }} onClick={() => { haptic("medium"); onUpgrade(); }}
         className={`flex items-center gap-1.5 rounded-2xl px-3 py-2 text-sm ${GLASS}`} aria-label="الرصيد والترقيات">
         <span>💰</span><b>${Number(me?.ent?.balance ?? 0).toFixed(2)}</b><span className="text-[#f3cbbd]">⭐</span>
-      </motion.button>
+      </motion.button></div>
     </header>
   );
 }
 
-function BottomNav({ tab, setTab, admin, unread = 0 }: { tab: Tab; setTab: (t: Tab) => void; admin: number | null; unread?: number }) {
+function BottomNav({ tab, setTab, admin, unread = 0, chatsUnread = 0 }: { tab: Tab; setTab: (t: Tab) => void; admin: number | null; unread?: number; chatsUnread?: number }) {
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
   if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
@@ -229,6 +247,7 @@ function BottomNav({ tab, setTab, admin, unread = 0 }: { tab: Tab; setTab: (t: T
               {tab === t && <motion.span layoutId="navpill" className={`absolute inset-0 rounded-3xl ${GRAD} opacity-90`} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
               <span className="relative block text-lg leading-none">{icon}</span>
               {t === "anon" && !!unread && tab !== "anon" && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-4">{unread > 9 ? "9+" : unread}</span>}
+              {t === "chats" && !!chatsUnread && <span data-testid="chats-badge" className="absolute right-2 top-1 min-w-4 rounded-full bg-pink-500 px-1 text-[9px] font-bold leading-4">{chatsUnread > 9 ? "9+" : chatsUnread}</span>}
               {t === "admin" && !!admin && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-red-500 px-1 text-[9px] font-bold leading-4">{admin > 99 ? "99+" : admin}</span>}
               <span className={`relative mt-1 block text-[10px] ${tab === t ? "text-white font-bold" : "text-white/60"}`}>{label}</span>
             </button>
@@ -684,6 +703,7 @@ function AdminTab({ api, say, onChange }: { api: any; say: any; onChange: () => 
         </div>
       )}
 
+      {sec === "broadcast" && <UpdateCampaign api={api} say={say} />}
       {sec === "broadcast" && (
         <div className={`rounded-3xl p-4 text-sm ${GLASS}`}>
           <textarea value={bc} onChange={(e) => setBc(e.target.value)} rows={5} placeholder="📢 نص الرسالة لجميع المستخدمين المُفعّلين" className="w-full rounded-xl border border-white/10 bg-white/5 p-3 outline-none" />
@@ -723,7 +743,7 @@ function confirmTg(text: string): Promise<boolean> {
 
 // ---------------------------------------------------------------------------------------------
 // 🔥 Swipe discovery
-function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onGo }: { api: any; say: any; me: any; onMatch: (c: Card) => void; onCompliment: (c: Card) => void; onSuper: (c: Card, done: () => void) => void; onUsed: () => void; onGo?: (t: Tab) => void }) {
+function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onGo, onInfo, onMessage }: { api: any; say: any; me: any; onInfo: (c: Card) => void; onMessage: (c: Card) => void; onMatch: (c: Card) => void; onCompliment: (c: Card) => void; onSuper: (c: Card, done: () => void) => void; onUsed: () => void; onGo?: (t: Tab) => void }) {
   const [canRewind, setCanRewind] = useState(false);
   // ↩️ paid rewind (same price/function as the bot's «↩️ السابق»).
   const rewind = async () => {
@@ -737,14 +757,23 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   };
   const [deck, setDeck] = useState<Card[] | null>(null);
   const [strict, setStrict] = useState(false);
+  const [gender, setGender] = useState<"" | "MALE" | "FEMALE">(me?.cardGender?.gender || "");
   const [photos, setPhotos] = useState<Record<string, string>>({});
+  // 🚻 Mixed cards by default; a specific gender is the paid filter (server re-checks).
+  const pickGender = async (g: "" | "MALE" | "FEMALE") => {
+    haptic("select");
+    if (g && !me?.cardGender?.owned) { say(`🚻 فلتر جنس البطاقات ميزة مدفوعة ($${me?.cardGender?.price ?? 2} / 30 يوماً، مشمولة في الذهبية)`, "error"); onGo?.("me"); return; }
+    const r = await api("card_gender", { gender: g || null });
+    if (!r.ok) { say(r.error, "error"); return; }
+    setGender(g);
+  };
 
   const load = useCallback(async () => {
     setDeck(null);
     const r = await api("discover", { strict });
     if (!r.ok) { say(r.error, "error"); setDeck([]); return; }
     setDeck(r.items);
-  }, [api, say, strict]);
+  }, [api, say, strict, gender]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -775,13 +804,22 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     if (r.match) onMatch({ ...card, ...r.card });
   };
 
-  const strictBar = (
+  const genderBar = (
+    <div className="mb-2 flex items-center gap-1.5 text-xs" role="group" aria-label="جنس البطاقات">
+      {([["", "👫 الكل"], ["FEMALE", "👩 نساء"], ["MALE", "👨 رجال"]] as const).map(([g, l]) => (
+        <button key={g} onClick={() => pickGender(g)} className={`rounded-full px-3 py-1 ${gender === g ? GRAD : "border border-white/15 text-white/70"}`}>
+          {l}{g && !me?.cardGender?.owned ? " 🔒" : ""}
+        </button>
+      ))}
+    </div>
+  );
+  const strictBar = (<>{genderBar}
     <div className="mb-2 flex items-center justify-between text-xs">
       <span className="text-white/50">{strict ? "🎯 بحث دقيق: كل مواصفاتك" : "🔍 البحث عن شريك (نفس ترتيب البوت)"}</span>
       {me?.ent?.advancedFilters
         ? <button onClick={() => { haptic("select"); setStrict((v) => !v); }} className={`rounded-full px-3 py-1 ${strict ? GRAD : "border border-white/15"}`}>🎯 بحث دقيق</button>
         : <span className="rounded-full border border-white/10 px-3 py-1 text-white/35">🎯 بحث دقيق (للمشتركين)</span>}
-    </div>
+    </div></>
   );
   if (!deck) return <div>{strictBar}<div className={`mt-2 h-[460px] animate-pulse rounded-[32px] ${GLASS}`} /></div>;
   if (deck.length === 0) return (
@@ -799,22 +837,26 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   return (
     <div>
       {strictBar}
-      <div className="relative mt-2 h-[470px]">
+      <div className="relative mt-2 h-[430px]">
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
             <SwipeCard key={c.ref} card={c} photo={photos[c.ref]} isTop={i === arr.length - 1} depth={arr.length - 1 - i}
-              onSwipe={(dir) => act(dir === "right" ? "like" : dir === "up" ? "super" : "pass")}
+              onSwipe={(dir) => act(dir === "right" ? "like" : dir === "up" ? "super" : "pass")} onTap={() => onInfo(c)}
               onPhotoRequest={async () => { const r = await api("photo_request", { target: c.ref }); say(r.message || r.error); }} />
           ))}
         </AnimatePresence>
       </div>
       <div className="mt-5 flex items-center justify-center gap-4">
-        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" onClick={rewind}>↩️</ActionBtn>}
         <ActionBtn label="تخطي" size="md" onClick={() => act("pass")}>✖️</ActionBtn>
-        <ActionBtn label="مميز $1" size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
+        <ActionBtn label="رسالة" size="md" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
         <ActionBtn label="إعجاب" size="lg" glow="#ff2e93" gradient onClick={() => act("like")}>❤️</ActionBtn>
+        <ActionBtn label="معلومات" size="md" onClick={() => deck[0] && onInfo(deck[0])}>ℹ️</ActionBtn>
+      </div>
+      <div className="mt-3 flex items-center justify-center gap-3">
+        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" onClick={rewind}>↩️</ActionBtn>}
+        <ActionBtn label="مميز $1" size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
         <ActionBtn label="طلب زواج" size="sm" glow="#e8b4a0" onClick={() => act("propose")}>💍</ActionBtn>
-        <ActionBtn label="مجاملة" size="md" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
+        <ActionBtn label="مجاملة" size="sm" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
       </div>
       <p className="mt-3 text-center text-[11px] text-white/35">اسحب يميناً للإعجاب · يساراً للتخطي · للأعلى للإعجاب المميز</p>
     </div>
@@ -832,7 +874,7 @@ function ActionBtn({ children, onClick, label, size, glow, gradient }: { childre
   );
 }
 
-function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { card: Card; photo?: string; isTop: boolean; depth: number; onSwipe: (d: "left" | "right" | "up") => void; onPhotoRequest: () => void }) {
+function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }: { card: Card; photo?: string; isTop: boolean; depth: number; onSwipe: (d: "left" | "right" | "up") => void; onPhotoRequest: () => void; onTap?: () => void }) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-220, 220], [-14, 14]);
@@ -853,6 +895,8 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { car
       className={`absolute inset-0 overflow-hidden rounded-[32px] border border-white/10 ${isTop ? "cursor-grab active:cursor-grabbing" : ""}`}
       style={{ x, y, rotate, zIndex: 10 - depth, touchAction: "none" }}
       drag={isTop} dragElastic={0.7} dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }} onDragEnd={end}
+      onTap={() => { if (isTop && Math.abs(x.get()) < 8 && Math.abs(y.get()) < 8) { haptic("light"); onTap?.(); } }}
+      data-testid={isTop ? "top-card" : undefined}
       initial={{ scale: 0.92, opacity: 0, y: 20 }}
       animate={{ scale: 1 - depth * 0.05, y: depth * 14, opacity: 1 }}
       exit={{ x: exit.x || (Math.random() > 0.5 ? 600 : -600), y: exit.y, opacity: 0, transition: { duration: 0.3 } }}
@@ -862,10 +906,11 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { car
       {photo
         ? <img src={photo} alt="" className="absolute inset-0 h-full w-full object-cover" draggable={false} />
         : (
-          <div className="absolute inset-0 grid place-items-center">
-            <div className={`grid h-40 w-40 place-items-center rounded-full text-7xl shadow-[0_0_60px_rgba(255,46,147,0.35)] ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>
+          <div className="absolute inset-0 flex flex-col items-center justify-start pt-16">
+            <div className={`grid h-32 w-32 place-items-center rounded-full text-6xl ring-4 ring-white/10 shadow-[0_0_60px_rgba(255,46,147,0.35)] ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>
               {card.gender === "FEMALE" ? "👩" : "👨"}
             </div>
+            <p className="mt-3 text-[11px] text-white/45">{card.photoLocked ? "🔒 الصورة تظهر بموافقة صاحبها" : "بطاقة تعريف — بلا صورة"}</p>
           </div>
         )}
       <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
@@ -904,7 +949,24 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest }: { car
 
 // ---------------------------------------------------------------------------------------------
 // 💬 Chats
-function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string } | null }) {
+type Thread = Card & { last: string; at: string; lastMine: boolean; unread: number; matched: boolean };
+function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenChat, onRead }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string } | null; onOpenChat: (c: Card) => void; onRead?: () => void }) {
+  const [seg, setSeg] = useState<"matches" | "requests">("matches");
+  const [threads, setThreads] = useState<Thread[] | null>(null);
+  useEffect(() => { if (hasProfile) api("dm_threads").then((r: any) => { setThreads(r.ok ? r.items : []); onRead?.(); }); else setThreads([]); }, [api, hasProfile]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reqThreads = (threads || []).filter((t) => !t.matched);
+  const matchThreads = (threads || []).filter((t) => t.matched);
+  const unreadOf = (l: Thread[]) => l.reduce((n, t) => n + t.unread, 0);
+  const threadRow = (t: Thread) => (
+    <motion.button key={"t" + t.ref} whileTap={{ scale: 0.98 }} onClick={() => onOpenChat(t)} className={`flex w-full items-center gap-3 rounded-3xl p-3 text-right ${GLASS}`}>
+      <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full text-xl ${t.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>{t.gender === "FEMALE" ? "👩" : "👨"}</div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold">{t.flag} #{t.shortId} · {t.age}</p>
+        <p className="truncate text-xs text-white/55">{t.lastMine ? "أنت: " : ""}{t.last}</p>
+      </div>
+      {t.unread > 0 && <span className="min-w-5 rounded-full bg-pink-500 px-1.5 text-center text-[10px] font-bold leading-5">{t.unread}</span>}
+    </motion.button>
+  );
   const [moments, setMoments] = useState<{ kind: string; day: string; link: string }[]>([]);
   useEffect(() => { if (athar) api("athar_moments").then((r: any) => r?.ok && setMoments(r.items || [])); }, [api, athar]);
   const [matches, setMatches] = useState<Card[] | null>(null);
@@ -916,9 +978,30 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar }: { api: 
     else { setMatches([]); setLikedMe([]); }
   }, [api, hasProfile]);
 
+  const segBar = (
+    <div className={`grid grid-cols-2 gap-1 rounded-2xl p-1 ${GLASS}`} role="tablist">
+      {([["matches", "💞 المطابقات", unreadOf(matchThreads)], ["requests", "📨 طلبات من غرباء", unreadOf(reqThreads)]] as const).map(([k, l, n]) => (
+        <button key={k} role="tab" aria-selected={seg === k} onClick={() => { haptic("select"); setSeg(k); }} className={`relative rounded-xl py-2 text-xs font-bold ${seg === k ? GRAD : "text-white/60"}`}>
+          {l}{n > 0 && <span className="mr-1 rounded-full bg-white/25 px-1.5 text-[10px]">{n}</span>}
+        </button>
+      ))}
+    </div>
+  );
+  if (seg === "requests") return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-bold">المحادثات</h2>
+      {segBar}
+      <p className="text-[11px] text-white/45">رسائل من أعضاء لم يحدث بينكم إعجاب متبادل: 3 رسائل مجانية لكل طرف، ثم تُفتح المحادثة بترقية بسيطة.</p>
+      {!threads && <div className={`h-16 animate-pulse rounded-3xl ${GLASS}`} />}
+      {threads && reqThreads.length === 0 && <p className="text-sm text-white/40">لا توجد طلبات بعد.</p>}
+      {reqThreads.map(threadRow)}
+    </div>
+  );
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold">المحادثات</h2>
+      {segBar}
+      {matchThreads.length > 0 && <div className="space-y-2">{matchThreads.map(threadRow)}</div>}
       <motion.button whileTap={{ scale: 0.98 }} onClick={goAnon} className={`flex w-full items-center gap-3 rounded-3xl p-4 text-right ${GLASS}`}>
         <div className={`grid h-12 w-12 place-items-center rounded-full ${GRAD}`}>🎭</div>
         <div className="flex-1">
@@ -954,7 +1037,8 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar }: { api: 
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <button onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className={`flex-1 rounded-2xl py-2 text-sm font-bold ${GRAD}`}>💌 دردشة مجهولة</button>
+            <button onClick={() => onOpenChat(c)} className={`flex-1 rounded-2xl py-2 text-sm font-bold ${GRAD}`}>💬 رسالة</button>
+            <button aria-label="دردشة مجهولة" onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-white/15 px-3 text-sm">🎭</button>
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
             <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent("💞 تطابق جديد على توافق")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
@@ -1300,7 +1384,7 @@ function MatchModal({ card, onClose, onChat, athar, api }: { card: Card; onClose
             <span className="block text-[11px] text-white/50">احتفظا بذكرى يوم تعارفكما في «أثر» 🎁</span>
           </button>
         )}
-        <button onClick={onChat} className={`w-full rounded-2xl py-3.5 font-bold ${GRAD}`}>💌 ابدأ دردشة مجهولة</button>
+        <button onClick={onChat} className={`w-full rounded-2xl py-3.5 font-bold ${GRAD}`}>💬 أرسل رسالة الآن</button>
         <button onClick={onClose} className="mt-2 w-full rounded-2xl border border-white/15 py-3">متابعة التصفح</button>
       </motion.div>
     </motion.div>
@@ -1426,6 +1510,201 @@ function AtharBirthday({ api, say, athar }: { api: any; say: any; athar: { bot: 
           className={`rounded-2xl px-3 text-xs font-bold disabled:opacity-50 ${GRAD}`}>افتح</button>
       </div>
       <button onClick={() => openAthar(athar.bot, "promo", api)} className="mt-2 text-[11px] text-[#f3cbbd] underline">🕰 تعرّف على «أثر» — ذكرى لكل يوم</button>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// 🔔 Bell: likes, matches, profile decisions, report outcomes. Messages are NOT here (Chats badge).
+function Bell({ api }: { api: any }) {
+  const [items, setItems] = useState<{ kind: string; text: string; at: string }[]>([]);
+  const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(0);
+  const load = useCallback(async () => { const r = await api("notifications_feed"); if (r?.ok) setItems(r.items || []); }, [api]);
+  useEffect(() => {
+    try { setSeen(Number(localStorage.getItem("match_bell_seen")) || 0); } catch { /* ignore */ }
+    load();
+    const id = window.setInterval(() => document.visibilityState === "visible" && load(), 45000);
+    return () => window.clearInterval(id);
+  }, [load]);
+  const unread = items.filter((i) => new Date(i.at).getTime() > seen).length;
+  const openIt = () => { haptic("light"); setOpen(true); const now = Date.now(); setSeen(now); try { localStorage.setItem("match_bell_seen", String(now)); } catch { /* ignore */ } };
+  return (
+    <>
+      <motion.button whileTap={{ scale: 0.9 }} onClick={openIt} aria-label="الإشعارات" data-testid="bell" className={`relative grid h-10 w-10 place-items-center rounded-2xl ${GLASS}`}>
+        🔔{unread > 0 && <span data-testid="bell-badge" className="absolute -right-1 -top-1 min-w-4 rounded-full bg-pink-500 px-1 text-[9px] font-bold leading-4">{unread > 9 ? "9+" : unread}</span>}
+      </motion.button>
+      <AnimatePresence>
+        {open && (
+          <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpen(false)}>
+            <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`max-h-[75vh] w-full overflow-y-auto rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+              <h3 className="mb-3 font-bold">🔔 الإشعارات</h3>
+              {items.length === 0 && <p className="text-sm text-white/45">لا إشعارات بعد.</p>}
+              <div className="space-y-2">
+                {items.map((i, k) => (
+                  <div key={k} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
+                    {i.text}<span className="block text-[10px] text-white/40">{new Date(i.at).toLocaleString("ar", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// ℹ️ Info sheet: tap the photo → full-screen viewer. Report (reasons + note) and block live here.
+function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card; api: any; say: any; reasons: Record<string, string>; onClose: () => void; onMessage: () => void }) {
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [full, setFull] = useState(false);
+  const [rep, setRep] = useState<null | { code: string; note: string }>(null);
+  useEffect(() => { if (card.photo) api("photo", { target: card.ref }).then((r: any) => r?.ok && setPhoto(r.src)); }, [api, card]);
+  const rows: [string, string | null][] = [["🌍 الدولة", `${card.flag} ${card.country}`], ["🏙 المدينة", card.city], ["🎂 العمر", String(card.age)], ["💼 العمل", card.job], ["🎓 التعليم", card.education], ["💍 الحالة", card.maritalStatus]];
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 400 }} animate={{ y: 0 }} exit={{ y: 400 }} transition={{ type: "spring", damping: 26 }} data-testid="info-sheet"
+        className={`max-h-[88vh] w-full overflow-y-auto rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+        <div className="flex items-center gap-4">
+          <button onClick={() => photo && setFull(true)} aria-label="عرض الصورة" className={`relative grid h-24 w-24 shrink-0 place-items-center overflow-hidden rounded-3xl text-5xl ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>
+            {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : card.gender === "FEMALE" ? "👩" : "👨"}
+          </button>
+          <div>
+            <p className="text-xl font-extrabold">#{card.shortId} {card.verified && <span className="text-sky-300">☑️</span>}</p>
+            <p className="text-xs text-white/55">{card.presence.online ? "● " : ""}{card.presence.label}{card.compat != null ? ` · 💞 ${card.compat}%` : ""}</p>
+            {card.photoLocked && <button onClick={async () => { const r = await api("photo_request", { target: card.ref }); say(r.message || r.error); }} className="mt-2 rounded-full border border-[#e8b4a0]/50 px-3 py-1 text-[11px] text-[#f3cbbd]">🔒 اطلب رؤية الصورة</button>}
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+          {rows.filter(([, v]) => v).map(([k, v]) => <div key={k} className="rounded-2xl bg-white/5 px-3 py-2"><span className="block text-[10px] text-white/45">{k}</span>{v}</div>)}
+        </div>
+        <div className="mt-4 flex gap-2">
+          <button onClick={async () => { const r = await api("swipe", { target: card.ref, kind: "like" }); say(r.ok ? (r.match ? "💞 إعجاب متبادل!" : "❤️ تم الإعجاب") : r.error, r.ok ? "success" : "error"); }} className={`flex-1 rounded-2xl py-3 font-bold ${GRAD}`}>❤️ إعجاب</button>
+          <button onClick={onMessage} className="flex-1 rounded-2xl border border-white/15 py-3 font-bold">💬 رسالة</button>
+        </div>
+        {!rep ? (
+          <div className="mt-3 flex justify-center gap-4 text-xs text-white/50">
+            <button onClick={() => setRep({ code: "", note: "" })}>🚩 إبلاغ</button>
+            <button onClick={async () => { if (!(await confirmTg("حظر هذا العضو؟ لن يظهر لك ولن يراسلك."))) return; const r = await api("block", { target: card.ref }); say(r.message || r.error); onClose(); }}>⛔ حظر</button>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/5 p-3" data-testid="report-form">
+            <p className="mb-2 text-sm font-bold">🚩 سبب البلاغ</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(reasons).map(([k, l]) => <button key={k} onClick={() => setRep({ ...rep, code: k })} className={`rounded-full px-3 py-1 text-xs ${rep.code === k ? "bg-red-500/80" : "border border-white/15"}`}>{l}</button>)}
+            </div>
+            <textarea value={rep.note} onChange={(e) => setRep({ ...rep, note: e.target.value })} maxLength={200} rows={2} placeholder="ملاحظة اختيارية" className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-2 text-sm outline-none" />
+            <button disabled={!rep.code} onClick={async () => { const r = await api("report", { target: card.ref, code: rep.code, note: rep.note }); say(r.message || r.error, r.ok ? "success" : "error"); if (r.ok) onClose(); }} className="mt-2 w-full rounded-xl bg-red-500/80 py-2 text-sm font-bold disabled:opacity-40">إرسال البلاغ</button>
+          </div>
+        )}
+      </motion.div>
+      <AnimatePresence>
+        {full && photo && (
+          <motion.div className="fixed inset-0 z-[70] grid place-items-center bg-black" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={(e) => { e.stopPropagation(); setFull(false); }} data-testid="photo-viewer">
+            <img src={photo} alt="" className="max-h-full max-w-full object-contain" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+// 💬 Direct messages: matches free; strangers 3 per side, then unlock (balance) or Gold.
+function ChatSheet({ card, api, say, onClose, onUpgrade }: { card: Card; api: any; say: any; onClose: () => void; onUpgrade: () => void }) {
+  type DM = { id: number; mine: boolean; text: string; at: string; read: boolean };
+  const [msgs, setMsgs] = useState<DM[]>([]);
+  const [state, setState] = useState<any>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const last = useRef(0);
+  const endRef = useRef<HTMLDivElement>(null);
+  const poll = useCallback(async () => {
+    const r = await api("dm_thread", { target: card.ref, after: last.current });
+    if (!r?.ok) return;
+    if (r.messages?.length) { last.current = r.messages[r.messages.length - 1].id; setMsgs((m) => [...m, ...r.messages]); }
+    setState(r.state);
+  }, [api, card.ref]);
+  useEffect(() => { poll(); const id = window.setInterval(() => document.visibilityState === "visible" && poll(), 5000); return () => window.clearInterval(id); }, [poll]);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [msgs.length]);
+  const send = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    const r = await api("dm_send", { target: card.ref, text });
+    setBusy(false);
+    if (r.state) setState(r.state);
+    if (!r.ok) { say(r.error, "error"); return; }
+    setText(""); haptic("light"); poll();
+  };
+  const unlock = async () => {
+    const r = await api("dm_unlock", { target: card.ref });
+    if (!r.ok) { say(r.error, "error"); return; }
+    say(r.message); setState(r.state);
+  };
+  const locked = state && !state.allowed;
+  return (
+    <motion.div className="fixed inset-0 z-[55] flex flex-col bg-[#0b1020]" initial={{ y: 30 }} animate={{ y: 0 }} exit={{ y: 30 }} transition={{ duration: 0.15 }} data-testid="chat-sheet" dir="rtl">
+      <div className={`flex items-center gap-3 p-4 ${GLASS}`}>
+        <button onClick={onClose} aria-label="رجوع" className="text-xl">→</button>
+        <div className={`grid h-10 w-10 place-items-center rounded-full ${card.gender === "FEMALE" ? "bg-gradient-to-br from-[#ff7ab8] to-[#b76e79]" : "bg-gradient-to-br from-[#6d8cff] to-[#3b3f8f]"}`}>{card.gender === "FEMALE" ? "👩" : "👨"}</div>
+        <div className="flex-1">
+          <p className="font-bold">{card.flag} #{card.shortId} · {card.age}</p>
+          <p className="text-[11px] text-white/50">{state?.matched ? "💞 إعجاب متبادل — مراسلة مفتوحة" : state?.unlocked || state?.vip ? "🔓 محادثة مفتوحة" : state ? `📨 طلب تعارف · متبقٍ لك ${state.freeLeft} رسائل مجانية` : "…"}</p>
+        </div>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-4">
+        {msgs.length === 0 && <p className="mt-10 text-center text-sm text-white/40">ابدأ بتحية لطيفة 🌹 — لا تشارك أرقامك قبل أن تطمئن.</p>}
+        {msgs.map((m) => (
+          <div key={m.id} className={`flex ${m.mine ? "justify-start" : "justify-end"}`}>
+            <div className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${m.mine ? GRAD : "bg-white/10"}`}>{m.text}
+              <span className="mt-0.5 block text-[9px] opacity-60">{new Date(m.at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}{m.mine ? (m.read ? " ✓✓" : " ✓") : ""}</span>
+            </div>
+          </div>
+        ))}
+        <div ref={endRef} />
+      </div>
+      {locked ? (
+        <div className={`m-3 rounded-3xl p-4 text-center ${GLASS}`} data-testid="dm-paywall">
+          <p className="font-bold">🔒 انتهت رسائلك المجانية الثلاث</p>
+          <p className="mt-1 text-xs text-white/55">افتح هذه المحادثة بـ ${state.price} من رصيدك، أو اشترك في الذهبية لمراسلة بلا حدود. الإعجاب المتبادل يفتحها مجاناً.</p>
+          <div className="mt-3 flex gap-2">
+            <button onClick={unlock} className={`flex-1 rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>🔓 فتح بـ ${state.price}</button>
+            <button onClick={onUpgrade} className="flex-1 rounded-2xl border border-amber-300/40 py-2.5 text-sm">👑 الذهبية</button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-2 p-3" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} maxLength={1000} placeholder="اكتب رسالة…" aria-label="رسالة"
+            className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm outline-none focus:border-pink-400/60" />
+          <button onClick={send} disabled={busy || !text.trim()} className={`rounded-2xl px-4 font-bold disabled:opacity-40 ${GRAD}`}>إرسال</button>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// 📢 Admin: one-shot «update your profile» campaign (preview → confirm → send; resumable, never double-sends).
+function UpdateCampaign({ api, say }: { api: any; say: any }) {
+  const [p, setP] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api("admin_update_broadcast_preview").then((r: any) => r?.ok && setP(r)); }, [api]);
+  if (!p) return null;
+  return (
+    <div className={`mb-3 rounded-3xl p-4 text-sm ${GLASS}`} data-testid="update-campaign">
+      <p className="font-bold">📢 حملة «حدّث ملفك» (مع زر فتح التطبيق)</p>
+      <pre className="mt-2 whitespace-pre-wrap rounded-xl bg-white/5 p-3 font-sans text-xs text-white/75">{p.text}</pre>
+      <p className="mt-2 text-xs text-white/55">الجمهور: {p.total} · لم يُرسل لهم بعد: {p.pending}</p>
+      <button disabled={busy || !p.pending} onClick={async () => {
+        if (!(await confirmTg(`إرسال الحملة إلى ${p.pending} مستخدم؟`))) return;
+        setBusy(true);
+        const r = await api("admin_update_broadcast_send", { confirm: true });
+        setBusy(false);
+        say(r.message || r.error, r.ok ? "success" : "error");
+        const n = await api("admin_update_broadcast_preview"); if (n?.ok) setP(n);
+      }} className={`mt-2 w-full rounded-2xl py-2.5 font-bold disabled:opacity-50 ${GRAD}`}>{busy ? "جارٍ الإرسال…" : p.pending ? "إرسال الحملة" : "✅ أُرسلت للجميع"}</button>
     </div>
   );
 }

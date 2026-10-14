@@ -15,7 +15,7 @@ import { ensureMatchAppTables, extendAnonPaidUntilAtomic, getAnonFilterRow } fro
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 
 export * from "@/lib/match/entitlementRules";
-import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey } from "@/lib/match/entitlementRules";
+import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey, PRICE_CARD_GENDER, CARD_GENDER_DAYS, hasCardGenderFilter } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
@@ -78,6 +78,7 @@ export async function purchaseByKey(userId: string, key: BuyNowKey): Promise<{ o
   if (key === "vip") { const r = await purchaseVip(userId); return r.ok ? done(`👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}`) : r; }
   if (key === "visitors") { const r = await unlockProfileVisitors(userId); return r.ok ? done("👀 تم تفعيل «من زار ملفي»") : r; }
   if (key === "filters") { const r = await unlockAdvancedFilters(userId); return r.ok ? done("🎯 الفلاتر المتقدمة مفعّلة") : r; }
+  if (key === "cardGender") { const r = await purchaseCardGender(userId); return r.ok ? done(r.viaVip ? "👑 فلتر جنس البطاقات مشمول في عضويتك الذهبية" : `🚻 تم تفعيل فلتر جنس البطاقات حتى ${r.until?.toLocaleDateString("ar")}`) : r; }
   const r = await purchaseAnonFilters(userId);
   return r.ok ? done(r.viaVip ? "👑 فلاتر الدردشة مشمولة في عضويتك الذهبية" : `🎛 تم تفعيل فلاتر الدردشة العشوائية حتى ${r.until?.toLocaleDateString("ar")}`) : r;
 }
@@ -214,4 +215,35 @@ export async function anonFiltersStatus(userId: string): Promise<{ owned: boolea
   const row = await getAnonFilterRow(userId);
   const viaVip = !!dbUser?.vipUntil && dbUser.vipUntil > new Date();
   return { owned: hasAnonFilters({ vipUntil: dbUser?.vipUntil ?? null }, row?.paid_until), until: viaVip ? dbUser!.vipUntil : row?.paid_until ?? null, viaVip, filter: row?.filter ?? {} };
+}
+
+// ---- 🚻 card gender filter (Mini App discovery) ------------------------------------------------
+export async function cardGenderStatus(userId: string): Promise<{ owned: boolean; until: Date | null; viaVip: boolean; gender: "MALE" | "FEMALE" | null }> {
+  await ensureMatchAppTables();
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId }, select: { vipUntil: true } });
+  const rows = await prisma.$queryRaw<{ gender: string | null; paid_until: Date | null }[]>`SELECT gender, paid_until FROM match_card_filter WHERE user_id = ${userId}`;
+  const row = rows[0];
+  const viaVip = isVipActive({ vipUntil: dbUser?.vipUntil ?? null });
+  const owned = hasCardGenderFilter({ vipUntil: dbUser?.vipUntil ?? null }, row?.paid_until);
+  const g = row?.gender === "MALE" || row?.gender === "FEMALE" ? row.gender : null;
+  return { owned, until: viaVip ? dbUser!.vipUntil : row?.paid_until ?? null, viaVip, gender: owned ? g : null };
+}
+export async function setCardGender(userId: string, gender: "MALE" | "FEMALE" | null): Promise<boolean> {
+  const st = await cardGenderStatus(userId);
+  if (gender && !st.owned) return false;
+  await prisma.$executeRaw`INSERT INTO match_card_filter (user_id, gender) VALUES (${userId}, ${gender}) ON CONFLICT (user_id) DO UPDATE SET gender = ${gender}`;
+  return true;
+}
+export async function purchaseCardGender(userId: string): Promise<Purchase<{ charged: boolean; until: Date | null; viaVip: boolean }>> {
+  const dbUser = await prisma.matchUser.findUnique({ where: { id: userId } });
+  if (!dbUser) return { ok: false, reason: "no_user" };
+  if (isVipActive(dbUser)) return { ok: true, charged: false, until: dbUser.vipUntil, viaVip: true };
+  const charge = await chargeMatchUser(userId, PRICE_CARD_GENDER, "CARD_GENDER_FILTER");
+  if (!charge.ok) return insufficient(PRICE_CARD_GENDER, charge.balance);
+  await ensureMatchAppTables();
+  const r = await prisma.$queryRaw<{ paid_until: Date }[]>`
+    INSERT INTO match_card_filter (user_id, paid_until) VALUES (${userId}, now() + make_interval(days => ${CARD_GENDER_DAYS}::int))
+    ON CONFLICT (user_id) DO UPDATE SET paid_until = GREATEST(COALESCE(match_card_filter.paid_until, now()), now()) + make_interval(days => ${CARD_GENDER_DAYS}::int)
+    RETURNING paid_until`;
+  return { ok: true, charged: true, until: r[0].paid_until, viaVip: false };
 }

@@ -15,7 +15,7 @@ describe("bot pricing is the single source of truth", () => {
     expect([PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS]).toEqual([2, 3, 2, 2, 2, 1, 8, 30]);
   });
   it("app catalogue mirrors the bot's upgrade buttons", () => {
-    expect(UPGRADE_CATALOGUE.map((c) => [c.key, c.price])).toEqual([["boost", 2], ["verify", 3], ["photos", 2], ["visitors", 2], ["filters", 2], ["anonFilters", 2], ["vip", 8]]);
+    expect(UPGRADE_CATALOGUE.map((c) => [c.key, c.price])).toEqual([["boost", 2], ["verify", 3], ["photos", 2], ["visitors", 2], ["filters", 2], ["anonFilters", 2], ["cardGender", 2], ["vip", 8]]);
   });
   it("app grants nothing on its own (no spin / referral VIP / free quotas)", () => {
     for (const k of ["pickSpinPrize", "canSpin", "referralState", "countVerifiedReferrals", "compatibilityScore", "FREE_SUPERLIKES_PER_DAY", "FREE_ANON_CHATS_PER_DAY"]) expect((premium as any)[k]).toBeUndefined();

@@ -18,17 +18,24 @@ export const VIP_DAYS = 30;
 export const PRICE_ANON_FILTERS = 2;
 export const ANON_FILTERS_DAYS = 30;
 export const BOOST_HOURS = 24;
+/** 🚻 فلتر جنس البطاقات في التطبيق — البطاقات مختلطة افتراضياً؛ اختيار جنس معيّن ميزة مدفوعة.
+ *  نفس سعر ومدة «🎛 فلاتر الدردشة العشوائية» ($2 / 30 يوماً) ومشمولة في الذهبية. */
+export const PRICE_CARD_GENDER = 2;
+export const CARD_GENDER_DAYS = 30;
+/** 💬 رسائل الغرباء (غير المتطابقين): 3 رسائل مجانية لكل طرف، ثم فتح المحادثة $1 (مرة لكل محادثة، مشمول في الذهبية). */
+export const DM_FREE_PER_SIDE = 3;
+export const PRICE_DM_UNLOCK = 1;
 /** ↩️ استرجاع آخر ملف تخطّيته — $0.5 للمرة (جديد، 2026-10-14). نفس السعر في البوت والتطبيق. */
 export const PRICE_REWIND = 0.5;
 /** خصم أول عملية شراء ترقية: 20% مرة واحدة لكل مستخدم (يُطبّق في الخادم داخل chargeMatchUser). */
 export const FIRST_PURCHASE_DISCOUNT = 0.2;
 /** Charge types the first-purchase discount applies to (upgrades only; not per-use items). */
-export const DISCOUNTABLE_TYPES = ["BOOST", "VIP_MEMBERSHIP", "PROFILE_VISITORS", "ADVANCED_FILTERS", "EXTRA_PHOTOS", "ANON_FILTERS", "VERIFIED_BADGE"] as const;
+export const DISCOUNTABLE_TYPES = ["BOOST", "VIP_MEMBERSHIP", "PROFILE_VISITORS", "ADVANCED_FILTERS", "EXTRA_PHOTOS", "ANON_FILTERS", "VERIFIED_BADGE", "CARD_GENDER_FILTER"] as const;
 export function discountedPrice(price: number, eligible: boolean): number {
   return eligible ? Math.round(price * (1 - FIRST_PURCHASE_DISCOUNT) * 100) / 100 : price;
 }
 /** Upgrades that can be bought in one tap with Stars (shortfall top-up, then auto-activation). */
-export const BUY_NOW_KEYS = ["boost", "vip", "visitors", "filters", "anonFilters"] as const;
+export const BUY_NOW_KEYS = ["boost", "vip", "visitors", "filters", "anonFilters", "cardGender"] as const;
 export type BuyNowKey = (typeof BUY_NOW_KEYS)[number];
 export function isBuyNowKey(k: string): k is BuyNowKey { return (BUY_NOW_KEYS as readonly string[]).includes(k); }
 export const BUY_NOW_PRICE: Record<BuyNowKey, { price: number; type: string }> = {
@@ -37,6 +44,7 @@ export const BUY_NOW_PRICE: Record<BuyNowKey, { price: number; type: string }> =
   visitors: { price: PRICE_PROFILE_VISITORS, type: "PROFILE_VISITORS" },
   filters: { price: PRICE_ADVANCED_FILTERS, type: "ADVANCED_FILTERS" },
   anonFilters: { price: PRICE_ANON_FILTERS, type: "ANON_FILTERS" },
+  cardGender: { price: PRICE_CARD_GENDER, type: "CARD_GENDER_FILTER" },
 };
 /** USD still missing to afford `price` (never below one cent). */
 export function shortfallUsd(price: number, balance: number): number {
@@ -59,6 +67,14 @@ export function hasAnonFilters(user: Pick<MatchUser, "vipUntil">, paidUntil: Dat
 export function extendAnonFilters(paidUntil: Date | null | undefined, now: Date = new Date()): Date {
   const base = paidUntil && paidUntil > now ? paidUntil : now;
   return new Date(base.getTime() + ANON_FILTERS_DAYS * 86400_000);
+}
+/** Card gender filter active while VIP or before the paid-until date. */
+export function hasCardGenderFilter(user: Pick<MatchUser, "vipUntil">, paidUntil: Date | null | undefined, now: Date = new Date()): boolean {
+  return (!!user.vipUntil && user.vipUntil > now) || (!!paidUntil && paidUntil > now);
+}
+/** Stranger DM rule: matched pairs are free; otherwise DM_FREE_PER_SIDE each, then unlock (or VIP). */
+export function dmAllowed(o: { matched: boolean; sentByMe: number; unlocked: boolean; vip: boolean }): boolean {
+  return o.matched || o.unlocked || o.vip || o.sentByMe < DM_FREE_PER_SIDE;
 }
 export function hasProfileVisitors(user: Pick<MatchUser, "profileVisitorsUnlocked" | "vipUntil">): boolean {
   return user.profileVisitorsUnlocked || isVipActive(user);
@@ -108,5 +124,6 @@ export const UPGRADE_CATALOGUE = [
   { key: "visitors", icon: "👀", title: "من زار ملفي", price: PRICE_PROFILE_VISITORS, unit: "دائم", desc: "اعرف من زار ملفك مؤخراً." },
   { key: "filters", icon: "🎯", title: "فلاتر متقدمة", price: PRICE_ADVANCED_FILTERS, unit: "دائم", desc: "المدينة والحالة الاجتماعية + البحث الدقيق." },
   { key: "anonFilters", icon: "🎛", title: "فلاتر الدردشة العشوائية", price: PRICE_ANON_FILTERS, unit: `${ANON_FILTERS_DAYS} يوماً`, desc: "اختر جنس ودولة وعمر من تُطابَق معه في المراسلة العشوائية." },
-  { key: "vip", icon: "👑", title: "العضوية الذهبية", price: PRICE_VIP_30D, unit: `${VIP_DAYS} يوماً`, desc: "رفع مستمر، فلاتر متقدمة، من زار ملفي، صور إضافية، ووضع التخفي، وفلاتر الدردشة العشوائية." },
+  { key: "cardGender", icon: "🚻", title: "فلتر جنس البطاقات", price: PRICE_CARD_GENDER, unit: `${CARD_GENDER_DAYS} يوماً`, desc: "البطاقات مختلطة افتراضياً — اختر رؤية الرجال فقط أو النساء فقط." },
+  { key: "vip", icon: "👑", title: "العضوية الذهبية", price: PRICE_VIP_30D, unit: `${VIP_DAYS} يوماً`, desc: "رفع مستمر، فلاتر متقدمة، من زار ملفي، صور إضافية، ووضع التخفي، وفلاتر الدردشة العشوائية، وفلتر جنس البطاقات، ومراسلة بلا حدود." },
 ] as const;
