@@ -5,6 +5,7 @@
  * so Telegram alerts/confirmations to the admin keep working exactly as now.
  * Reads mirror the bot's admin lists (same filters, same take: 20).
  */
+import { funnelSummary } from "@/lib/match/growth";
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -42,6 +43,11 @@ export async function handleAdminAction(bot: TelegramBot, botRow: BotRow, adminI
       case "admin_overview": {
         const [stats, badges] = await Promise.all([adminStatsData(botRow.id), adminBadges(botRow.id)]);
         return ok({ stats, badges });
+      }
+      case "admin_funnel": {
+        // 📈 Conversion funnel (last 7 / 30 days): distinct users per step.
+        const [d7, d30] = await Promise.all([funnelSummary(7), funnelSummary(30)]);
+        return ok({ items: d7.map((r, i) => ({ ...r, users30: d30[i].users, events30: d30[i].events })) });
       }
       case "admin_profiles": {
         const profiles = await prisma.matchProfile.findMany({ where: { status: "PENDING" }, orderBy: { created_at: "asc" }, take: 20 });

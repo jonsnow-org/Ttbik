@@ -54,7 +54,7 @@ const sentTo = (calls: any[], chat: number) => calls.filter((c) => /send(Message
 
 function reseed() { execSync(`bash scripts/qa/env.sh seed`, { cwd: ROOT, stdio: "inherit" }); }
 
-async function openApp(browser: Browser, id: number, name = "u" + id): Promise<{ ctx: BrowserContext; page: Page }> {
+async function openApp(browser: Browser, id: number, name = "u" + id, opts: { onboarding?: boolean } = {}): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "ar" });
   const initData = signInitData({ id, first_name: name });
   await ctx.addInitScript(({ initData, id, name }) => {
@@ -75,6 +75,7 @@ async function openApp(browser: Browser, id: number, name = "u" + id): Promise<{
       switchInlineQuery() {}, CloudStorage: { getItem(_k: string, cb: any) { cb(null, ""); }, setItem(_k: string, _v: string, cb?: any) { cb?.(null, true); } },
     } };
   }, { initData, id, name });
+  if (!opts.onboarding) await ctx.addInitScript(() => { try { localStorage.setItem("match_onb_v1", "1"); } catch {} });
   await ctx.route(/telegram-web-app\.js/, (r) => r.fulfill({ status: 200, contentType: "text/javascript", body: "/* mocked */" }));
   const page = await ctx.newPage();
   const who = `${id}`;
@@ -367,4 +368,85 @@ test("inline query endpoint answers", async () => {
   await new Promise((r) => setTimeout(r, 2000));
   const calls = await tgCalls();
   expect(calls.some((c) => /answerInlineQuery/.test(c.method)), JSON.stringify(calls.map((c) => c.method))).toBeTruthy();
+});
+
+test("onboarding: shown once on first run, 3 steps", async ({ browser }) => {
+  reseed();
+  const { ctx, page } = await openApp(browser, 1001, "أحمد", { onboarding: true });
+  await expect(page.getByText("أهلاً بك في توافق")).toBeVisible();
+  await shot(page, "onboarding-1");
+  await page.getByRole("button", { name: "التالي" }).click({ force: true });
+  await page.getByRole("button", { name: "التالي" }).click({ force: true });
+  await shot(page, "onboarding-3");
+  await page.getByRole("button", { name: "ابدأ الآن" }).click({ force: true });
+  await expect(page.getByText("أهلاً بك في توافق")).toHaveCount(0);
+  await page.reload(); await page.waitForLoadState("networkidle");
+  await expect(page.getByText("أهلاً بك في توافق")).toHaveCount(0);
+  await ctx.close();
+});
+
+test("monetization: first-purchase discount, buy-now with Stars (idempotent), rewind, who liked me, funnel", async ({ browser }) => {
+  reseed(); await tgReset();
+  // first discount: 1001 has $20 and never bought → boost costs $1.6 once
+  const me0 = await api(1001, "me"); expect(me0.body.firstDiscount).toBe(0.2);
+  const b1 = await api(1001, "upgrade", { key: "boost" }); expect(b1.body.ok, JSON.stringify(b1.body)).toBeTruthy();
+  const me1 = await api(1001, "me"); expect(me1.body.ent.balance).toBeCloseTo(18.4, 2); expect(me1.body.firstDiscount).toBe(0);
+  // buy-now with Stars: 1005 has $0.3 → filters $2 (first discount → $1.6) → shortfall $1.3 = 130⭐
+  const inv = await api(1005, "buy_stars", { key: "anonFilters" });
+  expect(inv.body.ok, JSON.stringify(inv.body)).toBeTruthy(); expect(inv.body.stars).toBe(130);
+  const pay = { message: { message_id: msgId++, date: Math.floor(Date.now() / 1000), chat: { id: 1005, type: "private" }, from: { id: 1005, is_bot: false, first_name: "ليلى" },
+    successful_payment: { currency: "XTR", total_amount: 130, invoice_payload: "MATCH_BUY_anonFilters:1005", telegram_payment_charge_id: "qa-charge-1", provider_payment_charge_id: "p" } } };
+  expect(await webhook(pay)).toBe(200);
+  expect(await webhook(pay)).toBe(200); // redelivery → nothing twice
+  const me5 = await api(1005, "me");
+  expect(me5.body.anonFilters.owned, JSON.stringify(me5.body.anonFilters)).toBeTruthy();
+  expect(me5.body.ent.balance).toBeCloseTo(0, 2);
+  // UI: insufficient → buy-now button visible
+  const s = await openApp(browser, 1002, "سارة");
+  await nav(s.page, "ملفي"); await s.page.waitForTimeout(1200);
+  await shot(s.page, "upgrades-buy-now");
+  await s.ctx.close();
+  // rewind: skip then rewind (1001 has balance)
+  const deck = await api(1001, "discover");
+  const first = deck.body.items?.[0];
+  if (first) {
+    await api(1001, "swipe", { target: first.ref, kind: "pass" });
+    const rw = await api(1001, "rewind"); expect(rw.body.ok, JSON.stringify(rw.body)).toBeTruthy(); expect(rw.body.item.ref).toBe(first.ref);
+    const none = await api(1001, "rewind"); expect(none.body.ok).toBeFalsy();
+  }
+  // who liked me (free, like the bot): 1002 liked 1001
+  const lm = await api(1001, "liked_me"); expect(lm.body.items.length).toBeGreaterThan(0);
+  const a = await openApp(browser, 1001, "أحمد");
+  await nav(a.page, "محادثاتي"); await a.page.waitForTimeout(1500); await shot(a.page, "chats-liked-me");
+  await nav(a.page, "المطابقات"); await a.page.waitForTimeout(1200);
+  await a.page.getByRole("button", { name: "تخطي" }).click({ force: true }).catch(() => {}); await a.page.waitForTimeout(800);
+  await shot(a.page, "discover-rewind-button");
+  await a.ctx.close();
+  // funnel visible to admin
+  const f = await api(9000, "admin_funnel"); expect(f.body.ok).toBeTruthy();
+  const by = Object.fromEntries(f.body.items.map((r: any) => [r.event, r.users]));
+  expect(by.purchase_success).toBeGreaterThan(0); expect(by.stars_paid).toBeGreaterThan(0);
+  const ad = await openApp(browser, 9000, "Admin");
+  await nav(ad.page, "لوحة القيادة"); await ad.page.waitForTimeout(800);
+  await ad.page.getByRole("button", { name: /التحويل/ }).first().click({ force: true }); await ad.page.waitForTimeout(1200);
+  await shot(ad.page, "admin-funnel");
+  await ad.ctx.close();
+});
+
+test("anon: read receipts and typing indicator between two app users", async ({ browser }) => {
+  reseed();
+  const a = await openApp(browser, 1001, "أحمد"); const b = await openApp(browser, 1005, "ليلى");
+  for (const x of [a, b]) { await nav(x.page, "دردشة مجهولة"); await x.page.waitForTimeout(1500); }
+  await a.page.evaluate(() => (window as any).__tg.mainClick()); await a.page.waitForTimeout(800);
+  await b.page.evaluate(() => (window as any).__tg.mainClick());
+  const ia = a.page.getByPlaceholder("اكتب رسالتك (نص فقط)…"); const ib = b.page.getByPlaceholder("اكتب رسالتك (نص فقط)…");
+  await expect(ia).toBeVisible({ timeout: 30_000 }); await expect(ib).toBeVisible({ timeout: 30_000 });
+  await ia.fill("مرحبا"); await ia.press("Enter");
+  await expect(b.page.getByText("مرحبا")).toBeVisible({ timeout: 15_000 });
+  await expect(a.page.getByText("✓✓").first()).toBeVisible({ timeout: 20_000 });
+  await ib.pressSequentially("أكتب الآن", { delay: 60 });
+  await expect(a.page.getByText("يكتب الآن…")).toBeVisible({ timeout: 15_000 });
+  await shot(a.page, "anon-typing-read");
+  await api(1001, "anon_end", { reason: "other" });
+  await a.ctx.close(); await b.ctx.close();
 });

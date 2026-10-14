@@ -20,9 +20,16 @@ CREATE TABLE IF NOT EXISTS match_admin_audit (id BIGSERIAL PRIMARY KEY, admin_id
 CREATE INDEX IF NOT EXISTS match_admin_audit_created_idx ON match_admin_audit (created_at DESC);
 CREATE TABLE IF NOT EXISTS match_anon_rt (session_id TEXT PRIMARY KEY, token TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS match_app_presence (user_id TEXT PRIMARY KEY, last_seen TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_first_discount (user_id TEXT PRIMARY KEY, charge_type TEXT, used_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE TABLE IF NOT EXISTS match_funnel_events (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, detail TEXT, via TEXT NOT NULL DEFAULT 'app', created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_funnel_events_created_idx ON match_funnel_events (created_at DESC, event);
+CREATE TABLE IF NOT EXISTS match_expiry_reminders (user_id TEXT NOT NULL, kind TEXT NOT NULL, until_day TEXT NOT NULL, sent_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, kind, until_day));
+CREATE TABLE IF NOT EXISTS match_app_passes_log (id BIGSERIAL PRIMARY KEY, user_id TEXT NOT NULL, target_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
+CREATE INDEX IF NOT EXISTS match_app_passes_log_user_idx ON match_app_passes_log (user_id, id DESC);
+CREATE TABLE IF NOT EXISTS match_anon_state (session_id TEXT NOT NULL, user_id TEXT NOT NULL, last_read BIGINT NOT NULL DEFAULT 0, typing_at TIMESTAMPTZ, PRIMARY KEY (session_id, user_id));
 CREATE TABLE IF NOT EXISTS match_app_schema (id INT PRIMARY KEY, version INT NOT NULL)`;
 /** Bump when DDL_FALLBACK changes; the DDL then runs once per database, not on every cold start. */
-export const MATCH_APP_SCHEMA_VERSION = 4;
+export const MATCH_APP_SCHEMA_VERSION = 5;
 
 export function ensureMatchAppTables(): Promise<void> {
   if (!ready) {
@@ -124,8 +131,8 @@ export async function markAnonNotified(userId: string, queueId: string): Promise
 export async function extendAnonPaidUntilAtomic(userId: string, days: number): Promise<Date> {
   await ensureMatchAppTables();
   const r = await prisma.$queryRaw<{ paid_until: Date }[]>`
-    INSERT INTO match_anon_filters (user_id, paid_until) VALUES (${userId}, now() + make_interval(days => ${days}))
-    ON CONFLICT (user_id) DO UPDATE SET paid_until = GREATEST(COALESCE(match_anon_filters.paid_until, now()), now()) + make_interval(days => ${days})
+    INSERT INTO match_anon_filters (user_id, paid_until) VALUES (${userId}, now() + make_interval(days => ${days}::int))
+    ON CONFLICT (user_id) DO UPDATE SET paid_until = GREATEST(COALESCE(match_anon_filters.paid_until, now()), now()) + make_interval(days => ${days}::int)
     RETURNING paid_until`;
   return r[0].paid_until;
 }
@@ -150,7 +157,7 @@ export async function idleRandomSessions(minutes: number): Promise<{ id: string;
   return prisma.$queryRaw<{ id: string; user1Id: string; user2Id: string; botId: string }[]>`
     SELECT s.id, s."user1Id", s."user2Id", s."botId" FROM "RandomChatSession" s
     WHERE s.status = 'ACTIVE'
-      AND COALESCE((SELECT max(m.created_at) FROM match_app_messages m WHERE m.session_id = s.id), s.created_at) < now() - make_interval(mins => ${minutes})
+      AND COALESCE((SELECT max(m.created_at) FROM match_app_messages m WHERE m.session_id = s.id), s.created_at) < now() - make_interval(mins => ${minutes}::int)
     LIMIT 200`;
 }
 

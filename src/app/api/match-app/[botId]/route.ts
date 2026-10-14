@@ -13,10 +13,12 @@ import {
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
 import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
-import { STAR_DEPOSIT_TIERS, starsPayload, usdForStars } from "@/lib/starsPayment";
+import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
+import { trackFunnel } from "@/lib/match/growth";
+import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
-import { ANON_EXIT_REASONS, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
+import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
 import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
 import { scrubContacts } from "@/lib/match/inline";
 
@@ -33,6 +35,9 @@ export const maxDuration = 30;
 const photoCache = new Map<string, string>();
 const err = (message: string, status = 400) => NextResponse.json({ ok: false, error: message }, { status });
 // Purchase result -> app message (same wording as the bot's insufficient-balance reply, minus the raw link).
+function insufficientMsg(needed: number, balance: number): string {
+  return `رصيدك $${balance.toFixed(2)} لا يكفي (المطلوب $${needed.toFixed(2)}). اشحن رصيدك من الأسفل.`;
+}
 function purchaseError(r: Exclude<Purchase, { ok: true }>): string {
   if (r.reason === "insufficient") return `رصيدك $${r.balance.toFixed(2)} لا يكفي (المطلوب $${r.needed.toFixed(2)}). اشحن رصيدك من الأسفل.`;
   return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً." } as const)[r.reason];
@@ -74,6 +79,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
   try {
     if (action === "me") {
       const p = user.profile;
+      void trackFunnel(tg.id, "app_open");
       const [daily, referralsRewarded, username] = await Promise.all([
         getDaily(tg.id).catch(() => null),
         prisma.matchUser.count({ where: { referredBy: tg.id, referralRewardGranted: true } }),
@@ -98,6 +104,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         ent: entitlementSummary(user, p),
         anonFilters: await anonFiltersStatus(tg.id).catch(() => ({ owned: false, until: null, viaVip: false, filter: {} })),
         anonExitReasons: ANON_EXIT_REASONS,
+        firstDiscount: (await firstPurchaseEligible(tg.id)) ? FIRST_PURCHASE_DISCOUNT : 0,
+        rewindPrice: PRICE_REWIND,
+        buyNowKeys: BUY_NOW_KEYS,
         catalogue: UPGRADE_CATALOGUE,
         deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
         complimentsLeft: daily ? Math.max(0, COMPLIMENTS_PER_DAY - daily.compliments) : COMPLIMENTS_PER_DAY,
@@ -111,6 +120,18 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     if (action === "upgrade") {
       if (!rateLimit(`buy:${tg.id}`, 10, 60_000) || !(await pgRateLimit(`buy:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
       const key = String(body.key);
+      void trackFunnel(tg.id, "purchase_attempt", key);
+      if (isBuyNowKey(key)) {
+        // One shared purchase path (also used after a Stars buy-now payment).
+        const r = await purchaseByKey(tg.id, key);
+        if (r.ok) { void trackFunnel(tg.id, "purchase_success", key); return NextResponse.json({ ok: true, message: r.message, ...(key === "visitors" ? { open: "visitors" } : {}) }); }
+        if (r.reason === "insufficient") {
+          void trackFunnel(tg.id, "purchase_insufficient", key);
+          const price = await effectivePrice(tg.id, BUY_NOW_PRICE[key].price, BUY_NOW_PRICE[key].type);
+          return NextResponse.json({ ok: false, error: insufficientMsg(price, r.balance ?? 0), insufficient: true, key, shortfall: shortfallUsd(price, r.balance ?? 0), stars: starsForUsd(shortfallUsd(price, r.balance ?? 0)) }, { status: 400 });
+        }
+        return err(purchaseError(r as any));
+      }
       if (key === "boost") { const r = await purchaseBoost(tg.id); return r.ok ? NextResponse.json({ ok: true, message: `🚀 تم رفع ملفك حتى ${r.boostedUntil.toLocaleString("ar")}` }) : err(purchaseError(r)); }
       if (key === "vip") { const r = await purchaseVip(tg.id); return r.ok ? NextResponse.json({ ok: true, message: `👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}` }) : err(purchaseError(r)); }
       if (key === "visitors") { const r = await unlockProfileVisitors(tg.id); return r.ok ? NextResponse.json({ ok: true, message: "👀 تم التفعيل", open: "visitors" }) : err(purchaseError(r)); }
@@ -160,6 +181,44 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       // Same invoice as the bot's «mstars» button: payload MATCH_DEPOSIT:<uid>, credited by the bot's successful_payment handler.
       const link = await bot.api.createInvoiceLink("شحن رصيد بوت الزواج", `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`, starsPayload("MATCH_DEPOSIT", tg.id), "", "XTR", [{ label: "شحن رصيد بوت الزواج", amount: stars }]).catch(() => null);
       return link ? NextResponse.json({ ok: true, link }) : err("تعذّر إنشاء الفاتورة");
+    }
+    if (action === "buy_stars") {
+      // ⚡ One tap: invoice for the exact shortfall; the bot's successful_payment handler
+      // credits it (idempotent on the Stars charge id) and activates the feature from balance.
+      const key = String(body.key);
+      if (!isBuyNowKey(key)) return err("ميزة غير معروفة");
+      if (!(await pgRateLimit(`buystars:${tg.id}`, 10, 60))) return err("تمهّل قليلاً");
+      const price = await effectivePrice(tg.id, BUY_NOW_PRICE[key].price, BUY_NOW_PRICE[key].type);
+      const balance = Number(user.balance || 0);
+      if (balance >= price) {
+        const r = await purchaseByKey(tg.id, key);
+        if (r.ok) void trackFunnel(tg.id, "purchase_success", key);
+        return r.ok ? NextResponse.json({ ok: true, direct: true, message: r.message }) : err(purchaseError(r as any));
+      }
+      const usd = shortfallUsd(price, balance);
+      const stars = starsForUsd(usd);
+      const title = UPGRADE_CATALOGUE.find((c) => c.key === key)?.title || key;
+      const link = await bot.api.createInvoiceLink(`⚡ ${title}`, `شحن $${usdForStars(stars).toFixed(2)} (الفرق) ثم تفعيل «${title}» تلقائياً من رصيدك`, starsPayload(`MATCH_BUY_${key}`, tg.id), "", "XTR", [{ label: title, amount: stars }]).catch(() => null);
+      if (!link) return err("تعذّر إنشاء الفاتورة");
+      void trackFunnel(tg.id, "stars_invoice", key);
+      return NextResponse.json({ ok: true, link, stars, usd });
+    }
+    if (action === "track") {
+      const ev = String(body.event);
+      if (ev === "upgrades_view") void trackFunnel(tg.id, "upgrades_view");
+      return NextResponse.json({ ok: true });
+    }
+    if (action === "notifications") {
+      // In-app notifications: new likes / mutual matches / new visitors since the client's last check.
+      const since = new Date(Math.max(Date.now() - 7 * 86400_000, Number(body.since) || 0));
+      const [likes, mine] = await Promise.all([
+        prisma.matchLike.findMany({ where: { toUserId: tg.id, created_at: { gt: since } }, select: { fromUserId: true } }),
+        prisma.matchLike.findMany({ where: { fromUserId: tg.id }, select: { toUserId: true } }),
+      ]);
+      const mineSet = new Set(mine.map((l) => l.toUserId));
+      const matches = likes.filter((l) => mineSet.has(l.fromUserId)).length;
+      const visitors = await prisma.matchProfileVisit.count({ where: { ownerId: tg.id, visitedAt: { gt: since } } }).catch(() => 0);
+      return NextResponse.json({ ok: true, likes: likes.length - matches, matches, visitors, now: Date.now() });
     }
     if (action === "deposit_ton") {
       if (!isNativeTonConfigured()) return err("غير متاح");
@@ -224,6 +283,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const r = await anonSend(bot, tg.id, String(body.text || ""));
         return r.ok ? NextResponse.json({ ok: true }) : err(r.error || "تعذّر الإرسال");
       }
+      if (action === "anon_typing") { await anonTyping(tg.id).catch(() => null); return NextResponse.json({ ok: true }); }
       if (action === "anon_end") { await anonEnd(bot, tg.id, "end", body.reason ? String(body.reason) : undefined); return NextResponse.json({ ok: true }); }
       if (action === "anon_block") { await anonEnd(bot, tg.id, "block"); return NextResponse.json({ ok: true, message: "⛔ تم الحظر" }); }
       if (action === "anon_report") { await anonReport(bot, tg.id); return NextResponse.json({ ok: true, message: "🚩 تم إرسال بلاغك." }); }
@@ -234,25 +294,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     if (!user.profile || user.profile.status !== "APPROVED") return err("أنشئ ملفك أولاً");
     const myPub = toPublicProfile(user.profile);
 
-    if (action === "discover" || action === "matches") {
-      const myProfile = user.profile;
-      const pref = user.preference ?? defaultPref(tg.id, myProfile);
-      const advanced = hasAdvancedFilters(user);
-      const strict = action === "discover" && !!body.strict && advanced && !!user.preference; // «🎯 بحث دقيق» — same gate as the bot
-      let ids: string[];
-      if (action === "discover") {
-        ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict); // the bot's own ranking engine
-      } else {
-        const [mine, theirs] = await Promise.all([
-          prisma.matchLike.findMany({ where: { fromUserId: tg.id }, select: { toUserId: true } }),
-          prisma.matchLike.findMany({ where: { toUserId: tg.id }, select: { fromUserId: true } }),
-        ]);
-        const back = new Set(theirs.map((l) => l.fromUserId));
-        ids = mine.map((l) => l.toUserId).filter((id) => back.has(id));
-      }
+    // Public cards for a list of user ids (bot's order kept; block + APPROVED re-checked).
+    const cards = async (pick: string[], pref: any, advanced: boolean) => {
       // Exactly the bot's queue order; like the bot's «➡️ الملف التالي» we only
       // re-check block + APPROVED per card (advanceSearch), nothing app-specific.
-      const pick = ids.slice(0, 30);
       const [perms, blocks] = await Promise.all([
         prisma.matchPhotoPermission.findMany({ where: { viewerId: tg.id, ownerId: { in: pick }, status: "GRANTED" }, select: { ownerId: true } }),
         prisma.matchBlock.findMany({ where: { OR: [{ blockerId: tg.id, blockedId: { in: pick } }, { blockedId: tg.id, blockerId: { in: pick } }] } }),
@@ -274,6 +319,44 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         photoLocked: !!p.photoFileId && !granted.has(p.userId),
         boosted: (!!p.boostedUntil && p.boostedUntil > now) || (!!p.user.vipUntil && p.user.vipUntil > now),
       }));
+      return items;
+    };
+    if (action === "rewind") {
+      // ↩️ paid ($PRICE_REWIND), same function as the bot's «↩️ السابق»; skips are recorded on ✖️.
+      const r = await purchaseRewind(tg.id);
+      if (!r.ok) return r.reason === "no_pass" ? err("لا يوجد ملف سابق لاسترجاعه") : err(insufficientMsg(r.needed, r.balance));
+      void trackFunnel(tg.id, "rewind");
+      const pref = user.preference ?? defaultPref(tg.id, user.profile);
+      const [item] = await cards([r.targetId], pref, hasAdvancedFilters(user));
+      return item ? NextResponse.json({ ok: true, item, message: `↩️ تم الاسترجاع (-$${PRICE_REWIND})` }) : err("هذا الملف لم يعد متاحاً");
+    }
+    if (action === "liked_me") {
+      // 💌 من أعجب بي — free in the bot (showLikedBy), free here too (parity).
+      const likes = await prisma.matchLike.findMany({ where: { toUserId: tg.id }, orderBy: { created_at: "desc" }, take: 20, select: { fromUserId: true, note: true } });
+      const pref = user.preference ?? defaultPref(tg.id, user.profile);
+      const items = await cards(likes.map((l) => l.fromUserId), pref, hasAdvancedFilters(user));
+      const notes = new Map(likes.map((l) => [l.fromUserId, l.note]));
+      const refs = new Map((await prisma.matchProfile.findMany({ where: { userId: { in: likes.map((l) => l.fromUserId) } }, select: { id: true, userId: true } })).map((p) => [p.id, p.userId]));
+      return NextResponse.json({ ok: true, items: items.map((c: any) => ({ ...c, note: notes.get(refs.get(c.ref) || "") || null })) });
+    }
+
+    if (action === "discover" || action === "matches") {
+      const myProfile = user.profile;
+      const pref = user.preference ?? defaultPref(tg.id, myProfile);
+      const advanced = hasAdvancedFilters(user);
+      const strict = action === "discover" && !!body.strict && advanced && !!user.preference; // «🎯 بحث دقيق» — same gate as the bot
+      let ids: string[];
+      if (action === "discover") {
+        ids = await buildSearchQueue(botId, tg.id, myProfile, pref, strict); // the bot's own ranking engine
+      } else {
+        const [mine, theirs] = await Promise.all([
+          prisma.matchLike.findMany({ where: { fromUserId: tg.id }, select: { toUserId: true } }),
+          prisma.matchLike.findMany({ where: { toUserId: tg.id }, select: { fromUserId: true } }),
+        ]);
+        const back = new Set(theirs.map((l) => l.fromUserId));
+        ids = mine.map((l) => l.toUserId).filter((id) => back.has(id));
+      }
+      const items = await cards(ids.slice(0, 30), pref, advanced);
       return NextResponse.json({ ok: true, me: myPub, items, strict, advanced });
     }
 
@@ -312,7 +395,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
 
     if (action === "swipe") {
       const kind = String(body.kind);
-      if (kind === "pass") return NextResponse.json({ ok: true }); // bot's «➡️ الملف التالي»: no stored state
+      if (kind === "pass") { await recordPass(tg.id, target).catch(() => null); return NextResponse.json({ ok: true }); } // like the bot's «➡️ الملف التالي» (kept for ↩️)
       if (kind === "propose") {
         if (!(await pgRateLimit(`prop:${tg.id}`, 5, 3600))) return err("حد طلبات الزواج: 5 في الساعة");
         const r = await sendChatRequest(bot, botRow, tg.id, target, "proposal");

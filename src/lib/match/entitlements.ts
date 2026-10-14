@@ -11,32 +11,98 @@
  */
 import type { MatchProfile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { extendAnonPaidUntilAtomic, getAnonFilterRow } from "@/lib/match/appStore";
+import { ensureMatchAppTables, extendAnonPaidUntilAtomic, getAnonFilterRow } from "@/lib/match/appStore";
 import { pgRateLimit } from "@/lib/match/rateLimitPg";
 
 export * from "@/lib/match/entitlementRules";
-import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive } from "@/lib/match/entitlementRules";
+import { BOOST_HOURS, PRICE_ADVANCED_FILTERS, PRICE_BOOST_24H, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_SUPER_LIKE, PRICE_VIP_30D, VIP_DAYS, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, hasAnonFilters, hasAdvancedFilters, hasExtraPhotos, hasProfileVisitors, isVipActive, DISCOUNTABLE_TYPES, discountedPrice, PRICE_REWIND, type BuyNowKey } from "@/lib/match/entitlementRules";
 
 // Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
 // MatchTransaction — atomically, so a crash between the two is
 // impossible. Returns ok:false (charging nothing) if the balance is too
 // low; the caller is responsible for showing insufficientBalanceText.
-export async function chargeMatchUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
+export async function chargeMatchUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number; charged?: number; discounted?: boolean }> {
   // Shared (cross-instance) purchase limiter: 20 charges / minute / user.
   if (!(await pgRateLimit(`charge:${userId}`, 20, 60))) {
     const u = await prisma.matchUser.findUnique({ where: { id: userId }, select: { balance: true } });
     return { ok: false, balance: Number(u?.balance || 0) };
   }
+  const discountable = (DISCOUNTABLE_TYPES as readonly string[]).includes(type);
+  if (discountable) await ensureMatchAppTables().catch(() => null);
   // Atomic: conditional decrement (balance >= amount) + ledger row in ONE
   // transaction; zero rows updated → nothing charged, no negative balance.
+  // First-purchase discount (once per user): claimed inside the same transaction,
+  // so a failed charge never burns it and two parallel charges can't both use it.
+  let usedDiscount = false;
+  let price = amount;
   const charged = await prisma.$transaction(async (tx) => {
-    const n = await tx.matchUser.updateMany({ where: { id: userId, balance: { gte: amount } }, data: { balance: { decrement: amount } } });
-    if (n.count !== 1) return false;
-    await tx.matchTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } });
+    if (discountable && (await firstPurchaseEligibleTx(tx, userId))) {
+      const claimed = await tx.$executeRaw`INSERT INTO match_first_discount (user_id, charge_type) VALUES (${userId}, ${type}) ON CONFLICT DO NOTHING`;
+      if (claimed === 1) { usedDiscount = true; price = discountedPrice(amount, true); }
+    }
+    const n = await tx.matchUser.updateMany({ where: { id: userId, balance: { gte: price } }, data: { balance: { decrement: price } } });
+    if (n.count !== 1) {
+      if (usedDiscount) throw new NotCharged(); // roll back the discount claim too
+      return false;
+    }
+    await tx.matchTransaction.create({ data: { userId, amount: price, currency: "internal", type: usedDiscount ? `${type}_FIRST20` : type, status: "COMPLETED" } });
     return true;
-  });
+  }).catch((e) => { if (e instanceof NotCharged) return false; throw e; });
+  if (!charged) { usedDiscount = false; price = amount; }
   const after = await prisma.matchUser.findUnique({ where: { id: userId }, select: { balance: true } });
-  return { ok: charged, balance: Number(after?.balance || 0) };
+  return { ok: charged, balance: Number(after?.balance || 0), charged: charged ? price : 0, discounted: usedDiscount };
+}
+class NotCharged extends Error {}
+
+/** Eligible = never bought anything from balance AND never claimed the discount. */
+async function firstPurchaseEligibleTx(tx: any, userId: string): Promise<boolean> {
+  const prior = await tx.matchTransaction.count({ where: { userId, currency: "internal" } });
+  if (prior > 0) return false;
+  const used = await tx.$queryRaw`SELECT 1 FROM match_first_discount WHERE user_id = ${userId}`.catch(() => [] as unknown[]);
+  return !(used as unknown[]).length;
+}
+export async function firstPurchaseEligible(userId: string): Promise<boolean> {
+  await ensureMatchAppTables().catch(() => null);
+  return firstPurchaseEligibleTx(prisma, userId).catch(() => false);
+}
+/** Price this user would pay now for a discountable upgrade (server-side truth). */
+export async function effectivePrice(userId: string, price: number, type: string): Promise<number> {
+  if (!(DISCOUNTABLE_TYPES as readonly string[]).includes(type)) return price;
+  return discountedPrice(price, await firstPurchaseEligible(userId));
+}
+
+/** One-tap purchase by key (shared by the app's buy flow and the bot's Stars buy-now handler). */
+export async function purchaseByKey(userId: string, key: BuyNowKey): Promise<{ ok: true; message: string } | { ok: false; reason: string; needed?: number; balance?: number }> {
+  const done = (m: string) => ({ ok: true as const, message: m });
+  if (key === "boost") { const r = await purchaseBoost(userId); return r.ok ? done(`🚀 تم رفع ملفك حتى ${r.boostedUntil.toLocaleString("ar")}`) : r; }
+  if (key === "vip") { const r = await purchaseVip(userId); return r.ok ? done(`👑 تم تفعيل العضوية الذهبية حتى ${r.vipUntil.toLocaleString("ar")}`) : r; }
+  if (key === "visitors") { const r = await unlockProfileVisitors(userId); return r.ok ? done("👀 تم تفعيل «من زار ملفي»") : r; }
+  if (key === "filters") { const r = await unlockAdvancedFilters(userId); return r.ok ? done("🎯 الفلاتر المتقدمة مفعّلة") : r; }
+  const r = await purchaseAnonFilters(userId);
+  return r.ok ? done(r.viaVip ? "👑 فلاتر الدردشة مشمولة في عضويتك الذهبية" : `🎛 تم تفعيل فلاتر الدردشة العشوائية حتى ${r.until?.toLocaleDateString("ar")}`) : r;
+}
+
+/** ↩️ استرجاع آخر ملف تخطّيته — $0.5. Pops the pass first (atomic), refunds the pop if the charge fails. */
+export async function purchaseRewind(userId: string): Promise<{ ok: true; targetId: string } | { ok: false; reason: "no_pass" } | { ok: false; reason: "insufficient"; needed: number; balance: number }> {
+  await ensureMatchAppTables();
+  const popped = await prisma.$queryRaw<{ target_id: string; created_at: Date }[]>`
+    DELETE FROM match_app_passes_log WHERE id = (SELECT id FROM match_app_passes_log WHERE user_id = ${userId} ORDER BY id DESC LIMIT 1)
+    RETURNING target_id, created_at`;
+  const row = popped[0];
+  if (!row) return { ok: false, reason: "no_pass" };
+  const charge = await chargeMatchUser(userId, PRICE_REWIND, "REWIND");
+  if (!charge.ok) {
+    await prisma.$executeRaw`INSERT INTO match_app_passes_log (user_id, target_id, created_at) VALUES (${userId}, ${row.target_id}, ${row.created_at})`;
+    return insufficient(PRICE_REWIND, charge.balance);
+  }
+  return { ok: true, targetId: row.target_id };
+}
+/** Record a skip (bot «➡️ الملف التالي» / app ✖️) so it can be rewound. Keeps the last 20. */
+export async function recordPass(userId: string, targetId: string): Promise<void> {
+  if (!targetId || targetId === userId) return;
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_app_passes_log (user_id, target_id) VALUES (${userId}, ${targetId})`;
+  await prisma.$executeRaw`DELETE FROM match_app_passes_log WHERE user_id = ${userId} AND id NOT IN (SELECT id FROM match_app_passes_log WHERE user_id = ${userId} ORDER BY id DESC LIMIT 20)`;
 }
 
 // ---- purchase steps (shared by bot buttons and Mini App) -----------------------

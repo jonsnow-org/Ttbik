@@ -26,7 +26,9 @@ import {
   PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
   isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
   purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
+  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, PRICE_REWIND,
 } from "@/lib/match/entitlements";
+import { trackFunnel } from "@/lib/match/growth";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -831,7 +833,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   kb.row();
   // The profile id rides on "next" so a double tap on the same card is
   // recognised and ignored instead of skipping a profile.
-  kb.text("➡️ الملف التالي", `mnext|${targetUserId}`).row();
+  kb.text("↩️ السابق", "mrewind").text("➡️ الملف التالي", `mnext|${targetUserId}`).row();
   kb.text("🚩 إبلاغ", `mreport|${targetUserId}`).text("⛔ حظر", `mblock|${targetUserId}`);
 
   // Photo access is consent-gated (owner spec, 2026-09-05): the real photo is
@@ -1094,12 +1096,27 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     if (pending?.mode === "search_browsing") {
       // A second tap on a card that has already moved on is ignored.
       if (shownId && pending.current && shownId !== pending.current && cardMsg === pending.msgId) return;
+      if (shownId) await recordPass(tgUserId, shownId).catch(() => null); // for «↩️ السابق»
       await advanceSearch(bot, chatId, tgUserId, pending, cardMsg);
     } else {
       // No active browsing session (menu used meanwhile, old card): start a
       // fresh search right inside this same card instead of doing nothing.
       await startSearch(bot, chatId, tgUserId, botRow.id, cardMsg);
     }
+    return;
+  }
+  if (data === "mrewind") {
+    // ↩️ استرجاع آخر ملف تخطّيته — $PRICE_REWIND (same function as the app).
+    const r = await purchaseRewind(tgUserId);
+    if (!r.ok) {
+      await bot.api.answerCallbackQuery(cq.id, { text: r.reason === "no_pass" ? "لا يوجد ملف سابق لاسترجاعه." : `رصيدك لا يكفي ($${PRICE_REWIND}).`, show_alert: r.reason !== "no_pass" }).catch(() => null);
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() }).catch(() => null);
+      return;
+    }
+    await bot.api.answerCallbackQuery(cq.id, { text: `↩️ تم الاسترجاع (-$${PRICE_REWIND})` }).catch(() => null);
+    void trackFunnel(tgUserId, "rewind", undefined, "bot");
+    const card = await buildSearchCard(r.targetId, tgUserId, false);
+    if (card) await bot.api.sendPhoto(chatId, card.photo, { caption: card.caption, reply_markup: card.kb }).catch(() => null);
     return;
   }
   if (data.startsWith("mmore|") || data.startsWith("mless|")) {
@@ -1643,6 +1660,9 @@ export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: 
   // returns fast. Same steps, same order; the app path (quiet) runs inline.
   const rest = async () => {
   if (!opts.quiet) await animateSearchingMessage(bot, chatId);
+  // App path: no animation, but the SAME waiting window before the second pairing
+  // attempt / fake fallback, so two app users searching together meet each other.
+  else await new Promise((r) => setTimeout(r, appSearchWaitMs()));
 
   const current = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
   if ((current?.pendingAction as any)?.mode === "random_chatting") return;
@@ -1680,6 +1700,11 @@ export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: 
   };
   // App path too: the app polls for the result, so its request returns at once.
   runAfterResponse(rest);
+}
+
+/** Same length as the bot's search animation (frames × 650ms + final 650ms). */
+export function appSearchWaitMs(): number {
+  return SEARCH_BAR_FRAMES.length * 650;
 }
 
 /** Schedule work after the HTTP response when inside a request; otherwise run now. */
@@ -2532,6 +2557,25 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       if (outcome !== "duplicate") {
         const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
         await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
+      }
+    }
+    // ⚡ «اشترِ الآن بالنجوم» (app + bot): tops up the exact shortfall, then activates the
+    // feature from balance. Idempotent: the Stars charge id is the ledger's unique txHash,
+    // so a redelivered update credits nothing and activates nothing twice.
+    if (parsed?.kind.startsWith("MATCH_BUY_") && parsed.userId === tgUserId) {
+      const key = parsed.kind.slice("MATCH_BUY_".length);
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "match-stars-buy",
+        async (tx) => { await tx.matchTransaction.create({ data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id } }); },
+        async (tx) => { await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } }); },
+      );
+      if (outcome === "ok") {
+        void trackFunnel(tgUserId, "stars_paid", key, "bot");
+        const r = isBuyNowKey(key) ? await purchaseByKey(tgUserId, key) : null;
+        if (r?.ok) void trackFunnel(tgUserId, "purchase_success", key, "bot");
+        const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, `${r?.ok ? r.message : `✅ تم شحن $${usd.toFixed(2)} في رصيدك (لم تُفعَّل الميزة تلقائياً — فعّلها من «⭐ الترقيات والمزايا»).`}\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() }).catch(() => null);
       }
     }
     return;

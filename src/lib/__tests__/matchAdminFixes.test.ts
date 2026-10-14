@@ -58,15 +58,15 @@ describe("contact guard (bot + app anon chat)", () => {
 });
 
 describe("atomic balance charge", () => {
-  const tx = { matchUser: { updateMany: jest.fn() }, matchTransaction: { create: jest.fn() } };
-  beforeEach(() => db.$transaction.mockImplementation(async (fn: any) => fn(tx)));
+  const tx = { matchUser: { updateMany: jest.fn() }, matchTransaction: { create: jest.fn(), count: jest.fn(async () => 1) }, $executeRaw: jest.fn(async () => 1), $queryRaw: jest.fn(async () => []) };
+  beforeEach(() => { db.$transaction.mockImplementation(async (fn: any) => fn(tx)); tx.matchTransaction.count.mockResolvedValue(1); });
   it("charges with a conditional update and writes the ledger", async () => {
     tx.matchUser.updateMany.mockResolvedValueOnce({ count: 1 });
     db.matchUser.findUnique.mockResolvedValueOnce({ balance: 3 });
     const r = await chargeMatchUser("1", 2, "BOOST");
     expect(tx.matchUser.updateMany).toHaveBeenCalledWith({ where: { id: "1", balance: { gte: 2 } }, data: { balance: { decrement: 2 } } });
     expect(tx.matchTransaction.create).toHaveBeenCalledTimes(1);
-    expect(r).toEqual({ ok: true, balance: 3 });
+    expect(r).toEqual({ ok: true, balance: 3, charged: 2, discounted: false });
   });
   it("charges nothing when the conditional update hits 0 rows (double tap / low balance)", async () => {
     tx.matchUser.updateMany.mockResolvedValueOnce({ count: 0 });
@@ -74,6 +74,35 @@ describe("atomic balance charge", () => {
     const r = await chargeMatchUser("1", 2, "BOOST");
     expect(tx.matchTransaction.create).not.toHaveBeenCalled();
     expect(r.ok).toBe(false);
+  });
+  it("first upgrade purchase gets 20% off once (claimed in the same transaction)", async () => {
+    tx.matchTransaction.count.mockResolvedValueOnce(0);
+    tx.$queryRaw.mockResolvedValueOnce([]);
+    tx.$executeRaw.mockResolvedValueOnce(1);
+    tx.matchUser.updateMany.mockResolvedValueOnce({ count: 1 });
+    db.matchUser.findUnique.mockResolvedValueOnce({ balance: 0.4 });
+    const r = await chargeMatchUser("1", 2, "BOOST");
+    expect(tx.matchUser.updateMany).toHaveBeenCalledWith({ where: { id: "1", balance: { gte: 1.6 } }, data: { balance: { decrement: 1.6 } } });
+    expect(tx.matchTransaction.create).toHaveBeenCalledWith({ data: expect.objectContaining({ amount: 1.6, type: "BOOST_FIRST20" }) });
+    expect(r).toMatchObject({ ok: true, charged: 1.6, discounted: true });
+  });
+  it("a failed discounted charge rolls the claim back (throws inside the tx) and charges nothing", async () => {
+    tx.matchTransaction.count.mockResolvedValueOnce(0);
+    tx.$queryRaw.mockResolvedValueOnce([]);
+    tx.$executeRaw.mockResolvedValueOnce(1);
+    tx.matchUser.updateMany.mockResolvedValueOnce({ count: 0 });
+    db.matchUser.findUnique.mockResolvedValueOnce({ balance: 0 });
+    const r = await chargeMatchUser("1", 2, "BOOST");
+    expect(r).toMatchObject({ ok: false, discounted: false });
+    expect(tx.matchTransaction.create).not.toHaveBeenCalled();
+  });
+  it("per-use items (super like) never use the first-purchase discount", async () => {
+    tx.matchTransaction.count.mockResolvedValueOnce(0);
+    tx.matchUser.updateMany.mockResolvedValueOnce({ count: 1 });
+    db.matchUser.findUnique.mockResolvedValueOnce({ balance: 5 });
+    await chargeMatchUser("1", 1, "SUPER_LIKE");
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.matchUser.updateMany).toHaveBeenCalledWith({ where: { id: "1", balance: { gte: 1 } }, data: { balance: { decrement: 1 } } });
   });
   it("is rate limited across instances", async () => {
     (pgRateLimit as jest.Mock).mockResolvedValueOnce(false);

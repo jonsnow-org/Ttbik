@@ -18,6 +18,32 @@ export const VIP_DAYS = 30;
 export const PRICE_ANON_FILTERS = 2;
 export const ANON_FILTERS_DAYS = 30;
 export const BOOST_HOURS = 24;
+/** ↩️ استرجاع آخر ملف تخطّيته — $0.5 للمرة (جديد، 2026-10-14). نفس السعر في البوت والتطبيق. */
+export const PRICE_REWIND = 0.5;
+/** خصم أول عملية شراء ترقية: 20% مرة واحدة لكل مستخدم (يُطبّق في الخادم داخل chargeMatchUser). */
+export const FIRST_PURCHASE_DISCOUNT = 0.2;
+/** Charge types the first-purchase discount applies to (upgrades only; not per-use items). */
+export const DISCOUNTABLE_TYPES = ["BOOST", "VIP_MEMBERSHIP", "PROFILE_VISITORS", "ADVANCED_FILTERS", "EXTRA_PHOTOS", "ANON_FILTERS", "VERIFIED_BADGE"] as const;
+export function discountedPrice(price: number, eligible: boolean): number {
+  return eligible ? Math.round(price * (1 - FIRST_PURCHASE_DISCOUNT) * 100) / 100 : price;
+}
+/** Upgrades that can be bought in one tap with Stars (shortfall top-up, then auto-activation). */
+export const BUY_NOW_KEYS = ["boost", "vip", "visitors", "filters", "anonFilters"] as const;
+export type BuyNowKey = (typeof BUY_NOW_KEYS)[number];
+export function isBuyNowKey(k: string): k is BuyNowKey { return (BUY_NOW_KEYS as readonly string[]).includes(k); }
+export const BUY_NOW_PRICE: Record<BuyNowKey, { price: number; type: string }> = {
+  boost: { price: PRICE_BOOST_24H, type: "BOOST" },
+  vip: { price: PRICE_VIP_30D, type: "VIP_MEMBERSHIP" },
+  visitors: { price: PRICE_PROFILE_VISITORS, type: "PROFILE_VISITORS" },
+  filters: { price: PRICE_ADVANCED_FILTERS, type: "ADVANCED_FILTERS" },
+  anonFilters: { price: PRICE_ANON_FILTERS, type: "ANON_FILTERS" },
+};
+/** USD still missing to afford `price` (never below one cent). */
+export function shortfallUsd(price: number, balance: number): number {
+  return Math.max(0.01, Math.round((price - balance) * 100) / 100);
+}
+/** Days before expiry when the renewal reminder is sent. */
+export const EXPIRY_REMINDER_DAYS = 2;
 
 export function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
   return !!user.vipUntil && user.vipUntil > new Date();

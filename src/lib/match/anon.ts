@@ -10,7 +10,7 @@
 import { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { anonMessagesSince, getAnonFilterRow } from "@/lib/match/appStore";
+import { anonMessagesSince, ensureMatchAppTables, getAnonFilterRow } from "@/lib/match/appStore";
 import { CONTACT_BLOCKED_TEXT } from "@/lib/match/contactGuard";
 import { activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
 import { after } from "next/server";
@@ -45,7 +45,7 @@ export type AnonPoll =
   | { state: "idle" }
   | { state: "waiting"; filter: string | null }
   | { state: "timeout"; filter: string | null }
-  | { state: "chatting"; sessionId: string; fake?: boolean; messages: { id: number; mine: boolean; text: string; at: string }[]; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner" }
+  | { state: "chatting"; sessionId: string; fake?: boolean; messages: { id: number; mine: boolean; text: string; at: string }[]; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean }
   | { state: "ended" };
 
 export async function anonPoll(me: string, afterId: number, lastSessionId?: string): Promise<AnonPoll> {
@@ -72,6 +72,9 @@ export async function anonPoll(me: string, afterId: number, lastSessionId?: stri
       anonMessagesSince(p.sessionId, afterId),
     ]);
     if (!session || session.status !== "ACTIVE") return { state: "ended" };
+    const partner = session.user1Id === me ? session.user2Id : session.user1Id;
+    const seen = Math.max(afterId, ...msgs.map((m) => Number(m.id)));
+    const st = await chatState(p.sessionId, me, partner, seen).catch(() => ({ partnerRead: 0, partnerTyping: false }));
     const contact = !session.contactOfferSent ? "hidden"
       : !session.contactRequestedBy ? "offered"
       : session.contactRequestedBy === me ? "requested_by_me" : "requested_by_partner";
@@ -80,6 +83,8 @@ export async function anonPoll(me: string, afterId: number, lastSessionId?: stri
       sessionId: p.sessionId,
       messages: msgs.map((m) => ({ id: m.id, mine: m.sender_id === me, text: m.text, at: m.created_at.toISOString() })),
       contact,
+      partnerRead: st.partnerRead,
+      partnerTyping: st.partnerTyping,
     };
   }
   if (lastSessionId) return { state: "ended" };
@@ -138,4 +143,25 @@ export async function anonContact(bot: TelegramBot, me: string): Promise<string>
     already: "طلبك قيد الانتظار بالفعل",
     revealed: "✅ تم تبادل بيانات التواصل (وصلتكما في محادثة البوت)",
   }[r];
+}
+
+
+// ---- ✓✓ read receipts + typing indicator (app ↔ app; a bot-side partner just shows ✓) ----
+async function chatState(sessionId: string, me: string, partner: string, seen: number): Promise<{ partnerRead: number; partnerTyping: boolean }> {
+  await ensureMatchAppTables();
+  if (seen > 0) {
+    await prisma.$executeRaw`INSERT INTO match_anon_state (session_id, user_id, last_read) VALUES (${sessionId}, ${me}, ${seen})
+      ON CONFLICT (session_id, user_id) DO UPDATE SET last_read = GREATEST(match_anon_state.last_read, EXCLUDED.last_read)`;
+  }
+  const rows = await prisma.$queryRaw<{ last_read: bigint; typing_at: Date | null }[]>`SELECT last_read, typing_at FROM match_anon_state WHERE session_id = ${sessionId} AND user_id = ${partner}`;
+  const r = rows[0];
+  return { partnerRead: Number(r?.last_read ?? 0), partnerTyping: !!r?.typing_at && Date.now() - r.typing_at.getTime() < 8000 };
+}
+/** Marks me as typing in my current real session (no-op otherwise). */
+export async function anonTyping(me: string): Promise<void> {
+  const p = await pendingOf(me);
+  if (p?.mode !== "random_chatting" || !p.sessionId) return;
+  await ensureMatchAppTables();
+  await prisma.$executeRaw`INSERT INTO match_anon_state (session_id, user_id, typing_at) VALUES (${p.sessionId}, ${me}, now())
+    ON CONFLICT (session_id, user_id) DO UPDATE SET typing_at = now()`;
 }
