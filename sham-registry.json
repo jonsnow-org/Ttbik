@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-14 21:50 UTC",
+  "generated_at": "2026-10-15 04:52 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -68,9 +68,9 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-13",
+      "last_run": "2026-10-15",
       "gpu": true,
       "failure": ""
     },
@@ -86,9 +86,9 @@
     {
       "alias": "دفتر المحادثة والمرمزات 1",
       "track": "chat_image_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-14",
+      "last_run": "2026-10-15",
       "gpu": false,
       "failure": ""
     },
@@ -140,9 +140,9 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
-      "last_run": "2026-10-14",
+      "last_run": "2026-10-15",
       "gpu": false,
       "failure": ""
     },
@@ -205,18 +205,18 @@
   "engineer_notebooks_count": 2,
   "datasets": [
     {
-      "alias": "نتائج مسار ترميز الصورة 1",
-      "track": "image_tokenizer",
-      "size_mb": 717.8,
-      "last_updated": "2026-10-14",
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-15",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-14",
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
+      "size_mb": 717.8,
+      "last_updated": "2026-10-15",
       "progress": {},
       "has_key_files": true
     },
@@ -277,29 +277,19 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 0.0,
+      "alias": "نتائج المرحلة الثالثة 1",
+      "track": "chat_stage",
+      "size_mb": 580.6,
       "last_updated": "2026-10-14",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 3",
-      "track": "image_tokenizer",
-      "size_mb": 144.0,
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 792.6,
       "last_updated": "2026-10-14",
-      "progress": {
-        "steps": 6780,
-        "samples": 81360,
-        "chunks": 46,
-        "recon": 0.05849684285931289,
-        "codebook_usage": 5991,
-        "perplexity": 3565.87548828125,
-        "image_size": 256,
-        "updated": "2026-10-14 01:47",
-        "samples_consumed": 81360
-      },
+      "progress": {},
       "has_key_files": true
     },
     {
@@ -311,6 +301,34 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج مسار ترميز الصورة 3",
+      "track": "image_tokenizer",
+      "size_mb": 144.0,
+      "last_updated": "2026-10-15",
+      "progress": {
+        "steps": 7870,
+        "samples": 94440,
+        "chunks": 53,
+        "recon": 0.06474505435852777,
+        "codebook_usage": 5931,
+        "perplexity": 4745.7822265625,
+        "image_size": 256,
+        "updated": "2026-10-15 01:25",
+        "samples_consumed": 94440
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار جمع وترميز الفيديو 1",
+      "track": "video_corpus",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-14",
+      "progress": {
+        "videos_consumed": 867
+      },
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج المدرّب الحي 3",
       "track": "live_trainer",
       "size_mb": 1374.0,
@@ -319,10 +337,10 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثالثة 1",
-      "track": "chat_stage",
-      "size_mb": 580.6,
-      "last_updated": "2026-10-14",
+      "alias": "نتائج مسار ترميز الصورة 4",
+      "track": "image_tokenizer",
+      "size_mb": 718.1,
+      "last_updated": "2026-10-11",
       "progress": {},
       "has_key_files": true
     },
@@ -339,14 +357,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 4",
-      "track": "image_tokenizer",
-      "size_mb": 718.1,
-      "last_updated": "2026-10-11",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصورة 5",
       "track": "image_tokenizer",
       "size_mb": 178.4,
@@ -357,18 +367,6 @@
         "type": "video_frames",
         "num_videos": 62,
         "num_frames": 489
-      },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار ترميز الصوت 3",
-      "track": "audio_tokenizer",
-      "size_mb": 34.9,
-      "last_updated": "2026-09-21",
-      "progress": {
-        "samples_consumed": 500,
-        "step": 9,
-        "type": "adult_synthesized"
       },
       "has_key_files": true
     }
@@ -411,10 +409,12 @@
       },
       "video_corpus": {
         "name": "مسار جمع وترميز الفيديو",
-        "ready": false,
+        "ready": true,
         "kernel_status": "complete",
-        "progress": {},
-        "dataset": null
+        "progress": {
+          "videos_consumed": 867
+        },
+        "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
       "stage2_multimodal": {
         "name": "المرحلة الثانية — دمج الصورة والصوت مع النص (GPU)",
