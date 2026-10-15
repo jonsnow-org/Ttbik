@@ -44,3 +44,12 @@ Limit the sources with `SHAM_SFT_SOURCES=key1,key2`.
 - Not added to `sham-restarter`.
 - Proposal: track `sham-arabic-sft` as a 4th kernel with the same breaker and daily cap, after your approval.
 - Phase 2, not trained: a small code mix (5–10%) from Magicoder-OSS-Instruct-75K (MIT), CodeFeedback-Filtered-Instruction (apache-2.0), nvidia/OpenCodeInstruct (CC-BY-4.0), and evol-instruct-arabic's code questions.
+
+## Merge proposal (toward ONE final checkpoint)
+- `ai-system/colab/sham_small/sham_sft_merge.py` is standalone. No workflow runs it.
+- What it does:
+  - Refuses to merge unless the config, keys and shapes match.
+  - Averages the chat and SFT `state_dict`s at each ratio in `--ratios`.
+  - Scores every ratio on `sham_eval`'s fixed pairs plus the SFT frozen held-out questions.
+  - Saves the best ratio only if `--out` is given, and never publishes.
+- The SFT notebook keeps the same config, keys, shapes and tokenizer as `final_chat.pt`, which it checks before training, so averaging stays possible.
