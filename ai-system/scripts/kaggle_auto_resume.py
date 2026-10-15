@@ -89,25 +89,56 @@ GPU_RETRY_HOURS = 24
 _GPU_QUOTA = re.compile(r"(gpu|accelerator).*(quota|exceed|limit)|(quota|limit).*(gpu|accelerator)", re.IGNORECASE)
 
 
-def _set_gpu(work_dir: Path, enable: bool) -> bool:
+# SHAM_CPU_FALLBACK_V2 (2026-10-15, additive): kernels_pull writes "machine_shape" (e.g. "NvidiaTeslaT4")
+# next to enable_gpu, and kernels_push sends machine_shape as-is -- so flipping only enable_gpu still asked
+# for a GPU and Kaggle refused the CPU push with the same weekly-quota error (restarter run #21:
+# "failed: RuntimeError"). CPU now clears every accelerator field; the GPU shape is remembered and restored.
+_GPU_SHAPE_DEFAULT = "NvidiaTeslaT4"
+_GPU_SHAPE_RE = re.compile(r"gpu|nvidia|tesla|t4|p100|l4|a100|h100|tpu", re.IGNORECASE)
+
+
+def _set_gpu(work_dir: Path, enable: bool, shape: str | None = None) -> bool:
     meta_path = work_dir / "kernel-metadata.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    was = bool(meta.get("enable_gpu"))
+    old_shape = str(meta.get("machine_shape") or "")
+    was = bool(meta.get("enable_gpu")) or bool(_GPU_SHAPE_RE.search(old_shape))
     meta["enable_gpu"] = enable
+    if enable:
+        meta["machine_shape"] = shape or (old_shape if _GPU_SHAPE_RE.search(old_shape) else _GPU_SHAPE_DEFAULT)
+    else:
+        if _GPU_SHAPE_RE.search(old_shape):
+            meta["_sham_gpu_shape"] = old_shape  # remembered by _resume_accelerator, stripped before push
+        meta.pop("machine_shape", None)
+        meta["enable_tpu"] = False
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return was
 
 
-def _push_ok(api, work_dir: Path) -> None:
-    resp = api.kernels_push(str(work_dir))
-    error = getattr(resp, "error", None)
-    if isinstance(error, str) and error.strip():
-        raise RuntimeError(error)
+def _push_ok(api, work_dir: Path, retries: int = 1) -> None:
+    meta_path = work_dir / "kernel-metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.pop("_sham_gpu_shape", None) is not None:
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    for attempt in range(retries + 1):
+        try:
+            resp = api.kernels_push(str(work_dir))
+            error = getattr(resp, "error", None)
+            if isinstance(error, str) and error.strip():
+                raise RuntimeError(error)
+            return
+        except Exception as exc:
+            print(f"kaggle_auto_resume: push refused (attempt {attempt + 1}): {type(exc).__name__}: {str(exc)[:300]}")
+            if attempt >= retries or _GPU_QUOTA.search(str(exc)):
+                raise
+            time.sleep(15)
 
 
 def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failure: str, state: dict) -> str:
     entry = state.setdefault(slug, {})
     set_to_gpu = _set_gpu(work_dir, False)  # read the notebook's current setting
+    _shape = json.loads((work_dir / "kernel-metadata.json").read_text(encoding="utf-8")).get("_sham_gpu_shape")
+    if _shape:
+        entry["gpu_machine_shape"] = _shape
     fallback_since = entry.get("gpu_fallback_since")
     if not set_to_gpu and not fallback_since:
         # The owner chose CPU (the free option): never move it to a paid GPU.
@@ -118,9 +149,9 @@ def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failu
     quota_failed = last_failed and bool(_GPU_QUOTA.search(failure))
     waiting = fallback_since and now - fallback_since < GPU_RETRY_HOURS * 3600
     if not quota_failed and not waiting:
-        _set_gpu(work_dir, True)
+        _set_gpu(work_dir, True, entry.get("gpu_machine_shape"))
         try:
-            _push_ok(api, work_dir)
+            _push_ok(api, work_dir, retries=0)
             entry.pop("gpu_fallback_since", None)
             return "GPU (owner's choice)"
         except Exception as exc:
@@ -456,6 +487,43 @@ if __name__ == "__main__":
     flags, st = run(False, state=st)
     assert flags == [True] and "gpu_fallback_since" not in st["user/slug"]            # back on GPU
     print("auto_accelerator: CPU choice never moves to GPU; GPU falls back to CPU without quota and returns later.")
+
+    # 5c) SHAM_CPU_FALLBACK_V2: a pulled GPU notebook carries machine_shape -- the CPU push must clear it
+    with tempfile.TemporaryDirectory() as tmp:
+        work_dir = Path(tmp) / "kaggle-kernel"
+        api = fake_api(KernelWorkerStatus.CANCEL_ACKNOWLEDGED)
+
+        def pull_shape(kernel, path, metadata=False, quiet=True):
+            fake_pull(kernel, path, metadata, quiet)
+            meta = json.loads((Path(path) / "kernel-metadata.json").read_text())
+            (Path(path) / "kernel-metadata.json").write_text(json.dumps(
+                {**meta, "enable_gpu": True, "machine_shape": "NvidiaTeslaT4"}))
+
+        api.kernels_pull.side_effect = pull_shape
+        sent = []
+
+        def push_quota(path):
+            meta = json.loads((Path(path) / "kernel-metadata.json").read_text())
+            sent.append(meta)
+            if meta.get("enable_gpu") or meta.get("machine_shape"):
+                return MagicMock(error="Maximum weekly GPU quota of 30.00 hours reached.")
+            return MagicMock(error="")
+
+        api.kernels_push.side_effect = push_quota
+        st = {}
+        assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
+                             auto_accelerator=True, state=st) == "pushed"
+        assert sent[0]["machine_shape"] == "NvidiaTeslaT4" and sent[0]["enable_gpu"] is True
+        assert sent[-1]["enable_gpu"] is False and "machine_shape" not in sent[-1] and "_sham_gpu_shape" not in sent[-1]
+        assert st["user/slug"]["gpu_machine_shape"] == "NvidiaTeslaT4" and st["user/slug"]["gpu_fallback_since"]
+        # 24h later, the CPU-pulled notebook goes back to its remembered GPU shape
+        st["user/slug"]["gpu_fallback_since"] -= (GPU_RETRY_HOURS + 1) * 3600
+        api.kernels_pull.side_effect = fake_pull
+        api.kernels_push.side_effect = lambda path: (sent.append(json.loads((Path(path) / "kernel-metadata.json").read_text())), MagicMock(error=""))[1]
+        assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
+                             auto_accelerator=True, state=st) == "pushed"
+        assert sent[-1]["enable_gpu"] is True and sent[-1]["machine_shape"] == "NvidiaTeslaT4"
+    print("SHAM_CPU_FALLBACK_V2: CPU push clears machine_shape; GPU shape remembered and restored after 24h.")
 
     # 6) Kernel not found -> never create a substitute, just report not_found
     api = fake_api(KernelWorkerStatus.COMPLETE, status_error=True)
