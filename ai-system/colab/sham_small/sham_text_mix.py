@@ -206,13 +206,23 @@ def stream_mix_isolated(timeout: float = 1800.0, **kwargs) -> list[str]:
         proc = ctx.Process(target=_mix_main, args=(kwargs, q), daemon=True)
         main = sys.modules.get("__main__")      # keep spawn from re-importing the caller's __main__ (notebook kernel / script)
         saved = {k: getattr(main, k) for k in ("__file__", "__spec__") if main is not None and hasattr(main, k)}
+        # SHAM_SPEC_FIX (2026-10-15): a Jupyter __main__ may have NO __spec__ attribute at all, and spawn then
+        # raised AttributeError -> stderr warning + in-process fallback. Give it __spec__=None during start.
+        added_spec = main is not None and not hasattr(main, "__spec__")
         try:
+            if added_spec:
+                main.__spec__ = None
             for k in saved:
                 setattr(main, k, None)
             proc.start()
         finally:
             for k, v in saved.items():
                 setattr(main, k, v)
+            if added_spec:
+                try:
+                    del main.__spec__
+                except Exception:
+                    pass
         deadline = time.time() + timeout
         status = payload = None
         while time.time() < deadline:          # poll, so a child that dies silently (OOM kill) never blocks us for the whole timeout
