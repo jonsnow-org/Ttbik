@@ -1,0 +1,129 @@
+/**
+ * MARRIAGE_BOT entitlement RULES (pure): prices, durations and who has what.
+ * Single source of truth for the bot and the Mini App. DB side effects live
+ * in entitlements.ts.
+ */
+import type { MatchProfile, MatchUser } from "@prisma/client";
+
+export const PRICE_BOOST_24H = 2;
+export const PRICE_VERIFIED_BADGE = 3;
+export const PRICE_EXTRA_PHOTOS = 2;
+export const PRICE_PROFILE_VISITORS = 2;
+export const PRICE_ADVANCED_FILTERS = 2;
+export const PRICE_SUPER_LIKE = 1;
+export const PRICE_VIP_30D = 8;
+export const VIP_DAYS = 30;
+/** 🎛 فلاتر الدردشة العشوائية (الجنس/الدولة/العمر) — $2 لكل 30 يوماً، مشمولة في العضوية الذهبية.
+ *  نفس سعر «🎯 فلاتر متقدمة» وأقل من ربع الذهبية ($8)، ومدة 30 يوماً مثل الذهبية لأنها خدمة مطابقة مستمرة. */
+export const PRICE_ANON_FILTERS = 2;
+export const ANON_FILTERS_DAYS = 30;
+export const BOOST_HOURS = 24;
+/** 🚻 فلتر جنس البطاقات في التطبيق — البطاقات مختلطة افتراضياً؛ اختيار جنس معيّن ميزة مدفوعة.
+ *  نفس سعر ومدة «🎛 فلاتر الدردشة العشوائية» ($2 / 30 يوماً) ومشمولة في الذهبية. */
+export const PRICE_CARD_GENDER = 2;
+export const CARD_GENDER_DAYS = 30;
+/** 💬 رسائل الغرباء (غير المتطابقين): 3 رسائل مجانية لكل طرف، ثم فتح المحادثة $1 (مرة لكل محادثة، مشمول في الذهبية). */
+export const DM_FREE_PER_SIDE = 3;
+export const PRICE_DM_UNLOCK = 1;
+/** ↩️ استرجاع آخر ملف تخطّيته — $0.5 للمرة (جديد، 2026-10-14). نفس السعر في البوت والتطبيق. */
+export const PRICE_REWIND = 0.5;
+/** خصم أول عملية شراء ترقية: 20% مرة واحدة لكل مستخدم (يُطبّق في الخادم داخل chargeMatchUser). */
+export const FIRST_PURCHASE_DISCOUNT = 0.2;
+/** Charge types the first-purchase discount applies to (upgrades only; not per-use items). */
+export const DISCOUNTABLE_TYPES = ["BOOST", "VIP_MEMBERSHIP", "PROFILE_VISITORS", "ADVANCED_FILTERS", "EXTRA_PHOTOS", "ANON_FILTERS", "VERIFIED_BADGE", "CARD_GENDER_FILTER"] as const;
+export function discountedPrice(price: number, eligible: boolean): number {
+  return eligible ? Math.round(price * (1 - FIRST_PURCHASE_DISCOUNT) * 100) / 100 : price;
+}
+/** Upgrades that can be bought in one tap with Stars (shortfall top-up, then auto-activation). */
+export const BUY_NOW_KEYS = ["boost", "vip", "visitors", "filters", "anonFilters", "cardGender"] as const;
+export type BuyNowKey = (typeof BUY_NOW_KEYS)[number];
+export function isBuyNowKey(k: string): k is BuyNowKey { return (BUY_NOW_KEYS as readonly string[]).includes(k); }
+export const BUY_NOW_PRICE: Record<BuyNowKey, { price: number; type: string }> = {
+  boost: { price: PRICE_BOOST_24H, type: "BOOST" },
+  vip: { price: PRICE_VIP_30D, type: "VIP_MEMBERSHIP" },
+  visitors: { price: PRICE_PROFILE_VISITORS, type: "PROFILE_VISITORS" },
+  filters: { price: PRICE_ADVANCED_FILTERS, type: "ADVANCED_FILTERS" },
+  anonFilters: { price: PRICE_ANON_FILTERS, type: "ANON_FILTERS" },
+  cardGender: { price: PRICE_CARD_GENDER, type: "CARD_GENDER_FILTER" },
+};
+/** USD still missing to afford `price` (never below one cent). */
+export function shortfallUsd(price: number, balance: number): number {
+  return Math.max(0.01, Math.round((price - balance) * 100) / 100);
+}
+/** Days before expiry when the renewal reminder is sent. */
+export const EXPIRY_REMINDER_DAYS = 2;
+
+export function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
+  return !!user.vipUntil && user.vipUntil > new Date();
+}
+export function hasAdvancedFilters(user: Pick<MatchUser, "advancedFiltersUnlocked" | "vipUntil">): boolean {
+  return user.advancedFiltersUnlocked || isVipActive(user);
+}
+/** Paid anon-chat filters are active while VIP or before the paid-until date (no auto-renew, never charged mid-queue). */
+export function hasAnonFilters(user: Pick<MatchUser, "vipUntil">, paidUntil: Date | null | undefined, now: Date = new Date()): boolean {
+  return (!!user.vipUntil && user.vipUntil > now) || (!!paidUntil && paidUntil > now);
+}
+/** New paid-until when buying: stacks on top of any remaining time. */
+export function extendAnonFilters(paidUntil: Date | null | undefined, now: Date = new Date()): Date {
+  const base = paidUntil && paidUntil > now ? paidUntil : now;
+  return new Date(base.getTime() + ANON_FILTERS_DAYS * 86400_000);
+}
+/** Card gender filter active while VIP or before the paid-until date. */
+export function hasCardGenderFilter(user: Pick<MatchUser, "vipUntil">, paidUntil: Date | null | undefined, now: Date = new Date()): boolean {
+  return (!!user.vipUntil && user.vipUntil > now) || (!!paidUntil && paidUntil > now);
+}
+/** Stranger DM rule: matched pairs are free; otherwise DM_FREE_PER_SIDE each, then unlock (or VIP). */
+export function dmAllowed(o: { matched: boolean; sentByMe: number; unlocked: boolean; vip: boolean }): boolean {
+  return o.matched || o.unlocked || o.vip || o.sentByMe < DM_FREE_PER_SIDE;
+}
+export function hasProfileVisitors(user: Pick<MatchUser, "profileVisitorsUnlocked" | "vipUntil">): boolean {
+  return user.profileVisitorsUnlocked || isVipActive(user);
+}
+export function hasExtraPhotos(user: Pick<MatchUser, "extraPhotosUnlocked" | "vipUntil">): boolean {
+  return user.extraPhotosUnlocked || isVipActive(user);
+}
+export function isEffectivelyBoosted(profile: Pick<MatchProfile, "boostedUntil">, user: Pick<MatchUser, "vipUntil">): boolean {
+  return (!!profile.boostedUntil && profile.boostedUntil > new Date()) || isVipActive(user);
+}
+
+export function depositLink(userId: string): string {
+  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  return `${base}/pay/marriage?uid=${userId}`;
+}
+export function insufficientBalanceText(userId: string, needed: number, have: number): string {
+  return `❌ رصيدك الحالي $${have.toFixed(2)} لا يكفي (المطلوب $${needed.toFixed(2)}). أودِع من هنا:\n${depositLink(userId)}`;
+}
+
+
+export type EntitlementUser = Pick<MatchUser, "vipUntil" | "advancedFiltersUnlocked" | "profileVisitorsUnlocked" | "extraPhotosUnlocked" | "balance">;
+export type EntitlementProfile = Pick<MatchProfile, "boostedUntil" | "isIncognito" | "verificationStatus"> | null;
+
+/** What the app shows on the Upgrade screen — derived only from the bot's fields. */
+export function entitlementSummary(user: EntitlementUser, profile: EntitlementProfile, now = new Date()) {
+  const vip = !!user.vipUntil && user.vipUntil > now;
+  return {
+    balance: Number(user.balance || 0),
+    vip,
+    vipUntil: vip ? user.vipUntil : null,
+    boosted: vip || (!!profile?.boostedUntil && profile.boostedUntil > now),
+    boostedUntil: profile?.boostedUntil && profile.boostedUntil > now ? profile.boostedUntil : null,
+    advancedFilters: user.advancedFiltersUnlocked || vip,
+    profileVisitors: user.profileVisitorsUnlocked || vip,
+    extraPhotos: user.extraPhotosUnlocked || vip,
+    incognitoAvailable: vip,
+    incognitoOn: vip && !!profile?.isIncognito,
+    verification: profile?.verificationStatus ?? "NONE",
+  };
+}
+
+/** Catalogue mirroring the bot's «⭐ الترقيات والمزايا» keyboard, for the app's Upgrade screen. */
+export const UPGRADE_CATALOGUE = [
+  { key: "boost", icon: "🚀", title: "رفع ملفي", price: PRICE_BOOST_24H, unit: "24 ساعة", desc: "يظهر ملفك أولاً في نتائج البحث لمدة 24 ساعة." },
+  { key: "verify", icon: "☑️", title: "طلب التوثيق", price: PRICE_VERIFIED_BADGE, unit: "مرة واحدة", desc: "شارة ☑️ بعد مراجعة صورة هويتك (تُرسل داخل البوت، للإدارة فقط)." },
+  { key: "photos", icon: "🖼", title: "صور إضافية", price: PRICE_EXTRA_PHOTOS, unit: "دائم", desc: "صورتان إضافيتان لملفك (الرفع داخل البوت)." },
+  { key: "visitors", icon: "👀", title: "من زار ملفي", price: PRICE_PROFILE_VISITORS, unit: "دائم", desc: "اعرف من زار ملفك مؤخراً." },
+  { key: "filters", icon: "🎯", title: "فلاتر متقدمة", price: PRICE_ADVANCED_FILTERS, unit: "دائم", desc: "المدينة والحالة الاجتماعية + البحث الدقيق." },
+  { key: "anonFilters", icon: "🎛", title: "فلاتر الدردشة العشوائية", price: PRICE_ANON_FILTERS, unit: `${ANON_FILTERS_DAYS} يوماً`, desc: "اختر جنس ودولة وعمر من تُطابَق معه في المراسلة العشوائية." },
+  { key: "cardGender", icon: "🚻", title: "فلتر جنس البطاقات", price: PRICE_CARD_GENDER, unit: `${CARD_GENDER_DAYS} يوماً`, desc: "البطاقات مختلطة افتراضياً — اختر رؤية الرجال فقط أو النساء فقط." },
+  { key: "vip", icon: "👑", title: "العضوية الذهبية", price: PRICE_VIP_30D, unit: `${VIP_DAYS} يوماً`, desc: "رفع مستمر، فلاتر متقدمة، من زار ملفي، صور إضافية، ووضع التخفي، وفلاتر الدردشة العشوائية، وفلتر جنس البطاقات، ومراسلة بلا حدود." },
+] as const;

@@ -2,22 +2,60 @@ import { NextRequest, NextResponse } from "next/server";
 import { Bot } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import {
+  getTemplateReadyInfo,
+  missingTablesArabicError,
+  templateNeedsTableCheck,
+} from "@/lib/templateTablesReady";
 
-const PASSWORD_TEMPLATES = ["MARRIAGE_BOT", "JOBS_BOT", "MEDICAL_BOT", "NOVA_BOT", "CONFESSION_BOT", "NAME_COMPAT_BOT", "QUIZ_BOT", "STREAK_BOT", "PRAYER_BOT", "CAPSULE_BOT"];
+export const dynamic = "force-dynamic";
+/** Deploy talks to Telegram + DB; keep under Hobby-friendly ceiling. */
+export const maxDuration = 30;
 
-// Each template has its own <TEMPLATE>_CREATOR_PASSWORD env var. A newly
-// added template whose variable was never set on Vercel used to reject
-// every password (the owner uses one shared password for all of them), so
-// when the template's own variable is missing, any creator password that
-// IS configured for the other templates is accepted instead. Input is
-// trimmed: mobile keyboards often append a space.
+const TOKEN_RE = /^\d{6,12}:[A-Za-z0-9_-]{30,}$/;
+
+/** Public marketplace: activation-code path only. */
+const PUBLIC_TEMPLATES = ["AD_BOT"] as const;
+
+/**
+ * Owner-only templates gated by creator password.
+ * ATHAR_BOT / FADAA_BOT are intentionally excluded — activated via admin paths, not /bots.
+ */
+const PASSWORD_TEMPLATES = [
+  "MARRIAGE_BOT",
+  "JOBS_BOT",
+  "MEDICAL_BOT",
+  "NOVA_BOT",
+  "CONFESSION_BOT",
+  "NAME_COMPAT_BOT",
+  "QUIZ_BOT",
+  "STREAK_BOT",
+  "PRAYER_BOT",
+  "CAPSULE_BOT",
+  "SITE_BANNER_ADMIN",
+  "CHANNEL_PUBLISH_BOT",
+  // creator hub (/create) — src/lib/hubBotLogic.ts
+  "HUB_APP_BOT",
+  "HUB_LEGAL_BOT",
+  "HUB_MIND_BOT",
+  "HUB_DIALECT_BOT",
+  "HUB_REPURPOSE_BOT",
+  "HUB_POINTS_BOT",
+] as const;
+
+const ALLOWED_TEMPLATES = new Set<string>([...PUBLIC_TEMPLATES, ...PASSWORD_TEMPLATES]);
+
+const TG_CALL_MS = 15_000;
+
 function creatorPasswordOk(template: string, password: unknown): boolean {
   const given = String(password ?? "").trim();
   if (!given) return false;
   const own = process.env[`${template}_CREATOR_PASSWORD`]?.trim();
   const candidates = own
     ? [own]
-    : PASSWORD_TEMPLATES.map((t) => process.env[`${t}_CREATOR_PASSWORD`]?.trim()).filter((v): v is string => !!v);
+    : PASSWORD_TEMPLATES.map((t) => process.env[`${t}_CREATOR_PASSWORD`]?.trim()).filter(
+        (v): v is string => !!v
+      );
   const g = Buffer.from(given);
   return candidates.some((c) => {
     const e = Buffer.from(c);
@@ -25,78 +63,192 @@ function creatorPasswordOk(template: string, password: unknown): boolean {
   });
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, arabicTimeout: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(arabicTimeout)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function telegramArabicError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/انتهت مهلة/.test(msg)) return msg;
+  if (/401|Unauthorized|invalid token|bot token/i.test(msg)) {
+    return "التوكن غير صالح أو تم إلغاؤه من BotFather.";
+  }
+  if (/429|Too Many Requests/i.test(msg)) {
+    return "تليجرام يحدّ الطلبات حالياً — انتظر قليلاً وأعد المحاولة.";
+  }
+  if (/timeout|aborted|AbortError|ETIMEDOUT|ECONNRESET/i.test(msg)) {
+    return "انتهت مهلة الاتصال بتليجرام — حاول مجدداً.";
+  }
+  if (/webhook|setWebhook|getWebhook/i.test(msg)) {
+    return "تعذّر ربط الويبهوك مع تليجرام. تحقق من التوكن وأعد المحاولة.";
+  }
+  if (msg.trim()) return msg;
+  return "فشل التفعيل";
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { token, template, ownerId, ref, activationCode, password } = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ success: false, error: "طلب غير صالح." }, { status: 400 });
+    }
+
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    const tpl = String(body.template || "AD_BOT").trim();
+    const ownerId = String(body.ownerId ?? "").trim();
+    const ref = body.ref;
+    const activationCode = body.activationCode;
+    const password = body.password;
+
+    if (!TOKEN_RE.test(token)) {
+      return NextResponse.json(
+        { success: false, error: "صيغة التوكن غير صحيحة. الصق التوكن فقط من BotFather." },
+        { status: 400 }
+      );
+    }
+    if (!/^\d{5,15}$/.test(ownerId)) {
+      return NextResponse.json(
+        { success: false, error: "معرّف المالك (Telegram User ID) غير صالح." },
+        { status: 400 }
+      );
+    }
+    if (!ALLOWED_TEMPLATES.has(tpl)) {
+      return NextResponse.json({ success: false, error: "قالب غير مدعوم على هذه الصفحة." }, { status: 400 });
+    }
 
     let purchase: { id: string } | null = null;
-    if (PASSWORD_TEMPLATES.includes(template)) {
-      // Private, owner-only templates (MARRIAGE_BOT, JOBS_BOT, MEDICAL_BOT,
-      // NOVA_BOT, CONFESSION_BOT, NAME_COMPAT_BOT, QUIZ_BOT, STREAK_BOT, PRAYER_BOT) —
-      // not sold to third parties, so a static creator password is the
-      // whole gate. See
-      // creatorPasswordOk for how the expected value is found.
-      if (!creatorPasswordOk(template, password)) {
+    if (tpl === "SITE_BANNER_ADMIN" || tpl === "CHANNEL_PUBLISH_BOT") {
+      if (ownerId !== "420066855" && ownerId !== process.env.SUPER_ADMIN_TELEGRAM_ID) {
+        return NextResponse.json({ success: false, error: "هذا القالب للمالك فقط." }, { status: 403 });
+      }
+    } else if ((PASSWORD_TEMPLATES as readonly string[]).includes(tpl)) {
+      // Private, owner-only templates — static creator password is the whole gate.
+      if (!creatorPasswordOk(tpl, password)) {
         return NextResponse.json({ success: false, error: "كلمة السر غير صحيحة." }, { status: 400 });
       }
     } else {
-      // Gate on a paid, admin-approved activation code (owner spec,
-      // 2026-08-31) — /bots was previously open to anyone with a token and
-      // an ID, letting every bot user turn themselves into a "creator" for
-      // free. The code is minted only once السوبر أدمن approves a $100
-      // bank-transfer request (see decideBotPurchase in adBotLogic.ts) and
-      // is tied to that specific buyer's Telegram ID, so it can't be reused
-      // for someone else's ownerId or for a second bot. The platform owner
-      // themself is exempt — they approve their own codes anyway.
-      const isSuperAdmin = process.env.SUPER_ADMIN_TELEGRAM_ID && String(ownerId) === process.env.SUPER_ADMIN_TELEGRAM_ID;
+      // Paid activation code (owner spec, 2026-08-31). Super-admin exempt.
+      const isSuperAdmin =
+        process.env.SUPER_ADMIN_TELEGRAM_ID && ownerId === process.env.SUPER_ADMIN_TELEGRAM_ID;
       if (!isSuperAdmin) {
         const code = String(activationCode || "").trim().toUpperCase();
         if (!code) {
-          return NextResponse.json({ success: false, error: "كود التفعيل مطلوب. اطلبه من داخل أي بوت على المنصة عبر زر «أريد بوتاً مماثلاً»." }, { status: 400 });
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                "كود التفعيل مطلوب. اطلبه من داخل أي بوت على المنصة عبر زر «أريد بوتاً مماثلاً».",
+            },
+            { status: 400 }
+          );
         }
         const found = await prisma.botPurchase.findUnique({ where: { code } });
-        if (!found || found.status !== "APPROVED" || found.buyerId !== String(ownerId)) {
-          return NextResponse.json({ success: false, error: "كود التفعيل غير صالح أو غير مطابق لآيدي المالك المُدخل." }, { status: 400 });
+        if (!found || found.status !== "APPROVED" || found.buyerId !== ownerId) {
+          return NextResponse.json(
+            { success: false, error: "كود التفعيل غير صالح أو غير مطابق لآيدي المالك المُدخل." },
+            { status: 400 }
+          );
         }
         purchase = found;
       }
     }
 
+    // Refuse deploy when this template's Prisma tables were never created.
+    // Check BEFORE setWebhook / Bot.create so we never leave a half-wired bot.
+    if (templateNeedsTableCheck(tpl)) {
+      const readyInfo = await getTemplateReadyInfo(tpl);
+      if (!readyInfo.ready) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: missingTablesArabicError(readyInfo),
+            missingTables: readyInfo.missingTables,
+            migrationFile: readyInfo.migrationFile,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const existing = await prisma.bot.findUnique({ where: { token } });
     if (existing) {
-      return NextResponse.json({ success: false, error: "هذا التوكن مُفعّل بالفعل على المنصة. أنشئ توكن جديد من BotFather إن كنت تريد بوتاً إضافياً، أو تواصل مع الدعم إن كانت هذه محاولة تفعيل فاشلة سابقة." }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "هذا التوكن مُفعّل بالفعل على المنصة. أنشئ توكن جديد من BotFather إن كنت تريد بوتاً إضافياً، أو تواصل مع الدعم إن كانت هذه محاولة تفعيل فاشلة سابقة.",
+        },
+        { status: 400 }
+      );
     }
 
     const tempBot = new Bot(token);
-    const botInfo = await tempBot.api.getMe();
+    const botInfo = await withTimeout(
+      tempBot.api.getMe(),
+      TG_CALL_MS,
+      "انتهت مهلة الاتصال بتليجرام — حاول مجدداً."
+    );
 
-    // B2B bot-creator referral (owner spec, 2026-08-31): whoever's referral
-    // link this bot was activated through gets an ongoing 5% cut of the
-    // platform's net profit from this bot's activity — see payoutTask in
-    // adBotLogic.ts. Self-referral is meaningless, so it's dropped here.
-    const referredByOwnerId = ref && String(ref).trim() && String(ref).trim() !== String(ownerId) ? String(ref).trim() : null;
+    const referredByOwnerId =
+      ref && String(ref).trim() && String(ref).trim() !== ownerId ? String(ref).trim() : null;
 
-    // Webhook is set up BEFORE the Bot row is created (owner spec fix,
-    // 2026-09-02): a pre-generated id lets us build the webhook URL without
-    // the row existing yet, so a failed/rejected setWebhook call (bad
-    // token, Telegram outage) never leaves an orphaned row behind that
-    // would then block every retry with "Unique constraint on token".
+    // Webhook BEFORE Bot row (owner spec, 2026-09-02): failed setWebhook never leaves an orphaned row.
     const botId = crypto.randomUUID();
     const webhookSecret = crypto.randomBytes(32).toString("hex");
     const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
     const webhookUrl = `${siteUrl}/api/telegram/${botId}`;
-    await tempBot.api.setWebhook(webhookUrl, { secret_token: webhookSecret });
+    await withTimeout(
+      tempBot.api.setWebhook(webhookUrl, { secret_token: webhookSecret }),
+      TG_CALL_MS,
+      "انتهت مهلة ربط الويبهوك مع تليجرام — حاول مجدداً."
+    );
+    if (tpl === "SITE_BANNER_ADMIN") {
+      await tempBot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: siteUrl } } }).catch(() => null);
+    }
+    if (tpl === "MARRIAGE_BOT") {
+      // Own commands + Mini App menu button (clears any command list left on the token).
+      const { ensureMatchBotSetup } = await import("@/lib/matchBotLogic");
+      await ensureMatchBotSetup(tempBot, botId).catch(() => null);
+    }
 
-    const newBot = await prisma.bot.create({
-      data: {
-        id: botId,
-        token,
-        template: template || "AD_BOT",
-        ownerId: String(ownerId),
-        webhookSecret,
-        referredByOwnerId,
-      },
-    });
+    let newBot;
+    try {
+      newBot = await prisma.bot.create({
+        data: {
+          id: botId,
+          token,
+          template: tpl,
+          ownerId,
+          webhookSecret,
+          referredByOwnerId,
+        },
+      });
+    } catch (createErr) {
+      // setWebhook already pointed Telegram at this id — clear it so retries aren't stuck
+      // delivering updates to a missing row.
+      try {
+        await withTimeout(
+          tempBot.api.deleteWebhook(),
+          8_000,
+          "انتهت مهلة إلغاء الويبهوك"
+        );
+      } catch {
+        // best-effort cleanup
+      }
+      throw createErr;
+    }
 
     if (purchase) {
       await prisma.botPurchase.update({ where: { id: purchase.id }, data: { status: "REDEEMED" } });
@@ -107,10 +259,17 @@ export async function POST(req: NextRequest) {
       message: `تم تفعيل البوت @${botInfo.username} بنجاح!`,
       botId: newBot.id,
     });
-  } catch (error: any) {
-    if (error?.code === "P2002") {
-      return NextResponse.json({ success: false, error: "هذا التوكن مُفعّل بالفعل على المنصة." }, { status: 400 });
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string };
+    if (err?.code === "P2002") {
+      return NextResponse.json(
+        { success: false, error: "هذا التوكن مُفعّل بالفعل على المنصة." },
+        { status: 400 }
+      );
     }
-    return NextResponse.json({ success: false, error: error.message || "فشل التفعيل" }, { status: 400 });
+    return NextResponse.json(
+      { success: false, error: telegramArabicError(error) },
+      { status: 400 }
+    );
   }
 }

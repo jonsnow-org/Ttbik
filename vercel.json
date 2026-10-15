@@ -2,15 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/telegram-post?slot=1",
-      "schedule": "50 5 * * *"
+      "schedule": "0 5 * * *"
     },
     {
       "path": "/api/cron/telegram-post?slot=2",
-      "schedule": "50 11 * * *"
-    },
-    {
-      "path": "/api/cron/telegram-post?slot=3",
-      "schedule": "50 16 * * *"
+      "schedule": "0 12 * * *"
     },
     {
       "path": "/api/cron/anti-cheat-retention",
@@ -69,13 +65,29 @@
       "schedule": "0 7 * * *"
     },
     {
+      "path": "/api/cron/ads-expire",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/match-activity",
+      "schedule": "0 17 * * *"
+    },
+    {
       "path": "/api/cron/athar-birthdays",
       "schedule": "20 6 * * *"
+    },
+    {
+      "path": "/api/cron/indexnow",
+      "schedule": "30 6 * * *"
     }
   ],
   "git": {
     "deploymentEnabled": {
-      "sham-status": false
+      "sham-status": false,
+      "claude/compassionate-mayer-u1n7zr": false,
+      "sham-next": false,
+      "claude/sham-next": false,
+      "sham-main": false
     }
   },
   "ignoreCommand": "sh scripts/vercel-ignore.sh"

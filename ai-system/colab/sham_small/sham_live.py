@@ -51,7 +51,7 @@ import torch
 
 import sham_amp
 
-WORK = Path("/kaggle/working")
+WORK = Path(os.environ.get("SHAM_LIVE_WORK", "/kaggle/working"))   # the Oracle runner (user `sham`, no /kaggle) sets SHAM_LIVE_WORK
 MODEL_DATASET = "sham-crawl-checkpoint"
 CORPUS_DATASET = "sham-crawl-corpus"
 
@@ -102,16 +102,20 @@ def _same_tokenizers(a: Path, b: Path) -> bool:
 
 
 def resolve_start(model_dataset: str = MODEL_DATASET):
-    """(checkpoint path, its folder, progress dict, origin label)."""
+    """(checkpoint path, its folder, progress dict, origin label). The start is the MEASURED best among the main line (chat stage, stage 2) and
+    this trainer's own previous output (sham_base_select): a lineage is only continued while it is not clearly worse than another one
+    (2026-10-11: the chat stage's output was at chance level while this trainer kept extending whichever lineage it found first)."""
+    from sham_base_select import choose_base, make_probe
     from sham_inputs import fetch_dataset
 
-    main = None
-    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt")):
+    mains = []
+    for name, pattern in (("sham-chat-checkpoint", "final_chat.pt"), ("sham-multimodal-checkpoint", "final_multimodal.pt"),
+                          ("sham-grown-checkpoint", "final_grown.pt"),
+                          ("sham-merged-checkpoint", "final_merged.pt")):   # the published head (what the Studio serves): a lineage continues FROM it, so progress accumulates
         root = fetch_dataset(name)
         hits = sorted(root.rglob(pattern)) if root else []
         if hits:
-            main = (hits[0], hits[0].parent, name)
-            break
+            mains.append((name, hits[0], hits[0].parent))
     own = fetch_dataset(model_dataset)
     progress = {}
     if own:
@@ -121,14 +125,28 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
             except Exception:
                 pass
     own_ckpt = sorted(own.rglob("final.pt")) if own else []
-    if own_ckpt and progress.get("by") == "sham_live" and (main is None or _same_tokenizers(own_ckpt[0].parent, main[1])):
-        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
-    if main is None:
+    own_ok = bool(own_ckpt and progress.get("by") == "sham_live")
+    cands = [(n, c, sorted(d.rglob("sham_small_tokenizer.json"))[0] if list(d.rglob("sham_small_tokenizer.json")) else None) for n, c, d in mains]
+    if own_ok:
+        toks = sorted(own_ckpt[0].parent.rglob("sham_small_tokenizer.json"))
+        cands.append(("own", own_ckpt[0], toks[0] if toks else None))
+    if not cands:
         raise FileNotFoundError("لا توجد نقطة حفظ للمحادثة ولا للمرحلة الثانية — شغّلي إحداهما أولاً.")
-    base = {"by": "sham_live", "base": main[2]}
+    best = cands[0][0]
+    if len(cands) > 1:
+        try:
+            best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
+                                prefer=("sham-grown-checkpoint",))
+        except Exception as exc:
+            print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
+            best = "own" if own_ok else cands[0][0]
+    if best == "own":
+        return own_ckpt[0], own_ckpt[0].parent, progress, f"{model_dataset} (جلسة سابقة لهذا المدرّب)"
+    name, ckpt, folder = next(m for m in mains if m[0] == best)
+    base = {"by": "sham_live", "base": name}
     if progress.get("by") == "sham_live":
         base.update({k: progress[k] for k in ("sessions", "seen_total") if k in progress})
-    return main[0], main[1], base, f"{main[2]} (الخط الرئيسي لشام)"
+    return ckpt, folder, base, f"{name} (الأفضل بالقياس)"
 
 
 # ---------------------------------------------------------------- encoders
@@ -144,7 +162,7 @@ def _image_tensor(data: bytes, size: int) -> torch.Tensor:
     return torch.from_numpy(np.asarray(img, dtype="float32")).permute(2, 0, 1) / 127.5 - 1.0
 
 
-def decode_audio(data: bytes, seconds: float = 4.0) -> torch.Tensor | None:
+def decode_audio(data: bytes, seconds: float = 16.0) -> torch.Tensor | None:
     """Any container/codec → 16 kHz mono float in [-1, 1]."""
     import av
     import numpy as np
@@ -210,12 +228,9 @@ class Encoder:
         return [image_token_id_to_vocab_id(c.view(-1)).tolist() for c in codes]
 
     def _aud_ids(self, wave: torch.Tensor):
-        from mel_spectrogram import waveform_to_mel_spectrogram
-        from model import audio_token_id_to_vocab_id
-        mel = waveform_to_mel_spectrogram(wave, SAMPLE_RATE, self.aud.cfg.n_mels, self.aud.cfg.segment_frames)
-        with self.lock, torch.no_grad():
-            codes = self.aud.encode(mel.unsqueeze(0).to(self.device)).cpu()
-        return audio_token_id_to_vocab_id(codes.view(1, -1))[0].tolist()
+        from sham_media_codec import audio_vocab_ids
+        with self.lock:                      # every consecutive 2.56 s segment of the clip (up to 6), not only one center crop
+            return audio_vocab_ids(self.aud, wave, SAMPLE_RATE, max_segments=6, device=self.device)
 
     def text_examples(self, text: str):
         from model import SpecialTokens
@@ -227,6 +242,44 @@ class Encoder:
             if len(chunk) >= 8:
                 seq = [SpecialTokens.BOS] + chunk + [SpecialTokens.EOS]
                 out.append((seq, list(seq)))
+        # long-context skill (2026-10-11): the measured model barely looks back (loss with the whole earlier document 3.702 vs 3.710 with only
+        # the last 512 tokens). A share of long documents also yields a RECALL example — a passage planted far back is repeated and the model
+        # must continue it — the standard way to build the look-back (induction) ability that retrieval and long generation rely on.
+        try:
+            import random as _random
+            import sham_auto_config
+            share = float(sham_auto_config.get("longctx_share", 0.15))
+            from sham_longctx_train import recall_budget
+            budget = min(recall_budget(), self.max_len - 4)        # 512 unless SHAM_LONGCTX_BUDGET (e.g. 2048) is set
+            rr = _random.Random(len(ids) * 2654435761 % 2**32)
+            if share > 0 and len(ids) >= budget + 64 and rr.random() < share:
+                from sham_longctx_train import build_recall_example
+                r_ids, r_lab = build_recall_example(ids, rr, budget)
+                out.append(([SpecialTokens.BOS] + r_ids, [-100] + r_lab))
+        except Exception:
+            pass
+        # live-search and date skills (owner, 2026-10-12: a model that only remembers says "the year is 2024"): a share of the documents that start
+        # with a short title line also yield «ابحث ثم أجب» (title → search → the document's own opening as the result → its first sentence as the
+        # answer; the date line in the prompt on half of them), and a small share teaches READING today's date from the context line.
+        try:
+            import datetime
+            import random as _random
+            import sham_auto_config
+            from sham_chat import build_date_example, build_search_example, date_context_line
+            import zlib
+            r2 = _random.Random(zlib.crc32(text.encode('utf-8')[:600]))      # from the text itself, so the choice does not follow the document's length
+            lines = [ln for ln in text.split("\n") if ln.strip()]
+            if len(lines) >= 2 and len(lines[0]) <= 100 and not lines[0].rstrip().endswith((".", "؟", "!", "…", ":")) \
+                    and r2.random() < float(sham_auto_config.get("search_share", 0.08)):
+                day = datetime.date(2024, 1, 1) + datetime.timedelta(days=r2.randrange(0, 365 * 5))
+                ex = build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2,
+                                          date_line=date_context_line(day) if r2.random() < 0.5 else None)
+                if ex:
+                    out.append(ex)
+            if r2.random() < float(sham_auto_config.get("date_share", 0.01)):
+                out.append(build_date_example(self.tok.encode, r2))
+        except Exception:
+            pass
         return out
 
     def __call__(self, item, rng) -> list:
@@ -354,7 +407,8 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     model, step, _ = load_checkpoint(ckpt, map_location=device)
     tokenizer, (img_tok, img_step, _), (aud_tok, aud_step, _) = _load_tokenizers(ckpt_dir)
     img_tok, aud_tok = img_tok.to(device).eval(), aud_tok.to(device).eval()
-    max_len = min(1024, model.cfg.max_seq_len)
+    from sham_longctx_train import train_max_len
+    max_len = min(train_max_len(), model.cfg.max_seq_len)        # 1024 unless SHAM_LONGCTX_MAXLEN (e.g. 2048) is set
     print(f"نقطة الانطلاق: {origin} — {ckpt.name}، الخطوة {step:,}")
 
     out = WORK / "checkpoints"
@@ -417,6 +471,44 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     for i in range(3):
         threading.Thread(target=encode_loop, args=(i,), daemon=True).start()
 
+    def general_feeder():
+        """2026-10-13: this trainer used to learn only from what its spiders crawled (museum catalogues, Crossref, arXiv, …) while the merge gate
+        measures the GENERAL mixture, so every lineage it produced improved on its own sources, got a little worse on general text, and was
+        refused by the gate: two months without a single merge. Now a steady share of general-mixture windows is trained on (and held out).
+        The windows are the pre-tokenized, memory-mapped shards the GitHub job builds daily (sham_token_shards): no extra process, no sockets,
+        a few MB of RAM — a live stream of the same mixture took the whole runner down together with the model on its first try."""
+        try:
+            import sham_token_shards
+            from model import SpecialTokens
+            wins = sham_token_shards.load(tokenizer, 1024)
+            if not wins and not os.environ.get("SHAM_NO_SHARD_DOWNLOAD"):
+                from sham_inputs import fetch_dataset
+                if fetch_dataset(sham_token_shards.DATASET):
+                    wins = sham_token_shards.load(tokenizer, 1024)
+            if not wins:
+                print("⚠ لا نوافذ نص عامة جاهزة لهذا المُرمِّز: يُدرَّب على المصادر المجموعة فقط")
+                return
+            print(f"🧱 المزيج العام: {len(wins):,} نافذة جاهزة تدخل التدريب والقياس")
+        except Exception as exc:
+            print(f"⚠ خط النص العام لا يعمل ({type(exc).__name__}): يُدرَّب على المصادر المجموعة فقط")
+            return
+        pause = float(os.environ.get("SHAM_GENERAL_PAUSE", "6"))   # seconds between windows ≈ a third of all examples on a 2-core runner
+        grng = random.Random(step)
+        room = min(512, max_len - 2)
+        while not stop.is_set():
+            try:
+                w = wins[grng.randrange(len(wins))]
+                off = grng.randrange(0, max(1, len(w) - room))
+                seq = [SpecialTokens.BOS] + [int(x) for x in w[off:off + room]] + [SpecialTokens.EOS]
+                enc_q.put(("general", (seq, list(seq))), timeout=5)
+            except queue.Full:
+                pass
+            except Exception:
+                time.sleep(5)
+            time.sleep(pause)
+
+    threading.Thread(target=general_feeder, daemon=True).start()
+
     # — dialogue rehearsal (chat must not be forgotten). The HF download can fail (a live report had no
     # chat at all, so no "before" and no rehearsal): retry, then fall back to the copy saved with the checkpoint.
     dialogues = []
@@ -446,7 +538,21 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     # — held-out yardstick: the first examples of each modality are never trained on
     holdout = {k: [] for k in TARGETS}
     holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
+    holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
+    # multi-turn conversations (memory, 2026-10-14; off unless SHAM_CHAT_MULTITURN=1): added to the TRAINING rehearsal only — the held-out
+    # yardstick above stays the same single-turn examples, so the guard judges a multi-turn round by the very same measure as before.
+    try:
+        from sham_chat import conversation_examples, load_arabic_conversations, multiturn_enabled
+        if multiturn_enabled():
+            convs, cprog = load_arabic_conversations(progress.get("conversations", {}), 1500)
+            progress["conversations"] = cprog
+            mt = conversation_examples(convs, tokenizer.encode, max_len=max_len)
+            rehearsal += mt
+            random.Random(step + 1).shuffle(rehearsal)
+            print(f"محادثات متعددة الأدوار في التذكّر: {len(mt):,}")
+    except Exception as exc:
+        print(f"⚠ تعذّر تحميل المحادثات متعددة الأدوار: {str(exc)[:120]}")
 
     optimizer = build_optimizer(model, lr=LR, weight_decay=0.1)
     use_amp = sham_amp.enabled(device)
@@ -460,7 +566,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     save_every = SAVE_EVERY_GPU if cuda else SAVE_EVERY_CPU
     model.train()
     start_step, pending, losses = step, [], []
-    trained_kind = {k: 0 for k in list(TARGETS) + ["chat"]}
+    trained_kind = {k: 0 for k in list(TARGETS) + ["chat", "general"]}
     last_log = last_save = last_pub = time.time()
     t_train = time.time()
 

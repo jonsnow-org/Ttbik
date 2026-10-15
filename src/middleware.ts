@@ -32,8 +32,11 @@ export const config = {
     "/api/admin/:path*",
     "/mini-app",
     "/mini-app/:path*",
+    "/match-app/:path*",
     "/fadaa",
     "/fadaa/:path*",
     "/embed/:path*",
+    "/en",
+    "/en/:path*",
   ],
 };

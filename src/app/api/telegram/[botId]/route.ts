@@ -14,7 +14,36 @@ import { handlePrayerBotUpdate } from "@/lib/prayerBotLogic";
 import { handleCapsuleBotUpdate } from "@/lib/capsuleBotLogic";
 import { handleFadaaBotUpdate } from "@/lib/fadaaBotLogic";
 import { handleAtharBotUpdate } from "@/lib/atharBotLogic";
+import { bannerBalance } from "@/lib/siteAds";
+
+import { createHmac, randomUUID } from "crypto";
+
+async function notifyGrok(botId: string, template: string, body: any) {
+  const url = process.env.GROK_BOT_WEBHOOK_URL;
+  const secret = process.env.GROK_BOT_WEBHOOK_SECRET;
+  const text = body?.message?.text;
+  const chatId = body?.message?.chat?.id;
+  if (!url || !secret || !text || !chatId) return;
+  if (!String(text).startsWith("مرحبا جروك انا المالك")) return;
+  const payload = JSON.stringify({ botId, template, chatId: String(chatId), text: String(text).slice(0, 500) });
+  const id = `msg_${randomUUID().replace(/-/g, "")}`;
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const key = Buffer.from(secret.replace(/^whsec_/, ""), "base64");
+  const signature = createHmac("sha256", key).update(`${id}.${timestamp}.${payload}`).digest("base64");
+  await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "webhook-id": id,
+      "webhook-timestamp": timestamp,
+      "webhook-signature": `v1,${signature}`,
+    },
+    body: payload,
+  }).catch(() => null);
+}
+
 import { handleZenobiaBotUpdate } from "@/lib/zenobiaBotLogic";
+import { handleHubBotUpdate, isHubTemplate } from "@/lib/hubBotLogic";
 
 export const maxDuration = 60;
 
@@ -55,6 +84,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     const body = await req.json().catch(() => null);
     rawBody = body;
     if (body) {
+      void notifyGrok(botRow.id, botRow.template, body);
       // Telegram Stars (XTR): the pre-checkout handshake is identical for
       // every bot — approve immediately, there's no stock to check, only a
       // balance top-up. Must be answered within 10s, so this skips the
@@ -71,6 +101,43 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const chatType = body.message?.chat?.type ?? body.callback_query?.message?.chat?.type;
       if (chatType && chatType !== "private") {
         return NextResponse.json({ status: "ignored", reason: "non-private chat" });
+      }
+
+
+      if (botRow.template === "CHANNEL_PUBLISH_BOT") {
+        const chatId = body.message?.chat?.id;
+        if (chatId) {
+          await bot.api.sendMessage(chatId, "بوت نشر قناة الموقع. لا لوحة مستخدم هنا، والمنشورات تخرج إلى القناة حسب الجدولة.");
+        }
+        return NextResponse.json({ status: "ok" });
+      }
+      if (botRow.template === "SITE_BANNER_ADMIN") {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "الموقع", web_app: { url: site } } }).catch(() => null);
+        const text = String(body.message?.text || "");
+        const chatId = body.message?.chat?.id;
+        if (chatId) {
+          const adminIds = [botRow.ownerId, process.env.TELEGRAM_ADMIN_CHAT_ID, process.env.SUPER_ADMIN_TELEGRAM_ID].filter(Boolean).map(String);
+          const isAdmin = adminIds.includes(String(chatId));
+          const keyboard = isAdmin
+            ? { keyboard: [[{ text: "حصيلة البنر" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true }
+            : { keyboard: [[{ text: "محفظتي" }, { text: "شراء" }], [{ text: "الموقع", web_app: { url: site } }]], resize_keyboard: true };
+          let reply = isAdmin
+            ? "لوحة الأدمن. حصيلة البنر لا تظهر للمستخدمين."
+            : "افتح الموقع من زر التطبيق. محفظتك والشراء داخل التطبيق المصغر.";
+          if (isAdmin && (text === "حصيلة البنر" || text === "الرصيد" || text.startsWith("/balance"))) {
+            const balance = await bannerBalance();
+            reply = `حصيلة البنر: ${balance.total}$\nعدد المدفوع: ${balance.count}\nالنشط الآن: ${balance.active}`;
+          } else if (!isAdmin && (text === "الرصيد" || text === "حصيلة البنر")) {
+            reply = "هذه الحصيلة للأدمن فقط. محفظتك تُفتح من زر الموقع.";
+          } else if (text === "محفظتي") {
+            reply = "محفظتك تُفتح من التطبيق المصغر، ولا تعرض حصيلة الموقع.";
+          } else if (text === "شراء") {
+            reply = "الشراء يتم داخل التطبيق المصغر بعد فتح زر الموقع.";
+          }
+          await bot.api.sendMessage(chatId, reply, { reply_markup: keyboard });
+        }
+        return NextResponse.json({ status: "ok" });
       }
       if (botRow.template === "AD_BOT") {
         await handleAdBotUpdate(bot, botRow, body);
@@ -100,6 +167,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await handleAtharBotUpdate(bot, botRow, body);
       } else if (botRow.template === "ZENOBIA_BOT") {
         await handleZenobiaBotUpdate(bot, botRow, body);
+      } else if (isHubTemplate(botRow.template)) {
+        await handleHubBotUpdate(bot, botRow, body); // creator hub (/create) templates, tables created on first use
       } else {
         const msg = body.message;
         if (msg?.text?.startsWith("/start") && msg.chat?.id) {

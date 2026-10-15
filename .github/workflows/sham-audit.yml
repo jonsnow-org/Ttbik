@@ -1,0 +1,38 @@
+name: Sham Checkpoint Audit (read-only)
+
+# فحص يدوي للقراءة فقط: يقيس كل نقاط حفظ شام على نص عربي ثابت بكل مُرمِّز ممكن، ليُعرف أين يضيع التدريب (أوزان؟ مُرمِّز؟ ميزان؟).
+# لا ينشر ولا يغيّر شيئاً.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle datasets soundfile imageio-ffmpeg av
+      - name: Audit
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: python ai-system/supervision/sham_checkpoint_audit.py

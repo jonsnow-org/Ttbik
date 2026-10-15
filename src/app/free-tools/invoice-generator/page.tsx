@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import InvoiceGenerator from "./InvoiceGenerator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مولّد فواتير وعقود بسيطة بالعربي | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "أنشئ فاتورة أو عقد خدمة بسيط بالعربي مجاناً واحفظه كـ PDF من المتصفح — بدون تسجيل، نص عربي صحيح.",
 };
 
-export default function InvoiceGeneratorPage() {
+function InvoiceGeneratorPageBody() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -26,5 +27,14 @@ export default function InvoiceGeneratorPage() {
         <AdSlot position="in-content" label="أسفل مولّد الفواتير" />
       </div>
     </div>
+  );
+}
+
+export default function InvoiceGeneratorPage() {
+  return (
+    <>
+      <InvoiceGeneratorPageBody />
+      <ToolSeoSection slug="invoice-generator" />
+    </>
   );
 }

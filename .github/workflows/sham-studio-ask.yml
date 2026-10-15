@@ -1,0 +1,42 @@
+name: Sham Studio Ask (read-only)
+
+# اسأل شام المستضاف على استوديو ModelScope (الاستدعاء نفسه الذي يستعمله بوت تيليجرام) واطبع الأجوبة وحالة الاستوديو. للقراءة فقط.
+
+on:
+  workflow_dispatch:
+    inputs:
+      api:
+        description: "text | any (النموذج يقرر: كلام أو صورة أو صوت) | image | audio | video (المستخدم يختار النوع)"
+        required: false
+        default: "text"
+      ask:
+        description: "الأسئلة مفصولة بـ |"
+        required: false
+        default: "ما تاريخ اليوم؟|في أي سنة نحن؟|ما هي عاصمة فرنسا؟|اللغة العربية هي"
+
+concurrency:
+  group: sham-studio-ask
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ask:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install requests pillow numpy
+      - name: Ask
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          ASK: ${{ inputs.ask }}
+          API: ${{ inputs.api }}
+        run: python ai-system/supervision/sham_studio_ask.py

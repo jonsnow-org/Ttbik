@@ -35,3 +35,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     return NextResponse.json({ error: "بوت غير موجود" }, { status: 404 });
   }
 }
+
+export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
+  const bot = await prisma.bot.findUnique({ where: { id: params.id }, select: { id: true, token: true } });
+  if (!bot) return NextResponse.json({ error: "بوت غير موجود" }, { status: 404 });
+  await fetch(`https://api.telegram.org/bot${bot.token}/deleteWebhook`, { method: "POST" }).catch(() => null);
+  await prisma.$executeRaw`DELETE FROM "AdClick" WHERE "adId" IN (SELECT id FROM "Ad" WHERE "botId" = ${bot.id})`.catch(() => null);
+  await prisma.$executeRaw`DELETE FROM "Ad" WHERE "botId" = ${bot.id}`.catch(() => null);
+  await prisma.$executeRaw`DELETE FROM "BotVisit" WHERE "botId" = ${bot.id}`.catch(() => null);
+  try {
+    await prisma.bot.delete({ where: { id: bot.id } });
+  } catch {
+    return NextResponse.json({ error: "بقايا مرتبطة منعت الحذف. عطّل البوت أولاً." }, { status: 409 });
+  }
+  return NextResponse.json({ ok: true });
+}
