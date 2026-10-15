@@ -148,6 +148,31 @@ SECRETS_FALLBACK_MARKER = "SHAM_SECRETS_FALLBACK_V2"  # v1 referenced a global t
 SECRETS_FALLBACK_CELL = '# SHAM_SECRETS_FALLBACK_V2 (2026-10-15)\n# كاكل يرفض قراءة الأسرار (HTTP 400) في النسخ المرفوعة آلياً من المراقب.\n# لا تغيّر شيئاً حين تعمل الأسرار. وإلا: GITHUB_TOKEN -> استنساخ عام بلا توكن،\n# KAGGLE_* -> kaggle.json من مجموعة البيانات الخاصة sham-runtime-creds (تُضبط\n# في متغيرات البيئة فوراً كي تجدها كل الوحدات)، وتيليجرام يبقى اختيارياً.\ndef _sham_secrets_fallback_v2():\n    import glob, json, os, subprocess\n    os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")\n    subprocess.run(["git", "config", "--global", "url.https://github.com/.insteadOf", "https://@github.com/"], check=False)\n\n    def creds():\n        for p in sorted(glob.glob("/kaggle/input/**/kaggle.json", recursive=True)):\n            try:\n                with open(p) as f:\n                    d = json.load(f)\n                if d.get("username") and d.get("key"):\n                    return d\n            except Exception:\n                pass\n        return {}\n\n    c = creds()\n    print("sham-runtime-creds:", "موجودة" if c else "غير موجودة في المدخلات")\n    if c and not (os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN"))):\n        os.environ["KAGGLE_USERNAME"] = c["username"]\n        os.environ["KAGGLE_KEY"] = c["key"]\n        if c["key"].startswith("KGAT_"):\n            os.environ["KAGGLE_API_TOKEN"] = c["key"]\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe2", False):\n        return\n    orig = UserSecretsClient.get_secret\n\n    def get_secret(self, label, *a, **k):\n        try:\n            return orig(self, label, *a, **k)\n        except Exception:\n            if label == "GITHUB_TOKEN":\n                print("تنبيه: سرّ GITHUB_TOKEN غير متاح لهذا التشغيل — استنساخ عام بلا توكن.")\n                return ""\n            if label in ("KAGGLE_USERNAME", "KAGGLE_KEY"):\n                d = creds()\n                if d:\n                    return d["username"] if label == "KAGGLE_USERNAME" else d["key"]\n            raise\n\n    get_secret._sham_safe2 = True\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_secrets_fallback_v2()\nexcept Exception as _sf2_exc:\n    print("SHAM_SECRETS_FALLBACK_V2 غير مفعّل:", type(_sf2_exc).__name__)\n'
 
 
+# --- SHAM_SECRETS_FALLBACK_V3 (2026-10-15, additive) ------------------------
+# Real failure after hours of training: the save cells of ab_in_one and
+# chat_image_in_one died with NameError '_sf_orig' / '_sf_creds' -- the pulled
+# kernels still carried the v1 cell (v2 was prepended in front of it), and v1's
+# wrapper looks its helpers up as notebook globals that were gone by then.
+# v3 is inserted right after the last existing fallback cell, depends on no
+# global at all (closure + default args), puts the creds into os.environ and
+# ~/.kaggle/kaggle.json up front, and catches any error of the wrappers below it.
+SECRETS_FALLBACK_V3_MARKER = "SHAM_SECRETS_FALLBACK_V3"
+SECRETS_FALLBACK_V3_CELL = '# SHAM_SECRETS_FALLBACK_V3 (2026-10-15)\n# بعد ساعات من التدريب فشلت خلية الحفظ بـ NameError: \'_sf_orig\' / \'_sf_creds\'\n# (الغلاف القديم V1 يعتمد على متغيرات عامة اختفت). هذه الخلية مستقلة تماماً:\n# لا تعتمد على أي متغير عام، تضبط KAGGLE_USERNAME/KAGGLE_KEY في البيئة و\n# ~/.kaggle/kaggle.json فوراً، وتلتقط أي خطأ من الأغلفة السابقة (حتى NameError)\n# فترجع القيم من البيئة. آمنة إن أُعيد تشغيلها.\ndef _sham_secrets_fallback_v3():\n    import glob, json, os\n\n    def load_creds(_glob=glob, _json=json, _os=os):\n        u, k = _os.environ.get("KAGGLE_USERNAME"), _os.environ.get("KAGGLE_KEY") or _os.environ.get("KAGGLE_API_TOKEN")\n        if u and k:\n            return {"username": u, "key": k}\n        pats = ["/kaggle/input/sham-runtime-creds/**/kaggle.json", "/kaggle/input/**/kaggle.json",\n                _os.path.expanduser("~/.kaggle/kaggle.json")]\n        for pat in pats:\n            for p in sorted(_glob.glob(pat, recursive=True)):\n                try:\n                    with open(p) as f:\n                        d = _json.load(f)\n                    if d.get("username") and d.get("key"):\n                        return d\n                except Exception:\n                    pass\n        return {}\n\n    c = load_creds()\n    if c:\n        os.environ.setdefault("KAGGLE_USERNAME", c["username"])\n        if not (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")):\n            os.environ["KAGGLE_KEY"] = c["key"]\n            if str(c["key"]).startswith("KGAT_"):\n                os.environ["KAGGLE_API_TOKEN"] = c["key"]\n        try:\n            kp = os.path.expanduser("~/.kaggle/kaggle.json")\n            if not os.path.exists(kp):\n                os.makedirs(os.path.dirname(kp), exist_ok=True)\n                with open(kp, "w") as f:\n                    json.dump({"username": c["username"], "key": c["key"]}, f)\n                os.chmod(kp, 0o600)\n        except Exception:\n            pass\n    print("SHAM_SECRETS_FALLBACK_V3: بيانات كاكل", "جاهزة في البيئة" if c else "غير موجودة")\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe3", False):\n        return\n\n    def get_secret(self, label, *a, _prev=UserSecretsClient.get_secret, _load=load_creds, **k):\n        try:\n            return _prev(self, label, *a, **k)\n        except BaseException as e:\n            if isinstance(e, KeyboardInterrupt):\n                raise\n            if label == "GITHUB_TOKEN":\n                return ""\n            if label in ("KAGGLE_USERNAME", "KAGGLE_KEY"):\n                d = _load()\n                if d:\n                    return d["username"] if label == "KAGGLE_USERNAME" else d["key"]\n            raise\n\n    get_secret._sham_safe3 = True\n    get_secret._sham_safe2 = True  # يمنع V2 من إعادة التغليف لو أعيد تشغيلها\n    get_secret._sham_safe = True   # ويمنع V1 كذلك\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_secrets_fallback_v3()\nexcept Exception as _sf3_exc:\n    print("SHAM_SECRETS_FALLBACK_V3 غير مفعّل:", type(_sf3_exc).__name__)\n'
+
+
+def _insert_fallback_v3(cells: list) -> bool:
+    """Adds the v3 cell once, after the last older fallback cell (or first). Removes nothing."""
+    if any(SECRETS_FALLBACK_V3_MARKER in "".join(c.get("source") or []) for c in cells):
+        return False
+    pos = 0
+    for i, c in enumerate(cells):
+        if "SHAM_SECRETS_FALLBACK" in "".join(c.get("source") or []):
+            pos = i + 1
+    cells.insert(pos, {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
+                       "source": SECRETS_FALLBACK_V3_CELL.splitlines(keepends=True)})
+    return True
+
+
 def _apply_runtime_fixes(work_dir: Path, kernel_slug: str) -> list:
     """Adds the fallback cell and the private creds dataset; never removes anything."""
     done = []
@@ -177,6 +202,12 @@ def _apply_runtime_fixes(work_dir: Path, kernel_slug: str) -> list:
             nb["cells"] = [cell] + cells
             code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
             done.append("fallback_cell")
+        nb = json.loads(code_path.read_text(encoding="utf-8"))
+        cells = nb.get("cells") or []
+        if _insert_fallback_v3(cells):
+            nb["cells"] = cells
+            code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+            done.append("fallback_cell_v3")
     return done
 
 
@@ -447,13 +478,15 @@ if __name__ == "__main__":
         (_w / "kernel-metadata.json").write_text(json.dumps({"id": "u/k", "code_file": "k.ipynb", "enable_gpu": True,
             "enable_internet": True, "dataset_sources": ["u/sham-checkpoint"]}))
         (_w / "k.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code", "source": ["x = 1"]}]}))
-        assert _apply_runtime_fixes(_w, "u/k") == ["creds_dataset", "fallback_cell"]
+        assert _apply_runtime_fixes(_w, "u/k") == ["creds_dataset", "fallback_cell", "fallback_cell_v3"]
         assert _apply_runtime_fixes(_w, "u/k") == []
         _m = json.loads((_w / "kernel-metadata.json").read_text())
         _nb = json.loads((_w / "k.ipynb").read_text())
         assert _m["dataset_sources"] == ["u/sham-checkpoint", "u/sham-runtime-creds"] and _m["enable_gpu"] is True
-        assert len(_nb["cells"]) == 2 and SECRETS_FALLBACK_MARKER in "".join(_nb["cells"][0]["source"])
-        assert _nb["cells"][1]["source"] == ["x = 1"]
+        assert len(_nb["cells"]) == 3 and SECRETS_FALLBACK_MARKER in "".join(_nb["cells"][0]["source"])
+        assert SECRETS_FALLBACK_V3_MARKER in "".join(_nb["cells"][1]["source"])
+        assert _nb["cells"][2]["source"] == ["x = 1"]
+        compile(SECRETS_FALLBACK_V3_CELL, "fallback_cell_v3", "exec")
         compile(SECRETS_FALLBACK_CELL, "fallback_cell", "exec")
     print("SHAM_SECRETS_FALLBACK cell + private creds dataset added exactly once; GPU and existing cells untouched.")
 
