@@ -90,6 +90,35 @@ function ensureTables(db: Db): Promise<void> {
   return ready;
 }
 
+// 2026-10-15 (owner, repetition fix — additive): a weak checkpoint copies its own earlier replies from the window, and a repeated reply was
+// stored and sent back again. SHAM_MEMORY_DEDUPE=0 / SHAM_MEMORY_SEND_REPLIES=1 restore the old behaviour.
+export function normReply(s: string): string {
+  return (s || "").replace(/[\u064B-\u0652\u0640]/g, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim().toLowerCase();
+}
+export function nearSameReply(a: string, b: string): boolean {
+  const x = normReply(a), y = normReply(b);
+  if (!x || !y) return false;
+  if (x === y || (Math.min(x.length, y.length) >= 12 && (x.includes(y) || y.includes(x)))) return true;
+  const wa = new Set(x.split(" ")), wb = new Set(y.split(" "));
+  let common = 0;
+  wa.forEach((w) => { if (wb.has(w)) common++; });
+  return common / Math.max(wa.size, wb.size) >= 0.8;
+}
+const dedupeOn = () => process.env.SHAM_MEMORY_DEDUPE !== "0";
+const sendRepliesOn = () => process.env.SHAM_MEMORY_SEND_REPLIES === "1";
+export function cleanHistory(turns: Turn[]): Turn[] {
+  let out = turns;
+  if (dedupeOn()) {
+    const seen: string[] = [];
+    out = out.map((t) => {
+      const dup = seen.some((s) => nearSameReply(s, t.a));
+      seen.push(t.a);
+      return dup ? { q: t.q, a: "" } : t;
+    });
+  }
+  return sendRepliesOn() ? out : out.map((t) => ({ q: t.q, a: "" }));
+}
+
 /** The memory to send with a message (facts already include what THIS message states). Null when off or the database is unreachable. */
 export async function loadMemory(chatId: number | string, text: string, db: Db = prismaDb): Promise<MemoryContext | null> {
   if (!shamMemoryEnabled()) return null;
@@ -102,7 +131,8 @@ export async function loadMemory(chatId: number | string, text: string, db: Db =
     const stored = prof[0] ? (typeof prof[0].facts === "string" ? JSON.parse(prof[0].facts) : prof[0].facts) || {} : {};
     return {
       chatKey: key,
-      history: rows.reverse().map((r) => ({ q: r.question, a: r.answer })),
+      // REVIEW (2026-10-15): was rows.reverse().map(...) sent as is; now duplicates dropped and (default) only the user's side sent
+      history: cleanHistory(rows.reverse().map((r) => ({ q: r.question, a: r.answer }))),
       summary: prof[0]?.summary || "",
       facts: { ...stored, ...extractFacts(text) },
     };
@@ -117,6 +147,10 @@ export async function saveTurn(chatId: number | string, question: string, answer
   const key = chatKey(chatId);
   try {
     await ensureTables(db);
+    if (dedupeOn()) {   // 2026-10-15: a reply (near-)identical to a recent one is not stored, so it cannot feed the next prompt
+      const recent = await db.query<{ answer: string }>(`SELECT answer FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS}`, key);
+      if (recent.some((r) => nearSameReply(r.answer, answer))) return;
+    }
     await db.exec(`INSERT INTO sham_chat_memory (chat_key, question, answer) VALUES ($1, $2, $3)`, key, question.slice(0, 4000), answer.slice(0, 4000));
     const prof = await db.query<{ facts: Facts | string; summary: string; summarized_upto: string | number }>(
       `SELECT facts, summary, summarized_upto FROM sham_user_facts WHERE chat_key=$1`, key);
