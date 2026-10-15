@@ -37,7 +37,7 @@ jobs:
         id: pick
         run: |
           DONE=$(gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName -q '.[].tagName' | sed -n 's/^promo-ep-\([0-9]*\)$/\1/p' | paste -sd, -)
-          ID=$(FORCE="${{ inputs.episode }}"; if [ "${{ github.event_name }}" = push ]; then FORCE=$(tr -dc 0-9 < run.txt); fi
+          FORCE="${{ inputs.episode }}"; if [ "${{ github.event_name }}" = push ]; then FORCE=$(tr -dc 0-9 < run.txt); fi
           ID=$(python3 scripts/prepare.py "$DONE" "$FORCE")
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           if [ -z "$ID" ]; then echo "All episodes rendered. Add more to episodes.json."; fi
