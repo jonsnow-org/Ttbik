@@ -58,7 +58,10 @@ def _download() -> Path:
 
 
 # 2026-10-14: the chat checkpoint is preferred by NAME; media/tokenizer files are never picked as the language model.
-CKPT_ORDER = ("final_chat_self.pt", "final_chat.pt", "final_merged.pt")
+# REVIEW (2026-10-15, owner): back to the engineer's design — the Studio serves the MERGED checkpoint (everything passes the merge gate).
+# The old chat-first order is kept and only used when the Studio env SHAM_STUDIO_CHAT_CKPT is "1".
+CKPT_ORDER_CHAT_FIRST = ("final_chat_self.pt", "final_chat.pt", "final_merged.pt")
+CKPT_ORDER = CKPT_ORDER_CHAT_FIRST if os.environ.get("SHAM_STUDIO_CHAT_CKPT", "0") == "1" else ("final_merged.pt", "final_chat_self.pt", "final_chat.pt")
 _NOT_LM = ("image_tokenizer.pt", "audio_tokenizer.pt")
 
 
