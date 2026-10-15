@@ -562,6 +562,14 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "runtime_creds": {
+      "file": ".github/workflows/sham-runtime-creds.yml",
+      "title": "ينشئ/يحدّث مجموعة بيانات كاكل الخاصة sham-runtime-creds من سرّ KAGGLE_API_TOKEN للنسخ التي يدفعها المراقب (تشغيل يدوي)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
     }
   },
   "lineage": [
