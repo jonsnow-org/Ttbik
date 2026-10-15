@@ -123,6 +123,21 @@ def facts_line(facts: dict) -> str:
 _AR_NORM = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ى": "ي", "ة": "ه"})
 
 
+def near_same_reply(a: str, b: str) -> bool:
+    """2026-10-15: True when two replies are the same or nearly (normalised equality, containment, or >=80% shared words)."""
+    import re
+    def n(x):
+        x = re.sub(r"[\u064B-\u0652\u0640]", "", str(x or ""))
+        return " ".join(re.sub(r"[^\w]+", " ", x).split()).lower()
+    x, y = n(a), n(b)
+    if not x or not y:
+        return False
+    if x == y or (min(len(x), len(y)) >= 12 and (x in y or y in x)):
+        return True
+    wa, wb = set(x.split()), set(y.split())
+    return len(wa & wb) / max(len(wa), len(wb)) >= 0.8
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[\u064B-\u0652]", "", (s or "").strip().lower()).translate(_AR_NORM)
 
@@ -172,6 +187,9 @@ class UserMemory:
         return out
 
     def add_turn(self, q: str, a: str) -> None:
+        # 2026-10-15 (owner, repetition fix — additive): a reply (near-)identical to a recent one is not logged. SHAM_MEMORY_DEDUPE=0 restores.
+        if _flag("SHAM_MEMORY_DEDUPE") and any(near_same_reply(t.get("a", ""), a) for t in self.turns()[-8:]):
+            return
         self.dir.mkdir(parents=True, exist_ok=True)
         with self._p("turns.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"q": q, "a": a, "t": int(time.time())}, ensure_ascii=False) + "\n")
@@ -485,6 +503,9 @@ def memory_answer(model, tokenizer, user_id: str, prompt: str, max_new_tokens: i
     # the memory block: one stable first turn (changes only when facts / summary change, so the cache survives ordinary messages)
     block_lines = [l for l in (facts_line(facts), ("ملخص ما سبق: " + summary.strip()) if summary.strip() else "") if l]
     prefix = [SpecialTokens.BOS]
+    # 2026-10-15: the fixed «حسناً، سأتذكّر ذلك.» turn only when there is a real fact / summary (SHAM_MEMORY_ACK_ONLY_REAL=0 restores the old test)
+    if block_lines and _flag("SHAM_MEMORY_ACK_ONLY_REAL") and not (facts or summary.strip()):
+        block_lines = []
     if block_lines:
         prefix += [USER_TURN] + enc("\n".join(block_lines))[:256] + [SHAM_TURN] + enc("حسناً، سأتذكّر ذلك.") + [SpecialTokens.EOS]
     for q, a in turn_ids[start:]:

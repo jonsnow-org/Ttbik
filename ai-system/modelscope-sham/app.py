@@ -455,7 +455,12 @@ def _compact_history(history: str):
     if not isinstance(h, list):
         return None
     n, c = int(_envf("SHAM_THINK_TURNS", 6)), int(_envf("SHAM_THINK_TURN_CHARS", 300))
-    return [{"q": str(t.get("q", ""))[:c], "a": str(t.get("a", ""))[:c]} for t in h if isinstance(t, dict)][-n:]
+    out = [{"q": str(t.get("q", ""))[:c], "a": str(t.get("a", ""))[:c]} for t in h if isinstance(t, dict)][-n:]
+    # 2026-10-15 (owner, repetition fix): the assistant side is omitted by default so the model cannot copy its own earlier replies.
+    # SHAM_THINK_SEND_REPLIES=1 restores the old behaviour (line above kept as is).
+    if os.environ.get("SHAM_THINK_SEND_REPLIES", "0") != "1":
+        out = [{"q": t["q"], "a": ""} for t in out]
+    return out
 
 
 def _think_run(job: dict, prompt: str, n: int, user_id: str, history: str, summary: str, facts: str) -> None:
