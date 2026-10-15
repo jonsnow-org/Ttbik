@@ -8,7 +8,7 @@ A notebook cannot restart itself after it ends (its session dies with it), so th
   and/or explicit `owner/slug`s in the secret SHAM_RESTART_KERNELS. Without the file ai-system/supervision/RESTARTER_LIVE containing 1 (or SHAM_RESTART_LIVE=1) it only reports what it WOULD do (dry run).
   for each of them:
     running or queued                       -> nothing
-    stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES)
+    stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES; default 0 = pushed at once)
     stopped for longer than the grace       -> push a new version (kaggle_auto_resume.resume_kernel, GPU when the owner chose it and the quota
                                                allows, else CPU), at most MAX_PER_DAY times a day
     two quick failures in a row after a push-> STOP restarting this notebook and say so (circuit breaker): a push can detach a notebook's Secrets
@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "15"))
+GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "0"))  # 0: push on first sighting (GitHub cron runs only every 3-5h)
 MAX_PER_DAY = 8
 QUICK_FAIL_MINUTES = 90
 BREAKER_AT = 2
@@ -67,7 +67,8 @@ def decide(status: str, entry: dict, now: float, grace_s: float = GRACE_MINUTES 
         return "blocked"
     if not entry.get("idle_since"):
         entry["idle_since"] = now
-        return "wait"
+        if grace_s > 0:
+            return "wait"
     if now - entry["idle_since"] < grace_s:
         return "wait"
     if int(entry.get("pushes_today", 0)) >= MAX_PER_DAY:
@@ -75,7 +76,7 @@ def decide(status: str, entry: dict, now: float, grace_s: float = GRACE_MINUTES 
     return "push"
 
 
-def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print) -> list[str]:
+def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print, grace_s: float | None = None) -> list[str]:
     now = now or time.time()
     notes = []
     accel = HashedState(state.setdefault("accelerator", {}))
@@ -90,7 +91,7 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
         except Exception as exc:
             log(f"{label}: تعذّرت قراءة حالته ({type(exc).__name__}) — لا إجراء")
             continue
-        action = decide(status, entry, now)
+        action = decide(status, entry, now, GRACE_MINUTES * 60 if grace_s is None else grace_s)
         if action == "push":
             try:
                 result = resume(slug, accel)
@@ -197,38 +198,44 @@ def _self_test() -> None:
         return "pushed"
     api = Api({"a/b": "COMPLETE"})
     # first sight: a grace period, no push
-    run(["a/b"], api, st, resume, now=t0, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0, log=lambda *_: None, grace_s=15 * 60)
     assert not pushed
-    run(["a/b"], api, st, resume, now=t0 + 10 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 10 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert not pushed                                                  # still inside the grace
-    run(["a/b"], api, st, resume, now=t0 + 40 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 40 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert pushed == ["a/b"]                                           # grace over: pushed
     assert all("a/b" not in k for k in st["accelerator"]) and len(st["accelerator"]) == 1   # keys are hashed
     # running: nothing
     api.names["a/b"] = "RUNNING"
-    run(["a/b"], api, st, resume, now=t0 + 50 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 50 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert pushed == ["a/b"]
     # two quick failures after pushes -> blocked, no third push
     st2: dict = {}
     pushed.clear()
     api2 = Api({"c/d": "COMPLETE"})
     now = t0
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     now += 40 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 1
     api2.names["c/d"] = "ERROR"
     now += 20 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)      # first quick failure counted, grace starts
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)      # first quick failure counted, grace starts
     now += 40 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 2
     now += 20 * 60
-    notes = run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)   # second quick failure -> breaker
+    notes = run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)   # second quick failure -> breaker
     now += 60 * 60
-    notes += run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    notes += run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 2 and any("توقّف المراقب" in n for n in notes), (pushed, notes)
     assert "c/d" not in json.dumps(st2)                                # no real name in the saved state
+    # grace 0 (the default): a stopped notebook is pushed on its first sighting
+    st3: dict = {}
+    pushed.clear()
+    run(["e/f"], Api({"e/f": "COMPLETE"}), st3, resume, now=t0, log=lambda *_: None, grace_s=0)
+    assert pushed == ["e/f"]
+    assert decide("RUNNING", {}, t0, 0) == "skip"
     print("sham_restarter self-test OK")
 
 
