@@ -3,11 +3,7 @@
 # State = GitHub Releases (no commits pushed, so no Vercel builds). No secrets beyond the built-in GITHUB_TOKEN.
 name: promo-remotion
 on:
-  # Dispatch/schedule only work once this file also exists on the default branch (GitHub rule).
-  # Until then: push a change to promo/remotion/run.txt on this branch (content = episode id, or empty = next).
-  push:
-    branches: [claude/promo-video]
-    paths: [promo/remotion/run.txt]
+  # Note: dispatch/schedule only activate once this file also exists on the default branch (GitHub rule; needs owner approval).
   workflow_dispatch:
     inputs:
       episode:
@@ -32,12 +28,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: claude/promo-video # remotion sources live on the promo branch
       - name: Pick episode
         id: pick
         run: |
           DONE=$(gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName -q '.[].tagName' | sed -n 's/^promo-ep-\([0-9]*\)$/\1/p' | paste -sd, -)
-          FORCE="${{ inputs.episode }}"; if [ "${{ github.event_name }}" = push ]; then FORCE=$(tr -dc 0-9 < run.txt); fi
+          FORCE="${{ inputs.episode }}"
           ID=$(python3 scripts/prepare.py "$DONE" "$FORCE")
           echo "id=$ID" >> "$GITHUB_OUTPUT"
           if [ -z "$ID" ]; then echo "All episodes rendered. Add more to episodes.json."; fi
