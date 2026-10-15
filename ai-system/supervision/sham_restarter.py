@@ -38,6 +38,8 @@ RUNNING = {"RUNNING", "QUEUED"}
 def _key(slug: str) -> str:
     return hashlib.sha1(slug.encode()).hexdigest()[:10]
 
+FIX_EPOCH = "secrets-fallback-v2"
+
 
 class HashedState(dict):
     """kaggle_auto_resume keeps its GPU-fallback memory under the real slug: keep the stored keys hashed instead."""
@@ -168,6 +170,14 @@ def main() -> int:
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
                              runtime_fixes=True)  # SHAM_SECRETS_FALLBACK (2026-10-15)
 
+    # One-time breaker reset after a deliberate fix of the failure that tripped it (2026-10-15: the
+    # first-cell HTTP 400 on Kaggle Secrets). Bump FIX_EPOCH only together with such a fix.
+    if state.get("fix_epoch") != FIX_EPOCH:
+        for _entry in state.setdefault("notebooks", {}).values():
+            if isinstance(_entry, dict):
+                _entry.update(blocked=False, quick_fails=0, counted_fail=False, idle_since=None)
+        state["fix_epoch"] = FIX_EPOCH
+        print(f"إعادة ضبط قاطع الحماية مرة واحدة بعد الإصلاح: {FIX_EPOCH}")
     notes = run(watch, api, state, resume)
     if live or not files:
         up = work / "upload"
