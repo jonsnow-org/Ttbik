@@ -204,6 +204,26 @@ def _insert_fallback_v3(cells: list) -> bool:
     return True
 
 
+# --- SHAM_QUIET_START_V4 (2026-10-15, additive) -----------------------------
+# Owner: a yellow/orange Kaggle status = the run wrote errors/warnings and tends to fail at the end.
+# Remove expected stderr at its source: no repeat get_secret calls that 400, KAGGLE_* served from env,
+# __main__.__spec__ for spawn, HF hub noise quieted. Inserted right after the V3 cell; removes nothing.
+QUIET_START_V4_MARKER = "SHAM_QUIET_START_V4"
+QUIET_START_V4_CELL = '# SHAM_QUIET_START_V4 (2026-10-15)\n# المالك لاحظ أن اللون الأصفر/البرتقالي للدفتر يظهر حين يكتب الدفتر أخطاء/تحذيرات\n# (stderr) ثم يفشل لاحقاً. هذه الخلية تمنع الأخطاء المتوقعة من مصدرها، ولا تغيّر\n# أي إعداد للنموذج: (1) تتذكّر السر الذي رفضه كاكل (HTTP 400) فلا تعيد طلبه وتطبع\n# الخطأ كل مرة، وتعطي KAGGLE_* من البيئة مباشرة دون طلب الخادم، (2) تضبط\n# __main__.__spec__ = None حتى يعمل multiprocessing(spawn) بلا AttributeError،\n# (3) تخفّض تحذيرات HuggingFace المتوقعة (طلبات بلا توكن، أشرطة التقدم).\ndef _sham_quiet_start_v4():\n    import os, sys, logging, warnings\n    m = sys.modules.get("__main__")\n    if m is not None and getattr(m, "__spec__", "missing") == "missing":\n        try:\n            m.__spec__ = None\n        except Exception:\n            pass\n    os.environ.setdefault("HF_HUB_VERBOSITY", "error")\n    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")\n    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")\n    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")\n    warnings.filterwarnings("ignore", message=".*unauthenticated requests to the HF Hub.*")\n    for n in ("huggingface_hub", "datasets", "fsspec", "urllib3"):\n        logging.getLogger(n).setLevel(logging.ERROR)\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe4", False):\n        return\n    failed = set()\n\n    def get_secret(self, label, *a, _prev=UserSecretsClient.get_secret, _failed=failed, **k):\n        env = {"KAGGLE_USERNAME": os.environ.get("KAGGLE_USERNAME"),\n               "KAGGLE_KEY": os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")}\n        if label in env and env[label]:\n            return env[label]            # جاهزة من V3 / sham-runtime-creds: لا طلب ولا خطأ 400\n        if label in _failed and label == "GITHUB_TOKEN":\n            return ""\n        try:\n            return _prev(self, label, *a, **k)\n        except KeyboardInterrupt:\n            raise\n        except BaseException:\n            _failed.add(label)\n            if label == "GITHUB_TOKEN":\n                return ""\n            raise\n\n    for attr in ("_sham_safe4", "_sham_safe3", "_sham_safe2", "_sham_safe"):\n        setattr(get_secret, attr, True)\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_quiet_start_v4()\n    print("SHAM_QUIET_START_V4: مفعّل")\nexcept Exception as _q4_exc:\n    print("SHAM_QUIET_START_V4 غير مفعّل:", type(_q4_exc).__name__)\n'
+
+
+def _insert_quiet_v4(cells: list) -> bool:
+    if any(QUIET_START_V4_MARKER in "".join(c.get("source") or []) for c in cells):
+        return False
+    pos = 0
+    for i, c in enumerate(cells):
+        if "SHAM_SECRETS_FALLBACK" in "".join(c.get("source") or []):
+            pos = i + 1
+    cells.insert(pos, {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
+                       "source": QUIET_START_V4_CELL.splitlines(keepends=True)})
+    return True
+
+
 def _apply_runtime_fixes(work_dir: Path, kernel_slug: str) -> list:
     """Adds the fallback cell and the private creds dataset; never removes anything."""
     done = []
@@ -239,6 +259,12 @@ def _apply_runtime_fixes(work_dir: Path, kernel_slug: str) -> list:
             nb["cells"] = cells
             code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
             done.append("fallback_cell_v3")
+        nb = json.loads(code_path.read_text(encoding="utf-8"))
+        cells = nb.get("cells") or []
+        if _insert_quiet_v4(cells):
+            nb["cells"] = cells
+            code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+            done.append("quiet_start_v4")
     return done
 
 
@@ -546,14 +572,16 @@ if __name__ == "__main__":
         (_w / "kernel-metadata.json").write_text(json.dumps({"id": "u/k", "code_file": "k.ipynb", "enable_gpu": True,
             "enable_internet": True, "dataset_sources": ["u/sham-checkpoint"]}))
         (_w / "k.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code", "source": ["x = 1"]}]}))
-        assert _apply_runtime_fixes(_w, "u/k") == ["creds_dataset", "fallback_cell", "fallback_cell_v3"]
+        assert _apply_runtime_fixes(_w, "u/k") == ["creds_dataset", "fallback_cell", "fallback_cell_v3", "quiet_start_v4"]
         assert _apply_runtime_fixes(_w, "u/k") == []
         _m = json.loads((_w / "kernel-metadata.json").read_text())
         _nb = json.loads((_w / "k.ipynb").read_text())
         assert _m["dataset_sources"] == ["u/sham-checkpoint", "u/sham-runtime-creds"] and _m["enable_gpu"] is True
-        assert len(_nb["cells"]) == 3 and SECRETS_FALLBACK_MARKER in "".join(_nb["cells"][0]["source"])
+        assert len(_nb["cells"]) == 4 and SECRETS_FALLBACK_MARKER in "".join(_nb["cells"][0]["source"])
         assert SECRETS_FALLBACK_V3_MARKER in "".join(_nb["cells"][1]["source"])
-        assert _nb["cells"][2]["source"] == ["x = 1"]
+        assert QUIET_START_V4_MARKER in "".join(_nb["cells"][2]["source"])
+        assert _nb["cells"][3]["source"] == ["x = 1"]
+        compile(QUIET_START_V4_CELL, "quiet_start_v4", "exec")
         compile(SECRETS_FALLBACK_V3_CELL, "fallback_cell_v3", "exec")
         compile(SECRETS_FALLBACK_CELL, "fallback_cell", "exec")
     print("SHAM_SECRETS_FALLBACK cell + private creds dataset added exactly once; GPU and existing cells untouched.")
