@@ -165,7 +165,8 @@ def main() -> int:
     def resume(slug, accel):
         if not live:
             return "dry-run"
-        return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel)
+        return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
+                             runtime_fixes=True)  # SHAM_SECRETS_FALLBACK (2026-10-15)
 
     notes = run(watch, api, state, resume)
     if live or not files:
