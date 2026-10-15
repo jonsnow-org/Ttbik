@@ -1,0 +1,13 @@
+{
+  "id": "jonsnowjonsnow/sham-arabic-sft",
+  "title": "sham-arabic-sft",
+  "code_file": "sham_arabic_sft.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["jonsnowjonsnow/sham-runtime-creds", "jonsnowjonsnow/sham-chat-checkpoint"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

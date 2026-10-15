@@ -72,6 +72,23 @@ jobs:
           done
           ls -la /tmp/ck
 
+      # 2026-10-15 (owner, additive): the separate Arabic SFT notebook's checkpoint (Kaggle sham-chat-arabic-sft-checkpoint/final_chat.pt,
+      # same file name/format as the chat stage). OFF by default: only when the repo variable SHAM_STUDIO_ARABIC_SFT is '1' does it
+      # replace final_chat.pt in what the Studio receives. Unset / anything else = nothing changes.
+      - name: Arabic SFT checkpoint for the Studio (optional, default OFF)
+        if: ${{ vars.SHAM_STUDIO_ARABIC_SFT == '1' }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/sft
+          if kaggle datasets download -d jonsnowjonsnow/sham-chat-arabic-sft-checkpoint -f final_chat.pt -p /tmp/sft --unzip -q; then
+            cp -f /tmp/sft/final_chat.pt /tmp/ck/final_chat.pt && echo "+ final_chat.pt from sham-chat-arabic-sft-checkpoint"
+          else
+            echo "- sham-chat-arabic-sft-checkpoint not available; Studio keeps its current checkpoint"
+          fi
+          ls -la /tmp/ck
+
       - name: Push the model, stage the Studio app
         env:
           MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
