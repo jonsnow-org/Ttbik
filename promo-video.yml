@@ -1,0 +1,32 @@
+name: Promo video
+
+on:
+  push:
+    branches:
+      - claude/promo-video
+    paths:
+      - ".github/workflows/promo-video.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install fonts, ffmpeg and Pillow
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fonts-dejavu-core libfribidi0 libraqm0 ffmpeg
+          python3 -m pip install --user pillow
+      - name: Build
+        run: bash promo/build.sh out
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="promo-${{ github.run_number }}"
+          gh release create "$TAG" out/sham-ai-promo.mp4 out/s1.png out/s2.png out/s3.png out/s4.png \
+            --title "Sham AI promo $TAG" --notes "Auto-generated promo video and slides." --target "${{ github.sha }}"
