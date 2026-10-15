@@ -82,6 +82,22 @@ def _ensure_credentials() -> str | None:
         os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
         return os.environ["KAGGLE_USERNAME"]
     except Exception as exc:
+        # SHAM_SECRETS_FALLBACK (2026-10-15): API-pushed runs get HTTP 400 from Kaggle Secrets;
+        # read the private sham-runtime-creds dataset's kaggle.json instead.
+        import glob as _glob
+        import json as _json
+        for _p in sorted(_glob.glob("/kaggle/input/**/kaggle.json", recursive=True)):
+            try:
+                _d = _json.loads(Path(_p).read_text())
+            except Exception:
+                continue
+            if _d.get("username") and _d.get("key"):
+                os.environ["KAGGLE_USERNAME"] = _d["username"]
+                os.environ["KAGGLE_KEY"] = _d["key"]
+                if str(_d["key"]).startswith("KGAT_"):
+                    os.environ["KAGGLE_API_TOKEN"] = _d["key"]
+                print("  ✓ بيانات دخول Kaggle من مجموعة البيانات الخاصة sham-runtime-creds")
+                return os.environ["KAGGLE_USERNAME"]
         print(f"  ⚠ لا توجد بيانات دخول Kaggle (KAGGLE_USERNAME/KAGGLE_KEY): {exc}")
         return None
 
