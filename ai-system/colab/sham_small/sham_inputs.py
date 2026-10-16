@@ -781,3 +781,12 @@ try:
     _sham_trigger_restarter.install()
 except Exception as _exc:
     print(f"sham_trigger_restarter not installed: {_exc}")
+
+
+# SHAM_HUB_COMPAT (2026-10-16): مجموعات بسكربت تحميل قديم (مثل Bactrian-X) تُقرأ
+# من نسخة parquet بدل أن ترجع 0 صفوف. إضافي فقط؛ لا يؤثر على أي مصدر آخر.
+try:
+    from sham_hub_compat import install as _sham_hub_compat_install
+    _sham_hub_compat_install()
+except Exception:
+    pass
