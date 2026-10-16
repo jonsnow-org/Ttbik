@@ -422,7 +422,10 @@ def generate_text(prompt: str, max_new_tokens: float = 60) -> str:
             print(f"studio_generate failed ({type(exc).__name__}: {str(exc)[:120]}) — raw continuation", flush=True)
             # 2026-10-16: no raw continuation on error unless SHAM_STUDIO_RAW_FALLBACK=1 (old behaviour, the lines below kept as is)
             if os.environ.get("SHAM_STUDIO_RAW_FALLBACK", "0").strip().lower() not in ("1", "on", "true", "yes"):
-                return "لم أفهم السؤال جيداً، جرّب صياغته بشكل آخر."
+                try:        # the model's own answer again (chat layout, <EOS> held back at first) — never a fixed text
+                    return _studio_chat()._chat_retry(model, tok, prompt, n)
+                except Exception:
+                    return ""
         ids = torch.tensor([tok.encode(prompt)], dtype=torch.long)
         out = generate_tokens(model, ids, max_new_tokens=n, temperature=0.8, top_k=50, top_p=0.95, eos_id=SpecialTokens.EOS, repetition_penalty=1.3,
                               allowed_ranges=[(0, tok.vocab_size)] * n)

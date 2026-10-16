@@ -50,9 +50,10 @@ def raw_continuation(model, tokenizer, prompt: str, max_new_tokens: int) -> str:
 
 # 2026-10-16 (owner-approved fix): an empty chat answer used to fall back to a RAW continuation of the prompt, which is exactly the
 # "continues Wikipedia text" reply seen in the bot. Now (SHAM_STUDIO_RAW_FALLBACK=0, default) it retries ONCE in the dialogue layout with
-# <EOS> held back for the first MIN_ANSWER_TOKENS tokens, and if that is still empty it says so honestly. SHAM_STUDIO_RAW_FALLBACK=1 = old.
-NO_ANSWER = "لم أفهم السؤال جيداً، جرّب صياغته بشكل آخر."
+# <EOS> held back for the first MIN_ANSWER_TOKENS tokens (a second try with slightly hotter sampling if needed). No fixed/canned text is ever
+# returned: whatever the model itself writes is the answer. SHAM_STUDIO_RAW_FALLBACK=1 = old behaviour.
 MIN_ANSWER_TOKENS = 4
+RETRY_TEMPERATURES = (0.7, 0.9)
 
 
 def _raw_fallback() -> bool:
@@ -60,7 +61,16 @@ def _raw_fallback() -> bool:
 
 
 def _chat_retry(model, tokenizer, prompt: str, max_new_tokens: int, today=None) -> str:
-    """One more try in the chat layout, no search; <EOS> is not allowed before MIN_ANSWER_TOKENS. Returns "" if still nothing / on error."""
+    """Up to two more tries in the chat layout, no search; <EOS> is not allowed before MIN_ANSWER_TOKENS. Returns the model's own text."""
+    text = ""
+    for temp in RETRY_TEMPERATURES:
+        text = _chat_try(model, tokenizer, prompt, max_new_tokens, today, temp)
+        if text.strip():
+            break
+    return text
+
+
+def _chat_try(model, tokenizer, prompt: str, max_new_tokens: int, today, temp: float) -> str:
     try:
         from model import SpecialTokens
         from sham_decoding import chat_prompt_ids, guarded_generate_tokens
@@ -68,14 +78,14 @@ def _chat_retry(model, tokenizer, prompt: str, max_new_tokens: int, today=None) 
         wrapped = torch.tensor([chat_prompt_ids(ids)], dtype=torch.long)
         text_range = [(0, tokenizer.vocab_size)]
         n_min = max(1, min(MIN_ANSWER_TOKENS, max_new_tokens))
-        out = guarded_generate_tokens(model, wrapped, n_min, temperature=0.7, top_k=40, top_p=0.9, eos_id=None,
+        out = guarded_generate_tokens(model, wrapped, n_min, temperature=temp, top_k=40, top_p=0.9, eos_id=None,
                                       allowed_ranges=text_range * n_min)
         rest = max_new_tokens - n_min
         if rest > 0:
-            out = guarded_generate_tokens(model, out, rest, temperature=0.7, top_k=40, top_p=0.9, eos_id=SpecialTokens.EOS,
+            out = guarded_generate_tokens(model, out, rest, temperature=temp, top_k=40, top_p=0.9, eos_id=SpecialTokens.EOS,
                                           allowed_ranges=text_range * rest)
         new = [t for t in out[0, wrapped.shape[1]:].tolist() if t < tokenizer.vocab_size]
-        return tokenizer.decode(new).strip()
+        return tokenizer.decode(new)
     except Exception as exc:
         print(f"chat retry failed ({type(exc).__name__}: {str(exc)[:120]})", flush=True)
         return ""
@@ -94,7 +104,7 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
     if not _on("SHAM_STUDIO_CHAT"):
         if _raw_fallback():
             return raw_continuation(model, tokenizer, prompt, max_new_tokens)
-        return _chat_retry(model, tokenizer, prompt, max_new_tokens, today) or NO_ANSWER
+        return _chat_retry(model, tokenizer, prompt, max_new_tokens, today)
     from sham_decoding import chat_generate_with_search, chat_prompt_ids, web_search_text
     if search_fn == "default":
         search_fn = web_search_text if _on("SHAM_STUDIO_SEARCH") else None
@@ -106,7 +116,7 @@ def studio_generate(model, tokenizer, prompt: str, max_new_tokens: int = 60, tod
     if not text:                                    # the model answered nothing: fall back to the raw path rather than return an empty reply
         if _raw_fallback():                         # 2026-10-16: old behaviour only with SHAM_STUDIO_RAW_FALLBACK=1 (line above kept)
             return raw_continuation(model, tokenizer, prompt, max_new_tokens)
-        text = _chat_retry(model, tokenizer, prompt, max_new_tokens, today) or NO_ANSWER
+        text = _chat_retry(model, tokenizer, prompt, max_new_tokens, today)
     return ("[بحث: " + " | ".join(queries) + "] " + text) if queries else text
 
 
@@ -150,8 +160,8 @@ if __name__ == "__main__":
     globals()["raw_continuation"] = lambda *a, **k: calls.append(1) or "RAW"
     r = studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None)
     assert r and r != "RAW" and not calls, r
-    globals()["_chat_retry"], _keep = (lambda *a, **k: ""), _chat_retry
-    assert studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None) == NO_ANSWER
+    globals()["_chat_retry"], _keep = (lambda *a, **k: "نص النموذج"), _chat_retry
+    assert studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None) == "نص النموذج" and not calls
     os.environ["SHAM_STUDIO_RAW_FALLBACK"] = "1"
     assert studio_generate(model, Tok(), "سؤال", 8, today=d, search_fn=None) == "RAW" and calls
     os.environ.pop("SHAM_STUDIO_RAW_FALLBACK")
