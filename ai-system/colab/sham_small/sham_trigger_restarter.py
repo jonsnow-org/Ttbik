@@ -34,9 +34,32 @@ def _token() -> str | None:
     try:
         from kaggle_secrets import UserSecretsClient
         t = UserSecretsClient().get_secret("GITHUB_TOKEN")
-        return t or None
+        if t:
+            return t
     except Exception:
-        return None
+        pass
+    return _token_from_input()
+
+
+# Kernels the restarter pushes through the API get no Kaggle secrets (that is why the
+# credentials fallback V3 reads kaggle.json from the private dataset sham-runtime-creds).
+# Same idea for this one request (added 2026-10-16): an optional file with a token limited to
+# "Actions: write" on this repo. File absent -> silent no-op, exactly as before.
+TOKEN_FILES = ("github_dispatch_token.txt", "github_token.txt")
+
+
+def _token_from_input() -> str | None:
+    import glob
+    for name in TOKEN_FILES:
+        for pat in (f"/kaggle/input/sham-runtime-creds/**/{name}", f"/kaggle/input/**/{name}"):
+            for p in sorted(glob.glob(pat, recursive=True)):
+                try:
+                    t = open(p, encoding="utf-8").read().strip()
+                    if t:
+                        return t
+                except Exception:
+                    pass
+    return None
 
 
 def _request(token: str, delay: int) -> urllib.request.Request:
