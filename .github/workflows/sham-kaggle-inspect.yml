@@ -1,0 +1,32 @@
+name: Sham Kaggle Inspect (read-only)
+
+# قراءة فقط (2026-10-16): حالة كل دفتر يراقبه المراقب وآخر سطور سجله، وآخر نسخة (رقمها وتاريخها وحجمها) من كل مجموعة sham*. لا يغيّر شيئاً على كاكل.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "40 */3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install kaggle requests
+      - name: Inspect
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          SHAM_RESTART_KERNELS: ${{ secrets.SHAM_RESTART_KERNELS }}
+          SHAM_RESTART_TRACKS: ${{ vars.SHAM_RESTART_TRACKS || 'all_in_one,ab_in_one,chat_image_in_one' }}
+        run: python ai-system/supervision/sham_kaggle_inspect.py

@@ -1,0 +1,98 @@
+"""
+Sham — ask the restarter to run as soon as this notebook's session ends (owner, 2026-10-16).
+
+GitHub's */15 cron for sham-restarter.yml actually fires every 3-5 hours, so a finished notebook
+sat idle for hours. At the end of a session (atexit, so it fires even after a failure) this sends
+one workflow_dispatch for sham-restarter.yml (live=1, delay=N seconds so Kaggle has time to mark
+the kernel COMPLETE before the restarter looks at it).
+
+  * token: env GITHUB_TOKEN / GH_TOKEN, else the Kaggle secret GITHUB_TOKEN; none -> silent no-op;
+  * never raises, never prints the token; SHAM_NO_RESTART_TRIGGER=1 switches it off;
+  * fires at most once per process; outside Kaggle (no /kaggle) it does nothing.
+Deployment plumbing only: it touches no training, model, merge or data logic.
+
+  python sham_trigger_restarter.py   -> offline self-test
+"""
+from __future__ import annotations
+
+import atexit
+import json
+import os
+import urllib.request
+
+REPO = os.environ.get("SHAM_RESTARTER_REPO", "jonsnow-org/Ttbik")
+WORKFLOW = "sham-restarter.yml"
+REF = "sham-main"
+DEFAULT_DELAY = 240
+_STATE = {"installed": False, "fired": False}
+
+
+def _token() -> str | None:
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        if os.environ.get(k):
+            return os.environ[k]
+    try:
+        from kaggle_secrets import UserSecretsClient
+        t = UserSecretsClient().get_secret("GITHUB_TOKEN")
+        return t or None
+    except Exception:
+        return None
+
+
+def _request(token: str, delay: int) -> urllib.request.Request:
+    body = json.dumps({"ref": REF, "inputs": {"live": "1", "delay": str(int(delay))}}).encode()
+    return urllib.request.Request(
+        f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW}/dispatches", data=body, method="POST",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"})
+
+
+def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: str | None = None) -> bool:
+    if _STATE["fired"] or os.environ.get("SHAM_NO_RESTART_TRIGGER") == "1":
+        return False
+    tok = token or _token()
+    if not tok:
+        return False
+    _STATE["fired"] = True
+    try:
+        with opener(_request(tok, delay), timeout=20) as r:
+            ok = getattr(r, "status", 204) in (200, 201, 204)
+        print(f"sham_trigger_restarter: {'requested' if ok else 'not accepted'} (restarter in ~{delay}s)")
+        return ok
+    except Exception as exc:
+        print(f"sham_trigger_restarter: skipped ({type(exc).__name__})")
+        return False
+
+
+def install(delay: int = DEFAULT_DELAY) -> None:
+    if _STATE["installed"] or not os.path.isdir("/kaggle"):
+        return
+    _STATE["installed"] = True
+    atexit.register(trigger, delay)
+
+
+def _self_test() -> None:
+    sent = []
+
+    class R:
+        status = 204
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def opener(req, timeout=0):
+        sent.append(json.loads(req.data)); assert "secret" in req.headers["Authorization"]; return R()
+
+    for k in ("GITHUB_TOKEN", "GH_TOKEN"):
+        os.environ.pop(k, None)
+    assert trigger(opener=opener) is False and not sent            # no token -> silent no-op
+    assert trigger(5, opener=opener, token="secret") is True
+    assert sent == [{"ref": "sham-main", "inputs": {"live": "1", "delay": "5"}}]
+    assert trigger(opener=opener, token="secret") is False          # once per process
+    _STATE["fired"] = False
+    def bad(*a, **k): raise OSError("net")
+    assert trigger(opener=bad, token="secret") is False             # never raises
+    print("sham_trigger_restarter self-test OK")
+
+
+if __name__ == "__main__":
+    _self_test()

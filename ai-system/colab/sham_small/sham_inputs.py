@@ -774,3 +774,10 @@ try:
     _sham_cell_sync.install()
 except Exception as _exc:
     print(f"sham_cell_sync not installed: {_exc}")
+
+# When this session ends (even on failure), ask the restarter to run instead of waiting for GitHub's lagging cron (sham_trigger_restarter.py, 2026-10-16).
+try:
+    import sham_trigger_restarter as _sham_trigger_restarter
+    _sham_trigger_restarter.install()
+except Exception as _exc:
+    print(f"sham_trigger_restarter not installed: {_exc}")
