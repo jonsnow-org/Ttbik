@@ -102,9 +102,46 @@ def format_cycle_report(
 _DEFAULT_FALLBACK_DIRS = "/kaggle/working/corpus/wikipedia_ar:/kaggle/working/corpus"
 
 
+def _seed_rotation_enabled() -> bool:
+    import os
+    return os.environ.get("SHAM_SEED_ROTATION", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _crawl_seed_rotation(stats: CrawlStats, search_fn, fetch_fn, corpus, perplexity_filter) -> CrawlStats:
+    """Additive (2026-10-16): the normal crawl added nothing, so try more search
+    topics, then rotating verified seed URLs (sham_seed_sources). Still goes
+    through fetch_fn (real_fetch checks robots.txt on every URL)."""
+    import dataclasses
+    import sham_seed_sources as seeds
+    _crawl_seed_rotation.calls = getattr(_crawl_seed_rotation, "calls", 0) + 1
+    c = _crawl_seed_rotation.calls
+    seed_list = seeds.seed_urls_for_cycle(c)
+    rounds = [
+        ({"ar": seeds.extra_topics_for_cycle(c)}, search_fn, 3),
+        ({"ar": ["__seed__"]}, (lambda _q, _l: list(seed_list)), len(seed_list)),
+    ]
+    for topics, sfn, pages in rounds:
+        try:
+            extra = crawl_and_learn(topics, sfn, fetch_fn, corpus,
+                                    perplexity_filter=perplexity_filter, max_pages_per_topic=pages)
+        except Exception as exc:  # never let the extra round break the cycle
+            logger.info("seed rotation round failed: %s", exc)
+            continue
+        for f in dataclasses.fields(stats):
+            v = getattr(stats, f.name)
+            if isinstance(v, int):
+                setattr(stats, f.name, v + getattr(extra, f.name))
+            elif isinstance(v, list):
+                v.extend(getattr(extra, f.name))
+        if stats.added:
+            break
+    print(f"seed rotation: crawl had added 0 -> extra topics/seeds added {stats.added} (disable with SHAM_SEED_ROTATION=0)")
+    return stats
+
+
 def _crawl_fallback_enabled() -> bool:
     import os
-    return os.environ.get("SHAM_CRAWL_FALLBACK", "1").strip().lower() not in ("0", "false", "no", "off")
+    return os.environ.get("SHAM_CRAWL_FALLBACK", "0").strip().lower() not in ("0", "false", "no", "off")
 
 
 def _fallback_text_paths(corpus_paths: list) -> list:
@@ -176,6 +213,8 @@ def run_autonomous_cycle(
         perplexity_filter=perplexity_filter,
         max_pages_per_topic=max_pages_per_topic,
     )
+    if crawl_stats.added == 0 and _seed_rotation_enabled():
+        crawl_stats = _crawl_seed_rotation(crawl_stats, search_fn, fetch_fn, corpus, perplexity_filter)
     logger.info(
         "autonomous cycle: crawl done -- added=%d duplicate=%d near_duplicate=%d "
         "not_learnable=%d fetch_failed=%d",
@@ -263,6 +302,8 @@ def run_forever(
 
 
 if __name__ == "__main__":
+    import os as _os
+    _os.environ.setdefault("SHAM_SEED_ROTATION", "0")  # self-test uses fake fetchers; real seed URLs are irrelevant here
     import tempfile
 
     import torch
