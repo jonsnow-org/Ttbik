@@ -98,6 +98,56 @@ def format_cycle_report(
     return "\n".join(lines)
 
 
+# --- Additive fallback (2026-10-16). Revert with SHAM_CRAWL_FALLBACK=0. ---------
+_DEFAULT_FALLBACK_DIRS = "/kaggle/working/corpus/wikipedia_ar:/kaggle/working/corpus"
+
+
+def _crawl_fallback_enabled() -> bool:
+    import os
+    return os.environ.get("SHAM_CRAWL_FALLBACK", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _fallback_text_paths(corpus_paths: list) -> list:
+    """Existing text to train on when a cycle's crawl added nothing: local
+    text shards (e.g. the Arabic Wikipedia stream the notebook already
+    wrote) first, then the existing crawl corpus. Rotates the start
+    position each call so repeated fallback cycles don't always begin
+    with the same file."""
+    import os
+    dirs = os.environ.get("SHAM_FALLBACK_TEXT_DIRS", _DEFAULT_FALLBACK_DIRS)
+    paths: list = []
+    seen: set = set()
+    for d in [x for x in dirs.split(":") if x.strip()]:
+        root = Path(d)
+        if root.is_dir():
+            for p in sorted(root.rglob("*.txt")):
+                key = str(p)
+                if key not in seen and p.stat().st_size > 0:
+                    seen.add(key)
+                    paths.append(p)
+    for p in corpus_paths:
+        if str(p) not in seen:
+            seen.add(str(p))
+            paths.append(p)
+    if not paths:
+        return []
+    _fallback_text_paths.calls = getattr(_fallback_text_paths, "calls", 0) + 1
+    k = (_fallback_text_paths.calls - 1) % len(paths)
+    return paths[k:] + paths[:k]
+
+
+def _fallback_train_cfg(train_cfg: StreamTrainConfig) -> StreamTrainConfig:
+    """Same config, only the per-cycle step cap is bounded so one fallback
+    cycle can't overrun the session (SHAM_FALLBACK_MAX_STEPS, default 150)."""
+    import dataclasses
+    import os
+    try:
+        cap = max(1, int(os.environ.get("SHAM_FALLBACK_MAX_STEPS", "150")))
+    except ValueError:
+        cap = 150
+    return dataclasses.replace(train_cfg, total_steps=min(train_cfg.total_steps, cap))
+
+
 def run_autonomous_cycle(
     model: ShamSmall,
     tokenizer: ShamTextTokenizer,
@@ -138,6 +188,18 @@ def run_autonomous_cycle(
     # memory), so retraining on all of it every cycle would repeat the same
     # documents over and over -- train only on what this cycle added.
     file_paths = [p for p in all_paths if p not in files_before] if train_on_new_only else all_paths
+    fallback_cfg = None
+    if not file_paths and train_on_new_only and _crawl_fallback_enabled():
+        # 2026-10-16 (additive): a cycle whose crawl added nothing used to train 0
+        # steps, so a whole session could freeze the step counter. Fall back to text
+        # already on disk (existing corpus + local text shards), capped in steps.
+        file_paths = _fallback_text_paths(all_paths)
+        if file_paths:
+            fallback_cfg = _fallback_train_cfg(train_cfg)
+            logger.info("autonomous cycle: crawl added nothing -- fallback training on %d existing "
+                        "text files (max %d steps).", len(file_paths), fallback_cfg.total_steps)
+            print(f"fallback: crawl added 0 -> training on {len(file_paths)} existing text file(s), "
+                  f"max {fallback_cfg.total_steps} steps (disable with SHAM_CRAWL_FALLBACK=0)")
     if not file_paths:
         logger.info("autonomous cycle: corpus is empty -- nothing to train on this cycle.")
         return CycleResult(crawl_stats=crawl_stats, train_losses=[], total_documents_in_corpus=len(all_paths))
@@ -149,7 +211,7 @@ def run_autonomous_cycle(
                 yield text
 
     logger.info("autonomous cycle: training on %d real corpus documents...", len(file_paths))
-    losses = train_from_stream(model, _corpus_text_stream(), tokenizer, train_cfg, device=device)
+    losses = train_from_stream(model, _corpus_text_stream(), tokenizer, fallback_cfg or train_cfg, device=device)
     logger.info("autonomous cycle: training done -- %d real steps, final loss=%.4f",
                 len(losses), losses[-1] if losses else float("nan"))
 

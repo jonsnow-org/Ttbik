@@ -102,7 +102,39 @@ def real_search(query: str, language: str = "ar", max_results: int = 5) -> list[
             query, e,
         )
         return []
-    return [r["href"] for r in results if r.get("href")]
+    urls = [r["href"] for r in results if r.get("href")]
+    return _drop_known_robots_denied(urls)
+
+
+# --- Additive (2026-10-16): skip URLs already known to be robots-disallowed. ----
+# Uses ONLY robots.txt rules already cached from earlier fetches (no bypass, no
+# extra request); real_fetch still checks robots.txt for every URL. Moves allowed
+# URLs to the front so the crawler's per-topic slots aren't wasted on blocked
+# sites. Revert with SHAM_ROBOTS_DENYLIST=0.
+_robots_denied_urls: set[str] = set()
+
+
+def _drop_known_robots_denied(urls: list[str]) -> list[str]:
+    import os
+    if os.environ.get("SHAM_ROBOTS_DENYLIST", "1").strip().lower() in ("0", "false", "no", "off"):
+        return urls
+    kept = []
+    for url in urls:
+        if url in _robots_denied_urls:
+            continue
+        parsed = urlparse(url)
+        parser = _robots_cache.get(f"{parsed.scheme}://{parsed.netloc}")
+        if parser is not None:
+            try:
+                if not parser.can_fetch(USER_AGENT, url):
+                    _robots_denied_urls.add(url)
+                    continue
+            except Exception:
+                pass
+        kept.append(url)
+    if len(kept) < len(urls):
+        logger.info("real_search: skipped %d URL(s) already known to be robots.txt-disallowed", len(urls) - len(kept))
+    return kept
 
 
 def real_fetch(url: str, timeout: float = 10.0, max_retries: int = 3) -> str:
@@ -115,6 +147,7 @@ def real_fetch(url: str, timeout: float = 10.0, max_retries: int = 3) -> str:
     crawl_and_learn() already treats a raised exception from fetch_fn as
     one real "fetch failed" stat, exactly the right outcome here."""
     if not _robots_allows(url):
+        _robots_denied_urls.add(url)
         raise PermissionError(f"robots.txt disallows fetching {url} for this crawler's user agent")
 
     last_exc: Exception | None = None
