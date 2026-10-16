@@ -53,6 +53,10 @@ MAX_SOURCES = int(os.environ.get("SHAM_REPAIR_MAX_SOURCES", "8"))
 BASE_REPAIR_STEPS = int(os.environ.get("SHAM_REPAIR_BASE_STEPS", str(REPAIR_STEPS)))   # 0 = لا إصلاح للأساس
 BASE_CK = "base__repaired.ckpt"
 GRAD_ACCUM, BATCH = 2, 8
+# إصلاح مراقَب بالميزان مع الاحتفاظ بالأفضل والتوقف المبكر (2026-10-16) — SHAM_REPAIR_TRACKED=0 يعيد السلوك القديم
+sys.path.insert(0, str(HERE))
+from repair_eval import (EVAL_EVERY, SESSION_STEPS, TRACKED, TRACKED_STEPS, WARMUP, lr_for,  # noqa: E402
+                         rel_total, tracked_repair)
 SKIP_NAMES = {OWN, BASE_DS}
 
 
@@ -201,6 +205,21 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
         if bm is None:
             bm, _, _ = _lc(base_ckpt, map_location=device); bst["done"] = 0
         remaining = brs - int(bst["done"])
+        if TRACKED and bst.get("mode") != "tracked":
+            bst.update(mode="tracked", done=0); bst.pop("ref", None); bst.pop("best_rel", None)
+            bm, _, _ = _lc(base_ckpt, map_location=device)
+        if TRACKED:
+            remaining = 0
+            if not bst.get("finished") and not out_time():
+                batches = data_builder(bm, tokenizer, hold_q, min(SESSION_STEPS, TRACKED_STEPS) * GRAD_ACCUM,
+                                       seed=base_step + int(bst["done"]))
+                if batches:
+                    say(f"🔧 الأساس: إصلاح مراقَب بالميزان — معدّل {lr_for(BASE_DS):.0e}")
+                    tracked_repair(bm, batches, score, bst, lr=lr_for(BASE_DS), device=device,
+                                   seconds=max(60.0, budget - reserve - (time.time() - t0)), say=say,
+                                   grad_accum=GRAD_ACCUM, batch_size=BATCH, seq_len=min(1024, bm.cfg.max_seq_len))
+                else:
+                    say("⚠ إصلاح الأساس: لا بيانات — يبقى الأساس الأصلي"); bst["status"] = "kept_original"
         if remaining > 0 and not out_time():
             batches = data_builder(bm, tokenizer, hold_q, remaining * GRAD_ACCUM, seed=base_step + int(bst["done"]))
             if batches:
@@ -216,7 +235,7 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
         if bst.get("status") != "kept_original":
             if not _finite(bm):
                 bst["status"] = "kept_original"; say("❌ إصلاح الأساس أنتج قيماً غير منتهية — يبقى الأصلي")
-            elif bst["done"] < brs:
+            elif (not bst.get("finished")) if TRACKED else (bst["done"] < brs):
                 save_checkpoint(OUT / BASE_CK, bm, base_step, extra={"repair_done": bst["done"], "source": BASE_DS})
                 base_pending = True; say(f"⏸ إصلاح الأساس {bst['done']}/{brs} — يكمل في التشغيل القادم")
             else:
@@ -276,6 +295,20 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
             cand, _, _ = load_checkpoint(OUT / _ck_name(name), map_location=device)
         cand.to(device)
         remaining = repair_steps - int(st.get("done", 0))
+        if TRACKED and st.get("mode") != "tracked":          # أول جلسة بالوضع المراقَب: يبدأ العدّ من جديد على النقطة الحالية
+            st.update(mode="tracked", done=0); st.pop("ref", None); st.pop("best_rel", None)
+        if TRACKED:
+            remaining = 0                                    # يُعالَج بالفرع المراقَب أدناه (لا train() الطويل القديم)
+            if not st.get("finished") and int(st.get("done", 0)) < TRACKED_STEPS:
+                batches = data_builder(cand, tokenizer, hold_q, min(SESSION_STEPS, TRACKED_STEPS) * GRAD_ACCUM,
+                                       seed=src_step + int(st.get("done", 0)))
+                if not batches:
+                    say(f"⚠ {name}: لا بيانات إصلاح — يُترك دون تدريب"); st["finished"] = True
+                else:
+                    say(f"🔧 {name}: إصلاح مراقَب بالميزان — معدّل {lr_for(name):.0e} ثابت بعد إحماء {WARMUP}، قياس كل {EVAL_EVERY} خطوة")
+                    tracked_repair(cand, batches, score, st, lr=lr_for(name), device=device,
+                                   seconds=max(60.0, budget - reserve - (time.time() - t0)), say=say,
+                                   grad_accum=GRAD_ACCUM, batch_size=BATCH, seq_len=min(1024, cand.cfg.max_seq_len))
         if remaining > 0:
             batches = data_builder(cand, tokenizer, hold_q, remaining * GRAD_ACCUM, seed=src_step + int(st.get("done", 0)))
             if not batches:
@@ -295,10 +328,12 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
             st.update(status="rejected", why="صار غير منتهٍ بعد التدريب"); state["sources"][name] = st
             say(f"❌ {name}: صار غير منتهٍ بعد الإصلاح — يُرفض"); continue
         save_checkpoint(OUT / _ck_name(name), cand, src_step, extra={"repair_done": st["done"], "source": name})
-        if st["done"] < repair_steps:
+        if (not st.get("finished")) if TRACKED else (st["done"] < repair_steps):
             st["status"] = "training"; state["sources"][name] = st; save_state()
             say(f"⏸ {name}: إصلاح {st['done']}/{repair_steps} — يكمل في التشغيل القادم"); break
         s1 = score(cand)
+        if TRACKED and rel_total(s1, s0) >= len(s0):
+            say(f"   {name}: الإصلاح لم يحسّن الميزان عن نقطة المصدر — تُستعمل أفضل نقطة (قد تكون البداية نفسها)")
         st.update(status="repaired", score_after=s1, rows=rows)
         state["sources"][name] = st
         say(f"🔧 {name} (خطوة {src_step:,}): " + ", ".join(f"{k} {s0[k]:.3f}→{s1[k]:.3f}" for k in s1))
