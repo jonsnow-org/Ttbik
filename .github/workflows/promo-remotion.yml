@@ -1,0 +1,66 @@
+# Free automated promo videos for «شام AI» (Remotion + Playwright + edge-tts on GitHub Actions).
+# Each run renders the next episode in promo/remotion/episodes.json that has no release promo-ep-<id> yet.
+# State = GitHub Releases (no commits pushed, so no Vercel builds). No secrets beyond the built-in GITHUB_TOKEN.
+name: promo-remotion
+on:
+  # Note: dispatch/schedule only activate once this file also exists on the default branch (GitHub rule; needs owner approval).
+  workflow_dispatch:
+    inputs:
+      episode:
+        description: "Force a specific episode id (optional; re-renders and replaces its release)"
+        required: false
+  schedule:
+    - cron: "0 7 * * 0,2,4" # Sun/Tue/Thu 10:00 Istanbul
+permissions:
+  contents: write
+concurrency:
+  group: promo-remotion
+  cancel-in-progress: false
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: promo/remotion
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: claude/promo-video # remotion sources live on the promo branch
+      - name: Pick episode
+        id: pick
+        run: |
+          DONE=$(gh release list -R "$GITHUB_REPOSITORY" -L 200 --json tagName -q '.[].tagName' | sed -n 's/^promo-ep-\([0-9]*\)$/\1/p' | paste -sd, -)
+          FORCE="${{ inputs.episode }}"
+          ID=$(python3 scripts/prepare.py "$DONE" "$FORCE")
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+          if [ -z "$ID" ]; then echo "All episodes rendered. Add more to episodes.json."; fi
+      - uses: actions/setup-node@v4
+        if: steps.pick.outputs.id != ''
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: promo/remotion/package-lock.json
+      - name: Install deps (free)
+        if: steps.pick.outputs.id != ''
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-noto-core >/dev/null
+          pip install -q edge-tts
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Record + TTS + render
+        if: steps.pick.outputs.id != ''
+        run: ./scripts/build-episode.sh
+      - name: Publish release
+        if: steps.pick.outputs.id != ''
+        run: |
+          ID=${{ steps.pick.outputs.id }}
+          TAG=promo-ep-$ID
+          TITLE=$(python3 -c "import json;print(json.load(open('episode.json'))['title'])")
+          cp out/promo.mp4 "out/sham-ai-ep-$ID.mp4"; cp out/thumb.jpg "out/sham-ai-ep-$ID.jpg"
+          gh release delete "$TAG" -R "$GITHUB_REPOSITORY" -y --cleanup-tag 2>/dev/null || true
+          printf 'حلقة %s — %s | شام AI\n\nفيديو ترويجي مولّد آلياً (Remotion). للمراجعة قبل النشر.\n' "$ID" "$TITLE" > notes.md
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Promo ep $ID: $TITLE" -F notes.md "out/sham-ai-ep-$ID.mp4" "out/sham-ai-ep-$ID.jpg"
