@@ -1,0 +1,22 @@
+{
+  "id": "jonsnowjonsnow/sham-repair-remerge",
+  "title": "sham-repair-remerge",
+  "code_file": "sham_repair_remerge.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "jonsnowjonsnow/sham-runtime-creds",
+    "jonsnowjonsnow/sham-merged-checkpoint",
+    "jonsnowjonsnow/sham-chat-checkpoint",
+    "jonsnowjonsnow/sham-chat-arabic-sft-checkpoint",
+    "jonsnowjonsnow/sham-multimodal-checkpoint",
+    "jonsnowjonsnow/sham-cpu-track-checkpoint-v2",
+    "jonsnowjonsnow/sham-research-track-checkpoint-v2",
+    "jonsnowjonsnow/sham-crawl-checkpoint"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}
