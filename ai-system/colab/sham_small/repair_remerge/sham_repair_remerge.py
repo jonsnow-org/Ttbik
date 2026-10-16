@@ -8,6 +8,8 @@ sham_ci_merge.default_gate، train.train، checkpoint، sham_inputs) وتنشر 
 
     1. استرجاع   الأساس = final_merged.pt من sham-merged-checkpoint؛ المصادر = كل مجموعات sham*
                  (اكتشاف تلقائي بنفس قاعدة المهندس KNOWN_SOURCES) ← كل نقطة جديدة مستقبلاً تُعالَج وحدها.
+    1ب. إصلاح الأساس  نسخة من final_merged.pt تُدرَّب تدريب الإصلاح نفسه (SHAM_REPAIR_BASE_STEPS، 0 = تعطيل)، وتُعتمد
+                 أساساً للدمج فقط إن عبرت بوابة المهندس (_passes) مقابل الأصلي؛ وإلا يبقى الأصلي. لا يُكتب final_merged.pt.
     2. قياس      كل مصدر يمر بمرحلة إصلاح المهندس (load_source → sham_repair) ثم بميزانه (default_gate:
                  نص/محادثة/وسائط)؛ يُتخطّى ما فيه قيم غير منتهية أو خسارة منفجرة (> EXPLODE × الأساس).
     3. إصلاح     تدريب قصير منخفض المعدّل (REPAIR_STEPS، افتراضياً 1000) على خليط مهارات (محادثة عربية
@@ -48,6 +50,8 @@ REPAIR_STEPS = int(os.environ.get("SHAM_REPAIR_STEPS", "1000"))
 REPAIR_LR = float(os.environ.get("SHAM_REPAIR_LR", "2e-5"))
 EXPLODE = float(os.environ.get("SHAM_REPAIR_EXPLODE", "3.0"))
 MAX_SOURCES = int(os.environ.get("SHAM_REPAIR_MAX_SOURCES", "8"))
+BASE_REPAIR_STEPS = int(os.environ.get("SHAM_REPAIR_BASE_STEPS", str(REPAIR_STEPS)))   # 0 = لا إصلاح للأساس
+BASE_CK = "base__repaired.ckpt"
 GRAD_ACCUM, BATCH = 2, 8
 SKIP_NAMES = {OWN, BASE_DS}
 
@@ -109,9 +113,10 @@ def default_repair_data(model, tokenizer, gate_hold_questions: set, n_batches: i
 
 
 def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair_data, sources=None,
-        device: str = "cpu", hours: float | None = None, repair_steps: int = REPAIR_STEPS) -> dict:
+        device: str = "cpu", hours: float | None = None, repair_steps: int = REPAIR_STEPS,
+        base_repair_steps: int | None = None) -> dict:
     from checkpoint import load_checkpoint, save_checkpoint
-    from sham_merge import batches_loss, guarded_merge, load_source
+    from sham_merge import _passes, batches_loss, guarded_merge, load_source
     from text_tokenizer import ShamTextTokenizer
     from train import TrainConfig, build_optimizer, train
     import sham_ci_merge
@@ -183,8 +188,59 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
                 shutil.copy2(p, OUT / name); return True
         return (OUT / name).exists()
 
+    # ---- 1ب) إصلاح الأساس نفسه (أُضيف 2026-10-16 بموافقة المالك): نسخة من final_merged.pt تُدرَّب على الخليط نفسه
+    # بالمعدّل المنخفض، وتُعتمد فقط إن عبرت بوابة المهندس (_passes) مقارنة بالأساس الأصلي؛ وإلا يبقى الأصلي.
+    brs = repair_steps if base_repair_steps is None else base_repair_steps
+    bst = state.setdefault("base_repair", {"done": 0})
+    base_pending = False
+    if brs > 0 and bst.get("status") not in ("adopted", "kept_original"):
+        from checkpoint import load_checkpoint as _lc
+        bm = None
+        if bst.get("done", 0) > 0 and carry(BASE_CK):
+            bm, _, _ = _lc(OUT / BASE_CK, map_location=device)
+        if bm is None:
+            bm, _, _ = _lc(base_ckpt, map_location=device); bst["done"] = 0
+        remaining = brs - int(bst["done"])
+        if remaining > 0 and not out_time():
+            batches = data_builder(bm, tokenizer, hold_q, remaining * GRAD_ACCUM, seed=base_step + int(bst["done"]))
+            if batches:
+                d0 = int(bst["done"])
+                cfg = TrainConfig(seq_len=min(1024, bm.cfg.max_seq_len), batch_size=BATCH, grad_accum_steps=GRAD_ACCUM,
+                                  lr=REPAIR_LR, warmup_steps=min(50, max(1, brs // 20)), total_steps=brs,
+                                  checkpoint_dir=str(WORK / "ck" / "_base"), checkpoint_every=10**9, log_every=50,
+                                  max_wall_clock_seconds=max(60.0, budget - reserve - (time.time() - t0)))
+                h = train(bm, batches, cfg, device=device, start_step=d0, resume_optimizer=build_optimizer(bm, REPAIR_LR, 0.1))
+                bst["done"] = d0 + len(h)
+            else:
+                say("⚠ إصلاح الأساس: لا بيانات — يبقى الأساس الأصلي"); bst["status"] = "kept_original"
+        if bst.get("status") != "kept_original":
+            if not _finite(bm):
+                bst["status"] = "kept_original"; say("❌ إصلاح الأساس أنتج قيماً غير منتهية — يبقى الأصلي")
+            elif bst["done"] < brs:
+                save_checkpoint(OUT / BASE_CK, bm, base_step, extra={"repair_done": bst["done"], "source": BASE_DS})
+                base_pending = True; say(f"⏸ إصلاح الأساس {bst['done']}/{brs} — يكمل في التشغيل القادم")
+            else:
+                sb = score(bm)
+                bst["score_after"] = sb
+                if _passes(sb, base_score, 0.005):
+                    save_checkpoint(OUT / BASE_CK, bm, base_step, extra={"repair_done": bst["done"], "source": BASE_DS})
+                    bst["status"] = "adopted"
+                    say("✅ الأساس المُصلَح عبر البوابة: " + ", ".join(f"{k} {base_score[k]:.3f}→{sb[k]:.3f}" for k in sb))
+                else:
+                    bst["status"] = "kept_original"
+                    say("❌ الأساس المُصلَح لم يعبر البوابة — يبقى الأصلي: " + ", ".join(f"{k} {base_score[k]:.3f}→{sb[k]:.3f}" for k in sb))
+        del bm
+        save_state()
+    elif bst.get("status") == "adopted":
+        carry(BASE_CK)
+    if bst.get("status") == "adopted" and (OUT / BASE_CK).exists():
+        from checkpoint import load_checkpoint as _lc
+        model, _, _ = _lc(OUT / BASE_CK, map_location=device)   # المصادر تُدمج فوق الأساس المُصلَح
+        base_score = score(model)
+        say("الأساس المعتمد للدمج: المُصلَح — " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
+
     # ---- 2+3) لكل مصدر: استرجاع + قياس + إصلاح
-    srcs = discover_sources(sources)[:MAX_SOURCES]
+    srcs = [] if base_pending else discover_sources(sources)[:MAX_SOURCES]
     say("المصادر: " + ", ".join(n for n, _, _ in srcs))
     for name, pattern, rows in srcs:
         st = state["sources"].get(name, {})
@@ -250,7 +306,7 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
         del cand
 
     # ---- 4) الدمج بطريقة المهندس وميزانه — فقط حين لا يبقى مصدر قيد التدريب
-    pending = [n for n, s in state["sources"].items() if s.get("status") == "training"]
+    pending = [n for n, s in state["sources"].items() if s.get("status") == "training"] + (["(الأساس)"] if base_pending else [])
     published, changed = None, False
     if not pending:
         cands = []
@@ -263,6 +319,8 @@ def run(fetch=None, publish=None, gate_builder=None, data_builder=default_repair
             lines = guarded_merge(model, cands, score)
             for l in lines: say(l)
             changed = any(l.startswith("✅") for l in lines)
+        if bst.get("status") == "adopted":
+            changed = True
         after = score(model)
         state["last_merge"] = {"at": time.strftime("%Y-%m-%d %H:%M", time.gmtime()), "before": base_score, "after": after, "changed": changed}
         if changed:
@@ -329,6 +387,27 @@ def _selftest():
     # جلسة 2: لا جديد ⇒ لا إعادة معالجة، والناتج السابق يُحمل
     r2 = run(fetch=fetch, publish=publish, gate_builder=gate_builder, data_builder=data_builder, sources=srcs, hours=2, repair_steps=6)
     assert any("عولجت سابقاً" in l for l in r2["log"]) and FINAL_NAME in pubs[-1][1], (r2["log"], pubs)
+    assert r["state"]["base_repair"]["status"] in ("adopted", "kept_original"), r["state"]["base_repair"]
+    assert not any(x == BASE_FILE for x in pubs[-1][1]), pubs        # لا يُكتب final_merged.pt أبداً
+    # إصلاح أساس يسيء على البوابة ⇒ يبقى الأصلي
+    d.pop(OWN, None)
+    worse = lambda m, t, h, n, seed: [(ids, torch.randint(0, 2000, (4, 32)))] * n
+    r3 = run(fetch=fetch, publish=publish, gate_builder=gate_builder, data_builder=worse, sources=[], hours=2, repair_steps=6)
+    assert r3["state"]["base_repair"]["status"] == "kept_original" and not r3["changed"], (r3["log"], r3["state"]["base_repair"])
+    # إصلاح أساس مقطوع (البيانات تكفي نصف الخطوات) ⇒ يُحفظ .ckpt ويُستأنف في الجلسة التالية، والدمج مؤجّل
+    d.pop(OWN, None)
+    half = lambda m, t, h, n, seed: [(ids, labels)] * max(2, n // 2)
+    r4 = run(fetch=fetch, publish=publish, gate_builder=gate_builder, data_builder=half, sources=[], hours=2, base_repair_steps=4)
+    b4 = r4["state"]["base_repair"]
+    assert b4["done"] == 2 and "status" not in b4 and BASE_CK in pubs[-1][1] and FINAL_NAME not in pubs[-1][1], (r4["log"], b4, pubs[-1])
+    for _ in range(3):      # كل جلسة تكمل من حيث توقفت السابقة (2 → 3 → 4)
+        r5 = run(fetch=fetch, publish=publish, gate_builder=gate_builder, data_builder=half, sources=[], hours=2, base_repair_steps=4)
+        b5 = r5["state"]["base_repair"]
+        assert b5["done"] > b4["done"] or "status" in b5, b5
+        b4 = b5
+        if "status" in b5:
+            break
+    assert b5["done"] == 4 and b5["status"] in ("adopted", "kept_original"), (r5["log"], b5)
     print("sham_repair_remerge self-test OK")
 
 
