@@ -18,6 +18,10 @@ on:
         description: "1 = دفع حقيقي، غير ذلك = تجريبي (يُظهر ما كان سيراقبه فقط)"
         required: false
         default: "0"
+      delay:
+        description: "ثوانٍ ينتظرها قبل الفحص (يستعملها الدفتر حين يطلب المراقب في نهاية جلسته، حتى تصير حالته COMPLETE)؛ الحد 900"
+        required: false
+        default: "0"
 
 concurrency:
   group: sham-restarter
@@ -39,6 +43,11 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install kaggle requests
+      - name: Optional delay (requested by a notebook at the end of its session)
+        env:
+          DELAY: ${{ github.event.inputs.delay || '0' }}
+        run: |
+          d=$(printf '%s' "$DELAY" | tr -cd '0-9'); d=${d:-0}; [ "$d" -gt 900 ] && d=900; echo "delay ${d}s"; sleep "$d"
       - name: Watch and restart
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
