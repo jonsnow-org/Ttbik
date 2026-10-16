@@ -135,6 +135,8 @@ def resolve_tracks(api, tracks: list[str], workdir: Path, log=print) -> dict[str
 # Additive (owner approved 2026-10-16): notebooks watched by explicit name, with their source folder in this repo.
 EXTRA_KERNELS = {
     "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
+    # 5th notebook (2026-10-16, additive): the separate repair + re-merge tool (own dataset sham-repair-remerge-checkpoint)
+    "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
 }
 
 
@@ -189,7 +191,7 @@ def main() -> int:
             return "dry-run"
         src = EXTRA_KERNELS.get(slug)
         if src:   # 4th notebook (2026-10-16): push the repo's arabic_sft/ notebook + its kernel-metadata.json (resumes from its own checkpoint dataset)
-            return resume_kernel(slug, str(src / "sham_arabic_sft.ipynb"), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
+            return resume_kernel(slug, str(src / json.loads((src / "kernel-metadata.json").read_text(encoding="utf-8"))["code_file"]), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
                                  sync_from_repo=True, auto_accelerator=True, state=accel, runtime_fixes=True)
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
                              runtime_fixes=True)  # SHAM_SECRETS_FALLBACK (2026-10-15)
