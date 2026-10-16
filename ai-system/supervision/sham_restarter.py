@@ -132,6 +132,26 @@ def resolve_tracks(api, tracks: list[str], workdir: Path, log=print) -> dict[str
     return out
 
 
+# Additive (owner approved 2026-10-16): notebooks watched by explicit name, with their source folder in this repo.
+EXTRA_KERNELS = {
+    "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
+}
+
+
+class _RepoMetaApi:
+    """Wraps the Kaggle api: after kernels_pull, the repo's kernel-metadata.json replaces the pulled one."""
+    def __init__(self, api, src: Path):
+        self._api, self._src = api, src
+
+    def __getattr__(self, name):
+        return getattr(self._api, name)
+
+    def kernels_pull(self, slug, path, *a, **kw):
+        out = self._api.kernels_pull(slug, path, *a, **kw)
+        (Path(path) / "kernel-metadata.json").write_bytes((self._src / "kernel-metadata.json").read_bytes())
+        return out
+
+
 def main() -> int:
     slugs = [s.strip() for s in os.environ.get("SHAM_RESTART_KERNELS", "").split(",") if s.strip()]
     tracks = [s.strip() for s in os.environ.get("SHAM_RESTART_TRACKS", "").split(",") if s.strip()]
@@ -161,12 +181,16 @@ def main() -> int:
         state["resolved"] = resolved
     else:
         print(f"المسارات محلولة اليوم: {len(resolved.get('refs', {}))} دفتراً")
-    watch = list(dict.fromkeys(list(resolved.get("refs", {}).values()) + slugs))
+    watch = list(dict.fromkeys(list(resolved.get("refs", {}).values()) + slugs + list(EXTRA_KERNELS)))
     print(f"عدد الدفاتر المراقَبة: {len(watch)} | الوضع: {'حي' if live else 'تجريبي (لا دفع)'}")
 
     def resume(slug, accel):
         if not live:
             return "dry-run"
+        src = EXTRA_KERNELS.get(slug)
+        if src:   # 4th notebook (2026-10-16): push the repo's arabic_sft/ notebook + its kernel-metadata.json (resumes from its own checkpoint dataset)
+            return resume_kernel(slug, str(src / "sham_arabic_sft.ipynb"), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
+                                 sync_from_repo=True, auto_accelerator=True, state=accel, runtime_fixes=True)
         return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
                              runtime_fixes=True)  # SHAM_SECRETS_FALLBACK (2026-10-15)
 
