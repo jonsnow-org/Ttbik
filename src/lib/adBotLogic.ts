@@ -9,6 +9,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
   getOrCreateTonMemo,
@@ -998,12 +999,21 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         return;
       }
       const refund = Number(ad.remaining);
-      const fresh = await prisma.user.findUnique({ where: { id: user.id } });
-      await prisma.$transaction([
-        prisma.ad.update({ where: { id: ad.id }, data: { status: "CANCELLED", remaining: 0 } }),
-        prisma.user.update({ where: { id: user.id }, data: { balance: round2(Number(fresh?.balance || 0) + refund) } }),
-        prisma.transaction.create({ data: { userId: user.id, amount: refund, currency: "internal", type: "AD_REFUND", status: "COMPLETED" } }),
-      ]);
+      // Compare-and-swap on (status, remaining) inside one transaction: a
+      // repeated confirm, or a task paid out between the read above and this
+      // write, must not refund twice or refund a stale amount.
+      const cancelled = await prisma.$transaction(async (tx) => {
+        const r = await tx.ad.updateMany({ where: { id: ad.id, status: ad.status, remaining: ad.remaining }, data: { status: "CANCELLED", remaining: 0 } });
+        if (r.count !== 1) return false;
+        await tx.user.update({ where: { id: user.id }, data: { balance: { increment: refund } } });
+        await tx.transaction.create({ data: { userId: user.id, amount: refund, currency: "internal", type: "AD_REFUND", status: "COMPLETED" } });
+        return true;
+      });
+      if (!cancelled) {
+        await bot.api.sendMessage(chatId, t(lang, "myAdNotFound"));
+        await sendMyAdsList(bot, chatId, user.id, lang);
+        return;
+      }
       await bot.api.sendMessage(chatId, t(lang, "myAdCancelledOk", { amount: fmt(refund) }));
       await sendMyAdsList(bot, chatId, user.id, lang);
       return;
@@ -1030,14 +1040,20 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return;
     }
     const newRemaining = round2(Number(ad.remaining) + amount);
-    await prisma.$transaction([
-      prisma.ad.update({
+    const toppedUp = await prisma.$transaction(async (tx) => {
+      if (!(await debitUserBalance(tx, user.id, amount))) return false;
+      await tx.ad.update({
         where: { id: ad.id },
-        data: { remaining: newRemaining, totalBudget: round2(Number(ad.totalBudget) + amount), status: ad.status === "EXPIRED" ? "ACTIVE" : ad.status },
-      }),
-      prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - amount) } }),
-      prisma.transaction.create({ data: { userId: user.id, amount, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } }),
-    ]);
+        data: { remaining: { increment: amount }, totalBudget: { increment: amount }, status: ad.status === "EXPIRED" ? "ACTIVE" : ad.status },
+      });
+      await tx.transaction.create({ data: { userId: user.id, amount, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+      return true;
+    });
+    if (!toppedUp) {
+      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+      await bot.api.sendMessage(chatId, t(lang, "myAdTopupInsufficient", { amount: fmt(amount), balance: fmt(balance), link }));
+      return;
+    }
     await bot.api.sendMessage(chatId, t(lang, "myAdTopupDone", { amount: fmt(amount), remaining: fmt(newRemaining) }));
     await sendAdManageScreen(bot, chatId, user.id, ad.id, lang);
     return;
@@ -1365,10 +1381,13 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return;
     }
     const isAudit = amount > AUDIT_THRESHOLD;
-    await prisma.bot.update({ where: { id: botRow.id }, data: { ownerBalance: round2(ownerBalance - amount) } });
-    const tx = await prisma.transaction.create({
-      data: { userId: user.id, botId: botRow.id, amount: round2(amount), currency: "internal", type: "OWNER_WITHDRAWAL", status: isAudit ? "PENDING_AUDIT" : "PENDING", destination: pending.address },
-    });
+    const created = await requestWithdrawal({ userId: user.id, botId: botRow.id, amount: round2(amount), destination: pending.address, audit: isAudit });
+    if (!created.ok) {
+      const now = await prisma.bot.findUnique({ where: { id: botRow.id } });
+      await bot.api.sendMessage(chatId, `رصيدك الحالي القابل للسحب ${fmt(Number(now?.ownerBalance || 0))} فقط.`);
+      return;
+    }
+    const tx = { id: created.id };
     await setPending(user.id, null);
     await bot.api.sendMessage(
       chatId,
@@ -1759,10 +1778,14 @@ async function consumeWithdrawAmount(bot: TelegramBot, chatId: number, user: any
     return;
   }
   const isAudit = amount > AUDIT_THRESHOLD;
-  await prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - amount) } });
-  const tx = await prisma.transaction.create({
-    data: { userId: user.id, amount: round2(amount), currency: "internal", type: "WITHDRAWAL", status: isAudit ? "PENDING_AUDIT" : "PENDING", destination: address },
-  });
+  // Balance check + debit + request row in one atomic step (see requestWithdrawal).
+  const created = await requestWithdrawal({ userId: user.id, amount: round2(amount), destination: address, audit: isAudit });
+  if (!created.ok) {
+    const now = await prisma.user.findUnique({ where: { id: user.id } });
+    await bot.api.sendMessage(chatId, t(lang, "withdrawInsufficient", { balance: fmt(Number(now?.balance || 0)) }));
+    return;
+  }
+  const tx = { id: created.id };
   await setPending(user.id, null);
   await bot.api.sendMessage(chatId, t(lang, "withdrawSent", { amount: fmt(amount) }), { reply_markup: mainMenu(lang) });
 
@@ -2377,31 +2400,44 @@ async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: E
     rejected = await isLinkUnsafe(url);
   }
 
-  await prisma.ad.create({
-    data: {
-      userId: user.id,
-      botId: fresh!.botId,
-      type: type as any,
-      content: collected.target || "",
-      description: collected.description || null,
-      totalBudget: budget,
-      cpc,
-      ownerCut,
-      creatorCut,
-      workerCut,
-      remaining: budget,
-      status: rejected ? "REJECTED" : "ACTIVE",
-      scope,
-      targetBotId: scope === "TARGETED" ? fresh!.botId : null,
-    },
-  });
-  await setPending(user.id, null);
+  // The charge and the ad row are one atomic step: the balance check is part
+  // of the UPDATE itself, so two quick confirms can't both launch an ad on the
+  // same money, and a failed charge never leaves a free ad behind. A rejected
+  // ad is never charged.
+  const adData = {
+    userId: user.id,
+    botId: fresh!.botId,
+    type: type as any,
+    content: collected.target || "",
+    description: collected.description || null,
+    totalBudget: budget,
+    cpc,
+    ownerCut,
+    creatorCut,
+    workerCut,
+    remaining: budget,
+    status: rejected ? "REJECTED" : "ACTIVE",
+    scope,
+    targetBotId: scope === "TARGETED" ? fresh!.botId : null,
+  };
   if (rejected) {
+    await prisma.ad.create({ data: adData });
+    await setPending(user.id, null);
     await bot.api.sendMessage(chatId, t(lang, "adAutoRejected"), { reply_markup: mainMenu(lang) });
     return;
   }
-  await prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - budget) } });
-  await prisma.transaction.create({ data: { userId: user.id, amount: budget, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+  const launched = await prisma.$transaction(async (tx) => {
+    if (!(await debitUserBalance(tx, user.id, budget))) return false;
+    await tx.ad.create({ data: adData });
+    await tx.transaction.create({ data: { userId: user.id, amount: budget, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+    return true;
+  });
+  if (!launched) {
+    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+    await bot.api.sendMessage(chatId, t(lang, "adInsufficientBalance", { budget: fmt(budget), balance: fmt(balance), link }), { reply_markup: reviewInsufficientMenu(lang) });
+    return;
+  }
+  await setPending(user.id, null);
   await bot.api.sendMessage(chatId, t(lang, "adLaunched", { budget: fmt(budget) }), { reply_markup: mainMenu(lang) });
 }
 
@@ -2552,19 +2588,19 @@ async function decideWithdrawal(bot: TelegramBot, chatId: number, txIdSuffix: st
       }
       return;
     }
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "COMPLETED" } });
+    if (!(await claimWithdrawal(tx.id, tx.status, "COMPLETED"))) {
+      await bot.api.sendMessage(chatId, "الطلب غير موجود أو عولج مسبقاً.");
+      return;
+    }
     await bot.api.sendMessage(chatId, "✅ تمت الموافقة — حوّل المبلغ يدوياً للمستفيد.");
-  } else if (tx.type === "OWNER_WITHDRAWAL" && tx.botId) {
-    // Refund goes back to the bot's withdrawable commission, not a user balance.
-    const botRow = await prisma.bot.findUnique({ where: { id: tx.botId } });
-    await prisma.bot.update({ where: { id: tx.botId }, data: { ownerBalance: round2(Number(botRow?.ownerBalance || 0) + Number(tx.amount)) } });
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "FAILED" } });
-    await bot.api.sendMessage(chatId, "❌ رُفض الطلب وأُعيد المبلغ لرصيد منشئ البوت.");
   } else {
-    const user = await prisma.user.findUnique({ where: { id: tx.userId } });
-    await prisma.user.update({ where: { id: tx.userId }, data: { balance: round2(Number(user?.balance || 0) + Number(tx.amount)) } });
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "FAILED" } });
-    await bot.api.sendMessage(chatId, "❌ رُفض الطلب وأُعيد المبلغ للمستخدم.");
+    // Refund exactly once: the status change and the balance increment are one
+    // transaction and only the call that wins the status change refunds.
+    if (!(await rejectWithdrawal({ id: tx.id, userId: tx.userId, botId: tx.botId, type: tx.type, amount: Number(tx.amount) }))) {
+      await bot.api.sendMessage(chatId, "الطلب غير موجود أو عولج مسبقاً.");
+      return;
+    }
+    await bot.api.sendMessage(chatId, tx.type === "OWNER_WITHDRAWAL" && tx.botId ? "❌ رُفض الطلب وأُعيد المبلغ لرصيد منشئ البوت." : "❌ رُفض الطلب وأُعيد المبلغ للمستخدم.");
   }
 }
 
