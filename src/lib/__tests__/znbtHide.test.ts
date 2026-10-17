@@ -1,5 +1,4 @@
 // ZNBt moderation: the hide challenge and owner check (pure; the database is not touched here).
-import { describe, it, expect } from "vitest";
 import { Address } from "@ton/core";
 import { makeHidePayload, readHidePayload, isOwnerAddress, validCurve, OWNER_WALLET } from "../znbtHide";
 

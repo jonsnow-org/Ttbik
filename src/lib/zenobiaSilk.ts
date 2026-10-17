@@ -61,3 +61,10 @@ export async function silkConfig(k: string): Promise<string | undefined> {
   const r = (await prisma.$queryRawUnsafe(`SELECT v FROM zenobia_config WHERE k=$1 LIMIT 1`, k)) as { v: string }[];
   return r[0]?.v;
 }
+
+/** The coins that count for the passport and the hall: ZNB (config "jetton") and, once the owner sets it with /jetton2, ZNBt (config "jetton2"). */
+export async function silkJettons(): Promise<string[]> {
+  const a = await silkConfig("jetton");
+  const b = await silkConfig("jetton2");
+  return [a, b].filter((x): x is string => !!x);
+}

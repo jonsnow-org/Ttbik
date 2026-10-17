@@ -116,6 +116,26 @@ function adminMenu(): Keyboard {
   return kb.text(OWNER_USERVIEW).resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
 
+// The sister bot for serious marriage matching (docs/MATCH_ATHAR.md): one button, one command. The match bot accepts /start ath_<id> as a referral.
+const MATCH: Record<Lang, { label: string; msg: string; none: string }> = {
+  en: { label: "💞 Marriage match", msg: "💞 A serious matching bot for people who want to marry. Tap to open it:", none: "The match bot is not available right now." },
+  ar: { label: "💞 توافق (زواج)", msg: "💞 بوت تعارف جادّ بهدف الزواج. اضغط لفتحه:", none: "بوت التوافق غير متاح الآن." },
+  ru: { label: "💞 Брак: знакомства", msg: "💞 Бот серьёзных знакомств для брака. Нажмите, чтобы открыть:", none: "Бот знакомств сейчас недоступен." },
+  tr: { label: "💞 Evlilik eşleşmesi", msg: "💞 Evlenmek isteyenler için ciddi eşleşme botu. Açmak için dokun:", none: "Eşleşme botu şu anda kullanılamıyor." },
+  fa: { label: "💞 همسریابی", msg: "💞 ربات آشنایی جدی برای ازدواج. برای باز کردن بزنید:", none: "ربات همسریابی اکنون در دسترس نیست." },
+};
+let matchUsername: string | null = null;
+/** The match bot's link: an explicit address from the environment, else the active MARRIAGE_BOT row found in the database (its username cached). */
+async function matchBotBase(): Promise<string | null> {
+  const fixed = (process.env.NEXT_PUBLIC_MATCH_BOT_URL || "").trim().replace(/\/$/, "");
+  if (/^https:\/\/t\.me\/[A-Za-z0-9_]{4,}$/.test(fixed)) return fixed;
+  if (!matchUsername) {
+    const row = await prisma.bot.findFirst({ where: { template: "MARRIAGE_BOT", isActive: true }, select: { token: true } }).catch(() => null);
+    if (row?.token) matchUsername = (await new TelegramBot(row.token).api.getMe().catch(() => null))?.username ?? null;
+  }
+  return matchUsername ? `https://t.me/${matchUsername}` : null;
+}
+
 function menu(lang: Lang, owner = false, preview = false): Keyboard {
   if (owner && !preview) return adminMenu();
   const t = T[lang];
@@ -124,7 +144,7 @@ function menu(lang: Lang, owner = false, preview = false): Keyboard {
   const kb = new Keyboard().webApp(t.open, withLang("", lang)).row()
     .webApp(t.today, withLang("/today", lang)).webApp(t.mine, withLang("/mine", lang)).row()
     .text(t.share).text(BD[lang].button).row()
-    .text(t.language);
+    .text(MATCH[lang].label).text(t.language);
   if (owner) kb.row().text(OWNER_BACK);
   return kb.resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
@@ -144,7 +164,7 @@ const SECTIONS: { cmd: string; path: string; key: "open" | "mystery" | "auctions
   { cmd: "mine", path: "/mine", key: "mine", en: "My tokens" },
   { cmd: "board", path: "/board", key: "board", en: "Calendar board" },
 ];
-export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "share", description: "Share Athar" }, { command: "birthday", description: "Birthday reminder" }, { command: "language", description: "Language" }];
+export const COMMANDS = [{ command: "start", description: "Start" }, ...SECTIONS.map((x) => ({ command: x.cmd, description: x.en })), { command: "share", description: "Share Athar" }, { command: "match", description: "Marriage match bot" }, { command: "birthday", description: "Birthday reminder" }, { command: "language", description: "Language" }];
 
 // What Telegram shows on the bot's page before the first message, in search results and next to a shared link (short: up to 120 characters, long: up to 512).
 const ABOUT: Record<Lang, { short: string; long: string }> = {
@@ -385,6 +405,13 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       await bot.api.sendMessage(chatId, done ? bdText(lang, b.year === null ? "savedNoYear" : "saved", b) : bdText(lang, "fail"));
       return;
     }
+  }
+
+  if (LANGS.some((l) => MATCH[l.code].label === text) || /^\/match(?:@\w+)?$/i.test(text)) {
+    const base = await matchBotBase();
+    if (!base) { await bot.api.sendMessage(chatId, MATCH[lang].none); return; }
+    await bot.api.sendMessage(chatId, MATCH[lang].msg, { reply_markup: new InlineKeyboard().url(MATCH[lang].label, `${base}?start=ath_${fromId}`) });
+    return;
   }
 
   if (LANGS.some((l) => T[l.code].share === text) || /^\/share(?:@\w+)?$/i.test(text)) {

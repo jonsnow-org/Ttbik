@@ -311,6 +311,18 @@ describe("Silk Road Passport", () => {
     expect(silkStage(100, { captive: true, legend: true })).toBe("legend");
     expect(isDead("0:" + "0".repeat(64))).toBe(true); expect(isDead(undefined)).toBe(true); expect(isDead("0:" + "1".repeat(64))).toBe(false);
   });
+  it("a wallet counts as a holder if it holds ZNB or ZNBt", async () => {
+    const { holdsAnyCoin } = require("../zenobiaPay");
+    const only = (jetton: string) => async (url: string) => (url.includes(jetton) ? { ok: true, status: 200, json: async () => ({ balance: "5" }) } : { ok: false, status: 404, json: async () => ({}) });
+    expect(await holdsAnyCoin("w", ["A", "B"], { fetchFn: only("B") })).toBe(true);
+    expect(await holdsAnyCoin("w", ["A", "B"], { fetchFn: only("A") })).toBe(true);
+    expect(await holdsAnyCoin("w", ["A", "B"], { fetchFn: only("C") })).toBe(false);
+    expect(await holdsAnyCoin("w", [], { fetchFn: only("A") })).toBe(false);
+    // one lookup failing must not hide the other coin; with no holder and a failure it throws so callers can say "try again"
+    const flaky = async (url: string) => (url.includes("A") ? { ok: false, status: 500, json: async () => ({}) } : { ok: true, status: 200, json: async () => ({ balance: "5" }) });
+    expect(await holdsAnyCoin("w", ["A", "B"], { fetchFn: flaky })).toBe(true);
+    await expect(holdsAnyCoin("w", ["A"], { fetchFn: flaky })).rejects.toThrow();
+  });
   it("metadata says when it can be traded", () => {
     const now = new Date("2026-12-01T00:00:00Z");
     const young = silkMetadata({ index: 7, mintedAt: new Date("2026-11-20T00:00:00Z"), now }, "https://x");

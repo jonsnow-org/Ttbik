@@ -455,6 +455,21 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
     return;
   }
 
+  // ZNBt (the independent coin on our own curve) counts for the passport and the hall too, once the owner sets its address: /jetton2 ADDRESS, or /jetton2 off
+  if (act === "zn:jetton2" && id === ownerId && !cq) {
+    const arg = text.split(/\s+/)[1] || "";
+    if (arg.toLowerCase() === "off") {
+      await prisma.$executeRawUnsafe(`DELETE FROM zenobia_config WHERE bot_id=$1 AND k='jetton2'`, botId);
+      await panel({ text: "✅ ZNBt no longer counts / لم تعد ZNBt تُحتسب." });
+      return;
+    }
+    let raw = "";
+    try { raw = Address.parse(arg).toString(); } catch { await panel({ text: "Usage: /jetton2 ADDRESS  or  /jetton2 off\nالاستخدام: /jetton2 العنوان  أو  /jetton2 off" }); return; }
+    await prisma.$executeRawUnsafe(`INSERT INTO zenobia_config (bot_id,k,v) VALUES ($1,'jetton2',$2) ON CONFLICT (bot_id,k) DO UPDATE SET v=EXCLUDED.v`, botId, raw);
+    await panel({ text: `✅ ZNBt counts for the passport and the hall too: ${raw}\n✅ ZNBt تُحتسب الآن مع ZNB للجواز والقاعة.` });
+    return;
+  }
+
   if (act === "zn:pass") {
     // an older free passport (the owner's trial #0) still shows if this person has one
     const mineRows = (await prisma.$queryRawUnsafe(`SELECT idx, status, item FROM zenobia_passport WHERE bot_id=$1 AND tg_user_id=$2`, botId, id)) as { idx: number; status: string; item: string | null }[];
