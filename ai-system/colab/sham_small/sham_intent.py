@@ -13,6 +13,7 @@ Offline self-test: python sham_intent.py
 """
 from __future__ import annotations
 
+import os
 import re
 
 _AR_NORM = str.maketrans({"أ": "ا", "إ": "ا", "آ": "ا", "ة": "ه", "ى": "ي", "ـ": ""})
@@ -58,6 +59,8 @@ def route_text(text: str):
     if first in FIRST_WORD:                                     # the site bot's existing first-word words
         kind = FIRST_WORD[first]
         return (kind, raw.split(None, 1)[1].strip() if len(raw.split(None, 1)) > 1 else raw)
+    if os.environ.get("SHAM_KEYWORD_ROUTER") != "1":           # 2026-10-17 (supervisor): the keyword guesses below are rules OUTSIDE the model (owner's red line);
+        return ("chat", raw)                                    # off by default, the model decides (generate_any: words/media, its own <SEARCH>). =1 restores them.
     if _has(t, _SEARCH):
         return ("web", raw)
     for kind in ("video", "audio", "image"):                    # video before image: «مقطع فيديو» is not a picture
@@ -84,6 +87,8 @@ def media_caption(caption: str | None) -> tuple[str, str | None]:
 
 
 if __name__ == "__main__":
+    assert route_text("قم بتوليد صورة ارنب") == ("chat", "قم بتوليد صورة ارنب") and route_text("صورة جبل") == ("image", "جبل")
+    os.environ["SHAM_KEYWORD_ROUTER"] = "1"
     cases = {
         "قم بتوليد صورة ارنب": ("image", "ارنب"),
         "ارسم قطة على الشاطئ": ("image", "قطة على الشاطئ"),
