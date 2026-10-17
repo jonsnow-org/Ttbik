@@ -262,6 +262,18 @@ export async function sendTonWithdrawal(toAddress: string, amountTon: number): P
   });
 }
 
+// Public on-chain balance of the shared hot wallet, in TON (read only). Null when the
+// wallet is not configured or the RPC does not answer.
+export async function getHotWalletBalanceTon(): Promise<number | null> {
+  const hot = process.env.MASTER_HOT_WALLET_ADDRESS;
+  if (!hot) return null;
+  try {
+    return Number(fromNano(await getClient().getBalance(Address.parse(hot))));
+  } catch {
+    return null;
+  }
+}
+
 export function getMasterHotWalletAddress(): string | null {
   return process.env.MASTER_HOT_WALLET_ADDRESS || null;
 }

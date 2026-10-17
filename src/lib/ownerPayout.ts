@@ -12,7 +12,10 @@
 // Only the platform's own accumulated profit is ever swept: user balances and
 // supervisors' commissions are never touched here.
 import { prisma } from "@/lib/prisma";
-import { getTonUsdRateStrict, isNativeTonConfigured, isTonAddress, sendTonWithdrawal } from "@/services/ton-service";
+import { getHotWalletBalanceTon, getTonUsdRateStrict, isNativeTonConfigured, isTonAddress, sendTonWithdrawal } from "@/services/ton-service";
+
+// Gas reserve that must stay in the hot wallet on top of the swept amount.
+export const HOT_WALLET_GAS_RESERVE_TON = 0.2;
 
 export const DEFAULT_THRESHOLD_USD = 15;
 export const DEFAULT_PER_TX_CAP_USD = 100;
@@ -66,6 +69,7 @@ export type OwnerWalletSummary = {
   sentTodayUsd: number;
   sentTotalUsd: number;
   lastFailure: string | null;
+  hotWalletTon: number | null;
 };
 export async function ownerWalletSummary(): Promise<OwnerWalletSummary> {
   await ensureTables();
@@ -81,6 +85,7 @@ export async function ownerWalletSummary(): Promise<OwnerWalletSummary> {
     sentTodayUsd: Number(day[0]?.s || 0),
     sentTotalUsd: Number(total[0]?.s || 0),
     lastFailure: fail[0]?.note ?? null,
+    hotWalletTon: await getHotWalletBalanceTon(),
   };
 }
 
@@ -108,6 +113,10 @@ export async function sweepOwnerProfits(opts: { manual: boolean }): Promise<Swee
     rate,
   });
   if (!plan.ok) return { swept: false, reason: plan.reason };
+  // The hot wallet must really hold the amount plus gas (it also holds users' deposits): if it
+  // does not, the profit is not liquid there yet, so wait instead of failing mid-send.
+  const hot = await getHotWalletBalanceTon();
+  if (hot === null || hot < plan.amountTon + HOT_WALLET_GAS_RESERVE_TON) return { swept: false, reason: "hot_wallet_short" };
 
   // CLAIM: debit the accumulator (only if it still holds the money) and log, atomically.
   const logId = await prisma.$transaction(async (tx) => {

@@ -472,6 +472,7 @@ const SWEEP_REASON_AR: Record<string, string> = {
   daily_cap: "بلغت السقف اليومي للتحويل.",
   dust: "المبلغ صغير جداً.",
   balance_changed: "تغيّر الرصيد أثناء التحويل، أعد المحاولة.",
+  hot_wallet_short: "رصيد المحفظة الساخنة لا يكفي المبلغ مع رسوم الشبكة الآن (ينتظر وصول دفعات NOWPayments).",
   send_failed: "فشل الإرسال على الشبكة. أُعيد المبلغ لأرباحك وأُوقفت التحويلات تلقائياً حتى تراجع سجل المحفظة ثم تستأنفها.",
 };
 // A bot's own creator is also a full participant in their own bot — not a
@@ -1378,7 +1379,8 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       `💰 محفظة المالك\n\n` +
         `📈 أرباح البوت (حصة المنصة فقط): ${fmt(w.accumulatedUsd)}\n` +
         `👤 رصيدك الشخصي كمستخدم (منفصل عن الأرباح): ${fmt(Number(mine?.balance || 0))}\n` +
-        `🏦 المحفظة النهائية (TON): ${addr}\n\n` +
+        `🏦 المحفظة النهائية (TON): ${addr}\n` +
+        `🔥 رصيد المحفظة الساخنة (تستقبل الإيداعات): ${w.hotWalletTon === null ? "غير متاح" : `${w.hotWalletTon.toFixed(3)} TON`}\n\n` +
         `✅ حُوّل اليوم: ${fmt(w.sentTodayUsd)} · الإجمالي: ${fmt(w.sentTotalUsd)}\n` +
         `الحد الأدنى للتحويل التلقائي اليومي: ${fmt(w.thresholdUsd)}\n` +
         `الحالة: ${w.paused ? "⏸ متوقفة" : "▶ تعمل"}` +
