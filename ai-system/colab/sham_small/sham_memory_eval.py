@@ -31,7 +31,7 @@ def load(ckpt, tok_path):
     c = torch.load(ckpt, map_location="cpu", weights_only=False)
     m = ShamSmall(ShamSmallConfig(**c["config"]))
     m.load_state_dict(c["model_state_dict"])
-    return m.eval(), ShamTextTokenizer.load(tok_path)
+    return m.train(False), ShamTextTokenizer.load(tok_path)
 
 
 def main(ckpt, tok_path, out_path=None):
@@ -125,4 +125,7 @@ def main(ckpt, tok_path, out_path=None):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("usage: python sham_memory_eval.py CKPT TOKENIZER_JSON [OUT_JSON] — needs a real checkpoint; nothing to run without one")
+        sys.exit(0)
     main(*sys.argv[1:4])

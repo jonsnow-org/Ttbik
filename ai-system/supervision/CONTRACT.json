@@ -133,6 +133,18 @@
     "sham-audio-tokenizer-v2-checkpoint": {
       "role": "مُرمِّز الصوت v2 (كل مقاطع كل مقطع، يُدرَّب على CPU في استوديو Lightning)",
       "writer": "lightning_probe"
+    },
+    "sham-chat-arabic-sft-checkpoint": {
+      "role": "نقطة دفتر SFT العربي المنفصل (تدخل الدمج كمصدر عادي عبر قاعدة sham*)",
+      "writer": "arabic_sft"
+    },
+    "sham-repair-remerge-checkpoint": {
+      "role": "ناتج أداة الاسترجاع والإصلاح وإعادة الدمج (تدخل الدمج كمصدر عادي عبر قاعدة sham*)",
+      "writer": "repair_remerge"
+    },
+    "sham-runtime-creds": {
+      "role": "مجموعة خاصة بملف اعتماد كاكل للنسخ المدفوعة بالواجهة (أسرار — لا تُرفق إلا بدفاتر خاصة؛ لا أوزان فيها)",
+      "writer": "any"
     }
   },
   "dynamic_dataset_patterns": [
@@ -496,7 +508,12 @@
       "title": "الدفتر الشامل: يدوّر المدرّب الحي والمرحلة الأولى والمرحلة الثانية في مقعد واحد (يكتب ما تكتبه تلك الدفاتر نفسها، ولا يُشغَّل معها في الوقت ذاته)",
       "kind": "notebook",
       "accelerator": "GPU (يعود إلى CPU)",
-      "reads": ["sham-chat-checkpoint", "sham-checkpoint", "sham-crawl-checkpoint", "sham-multimodal-checkpoint"],
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-checkpoint",
+        "sham-crawl-checkpoint",
+        "sham-multimodal-checkpoint"
+      ],
       "writes": []
     },
     "ab_in_one": {
@@ -504,7 +521,11 @@
       "title": "دفتر المسارين A وB معاً (تدريب نصي مستمر + بحث ذاتي) بخمس ساعات لكل قسم؛ يكتب ما يكتبه دفتراهما الأصليان، ولا يُشغَّل معهما",
       "kind": "notebook",
       "accelerator": "CPU",
-      "reads": ["sham-checkpoint", "sham-cpu-track-checkpoint-v2", "sham-research-track-checkpoint-v2"],
+      "reads": [
+        "sham-checkpoint",
+        "sham-cpu-track-checkpoint-v2",
+        "sham-research-track-checkpoint-v2"
+      ],
       "writes": []
     },
     "chat_image_in_one": {
@@ -512,7 +533,14 @@
       "title": "دفتر المحادثة والمرمزات معاً (المرحلة الثالثة 6 ساعات ثم ترميز الصورة والصوت والفيديو)؛ يكتب ما يكتبه دفتراهما الأصليان، ولا يُشغَّل معهما",
       "kind": "notebook",
       "accelerator": "CPU",
-      "reads": ["sham-chat-checkpoint", "sham-multimodal-checkpoint", "sham-research-track-checkpoint-v2", "sham-crawl-*", "sham-image-tokenizer-checkpoint", "sham-audio-tokenizer-checkpoint"],
+      "reads": [
+        "sham-chat-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-research-track-checkpoint-v2",
+        "sham-crawl-*",
+        "sham-image-tokenizer-checkpoint",
+        "sham-audio-tokenizer-checkpoint"
+      ],
       "writes": []
     },
     "cell_audit": {
@@ -566,6 +594,57 @@
     "runtime_creds": {
       "file": ".github/workflows/sham-runtime-creds.yml",
       "title": "ينشئ/يحدّث مجموعة بيانات كاكل الخاصة sham-runtime-creds من سرّ KAGGLE_API_TOKEN للنسخ التي يدفعها المراقب (تشغيل يدوي)",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "arabic_sft": {
+      "file": "ai-system/colab/sham_small/kaggle_notebooks/arabic_sft/sham_arabic_sft.ipynb",
+      "title": "دفتر SFT العربي المنفصل (يبدأ من نسخة final_chat.pt)",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-chat-checkpoint"
+      ],
+      "writes": [
+        "sham-chat-arabic-sft-checkpoint"
+      ]
+    },
+    "repair_remerge": {
+      "file": "ai-system/colab/sham_small/repair_remerge/sham_repair_remerge.ipynb",
+      "title": "أداة الاسترجاع والإصلاح وإعادة الدمج (دفتر كاكل منفصل)",
+      "kind": "notebook",
+      "accelerator": "CPU",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-multimodal-checkpoint",
+        "sham-checkpoint",
+        "sham-crawl-*"
+      ],
+      "writes": [
+        "sham-repair-remerge-checkpoint"
+      ]
+    },
+    "arabic_sft_push": {
+      "file": ".github/workflows/sham-arabic-sft-push.yml",
+      "title": "دفع دفتر SFT العربي إلى كاكل",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "kaggle_inspect": {
+      "file": ".github/workflows/sham-kaggle-inspect.yml",
+      "title": "فحص كاكل للقراءة فقط: حالة الدفاتر وآخر سطور سجلها",
+      "kind": "workflow",
+      "accelerator": "CPU (GitHub)",
+      "reads": [],
+      "writes": []
+    },
+    "repair_remerge_push": {
+      "file": ".github/workflows/sham-repair-remerge-push.yml",
+      "title": "دفع دفتر الاسترجاع والإصلاح إلى كاكل",
       "kind": "workflow",
       "accelerator": "CPU (GitHub)",
       "reads": [],

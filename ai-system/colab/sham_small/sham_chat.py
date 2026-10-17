@@ -34,6 +34,7 @@ Data (licensed, human-written, verified before use):
 from __future__ import annotations
 
 import json
+import os
 import random
 from pathlib import Path
 
@@ -424,6 +425,34 @@ def load_progress(search_paths: list[Path]) -> dict:
     return best
 
 
+def _general_replay(tokenizer, seq_len: int, batch_size: int, n_batches: int, rng) -> list[torch.Tensor]:
+    """2026-10-17 (review): the rehearsal used to be Arabic Wikipedia only, while the merge gate measures the GENERAL mixture (many languages, code, math, web):
+    every chat / media lineage kept its Arabic and slowly lost the rest, so the gate refused it. Now the rehearsal windows are drawn from the same general mix
+    (the pre-tokenized shards the GitHub job builds daily, sham_token_shards), cut to seq_len. Falls back to Arabic Wikipedia when no shards fit this
+    tokenizer. SHAM_REPLAY_GENERAL=0 restores the old behaviour."""
+    if os.environ.get("SHAM_REPLAY_GENERAL", "1").strip().lower() in ("0", "off", "false", "no"):
+        return []
+    try:
+        import sham_token_shards
+        wins = sham_token_shards.load(tokenizer, 1024)
+        if not wins and not os.environ.get("SHAM_NO_SHARD_DOWNLOAD"):
+            from sham_inputs import fetch_dataset
+            if fetch_dataset(sham_token_shards.DATASET):
+                wins = sham_token_shards.load(tokenizer, 1024)
+        if not wins or len(wins) < n_batches * batch_size // 4:
+            return []
+        take = min(seq_len, 1024)
+        out = []
+        for _ in range(n_batches):
+            rows = [torch.tensor(wins[rng.randrange(len(wins))][:take], dtype=torch.long) for _ in range(batch_size)]
+            out.append(torch.stack(rows))
+        print(f"تذكّر النص: {len(out):,} دفعة من المزيج العام ({len(wins):,} نافذة جاهزة)")
+        return out
+    except Exception as exc:
+        print(f"⚠ المزيج العام غير متاح للتذكّر ({type(exc).__name__}): ويكيبيديا العربية بدلاً منه")
+        return []
+
+
 def text_replay_batches(
     tokenizer, seq_len: int, batch_size: int, n_batches: int, workdir: str | Path,
     max_position: int = 200_000, seed: int | None = None, extra_files: list[str] | None = None,
@@ -437,6 +466,9 @@ def text_replay_batches(
     if n_batches <= 0:
         return []
     rng = random.Random(seed)
+    general = _general_replay(tokenizer, seq_len, batch_size, n_batches, rng)
+    if general:
+        return general
     need_tokens = n_batches * batch_size * seq_len
     docs = max(200, need_tokens // 250)  # ~250 tokens per article on average, measured loosely
     skip = rng.randrange(0, max(1, max_position - docs))

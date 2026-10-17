@@ -171,7 +171,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         progress["merge_rule"] = rule
     candidates, report = [], []
     for name, pattern, rows in (sources if sources is not None else list(KNOWN_SOURCES)):
-        if name in (label.split(" ")[0], "sham-chat-checkpoint", OWN):
+        if name in (label.split(" ")[0], OWN):      # 2026-10-17: the chat lineage is a candidate too (it used to be skipped by name: its skill never reached the merged model unless it was the base)
             continue
         if len(candidates) >= max_sources:
             report.append(f"⏭ {name}: يؤجَّل للتشغيل القادم (الحد {max_sources} مصدراً في التشغيل)")

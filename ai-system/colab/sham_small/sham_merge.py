@@ -41,6 +41,7 @@ MEDIA_ROWS = [(0, TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE)]
 # (dataset, checkpoint glob, vocabulary rows that source really trained)
 KNOWN_SOURCES = [
     ("sham-multimodal-checkpoint", "final_multimodal.pt", MEDIA_ROWS),
+    ("sham-chat-checkpoint", "final_chat.pt", MEDIA_ROWS),
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
