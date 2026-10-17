@@ -9,6 +9,7 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, MIN_USD, MAX_USD, type Chain } from "@/lib/chainDeposits";
 import { ownerWalletSummary, sweepOwnerProfits, setPayoutsPaused } from "@/lib/ownerPayout";
 import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
@@ -129,6 +130,8 @@ type PendingAction =
   | { mode: "admin_global_ad_target"; type: AdTypeStr }
   | { mode: "admin_credit_target" }
   | { mode: "owner_sweep_confirm" }
+  | { mode: "chain_dep_pick" }
+  | { mode: "chain_dep_amount"; chain: string }
   | { mode: "admin_credit_amount"; targetId: string }
   | { mode: "admin_transfer_owner" }
   | { mode: "owner_broadcast" }
@@ -394,6 +397,19 @@ function accountsMenu(lang: Lang, linked: boolean): Keyboard {
     .text(backLabel(lang))
     .resized();
 }
+const CHAIN_DEPOSIT_BTN = "🪙 إيداع USDT / TRX / DOGE";
+const CHAIN_CHECK_BTN = "✅ تحققت من تحويلي";
+function chainDepositMenu(): Keyboard {
+  const kb = new Keyboard();
+  for (const c of availableChains()) kb.text(CHAIN_LABEL[c]).row();
+  kb.text(CHAIN_CHECK_BTN).row().text(backLabel("ar"));
+  return kb.resized();
+}
+// Credits a confirmed on-chain deposit to the user's balance (same ledger as every other deposit).
+async function applyChainDeposit(tx: any, p: { userId: string; usd: number; chain: Chain; hash: string }) {
+  await tx.user.update({ where: { id: p.userId }, data: { balance: { increment: p.usd } } });
+  await tx.transaction.create({ data: { userId: p.userId, amount: p.usd, currency: p.chain === "USDT_TRC20" ? "USDT" : p.chain, type: "DEPOSIT", status: "COMPLETED", txHash: p.hash } });
+}
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
   // Native TON deposit — only shown once the platform's shared hot wallet
@@ -407,6 +423,7 @@ function walletMenu(lang: Lang): Keyboard {
   // existing 50% worker / 20% creator / 30% platform split already applies
   // automatically once it's spent on an ad campaign.
   kb.text(t(lang, "btnStarsDeposit")).row();
+  if (availableChains().length > 0) kb.text(CHAIN_DEPOSIT_BTN).row();
   kb.text(backLabel(lang));
   return kb.resized();
 }
@@ -472,6 +489,7 @@ const SWEEP_REASON_AR: Record<string, string> = {
   daily_cap: "بلغت السقف اليومي للتحويل.",
   dust: "المبلغ صغير جداً.",
   balance_changed: "تغيّر الرصيد أثناء التحويل، أعد المحاولة.",
+  hot_wallet_short: "رصيد المحفظة الساخنة لا يكفي المبلغ مع رسوم الشبكة الآن (ينتظر وصول دفعات NOWPayments).",
   send_failed: "فشل الإرسال على الشبكة. أُعيد المبلغ لأرباحك وأُوقفت التحويلات تلقائياً حتى تراجع سجل المحفظة ثم تستأنفها.",
 };
 // A bot's own creator is also a full participant in their own bot — not a
@@ -524,6 +542,8 @@ function topLevelTexts(lang: Lang): string[] {
     t(lang, "btnWantOwnBot"),
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
+    CHAIN_DEPOSIT_BTN,
+    CHAIN_CHECK_BTN,
     t(lang, "btnContactAdmin"),
   ];
 }
@@ -1092,6 +1112,61 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await bot.api.sendMessage(chatId, t(lang, "tonDepositInfo", { address, memo }), { reply_markup: walletMenu(lang) });
     return;
   }
+  if (text === CHAIN_DEPOSIT_BTN && availableChains().length > 0) {
+    await setPending(user.id, { mode: "chain_dep_pick" });
+    await bot.api.sendMessage(
+      chatId,
+      `🪙 اختر العملة التي سترسلها.\nبعد اختيار المبلغ ستحصل على عنوان ومبلغ دقيق (بكسور صغيرة مميّزة لك). أرسل المبلغ كما هو بالضبط، ثم اضغط «${CHAIN_CHECK_BTN}».`,
+      { reply_markup: chainDepositMenu() }
+    );
+    return;
+  }
+  if (pending?.mode === "chain_dep_pick") {
+    const picked = availableChains().find((c) => CHAIN_LABEL[c] === text);
+    if (picked) {
+      await setPending(user.id, { mode: "chain_dep_amount", chain: picked });
+      await bot.api.sendMessage(chatId, `كم دولاراً تريد إيداع؟ (من ${MIN_USD}$ إلى ${MAX_USD}$)`, { reply_markup: amountEntryMenu(lang) });
+      return;
+    }
+  }
+  if (pending?.mode === "chain_dep_amount") {
+    const chain = pending.chain as Chain;
+    const usd = Number(text.replace(/[^0-9.]/g, ""));
+    const r = await createDepositRequest(user.id, chain, usd);
+    if (!r.ok) {
+      const why: Record<string, string> = {
+        range: `المبلغ يجب أن يكون بين ${MIN_USD}$ و${MAX_USD}$.`,
+        too_many: "لديك طلبات إيداع مفتوحة كثيرة. أكمل أحدها أو انتظر انتهاءها.",
+        price: "تعذّر الحصول على سعر موثوق الآن، حاول بعد قليل.",
+        busy: "ازدحام مؤقت، أعد المحاولة.",
+        no_address: "هذه العملة غير متاحة حالياً.",
+      };
+      await bot.api.sendMessage(chatId, why[r.reason] || "تعذّر إنشاء الطلب.");
+      return;
+    }
+    await setPending(user.id, null);
+    await bot.api.sendMessage(
+      chatId,
+      `🪙 طلب إيداع ${fmt(r.usd)}\n\nأرسل بالضبط:\n${r.amount} ${r.asset}\n\nإلى العنوان:\n${r.address}\n\n⚠️ المبلغ يجب أن يطابق الرقم أعلاه حرفياً (بكسوره) وإلا لن يُحتسب تلقائياً. لا ترسل من شبكة أخرى.\n⏳ صالح ${r.expiresInMin} دقيقة. بعد الإرسال وتأكيد الشبكة اضغط «${CHAIN_CHECK_BTN}».`,
+      { reply_markup: chainDepositMenu() }
+    );
+    return;
+  }
+  if (text === CHAIN_CHECK_BTN) {
+    const res = await checkUserDeposits(user.id, applyChainDeposit);
+    if (res.credited.length > 0) {
+      const total = res.credited.reduce((a, c) => a + c.usd, 0);
+      const fresh = await prisma.user.findUnique({ where: { id: user.id } });
+      await bot.api.sendMessage(chatId, `✅ تم إيداع ${fmt(total)} في رصيدك.\n💰 رصيدك الآن: ${fmt(Number(fresh?.balance || 0))}`, { reply_markup: walletMenu(lang) });
+    } else {
+      await bot.api.sendMessage(
+        chatId,
+        res.pending === 0 ? "لا يوجد طلب إيداع مفتوح." : res.readFailed ? "تعذّر قراءة الشبكة الآن، حاول بعد دقائق." : "لم يصل تحويل مطابق بعد. تأكد من المبلغ الدقيق وانتظر تأكيد الشبكة (قد يستغرق بضع دقائق) ثم اضغط التحقق مجدداً.",
+        { reply_markup: chainDepositMenu() }
+      );
+    }
+    return;
+  }
   if (text === t(lang, "btnWithdraw")) {
     await setPending(user.id, { mode: "withdraw_address" });
     await bot.api.sendMessage(chatId, t(lang, "withdrawAddressPrompt"), { reply_markup: amountEntryMenu(lang) });
@@ -1378,7 +1453,8 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       `💰 محفظة المالك\n\n` +
         `📈 أرباح البوت (حصة المنصة فقط): ${fmt(w.accumulatedUsd)}\n` +
         `👤 رصيدك الشخصي كمستخدم (منفصل عن الأرباح): ${fmt(Number(mine?.balance || 0))}\n` +
-        `🏦 المحفظة النهائية (TON): ${addr}\n\n` +
+        `🏦 المحفظة النهائية (TON): ${addr}\n` +
+        `🔥 رصيد المحفظة الساخنة (تستقبل الإيداعات): ${w.hotWalletTon === null ? "غير متاح" : `${w.hotWalletTon.toFixed(3)} TON`}\n\n` +
         `✅ حُوّل اليوم: ${fmt(w.sentTodayUsd)} · الإجمالي: ${fmt(w.sentTotalUsd)}\n` +
         `الحد الأدنى للتحويل التلقائي اليومي: ${fmt(w.thresholdUsd)}\n` +
         `الحالة: ${w.paused ? "⏸ متوقفة" : "▶ تعمل"}` +

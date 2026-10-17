@@ -1,5 +1,5 @@
 jest.mock("@/lib/prisma", () => ({ prisma: {} }));
-jest.mock("@/services/ton-service", () => ({ getTonUsdRateStrict: jest.fn(), isNativeTonConfigured: jest.fn(), isTonAddress: (a: string) => a.startsWith("UQ"), sendTonWithdrawal: jest.fn() }));
+jest.mock("@/services/ton-service", () => ({ getHotWalletBalanceTon: jest.fn(), getTonUsdRateStrict: jest.fn(), isNativeTonConfigured: jest.fn(), isTonAddress: (a: string) => a.startsWith("UQ"), sendTonWithdrawal: jest.fn() }));
 import { planSweep, ownerPayoutAddress } from "@/lib/ownerPayout";
 
 const base = { accumulatedUsd: 50, thresholdUsd: 15, perTxCapUsd: 100, dailyCapUsd: 200, sentTodayUsd: 0, rate: 2 };
