@@ -658,6 +658,23 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     return;
   }
 
+  // /whoami: which bot is this, which platform row serves it, and what is MY role here. Two accounts that run /whoami and see the
+  // same row id are talking to the very same bot (same token, same @username), just with different roles.
+  if (/^\/whoami(?:@\w+)?$/i.test(text)) {
+    const me = await bot.api.getMe().catch(() => null);
+    const role = tgUserId === SUPER_ADMIN_ID ? "مالك المنصة" : tgUserId === botRow.ownerId ? "مشرف هذا البوت" : "مستخدم";
+    const lines = [
+      `🤖 البوت: ${me?.username ? `@${me.username}` : "؟"}${me?.id ? ` (رقمه ${me.id})` : ""}`,
+      `🆔 صف المنصة الذي يخدمه: ${botRow.id.slice(0, 8)}`,
+      `🎭 دورك هنا: ${role}`,
+    ];
+    if (tgUserId === SUPER_ADMIN_ID || tgUserId === botRow.ownerId) {
+      lines.push(`👤 مشرف هذا البوت المسجّل: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}`);
+    }
+    await bot.api.sendMessage(chatId, lines.join("\n"));
+    return;
+  }
+
   if (text === "/admin") {
     if (tgUserId === botRow.ownerId && tgUserId !== SUPER_ADMIN_ID) {
       const ownerUser = await ensureUser(botRow.id, tgUserId, botRow);
@@ -1147,14 +1164,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         let uname = "?";
         try {
           const res = await fetch(`https://api.telegram.org/bot${r.token}/getMe`, { signal: AbortSignal.timeout(4000) });
-          const j = (await res.json().catch(() => null)) as { result?: { username?: string } } | null;
-          uname = j?.result?.username ? `@${j.result.username}` : "؟";
+          const j = (await res.json().catch(() => null)) as { result?: { username?: string; id?: number } } | null;
+          uname = j?.result?.username ? `@${j.result.username} #${j.result.id ?? ""}` : "؟";
         } catch {
           uname = "؟";
         }
         const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
         const money = r.template === "AD_BOT" ? ` — عمولة المشرف: جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}` : "";
-        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
       }),
     );
     await bot.api.sendMessage(
