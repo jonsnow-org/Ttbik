@@ -755,11 +755,6 @@ async function handleManualPhotoOp(bot: TelegramBot, chatId: number, fileId: str
 }
 
 // Sham's answer as the Telegram message it is: words, a picture or a sound (from the model's own tokens). A notice is plain text; nothing is added or retouched.
-const SHAM_MEDIA_COMMANDS: Record<string, "image" | "audio" | "video"> = {
-  "image": "image", "صورة": "image", "صوره": "image", "ارسم": "image", "audio": "audio", "صوت": "audio", "video": "video", "فيديو": "video",
-};
-// the kind the USER named with the first word of the message, with or without a leading "/" (the content itself is always written by the model)
-const shamMediaKind = (text: string) => SHAM_MEDIA_COMMANDS[text.split(/[\s@]/)[0].replace(/^\//, "").toLowerCase()];
 
 async function sendShamReply(bot: TelegramBot, chatId: number, reply: ShamReply | null) {
   if (!reply) {
@@ -835,10 +830,10 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
       // 2026-10-14: with SHAM_THINK on, a bare word («صورة …») is no longer a keyword rule — only the explicit slash command (/image, /صورة …)
       // is the user's own choice; everything else is for the model to decide. REVIEW: the bare-word form is kept for SHAM_THINK=0.
-      const mediaKind = shamStudioEnabled() && text.startsWith("/") ? shamMediaKind(text) : undefined;
+      const mediaKind = ((): "image" | "audio" | "video" | undefined => undefined)();     // 2026-10-17 (owner): no media commands at all — the model decides
       // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
       if ((text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help")) || mediaKind) {
-        const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
+        const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
         const unavailable = "هذه الميزة غير متاحة الآن. اكتب جملة عادية وسأرد عليها.";
         const cmd = text.split(/[\s@]/)[0].toLowerCase();
         const kind = mediaKind;
