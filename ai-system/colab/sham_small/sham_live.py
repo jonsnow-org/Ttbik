@@ -76,7 +76,7 @@ SAMPLE_RATE = 16000
 
 # ---------------------------------------------------------------- start point
 
-def _load_tokenizers(root: Path):
+def _load_tokenizers(root: Path, switch: bool = False):
     from text_tokenizer import ShamTextTokenizer
     from tokenizer_select import select_pretrained_tokenizer
 
@@ -85,7 +85,39 @@ def _load_tokenizers(root: Path):
     aud = select_pretrained_tokenizer("audio", root)
     if not img or not aud:
         raise FileNotFoundError(f"أداتا الصورة/الصوت غير موجودتين بجانب نقطة الحفظ في {root}")
+    if switch:          # only the training run itself; the start-point comparisons (_same_tokenizers) look at the files next to each checkpoint
+        img = _better_media_tokenizer("image", img)
+        aud = _better_media_tokenizer("audio", aud)
     return text, img, aud
+
+
+SWITCHED = {"image": False, "audio": False}      # set by _better_media_tokenizer; run() resets the stale media rows of the model for a switched kind
+SWITCH_RATIO = 0.75                               # the other tokenizer must reconstruct at least 25% better on the fixed sample
+
+
+def _better_media_tokenizer(kind: str, current):
+    """2026-10-17: every lineage used to take the tokenizer found NEXT TO its start checkpoint — the step-53 image tokenizer (reconstruction error 0.111 on
+    the fixed sample) — while the account holds ones at 0.040-0.044. If another tokenizer of the account measures clearly better (SWITCH_RATIO), this
+    lineage trains with it: its media rows are re-learned for the new ids, the merge neither mixes them into a base with another tokenizer nor loses them
+    (sham_media_edge lets such a lineage become the base when its text is close). SHAM_MEDIA_TOKENIZER=base keeps the old behaviour."""
+    if os.environ.get("SHAM_MEDIA_TOKENIZER", "best").strip().lower() != "best":
+        return current
+    try:
+        from sham_media_edge import _sha
+        from tokenizer_select import default_measure, select_pretrained_tokenizer
+        best = select_pretrained_tokenizer(kind)                     # the best of EVERYTHING the account holds (healthy codebook first, then measured error)
+        if not best or best[2] == current[2] or _sha(Path(best[2])) == _sha(Path(current[2])):
+            return current
+        measure = default_measure(kind)
+        e_cur, e_best = (measure(current[0]), measure(best[0])) if measure else (None, None)
+        if e_cur and e_best and e_best <= SWITCH_RATIO * e_cur:
+            print(f"🔁 {kind}: مُرمِّز أفضل بوضوح ({e_best:.4f} مقابل {e_cur:.4f}) — يُدرَّب عليه، وتُعاد تهيئة صفوف الوسائط القديمة")
+            SWITCHED[kind] = True
+            return best
+        print(f"  {kind}: لا مُرمِّز آخر أفضل بما يكفي ({e_best} مقابل {e_cur}) — يبقى المرفق مع النقطة")
+    except Exception as exc:
+        print(f"⚠ مقارنة المُرمِّزات فشلت ({type(exc).__name__}: {str(exc)[:100]}) — يبقى المرفق مع النقطة")
+    return current
 
 
 def _same_tokenizers(a: Path, b: Path) -> bool:
@@ -405,7 +437,10 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     print(f"المخارج: النموذج → {model_ds} | النصوص → {corpus_ds}")
     ckpt, ckpt_dir, progress, origin = resolve_start(model_ds)
     model, step, _ = load_checkpoint(ckpt, map_location=device)
-    tokenizer, (img_tok, img_step, _), (aud_tok, aud_step, _) = _load_tokenizers(ckpt_dir)
+    tokenizer, (img_tok, img_step, _), (aud_tok, aud_step, _) = _load_tokenizers(ckpt_dir, switch=True)
+    if any(SWITCHED.values()):
+        from sham_media_edge import reset_media_rows
+        reset_media_rows(model, [k for k, v in SWITCHED.items() if v])
     img_tok, aud_tok = img_tok.to(device).eval(), aud_tok.to(device).eval()
     from sham_longctx_train import train_max_len
     max_len = min(train_max_len(), model.cfg.max_seq_len)        # 1024 unless SHAM_LONGCTX_MAXLEN (e.g. 2048) is set

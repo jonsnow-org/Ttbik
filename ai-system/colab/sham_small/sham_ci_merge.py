@@ -69,8 +69,15 @@ def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
     main = cands[0]
     if probe is not None and len(cands) > 1:
         from sham_base_select import choose_base
+        edge = {}
+        try:
+            from sham_media_edge import EDGE_TOLERANCE, better_tokenizer_lineages
+            current = (own_ckpt[0].parent if own_ckpt else cands[0][1])
+            edge = better_tokenizer_lineages([(c[2], c[1]) for c in cands], current, log=log)
+        except Exception as exc:
+            log(f"⚠ مقارنة مُرمِّزات الصور بين السلالات لم تعمل: {type(exc).__name__}: {str(exc)[:100]}")
         best, scores = choose_base([(c[2], c[0], c[3]) for c in cands], probe, keep=progress.get("base"), log=log,
-                                   prefer=("sham-grown-checkpoint",))
+                                   prefer=("sham-grown-checkpoint",), edge=edge)
         if scores:
             main = next(c for c in cands if c[2] == best)
     main = (main[0], main[1], main[2])
@@ -224,17 +231,30 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         except Exception as exc:
             report.append(f"⚠ تعذّر قرار الإعدادات الذاتية: {type(exc).__name__}: {str(exc)[:100]}")
 
+    # 2026-10-17 (measured): the head carries a step-53 image tokenizer (error 0.111) while the account holds ones at 0.040-0.044. The head moves to the clearly
+    # better tokenizer ONCE (sham_media_edge.plan_switch); the media rows of that kind restart and every lineage that continues from the head relearns the SAME new ids.
+    media_plan = {}
+    if publish_on_change and os.environ.get("SHAM_MEDIA_SWITCH", "1").strip().lower() not in ("0", "off", "false", "no"):
+        from sham_media_edge import plan_switch
+        media_plan = plan_switch(base_dir, log=report.append)
     published = None
-    if publish_on_change and (changed or auto_changed or not fetch(OWN)):
+    if publish_on_change and (changed or auto_changed or media_plan or not fetch(OWN)):
         up = WORK / "upload"
         up.mkdir()
         from sham_tok_id import stamp
+        if media_plan:
+            from sham_media_edge import reset_media_rows
+            reset_media_rows(model, list(media_plan), log=report.append)
+            progress.setdefault("media_epochs", []).append({"at": time.strftime("%Y-%m-%d %H:%M", time.gmtime()),
+                                                            **{k: {"error": round(v[1], 4), "was": round(v[2], 4)} for k, v in media_plan.items()}})
         save_checkpoint(up / "final_merged.pt", model, step, extra=stamp(tokenizer))     # which text tokenizer it was trained with (served checks it)
         tokenizer.save(str(up / "sham_small_tokenizer.json"))
         for f in ("image_tokenizer.pt", "audio_tokenizer.pt"):
             for src in base_dir.rglob(f):
                 shutil.copy2(src, up / f)
                 break
+        for kind, (new_path, _e_new, _e_cur) in media_plan.items():
+            shutil.copy2(new_path, up / f"{kind}_tokenizer.pt")
         hist = progress.setdefault("history", [])      # the published model's skills over time: a slow drift shows here
         hist.append({"at": time.strftime("%Y-%m-%d %H:%M", time.gmtime()), "step": step, **{k: round(v, 4) for k, v in after.items()}})
         del hist[:-200]

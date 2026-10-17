@@ -62,7 +62,8 @@ def text_loss(model, tok, text: str, device: str = "cpu", windows: int = 16, len
     return total / max(len(wins), 1)
 
 
-def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = (), hysteresis: float = HYSTERESIS):
+def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: tuple[str, ...] = (), hysteresis: float = HYSTERESIS,
+                edge: dict | None = None, edge_tolerance: float = 1.03):
     scores: dict[str, float] = {}
     for name, ckpt, tok in candidates:
         if tok is None:
@@ -78,6 +79,14 @@ def choose_base(candidates, probe, keep: str | None = None, log=print, prefer: t
         best = keep
     for name in prefer:                      # e.g. the grown checkpoint: more capacity, same function — wins any near-tie
         if name in scores and scores[name] <= scores[best] * HYSTERESIS:
+            best = name
+            break
+    # a lineage that carries a clearly better image tokenizer (sham_media_edge) may take the base when its text is within edge_tolerance of the best:
+    # its pictures can reach the Studio only as the base (a source with another tokenizer never gets its media rows merged)
+    for name in sorted(edge or {}, key=lambda n: scores.get(n, 1e9)):
+        if name in scores and scores[name] <= scores[best] * edge_tolerance:
+            if name != best:
+                log(f"🖼 {name} يصير الأساس: مُرمِّز صوره أفضل بوضوح ونصه قريب ({scores[name]:.3f} مقابل {scores[best]:.3f})")
             best = name
             break
     chance = getattr(probe, "last_chance", None)
