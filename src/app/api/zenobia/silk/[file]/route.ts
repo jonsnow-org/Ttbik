@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureZenobiaTables } from "@/lib/zenobiaBotLogic";
-import { ensureSilkTables, silkConfig, silkMetadata, isDead } from "@/lib/zenobiaSilk";
+import { ensureSilkTables, silkJettons, silkMetadata, isDead } from "@/lib/zenobiaSilk";
 import { parsePassportFile } from "@/lib/zenobiaPassport";
-import { holdsCoin } from "@/lib/zenobiaPay";
+import { holdsAnyCoin } from "@/lib/zenobiaPay";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ file: st
         const nft = (await res.json()) as { owner?: { address?: string } };
         const owner = nft.owner?.address;
         legend = isDead(owner);
-        const jetton = await silkConfig("jetton");
+        const jettons = await silkJettons();
         // the owner holds no ZNB (and the coin exists): the passport shows as Captive
-        if (!legend && owner && jetton) captive = !(await holdsCoin(owner, jetton, { apiKey: process.env.TONAPI_KEY }));
+        if (!legend && owner && jettons.length) captive = !(await holdsAnyCoin(owner, jettons, { apiKey: process.env.TONAPI_KEY }));
       }
     }
   } catch { /* fall back to what we know */ }

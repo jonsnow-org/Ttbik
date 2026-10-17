@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Address } from "@ton/core";
 import { prisma } from "@/lib/prisma";
 import { ensureZenobiaTables } from "@/lib/zenobiaBotLogic";
-import { ensureSilkTables, silkConfig, silkPriceGram, SILK_CAP } from "@/lib/zenobiaSilk";
-import { holdsCoin, LEDGER_RAW } from "@/lib/zenobiaPay";
+import { ensureSilkTables, silkConfig, silkJettons, silkPriceGram, SILK_CAP } from "@/lib/zenobiaSilk";
+import { holdsAnyCoin, LEDGER_RAW } from "@/lib/zenobiaPay";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +16,13 @@ export async function POST(req: NextRequest) {
   let wallet: Address;
   try { wallet = Address.parse(String(body.wallet || "")); } catch { return NextResponse.json({ error: "bad wallet" }, { status: 400 }); }
   await ensureZenobiaTables(); await ensureSilkTables();
-  const jetton = await silkConfig("jetton");
-  if (!jetton || (await silkConfig("silk")) !== "on") return NextResponse.json({ error: "not_open" }, { status: 409 });
+  const jettons = await silkJettons();
+  if (!jettons.length || (await silkConfig("silk")) !== "on") return NextResponse.json({ error: "not_open" }, { status: 409 });
   const minted = Number(((await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM zenobia_silk WHERE status='minted'`)) as { n: number }[])[0]?.n ?? 0);
   if (minted >= SILK_CAP) return NextResponse.json({ error: "sold_out" }, { status: 409 });
   const min = BigInt((await silkConfig("silk_min")) || "0");
   try {
-    if (!(await holdsCoin(wallet.toString(), jetton, { apiKey: process.env.TONAPI_KEY, minBalance: min > 0n ? min : 1n }))) return NextResponse.json({ error: "need_znb", min: String(min) }, { status: 403 });
+    if (!(await holdsAnyCoin(wallet.toString(), jettons, { apiKey: process.env.TONAPI_KEY, minBalance: min > 0n ? min : 1n }))) return NextResponse.json({ error: "need_znb", min: String(min) }, { status: 403 });
   } catch { return NextResponse.json({ error: "try_again" }, { status: 503 }); }
   const raw = wallet.toRawString();
   const open = (await prisma.$queryRawUnsafe(`SELECT id FROM zenobia_silk WHERE wallet=$1 AND status='quoted' ORDER BY id DESC LIMIT 1`, raw)) as { id: number }[];

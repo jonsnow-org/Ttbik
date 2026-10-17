@@ -12,3 +12,13 @@ export async function holdsCoin(wallet: string, jetton: string, opts: { fetchFn?
   const body = (await res.json()) as { balance?: string };
   try { return BigInt(body.balance ?? "0") >= (opts.minBalance ?? 1n); } catch { return false; }
 }
+
+/** Read-only: does this wallet hold any of the coins (ZNB on Blum, and ZNBt once the owner sets it)? True if at least one holds; throws only when none holds and a lookup failed. */
+export async function holdsAnyCoin(wallet: string, jettons: string[], opts: { fetchFn?: typeof fetch; apiKey?: string; minBalance?: bigint } = {}): Promise<boolean> {
+  let failed: unknown = null;
+  for (const j of jettons) {
+    try { if (await holdsCoin(wallet, j, opts)) return true; } catch (e) { failed = e; }
+  }
+  if (failed) throw failed;
+  return false;
+}
