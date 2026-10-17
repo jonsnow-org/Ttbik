@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-10-17 10:51 UTC",
+ "generated_at": "2026-10-17 15:40 UTC",
  "errors": [],
  "repairs": [],
  "kernels": [
@@ -96,7 +96,7 @@
   {
    "alias": "دفتر المحادثة والمرمزات 1",
    "track": "chat_image_in_one",
-   "status": "complete",
+   "status": "running",
    "role": "primary",
    "last_run": "2026-10-17",
    "gpu": false,
@@ -291,135 +291,135 @@
  "datasets": [
   {
    "name": "sham-reports",
-   "size": "10314",
-   "updated": "2026-10-17 09:31:54.430000",
-   "downloads": "216"
+   "size": "10438",
+   "updated": "2026-10-17 15:34:12.870000",
+   "downloads": "220"
   },
   {
    "name": "sham-crawl-gh",
    "size": "0",
-   "updated": "2026-10-17 09:11:52.680000",
-   "downloads": "300"
+   "updated": "2026-10-17 15:34:05.603000",
+   "downloads": "317"
   },
   {
    "name": "sham-keeper-state",
-   "size": "608",
-   "updated": "2026-10-17 09:25:08.077000",
-   "downloads": "60"
+   "size": "639",
+   "updated": "2026-10-17 15:33:48.823000",
+   "downloads": "65"
   },
   {
    "name": "sham-merged-checkpoint",
-   "size": "716977394",
-   "updated": "2026-10-17 03:03:12.027000",
-   "downloads": "473"
+   "size": "716977376",
+   "updated": "2026-10-17 10:57:04.853000",
+   "downloads": "482"
   },
   {
    "name": "sham-cpu-track-checkpoint-v2",
    "size": "0",
    "updated": "2026-10-17 06:09:24.003000",
-   "downloads": "92"
+   "downloads": "97"
   },
   {
    "name": "sham-crawl-gh-collect-corpus",
-   "size": "0",
-   "updated": "2026-10-17 09:31:51.240000",
-   "downloads": "79"
+   "size": "69901390",
+   "updated": "2026-10-17 15:09:40.467000",
+   "downloads": "89"
   },
   {
    "name": "sham-image-tokenizer-checkpoint",
    "size": "144250599",
    "updated": "2026-10-17 08:36:51.293000",
-   "downloads": "117"
+   "downloads": "120"
   },
   {
    "name": "sham-audio-tokenizer-checkpoint",
    "size": "35228380",
    "updated": "2026-10-17 10:08:29.967000",
-   "downloads": "126"
+   "downloads": "129"
   },
   {
    "name": "sham-crawl-lightning",
    "size": "791545617",
    "updated": "2026-10-15 19:31:48.873000",
-   "downloads": "140"
+   "downloads": "142"
   },
   {
    "name": "sham-chat-checkpoint",
    "size": "580642746",
    "updated": "2026-10-17 06:04:52.577000",
-   "downloads": "238"
+   "downloads": "240"
   },
   {
    "name": "sham-research-track-checkpoint-v2",
-   "size": "0",
-   "updated": "2026-10-16 22:42:42.410000",
-   "downloads": "343"
+   "size": "4238649367",
+   "updated": "2026-10-17 11:28:11.383000",
+   "downloads": "344"
   },
   {
    "name": "sham-text-shards",
-   "size": "307268301",
-   "updated": "2026-10-17 06:35:25.597000",
-   "downloads": "273"
+   "size": "321630959",
+   "updated": "2026-10-17 12:44:07.517000",
+   "downloads": "277"
   },
   {
    "name": "sham-crawl-checkpoint",
    "size": "792167032",
    "updated": "2026-10-17 06:19:45.703000",
-   "downloads": "243"
+   "downloads": "245"
   },
   {
    "name": "sham-multimodal-checkpoint",
    "size": "580676494",
    "updated": "2026-10-16 07:08:58.653000",
-   "downloads": "341"
+   "downloads": "343"
   },
   {
    "name": "sham-checkpoint",
-   "size": "0",
-   "updated": "2026-10-10 10:48:08.767000",
-   "downloads": "137"
+   "size": "1586308243",
+   "updated": "2026-10-17 14:22:37.427000",
+   "downloads": "141"
   },
   {
    "name": "sham-image-tokenizer-v2-checkpoint",
    "size": "144015040",
    "updated": "2026-10-15 01:25:48.813000",
-   "downloads": "42"
+   "downloads": "45"
   },
   {
    "name": "sham-crawl-gh-corpus",
-   "size": "1121652",
-   "updated": "2026-10-17 09:11:56.723000",
-   "downloads": "9"
+   "size": "795371",
+   "updated": "2026-10-17 15:34:09.267000",
+   "downloads": "10"
   },
   {
    "name": "sham-crawl-lightning-corpus",
    "size": "528314",
    "updated": "2026-10-15 19:31:52.083000",
-   "downloads": "6"
+   "downloads": "7"
   },
   {
    "name": "sham-video-corpus",
    "size": "3924521",
    "updated": "2026-10-17 10:23:00.340000",
-   "downloads": "86"
+   "downloads": "89"
   },
   {
    "name": "sham-audio-tokenizer-v2-checkpoint",
    "size": "34972869",
    "updated": "2026-10-15 01:47:34.043000",
-   "downloads": "7"
+   "downloads": "10"
   },
   {
    "name": "sham-crawl-corpus",
    "size": "1405439",
    "updated": "2026-10-17 06:19:51.840000",
-   "downloads": "7"
+   "downloads": "8"
   },
   {
    "name": "sham-crawl-xlive",
    "size": "1373973598",
    "updated": "2026-10-03 02:42:30.113000",
-   "downloads": "53"
+   "downloads": "55"
   },
   {
    "name": "sham-audio-tokenizer-adult-synth",
@@ -431,13 +431,13 @@
    "name": "sham-cpu-track-checkpoint",
    "size": "175",
    "updated": "2026-09-20 11:58:06.133000",
-   "downloads": "43"
+   "downloads": "44"
   },
   {
    "name": "sham-grown-checkpoint",
    "size": "718122048",
    "updated": "2026-10-11 05:31:45.687000",
-   "downloads": "63"
+   "downloads": "66"
   },
   {
    "name": "sham-video-frames-audio-tokenizers",
@@ -449,409 +449,409 @@
    "name": "sham-crawl-agent",
    "size": "1370230289",
    "updated": "2026-10-01 15:31:00.620000",
-   "downloads": "51"
+   "downloads": "54"
   },
   {
    "name": "sham-media-image-202610111618",
    "size": "129662473",
    "updated": "2026-10-11 16:32:12.473000",
-   "downloads": "26"
+   "downloads": "28"
   },
   {
    "name": "sham-media-image-202610111606",
    "size": "0",
    "updated": "2026-10-11 16:18:05.247000",
-   "downloads": "520"
+   "downloads": "560"
   },
   {
    "name": "sham-media-image-202610111557",
    "size": "129561512",
    "updated": "2026-10-11 16:06:53.563000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111547",
    "size": "0",
    "updated": "2026-10-11 15:57:24.433000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610111536",
    "size": "0",
    "updated": "2026-10-11 15:47:24.017000",
-   "downloads": "520"
+   "downloads": "560"
   },
   {
    "name": "sham-media-image-202610111527",
    "size": "129560681",
    "updated": "2026-10-11 15:36:25.410000",
-   "downloads": "64"
+   "downloads": "66"
   },
   {
    "name": "sham-media-image-202610111519",
    "size": "128976330",
    "updated": "2026-10-11 15:27:38.547000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111510",
    "size": "129788524",
    "updated": "2026-10-11 15:19:04.643000",
-   "downloads": "45"
+   "downloads": "47"
   },
   {
    "name": "sham-media-image-202610111501",
    "size": "129810937",
    "updated": "2026-10-11 15:09:58.707000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610111453",
    "size": "129736346",
    "updated": "2026-10-11 15:01:33.040000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610111446",
    "size": "129385094",
    "updated": "2026-10-11 14:53:30.837000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111215",
    "size": "128791138",
    "updated": "2026-10-11 12:23:44.427000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111209",
    "size": "129393589",
    "updated": "2026-10-11 12:15:24.800000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-image-202610111201",
    "size": "129398149",
    "updated": "2026-10-11 12:08:58.750000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111154",
    "size": "0",
    "updated": "2026-10-11 12:01:41.567000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610111148",
    "size": "128708430",
    "updated": "2026-10-11 11:53:56.900000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610111142",
    "size": "128936589",
    "updated": "2026-10-11 11:47:55.963000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-image-202610111136",
    "size": "129026168",
    "updated": "2026-10-11 11:42:04.470000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111130",
    "size": "129692253",
    "updated": "2026-10-11 11:36:05.367000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-image-202610111123",
    "size": "0",
    "updated": "2026-10-11 11:30:14.560000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610111117",
    "size": "128929395",
    "updated": "2026-10-11 11:23:54.483000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111111",
    "size": "0",
    "updated": "2026-10-11 11:17:09.350000",
-   "downloads": "560"
+   "downloads": "600"
   },
   {
    "name": "sham-media-image-202610111106",
    "size": "0",
    "updated": "2026-10-11 11:11:17.663000",
-   "downloads": "560"
+   "downloads": "600"
   },
   {
    "name": "sham-media-image-202610111100",
    "size": "129039677",
    "updated": "2026-10-11 11:05:58.793000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111056",
    "size": "128764385",
    "updated": "2026-10-11 11:00:30.577000",
-   "downloads": "84"
+   "downloads": "86"
   },
   {
    "name": "sham-media-image-202610111052",
    "size": "128920140",
    "updated": "2026-10-11 10:56:06.557000",
-   "downloads": "66"
+   "downloads": "68"
   },
   {
    "name": "sham-media-image-202610111048",
    "size": "128940003",
    "updated": "2026-10-11 10:52:33.297000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111044",
    "size": "129023022",
    "updated": "2026-10-11 10:48:38.517000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111041",
    "size": "127975318",
    "updated": "2026-10-11 10:44:44.853000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111037",
    "size": "129250366",
    "updated": "2026-10-11 10:40:57.960000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610111034",
    "size": "128313062",
    "updated": "2026-10-11 10:37:31.223000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610111031",
    "size": "0",
    "updated": "2026-10-11 10:34:28.790000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610111029",
    "size": "127678650",
    "updated": "2026-10-11 10:31:29.610000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-audio-202610111025",
    "size": "0",
    "updated": "2026-10-11 10:28:57.153000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610111021",
    "size": "131035980",
    "updated": "2026-10-11 10:25:37.387000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-audio-202610111018",
    "size": "1060576070",
    "updated": "2026-10-11 10:21:33.570000",
-   "downloads": "410"
+   "downloads": "412"
   },
   {
    "name": "sham-media-image-202610111002",
    "size": "135942947",
    "updated": "2026-10-11 10:18:24.143000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110958",
    "size": "0",
    "updated": "2026-10-11 10:02:01.197000",
-   "downloads": "540"
+   "downloads": "580"
   },
   {
    "name": "sham-media-image-202610110941",
    "size": "136392138",
    "updated": "2026-10-11 09:58:50.867000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110940",
    "size": "393669296",
    "updated": "2026-10-11 09:41:32.233000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610110921",
    "size": "136080898",
    "updated": "2026-10-11 09:40:05.960000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110919",
    "size": "394928871",
    "updated": "2026-10-11 09:21:16.737000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610110900",
    "size": "134992165",
    "updated": "2026-10-11 09:19:54.420000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610110836",
    "size": "136602207",
    "updated": "2026-10-11 08:54:54.380000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110834",
    "size": "402363586",
    "updated": "2026-10-11 08:36:09.360000",
-   "downloads": "65"
+   "downloads": "67"
   },
   {
    "name": "sham-media-image-202610110815",
    "size": "135504427",
    "updated": "2026-10-11 08:34:42.573000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110813",
    "size": "404805261",
    "updated": "2026-10-11 08:15:10.117000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610110754",
    "size": "136288905",
    "updated": "2026-10-11 08:13:48.200000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110752",
    "size": "398679047",
    "updated": "2026-10-11 07:54:22.840000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610110733",
    "size": "134444553",
    "updated": "2026-10-11 07:52:45.127000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110732",
    "size": "378321201",
    "updated": "2026-10-11 07:33:53.950000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-image-202610110712",
    "size": "134810216",
    "updated": "2026-10-11 07:32:26.440000",
-   "downloads": "27"
+   "downloads": "29"
   },
   {
    "name": "sham-media-audio-202610110711",
    "size": "379620779",
    "updated": "2026-10-11 07:12:53.573000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-image-202610110652",
    "size": "133484773",
    "updated": "2026-10-11 07:11:34.127000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-audio-202610110650",
    "size": "379823987",
    "updated": "2026-10-11 06:52:13.243000",
-   "downloads": "29"
+   "downloads": "31"
   },
   {
    "name": "sham-media-image-202610110631",
    "size": "134794961",
    "updated": "2026-10-11 06:50:54.603000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-audio-202610110630",
    "size": "374725918",
    "updated": "2026-10-11 06:31:47.973000",
-   "downloads": "29"
+   "downloads": "31"
   },
   {
    "name": "sham-media-image-202610110611",
    "size": "136582608",
    "updated": "2026-10-11 06:30:29.730000",
-   "downloads": "28"
+   "downloads": "30"
   },
   {
    "name": "sham-media-audio-202610110610",
    "size": "377640881",
    "updated": "2026-10-11 06:11:29.953000",
-   "downloads": "30"
+   "downloads": "32"
   },
   {
    "name": "sham-media-image-202610110608",
    "size": "0",
    "updated": "2026-10-11 06:10:17.233000",
-   "downloads": "580"
+   "downloads": "620"
   },
   {
    "name": "sham-media-audio-202610110606",
    "size": "377530614",
    "updated": "2026-10-11 06:08:06.483000",
-   "downloads": "105"
+   "downloads": "107"
   },
   {
    "name": "sham-media-image-202610110605",
    "size": "148376346",
    "updated": "2026-10-11 06:06:54.153000",
-   "downloads": "29"
+   "downloads": "31"
   },
   {
    "name": "sham-media-audio-202610110604",
    "size": "377708247",
    "updated": "2026-10-11 06:05:07.737000",
-   "downloads": "88"
+   "downloads": "90"
   },
   {
    "name": "sham-media-image-202610110602",
    "size": "0",
    "updated": "2026-10-11 06:03:57",
-   "downloads": "580"
+   "downloads": "620"
   },
   {
    "name": "sham-orchestrator-state",
    "size": "277",
    "updated": "2026-09-27 18:04:46.037000",
-   "downloads": "43"
+   "downloads": "44"
   },
   {
    "name": "sham-crawl-agent-corpus",
    "size": "65727",
    "updated": "2026-10-01 00:35:55.173000",
-   "downloads": "10"
+   "downloads": "11"
   },
   {
    "name": "sham-crawl-xlive-corpus",
    "size": "251624",
    "updated": "2026-10-03 02:42:33.993000",
-   "downloads": "7"
+   "downloads": "8"
   },
   {
    "name": "sham-runtime-creds",
@@ -867,9 +867,9 @@
   },
   {
    "name": "sham-chat-arabic-sft-checkpoint",
-   "size": "580191987",
-   "updated": "2026-10-16 23:55:57.897000",
-   "downloads": "10"
+   "size": "0",
+   "updated": "2026-10-17 11:08:08.677000",
+   "downloads": "22"
   },
   {
    "name": "nova-small-checkpoint",
@@ -879,9 +879,9 @@
   },
   {
    "name": "sham-repair-remerge-checkpoint",
-   "size": "0",
-   "updated": "2026-10-17 01:05:54.137000",
-   "downloads": "50"
+   "size": "4384727428",
+   "updated": "2026-10-17 14:33:51.867000",
+   "downloads": "62"
   }
  ],
  "dataset_diag": {
@@ -915,20 +915,6 @@
    ],
    "documented": true
   },
-  "sham-crawl-gh-collect-corpus": {
-   "status": "ready",
-   "files": 5,
-   "kinds": {
-    "text": 5
-   },
-   "sample": [
-    "collect_progress.json",
-    "crawl_urls.json",
-    "text/gh_1792168537.txt",
-    "text/gh_1792187215.txt"
-   ],
-   "documented": true
-  },
   "sham-chat-checkpoint": {
    "status": "ready",
    "files": 9,
@@ -941,21 +927,6 @@
     "chat_audio_ledger.json",
     "chat_image_ledger.json",
     "chat_progress.json"
-   ],
-   "documented": true
-  },
-  "sham-research-track-checkpoint-v2": {
-   "status": "ready",
-   "files": 171,
-   "kinds": {
-    "model": 3,
-    "text": 168
-   },
-   "sample": [
-    "checkpoints/final.pt",
-    "checkpoints/step_61900.pt",
-    "checkpoints/step_61910.pt",
-    "research_corpus/doc_000000.txt"
    ],
    "documented": true
   },
@@ -976,16 +947,16 @@
   },
   "sham-checkpoint": {
    "status": "ready",
-   "files": 5,
+   "files": 4,
    "kinds": {
-    "model": 3,
+    "model": 2,
     "text": 2
    },
    "sample": [
     "checkpoints/final.pt",
-    "checkpoints/step_61800.pt",
-    "checkpoints/step_61841.pt",
-    "sham_small_tokenizer.json"
+    "checkpoints/step_62000.pt",
+    "sham_small_tokenizer.json",
+    "text_stream_progress_stage1.json"
    ],
    "documented": true
   },
@@ -1885,20 +1856,8 @@
    ],
    "documented": false
   },
-  "sham-runtime-creds": {
-   "status": "",
-   "files": 2,
-   "kinds": {
-    "text": 2
-   },
-   "sample": [
-    "github_dispatch_token.txt",
-    "kaggle.json"
-   ],
-   "documented": false
-  },
   "sham-chat-arabic-sft-checkpoint": {
-   "status": "",
+   "status": "ready",
    "files": 6,
    "kinds": {
     "model": 3,
@@ -1910,31 +1869,74 @@
     "image_tokenizer.pt",
     "sft_eval_history.json"
    ],
-   "documented": false
-  },
-  "sham-repair-remerge-checkpoint": {
-   "status": "ready",
-   "files": 11,
-   "kinds": {
-    "model": 8,
-    "text": 3
-   },
-   "sample": [
-    "audio_tokenizer.pt",
-    "cand__sham-checkpoint.ckpt",
-    "cand__sham-cpu-track-checkpoint-v2.ckpt",
-    "cand__sham-crawl-checkpoint.ckpt"
-   ],
-   "documented": false
+   "documented": true
   }
  },
  "workflows": {
+  "Sham Checkpoint Audit (read-only)": [
+   {
+    "id": 39046379851,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39046379851",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-17T15:44",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   }
+  ],
+  "Sham Restarter (keeps the Kaggle notebooks in a continuous cycle)": [
+   {
+    "id": 39046167963,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39046167963",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T15:41",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 39045244322,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39045244322",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T15:29",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 39044330409,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39044330409",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T15:16",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 39037318044,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39037318044",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T13:37",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   }
+  ],
   "Sham Status (supervision snapshot)": [
+   {
+    "id": 39046056969,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39046056969",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-17T15:40",
+    "minutes": null,
+    "event": "schedule"
+   },
    {
     "id": 39026446361,
     "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39026446361",
-    "status": "in_progress",
-    "conclusion": null,
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-17T10:50",
     "minutes": null,
     "event": "schedule"
@@ -1947,27 +1949,18 @@
     "started": "2026-10-17T04:34",
     "minutes": null,
     "event": "schedule"
-   },
-   {
-    "id": 38982525592,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38982525592",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T23:38",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38968174897,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38968174897",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T21:16",
-    "minutes": null,
-    "event": "schedule"
    }
   ],
   "Sham Collector (free CPU runner)": [
+   {
+    "id": 39045263923,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39045263923",
+    "status": "pending",
+    "conclusion": null,
+    "started": "2026-10-17T15:29",
+    "minutes": null,
+    "event": "schedule"
+   },
    {
     "id": 39025626785,
     "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39025626785",
@@ -1985,174 +1978,164 @@
     "started": "2026-10-17T04:20",
     "minutes": null,
     "event": "schedule"
-   },
-   {
-    "id": 38966710606,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38966710606",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T21:03",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38933060384,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38933060384",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T16:34",
-    "minutes": null,
-    "event": "schedule"
    }
   ],
   "Sham CPU Trainer (free CPU runner, slow and continuous)": [
    {
-    "id": 39025251952,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39025251952",
+    "id": 39045027962,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39045027962",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-17T15:26",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39037859027,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39037859027",
+    "status": "completed",
+    "conclusion": "cancelled",
+    "started": "2026-10-17T13:45",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 39025251952,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39025251952",
+    "status": "completed",
+    "conclusion": "success",
     "started": "2026-10-17T10:31",
     "minutes": null,
     "event": "schedule"
-   },
-   {
-    "id": 39001641052,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39001641052",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T04:11",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38965863156,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38965863156",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T20:56",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38932636524,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38932636524",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T16:31",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham Merge + Repair + Eval (free CPU runner)": [
-   {
-    "id": 39022244076,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39022244076",
-    "status": "in_progress",
-    "conclusion": null,
-    "started": "2026-10-17T09:44",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38991605219,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38991605219",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T01:36",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38959914024,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38959914024",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T20:07",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38925272984,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38925272984",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T15:36",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham Restarter (keeps the Kaggle notebooks in a continuous cycle)": [
-   {
-    "id": 39021026730,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39021026730",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T09:24",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 39009509755,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39009509755",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T06:19",
-    "minutes": null,
-    "event": "workflow_dispatch"
-   },
-   {
-    "id": 39004741213,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39004741213",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T05:01",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 39001749290,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39001749290",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T04:13",
-    "minutes": null,
-    "event": "workflow_dispatch"
    }
   ],
   "Sham Lightning Studio (free CPU)": [
    {
-    "id": 39016947536,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39016947536",
+    "id": 39043930487,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39043930487",
     "status": "in_progress",
     "conclusion": null,
+    "started": "2026-10-17T15:11",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39016947536,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39016947536",
+    "status": "completed",
+    "conclusion": "cancelled",
     "started": "2026-10-17T08:19",
     "minutes": null,
     "event": "schedule"
-   },
+   }
+  ],
+  "Sham Arabic SFT (push the separate notebook to Kaggle)": [
    {
-    "id": 38998916912,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38998916912",
-    "status": "completed",
-    "conclusion": "cancelled",
-    "started": "2026-10-17T03:28",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38976998355,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38976998355",
-    "status": "completed",
-    "conclusion": "cancelled",
-    "started": "2026-10-16T22:38",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38930623313,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38930623313",
+    "id": 39043681667,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39043681667",
     "status": "completed",
     "conclusion": "success",
-    "started": "2026-10-16T16:16",
+    "started": "2026-10-17T15:07",
+    "minutes": null,
+    "event": "push"
+   }
+  ],
+  "Sham Merge + Repair + Eval (free CPU runner)": [
+   {
+    "id": 39040880083,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39040880083",
+    "status": "in_progress",
+    "conclusion": null,
+    "started": "2026-10-17T14:28",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39022244076,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39022244076",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T09:44",
+    "minutes": null,
+    "event": "schedule"
+   }
+  ],
+  "Sham Kaggle Inspect (read-only)": [
+   {
+    "id": 39038739419,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39038739419",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T13:58",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   },
+   {
+    "id": 39027564419,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39027564419",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T11:08",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39004438184,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39004438184",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T04:56",
+    "minutes": null,
+    "event": "schedule"
+   }
+  ],
+  "Sham ModelScope Studio (host + worker)": [
+   {
+    "id": 39038041245,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39038041245",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T13:47",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39012151747,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39012151747",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T07:02",
+    "minutes": null,
+    "event": "schedule"
+   }
+  ],
+  "Sham Studio Ask (read-only)": [
+   {
+    "id": 39035524047,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39035524047",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T13:11",
+    "minutes": null,
+    "event": "workflow_dispatch"
+   }
+  ],
+  "Sham Token Shards (free CPU runner)": [
+   {
+    "id": 39027847737,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39027847737",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T11:13",
+    "minutes": null,
+    "event": "schedule"
+   },
+   {
+    "id": 39004902247,
+    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39004902247",
+    "status": "completed",
+    "conclusion": "success",
+    "started": "2026-10-17T05:04",
     "minutes": null,
     "event": "schedule"
    }
@@ -2166,161 +2149,31 @@
     "started": "2026-10-17T08:00",
     "minutes": null,
     "event": "schedule"
-   },
-   {
-    "id": 38951492788,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38951492788",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T18:59",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38873886178,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38873886178",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T08:28",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham ModelScope Studio (host + worker)": [
-   {
-    "id": 39012151747,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39012151747",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T07:02",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38968813523,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38968813523",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T21:21",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38919694416,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38919694416",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T14:55",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38866459127,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38866459127",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T07:19",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham Token Shards (free CPU runner)": [
-   {
-    "id": 39004902247,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39004902247",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T05:04",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38971648492,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38971648492",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T21:46",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38936316276,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38936316276",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T17:00",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38897138729,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38897138729",
-    "status": "completed",
-    "conclusion": "failure",
-    "started": "2026-10-16T11:56",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham Kaggle Inspect (read-only)": [
-   {
-    "id": 39004438184,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/39004438184",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-17T04:56",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38983551288,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38983551288",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T23:51",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38951562897,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38951562897",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T18:59",
-    "minutes": null,
-    "event": "schedule"
-   },
-   {
-    "id": 38913905477,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38913905477",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T14:12",
-    "minutes": null,
-    "event": "schedule"
-   }
-  ],
-  "Sham Kaggle Runs (read-only)": [
-   {
-    "id": 38867029398,
-    "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38867029398",
-    "status": "completed",
-    "conclusion": "success",
-    "started": "2026-10-16T07:24",
-    "minutes": null,
-    "event": "workflow_dispatch"
    }
   ]
  },
- "failures": [
-  {
-   "workflow": "Sham Token Shards (free CPU runner)",
-   "started": "2026-10-16T11:56",
-   "url": "https://github.com/jonsnow-org/Ttbik/actions/runs/38897138729",
-   "failed_steps": []
-  }
- ],
+ "failures": [],
  "reports": [
+  {
+   "time": "2026-10-17 15:34 UTC",
+   "source": "🤖 مدرّب CPU على GitHub: 1,131 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjon",
+   "text": "🤖 مدرّب CPU على GitHub: 1,131 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.880"
+  },
+  {
+   "time": "2026-10-17 14:22 UTC",
+   "source": "🧠 تقرير جلسة شام — المسار الرئيسي (CPU ⚠ لم يُعثر على GPU — الجلسة أبطأ بنحو 25 ضعفاً)",
+   "text": "🧠 تقرير جلسة شام — المسار الرئيسي (CPU ⚠ لم يُعثر على GPU — الجلسة أبطأ بنحو 25 ضعفاً)\nخطوات تدريب حقيقية هذه الجلسة: 210 (الخطوة النهائية: 62,051)\nمتوسط الخسارة أول 10 خطوات: 3.7976\nمتوسط الخسارة آخر 10 خطوات: 4.0710\n(كل رقم منهما دفعة واحدة، يتأرجح بنحو ±1.5 وحده — الحَكَم هو القياس على نص لم يُدرَّب عليه أدناه)\n📏 على نص لم يُدرَّب عليه: قبل 3.181 → بعد 3.149 (-0.032)\n🛡 الحارس: نهاية الجلسة كانت أسوأ على النص غير المرئي (3.317) فاستُعيدت أفضل أوزان وُجدت (بعد 100 دفعة، 3.149) ولم تُنشر الأوزان الأسوأ.\nخسارة التدريب في آخر 50 خطوة: 3.908\nنُشر إلى: jonsnowjonsnow/sham-checkpoint"
+  },
+  {
+   "time": "2026-10-17 11:28 UTC",
+   "source": "🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)",
+   "text": "🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)\nعدد الدورات: 158\nمستندات جديدة مقبولة: 169\nمستبعد (مكرر/شبه مكرر: 717، أسرار وكلمات مرور: 0)\nخطوات تدريب حقيقية هذه الجلسة: 242 (الخطوة النهائية: 62,152)\nآخر خسارة مسجّلة: 4.3434\nنُشر إلى: jonsnowjonsnow/sham-research-track-checkpoint-v2"
+  },
+  {
+   "time": "2026-10-17 11:04 UTC",
+   "source": "🧩 الدمج والتقييم على CPU (GitHub)",
+   "text": "🧩 الدمج والتقييم على CPU (GitHub)\nالأساس: sham-merged-checkpoint (يكمل من ناتجه السابق) (خطوة 61,555)\nقبل: text=3.946, chat=3.629, media=4.727\nبعد: text=3.946, chat=3.629, media=4.727\n⏭ sham-multimodal-checkpoint: الخطوة 64,270 جُرّبت سابقاً\n⏭ sham-checkpoint: الخطوة 61,841 جُرّبت سابقاً\n⏭ sham-cpu-track-checkpoint-v2: الخطوة 61,751 جُرّبت سابقاً\n⏭ sham-research-track-checkpoint-v2: ❌ لا توجد معه أداة تقسيم نص لمعرفة معنى صفوفه\n⏭ sham-crawl-checkpoint: الخطوة 63,029 جُرّبت سابقاً\n⏭ sham-crawl-agent: الخطوة 42,893 جُرّبت سابقاً\n⏭ sham-crawl-gh: الخطوة 62,985 جُرّبت سابقاً\n⏭ sham-crawl-lightning: الخطوة 62,201 جُرّبت سابقاً\n⏭ sham-crawl-xlive: الخطوة 51,425 جُرّبت سابقاً\n⏭ sham-chat-arabic-sft-checkpoint: الخطوة 65,199 جُرّبت سابقاً\n⏭ sham-cpu-track-checkpoint: لا توجد نقطة حفظ\n⏭ sham-grown-checkpoint: الخطوة 61,555 جُرّبت سابقاً\n⏭ sham-keeper-state: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110604: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110606: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110610: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110630: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110650: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110711: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110732: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110752: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110813: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110834: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110919: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110940: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610110958: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610111018: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610111025: لا توجد نقطة حفظ\n⏭ sham-media-audio-202610111031: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110602: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110605: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110608: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110611: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110631: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110652: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110712: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110733: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110754: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110815: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110836: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110900: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110921: لا توجد نقطة حفظ\n⏭ sham-media-image-202610110941: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111002: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111021: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111029: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111034: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111037: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111041: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111044: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111048: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111052: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111056: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111100: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111106: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111111: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111117: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111123: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111130: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111136: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111142: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111148: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111154: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111201: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111209: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111215: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111446: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111453: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111501: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111510: لا توجد نقطة حفظ\n⏭ sham-media-image-202610111519: لا توجد نقطة حفظ\n⏭ sham-media-image-202"
+  },
   {
    "time": "2026-10-17 09:31 UTC",
    "source": "🕸 الزاحف العام (GitHub): 95,953 وثيقة، 133.8 مليون حرف في 5.2 ساعة | crossref:55820 hacker",
@@ -2350,30 +2203,9 @@
    "time": "2026-10-17 02:57 UTC",
    "source": "🕸 الزاحف العام (GitHub): 98,122 وثيقة، 129.5 مليون حرف في 5.2 ساعة | crossref:60726 hacker",
    "text": "🕸 الزاحف العام (GitHub): 98,122 وثيقة، 129.5 مليون حرف في 5.2 ساعة | crossref:60726 hackernews:34625 gutenberg:914 github:811 arxiv:608 ia_books:303 stackexchange:133 europepmc:2 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus"
-  },
-  {
-   "time": "2026-10-17 02:31 UTC",
-   "source": "🤖 مدرّب CPU على GitHub: 1,457 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjon",
-   "text": "🤖 مدرّب CPU على GitHub: 1,457 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.885"
-  },
-  {
-   "time": "2026-10-16 22:42 UTC",
-   "source": "🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)",
-   "text": "🧠 تقرير جلسة شام — البحث الذاتي المستمر (Track B)\nعدد الدورات: 144\nمستندات جديدة مقبولة: 167\nمستبعد (مكرر/شبه مكرر: 646، أسرار وكلمات مرور: 0)\nخطوات تدريب حقيقية هذه الجلسة: 239 (الخطوة النهائية: 61,794)\nآخر خسارة مسجّلة: 5.1592\nنُشر إلى: jonsnowjonsnow/sham-research-track-checkpoint-v2"
-  },
-  {
-   "time": "2026-10-16 21:45 UTC",
-   "source": "🕸 الزاحف العام (GitHub): 99,553 وثيقة، 142.3 مليون حرف في 5.2 ساعة | crossref:56364 hacker",
-   "text": "🕸 الزاحف العام (GitHub): 99,553 وثيقة، 142.3 مليون حرف في 5.2 ساعة | crossref:56364 hackernews:38249 gutenberg:3628 github:933 stackexchange:160 arxiv:109 ia_books:96 europepmc:14 | نُشر إلى jonsnowjonsnow/sham-crawl-gh-collect-corpus"
-  },
-  {
-   "time": "2026-10-16 21:31 UTC",
-   "source": "🤖 مدرّب CPU على GitHub: 1,097 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjon",
-   "text": "🤖 مدرّب CPU على GitHub: 1,097 خطوة | نُشر: jonsnowjonsnow/sham-crawl-gh | نصوص: jonsnowjonsnow/sham-crawl-gh-corpus | مؤشر الحارس 0.883"
   }
  ],
  "alerts": [
-  "❌ دفتر أساسي فشل: مسار ترميز الصوت 3 (audio_tokenizer) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\"",
-  "⚠ sham-checkpoint لم تُحدَّث منذ 7 أيام"
+  "❌ دفتر أساسي فشل: مسار ترميز الصوت 3 (audio_tokenizer) — (بلا رسالة فشل من Kaggle) الحالة الخام: <notebook> has status \"KernelWorkerStatus.ERROR\""
  ]
 }
