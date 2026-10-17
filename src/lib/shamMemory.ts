@@ -7,6 +7,7 @@ import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 
 export const WINDOW_TURNS = 8;          // turns sent with each message
+export const SESSION_GAP_MIN = Number(process.env.SHAM_MEMORY_SESSION_GAP_MIN || 90);   // a pause longer than this starts a new conversation
 export const SUMMARY_EVERY = 10;        // turns older than the window are folded into the summary in blocks of this size
 const SUMMARY_MAX = 600;
 
@@ -41,14 +42,22 @@ const FACT_RULES: [string, RegExp][] = [
   ["likes", /(?:^|\s)و?(?:أحب|احب|بحب)\s+([^،,.!؟?\n]{2,40})/],
 ];
 
+// 2026-10-17 (supervisor): a fact comes only from a STATEMENT — «هل أحب القهوة؟» or «أحب أن أسألك عن…» used to store a "like" — and a job / like is a short phrase.
+const LOOSE_KEYS = new Set(["job", "likes"]);
+const isQuestionText = (t: string) => /[؟?]/.test(t) || /^\s*(هل|ما|ماذا|لماذا|كيف|متى|اين|أين|من|كم)\s/.test(t);
+const BAD_FACT_START = /^(أن|ان|ما|لا|اسأل|اسال|أسأل|ان\s|أن\s|الا|إلا|كثيرا|جدا)/;
+
 export function extractFacts(text: string): Facts {
   const out: Facts = {};
   const t = " " + (text || "").trim();
+  if (isQuestionText(t)) return out;
   for (const [key, rx] of FACT_RULES) {
     if (out[key]) continue;
     const m = t.match(rx);
     const v = m?.[1]?.trim();
-    if (v && !["؟", "?"].includes(v) && !/^(ما|شو|ايش|إيش)/.test(v)) out[key] = v;
+    if (!v || ["؟", "?"].includes(v) || /^(ما|شو|ايش|إيش)/.test(v)) continue;
+    if (LOOSE_KEYS.has(key) && (v.split(/\s+/).length > 4 || BAD_FACT_START.test(v))) continue;
+    out[key] = v;
   }
   return out;
 }
@@ -119,21 +128,61 @@ export function cleanHistory(turns: Turn[]): Turn[] {
   return sendRepliesOn() ? out : out.map((t) => ({ q: t.q, a: "" }));
 }
 
+const STOP = new Set(["هذا", "هذه", "ذلك", "التي", "الذي", "على", "الى", "إلى", "عن", "في", "من", "ما", "هل", "كيف", "ماذا", "لماذا", "أنا", "انا", "انت", "أنت", "لي", "لك", "مع", "كان", "يكون", "هو", "هي", "the", "and", "for", "you", "what", "how"]);
+const words = (s: string) => new Set(norm(s).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 3 && !STOP.has(w)));
+
+/** Turns from the CURRENT conversation only (newest first in, oldest first out): it ends where a pause longer than SESSION_GAP_MIN begins.
+ *  Rows without a timestamp count as current. */
+export function currentSession<T extends { created_at?: Date | string | null }>(rowsNewestFirst: T[], now = Date.now()): { current: T[]; older: T[] } {
+  const gapMs = SESSION_GAP_MIN * 60_000;
+  let prev = now, i = 0;
+  for (; i < rowsNewestFirst.length; i++) {
+    const at = rowsNewestFirst[i].created_at ? new Date(rowsNewestFirst[i].created_at as string).getTime() : NaN;
+    if (!Number.isNaN(at)) {
+      if (prev - at > gapMs) break;
+      prev = at;
+    }
+  }
+  return { current: rowsNewestFirst.slice(0, i), older: rowsNewestFirst.slice(i) };
+}
+
+/** Earlier conversations enter only when they are about the same thing as this message (at least two shared content words): the user's own earlier
+ *  questions, as one short line. This replaces the old rolling summary (the first words of every old question), which the model parroted in
+ *  unrelated chats. SHAM_MEMORY_SUMMARY=1 brings the old summary back. */
+export function relatedEarlier(text: string, older: Turn[], max = 2): string {
+  const w = words(text);
+  if (w.size === 0) return "";
+  const scored = older
+    .map((t) => {
+      let n = 0;
+      words(t.q).forEach((x) => { if (w.has(x)) n++; });
+      return { q: t.q.replace(/\s+/g, " ").trim().slice(0, 90), n };
+    })
+    .filter((x) => x.n >= 2)
+    .sort((a, b) => b.n - a.n)
+    .slice(0, max);
+  return scored.length ? "سألتَني سابقاً: " + scored.map((x) => x.q).join(" | ") : "";
+}
+
 /** The memory to send with a message (facts already include what THIS message states). Null when off or the database is unreachable. */
 export async function loadMemory(chatId: number | string, text: string, db: Db = prismaDb): Promise<MemoryContext | null> {
   if (!shamMemoryEnabled()) return null;
   const key = chatKey(chatId);
   try {
     await ensureTables(db);
-    const rows = await db.query<{ question: string; answer: string }>(
-      `SELECT question, answer FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS}`, key);
+    const rows = await db.query<{ question: string; answer: string; created_at?: Date | string | null }>(
+      `SELECT question, answer, created_at FROM sham_chat_memory WHERE chat_key=$1 ORDER BY id DESC LIMIT ${WINDOW_TURNS * 4}`, key);
     const prof = await db.query<{ facts: Facts | string; summary: string }>(`SELECT facts, summary FROM sham_user_facts WHERE chat_key=$1`, key);
     const stored = prof[0] ? (typeof prof[0].facts === "string" ? JSON.parse(prof[0].facts) : prof[0].facts) || {} : {};
+    const { current, older } = currentSession(rows);
+    const recent = current.slice(0, WINDOW_TURNS);
+    const toTurn = (r: { question: string; answer: string }) => ({ q: r.question, a: r.answer });
     return {
       chatKey: key,
-      // REVIEW (2026-10-15): was rows.reverse().map(...) sent as is; now duplicates dropped and (default) only the user's side sent
-      history: cleanHistory(rows.reverse().map((r) => ({ q: r.question, a: r.answer }))),
-      summary: prof[0]?.summary || "",
+      // 2026-10-17: only the current conversation is replayed as dialogue (a new day no longer continues yesterday's thread); earlier ones come back
+      // only when related to this message. REVIEW (2026-10-15): duplicates dropped and (default) only the user's side sent.
+      history: cleanHistory(recent.reverse().map(toTurn)),
+      summary: process.env.SHAM_MEMORY_SUMMARY === "1" ? prof[0]?.summary || "" : relatedEarlier(text, older.map(toTurn)),
       facts: { ...stored, ...extractFacts(text) },
     };
   } catch {
