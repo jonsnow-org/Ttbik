@@ -2,7 +2,7 @@
 
 **What this is:** a new independent coin, Zenobia of Tadmor (ZNBt), on its own bonding curve (fork of the open-source TONresistor launchpad, MIT, unaudited). It is not the Blum coin; the Blum coin is untouched.
 
-**In the contract (tested):** holding journey per wallet (`get_journey`: Child 0-6 d, Queen 7-20 d, Warrior 21+ d, Captive = sold everything, Legend = burned everything; under 1 token counts as empty; buying again frees a captive), 9B supply, creator fee 2% + protocol fee 1% on every trade (both to the owner wallet), graduation at 1,000 TON into DeDust, on-chain name/symbol/description/small still of the new Zenobia coin (`image_data`, on-chain) plus the animated coin at `/zenobia/znbt-coin.webp` as `image`; the trade page uses the chapter-2 banner and stage videos in `/zenobia/znbt/art/` (made from the owner-generated stills by `docs/zenobia/animation/cfgs_znbt.py`).
+**In the contract (tested):** holding journey per wallet (`get_journey`: Child 0-6 d, Queen 7-20 d, Warrior 21+ d, Captive = sold everything, Legend = burned everything; under 1 token counts as empty; buying again frees a captive), 9B supply, platform fee 1.5% + creator fee 1.5% on every trade (both to the owner wallet for ZNBt, 3% in total), graduation at 1,000 TON into DeDust, on-chain name/symbol/description/small still of the new Zenobia coin (`image_data`, on-chain) plus the animated coin at `/zenobia/znbt-coin.webp` as `image`; the trade page uses the chapter-2 banner and stage videos in `/zenobia/znbt/art/` (made from the owner-generated stills by `docs/zenobia/animation/cfgs_znbt.py`).
 
 **Pay and launch (owner wallet only):**
 1. Open `/zenobia/launch.html`, connect the owner wallet.
@@ -19,3 +19,8 @@
 - **Collect platform fees:** in the same admin view press "Collect platform fees" on a coin (moves its 1.5% into the master), then "Withdraw platform fees".
 - Creators collect their own fees on the coin page: step 1 move fees, step 2 withdraw.
 - `public/zenobia/znbt/config.json` has `"open": false` until the owner decides: while false, `create.html` shows "Not open yet" and its button is disabled. Set `curve` (ZNBt address) and `"open": true` together at launch.
+
+## ZNBt and the Blum coin ZNB are two different coins
+- ZNB (Blum): 1,000,000,000 fixed supply, set by Blum; no creator fee; its image and data cannot change. ZNBt: 9,000,000,000 supply on its own curve (about 90% sold on the curve, about 10% goes to DeDust at graduation), 3% fees to the owner wallet.
+- Nothing links them on-chain: no conversion, no airdrop, no shared journey. Holding one gives nothing on the other. Do not call ZNBt a "new edition" or an "upgrade" of ZNB: say it is a separate coin, chapter 2 of the story.
+- The passport, hall, board and bot still read the **ZNB** jetton only (`src/lib/zenobiaPay.ts` `holdsCoin`). Decide before launch whether they should also accept ZNBt.
