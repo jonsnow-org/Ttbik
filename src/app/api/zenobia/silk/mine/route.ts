@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureZenobiaTables } from "@/lib/zenobiaBotLogic";
-import { ensureSilkTables, silkConfig, silkStage } from "@/lib/zenobiaSilk";
-import { holdsCoin } from "@/lib/zenobiaPay";
+import { ensureSilkTables, silkJettons, silkStage } from "@/lib/zenobiaSilk";
+import { holdsAnyCoin } from "@/lib/zenobiaPay";
 import { rawAddress } from "@/lib/zenobiaSeason";
 
 export const dynamic = "force-dynamic";
@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
     const res = await fetch(`https://tonapi.io/v2/accounts/${encodeURIComponent(raw)}/nfts?limit=1000&indirect_ownership=false`, { headers });
     if (!res.ok) return NextResponse.json({ error: "try_again" }, { status: 503 });
     const owned = new Set(((await res.json()) as { nft_items?: { address: string }[] }).nft_items?.map((n) => rawAddress(n.address)) ?? []);
-    const jetton = await silkConfig("jetton");
-    const holds = jetton ? await holdsCoin(raw, jetton, { apiKey: process.env.TONAPI_KEY }).catch(() => true) : true;
+    const jettons = await silkJettons();
+    const holds = jettons.length ? await holdsAnyCoin(raw, jettons, { apiKey: process.env.TONAPI_KEY }).catch(() => true) : true;
     const now = Date.now();
     const passports = minted.filter((m) => { try { return owned.has(rawAddress(m.item)); } catch { return false; } }).map((m) => {
       const days = Math.max(0, Math.floor((now - new Date(m.minted_at).getTime()) / 86400000));

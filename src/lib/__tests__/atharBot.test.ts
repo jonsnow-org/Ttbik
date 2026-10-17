@@ -7,7 +7,7 @@ jest.mock("@/lib/prisma", () => ({
   prisma: { atharBotUser: {
     findUnique: async ({ where }: any) => { const k = `${where.botId_tgUserId.botId}:${where.botId_tgUserId.tgUserId}`; return store.has(k) ? { lang: store.get(k) } : null; },
     upsert: async ({ where, create, update }: any) => { const w = where.botId_tgUserId; store.set(`${w.botId}:${w.tgUserId}`, update?.lang ?? create.lang); return {}; },
-  }, $executeRawUnsafe: async (...a: unknown[]) => { raw.push(a); return 1; }, bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; } } },
+  }, $executeRawUnsafe: async (...a: unknown[]) => { raw.push(a); return 1; }, bot: { update: async ({ data }: any) => { channelSet.push(data.requiredChannel); return {}; }, findFirst: async () => null } },
 }));
 jest.mock("@/lib/botVisit", () => ({ recordBotVisit: async () => undefined }));
 // the chain and its stored state are stubs: nothing here touches the network or the database
@@ -143,7 +143,7 @@ describe("Athar bot", () => {
     expect(kb).toContain("Share Athar");
     expect(kb).not.toContain("/mystery?lang=en");
     expect(bot.sent[0].kb.is_persistent).toBeFalsy();  // collapsible with the phone's Back button
-    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,share,birthday,language");   // set once per server start
+    expect(COMMANDS.map((c) => c.command).join(",")).toBe("start,open,mystery,auctions,mine,board,share,match,birthday,language");   // set once per server start
     expect(bot.calls.some((c: string) => c.includes("menu:") && c.includes("lang=en"))).toBe(true);
     const sec = fakeBot();
     await handleAtharBotUpdate(sec, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "/mystery" } });
@@ -163,6 +163,27 @@ describe("Athar bot", () => {
     expect(JSON.stringify(sent.kb)).not.toContain("ref=");   // no referral payload (referrals are deferred by the owner)
     await handleAtharBotUpdate(bot, row, { message: { chat: { id: 3 }, from: { id: 11 }, text: "something else" } });
     expect(bot.sent.at(-1).kb).toBeUndefined();               // a plain reply never brings the collapsed menu back
+  });
+
+  it("the match button opens the marriage-match bot with the sender's id as the referral, or says it is unavailable", async () => {
+    const none = fakeBot();
+    await handleAtharBotUpdate(none, row, { message: { chat: { id: 4 }, from: { id: 21 }, text: "/match" } });
+    expect(none.sent[0].text).toMatch(/not available/i);
+    expect(none.sent[0].kb).toBeUndefined();
+    process.env.NEXT_PUBLIC_MATCH_BOT_URL = "https://t.me/ExampleMatchBot";
+    try {
+      const bot = fakeBot();
+      await handleAtharBotUpdate(bot, row, { message: { chat: { id: 4 }, from: { id: 21 }, text: "💞 Marriage match" } });
+      expect(JSON.stringify(bot.sent[0].kb)).toContain("https://t.me/ExampleMatchBot?start=ath_21");
+      const ar = fakeBot();
+      await handleAtharBotUpdate(ar, row, { message: { chat: { id: 4 }, from: { id: 22 }, text: "/language" } });
+      await handleAtharBotUpdate(ar, row, { message: { chat: { id: 4 }, from: { id: 22 }, text: "/match" } });
+      expect(JSON.stringify(ar.sent.at(-1)!.kb)).toContain("start=ath_22");
+    } finally { delete process.env.NEXT_PUBLIC_MATCH_BOT_URL; }
+    const menuBot = fakeBot();
+    await handleAtharBotUpdate(menuBot, row, { message: { chat: { id: 5 }, from: { id: 23 }, text: "/start" } });
+    expect(JSON.stringify(menuBot.sent[0].kb)).toContain("💞 Marriage match");
+    expect(COMMANDS.some((c: any) => c.command === "match")).toBe(true);
   });
 
   it("the owner panel is a different, admin-only keyboard (the old shared-shape rule is retired by the owner)", async () => {
