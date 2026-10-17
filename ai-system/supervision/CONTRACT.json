@@ -145,6 +145,10 @@
     "sham-runtime-creds": {
       "role": "مجموعة خاصة بملف اعتماد كاكل للنسخ المدفوعة بالواجهة (أسرار — لا تُرفق إلا بدفاتر خاصة؛ لا أوزان فيها)",
       "writer": "any"
+    },
+    "sham-media-refined": {
+      "role": "مفكّ الصورة والصوت المصقول وحده (الترميز والقاموس كما هما بالضبط) — يُعتمد في الاستوديو فقط إذا طابق ترميز النموذج المدموج",
+      "writer": "decoder_refine"
     }
   },
   "dynamic_dataset_patterns": [
@@ -405,7 +409,8 @@
       "kind": "workflow",
       "accelerator": "CPU (مشغّل GitHub المجاني)",
       "reads": [
-        "sham-merged-checkpoint"
+        "sham-merged-checkpoint",
+        "sham-media-refined"
       ],
       "writes": []
     },
@@ -649,6 +654,19 @@
       "accelerator": "CPU (GitHub)",
       "reads": [],
       "writes": []
+    },
+    "decoder_refine": {
+      "file": ".github/workflows/sham-decoder-refine.yml",
+      "title": "تحسين مفكّ مُرمِّز الصورة والصوت فقط (الترميز ثابت) على CPU",
+      "kind": "workflow",
+      "accelerator": "CPU (مشغّل GitHub المجاني)",
+      "reads": [
+        "sham-merged-checkpoint",
+        "sham-media-refined"
+      ],
+      "writes": [
+        "sham-media-refined"
+      ]
     }
   },
   "lineage": [

@@ -1,0 +1,55 @@
+name: Sham decoder refine (image / audio tokenizer decoder only)
+
+# 2026-10-17 (owner): the pictures and sounds the Studio writes come from the tokenizer's DECODER, which has had very little training. This trains ONLY the decoder;
+# the encoder and the codebook stay bit-identical, so every token id keeps its meaning and the language model stays valid. The result is published to its own
+# dataset (sham-media-refined) only when the reconstruction error measured on one fixed sample is better, and the Studio adopts it only when the ids are identical.
+
+on:
+  schedule:
+    - cron: "40 3,15 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "training minutes per kind"
+        default: "240"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sham-decoder-refine
+  cancel-in-progress: false
+
+jobs:
+  refine:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_REFINE != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      max-parallel: 1          # both kinds publish to the same dataset: one after the other
+      matrix:
+        kind: [image, audio]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+      - name: Free disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          sudo mkdir -p /kaggle/working && sudo chown -R "$USER" /kaggle/working
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: |
+          pip install --upgrade pip
+          pip install --index-url https://download.pytorch.org/whl/cpu torch
+          pip install tokenizers pillow numpy requests beautifulsoup4 kaggle datasets soundfile imageio-ffmpeg av
+      - name: Refine
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SHAM_MASK_SLUGS: "1"
+        working-directory: ai-system/colab/sham_small
+        run: python sham_decoder_refine.py ${{ matrix.kind }} ${{ inputs.minutes || '240' }}

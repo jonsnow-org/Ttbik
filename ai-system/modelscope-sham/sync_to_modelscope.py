@@ -64,10 +64,20 @@ def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
     for n, p in found.items():
         if p:
             shutil.copy2(p, out / n)
-    sha = sha256(out / "final_merged.pt")
+    try:        # 2026-10-17: the decoder-only refined image / audio tokenizer replaces the merged model's own ONLY when it encodes into the very same ids
+        sys.path.insert(0, str(SRC))
+        from sham_decoder_refine import REFINED, adopt_refined
+        refined_dir = Path(os.environ.get("SHAM_REFINED_DIR", "/tmp/refined"))       # downloaded by the workflow (best effort)
+        adopt_refined(out, ckpt_dir, lambda name: refined_dir if name == REFINED and refined_dir.exists() else None)
+    except Exception as exc:
+        print(f"⚠ المُرمِّز المصقول لم يُعتمد ({type(exc).__name__}: {str(exc)[:100]}) — يُرفع ما في نقطة الدمج كما هو")
+    sha_ckpt = sha256(out / "final_merged.pt")
+    tok_sha = {n: sha256(out / n) for n in ("image_tokenizer.pt", "audio_tokenizer.pt") if (out / n).exists()}
+    # one fingerprint for the Studio's reload decision (app.py reloads when "sha" changes): the model AND its media tokenizers
+    sha = hashlib.sha256((sha_ckpt + "".join(f"|{k}:{v}" for k, v in sorted(tok_sha.items()))).encode()).hexdigest() if tok_sha else sha_ckpt
     code_sig = stage_code(out / "studio_code")
     (out / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
-    ckpt_sha = {"final_merged.pt": sha, **{n: sha256(out / n) for n in CHAT_CKPTS if (out / n).exists()}}      # app.py reloads only when the served one changes
+    ckpt_sha = {"final_merged.pt": sha_ckpt, **{n: sha256(out / n) for n in CHAT_CKPTS if (out / n).exists()}}      # app.py reloads only when the served one changes
     (out / "bridge_manifest.json").write_text(json.dumps({"sha": sha, "code_sig": code_sig, "files": sorted(p.name for p in out.iterdir()),
                                                           "ckpt_sha": ckpt_sha}), encoding="utf-8")
     return out, sha
