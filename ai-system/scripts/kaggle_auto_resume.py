@@ -76,6 +76,13 @@ import sys
 from pathlib import Path
 
 
+def _shown(slug: str) -> str:
+    """Public Actions logs never show a real notebook name (owner's decision): SHAM_MASK_SLUGS=1 (the restarter workflow sets it) prints a short hash instead."""
+    import hashlib
+    import os
+    return "notebook-" + hashlib.sha1(str(slug).encode()).hexdigest()[:6] if os.environ.get("SHAM_MASK_SLUGS") == "1" else str(slug)
+
+
 def _load_kaggle_api():
     from kaggle.api.kaggle_api_extended import KaggleApi
 
@@ -155,12 +162,12 @@ def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failu
             entry.pop("gpu_fallback_since", None)
             return "GPU (owner's choice)"
         except Exception as exc:
-            print(f"kaggle_auto_resume: GPU refused for '{slug}' ({exc}) -- continuing on the free CPU instead.")
+            print(f"kaggle_auto_resume: GPU refused for '{_shown(slug)}' ({exc}) -- continuing on the free CPU instead.")
             quota_failed = True
         _set_gpu(work_dir, False)
     if quota_failed:
         entry["gpu_fallback_since"] = now
-        print(f"kaggle_auto_resume: '{slug}' is a GPU notebook without GPU quota -- running it on CPU; "
+        print(f"kaggle_auto_resume: '{_shown(slug)}' is a GPU notebook without GPU quota -- running it on CPU; "
               f"GPU will be tried again in {GPU_RETRY_HOURS}h.")
     _push_ok(api, work_dir)
     return "CPU (GPU quota exhausted)"
@@ -310,17 +317,17 @@ def resume_kernel(
     try:
         status_response = api.kernels_status(kernel_slug)
     except Exception as exc:
-        print(f"kaggle_auto_resume: could not read status for '{kernel_slug}' ({exc}) -- "
+        print(f"kaggle_auto_resume: could not read status for '{_shown(kernel_slug)}' ({exc}) -- "
               f"treating as not found. Never falling back to creating a substitute kernel.")
         return "not_found"
 
     status = status_response.status
     failure = str(getattr(status_response, "failure_message", "") or "")
     if status in (KernelWorkerStatus.RUNNING, KernelWorkerStatus.QUEUED):
-        print(f"kaggle_auto_resume: '{kernel_slug}' is still {status.name} -- nothing to do.")
+        print(f"kaggle_auto_resume: '{_shown(kernel_slug)}' is still {status.name} -- nothing to do.")
         return "still_running"
 
-    print(f"kaggle_auto_resume: '{kernel_slug}' is {status.name} -- resuming.")
+    print(f"kaggle_auto_resume: '{_shown(kernel_slug)}' is {status.name} -- resuming.")
 
     if dry_run:
         print("kaggle_auto_resume: --dry-run set, not actually pushing.")
@@ -352,7 +359,7 @@ def resume_kernel(
     else:
         api.kernels_push(str(work_dir))
         device = "accelerator unchanged"
-    print(f"kaggle_auto_resume: pushed ({device}) -- '{kernel_slug}' should start a fresh run shortly.")
+    print(f"kaggle_auto_resume: pushed ({device}) -- '{_shown(kernel_slug)}' should start a fresh run shortly.")
     print("kaggle_auto_resume: REMINDER -- verify on Kaggle's own UI that Secrets (GITHUB_TOKEN, "
           "KAGGLE_USERNAME, KAGGLE_KEY) and the GPU accelerator are still attached after this push. "
           "This is a known Kaggle API limitation (see this file's own module docstring), not something "

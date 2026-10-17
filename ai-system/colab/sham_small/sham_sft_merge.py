@@ -13,6 +13,7 @@ the SFT notebook's frozen 2% questions. The best ratio is saved only if --out is
 from __future__ import annotations
 
 import argparse
+import sys
 import json
 from pathlib import Path
 
@@ -92,4 +93,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:        # CI runs every changed module with no arguments: a real run needs --chat/--sft/--tokenizer
+        print("sham_sft_merge: usage: python sham_sft_merge.py --chat A --sft B --tokenizer T [--out OUT] — nothing to do without them")
+        raise SystemExit(0)
     raise SystemExit(main())

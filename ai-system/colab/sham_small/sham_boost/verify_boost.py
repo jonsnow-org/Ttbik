@@ -38,7 +38,7 @@ V, T = 320, 96
 def tiny():
     torch.manual_seed(0)
     cfg = ShamSmallConfig(vocab_size=V, d_model=64, n_layers=4, n_heads=4, n_kv_heads=2, mlp_hidden=128, max_seq_len=128)
-    return ShamSmall(cfg).eval()
+    return ShamSmall(cfg).train(False)
 
 
 def full_boost_cfg():
@@ -52,7 +52,7 @@ def media_batch(B):
 
 def check_identity():
     base = tiny()
-    m = BoostedSham(base, full_boost_cfg()).eval()
+    m = BoostedSham(base, full_boost_cfg()).train(False)
     chunks = [torch.randint(0, 250, (48,)) for _ in range(10)]
     m.set_memory_bank(m.build_memory(chunks, segments=4))
     ids = torch.randint(0, V, (2, T))
@@ -72,7 +72,7 @@ def check_identity():
 
 def check_doc_mask():
     base = tiny()
-    m = BoostedSham(base, BoostConfig(qk_norm=True)).eval()
+    m = BoostedSham(base, BoostConfig(qk_norm=True)).train(False)
     ids = torch.randint(0, V, (2, T))
     mask = block_causal_mask(torch.zeros(2, T, dtype=torch.long))
     with torch.no_grad():
@@ -159,11 +159,11 @@ def check_fold(m):
         src = d / "final_merged.pt"
         save_checkpoint(src, m.base, step=123)
         m.save_boost(d / "boost_state.pt")
-        m2 = BoostedSham.from_checkpoint(src, d / "boost_state.pt").eval()
+        m2 = BoostedSham.from_checkpoint(src, d / "boost_state.pt").train(False)
         out = m2.fold_in(d / "final_boosted.pt", source=src)
-        m3 = BoostedSham.from_merged(out).eval()
+        m3 = BoostedSham.from_merged(out).train(False)
         ids = torch.randint(0, V, (2, T))
-        m.eval()
+        m.train(False)
         with torch.no_grad():
             a, _ = m(ids)
             b, _ = m3(ids)

@@ -188,8 +188,10 @@ class UserMemory:
 
     def add_turn(self, q: str, a: str) -> None:
         # 2026-10-15 (owner, repetition fix — additive): a reply (near-)identical to a recent one is not logged. SHAM_MEMORY_DEDUPE=0 restores.
+        # review 2026-10-17: the QUESTION is still kept (a repeated reply used to drop the whole turn, so «what did I ask you?» lost its answer and the self-test below
+        # could not even store 8 turns); only the repeated REPLY is left out, which is what the repetition fix is for.
         if _flag("SHAM_MEMORY_DEDUPE") and any(near_same_reply(t.get("a", ""), a) for t in self.turns()[-8:]):
-            return
+            a = ""
         self.dir.mkdir(parents=True, exist_ok=True)
         with self._p("turns.jsonl").open("a", encoding="utf-8") as f:
             f.write(json.dumps({"q": q, "a": a, "t": int(time.time())}, ensure_ascii=False) + "\n")
@@ -656,7 +658,7 @@ if __name__ == "__main__":
     cfg = ShamSmallConfig(vocab_size=SpecialTokens.RESULT_END + 8, d_model=32, n_layers=4, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=2048)
     model, tok = ShamSmall(cfg).eval(), Tok()
     with tempfile.TemporaryDirectory() as td:
-        os.environ["SHAM_MEMORY_DIR"], os.environ["SHAM_MEMORY_KEY_LAYER"], os.environ["SHAM_MEMORY_WINDOW_TOKENS"] = td, "2", "120"
+        os.environ["SHAM_MEMORY_DIR"], os.environ["SHAM_MEMORY_KEY_LAYER"], os.environ["SHAM_MEMORY_WINDOW_TOKENS"] = td, "2", "40"
         r = memory_answer(model, tok, "u1", "اسمي سامر", 6, greedy=True)
         assert r["type"] == "text" and r["memory"]["facts"] == 1
         for i in range(8):

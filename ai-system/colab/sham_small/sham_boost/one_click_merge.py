@@ -45,7 +45,7 @@ def decide(base_score: dict, boost_score: dict, tolerance: float) -> tuple[bool,
 
 def run(ckpt, boost, gate: dict, tolerance=0.005, apply=False, out=None, stageb_base=None, log=print) -> dict:
     model = BoostedSham.from_checkpoint(ckpt, boost)
-    model.eval()
+    model.train(False)
     if stageb_base:
         sd = torch.load(stageb_base, map_location="cpu", weights_only=False)["model_state_dict"]
         plain = BoostedSham.from_checkpoint(ckpt).base

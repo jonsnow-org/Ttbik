@@ -125,4 +125,7 @@ def main(ckpt, tok_path, out_path=None):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 3:        # CI runs every changed module with no arguments: a real run needs a checkpoint and its tokenizer
+        print("sham_memory_eval: usage: python sham_memory_eval.py <checkpoint.pt> <tokenizer.json> [out.json] — nothing to do without them (offline self-test: none)")
+        raise SystemExit(0)
     main(*sys.argv[1:4])
