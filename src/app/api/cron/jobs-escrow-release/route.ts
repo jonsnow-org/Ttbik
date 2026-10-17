@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Bot as TelegramBot } from "grammy";
+import { settleEscrow } from "@/lib/jobsBotLogic";
 
 // Auto-release stale escrowed StoreOrders (owner spec, 2026-09-05): if a
 // buyer never presses "لقد استلمت المنتج" and never opens a dispute
@@ -34,11 +35,9 @@ export async function GET(req: NextRequest) {
     const openDispute = await prisma.jobsDispute.findUnique({ where: { orderId: order.id } });
     if (openDispute && openDispute.status !== "RESOLVED") continue; // left for manual admin resolution
 
-    await prisma.$transaction([
-      prisma.jobsUser.update({ where: { id: order.sellerId }, data: { balance: { increment: order.amount } } }),
-      prisma.jobsTransaction.create({ data: { userId: order.sellerId, amount: order.amount, currency: "internal", type: "ESCROW_RELEASE", status: "COMPLETED" } }),
-      prisma.storeOrder.update({ where: { id: order.id }, data: { status: "RELEASED", releasedAt: new Date() } }),
-    ]);
+    // Same atomic settle as the bot's buttons (see settleEscrow in jobsBotLogic.ts).
+    const settled = await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE");
+    if (!settled) continue; // already settled by the buyer/admin in the meantime
     released++;
 
     const botRow = await prisma.bot.findFirst({ where: { template: "JOBS_BOT" } });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scanTonDeposits, checkAndSweepOwnerProfits } from "@/services/ton-service";
+import { scanTonDeposits } from "@/services/ton-service";
+import { sweepOwnerProfits } from "@/lib/ownerPayout";
 
 // Native TON deposit scanner + owner-profit sweep (owner spec, 2026-09-02).
 // Runs daily via Vercel Cron (vercel.json) — Vercel's Hobby plan caps cron
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   }
   try {
     const depositResult = await scanTonDeposits();
-    const sweepResult = await checkAndSweepOwnerProfits().catch((error: any) => ({ swept: false, error: error.message }));
+    const sweepResult = await sweepOwnerProfits({ manual: false }).catch((error: any) => ({ swept: false, error: error.message }));
     return NextResponse.json({ ok: true, ...depositResult, sweep: sweepResult });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error.message || "scan failed" }, { status: 500 });
