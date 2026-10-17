@@ -1153,7 +1153,8 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
           uname = "؟";
         }
         const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
-        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}`;
+        const money = r.template === "AD_BOT" ? ` — عمولة المشرف: جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}` : "";
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
       }),
     );
     await bot.api.sendMessage(
@@ -1167,7 +1168,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await setPending(user.id, { mode: "admin_transfer_owner" });
     await bot.api.sendMessage(
       chatId,
-      `🔁 المشرف الحالي لهذا البوت: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}.\n\nأرسل الآيدي الرقمي للمشرف الجديد، أو أرسل «أنا» لتكون أنت صاحب البوت.\nمن تنقل الملكية عنه يعود مستخدماً عادياً ويفقد لوحة المشرف وأرباحه المستقبلية. لا يتغير شيء في حساب BotFather (انظر النقل الرسمي هناك).`,
+      `🔁 المشرف الحالي لهذا البوت: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}.\nعمولة المشرف المتراكمة على هذا البوت: جاهزة ${fmt(Number(botRow.ownerBalance))} + محجوزة ${fmt(Number(botRow.pendingBalance))} (20% من كل مهمة تُنجز داخله؛ تنتقل مع الملكية).\n\nأرسل الآيدي الرقمي للمشرف الجديد، أو أرسل «أنا» لتكون أنت صاحب البوت.\nمن تنقل الملكية عنه يعود مستخدماً عادياً ويفقد لوحة المشرف وأرباحه المستقبلية. لا يتغير شيء في حساب BotFather (انظر النقل الرسمي هناك).`,
       { reply_markup: amountEntryMenu("ar") },
     );
     return;
