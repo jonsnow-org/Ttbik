@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-17 15:44 UTC",
+  "generated_at": "2026-10-17 20:46 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -15,7 +15,7 @@
       "alias": "المرحلة الثالثة 4",
       "track": "chat_stage",
       "status": "complete",
-      "role": "duplicate",
+      "role": "primary",
       "last_run": "2026-10-02",
       "gpu": false,
       "failure": ""
@@ -68,8 +68,8 @@
     {
       "alias": "المرحلة الثالثة 5",
       "track": "chat_stage",
-      "status": "running",
-      "role": "primary",
+      "status": "error",
+      "role": "duplicate",
       "last_run": "2026-10-17",
       "gpu": false,
       "failure": ""
@@ -243,29 +243,29 @@
       "size_mb": 144.3,
       "last_updated": "2026-10-17",
       "progress": {
-        "samples_consumed": 109992,
-        "step": 11758,
+        "samples_consumed": 103900,
+        "step": 10235,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 3038,
-        "recon": 0.052979934960603714
+        "codebook_usage": 2963,
+        "recon": 0.0655687032888333
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
-      "size_mb": 35.2,
+      "size_mb": 35.3,
       "last_updated": "2026-10-17",
       "progress": {
-        "samples_consumed": 86308,
-        "step": 10732,
+        "samples_consumed": 105068,
+        "step": 13077,
         "last_run_sources": {
           "cv17-ar": 1000
         },
         "codebook_usage": 1996,
-        "recon": 0.014462114622195562
+        "recon": 0.014327848785453373
       },
       "has_key_files": true
     },
@@ -390,13 +390,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 86308,
-          "step": 10732,
+          "samples_consumed": 105068,
+          "step": 13077,
           "last_run_sources": {
             "cv17-ar": 1000
           },
           "codebook_usage": 1996,
-          "recon": 0.014462114622195562
+          "recon": 0.014327848785453373
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -433,7 +433,7 @@
       "chat_stage": {
         "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
         "ready": true,
-        "kernel_status": "running",
+        "kernel_status": "complete",
         "progress": {},
         "dataset": "نتائج المرحلة الثالثة 1"
       }

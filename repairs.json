@@ -3,5 +3,9 @@
   "at": 1791673580.3020952,
   "dropped": "sham-crawl-agent, sham-crawl-checkpoint, sham-crawl-corpus, sham-crawl-xlive, sham-crawl-xlive-corpus",
   "ok": true
+ },
+ "jonsnowjonsnow/sham-arabic-sft": {
+  "at": 1792269963.6439762,
+  "result": "المجموعة ليست في مدخلات الدفتر المحفوظة"
  }
 }
