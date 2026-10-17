@@ -835,7 +835,7 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
       const firstWord = text.split(/[\s@]/)[0].toLowerCase();
       // 2026-10-14: with SHAM_THINK on, a bare word («صورة …») is no longer a keyword rule — only the explicit slash command (/image, /صورة …)
       // is the user's own choice; everything else is for the model to decide. REVIEW: the bare-word form is kept for SHAM_THINK=0.
-      const mediaKind = shamStudioEnabled() && (process.env.SHAM_THINK === "0" || text.startsWith("/")) ? shamMediaKind(text) : undefined;
+      const mediaKind = shamStudioEnabled() && text.startsWith("/") ? shamMediaKind(text) : undefined;
       // with the Studio on, only /start, /help and the three media commands are commands; any other text starting with "/" is an ordinary message for Sham
       if ((text.startsWith("/") && (!shamStudioEnabled() || firstWord === "/start" || firstWord === "/help")) || mediaKind) {
         const welcome = "👋 أهلاً! أنا «شام»، نموذج ذكاء اصطناعي عربي قيد التدريب. اكتب لي سؤالك، وقد أجيب بكلام أو بصورة أو بصوت من عندي. أوامر اختيارية: /image أو /صورة، و/audio أو /صوت، و/video أو /فيديو ثم وصفك. ما زلت أتعلم، فقد لا يكون كلامي دقيقاً بعد.";
