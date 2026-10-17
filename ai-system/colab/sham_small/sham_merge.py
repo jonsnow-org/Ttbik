@@ -200,13 +200,13 @@ def default_tolerance() -> float:
         return 0.01
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=None):
+def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=None, anchor=None):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
     Mutates model in place (only accepted merges stay). Returns report lines."""
     tolerance = default_tolerance() if tolerance is None else tolerance
     report = []
     base_score = score_fn(model)
-    anchor = dict(base_score)       # where this run started: the limit on accumulated drift
+    anchor = dict(anchor) if anchor else dict(base_score)       # where this RUN started (passed in when merging in rounds): the limit on accumulated drift
     report.append("قبل الدمج: " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
     for name, other, rows in sources:
         base = {n: p.detach().clone() for n, p in model.named_parameters()}
