@@ -127,6 +127,7 @@ type PendingAction =
   | { mode: "admin_global_ad_target"; type: AdTypeStr }
   | { mode: "admin_credit_target" }
   | { mode: "admin_credit_amount"; targetId: string }
+  | { mode: "admin_transfer_owner" }
   | { mode: "owner_broadcast" }
   | { mode: "owner_channel_setup" }
   | { mode: "owner_withdraw_address" }
@@ -448,7 +449,8 @@ function phoneRequestMenu(lang: Lang): Keyboard {
 const ADMIN_MENU = new Keyboard()
   .text("📢 إعلان إجباري شامل").text("📣 إذاعة لكل المستخدمين").row()
   .text("📊 الإحصائيات والأرباح").text("➕ شحن رصيد").row()
-  .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري")
+  .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري").row()
+  .text("🤖 البوتات والمشرفون").text("🔁 نقل ملكية هذا البوت")
   .resized();
 // A bot's own creator is also a full participant in their own bot — not a
 // separate, exclusive role — per owner instruction (2026-08-31): "لوحة
@@ -1132,6 +1134,65 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const approve = text.startsWith("موافقة ");
     const idSuffix = text.split(" ")[1]?.trim();
     if (idSuffix) await decideWithdrawal(bot, chatId, idSuffix, approve);
+    return;
+  }
+  // ---- Platform-owner tools: who owns which bot (owner = SUPER_ADMIN, supervisor = a bot's own creator) ----
+  // A bot's creator (Bot.ownerId) is a SUPERVISOR: he gets the "🛠 لوحة المشرف" panel (his earnings, his bot's stats).
+  // Only the platform owner (SUPER_ADMIN) has the owner panel, on every bot. If the platform's main bot was ever activated
+  // with someone else's ID, that person is its supervisor; "🔁 نقل ملكية هذا البوت" moves it back in two taps.
+  if (text === "🤖 البوتات والمشرفون" && tgUserId === SUPER_ADMIN_ID) {
+    const rows = await prisma.bot.findMany({ orderBy: { created_at: "asc" }, take: 40 });
+    const lines = await Promise.all(
+      rows.map(async (r) => {
+        let uname = "?";
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${r.token}/getMe`, { signal: AbortSignal.timeout(4000) });
+          const j = (await res.json().catch(() => null)) as { result?: { username?: string } } | null;
+          uname = j?.result?.username ? `@${j.result.username}` : "؟";
+        } catch {
+          uname = "؟";
+        }
+        const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}`;
+      }),
+    );
+    await bot.api.sendMessage(
+      chatId,
+      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
+      { reply_markup: ADMIN_MENU },
+    );
+    return;
+  }
+  if (text === "🔁 نقل ملكية هذا البوت" && tgUserId === SUPER_ADMIN_ID) {
+    await setPending(user.id, { mode: "admin_transfer_owner" });
+    await bot.api.sendMessage(
+      chatId,
+      `🔁 المشرف الحالي لهذا البوت: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}.\n\nأرسل الآيدي الرقمي للمشرف الجديد، أو أرسل «أنا» لتكون أنت صاحب البوت.\nمن تنقل الملكية عنه يعود مستخدماً عادياً ويفقد لوحة المشرف وأرباحه المستقبلية. لا يتغير شيء في حساب BotFather (انظر النقل الرسمي هناك).`,
+      { reply_markup: amountEntryMenu("ar") },
+    );
+    return;
+  }
+  if (pending?.mode === "admin_transfer_owner" && tgUserId === SUPER_ADMIN_ID) {
+    const wantsMe = /^(أنا|انا|me)$/i.test(text);
+    const target = wantsMe ? SUPER_ADMIN_ID : text.replace(/\D/g, "");
+    if (!/^\d{5,15}$/.test(target)) {
+      await bot.api.sendMessage(chatId, "أرسل آيدي رقمياً صحيحاً، أو «أنا».");
+      return;
+    }
+    const previous = botRow.ownerId;
+    await prisma.bot.update({ where: { id: botRow.id }, data: { ownerId: target } });
+    await setPending(user.id, null);
+    await bot.api.sendMessage(
+      chatId,
+      `✅ صار صاحب هذا البوت: ${target === SUPER_ADMIN_ID ? "أنت (المالك)" : `المشرف ${target}`}.\nالمشرف السابق (${previous}) أصبح مستخدماً عادياً. اطلب منه إرسال /start ليتحدّث الكيبورد عنده.`,
+      { reply_markup: ADMIN_MENU },
+    );
+    if (previous !== target && previous !== SUPER_ADMIN_ID) {
+      await bot.api.sendMessage(Number(previous), "ℹ️ تم نقل إدارة هذا البوت إلى مالك المنصة. أرسل /start لتحديث القائمة.").catch(() => null);
+    }
+    if (target !== SUPER_ADMIN_ID) {
+      await bot.api.sendMessage(Number(target), "🛠 أصبحت مشرف هذا البوت. أرسل /start لفتح لوحة المشرف.").catch(() => null);
+    }
     return;
   }
   if (text === "➕ شحن رصيد" && tgUserId === SUPER_ADMIN_ID) {
