@@ -177,10 +177,25 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         merged.clear()
         progress["merge_rule"] = rule
     candidates, report = [], []
+    changed = False
+    # 2026-10-17: after the rule change every source is new at once; holding ALL their models in memory together (up to 12 x ~0.5 GB + the repair copies) starved the
+    # runner twice ("received a shutdown signal" after 55-74 min, nothing published). Candidates are now merged through the gate in rounds of CHUNK and freed.
+    chunk = max(1, int(os.environ.get("SHAM_MERGE_CHUNK", "3")))
+
+    def flush():
+        nonlocal changed
+        if candidates:
+            lines = guarded_merge(model, list(candidates), score, anchor=before)
+            report.extend(lines)
+            changed = changed or any(l.startswith("✅") for l in lines)
+            candidates.clear()
+            import gc
+            gc.collect()
+    tried_this_run = 0
     for name, pattern, rows in (sources if sources is not None else list(KNOWN_SOURCES)):
         if name in (label.split(" ")[0], OWN):      # 2026-10-17: the chat lineage is a candidate too (it used to be skipped by name: its skill never reached the merged model unless it was the base)
             continue
-        if len(candidates) >= max_sources:
+        if tried_this_run >= max_sources:
             report.append(f"⏭ {name}: يؤجَّل للتشغيل القادم (الحد {max_sources} مصدراً في التشغيل)")
             continue
         root = fetch(name)
@@ -197,13 +212,12 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             shutil.rmtree(root, ignore_errors=True)
             continue
         candidates.append((f"{name} (خطوة {other_step:,})", other.to(device), rows))
+        tried_this_run += 1
         merged[name] = other_step
         shutil.rmtree(root, ignore_errors=True)
-    changed = False
-    if candidates:
-        lines = guarded_merge(model, candidates, score)
-        report += lines
-        changed = any(l.startswith("✅") for l in lines)
+        if len(candidates) >= chunk:
+            flush()
+    flush()
     after = score(model)
     progress.update(base=progress.get("base", label), base_step=progress.get("base_step", step), merged=merged,
                     updated=time.time(), gate_before=before, gate_after=after)
