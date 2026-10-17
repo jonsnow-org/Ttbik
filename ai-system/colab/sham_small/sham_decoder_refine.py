@@ -132,6 +132,33 @@ def refine(kind: str, minutes: float, fetch=None, publish=None, measure=None, ma
     return out
 
 
+def survey(kind: str) -> list[dict]:
+    """Read-only: every image / audio tokenizer the account holds, measured on the SAME fixed sample — dataset, step, live codes, reconstruction error — next to
+    the one the merged model carries. This decides whether a better tokenizer exists at all (then the language model's link to it must be retrained) or whether
+    only the decoder of the current one can be improved (refine)."""
+    import hashlib
+    from sham_inputs import fetch_all_tokenizer_datasets, fetch_dataset, rglob_inputs
+    from sham_vq import live_codes
+    from tokenizer_select import default_measure
+    fetch_dataset(BASE)
+    fetch_all_tokenizer_datasets(force=True)
+    fetch_dataset(REFINED)
+    measure = default_measure(kind)
+    rows = []
+    for path in sorted(set(rglob_inputs(FILE[kind]))):
+        try:
+            tok, step = _load(kind, path)
+            err = measure(tok) if measure else None
+            sha = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+            row = dict(dataset=path.parent.name if path.parent.name not in ("", ".") else str(path.parent), step=step, live=live_codes(tok),
+                       codes=tok.cfg.num_codes, err=err, sha=sha, size_mb=round(path.stat().st_size / 1e6, 1))
+        except Exception as exc:
+            row = dict(dataset=str(path.parent), error=f"{type(exc).__name__}: {str(exc)[:100]}")
+        rows.append(row)
+        print("  •", row, flush=True)
+    return rows
+
+
 def _clone(kind: str, tok):
     import copy
     return copy.deepcopy(tok)
@@ -220,6 +247,8 @@ def _selftest() -> None:
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--selftest" or len(sys.argv) < 3:
         _selftest()
+    elif sys.argv[1] == "survey":
+        survey(sys.argv[2])
     else:
         result = refine(sys.argv[1], float(sys.argv[2]))
         print(result)

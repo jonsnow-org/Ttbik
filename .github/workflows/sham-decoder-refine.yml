@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: "training minutes per kind"
+        description: "training minutes per kind (or the word survey: only measure every tokenizer, read-only)"
         default: "240"
 
 permissions:
@@ -52,4 +52,5 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           SHAM_MASK_SLUGS: "1"
         working-directory: ai-system/colab/sham_small
-        run: python sham_decoder_refine.py ${{ matrix.kind }} ${{ inputs.minutes || '240' }}
+        run: |
+          if [ "${{ inputs.minutes }}" = "survey" ]; then python sham_decoder_refine.py survey ${{ matrix.kind }}; else python sham_decoder_refine.py ${{ matrix.kind }} ${{ inputs.minutes || '240' }}; fi
