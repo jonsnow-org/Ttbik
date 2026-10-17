@@ -1,4 +1,4 @@
-import { chatKey, currentSession, relatedEarlier, extractFacts, foldSummary, forgetMemory, isForgetCommand, loadMemory, saveTurn, WINDOW_TURNS, SUMMARY_EVERY, type Db } from "@/lib/shamMemory";
+import { chatKey, currentSession, relatedEarlier, extractFacts, foldSummary, forgetMemory, loadMemory, saveTurn, WINDOW_TURNS, SUMMARY_EVERY, type Db } from "@/lib/shamMemory";
 import { shamChatMemory, shamMemoryForget } from "@/lib/shamStudio";
 
 // a tiny in-memory stand-in for the two tables, answering exactly the SQL shamMemory.ts sends
@@ -29,10 +29,6 @@ describe("shamMemory", () => {
     expect(extractFacts("مرحبا، اسمي سامر وأنا من حلب وعمري 30")).toEqual({ name: "سامر", city: "حلب", age: "30" });
     expect(extractFacts("ما اسمي؟")).toEqual({});
     expect(extractFacts("my name is Omar")).toEqual({ name: "Omar" });
-  });
-  it("recognises «forget me» in plain words only", () => {
-    for (const t of ["انسَ معلوماتي", "امسح ذاكرتي لو سمحت", "احذف كل معلوماتي", "forget me"]) expect(isForgetCommand(t)).toBe(true);
-    for (const t of ["ما اسمي؟", "احذف الكلمة الأخيرة من الجملة", "مرحبا"]) expect(isForgetCommand(t)).toBe(false);
   });
   it("hashes the chat id (never stored raw) and keeps users apart", () => {
     expect(chatKey(123)).toMatch(/^tg:[0-9a-f]{32}$/);

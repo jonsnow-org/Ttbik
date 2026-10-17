@@ -65,15 +65,6 @@ export function extractFacts(text: string): Facts {
 const norm = (s: string) =>
   (s || "").trim().toLowerCase().replace(/[\u064B-\u0652]/g, "").replace(/[أإآ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه");
 
-/** «انسَ معلوماتي» «امسح ذاكرتي» «احذف معلوماتي» «forget me» — natural language, no slash command. */
-export function isForgetCommand(text: string): boolean {
-  const t = norm(text);
-  if (/\bforget (me|my|everything)/.test(t)) return true;
-  const verbs = ["انس", "امسح", "احذف", "شيل", "امح"];
-  const objs = ["معلومات", "ذاكرت", "كل شي", "كل شيء", "عني", "بياناتي", "محادثات"];
-  return verbs.some((v) => t.includes(v)) && objs.some((o) => t.includes(o)) && t.length < 80;
-}
-
 /** Rolling summary: the previous summary plus the topics of the turns now leaving the window, newest kept when too long. Rule-based on purpose:
  *  the model is still too weak to summarise reliably, and a wrong summary would be worse than a short one. */
 export function foldSummary(prev: string, leaving: Turn[]): string {

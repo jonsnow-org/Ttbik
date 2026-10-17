@@ -4,8 +4,8 @@ import { SITE_URL } from "@/lib/siteUrl";
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { formatBroadcastText } from "@/lib/utils";
 import { NOVA_PAUSED, NOVA_PAUSED_TEXT } from "@/lib/novaPause";
-import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamMemoryForget, shamStudioEnabled, shamThink, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
-import { forgetMemory, isForgetCommand, loadMemory, saveTurn, chatKey, shamMemoryEnabled } from "@/lib/shamMemory";
+import { shamGenerate, shamGenerateAny, shamChatAuto, shamChatMemory, shamGenerateMedia, shamStudioEnabled, shamThink, shamThinkUnavailable, shamJobResult, shamStatusText, shamPendingText, type ShamReply } from "@/lib/shamStudio";
+import { loadMemory, saveTurn, chatKey } from "@/lib/shamMemory";
 
 // Recognized the same way as every other bot template on this platform
 // (owner report, 2026-09-06: NOVA_BOT never recognized the owner's own
@@ -856,13 +856,6 @@ export async function handleNovaBotUpdate(bot: TelegramBot, _botRow: BotRow, upd
         // plain message -> chat_auto (Studio-side intent routing), then generate_any for a Studio that has no chat_auto yet
         // the webhook has 60 s (maxDuration): the fallback only runs with the time chat_auto left (a fast "no such api" leaves nearly all of it)
         const t0 = Date.now();
-        // Palmyra Memory (2026-10-14): «انسَ معلوماتي» in plain words deletes this chat's memory here and on the Studio
-        if (shamMemoryEnabled() && isForgetCommand(text)) {
-          await forgetMemory(chatId);
-          await shamMemoryForget(chatKey(chatId)).catch(() => false);
-          await bot.api.sendMessage(chatId, "تم. حذفت كل ما أتذكّره عنك.").catch(() => null);
-          return;
-        }
         // the chat's recent turns + rolling summary + facts go with the message (chat_memory); an older Studio, or no database, falls back to chat_auto
         const mem = await loadMemory(chatId, text);
         // 2026-10-14 (owner): ONE model-decided step (Studio `think`): the model chooses reply / its own search / picture / sound / clip; no keyword
