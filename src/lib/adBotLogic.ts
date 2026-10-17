@@ -670,8 +670,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // panel, never the end-user main menu (no "شاهد واربح"/"ضع إعلانك"
     // etc.), matching the same "recognized immediately by ID" rule as
     // /admin itself. Only an ordinary member sees the normal menu.
-    if (tgUserId === SUPER_ADMIN_ID) {
+    if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
       await sendSuperAdminPanel(bot, chatId);
+      return;
+    }
+    if (tgUserId === SUPER_ADMIN_ID) {
+      // The platform owner on a bot that belongs to a supervisor: the supervisor's bot looks like a normal bot to the owner too.
+      // The owner panel is one command away (/admin), it does not take over the supervisor's bot.
+      await bot.api.sendMessage(chatId, `${t(lang, "welcome")}\n\n👑 أنت مالك المنصة وهذا بوت المشرف ${botRow.ownerId}. أرسل /admin لفتح لوحتك عند الحاجة.`, { reply_markup: mainMenu(lang) });
       return;
     }
     if (tgUserId === botRow.ownerId) {
@@ -724,7 +730,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // through to the normal branch below is correct.
   if (isBack(lang, text)) {
     await setPending(user.id, null);
-    if (tgUserId === SUPER_ADMIN_ID) {
+    if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
       await sendSuperAdminPanel(bot, chatId);
       return;
     }
@@ -1539,7 +1545,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // sender — SUPER_ADMIN never sees the regular end-user menu; a bot
   // owner's menu already includes it, so it's the same fallback message
   // with their merged keyboard.
-  if (tgUserId === SUPER_ADMIN_ID) {
+  if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
     await sendSuperAdminPanel(bot, chatId);
     return;
   }
