@@ -188,11 +188,24 @@ def _passes(score: dict, base: dict, tolerance: float) -> bool:
     return sum(score[k] / base[k] for k in base) < len(base) - 1e-3
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=0.005):
+def default_tolerance() -> float:
+    """Per-skill room of the merge gate. 0.5% was inside the measuring noise of a 6-batch gate: real sources were refused for a +0.2–0.7% wobble in ONE skill while
+    improving the others (the owner's other session, notes 6 and 10, 2026-10-16: chat 3.607→3.631 refused beside media −1.4%). 1% now (SHAM_MERGE_TOLERANCE overrides);
+    the mean must still improve, and no accepted merge may leave any skill more than this above where the RUN started (so small allowances cannot add up)."""
+    import os
+    try:
+        return max(0.0, float(os.environ.get("SHAM_MERGE_TOLERANCE", "0.01")))
+    except ValueError:
+        return 0.01
+
+
+def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=None):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
     Mutates model in place (only accepted merges stay). Returns report lines."""
+    tolerance = default_tolerance() if tolerance is None else tolerance
     report = []
     base_score = score_fn(model)
+    anchor = dict(base_score)       # where this run started: the limit on accumulated drift
     report.append("قبل الدمج: " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
     for name, other, rows in sources:
         base = {n: p.detach().clone() for n, p in model.named_parameters()}
@@ -205,7 +218,8 @@ def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), toler
             rel_mean = sum(s[k] / base_score[k] for k in base_score) / len(base_score)
             if nearest is None or rel_mean < nearest[0]:
                 nearest = (rel_mean, lam, s)
-            if _passes(s, base_score, tolerance) and (best is None or sum(s.values()) < sum(best[1].values())):
+            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + tolerance) for k in anchor)
+                    and (best is None or sum(s.values()) < sum(best[1].values()))):
                 best = (lam, s)
         if best is None:
             with torch.no_grad():

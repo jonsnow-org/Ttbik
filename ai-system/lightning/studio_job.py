@@ -28,7 +28,7 @@ STUDIO = os.environ.get("SHAM_LIGHTNING_STUDIO", "fantastic-bronze-a104f")
 REPO = "https://github.com/jonsnow-org/Ttbik.git"
 BRANCH = "sham-main"
 HOME_DIR = "~/sham"
-HOLD_MINUTES = int(os.environ.get("SHAM_HOLD_MINUTES", "215"))
+HOLD_MINUTES = int(os.environ.get("SHAM_HOLD_MINUTES", "200"))   # review 2026-10-17: 215 + the start-up ran into the 240-min job timeout: the last three windows ended «cancelled»
 JOB_HOURS = float(os.environ.get("SHAM_JOB_HOURS", "3.3"))
 WITH_SECRETS = os.environ.get("SHAM_STUDIO_SECRETS") == "1"
 

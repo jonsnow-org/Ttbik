@@ -73,6 +73,8 @@ def _request(token: str, delay: int) -> urllib.request.Request:
 def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: str | None = None) -> bool:
     if _STATE["fired"] or os.environ.get("SHAM_NO_RESTART_TRIGGER") == "1":
         return False
+    if token is None and not os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):      # not in a Kaggle kernel (CI, dev machine): never send a live request by accident
+        return False
     tok = token or _token()
     if not tok:
         return False
@@ -88,7 +90,9 @@ def trigger(delay: int = DEFAULT_DELAY, opener=urllib.request.urlopen, token: st
 
 
 def install(delay: int = DEFAULT_DELAY) -> None:
-    if _STATE["installed"] or not os.path.isdir("/kaggle"):
+    # review 2026-10-17: only inside a real Kaggle kernel (Kaggle sets KAGGLE_KERNEL_RUN_TYPE). A directory /kaggle exists on every GitHub runner of ours and on dev
+    # machines, so any self-test that merely imported sham_inputs used to send a REAL live=1 dispatch at exit when a token was around.
+    if _STATE["installed"] or not os.path.isdir("/kaggle") or not os.environ.get("KAGGLE_KERNEL_RUN_TYPE"):
         return
     _STATE["installed"] = True
     atexit.register(trigger, delay)

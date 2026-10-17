@@ -471,12 +471,16 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     for i in range(3):
         threading.Thread(target=encode_loop, args=(i,), daemon=True).start()
 
-    def general_feeder():
-        """2026-10-13: this trainer used to learn only from what its spiders crawled (museum catalogues, Crossref, arXiv, …) while the merge gate
-        measures the GENERAL mixture, so every lineage it produced improved on its own sources, got a little worse on general text, and was
-        refused by the gate: two months without a single merge. Now a steady share of general-mixture windows is trained on (and held out).
-        The windows are the pre-tokenized, memory-mapped shards the GitHub job builds daily (sham_token_shards): no extra process, no sockets,
-        a few MB of RAM — a live stream of the same mixture took the whole runner down together with the model on its first try."""
+    general = {"wins": None, "room": 0, "n": 0}
+    GENERAL_SHARE = min(0.6, max(0.0, float(os.environ.get("SHAM_GENERAL_SHARE", "0.30"))))
+
+    def load_general():
+        """2026-10-13: this trainer used to learn only from what its spiders crawled (museum catalogues, Crossref, arXiv, …) while the merge gate measures the GENERAL
+        mixture, so every lineage it produced improved on its own sources, got a little worse on general text, and was refused by the gate.
+        2026-10-17 (review): the first version fed the windows through the spiders' queue and got only 112 of ~5,800 examples (2%) because that queue is always full: the
+        general text still got 5% WORSE in a whole session (3.501 → 3.675 on its held-out windows) while everything else improved. Now the windows are drawn straight
+        into each training pool (like the chat rehearsal) at SHAM_GENERAL_SHARE (30%); the last 12 windows are the fixed held-out set and are never trained on.
+        The windows are the pre-tokenized, memory-mapped shards the GitHub job builds daily (sham_token_shards): no extra process, no sockets, a few MB of RAM."""
         try:
             import sham_token_shards
             from model import SpecialTokens
@@ -485,29 +489,21 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
                 from sham_inputs import fetch_dataset
                 if fetch_dataset(sham_token_shards.DATASET):
                     wins = sham_token_shards.load(tokenizer, 1024)
-            if not wins:
+            if not wins or len(wins) < 4 * HOLDOUT_PER_KIND:
                 print("⚠ لا نوافذ نص عامة جاهزة لهذا المُرمِّز: يُدرَّب على المصادر المجموعة فقط")
                 return
-            print(f"🧱 المزيج العام: {len(wins):,} نافذة جاهزة تدخل التدريب والقياس")
+            room = min(512, max_len - 2)
+            n = len(wins)
+
+            def example(w):
+                seq = [SpecialTokens.BOS] + [int(x) for x in w[:room]] + [SpecialTokens.EOS]
+                return (seq, list(seq))
+            holdout["general"] = [example(wins[n - 1 - k]) for k in range(HOLDOUT_PER_KIND)]
+            general.update(wins=wins, room=room, n=n - HOLDOUT_PER_KIND, example=example)
+            print(f"🧱 المزيج العام: {n:,} نافذة جاهزة — {GENERAL_SHARE:.0%} من كل دفعة تدريب، و{HOLDOUT_PER_KIND} نافذة ثابتة للقياس لا يُدرَّب عليها")
         except Exception as exc:
             print(f"⚠ خط النص العام لا يعمل ({type(exc).__name__}): يُدرَّب على المصادر المجموعة فقط")
-            return
-        pause = float(os.environ.get("SHAM_GENERAL_PAUSE", "6"))   # seconds between windows ≈ a third of all examples on a 2-core runner
-        grng = random.Random(step)
-        room = min(512, max_len - 2)
-        while not stop.is_set():
-            try:
-                w = wins[grng.randrange(len(wins))]
-                off = grng.randrange(0, max(1, len(w) - room))
-                seq = [SpecialTokens.BOS] + [int(x) for x in w[off:off + room]] + [SpecialTokens.EOS]
-                enc_q.put(("general", (seq, list(seq))), timeout=5)
-            except queue.Full:
-                pass
-            except Exception:
-                time.sleep(5)
-            time.sleep(pause)
 
-    threading.Thread(target=general_feeder, daemon=True).start()
 
     # — dialogue rehearsal (chat must not be forgotten). The HF download can fail (a live report had no
     # chat at all, so no "before" and no rehearsal): retry, then fall back to the copy saved with the checkpoint.
@@ -539,6 +535,7 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
     holdout = {k: [] for k in TARGETS}
     holdout["chat"] = rehearsal[:HOLDOUT_PER_KIND]
     holdout["general"] = []   # windows of the GENERAL mixture (wiki, web, books, code, …): the same distribution the merge gate measures (2026-10-13)
+    load_general()
     rehearsal = rehearsal[HOLDOUT_PER_KIND:]
     # multi-turn conversations (memory, 2026-10-14; off unless SHAM_CHAT_MULTITURN=1): added to the TRAINING rehearsal only — the held-out
     # yardstick above stays the same single-turn examples, so the guard judges a multi-turn round by the very same measure as before.
@@ -626,6 +623,11 @@ def run(hours: float | None = None, workers: int | None = None, publish_every_ho
             pick = [rehearsal[rng.randrange(len(rehearsal))] for _ in range(n_rehearse)]
             pool += pick
             kinds += ["chat"] * len(pick)
+        if general["wins"] is not None and GENERAL_SHARE > 0:        # general-mixture windows straight into the pool (see load_general)
+            n_gen = int(len(pending) * GENERAL_SHARE / (1 - GENERAL_SHARE))
+            for _ in range(n_gen):
+                pool.append(general["example"](general["wins"][rng.randrange(general["n"])]))
+                kinds.append("general")
         pending = []
         for k in kinds:
             trained_kind[k] += 1
