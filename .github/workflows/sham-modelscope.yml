@@ -10,10 +10,7 @@ name: Sham ModelScope Studio (host + worker)
 
 on:
   schedule:
-    - cron: "20 2,10,18 * * *"     # بعد وظيفة الدمج بنحو ساعة
-  workflow_run:      # 2026-10-13: right after the merge job publishes, not up to 8 hours later
-    workflows: ["Sham Merge + Repair + Eval (free CPU runner)"]
-    types: [completed]
+    - cron: "20 2 */2 * *"     # 2026-10-17 (owner): every other day (about 48 h), not after every merge — each sync that changes the Studio's code means a manual redeploy for her
   workflow_dispatch: {}
 
 concurrency:
@@ -25,7 +22,7 @@ permissions:
 
 jobs:
   sync:
-    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
