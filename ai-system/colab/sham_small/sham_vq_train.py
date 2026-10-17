@@ -112,9 +112,18 @@ class ManifestAudio(torch.utils.data.Dataset):
         return torch.zeros(1, self.n_mels, self.segment_frames)
 
 
-def _forward(tok, x: torch.Tensor, amp_dtype):
-    """Same maths as ImageTokenizer.forward, with the quantizer's distance search in float32 under autocast."""
+def _forward(tok, x: torch.Tensor, amp_dtype, frozen_front: bool = False):
+    """Same maths as ImageTokenizer.forward, with the quantizer's distance search in float32 under autocast.
+    frozen_front: the encoder and the codebook are not trained (decoder-only refinement): the codes are computed without gradients and the loss is the
+    reconstruction alone."""
     dev = x.device.type
+    if frozen_front:
+        with torch.no_grad():
+            z = tok.encoder(x)
+            quantized, ids, _vq = tok.quantizer(z.float())
+        rec = tok.decoder(quantized.detach())
+        recon = F.mse_loss(rec.float(), x)
+        return recon, recon, ids, z
     with torch.autocast(device_type=dev, dtype=amp_dtype, enabled=amp_dtype is not None):
         z = tok.encoder(x)
     with torch.autocast(device_type=dev, enabled=False):
@@ -156,7 +165,10 @@ def revive_dead_codes(tok, ema_usage: torch.Tensor, z: torch.Tensor, threshold: 
 def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16, lr: float = 3e-4, device: str | None = None,
                  workers: int = 2, warmup: int = 100, restart_every: int = 100, log_every: int = 50, max_steps: int | None = None,
                  init_batches: int = 4, size: int | None = None, kind: str = "image", multires: float = 0.0,
-                 res_mix: dict[int, float] | None = None) -> StreamStats:
+                 res_mix: dict[int, float] | None = None, decoder_only: bool = False) -> StreamStats:
+    """decoder_only=True (2026-10-17): train ONLY the decoder. The encoder and the codebook stay exactly as they are, so every image / sound is still
+    turned into the SAME token ids — everything the language model learned about those ids stays valid — while the pictures / sounds the decoder
+    writes from them get better. Measured by reconstruction error before and after (sham_decoder_refine.py), never adopted unless better."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     if kind == "audio":
         ds = ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
@@ -168,9 +180,15 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
         amp = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     scaler = torch.amp.GradScaler("cuda", enabled=(amp == torch.float16))
     tok.to(device).train()
+    if decoder_only:
+        tok.encoder.train(False)
+        tok.quantizer.train(False)
+        for part in (tok.encoder, tok.quantizer):
+            for prm in part.parameters():
+                prm.requires_grad_(False)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=workers, drop_last=len(ds) >= batch_size,
                                          persistent_workers=workers > 0)
-    opt = torch.optim.AdamW(tok.parameters(), lr=lr, betas=(0.9, 0.95), weight_decay=0.0)
+    opt = torch.optim.AdamW([q for q in tok.parameters() if q.requires_grad], lr=lr, betas=(0.9, 0.95), weight_decay=0.0)
     n_codes = tok.quantizer.num_codes
     stats = StreamStats(codebook_size=n_codes)
     last_used = torch.zeros(n_codes, device=device)       # step at which each code was last picked (a code idle for a whole restart window is dead)
@@ -187,7 +205,7 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
             return next(it)
 
     # data-dependent init only for a codebook that is still (nearly) the untouched uniform init
-    if float(tok.quantizer.codebook.weight.detach().abs().max()) < 0.01:
+    if not decoder_only and float(tok.quantizer.codebook.weight.detach().abs().max()) < 0.01:
         init_codebook_from_data(tok, [next_batch().to(device) for _ in range(init_batches)])
     run_recon, run_loss, window = 0.0, 0.0, 0
     last_ids = []
@@ -208,11 +226,11 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
                 pick = sizes[int(torch.multinomial(torch.tensor(probs, dtype=torch.float), 1))]
                 if pick < x.shape[-1] and x.shape[-1] % pick == 0:
                     x = F.avg_pool2d(x, x.shape[-1] // pick)
-        loss, recon, ids, z = _forward(tok, x, amp)
+        loss, recon, ids, z = _forward(tok, x, amp, frozen_front=decoder_only)
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
-        torch.nn.utils.clip_grad_norm_(tok.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_([q for q in tok.parameters() if q.requires_grad], 1.0)
         scaler.step(opt)
         scaler.update()
         step += 1
@@ -222,7 +240,7 @@ def train_stream(tok, manifest: str | Path, minutes: float, batch_size: int = 16
         last_ids.append(ids.detach().flatten().cpu())
         if len(last_ids) > 20:
             last_ids.pop(0)
-        if step % restart_every == 0:
+        if step % restart_every == 0 and not decoder_only:
             # measured on the CPU run (2026-10-11): an EMA that starts at 1 never fell below the threshold inside a 150-step chunk, so
             # only 313 of 8192 codes were ever used and none was revived. Idle for a whole window = dead, whatever the chunk length.
             alive = (step - last_used < restart_every).float()
@@ -296,6 +314,30 @@ if __name__ == "__main__":
     assert s_new.codebook_usage > s_old.final_codebook_usage, "the new loop must use more of the codebook"
     assert rec_new < rec_old, "the new loop must reconstruct better at equal steps"
     assert s_new.recon[-1] < s_new.recon[0], "loss must go down"
+
+    # decoder-only refinement: the codes of every image stay IDENTICAL, the reconstruction gets better
+    with tempfile.TemporaryDirectory() as d:
+        for i in range(96):
+            arr = ((train[i].permute(1, 2, 0).numpy() + 1) * 127.5).clip(0, 255).astype("uint8")
+            Image.fromarray(arr).save(Path(d) / f"{i}.png")
+        Path(d, "manifest.jsonl").write_text("\n".join(json.dumps({"image": f"{i}.png", "caption": "x"}) for i in range(96)), encoding="utf-8")
+        dec = ImageTokenizer(cfg)
+        train_stream(dec, Path(d) / "manifest.jsonl", minutes=5, batch_size=16, max_steps=20, workers=0, warmup=5, restart_every=20, log_every=20)
+        with torch.no_grad():
+            dec.train(False)
+            ids0 = dec.encode(held)
+            rec0 = float(((dec.decode(ids0) - held) ** 2).mean())
+        before = {k: v.clone() for k, v in dec.state_dict().items() if k.startswith(("encoder", "quantizer"))}
+        r_stats = train_stream(dec, Path(d) / "manifest.jsonl", minutes=5, batch_size=16, max_steps=120, workers=0, warmup=5, log_every=40,
+                               decoder_only=True)
+        with torch.no_grad():
+            dec.train(False)
+            ids1 = dec.encode(held)
+            rec1 = float(((dec.decode(ids1) - held) ** 2).mean())
+        assert torch.equal(ids0, ids1), "decoder-only refinement must not change a single code"
+        assert all(torch.equal(before[k], v) for k, v in dec.state_dict().items() if k in before), "encoder / codebook must stay bit-identical"
+        assert r_stats.steps == 120 and rec1 < rec0, (rec0, rec1)
+        print(f"فكّ فقط: إعادة البناء {rec0:.4f} → {rec1:.4f}، الرموز لم تتغيّر")
 
     # multires: the same tokenizer trained on both sizes encodes 32px and 16px inputs (grids 8x8 and 4x4 for the 2-stage toy)
     with tempfile.TemporaryDirectory() as d:

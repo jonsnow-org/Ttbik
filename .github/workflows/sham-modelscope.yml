@@ -35,7 +35,10 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - run: pip install kaggle modelscope
+      - run: |
+          pip install kaggle modelscope
+          pip install --index-url https://download.pytorch.org/whl/cpu torch   # reads the image / audio tokenizer files (decoder-refined one is adopted only if its ids are identical)
+          pip install numpy pillow tokenizers
 
       - name: Download the merged checkpoint from Kaggle
         env:
@@ -51,6 +54,15 @@ jobs:
             done
           fi
           ls -la /tmp/ck
+
+      # 2026-10-17: the decoder-only refined image / audio tokenizer (sham_decoder_refine.py). Best effort: adopted only if it encodes into the same ids.
+      - name: Refined media tokenizers (optional)
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/refined
+          kaggle datasets download -d jonsnowjonsnow/sham-media-refined -p /tmp/refined --unzip -q 2>/dev/null && ls -la /tmp/refined || echo "- no refined tokenizers yet"
 
       # 2026-10-14 (owner): the chat-stage checkpoint (Kaggle sham-chat-checkpoint/final_chat.pt) and the guarded self-learn one
       # (final_chat_self.pt, when a dataset carries it) go to the Studio too; app.py prefers them by name. OFF unless the repo variable
