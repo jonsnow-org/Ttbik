@@ -548,7 +548,10 @@ def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
     repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
     names = account_dataset_names() if names is None else names
-    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in ("tokenizer", "corpus", "reports"))]
+    # 2026-10-17: the media factory's batches (sham-media-*), the keeper/orchestrator state, the creds, the token shards and the video data hold no model: they used to be
+    # downloaded one by one (60+ datasets, GBs) every merge run only to answer "no checkpoint", and they crowded the real sources out of the per-run budget.
+    skip = ("tokenizer", "corpus", "reports", "sham-media-", "keeper", "orchestrator", "runtime-creds", "text-shards", "video", "sham-merged")
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in skip)]
 
 
 def repo_dataset_names() -> set[str]:

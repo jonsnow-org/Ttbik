@@ -169,7 +169,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     # 2026-10-17 (review): a source was never tried again at the same step, even after the gate's rule changed — candidates refused under the old rule
     # stayed refused forever. The rule is now part of the record: when it changes, every source gets one new try.
     from sham_merge import default_tolerance
-    rule = f"tol={default_tolerance()};anchor=1"
+    rule = f"tol={default_tolerance()};anchor=1;grid=5"
     if progress.get("merge_rule") != rule:
         if merged:
             report_note = f"🔁 قاعدة البوابة تغيّرت ({progress.get('merge_rule')} → {rule}): كل المصادر تُجرَّب مرة جديدة"
