@@ -51,6 +51,7 @@ jobs:
       - name: Watch and restart
         env:
           KAGGLE_USERNAME: jonsnowjonsnow
+          SHAM_MASK_SLUGS: "1"   # public logs never show a real notebook name
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
           SHAM_RESTART_KERNELS: ${{ secrets.SHAM_RESTART_KERNELS }}
           SHAM_RESTART_TRACKS: ${{ github.event.inputs.tracks || vars.SHAM_RESTART_TRACKS || 'all_in_one,ab_in_one,chat_image_in_one' }}

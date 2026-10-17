@@ -27,7 +27,9 @@ import codesign
 SRC = HERE.parent / "colab" / "sham_small"
 MODEL_ID = os.environ.get("SHAM_MS_MODEL", "novaai2026/sham-merged")
 CODE_FILES_EXCLUDE = {"sham_small_api_keys.db"}
-FILES = ("final_merged.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "merge_progress.json")
+FILES = ("final_merged.pt", "sham_small_tokenizer.json", "image_tokenizer.pt", "audio_tokenizer.pt", "merge_progress.json",
+         "final_chat_self.pt", "final_chat.pt")      # 2026-10-14: the chat checkpoints too, when the merge dataset has them (optional; app.py prefers them by name)
+CHAT_CKPTS = ("final_chat_self.pt", "final_chat.pt")
 
 
 def sha256(path: Path) -> str:
@@ -65,7 +67,9 @@ def stage_model_dir(ckpt_dir: Path) -> tuple[Path, str]:
     sha = sha256(out / "final_merged.pt")
     code_sig = stage_code(out / "studio_code")
     (out / "configuration.json").write_text(json.dumps({"framework": "pytorch", "task": "text-generation"}), encoding="utf-8")
-    (out / "bridge_manifest.json").write_text(json.dumps({"sha": sha, "code_sig": code_sig, "files": sorted(p.name for p in out.iterdir())}), encoding="utf-8")
+    ckpt_sha = {"final_merged.pt": sha, **{n: sha256(out / n) for n in CHAT_CKPTS if (out / n).exists()}}      # app.py reloads only when the served one changes
+    (out / "bridge_manifest.json").write_text(json.dumps({"sha": sha, "code_sig": code_sig, "files": sorted(p.name for p in out.iterdir()),
+                                                          "ckpt_sha": ckpt_sha}), encoding="utf-8")
     return out, sha
 
 
@@ -88,7 +92,7 @@ def push_model(ckpt_dir: Path) -> str:
     model_dir, sha = stage_model_dir(ckpt_dir)
     local = json.loads((model_dir / "bridge_manifest.json").read_text(encoding="utf-8"))
     remote = remote_manifest(api, MODEL_ID)
-    if remote.get("sha") == sha and remote.get("code_sig") == local["code_sig"]:
+    if remote.get("sha") == sha and remote.get("code_sig") == local["code_sig"] and remote.get("ckpt_sha") == local["ckpt_sha"]:
         return "⏭ النموذج والكود في ModelScope هما نفسهما — لا إعادة رفع"
     from modelscope.hub.constants import Visibility
     api.push_model(model_id=MODEL_ID, model_dir=str(model_dir), visibility=Visibility.PRIVATE, license="apache-2.0",

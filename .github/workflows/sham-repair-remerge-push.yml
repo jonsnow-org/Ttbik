@@ -1,0 +1,33 @@
+name: Sham Repair + Re-merge (push the separate notebook to Kaggle)
+
+# 2026-10-16 (additive): pushes ONLY the new, separate notebook jonsnowjonsnow/sham-repair-remerge.
+# It never touches the engineer's notebooks, merge pipeline or checkpoint datasets; it publishes only to
+# its own dataset sham-repair-remerge-checkpoint. Triggered by its notebook files only (not by the .py),
+# so a code edit never restarts a running session.
+on:
+  push:
+    branches: [sham-main]
+    paths:
+      - "ai-system/colab/sham_small/repair_remerge/sham_repair_remerge.ipynb"
+      - "ai-system/colab/sham_small/repair_remerge/kernel-metadata.json"
+  workflow_dispatch: {}
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade kaggle
+      - name: Push and start the kernel
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          D=ai-system/colab/sham_small/repair_remerge
+          mkdir -p /tmp/k && cp $D/sham_repair_remerge.ipynb $D/kernel-metadata.json /tmp/k/
+          kaggle kernels push -p /tmp/k
+          sleep 60
+          kaggle kernels status jonsnowjonsnow/sham-repair-remerge || true

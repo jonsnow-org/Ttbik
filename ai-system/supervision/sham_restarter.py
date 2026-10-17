@@ -8,7 +8,7 @@ A notebook cannot restart itself after it ends (its session dies with it), so th
   and/or explicit `owner/slug`s in the secret SHAM_RESTART_KERNELS. Without the file ai-system/supervision/RESTARTER_LIVE containing 1 (or SHAM_RESTART_LIVE=1) it only reports what it WOULD do (dry run).
   for each of them:
     running or queued                       -> nothing
-    stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES)
+    stopped for the first time it is seen   -> the grace period starts (GRACE_MINUTES; default 0 = pushed at once)
     stopped for longer than the grace       -> push a new version (kaggle_auto_resume.resume_kernel, GPU when the owner chose it and the quota
                                                allows, else CPU), at most MAX_PER_DAY times a day
     two quick failures in a row after a push-> STOP restarting this notebook and say so (circuit breaker): a push can detach a notebook's Secrets
@@ -26,7 +26,7 @@ import sys
 import time
 from pathlib import Path
 
-GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "15"))
+GRACE_MINUTES = int(os.environ.get("SHAM_RESTART_GRACE_MINUTES", "0"))  # 0: push on first sighting (GitHub cron runs only every 3-5h)
 MAX_PER_DAY = 8
 QUICK_FAIL_MINUTES = 90
 BREAKER_AT = 2
@@ -37,6 +37,8 @@ RUNNING = {"RUNNING", "QUEUED"}
 
 def _key(slug: str) -> str:
     return hashlib.sha1(slug.encode()).hexdigest()[:10]
+
+FIX_EPOCH = "secrets-fallback-v2"
 
 
 class HashedState(dict):
@@ -67,7 +69,8 @@ def decide(status: str, entry: dict, now: float, grace_s: float = GRACE_MINUTES 
         return "blocked"
     if not entry.get("idle_since"):
         entry["idle_since"] = now
-        return "wait"
+        if grace_s > 0:
+            return "wait"
     if now - entry["idle_since"] < grace_s:
         return "wait"
     if int(entry.get("pushes_today", 0)) >= MAX_PER_DAY:
@@ -75,7 +78,7 @@ def decide(status: str, entry: dict, now: float, grace_s: float = GRACE_MINUTES 
     return "push"
 
 
-def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print) -> list[str]:
+def run(slugs: list[str], api, state: dict, resume, now: float | None = None, log=print, grace_s: float | None = None) -> list[str]:
     now = now or time.time()
     notes = []
     accel = HashedState(state.setdefault("accelerator", {}))
@@ -90,7 +93,7 @@ def run(slugs: list[str], api, state: dict, resume, now: float | None = None, lo
         except Exception as exc:
             log(f"{label}: تعذّرت قراءة حالته ({type(exc).__name__}) — لا إجراء")
             continue
-        action = decide(status, entry, now)
+        action = decide(status, entry, now, GRACE_MINUTES * 60 if grace_s is None else grace_s)
         if action == "push":
             try:
                 result = resume(slug, accel)
@@ -129,6 +132,28 @@ def resolve_tracks(api, tracks: list[str], workdir: Path, log=print) -> dict[str
     return out
 
 
+# Additive (owner approved 2026-10-16): notebooks watched by explicit name, with their source folder in this repo.
+EXTRA_KERNELS = {
+    "jonsnowjonsnow/sham-arabic-sft": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "kaggle_notebooks" / "arabic_sft",
+    # 5th notebook (2026-10-16, additive): the separate repair + re-merge tool (own dataset sham-repair-remerge-checkpoint)
+    "jonsnowjonsnow/sham-repair-remerge": Path(__file__).resolve().parent.parent / "colab" / "sham_small" / "repair_remerge",
+}
+
+
+class _RepoMetaApi:
+    """Wraps the Kaggle api: after kernels_pull, the repo's kernel-metadata.json replaces the pulled one."""
+    def __init__(self, api, src: Path):
+        self._api, self._src = api, src
+
+    def __getattr__(self, name):
+        return getattr(self._api, name)
+
+    def kernels_pull(self, slug, path, *a, **kw):
+        out = self._api.kernels_pull(slug, path, *a, **kw)
+        (Path(path) / "kernel-metadata.json").write_bytes((self._src / "kernel-metadata.json").read_bytes())
+        return out
+
+
 def main() -> int:
     slugs = [s.strip() for s in os.environ.get("SHAM_RESTART_KERNELS", "").split(",") if s.strip()]
     tracks = [s.strip() for s in os.environ.get("SHAM_RESTART_TRACKS", "").split(",") if s.strip()]
@@ -158,14 +183,27 @@ def main() -> int:
         state["resolved"] = resolved
     else:
         print(f"المسارات محلولة اليوم: {len(resolved.get('refs', {}))} دفتراً")
-    watch = list(dict.fromkeys(list(resolved.get("refs", {}).values()) + slugs))
+    watch = list(dict.fromkeys(list(resolved.get("refs", {}).values()) + slugs + list(EXTRA_KERNELS)))
     print(f"عدد الدفاتر المراقَبة: {len(watch)} | الوضع: {'حي' if live else 'تجريبي (لا دفع)'}")
 
     def resume(slug, accel):
         if not live:
             return "dry-run"
-        return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel)
+        src = EXTRA_KERNELS.get(slug)
+        if src:   # 4th notebook (2026-10-16): push the repo's arabic_sft/ notebook + its kernel-metadata.json (resumes from its own checkpoint dataset)
+            return resume_kernel(slug, str(src / json.loads((src / "kernel-metadata.json").read_text(encoding="utf-8"))["code_file"]), work_dir=work / _key(slug), api=_RepoMetaApi(api, src),
+                                 sync_from_repo=True, auto_accelerator=True, state=accel, runtime_fixes=True)
+        return resume_kernel(slug, None, work_dir=work / _key(slug), api=api, auto_accelerator=True, state=accel,
+                             runtime_fixes=True)  # SHAM_SECRETS_FALLBACK (2026-10-15)
 
+    # One-time breaker reset after a deliberate fix of the failure that tripped it (2026-10-15: the
+    # first-cell HTTP 400 on Kaggle Secrets). Bump FIX_EPOCH only together with such a fix.
+    if state.get("fix_epoch") != FIX_EPOCH:
+        for _entry in state.setdefault("notebooks", {}).values():
+            if isinstance(_entry, dict):
+                _entry.update(blocked=False, quick_fails=0, counted_fail=False, idle_since=None)
+        state["fix_epoch"] = FIX_EPOCH
+        print(f"إعادة ضبط قاطع الحماية مرة واحدة بعد الإصلاح: {FIX_EPOCH}")
     notes = run(watch, api, state, resume)
     if live or not files:
         up = work / "upload"
@@ -197,38 +235,44 @@ def _self_test() -> None:
         return "pushed"
     api = Api({"a/b": "COMPLETE"})
     # first sight: a grace period, no push
-    run(["a/b"], api, st, resume, now=t0, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0, log=lambda *_: None, grace_s=15 * 60)
     assert not pushed
-    run(["a/b"], api, st, resume, now=t0 + 10 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 10 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert not pushed                                                  # still inside the grace
-    run(["a/b"], api, st, resume, now=t0 + 40 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 40 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert pushed == ["a/b"]                                           # grace over: pushed
     assert all("a/b" not in k for k in st["accelerator"]) and len(st["accelerator"]) == 1   # keys are hashed
     # running: nothing
     api.names["a/b"] = "RUNNING"
-    run(["a/b"], api, st, resume, now=t0 + 50 * 60, log=lambda *_: None)
+    run(["a/b"], api, st, resume, now=t0 + 50 * 60, log=lambda *_: None, grace_s=15 * 60)
     assert pushed == ["a/b"]
     # two quick failures after pushes -> blocked, no third push
     st2: dict = {}
     pushed.clear()
     api2 = Api({"c/d": "COMPLETE"})
     now = t0
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     now += 40 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 1
     api2.names["c/d"] = "ERROR"
     now += 20 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)      # first quick failure counted, grace starts
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)      # first quick failure counted, grace starts
     now += 40 * 60
-    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 2
     now += 20 * 60
-    notes = run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)   # second quick failure -> breaker
+    notes = run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)   # second quick failure -> breaker
     now += 60 * 60
-    notes += run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None)
+    notes += run(["c/d"], api2, st2, resume, now=now, log=lambda *_: None, grace_s=15 * 60)
     assert len(pushed) == 2 and any("توقّف المراقب" in n for n in notes), (pushed, notes)
     assert "c/d" not in json.dumps(st2)                                # no real name in the saved state
+    # grace 0 (the default): a stopped notebook is pushed on its first sighting
+    st3: dict = {}
+    pushed.clear()
+    run(["e/f"], Api({"e/f": "COMPLETE"}), st3, resume, now=t0, log=lambda *_: None, grace_s=0)
+    assert pushed == ["e/f"]
+    assert decide("RUNNING", {}, t0, 0) == "skip"
     print("sham_restarter self-test OK")
 
 

@@ -31,6 +31,7 @@ Real, standard training details, not simplified away:
     interrupted Kaggle session (9-12 hour limit) can actually resume.
 """
 
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,13 @@ class TrainConfig:
     # (final save, printouts) still get to run normally instead of being
     # killed mid-flight.
     max_wall_clock_seconds: float | None = None
+
+    # 2026-10-17 (found by the owner's other session, note 14, and verified here): every session of a resumed run used to start its cosine schedule AT the
+    # global step (last_epoch=start_step-1) with total_steps=start_step+TOTAL_STEPS, so a session resumed at step ~61,000 began ~99% through the
+    # curve and trained all session at the floor (3e-5 instead of 3e-4: ten times slower) — a plausible cause of two months without progress on the
+    # notebooks that call train(). Now each session runs its OWN warm-up → cosine over the steps it will actually do (peak = cfg.lr again, even when the
+    # resumed optimizer had decayed). False restores the old global schedule (the resumed-schedule self-tests below use it).
+    session_schedule: bool = True
 
 
 def build_optimizer(model: ShamSmall, lr: float, weight_decay: float) -> torch.optim.AdamW:
@@ -177,9 +185,15 @@ def train(
     model.to(device)
     model.train()
     optimizer = resume_optimizer or build_optimizer(model, cfg.lr, cfg.weight_decay)
-    scheduler = build_lr_scheduler(
-        optimizer, cfg.warmup_steps, cfg.total_steps, cfg.min_lr_ratio, last_epoch=start_step - 1
-    )
+    if cfg.session_schedule and os.environ.get("SHAM_LR_GLOBAL_SCHEDULE") != "1":
+        session_total = max(2, cfg.total_steps - start_step)
+        for group in optimizer.param_groups:                  # a resumed optimizer carries the previous session's DECAYED lr: start again from the peak
+            group["lr"] = group["initial_lr"] = cfg.lr
+        scheduler = build_lr_scheduler(optimizer, min(cfg.warmup_steps, max(1, session_total // 5)), session_total, cfg.min_lr_ratio, last_epoch=-1)
+    else:
+        scheduler = build_lr_scheduler(
+            optimizer, cfg.warmup_steps, cfg.total_steps, cfg.min_lr_ratio, last_epoch=start_step - 1
+        )
 
     # raw_model (never compiled) is what gets checkpointed -- keeps
     # checkpoint.py's saved state_dict format stable regardless of
@@ -488,3 +502,32 @@ if __name__ == "__main__":
           "to the default (correctly gated off outside CUDA) with no crash and finite loss throughout — "
           "the real bf16/fp16+GradScaler and torch.compile paths activate only on an actual CUDA device "
           "(Kaggle's real GPU), which this sandbox doesn't have to verify against directly.")
+
+    # --- session schedule (2026-10-17): a session resumed at a high global step must start again at the PEAK lr, not at the floor. The resumed optimizer
+    # below carries a DECAYED lr (the previous session's last value); the old global schedule would have kept it there for the whole session.
+    peak = 1e-3
+    sched_model = ShamSmall(small_model_cfg)
+    sched_opt = build_optimizer(sched_model, peak, 0.1)
+    for g in sched_opt.param_groups:
+        g["lr"] = g["initial_lr"] = peak * 0.1                        # what a loaded optimizer holds after the previous session decayed to the floor
+    seen: list[float] = []
+    real_sched = build_lr_scheduler
+
+    def spy(opt, w, t, m, last_epoch=-1):
+        sch = real_sched(opt, w, t, m, last_epoch=last_epoch)
+        orig = sch.step
+
+        def step(*a, **k):
+            orig(*a, **k)
+            seen.append(sch.get_last_lr()[0])
+        sch.step = step
+        return sch
+    globals()["build_lr_scheduler"] = spy
+    try:
+        s_cfg = TrainConfig(seq_len=16, batch_size=2, lr=peak, warmup_steps=2, total_steps=61_000 + 20, checkpoint_every=10**9, log_every=10**9)
+        train(sched_model, batches[:20], s_cfg, start_step=61_000, resume_optimizer=sched_opt)
+    finally:
+        globals()["build_lr_scheduler"] = real_sched
+    assert max(seen) > 0.8 * peak, f"a resumed session never reached the peak lr again: {max(seen):.2e} (peak {peak:.0e})"
+    assert seen[-1] < 0.3 * peak, "the session schedule should decay inside the session"
+    print(f"session schedule OK: a session resumed at step 61,000 climbed back to {max(seen):.2e} (peak {peak:.0e}) and decayed to {seen[-1]:.2e} within its own 20 steps.")

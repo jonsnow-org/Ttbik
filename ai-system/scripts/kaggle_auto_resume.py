@@ -76,6 +76,13 @@ import sys
 from pathlib import Path
 
 
+def _shown(slug: str) -> str:
+    """Public Actions logs never show a real notebook name (owner's decision): SHAM_MASK_SLUGS=1 (the restarter workflow sets it) prints a short hash instead."""
+    import hashlib
+    import os
+    return "notebook-" + hashlib.sha1(str(slug).encode()).hexdigest()[:6] if os.environ.get("SHAM_MASK_SLUGS") == "1" else str(slug)
+
+
 def _load_kaggle_api():
     from kaggle.api.kaggle_api_extended import KaggleApi
 
@@ -89,25 +96,56 @@ GPU_RETRY_HOURS = 24
 _GPU_QUOTA = re.compile(r"(gpu|accelerator).*(quota|exceed|limit)|(quota|limit).*(gpu|accelerator)", re.IGNORECASE)
 
 
-def _set_gpu(work_dir: Path, enable: bool) -> bool:
+# SHAM_CPU_FALLBACK_V2 (2026-10-15, additive): kernels_pull writes "machine_shape" (e.g. "NvidiaTeslaT4")
+# next to enable_gpu, and kernels_push sends machine_shape as-is -- so flipping only enable_gpu still asked
+# for a GPU and Kaggle refused the CPU push with the same weekly-quota error (restarter run #21:
+# "failed: RuntimeError"). CPU now clears every accelerator field; the GPU shape is remembered and restored.
+_GPU_SHAPE_DEFAULT = "NvidiaTeslaT4"
+_GPU_SHAPE_RE = re.compile(r"gpu|nvidia|tesla|t4|p100|l4|a100|h100|tpu", re.IGNORECASE)
+
+
+def _set_gpu(work_dir: Path, enable: bool, shape: str | None = None) -> bool:
     meta_path = work_dir / "kernel-metadata.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    was = bool(meta.get("enable_gpu"))
+    old_shape = str(meta.get("machine_shape") or "")
+    was = bool(meta.get("enable_gpu")) or bool(_GPU_SHAPE_RE.search(old_shape))
     meta["enable_gpu"] = enable
+    if enable:
+        meta["machine_shape"] = shape or (old_shape if _GPU_SHAPE_RE.search(old_shape) else _GPU_SHAPE_DEFAULT)
+    else:
+        if _GPU_SHAPE_RE.search(old_shape):
+            meta["_sham_gpu_shape"] = old_shape  # remembered by _resume_accelerator, stripped before push
+        meta.pop("machine_shape", None)
+        meta["enable_tpu"] = False
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
     return was
 
 
-def _push_ok(api, work_dir: Path) -> None:
-    resp = api.kernels_push(str(work_dir))
-    error = getattr(resp, "error", None)
-    if isinstance(error, str) and error.strip():
-        raise RuntimeError(error)
+def _push_ok(api, work_dir: Path, retries: int = 1) -> None:
+    meta_path = work_dir / "kernel-metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.pop("_sham_gpu_shape", None) is not None:
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    for attempt in range(retries + 1):
+        try:
+            resp = api.kernels_push(str(work_dir))
+            error = getattr(resp, "error", None)
+            if isinstance(error, str) and error.strip():
+                raise RuntimeError(error)
+            return
+        except Exception as exc:
+            print(f"kaggle_auto_resume: push refused (attempt {attempt + 1}): {type(exc).__name__}: {str(exc)[:300]}")
+            if attempt >= retries or _GPU_QUOTA.search(str(exc)):
+                raise
+            time.sleep(15)
 
 
 def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failure: str, state: dict) -> str:
     entry = state.setdefault(slug, {})
     set_to_gpu = _set_gpu(work_dir, False)  # read the notebook's current setting
+    _shape = json.loads((work_dir / "kernel-metadata.json").read_text(encoding="utf-8")).get("_sham_gpu_shape")
+    if _shape:
+        entry["gpu_machine_shape"] = _shape
     fallback_since = entry.get("gpu_fallback_since")
     if not set_to_gpu and not fallback_since:
         # The owner chose CPU (the free option): never move it to a paid GPU.
@@ -118,21 +156,123 @@ def _resume_accelerator(api, work_dir: Path, slug: str, last_failed: bool, failu
     quota_failed = last_failed and bool(_GPU_QUOTA.search(failure))
     waiting = fallback_since and now - fallback_since < GPU_RETRY_HOURS * 3600
     if not quota_failed and not waiting:
-        _set_gpu(work_dir, True)
+        _set_gpu(work_dir, True, entry.get("gpu_machine_shape"))
         try:
-            _push_ok(api, work_dir)
+            _push_ok(api, work_dir, retries=0)
             entry.pop("gpu_fallback_since", None)
             return "GPU (owner's choice)"
         except Exception as exc:
-            print(f"kaggle_auto_resume: GPU refused for '{slug}' ({exc}) -- continuing on the free CPU instead.")
+            print(f"kaggle_auto_resume: GPU refused for '{_shown(slug)}' ({exc}) -- continuing on the free CPU instead.")
             quota_failed = True
         _set_gpu(work_dir, False)
     if quota_failed:
         entry["gpu_fallback_since"] = now
-        print(f"kaggle_auto_resume: '{slug}' is a GPU notebook without GPU quota -- running it on CPU; "
+        print(f"kaggle_auto_resume: '{_shown(slug)}' is a GPU notebook without GPU quota -- running it on CPU; "
               f"GPU will be tried again in {GPU_RETRY_HOURS}h.")
     _push_ok(api, work_dir)
     return "CPU (GPU quota exhausted)"
+
+
+# --- SHAM_SECRETS_FALLBACK (2026-10-15, additive) ---------------------------
+# Real failure: every API-pushed version of the three notebooks died in cell 1
+# with HTTP 400 from UserSecretsClient.get_secret, although the owner's Secrets
+# are attached (Kaggle denies secrets to API-pushed runs). The live notebooks
+# are pulled from Kaggle and re-pushed, so the fix is applied here to what is
+# pushed: a first cell that keeps get_secret unchanged when it works, and falls
+# back (public clone / private kaggle.json dataset) when it does not. The
+# owner's accelerator, internet and secret settings are left as pulled.
+RUNTIME_CREDS_DATASET = "sham-runtime-creds"
+SECRETS_FALLBACK_MARKER = "SHAM_SECRETS_FALLBACK_V2"  # v1 referenced a global that later cells could not see
+SECRETS_FALLBACK_CELL = '# SHAM_SECRETS_FALLBACK_V2 (2026-10-15)\n# كاكل يرفض قراءة الأسرار (HTTP 400) في النسخ المرفوعة آلياً من المراقب.\n# لا تغيّر شيئاً حين تعمل الأسرار. وإلا: GITHUB_TOKEN -> استنساخ عام بلا توكن،\n# KAGGLE_* -> kaggle.json من مجموعة البيانات الخاصة sham-runtime-creds (تُضبط\n# في متغيرات البيئة فوراً كي تجدها كل الوحدات)، وتيليجرام يبقى اختيارياً.\ndef _sham_secrets_fallback_v2():\n    import glob, json, os, subprocess\n    os.environ.setdefault("GIT_TERMINAL_PROMPT", "0")\n    subprocess.run(["git", "config", "--global", "url.https://github.com/.insteadOf", "https://@github.com/"], check=False)\n\n    def creds():\n        for p in sorted(glob.glob("/kaggle/input/**/kaggle.json", recursive=True)):\n            try:\n                with open(p) as f:\n                    d = json.load(f)\n                if d.get("username") and d.get("key"):\n                    return d\n            except Exception:\n                pass\n        return {}\n\n    c = creds()\n    print("sham-runtime-creds:", "موجودة" if c else "غير موجودة في المدخلات")\n    if c and not (os.environ.get("KAGGLE_USERNAME") and (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN"))):\n        os.environ["KAGGLE_USERNAME"] = c["username"]\n        os.environ["KAGGLE_KEY"] = c["key"]\n        if c["key"].startswith("KGAT_"):\n            os.environ["KAGGLE_API_TOKEN"] = c["key"]\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe2", False):\n        return\n    orig = UserSecretsClient.get_secret\n\n    def get_secret(self, label, *a, **k):\n        try:\n            return orig(self, label, *a, **k)\n        except Exception:\n            if label == "GITHUB_TOKEN":\n                print("تنبيه: سرّ GITHUB_TOKEN غير متاح لهذا التشغيل — استنساخ عام بلا توكن.")\n                return ""\n            if label in ("KAGGLE_USERNAME", "KAGGLE_KEY"):\n                d = creds()\n                if d:\n                    return d["username"] if label == "KAGGLE_USERNAME" else d["key"]\n            raise\n\n    get_secret._sham_safe2 = True\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_secrets_fallback_v2()\nexcept Exception as _sf2_exc:\n    print("SHAM_SECRETS_FALLBACK_V2 غير مفعّل:", type(_sf2_exc).__name__)\n'
+
+
+# --- SHAM_SECRETS_FALLBACK_V3 (2026-10-15, additive) ------------------------
+# Real failure after hours of training: the save cells of ab_in_one and
+# chat_image_in_one died with NameError '_sf_orig' / '_sf_creds' -- the pulled
+# kernels still carried the v1 cell (v2 was prepended in front of it), and v1's
+# wrapper looks its helpers up as notebook globals that were gone by then.
+# v3 is inserted right after the last existing fallback cell, depends on no
+# global at all (closure + default args), puts the creds into os.environ and
+# ~/.kaggle/kaggle.json up front, and catches any error of the wrappers below it.
+SECRETS_FALLBACK_V3_MARKER = "SHAM_SECRETS_FALLBACK_V3"
+SECRETS_FALLBACK_V3_CELL = '# SHAM_SECRETS_FALLBACK_V3 (2026-10-15)\n# بعد ساعات من التدريب فشلت خلية الحفظ بـ NameError: \'_sf_orig\' / \'_sf_creds\'\n# (الغلاف القديم V1 يعتمد على متغيرات عامة اختفت). هذه الخلية مستقلة تماماً:\n# لا تعتمد على أي متغير عام، تضبط KAGGLE_USERNAME/KAGGLE_KEY في البيئة و\n# ~/.kaggle/kaggle.json فوراً، وتلتقط أي خطأ من الأغلفة السابقة (حتى NameError)\n# فترجع القيم من البيئة. آمنة إن أُعيد تشغيلها.\ndef _sham_secrets_fallback_v3():\n    import glob, json, os\n\n    def load_creds(_glob=glob, _json=json, _os=os):\n        u, k = _os.environ.get("KAGGLE_USERNAME"), _os.environ.get("KAGGLE_KEY") or _os.environ.get("KAGGLE_API_TOKEN")\n        if u and k:\n            return {"username": u, "key": k}\n        pats = ["/kaggle/input/sham-runtime-creds/**/kaggle.json", "/kaggle/input/**/kaggle.json",\n                _os.path.expanduser("~/.kaggle/kaggle.json")]\n        for pat in pats:\n            for p in sorted(_glob.glob(pat, recursive=True)):\n                try:\n                    with open(p) as f:\n                        d = _json.load(f)\n                    if d.get("username") and d.get("key"):\n                        return d\n                except Exception:\n                    pass\n        return {}\n\n    c = load_creds()\n    if c:\n        os.environ.setdefault("KAGGLE_USERNAME", c["username"])\n        if not (os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")):\n            os.environ["KAGGLE_KEY"] = c["key"]\n            if str(c["key"]).startswith("KGAT_"):\n                os.environ["KAGGLE_API_TOKEN"] = c["key"]\n        try:\n            kp = os.path.expanduser("~/.kaggle/kaggle.json")\n            if not os.path.exists(kp):\n                os.makedirs(os.path.dirname(kp), exist_ok=True)\n                with open(kp, "w") as f:\n                    json.dump({"username": c["username"], "key": c["key"]}, f)\n                os.chmod(kp, 0o600)\n        except Exception:\n            pass\n    print("SHAM_SECRETS_FALLBACK_V3: بيانات كاكل", "جاهزة في البيئة" if c else "غير موجودة")\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe3", False):\n        return\n\n    def get_secret(self, label, *a, _prev=UserSecretsClient.get_secret, _load=load_creds, **k):\n        try:\n            return _prev(self, label, *a, **k)\n        except BaseException as e:\n            if isinstance(e, KeyboardInterrupt):\n                raise\n            if label == "GITHUB_TOKEN":\n                return ""\n            if label in ("KAGGLE_USERNAME", "KAGGLE_KEY"):\n                d = _load()\n                if d:\n                    return d["username"] if label == "KAGGLE_USERNAME" else d["key"]\n            raise\n\n    get_secret._sham_safe3 = True\n    get_secret._sham_safe2 = True  # يمنع V2 من إعادة التغليف لو أعيد تشغيلها\n    get_secret._sham_safe = True   # ويمنع V1 كذلك\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_secrets_fallback_v3()\nexcept Exception as _sf3_exc:\n    print("SHAM_SECRETS_FALLBACK_V3 غير مفعّل:", type(_sf3_exc).__name__)\n'
+
+
+def _insert_fallback_v3(cells: list) -> bool:
+    """Adds the v3 cell once, after the last older fallback cell (or first). Removes nothing."""
+    if any(SECRETS_FALLBACK_V3_MARKER in "".join(c.get("source") or []) for c in cells):
+        return False
+    pos = 0
+    for i, c in enumerate(cells):
+        if "SHAM_SECRETS_FALLBACK" in "".join(c.get("source") or []):
+            pos = i + 1
+    cells.insert(pos, {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
+                       "source": SECRETS_FALLBACK_V3_CELL.splitlines(keepends=True)})
+    return True
+
+
+# --- SHAM_QUIET_START_V4 (2026-10-15, additive) -----------------------------
+# Owner: a yellow/orange Kaggle status = the run wrote errors/warnings and tends to fail at the end.
+# Remove expected stderr at its source: no repeat get_secret calls that 400, KAGGLE_* served from env,
+# __main__.__spec__ for spawn, HF hub noise quieted. Inserted right after the V3 cell; removes nothing.
+QUIET_START_V4_MARKER = "SHAM_QUIET_START_V4"
+QUIET_START_V4_CELL = '# SHAM_QUIET_START_V4 (2026-10-15)\n# المالك لاحظ أن اللون الأصفر/البرتقالي للدفتر يظهر حين يكتب الدفتر أخطاء/تحذيرات\n# (stderr) ثم يفشل لاحقاً. هذه الخلية تمنع الأخطاء المتوقعة من مصدرها، ولا تغيّر\n# أي إعداد للنموذج: (1) تتذكّر السر الذي رفضه كاكل (HTTP 400) فلا تعيد طلبه وتطبع\n# الخطأ كل مرة، وتعطي KAGGLE_* من البيئة مباشرة دون طلب الخادم، (2) تضبط\n# __main__.__spec__ = None حتى يعمل multiprocessing(spawn) بلا AttributeError،\n# (3) تخفّض تحذيرات HuggingFace المتوقعة (طلبات بلا توكن، أشرطة التقدم).\ndef _sham_quiet_start_v4():\n    import os, sys, logging, warnings\n    m = sys.modules.get("__main__")\n    if m is not None and getattr(m, "__spec__", "missing") == "missing":\n        try:\n            m.__spec__ = None\n        except Exception:\n            pass\n    os.environ.setdefault("HF_HUB_VERBOSITY", "error")\n    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")\n    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")\n    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")\n    warnings.filterwarnings("ignore", message=".*unauthenticated requests to the HF Hub.*")\n    for n in ("huggingface_hub", "datasets", "fsspec", "urllib3"):\n        logging.getLogger(n).setLevel(logging.ERROR)\n    try:\n        from kaggle_secrets import UserSecretsClient\n    except Exception:\n        return\n    if getattr(UserSecretsClient.get_secret, "_sham_safe4", False):\n        return\n    failed = set()\n\n    def get_secret(self, label, *a, _prev=UserSecretsClient.get_secret, _failed=failed, **k):\n        env = {"KAGGLE_USERNAME": os.environ.get("KAGGLE_USERNAME"),\n               "KAGGLE_KEY": os.environ.get("KAGGLE_KEY") or os.environ.get("KAGGLE_API_TOKEN")}\n        if label in env and env[label]:\n            return env[label]            # جاهزة من V3 / sham-runtime-creds: لا طلب ولا خطأ 400\n        if label in _failed and label == "GITHUB_TOKEN":\n            return ""\n        try:\n            return _prev(self, label, *a, **k)\n        except KeyboardInterrupt:\n            raise\n        except BaseException:\n            _failed.add(label)\n            if label == "GITHUB_TOKEN":\n                return ""\n            raise\n\n    for attr in ("_sham_safe4", "_sham_safe3", "_sham_safe2", "_sham_safe"):\n        setattr(get_secret, attr, True)\n    UserSecretsClient.get_secret = get_secret\n\ntry:\n    _sham_quiet_start_v4()\n    print("SHAM_QUIET_START_V4: مفعّل")\nexcept Exception as _q4_exc:\n    print("SHAM_QUIET_START_V4 غير مفعّل:", type(_q4_exc).__name__)\n'
+
+
+def _insert_quiet_v4(cells: list) -> bool:
+    if any(QUIET_START_V4_MARKER in "".join(c.get("source") or []) for c in cells):
+        return False
+    pos = 0
+    for i, c in enumerate(cells):
+        if "SHAM_SECRETS_FALLBACK" in "".join(c.get("source") or []):
+            pos = i + 1
+    cells.insert(pos, {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
+                       "source": QUIET_START_V4_CELL.splitlines(keepends=True)})
+    return True
+
+
+def _apply_runtime_fixes(work_dir: Path, kernel_slug: str) -> list:
+    """Adds the fallback cell and the private creds dataset; never removes anything."""
+    done = []
+    work_dir = Path(work_dir)
+    meta_path = work_dir / "kernel-metadata.json"
+    if not meta_path.exists():
+        return done
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    owner = (meta.get("id") or kernel_slug).split("/")[0]
+    creds = f"{owner}/{RUNTIME_CREDS_DATASET}"
+    sources = list(meta.get("dataset_sources") or [])
+    if creds not in sources:
+        sources.append(creds)
+        meta["dataset_sources"] = sources
+        done.append("creds_dataset")
+    if meta.get("enable_internet") is not True:
+        meta["enable_internet"] = True
+        done.append("internet")
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    code_path = work_dir / str(meta.get("code_file") or "")
+    if code_path.is_file() and code_path.suffix == ".ipynb":
+        nb = json.loads(code_path.read_text(encoding="utf-8"))
+        cells = nb.get("cells") or []
+        if not any(SECRETS_FALLBACK_MARKER in "".join(c.get("source") or []) for c in cells):
+            cell = {"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [],
+                    "source": SECRETS_FALLBACK_CELL.splitlines(keepends=True)}
+            nb["cells"] = [cell] + cells
+            code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+            done.append("fallback_cell")
+        nb = json.loads(code_path.read_text(encoding="utf-8"))
+        cells = nb.get("cells") or []
+        if _insert_fallback_v3(cells):
+            nb["cells"] = cells
+            code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+            done.append("fallback_cell_v3")
+        nb = json.loads(code_path.read_text(encoding="utf-8"))
+        cells = nb.get("cells") or []
+        if _insert_quiet_v4(cells):
+            nb["cells"] = cells
+            code_path.write_text(json.dumps(nb, ensure_ascii=False, indent=1), encoding="utf-8")
+            done.append("quiet_start_v4")
+    return done
 
 
 def resume_kernel(
@@ -144,6 +284,7 @@ def resume_kernel(
     api=None,
     auto_accelerator: bool = False,
     state: dict | None = None,
+    runtime_fixes: bool = False,
 ) -> str:
     """Real orchestration logic, factored out from any CLI/argv concerns
     so it can be exercised directly (with a fake `api`) by this file's
@@ -176,17 +317,17 @@ def resume_kernel(
     try:
         status_response = api.kernels_status(kernel_slug)
     except Exception as exc:
-        print(f"kaggle_auto_resume: could not read status for '{kernel_slug}' ({exc}) -- "
+        print(f"kaggle_auto_resume: could not read status for '{_shown(kernel_slug)}' ({exc}) -- "
               f"treating as not found. Never falling back to creating a substitute kernel.")
         return "not_found"
 
     status = status_response.status
     failure = str(getattr(status_response, "failure_message", "") or "")
     if status in (KernelWorkerStatus.RUNNING, KernelWorkerStatus.QUEUED):
-        print(f"kaggle_auto_resume: '{kernel_slug}' is still {status.name} -- nothing to do.")
+        print(f"kaggle_auto_resume: '{_shown(kernel_slug)}' is still {status.name} -- nothing to do.")
         return "still_running"
 
-    print(f"kaggle_auto_resume: '{kernel_slug}' is {status.name} -- resuming.")
+    print(f"kaggle_auto_resume: '{_shown(kernel_slug)}' is {status.name} -- resuming.")
 
     if dry_run:
         print("kaggle_auto_resume: --dry-run set, not actually pushing.")
@@ -205,13 +346,20 @@ def resume_kernel(
         shutil.copy2(notebook_repo_path, work_dir / code_file)
         print(f"kaggle_auto_resume: synced notebook content from {notebook_repo_path} before resuming.")
 
+    try:
+        _fixes = _apply_runtime_fixes(work_dir, kernel_slug) if runtime_fixes else []
+        if _fixes:
+            print(f"kaggle_auto_resume: runtime fixes added: {', '.join(_fixes)}")
+    except Exception as exc:
+        print(f"kaggle_auto_resume: runtime fixes skipped ({type(exc).__name__}).")
+
     if auto_accelerator:
         device = _resume_accelerator(api, work_dir, kernel_slug, status == KernelWorkerStatus.ERROR,
                                      failure, state if state is not None else {})
     else:
         api.kernels_push(str(work_dir))
         device = "accelerator unchanged"
-    print(f"kaggle_auto_resume: pushed ({device}) -- '{kernel_slug}' should start a fresh run shortly.")
+    print(f"kaggle_auto_resume: pushed ({device}) -- '{_shown(kernel_slug)}' should start a fresh run shortly.")
     print("kaggle_auto_resume: REMINDER -- verify on Kaggle's own UI that Secrets (GITHUB_TOKEN, "
           "KAGGLE_USERNAME, KAGGLE_KEY) and the GPU accelerator are still attached after this push. "
           "This is a known Kaggle API limitation (see this file's own module docstring), not something "
@@ -373,6 +521,43 @@ if __name__ == "__main__":
     assert flags == [True] and "gpu_fallback_since" not in st["user/slug"]            # back on GPU
     print("auto_accelerator: CPU choice never moves to GPU; GPU falls back to CPU without quota and returns later.")
 
+    # 5c) SHAM_CPU_FALLBACK_V2: a pulled GPU notebook carries machine_shape -- the CPU push must clear it
+    with tempfile.TemporaryDirectory() as tmp:
+        work_dir = Path(tmp) / "kaggle-kernel"
+        api = fake_api(KernelWorkerStatus.CANCEL_ACKNOWLEDGED)
+
+        def pull_shape(kernel, path, metadata=False, quiet=True):
+            fake_pull(kernel, path, metadata, quiet)
+            meta = json.loads((Path(path) / "kernel-metadata.json").read_text())
+            (Path(path) / "kernel-metadata.json").write_text(json.dumps(
+                {**meta, "enable_gpu": True, "machine_shape": "NvidiaTeslaT4"}))
+
+        api.kernels_pull.side_effect = pull_shape
+        sent = []
+
+        def push_quota(path):
+            meta = json.loads((Path(path) / "kernel-metadata.json").read_text())
+            sent.append(meta)
+            if meta.get("enable_gpu") or meta.get("machine_shape"):
+                return MagicMock(error="Maximum weekly GPU quota of 30.00 hours reached.")
+            return MagicMock(error="")
+
+        api.kernels_push.side_effect = push_quota
+        st = {}
+        assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
+                             auto_accelerator=True, state=st) == "pushed"
+        assert sent[0]["machine_shape"] == "NvidiaTeslaT4" and sent[0]["enable_gpu"] is True
+        assert sent[-1]["enable_gpu"] is False and "machine_shape" not in sent[-1] and "_sham_gpu_shape" not in sent[-1]
+        assert st["user/slug"]["gpu_machine_shape"] == "NvidiaTeslaT4" and st["user/slug"]["gpu_fallback_since"]
+        # 24h later, the CPU-pulled notebook goes back to its remembered GPU shape
+        st["user/slug"]["gpu_fallback_since"] -= (GPU_RETRY_HOURS + 1) * 3600
+        api.kernels_pull.side_effect = fake_pull
+        api.kernels_push.side_effect = lambda path: (sent.append(json.loads((Path(path) / "kernel-metadata.json").read_text())), MagicMock(error=""))[1]
+        assert resume_kernel("user/slug", "nb.ipynb", work_dir=work_dir, api=api,
+                             auto_accelerator=True, state=st) == "pushed"
+        assert sent[-1]["enable_gpu"] is True and sent[-1]["machine_shape"] == "NvidiaTeslaT4"
+    print("SHAM_CPU_FALLBACK_V2: CPU push clears machine_shape; GPU shape remembered and restored after 24h.")
+
     # 6) Kernel not found -> never create a substitute, just report not_found
     api = fake_api(KernelWorkerStatus.COMPLETE, status_error=True)
     result = resume_kernel("user/wrong-slug", "notebook.ipynb", api=api)
@@ -386,6 +571,27 @@ if __name__ == "__main__":
     assert result == "dry_run_would_push"
     assert api.kernels_pull.call_count == 0 and api.kernels_push.call_count == 0
     print("dry_run=True correctly identified a resume was needed without touching Kaggle at all.")
+
+    # 8) SHAM_SECRETS_FALLBACK: added once, nothing removed, settings kept
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as _d:
+        _w = Path(_d)
+        (_w / "kernel-metadata.json").write_text(json.dumps({"id": "u/k", "code_file": "k.ipynb", "enable_gpu": True,
+            "enable_internet": True, "dataset_sources": ["u/sham-checkpoint"]}))
+        (_w / "k.ipynb").write_text(json.dumps({"cells": [{"cell_type": "code", "source": ["x = 1"]}]}))
+        assert _apply_runtime_fixes(_w, "u/k") == ["creds_dataset", "fallback_cell", "fallback_cell_v3", "quiet_start_v4"]
+        assert _apply_runtime_fixes(_w, "u/k") == []
+        _m = json.loads((_w / "kernel-metadata.json").read_text())
+        _nb = json.loads((_w / "k.ipynb").read_text())
+        assert _m["dataset_sources"] == ["u/sham-checkpoint", "u/sham-runtime-creds"] and _m["enable_gpu"] is True
+        assert len(_nb["cells"]) == 4 and SECRETS_FALLBACK_MARKER in "".join(_nb["cells"][0]["source"])
+        assert SECRETS_FALLBACK_V3_MARKER in "".join(_nb["cells"][1]["source"])
+        assert QUIET_START_V4_MARKER in "".join(_nb["cells"][2]["source"])
+        assert _nb["cells"][3]["source"] == ["x = 1"]
+        compile(QUIET_START_V4_CELL, "quiet_start_v4", "exec")
+        compile(SECRETS_FALLBACK_V3_CELL, "fallback_cell_v3", "exec")
+        compile(SECRETS_FALLBACK_CELL, "fallback_cell", "exec")
+    print("SHAM_SECRETS_FALLBACK cell + private creds dataset added exactly once; GPU and existing cells untouched.")
 
     print("\nAll kaggle_auto_resume decision-logic checks passed. The real kaggle.api calls themselves are "
           "unverified in this sandbox (no reachable internet/credentials here, same documented boundary as "

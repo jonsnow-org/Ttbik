@@ -125,9 +125,26 @@ except Exception:
 '''
 
 
+TRIGGER_CELL = (
+    "# Ask the restarter to run right after this session ends (added 2026-10-16; deployment only, no training change).\n"
+    "try:\n    import sham_trigger_restarter\n    sham_trigger_restarter.trigger()\n"
+    "except Exception as _exc:\n    print(f\"sham_trigger_restarter skipped: {_exc}\")\n")
+
+
+def _fallback_cells() -> list[dict]:
+    """Cells the owner's other session added by hand to the generated notebooks (2026-10-15): the Kaggle-secrets fallbacks V2/V3 at the very top (API-pushed runs
+    get HTTP 400 from get_secret). They live in ai-system/scripts/kaggle_auto_resume.py, which also inserts them into pulled notebooks at push time, so the
+    generator now reads them from there — regenerating the notebooks (sham_cell_sync.build does) no longer drops them (review, 2026-10-17)."""
+    import sys
+    sys.path.insert(0, str(HERE.parent.parent / "scripts"))
+    import kaggle_auto_resume as k
+    return [_code(k.SECRETS_FALLBACK_CELL), _code(k.SECRETS_FALLBACK_V3_CELL)]
+
+
 def build(sources=None, nb_dir: Path | None = None, group: str | None = None) -> dict:
     """group=None: the big all-in-one (unchanged). group=<key of GROUPS>: one of the two smaller combined notebooks."""
     g = GROUPS[group] if group else None
+    sources_given = sources is not None
     sources = sources or (g[2] if g else SOURCES)
     nb_dir = nb_dir or NB_DIR
     patches = g[4] if g else {}
@@ -155,6 +172,8 @@ def build(sources=None, nb_dir: Path | None = None, group: str | None = None) ->
                 for old, new in patches.get(name, []):      # the shortened session budget of a section
                     text = text.replace(old, new)
                 cells.append(_code(f"{MARK} {name}\n" + text))
+    if not sources_given:      # the real notebooks (not the self-test's tiny ones): fallbacks first, the restarter request last
+        cells = _fallback_cells() + cells + [_code(TRIGGER_CELL)]
     base = {k: v for k, v in first.items() if k != "cells"}
     return {**base, "cells": cells}
 
