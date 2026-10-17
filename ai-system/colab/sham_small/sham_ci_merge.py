@@ -159,6 +159,16 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     before = score(model)
 
     merged = progress.setdefault("merged", {})
+    # 2026-10-17 (review): a source was never tried again at the same step, even after the gate's rule changed — candidates refused under the old rule
+    # stayed refused forever. The rule is now part of the record: when it changes, every source gets one new try.
+    from sham_merge import default_tolerance
+    rule = f"tol={default_tolerance()};anchor=1"
+    if progress.get("merge_rule") != rule:
+        if merged:
+            report_note = f"🔁 قاعدة البوابة تغيّرت ({progress.get('merge_rule')} → {rule}): كل المصادر تُجرَّب مرة جديدة"
+            print(report_note)
+        merged.clear()
+        progress["merge_rule"] = rule
     candidates, report = [], []
     for name, pattern, rows in (sources if sources is not None else list(KNOWN_SOURCES)):
         if name in (label.split(" ")[0], "sham-chat-checkpoint", OWN):

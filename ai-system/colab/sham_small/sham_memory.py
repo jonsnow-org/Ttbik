@@ -132,16 +132,6 @@ def _norm(s: str) -> str:
     return re.sub(r"[\u064B-\u0652]", "", (s or "").strip().lower()).translate(_AR_NORM)
 
 
-def is_forget_command(text: str) -> bool:
-    """«انسَ معلوماتي» «انسى كل شي عني» «امسح ذاكرتي» «احذف معلوماتي» «forget me» — in natural language, no slash command."""
-    t = _norm(text)
-    if re.search(r"\bforget (me|my|everything)", t):
-        return True
-    verbs = ("انس", "امسح", "احذف", "شيل", "امح")
-    objs = ("معلومات", "ذاكرت", "كل شي", "كل شيء", "عني", "بياناتي", "محادثات")
-    return any(v in t for v in verbs) and any(o in t for o in objs) and len(t) < 80
-
-
 # ---------------------------------------------------------------- per-user store
 
 
@@ -457,15 +447,12 @@ def memory_answer(model, tokenizer, user_id: str, prompt: str, max_new_tokens: i
                   summary: str = "", site_facts: dict | None = None, today=None, greedy: bool = False, record: bool = True,
                   score: str | None = None) -> dict:
     """The memory answer. history: [{"q", "a"}] from the site's database (authoritative when given), else this Studio's own log.
-    Returns {"type": "text", "text", "memory": {...stats}} or {"type": "notice", "forgotten": true} for «انسَ معلوماتي»."""
+    Returns {"type": "text", "text", "memory": {...stats}} ."""
     from sham_decoding import SHAM_TURN, USER_TURN
     from model import SpecialTokens
     from sham_studio_chat import build_user_text
     t0 = time.time()
     mem = UserMemory(user_id)
-    if is_forget_command(prompt):
-        mem.forget()
-        return {"type": "notice", "text": "تم. حذفت كل ما أتذكّره عنك.", "forgotten": True}
     fp = weight_fingerprint(model)
     layer = int(_num("SHAM_MEMORY_KEY_LAYER", 14))
     budget = int(_num("SHAM_MEMORY_WINDOW_TOKENS", 900))
@@ -634,8 +621,6 @@ if __name__ == "__main__":
 
     assert extract_facts("مرحبا، اسمي سامر وأنا من حلب وعمري 30") == {"name": "سامر", "city": "حلب", "age": "30"}
     assert extract_facts("ما اسمي؟") == {} and extract_facts("my name is Omar") == {"name": "Omar"}
-    assert is_forget_command("انسَ معلوماتي") and is_forget_command("امسح ذاكرتي لو سمحت") and is_forget_command("forget me")
-    assert not is_forget_command("ما اسمي؟") and not is_forget_command("احذف الكلمة الأخيرة من الجملة")
     torch.manual_seed(0)
     cfg = ShamSmallConfig(vocab_size=SpecialTokens.RESULT_END + 8, d_model=32, n_layers=4, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=2048)
     model, tok = ShamSmall(cfg).eval(), Tok()
@@ -663,8 +648,8 @@ if __name__ == "__main__":
         # users never see each other
         r2 = memory_answer(model, tok, "u2", "ما اسمي؟", 4, greedy=True)
         assert r2["memory"]["facts"] == 0 and r2["memory"]["knn"] == 0 and UserMemory("u2").facts() == {}
-        # forget
-        assert memory_answer(model, tok, "u1", "انسَ معلوماتي", 4)["forgotten"] and not UserMemory("u1").exists()
+        # the owner deletes a user's memory from outside (no phrase the model or the bot reacts to)
+        assert UserMemory("u1").forget() and not UserMemory("u1").exists()
         # fact write: off by default; on -> candidate only, served model unchanged
         assert not write_fact_candidate(model, tok, "عاصمة سوريا", "دمشق")["applied"]
         os.environ["SHAM_MEMORY_FACT_WRITE"] = "1"
