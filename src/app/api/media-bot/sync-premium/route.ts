@@ -3,10 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-const DEFAULT_SECRET = "8452320";
-
+// No built-in default secret: a hardcoded fallback in a public repo would let anyone
+// grant themselves (or anyone) premium for free. Unset env => the endpoint stays closed.
 function secretOk(req: NextRequest): boolean {
-  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || DEFAULT_SECRET).trim();
+  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || "").trim();
   const got = (req.headers.get("x-feed-secret") || "").trim();
   return !!expected && got === expected;
 }

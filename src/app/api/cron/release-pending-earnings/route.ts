@@ -30,14 +30,18 @@ export async function GET(req: NextRequest) {
   for (const tx of matured) {
     if (!tx.botId) continue;
     try {
-      await prisma.$transaction([
-        prisma.bot.update({
-          where: { id: tx.botId },
+      // Claim the ledger row first (only one runner can flip PENDING -> RELEASED),
+      // so overlapping runs can never release the same earning twice.
+      const done = await prisma.$transaction(async (db) => {
+        const claim = await db.transaction.updateMany({ where: { id: tx.id, status: "PENDING" }, data: { status: "RELEASED" } });
+        if (claim.count !== 1) return false;
+        await db.bot.update({
+          where: { id: tx.botId as string },
           data: { pendingBalance: { decrement: Number(tx.amount) }, ownerBalance: { increment: Number(tx.amount) } },
-        }),
-        prisma.transaction.update({ where: { id: tx.id }, data: { status: "RELEASED" } }),
-      ]);
-      released++;
+        });
+        return true;
+      });
+      if (done) released++;
     } catch {
       // Skip and let the next hourly run retry — never let one bad row
       // abort the whole batch.

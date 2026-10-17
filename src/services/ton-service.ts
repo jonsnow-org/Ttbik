@@ -292,6 +292,8 @@ export function isNativeTonConfigured(): boolean {
 // right at the edge of it. Meant to be called from a schedule (folded into
 // the existing /api/cron/ton-deposits run rather than a separate cron
 // entry, to stay within Vercel's cron-job limits).
+// DEPRECATED, no longer called: the cron uses sweepOwnerProfits in src/lib/ownerPayout.ts
+// (claim-before-send, caps, pause switch). Kept only until it is deleted in a follow-up.
 const OWNER_SWEEP_DEFAULT_THRESHOLD = 15;
 
 export async function checkAndSweepOwnerProfits(): Promise<{ swept: boolean; amountTon?: number; usdValue?: number }> {
