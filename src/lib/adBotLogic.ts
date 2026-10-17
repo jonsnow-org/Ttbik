@@ -450,7 +450,8 @@ const ADMIN_MENU = new Keyboard()
   .text("📢 إعلان إجباري شامل").text("📣 إذاعة لكل المستخدمين").row()
   .text("📊 الإحصائيات والأرباح").text("➕ شحن رصيد").row()
   .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري").row()
-  .text("🤖 البوتات والمشرفون").text("🔁 نقل ملكية هذا البوت")
+  .text("🤖 البوتات والمشرفون").text("🔁 نقل ملكية هذا البوت").row()
+  .text("🔒 تبديل: بوت خاص بالمالك / عام")
   .resized();
 // A bot's own creator is also a full participant in their own bot — not a
 // separate, exclusive role — per owner instruction (2026-08-31): "لوحة
@@ -551,7 +552,30 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
   );
 }
 
+
+// Owner-only mode: the owner can lock a bot row so only the platform owner (SUPER_ADMIN) can use it -- for a private admin bot.
+// Stored in bot_settings under private_bot:<row id>; anything unreadable counts as "public" so a database hiccup never locks everyone out.
+async function isPrivateBot(botId: string): Promise<boolean> {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase");
+    const { data } = await supabaseAdmin().from("bot_settings").select("value").eq("key", `private_bot:${botId}`).maybeSingle();
+    return (data as { value?: unknown } | null)?.value === true;
+  } catch {
+    return false;
+  }
+}
+async function setPrivateBot(botId: string, on: boolean): Promise<void> {
+  const { supabaseAdmin } = await import("@/lib/supabase");
+  await supabaseAdmin().from("bot_settings").upsert({ key: `private_bot:${botId}`, value: on, updated_at: new Date().toISOString() });
+}
+
 export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  const actor = String(update.callback_query?.from?.id ?? update.message?.from?.id ?? "");
+  if (actor && actor !== SUPER_ADMIN_ID && (await isPrivateBot(botRow.id))) {
+    const chat = update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
+    if (chat && update.message) await bot.api.sendMessage(chat, "🔒 هذا البوت خاص بإدارة المنصة. للخدمات استخدم بوت الإعلان العام.").catch(() => null);
+    return;
+  }
   if (update.callback_query) {
     await handleCarouselCallback(bot, botRow, update.callback_query);
     return;
@@ -1179,6 +1203,22 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
       { reply_markup: ADMIN_MENU },
     );
+    return;
+  }
+  if (text === "🔒 تبديل: بوت خاص بالمالك / عام" && tgUserId === SUPER_ADMIN_ID) {
+    const now = await isPrivateBot(botRow.id);
+    try {
+      await setPrivateBot(botRow.id, !now);
+      await bot.api.sendMessage(
+        chatId,
+        !now
+          ? "🔒 صار هذا البوت خاصاً بك وحدك: أي شخص آخر يراسله يتلقى «بوت خاص» ولا يصل لأي ميزة."
+          : "🌐 صار هذا البوت عاماً: يستعمله الجميع كالمعتاد.",
+        { reply_markup: ADMIN_MENU },
+      );
+    } catch {
+      await bot.api.sendMessage(chatId, "⚠️ تعذّر حفظ الإعداد الآن. أعد المحاولة.", { reply_markup: ADMIN_MENU });
+    }
     return;
   }
   if (text === "🔁 نقل ملكية هذا البوت" && tgUserId === SUPER_ADMIN_ID) {
