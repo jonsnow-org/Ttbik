@@ -31,7 +31,7 @@ def load(ckpt, tok_path):
     c = torch.load(ckpt, map_location="cpu", weights_only=False)
     m = ShamSmall(ShamSmallConfig(**c["config"]))
     m.load_state_dict(c["model_state_dict"])
-    return m.eval(), ShamTextTokenizer.load(tok_path)
+    return m.train(False), ShamTextTokenizer.load(tok_path)
 
 
 def main(ckpt, tok_path, out_path=None):

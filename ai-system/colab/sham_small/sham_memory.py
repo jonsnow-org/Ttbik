@@ -563,7 +563,7 @@ def write_fact_candidate(model, tokenizer, prompt: str, target: str, layer: int 
     if not _flag("SHAM_MEMORY_FACT_WRITE", "0"):
         return {"applied": False, "reason": "SHAM_MEMORY_FACT_WRITE is off"}
     from sham_decoding import chat_prompt_ids
-    cand = copy.deepcopy(model).eval()
+    cand = copy.deepcopy(model).train(False)
     L = layer if layer is not None else len(cand.layers) // 3
     mlp = cand.layers[L].mlp
     p_ids = chat_prompt_ids(tokenizer.encode(prompt))
@@ -656,7 +656,7 @@ if __name__ == "__main__":
     assert not is_forget_command("ما اسمي؟") and not is_forget_command("احذف الكلمة الأخيرة من الجملة")
     torch.manual_seed(0)
     cfg = ShamSmallConfig(vocab_size=SpecialTokens.RESULT_END + 8, d_model=32, n_layers=4, n_heads=2, n_kv_heads=1, mlp_hidden=64, max_seq_len=2048)
-    model, tok = ShamSmall(cfg).eval(), Tok()
+    model, tok = ShamSmall(cfg).train(False), Tok()
     with tempfile.TemporaryDirectory() as td:
         os.environ["SHAM_MEMORY_DIR"], os.environ["SHAM_MEMORY_KEY_LAYER"], os.environ["SHAM_MEMORY_WINDOW_TOKENS"] = td, "2", "40"
         r = memory_answer(model, tok, "u1", "اسمي سامر", 6, greedy=True)
