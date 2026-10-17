@@ -451,7 +451,7 @@ const ADMIN_MENU = new Keyboard()
   .text("📊 الإحصائيات والأرباح").text("➕ شحن رصيد").row()
   .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري").row()
   .text("🤖 البوتات والمشرفون").text("🔁 نقل ملكية هذا البوت").row()
-  .text("🔒 تبديل: بوت خاص بالمالك / عام")
+  .text("🔒 تبديل: بوت خاص بالمالك / عام").text("👁 لوحة المشرفين (قراءة فقط)")
   .resized();
 // A bot's own creator is also a full participant in their own bot — not a
 // separate, exclusive role — per owner instruction (2026-08-31): "لوحة
@@ -1209,6 +1209,42 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
       { reply_markup: ADMIN_MENU },
     );
+    return;
+  }
+  // Read-only view of every supervisor's panel (same numbers the supervisor sees in "📊 إحصائيات البوت" / "💼 أرباحي والسحب"). No buttons that change anything.
+  if (text === "👁 لوحة المشرفين (قراءة فقط)" && tgUserId === SUPER_ADMIN_ID) {
+    const rows = await prisma.bot.findMany({ where: { template: "AD_BOT", ownerId: { not: SUPER_ADMIN_ID } }, orderBy: { created_at: "asc" }, take: 20 });
+    if (!rows.length) {
+      await bot.api.sendMessage(chatId, "👁 لا يوجد مشرفون بعد: كل بوتات الإعلان على المنصة بمالكها أنت.", { reply_markup: ADMIN_MENU });
+      return;
+    }
+    const blocks = await Promise.all(
+      rows.map(async (r) => {
+        let uname = "?";
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${r.token}/getMe`, { signal: AbortSignal.timeout(4000) });
+          const j = (await res.json().catch(() => null)) as { result?: { username?: string } } | null;
+          uname = j?.result?.username ? `@${j.result.username}` : "؟";
+        } catch {
+          uname = "؟";
+        }
+        const [users, tasks, ads, supUser] = await Promise.all([
+          countBotVisitors(r.id, r.ownerId),
+          prisma.transaction.count({ where: { botId: r.id, type: "TASK_REWARD" } }),
+          prisma.ad.aggregate({ where: { botId: r.id }, _sum: { totalBudget: true } }),
+          prisma.user.findUnique({ where: { id: r.ownerId }, select: { balance: true } }),
+        ]);
+        const adsSum = Number(ads._sum.totalBudget ?? 0);
+        return [
+          `🤖 ${uname} — مشرف ${r.ownerId}${r.isActive ? "" : " (متوقف)"}`,
+          `👥 المستخدمون: ${users} | ✅ المهام المكتملة: ${tasks}`,
+          `📢 إجمالي قيمة الإعلانات: ${fmt(adsSum)}`,
+          `💼 عمولته (20%): جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}`,
+          `👛 رصيد حسابه الداخلي: ${fmt(Number(supUser?.balance ?? 0))}`,
+        ].join("\n");
+      }),
+    );
+    await bot.api.sendMessage(chatId, `👁 لوحة المشرفين — قراءة فقط\n\n${blocks.join("\n\n")}`.slice(0, 4000), { reply_markup: ADMIN_MENU });
     return;
   }
   if (text === "🔒 تبديل: بوت خاص بالمالك / عام" && tgUserId === SUPER_ADMIN_ID) {
