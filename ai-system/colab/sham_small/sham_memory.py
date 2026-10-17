@@ -106,12 +106,17 @@ def extract_facts(text: str) -> dict:
     """{"name": "سامر", "city": "حلب", ...} from one user message. Questions ("ما اسمي؟") are not statements and give nothing."""
     out: dict = {}
     t = " " + (text or "").strip()
+    if re.search(r"[؟?]", t) or re.match(r"\s*(هل|ما|ماذا|لماذا|كيف|متى|اين|أين|من|كم)\s", t):      # 2026-10-17: a question states nothing
+        return out
     for key, rx, *_ in FACT_RULES:
         m = rx.search(t)
         if m and key not in out:
             v = m.group(1).strip()
-            if v and v not in ("؟", "?") and not v.startswith(("ما", "شو", "ايش", "إيش")):
-                out[key] = v
+            if not v or v in ("؟", "?") or v.startswith(("ما", "شو", "ايش", "إيش")):
+                continue
+            if key in ("job", "likes") and (len(v.split()) > 4 or v.startswith(("أن", "ان ", "لا", "اسأل", "أسأل", "كثيرا", "جدا"))):
+                continue                                                  # a job / a like is a short phrase, not the rest of a sentence
+            out[key] = v
     return out
 
 
