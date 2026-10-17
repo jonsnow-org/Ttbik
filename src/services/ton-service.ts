@@ -56,23 +56,35 @@ export async function getOrCreateTonMemo(userId: string): Promise<string> {
   return memo;
 }
 
-// Fetches the current TON→USD rate for converting a deposit's on-chain
-// amount into the platform's unified USD balance. Falls back to a fixed
-// estimate rather than throwing, so a price-API hiccup doesn't stall every
-// deposit in the scan — an approximate credit beats none at all here,
-// same tradeoff NOWPayments' own outcome_amount conversion already makes.
-const TON_USD_FALLBACK_RATE = 5;
-async function getTonUsdRate(): Promise<number> {
+// TON→USD rate used to convert between the platform's USD balances and TON.
+// Two independent public sources; if neither answers we THROW instead of
+// guessing: the old fixed fallback of $5 was used silently for credits,
+// withdrawals and the owner sweep, so a price-API outage meant paying or
+// crediting at a made-up price. Callers skip the operation and retry later
+// (deposits are re-scanned, a withdrawal/sweep stays open).
+async function fetchRate(url: string, pick: (d: any) => unknown): Promise<number | null> {
   try {
-    const res = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", {
-      signal: AbortSignal.timeout(8000),
-    });
-    const data = await res.json();
-    const rate = Number(data?.["the-open-network"]?.usd);
-    return rate > 0 ? rate : TON_USD_FALLBACK_RATE;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const rate = Number(pick(await res.json()));
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
   } catch {
-    return TON_USD_FALLBACK_RATE;
+    return null;
   }
+}
+export async function getTonUsdRateStrict(): Promise<number> {
+  const [a, b] = await Promise.all([
+    fetchRate("https://api.coingecko.com/api/v3/simple/price?ids=the-open-network&vs_currencies=usd", (d) => d?.["the-open-network"]?.usd),
+    fetchRate("https://tonapi.io/v2/rates?tokens=ton&currencies=usd", (d) => d?.rates?.TON?.prices?.USD),
+  ]);
+  if (a && b) {
+    // Two sources that disagree by more than 10% mean something is wrong with one of them.
+    if (Math.abs(a - b) / Math.max(a, b) > 0.1) throw new Error("TON/USD rate sources disagree");
+    return (a + b) / 2;
+  }
+  const one = a ?? b;
+  if (!one) throw new Error("TON/USD rate unavailable");
+  return one;
 }
 
 // A TON "simple transfer comment" is op-code 0 (uint32) followed by the
@@ -191,7 +203,12 @@ export async function scanTonDeposits(): Promise<{ scanned: number; credited: nu
       asset = "TON";
       comment = extractComment(inMsg.body);
       assetAmount = Number(fromNano(valueNano));
-      const rate = await getTonUsdRate();
+      let rate: number;
+      try {
+        rate = await getTonUsdRateStrict();
+      } catch {
+        continue; // not recorded, so the next scan retries it with a real price
+      }
       usdValue = Math.round(assetAmount * rate * 100) / 100;
     }
     if (!comment || usdValue <= 0) continue;
@@ -259,7 +276,7 @@ export function isTonAddress(address: string): boolean {
 }
 
 export async function usdToTon(usdAmount: number): Promise<number> {
-  const rate = await getTonUsdRate();
+  const rate = await getTonUsdRateStrict();
   return Math.round((usdAmount / rate) * 10000) / 10000;
 }
 
