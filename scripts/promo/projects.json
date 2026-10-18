@@ -1,0 +1,53 @@
+{
+  "_": "Promo videos for the owner's projects. English first, Arabic under it; no promise of profit anywhere. Add a project = add an entry (scenes: title, shot of a live page, cta). Pages are read from the site's gate address (deploy/hosting/site.json).",
+  "projects": [
+    {
+      "id": "athar",
+      "accent": "#e8b84a",
+      "bg": ["#0b1020", "#1b2347"],
+      "logo": "public/athar-bot-avatar.png",
+      "name": "Athar · أثر",
+      "tagline": ["A living token for every day of the calendar", "رمز حيّ لكل يوم في التقويم"],
+      "points": [["Your birthday, your anniversary, a day you love", "يوم ميلادك أو زواجك أو يوم تحبه"], ["It grows more beautiful the longer you keep it", "يزداد جمالاً كلما طال بقاؤه عندك"], ["A keepsake on TON. Not an investment.", "ذكرى على TON، وليست استثماراً"]],
+      "shots": [{"url": "https://athar.89-168-89-15.sslip.io/", "caption": ["Find your day", "اعثر على يومك"]}],
+      "cta": ["Open Athar in Telegram", "افتح أثر في تيليجرام"],
+      "handle": "@AtharDaysBot"
+    },
+    {
+      "id": "zenobia",
+      "accent": "#d9a441",
+      "bg": ["#1a0f08", "#4a2a14"],
+      "logo": "public/zenobia/coin-icon.jpg",
+      "name": "Zenobia · زنوبيا",
+      "tagline": ["Zenobia, queen of Palmyra: history and a transparent game on TON", "زنوبيا ملكة تدمر: تاريخ ولعبة شفافة على TON"],
+      "points": [["Silk Road Passport that grows with its age", "جواز طريق الحرير يكبر بعمره"], ["Caravan board: who held longest", "لوحة القافلة: من احتفظ أطول"], ["Scores are ranks and titles only", "النقاط رتب وألقاب فقط"]],
+      "shots": [{"path": "/zenobia/silk.html", "caption": ["Silk Road Passport", "جواز طريق الحرير"]}, {"path": "/zenobia/hall.html", "caption": ["Caravan board", "لوحة القافلة"]}],
+      "cta": ["Join the caravan", "انضم إلى القافلة"],
+      "handle": "@Zenobia_Palmyrabot"
+    },
+    {
+      "id": "palmyra-launch",
+      "accent": "#e0a64b",
+      "bg": ["#0e1a1f", "#1f3a44"],
+      "logo": "public/zenobia/coin-icon.jpg",
+      "name": "Palmyra Launch · تدمر لانش",
+      "tagline": ["Launch your own coin on TON", "أطلق عملتك الخاصة على TON"],
+      "points": [["A few taps, fees shown before you confirm", "خطوات قليلة والرسوم تظهر قبل التأكيد"], ["Browse coins launched by others", "تصفّح عملات أطلقها الآخرون"], ["Not financial advice. Crypto is risky.", "ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر"]],
+      "shots": [{"path": "/zenobia/coins.html", "caption": ["Browse coins", "تصفّح العملات"]}],
+      "cta": ["Open Palmyra Launch", "افتح Palmyra Launch"],
+      "handle": "@PalmyraLaunchBot"
+    },
+    {
+      "id": "sham-ai",
+      "accent": "#5ac8a8",
+      "bg": ["#0b1a16", "#16423a"],
+      "logo": "public/zenobia/coin-icon.jpg",
+      "name": "Sham AI · شام AI",
+      "tagline": ["Free tools, Telegram bots and news in Arabic", "أدوات مجانية وبوتات تيليجرام وأخبار بالعربية"],
+      "points": [["Free tools that run in your browser", "أدوات مجانية تعمل في متصفحك"], ["Bots for jobs, matching, prayer times and more", "بوتات للوظائف والتعارف ومواقيت الصلاة وغيرها"], ["No sign-up needed for most tools", "معظم الأدوات بلا تسجيل"]],
+      "shots": [{"path": "/", "caption": ["Everything in one place", "كل شيء في مكان واحد"]}, {"path": "/free-tools", "caption": ["Free tools", "أدوات مجانية"]}],
+      "cta": ["Visit the site", "زر الموقع"],
+      "handle": "t.me/ttbik5"
+    }
+  ]
+}

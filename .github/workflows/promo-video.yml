@@ -1,0 +1,40 @@
+name: promo-video
+# Professional promo videos for the owner's projects (Athar, Zenobia, Palmyra Launch, Sham AI).
+# Built from the live pages: Chromium renders each scene (so Arabic shapes properly) and ffmpeg joins them. English first, Arabic under it.
+# Download the mp4 files from the run's "promo-videos" artifact. Add or edit a project in scripts/promo/projects.json.
+on:
+  schedule:
+    - cron: "40 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "one project id (athar, zenobia, palmyra-launch, sham-ai), empty = all"
+        default: ""
+      format:
+        description: "vertical (stories, shorts) or wide"
+        default: "vertical"
+concurrency:
+  group: promo-video
+  cancel-in-progress: false
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: tools (ffmpeg, Arabic fonts, Chromium)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-noto-core fonts-noto-ui-core
+          npm install --no-save --no-package-lock playwright-core@1.56.1
+          npx playwright-core install --with-deps chromium
+      - name: make the videos
+        run: node scripts/promo/make.mjs --out promo-out --format "${{ github.event.inputs.format || 'vertical' }}" ${{ github.event.inputs.only && format('--only {0}', github.event.inputs.only) || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: promo-videos
+          path: promo-out/*.mp4
+          retention-days: 30
