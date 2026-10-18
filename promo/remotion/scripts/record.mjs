@@ -1,7 +1,7 @@
 // Mobile-viewport screen recording of the live site (free, Playwright). Usage: node record.mjs <site> <path> <input> <outDir>
 import { chromium, devices } from "playwright";
 import fs from "node:fs";
-const [site, path, input, out, lang = "ar", home = "1", rec = "0"] = process.argv.slice(2);
+const [site, path, input, out, lang = "ar", home = "1", rec = "0", interact = "1"] = process.argv.slice(2);
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
   ...devices["Pixel 7"],
@@ -20,11 +20,12 @@ if (home !== "0") {   // the Sham AI tool videos start from the site's home page
 // rec=1 hides the platform's tab bar and language button, so no foreign-language label shows in the video; lang pins the page language
 const q = (rec === "1" ? (path.includes("?") ? "&" : "?") + "rec=1&lang=" + (lang === "en" ? "en" : "ar") : "");
 await page.goto(site + path + q, { waitUntil: "domcontentloaded" });
-await wait(2500);
+await wait(rec === "1" ? 7000 : 2500);   // project pages read the chain and the coin index: give them time to fill in
 await smooth(250, 15);
 const field = page.locator("input:visible:not([type=hidden]):not([type=checkbox]):not([type=radio]), textarea:visible").first();
 try {
-  if (input && (await field.count())) {
+  if (interact === "0") { /* project videos only scroll: the first button on those pages is "Connect Wallet" */ }
+  else if (input && (await field.count())) {
     await field.scrollIntoViewIfNeeded(); await field.click(); await field.fill("");
     await field.pressSequentially(input, { delay: 120 });
     await wait(500);
