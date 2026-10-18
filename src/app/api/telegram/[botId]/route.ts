@@ -1,5 +1,6 @@
 import { handlePlatformBotUpdate } from "@/lib/platformBotLogic";
 import { NextRequest, NextResponse } from "next/server";
+import { reportError } from "@/lib/errorLog";
 import { preCheckout } from "@/lib/atharStars";
 import { noteFailover } from "@/lib/hostingOps";
 import { ATHAR_SITE } from "@/lib/atharMirror";
@@ -197,6 +198,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     return NextResponse.json({ status: "ok" });
   } catch (error) {
     console.error("Webhook Error:", error);
+    void reportError(`bot:${botRow?.template ?? "?"}`, error, { botId: params.botId });
     const superAdminId = process.env.SUPER_ADMIN_TELEGRAM_ID;
     if (superAdminId && botRow) {
       try {
