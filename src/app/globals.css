@@ -17,3 +17,14 @@ body {
   30%, 50%, 70% { transform: translateX(-8px); }
   40%, 60% { transform: translateX(8px); }
 }
+
+/* Loading skeletons and small entrance motions shared by the mini apps (match-app, mini-app). Quiet by design; off for people who ask for reduced motion. */
+.sk { position: relative; overflow: hidden; }
+.sk::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: sk-shimmer 1.4s ease-in-out infinite; }
+.sk-dark::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent); }
+@keyframes sk-shimmer { to { transform: translateX(100%); } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: fade-up .35s ease both; }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+.sheet-up { animation: sheet-up .25s cubic-bezier(.2, .8, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .sk::after, .fade-up, .sheet-up { animation: none; } }
