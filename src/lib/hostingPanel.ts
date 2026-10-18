@@ -1,7 +1,6 @@
 // The owner's «🌐 الاستضافة» panel in the Athar bot: see both servers, switch the gate, move the bots' webhooks, move the settings to Oracle.
 // Owner-only (the caller checks). Texts are Arabic with short English. See docs/HOSTING.md.
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
-import { getConfig, patchOverride } from "@/lib/znbtConfig";
 import { HOSTING, MODES, gateState, gateUrl, openEnvWindow, probeOrigin, rehookBots, setGateMode, type Mode } from "@/lib/hostingOps";
 
 const MODE_NAME: Record<Mode, string> = { auto: "تلقائي (Oracle أولاً ثم Vercel)", oracle: "Oracle فقط", vercel: "Vercel فقط (الاحتياطي)" };
@@ -13,7 +12,6 @@ export function panelKeyboard(): InlineKeyboard {
     .text("🔁 تلقائي", "hg:auto").text("🖥 Oracle فقط", "hg:oracle").text("☁️ Vercel فقط", "hg:vercel").row()
     .text("🔗 نقل الويبهوكات إلى البوابة", "hg:hooks").row()
     .text("📥 نقل الإعدادات إلى Oracle", "hg:env").row()
-    .text("🪙 فتح منصة العملات", "hg:coins:on").text("⛔ إغلاقها", "hg:coins:off").row()
     .text("🔄 تحديث الحالة", "hg:refresh");
 }
 
@@ -27,8 +25,6 @@ export async function panelText(): Promise<string> {
     if (gate.downUntil > Date.now()) lines.push("⚠️ Oracle فشل قبل لحظات، والبوابة تخدم من Vercel مؤقتاً.");
   }
   lines.push(`Oracle: ${mark(oracle)}`, `Vercel: ${mark(vercel)}`, "");
-  const z = await getConfig().catch(() => null);
-  if (z) lines.push(`منصة العملات: ${z.open ? "✅ مفتوحة للجميع" : "⛔ مغلقة"} · ZNBt: ${z.curve ? "✅ مُطلقة (" + z.curve.slice(0, 6) + "…)" : "لم تُطلق بعد"}`, "");
   lines.push("التثبيت على خادم يعود إلى «تلقائي» بعد 12 ساعة وحده.");
   return lines.join("\n");
 }
@@ -45,13 +41,6 @@ export async function handleHostingCallback(bot: TelegramBot, chatId: number, da
   if ((MODES as readonly string[]).includes(mode)) {
     const r = await setGateMode(mode as Mode);
     await send(r.ok ? `✅ الوضع الآن: ${MODE_NAME[mode as Mode]}${mode !== "auto" && r.until ? ` (حتى ${hhmm(r.until)})` : ""}` : `❌ لم يتغيّر الوضع: ${r.error}`);
-    return refresh();
-  }
-  if (data === "hg:coins:on" || data === "hg:coins:off") {
-    const cfg = await getConfig();
-    if (data === "hg:coins:on" && !cfg.curve) { await send("⚠️ لن أفتح المنصة قبل أن تُطلَق ZNBt (لم أجد عملتك على السلسلة بعد). افتح صفحة الإطلاق أولاً."); return refresh(); }
-    const next = await patchOverride({ open: data === "hg:coins:on" });
-    await send(next.open ? "✅ فُتحت منصة العملات: يستطيع أي شخص إطلاق عملة الآن." : "⛔ أُغلقت منصة العملات: صفحة الإنشاء تعرض «لم يُفتح بعد».");
     return refresh();
   }
   if (data === "hg:refresh") return refresh();
@@ -73,4 +62,38 @@ export async function handleHostingCallback(bot: TelegramBot, chatId: number, da
     await send(`📥 فُتحت نافذة نقل الإعدادات حتى ${hhmm(until.getTime())} (مرة واحدة).\nخادم Oracle يطلبها كل دقيقتين تقريباً وينسخها بنفسه، ثم يبني الموقع. لا تفعل شيئاً آخر.`);
     return;
   }
+}
+
+// ---------- the coin platform's owner panel (shown in the Zenobia bot: /platform) ----------
+import { getConfig, patchOverride } from "@/lib/znbtConfig";
+import { readSnapshot } from "@/lib/znbtIndex";
+import { prisma } from "@/lib/prisma";
+
+export function platformKeyboard(open: boolean): InlineKeyboard {
+  return (open ? new InlineKeyboard().text("⛔ إغلاق المنصة", "zp:off") : new InlineKeyboard().text("🪙 فتح المنصة للجميع", "zp:on")).row().text("🔄 تحديث", "zp:refresh");
+}
+export async function platformText(): Promise<{ text: string; open: boolean }> {
+  const cfg = await getConfig().catch(() => null);
+  const snap = await readSnapshot().catch(() => null);
+  const reports = await prisma.$queryRawUnsafe(`SELECT COUNT(DISTINCT curve)::int AS n FROM znbt_reports`).then((r) => Number((r as { n: number }[])[0]?.n ?? 0)).catch(() => 0);
+  const open = !!cfg?.open;
+  const lines = ["🪙 منصة العملات · Coin platform", ""];
+  lines.push(`المنصة: ${open ? "✅ مفتوحة للجميع (يستطيع أي شخص إطلاق عملة)" : "⛔ مغلقة (صفحة الإنشاء تعرض «لم يُفتح بعد»)"}`);
+  lines.push(`ZNBt: ${cfg?.curve ? `✅ مُطلقة (${cfg.curve.slice(0, 6)}…${cfg.curve.slice(-4)})${cfg.launchedAt ? " · " + cfg.launchedAt.slice(0, 10) : ""}` : "لم تُطلَق بعد: افتح صفحة الإطلاق أولاً"}`);
+  lines.push(`العملات المفهرسة: ${snap?.coins?.length ?? 0}${snap ? "" : " (لا فهرس بعد)"}`);
+  lines.push(`عملات عليها بلاغات: ${reports}`);
+  lines.push("", `الإدارة (إخفاء وسحب الرسوم): ${HOSTING.gateUrl}/zenobia/coins.html#admin`, `الإطلاق: ${HOSTING.gateUrl}/zenobia/launch.html`);
+  return { text: lines.join("\n"), open };
+}
+/** A tap on «zp:*». The platform cannot be opened before ZNBt itself exists. */
+export async function handlePlatformCallback(bot: TelegramBot, chatId: number, data: string, messageId?: number): Promise<void> {
+  const send = (t: string) => bot.api.sendMessage(chatId, t, { link_preview_options: { is_disabled: true } }).catch(() => null);
+  if (data === "zp:on" || data === "zp:off") {
+    const cfg = await getConfig();
+    if (data === "zp:on" && !cfg.curve) await send("⚠️ لن أفتح المنصة قبل أن تُطلَق ZNBt (لم أجد عملتك على السلسلة بعد). افتح صفحة الإطلاق أولاً.");
+    else await send((await patchOverride({ open: data === "zp:on" })).open ? "✅ فُتحت منصة العملات: يستطيع أي شخص إطلاق عملة الآن." : "⛔ أُغلقت منصة العملات.");
+  }
+  const p = await platformText();
+  if (messageId) { const ok = await bot.api.editMessageText(chatId, messageId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } }).then(() => true).catch(() => false); if (ok) return; }
+  await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } }).catch(() => null);
 }
