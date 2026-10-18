@@ -124,6 +124,15 @@ export default function AdminPanel() {
   const [omPhoto, setOmPhoto] = useState<string | null>(null), [omSvg, setOmSvg] = useState(""), [omBusy, setOmBusy] = useState(false);
   const dateIdx = (y: number, m: number, d: number) => Date.UTC(y, m - 1, Math.min(d, new Date(Date.UTC(y, m, 0)).getUTCDate())) / 86400000 - Date.UTC(1950, 0, 1) / 86400000;
   const omDate = () => dateIdx(omY, omM, omD);
+  // the Stars queue (Vercel admin page) opens this panel with ?mint=<kind>:<date index>:<address>: fill the owner-mint form, the owner still signs
+  useEffect(() => {
+    try {
+      const m = /^(\d):(\d{1,5}):([A-Za-z0-9_\-]{40,70})$/.exec(new URLSearchParams(window.location.search).get("mint") || "");
+      if (!m) return;
+      const dt = new Date(Date.UTC(1950, 0, 1) + Number(m[2]) * 86400000);
+      setOmKind(Number(m[1])); setOmY(dt.getUTCFullYear()); setOmM(dt.getUTCMonth() + 1); setOmD(dt.getUTCDate()); setOmTo(m[3]);
+    } catch { /* the form simply stays empty */ }
+  }, []);
   const waxOf = (kind: number): "silver" | "gold" | null => (kind === 1 ? "silver" : kind === 2 || kind === 7 ? "gold" : null);   // the photo's treatment follows the kind
   const omPreview = async (photo: string) => {
     const r = await fetch("/api/admin/goldmint", { method: "POST", headers: adm(), body: JSON.stringify({ id: idOf(omKind, omDate()), photo, preview: true }) });

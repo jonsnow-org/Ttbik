@@ -3,6 +3,8 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { BD, BD_OFF, bdText, parseBirthday, saveBirthday } from "@/lib/atharBirthday";
+import { handleStarsCallback, handleStarsMessage, handleStarsPayment, starsButton } from "@/lib/atharStarsBot";
+import { starsEnabled } from "@/lib/atharStars";
 import { checkPayments, dayKey, daySummary, fetchBalance, fetchIncoming, loadWatch, setAlerts, tons, txLink, walletLink, weekSummary } from "@/lib/atharWatch";
 
 /**
@@ -145,6 +147,7 @@ function menu(lang: Lang, owner = false, preview = false): Keyboard {
     .webApp(t.today, withLang("/today", lang)).webApp(t.mine, withLang("/mine", lang)).row()
     .text(t.share).text(BD[lang].button).row()
     .text(MATCH[lang].label).text(t.language);
+  if (starsEnabled()) kb.row().text(starsButton(lang));
   if (owner) kb.row().text(OWNER_BACK);
   return kb.resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
@@ -282,6 +285,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     const from = String(cb.from?.id || ""), chatId = cb.message?.chat?.id, data = String(cb.data || "");
     await bot.api.answerCallbackQuery(cb.id).catch(() => null);
     if (!chatId || !from) return;
+    if (data.startsWith("as:")) { await handleStarsCallback(bot, chatId, data, await getLang(botRow.id, from)); return; }
     if (data === "al:menu") {
       const cur = await getLang(botRow.id, from);
       await bot.api.sendMessage(chatId, T[cur].pick, { reply_markup: languageKeyboard(cur) });
@@ -300,6 +304,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   const chatId = msg.chat.id;
   const text = String(msg.text || "").trim();
   const fromId = String(msg.from?.id || "");
+  if (msg.successful_payment) { await handleStarsPayment(bot, msg, fromId ? await getLang(botRow.id, fromId) : "en"); return; }   // money first: never behind the channel check
   const owner = isOwner(botRow, fromId);
   if (fromId && !owner) {
     try { await recordBotVisit(botRow.id, fromId); } catch { /* visit counting is optional */ }
@@ -406,6 +411,8 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
       return;
     }
   }
+
+  if (fromId && (await handleStarsMessage(bot, botRow.id, msg, lang))) return;
 
   if (LANGS.some((l) => MATCH[l.code].label === text) || /^\/match(?:@\w+)?$/i.test(text)) {
     const base = await matchBotBase();
