@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { preCheckout } from "@/lib/atharStars";
+import { ATHAR_SITE } from "@/lib/atharMirror";
 import { Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { handleAdBotUpdate } from "@/lib/adBotLogic";
@@ -60,6 +62,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       // balance top-up. Must be answered within 10s, so this skips the
       // per-template dispatch entirely. See src/lib/starsPayment.ts.
       if (body.pre_checkout_query) {
+        if (botRow.template === "ATHAR_BOT") {
+          // Athar sells a one-of-a-kind token: the order, the buyer, the price, the reservation and the chain are checked first (src/lib/atharStars.ts)
+          const d = await preCheckout(body.pre_checkout_query, ATHAR_SITE);
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }
