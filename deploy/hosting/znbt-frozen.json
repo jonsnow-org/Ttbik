@@ -1,0 +1,18 @@
+{
+  "_": "Values that must never change once ZNBt is launched (see docs/zenobia/ZNBT-LAUNCH.md, 'Frozen rules'). scripts/znbt-frozen-check.mjs fails CI if any file drifts from them.",
+  "master": "EQAagBm1wghWIl9mtEYclWgS6vtYuy9NiekxAXM1ArjsDCh-",
+  "owner": "UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz",
+  "salt": "1000001",
+  "imageUrl": "https://ttbik-gate.jonsnowx1r.workers.dev/api/zenobia/znbt/icon",
+  "publicPaths": [
+    "public/zenobia/launch.html",
+    "public/zenobia/create.html",
+    "public/zenobia/coins.html",
+    "public/zenobia/trade.html",
+    "public/zenobia/terms.html",
+    "public/zenobia/znbt-coin.webp",
+    "public/zenobia/znbt-coin-small.webp",
+    "src/app/api/zenobia/znbt/icon/route.ts",
+    "src/app/zenobia/znbt/config.json/route.ts"
+  ]
+}

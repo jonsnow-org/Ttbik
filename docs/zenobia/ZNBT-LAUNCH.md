@@ -51,3 +51,15 @@ The coin's `image` points to `/api/zenobia/znbt/icon`, which serves a pre-render
 
 ### Telegram Stars never appear on the ZNBt platform
 Stars exist only in the Athar bot, behind `ATHAR_ENABLE_STARS=1` (off by default), and in the owner's admin queue. No `/zenobia/*` page, script or API mentions them. See `docs/ATHAR_STARS.md`.
+
+## Frozen rules and their safeguards
+What the chain keeps for ever depends on four things staying true. Each has a safeguard that works without anyone remembering it.
+
+| Rule | Safeguard | Automatic check | If it still breaks |
+|---|---|---|---|
+| **1. The coin's image address** `…workers.dev/api/zenobia/znbt/icon` keeps working | The gate answers it itself: fresh copy for 10 min, else asks a server, else the **last good copy (30 days)**, else a **small picture built into the Worker**. The coin also stores a small picture on-chain (`image_data`) | Hourly `znbt-guard` (GitHub) tests the address and tells the owner in the Athar bot when it fails or is served from a safety copy (once per 6 h). Gate self-test covers all four cases | Recreate the Worker named `ttbik-gate` from the repo (Cloudflare ← Import repository ← root `cloudflare/site-gate`): 5 minutes. **Never rename the Cloudflare account subdomain, delete the Worker or lose the account** (enable 2FA): that is the one thing nothing else can replace |
+| **2. Master address, salt `1000001`, owner wallet** never change in the code | Registry `deploy/hosting/znbt-frozen.json` | `scripts/znbt-frozen-check.mjs` runs in CI on every push and fails the build if any file drifts; with `--chain` it also recomputes the master address from the contract code (the master address changes if the contract code changes) | `git revert` the change. A change to contract code is by design a **new master = a new platform** (old coins keep working on the old one) |
+| **3. Old links keep working** (`trade.html?c=…`, list, terms, launch) | The same registry lists the public paths and the `?c=` parameter | Same CI check (missing file or a trade page that stopped reading `?c=` fails the build) | Add a redirect for any page that must move |
+| **4. The gate itself** stays up | Two direct addresses (Vercel, Oracle) work on their own; the Worker deploys from the repo; its KV only stores the switch (losing it means "auto", the safe default); both servers share one database | `znbt-guard` also watches the gate, both servers and, after launch, that the **coin and master contracts are `active`** on the chain | Re-register webhooks to a direct address with `/api/admin/hosting/rewebhook` (docs/HOSTING.md, section 7) |
+
+Honest limits: the guard cannot recreate a lost Cloudflare account; and Cloudflare's free plan allows 100,000 requests a day for the whole account (the icon is cached, but each wallet request still counts). Watch it in Workers & Pages ← `ttbik-gate` ← Metrics.

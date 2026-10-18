@@ -19,5 +19,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
       - run: npm ci
       - run: npm run build
