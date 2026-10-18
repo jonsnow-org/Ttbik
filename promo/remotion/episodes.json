@@ -6,7 +6,7 @@
  "episodes": [
   {
    "id": 15,
-   "path": "/zenobia/coins.html",
+   "path": "/zenobia/trade.html?c=EQCT1cY7GaVcZZkF7tkdjhn8LVCOKRnTBfWobBSR0NvEiQ7u",
    "title": "ZNBt",
    "hook": "Zenobia's new coin",
    "input": "",
@@ -22,11 +22,12 @@
    "rate": "-5%",
    "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 16,
-   "path": "/zenobia/trade.html",
+   "path": "/zenobia/trade.html?c=EQCT1cY7GaVcZZkF7tkdjhn8LVCOKRnTBfWobBSR0NvEiQ7u",
    "title": "ZNBt",
    "hook": "عملة زنوبيا الجديدة",
    "input": "",
@@ -39,7 +40,8 @@
    "script": "وصلت عملة زنوبيا الجديدة. زد إن بي تي، على شبكة تون، أُطلقت على منصتنا تدمر لانش. إذا احتفظت بها تنمو من طفلة إلى ملكة ثم محاربة، وإذا بعت كل ما تملك تصير أسيرة، وإذا أحرقتها تصير أسطورة. الرسوم واضحة في الصفحة. هذه ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر.",
    "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 1,
@@ -67,7 +69,8 @@
    "voice": "en-US-AriaNeural",
    "rate": "-5%",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 2,
@@ -95,7 +98,8 @@
    "rate": "-5%",
    "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 3,
@@ -123,7 +127,8 @@
    "rate": "-5%",
    "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 4,
@@ -152,7 +157,8 @@
    "rate": "-5%",
    "site": "https://ttbik-gate.jonsnowx1r.workers.dev",
    "home": false,
-   "rec": true
+   "rec": true,
+   "interact": false
   },
   {
    "id": 5,
