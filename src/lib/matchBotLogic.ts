@@ -1,3 +1,4 @@
+import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { SITE_URL } from "@/lib/siteUrl";
@@ -1978,6 +1979,8 @@ export async function fileMatchReport(bot: TelegramBot, reporterId: string, targ
 
 /** 🚩 إبلاغ during a random chat (bot button and Mini App). */
 export async function reportRandomChat(bot: TelegramBot, chatId: number, tgUserId: string, partnerId: string) {
+  const pend = (await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } }))?.pendingAction as { sessionId?: string } | null;
+  if (pend?.sessionId) await keepVoiceForReview(pend.sessionId);
   await fileMatchReport(bot, tgUserId, partnerId, "RANDOM_CHAT", `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`);
   await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.").catch(() => null);
 }
@@ -2052,6 +2055,7 @@ export async function revealContacts(bot: TelegramBot, userA: string, userB: str
 
 export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
   await prisma.randomChatSession.update({ where: { id: sessionId }, data: { status: "ENDED", ended_at: new Date() } }).catch(() => null);
+  await endVoice(sessionId);   // the voice notes disappear with the conversation (a reported one is kept 7 days for an admin)
   if (reason === "block") {
     await prisma.matchBlock.upsert({
       where: { blockerId_blockedId: { blockerId: tgUserId, blockedId: partnerId } },
@@ -2080,6 +2084,11 @@ export async function grantReferralReward(bot: TelegramBot, profileUserId: strin
   const referredUser = await prisma.matchUser.findUnique({ where: { id: profileUserId } });
   if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
     await prisma.matchUser.update({ where: { id: profileUserId }, data: { referralRewardGranted: true } }).catch(() => null);
+    // Limit (owner order 2026-10-18): invites reward at most REFERRAL_REWARDS_PER_30D free boosts per person per 30 days, so they never replace buying.
+    if (!(await referralRewardAllowed(referredUser.referredBy, profileUserId).catch(() => true))) {
+      await bot.api.sendMessage(Number(referredUser.referredBy), "🎁 اعتُمد ملف صديق دعوته! بلغتَ حد المكافآت لهذا الشهر، وستعود المكافآت بعد انقضائه.").catch(() => null);
+      return;
+    }
     const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
     await prisma.matchProfile
       .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
@@ -2724,10 +2733,17 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
 
+  if (!user.phoneVerified && typeof msg.text === "string" && /^\/verify(@\w+)?$/i.test(msg.text.trim())) {
+    // Verification by the Telegram account itself (no phone number stored): needs a public @username or Telegram Premium.
+    const ok = await verifyByTelegram(tgUserId, { username: msg.from?.username, isPremium: !!msg.from?.is_premium }).catch(() => false);
+    await bot.api.sendMessage(chatId, ok ? "✅ تم التحقق من حسابك على تيليجرام (بلا رقم هاتف)." : "⚠️ حسابك بلا اسم مستخدم (@username) ولا Premium. أضف اسم مستخدم في إعدادات تيليجرام ثم أرسل /verify، أو شارك رقمك بالزر.", ok ? { reply_markup: mainMenu() } : undefined);
+    return;
+  }
+
   if (!user.phoneVerified) {
     await bot.api.sendMessage(
       chatId,
-      "📱 التحقق من رقم الهاتف خطوة إلزامية قبل استخدام هذا البوت، لحماية جميع الأعضاء.",
+      "📱 التحقق خطوة إلزامية قبل استخدام هذا البوت، لحماية جميع الأعضاء. شارك رقمك بالزر، أو أرسل /verify للتحقق بحساب تيليجرام بدون رقم.",
       { reply_markup: new Keyboard().requestContact("📱 مشاركة رقم الهاتف").resized() }
     );
     return;

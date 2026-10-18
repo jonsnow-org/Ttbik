@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { sweepVoice } from "@/lib/match/extras";
 
 // One short daily nudge for MARRIAGE_BOT members (never more than one message
 // a day, only when there is something real to say): how many new profiles of
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
   const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || querySecret === process.env.CRON_SECRET);
   if (!ok) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+  await sweepVoice();   // anonymous voice notes older than a day (or past their review window) are deleted
   const since = new Date(Date.now() - 86400000);
   const active = new Date(Date.now() - 30 * 86400000);
   const bots = await prisma.bot.findMany({ where: { template: "MARRIAGE_BOT", isActive: true }, select: { id: true, token: true } });
