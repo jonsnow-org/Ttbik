@@ -26,5 +26,5 @@ eps = [e for e in cfg["episodes"] if (str(e["id"]) == force if force else (e["id
 if not eps:
     sys.exit(0)
 e = eps[0]
-json.dump({**{k: v for k, v in cfg.items() if k != "episodes"}, **e, "site": e.get("site", cfg["site"]), "voice": cfg["voice"], "rate": cfg["rate"]}, open("episode.json", "w"), ensure_ascii=False)
+json.dump({**{k: v for k, v in cfg.items() if k != "episodes"}, **e, "site": e.get("site", cfg["site"]), "voice": e.get("voice", cfg["voice"]), "rate": e.get("rate", cfg["rate"])}, open("episode.json", "w"), ensure_ascii=False)
 print(e["id"])
