@@ -7,6 +7,7 @@
  * polling (no paid realtime). Telegram MainButton/BackButton/haptics wired.
  */
 import { AnimatePresence, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
+import AdsterraBanner from "@/components/AdsterraBanner";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Tab = "anon" | "discover" | "chats" | "me" | "admin";
@@ -1092,6 +1093,8 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
           </div>
         ))}
       </div>
+      {/* one quiet banner at the very bottom of the chats list: never over a profile, a chat or a payment */}
+      <div className="flex justify-center pt-1" data-testid="chats-ad"><AdsterraBanner adKey="560a1eb1632771185b888243a7d36a07" width={320} height={50} /></div>
       <p className="text-center text-[11px] text-white/35">عند قبول طلب الدردشة تُفتح المحادثة داخل التطبيق (تبويب 🔀) ما دام التطبيق مفتوحاً، وإلا تصلك في البوت.</p>
     </div>
   );
