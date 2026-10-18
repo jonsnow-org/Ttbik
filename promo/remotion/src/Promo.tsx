@@ -12,7 +12,8 @@ const FONT = "Cairo";
 loadFont({ family: FONT, url: staticFile("Cairo.ttf"), weight: "200 1000" });
 
 type Word = { text: string; startMs: number; endMs: number };
-export type PromoProps = { title: string; hook: string; words: Word[]; voiceSec: number };
+export type PromoProps = { title: string; hook: string; words: Word[]; voiceSec: number; brand?: string; ctaTitle?: string; ctaLine?: string };
+export const DEFAULT_BRAND = "شام AI";
 
 const GOLD = "#FFC83D";
 const BG = "linear-gradient(160deg,#0b1f3a 0%,#123d6b 55%,#0e7c66 100%)";
@@ -76,7 +77,7 @@ const Phone: React.FC = () => {
   );
 };
 
-const Hook: React.FC<{ hook: string; title: string }> = ({ hook, title }) => {
+const Hook: React.FC<{ hook: string; title: string; brand: string }> = ({ hook, title, brand }) => {
   const frame = useCurrentFrame();
   const s = spring({ frame, fps: FPS, config: { damping: 9, stiffness: 200 } });
   const out = interpolate(frame, [HOOK_F - 12, HOOK_F], [1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
@@ -89,13 +90,13 @@ const Hook: React.FC<{ hook: string; title: string }> = ({ hook, title }) => {
       </div>
       <div dir="rtl" style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 56, color: "#0b1f3a", background: GOLD,
         padding: "6px 36px 14px", borderRadius: 999, transform: `scale(${spring({ frame: frame - 12, fps: FPS })})` }}>
-        {title} · شام AI
+        {brand ? `${title} · ${brand}` : title}
       </div>
     </AbsoluteFill>
   );
 };
 
-const TopBar: React.FC<{ title: string }> = ({ title }) => {
+const TopBar: React.FC<{ title: string; brand: string }> = ({ title, brand }) => {
   const frame = useCurrentFrame();
   const s = spring({ frame: frame - HOOK_F, fps: FPS, config: { damping: 14 } });
   return (
@@ -103,13 +104,13 @@ const TopBar: React.FC<{ title: string }> = ({ title }) => {
       transform: `translateY(${(1 - s) * -200}px)`, opacity: s }}>
       <div style={{ fontFamily: FONT, fontWeight: 900, fontSize: 60, color: "#fff", background: "rgba(255,255,255,0.12)",
         border: "2px solid rgba(255,255,255,0.25)", padding: "4px 40px 12px", borderRadius: 999 }}>
-        <span style={{ color: GOLD }}>شام AI</span> · {title}
+        {brand ? <><span style={{ color: GOLD }}>{brand}</span> · </> : null}{brand ? title : <span style={{ color: GOLD }}>{title}</span>}
       </div>
     </div>
   );
 };
 
-const CTA: React.FC = () => {
+const CTA: React.FC<{ ctaTitle: string; ctaLine: string; brand: string }> = ({ ctaTitle, ctaLine, brand }) => {
   const frame = useCurrentFrame();
   const s = spring({ frame, fps: FPS, config: { damping: 10, stiffness: 160 } });
   const pulse = 1 + Math.sin(frame / 4) * 0.03;
@@ -117,18 +118,18 @@ const CTA: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: `rgba(8,20,40,${0.88 * bg})`, alignItems: "center", justifyContent: "center" }}>
       <div dir="rtl" style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 150, color: "#fff", transform: `scale(${s * pulse})`,
-        textShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>جرّبها ببلاش</div>
+        textShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>{ctaTitle}</div>
       <div style={{ marginTop: 50, fontFamily: FONT, fontWeight: 900, fontSize: 76, color: "#0b1f3a", background: GOLD,
         padding: "10px 50px 20px", borderRadius: 30, transform: `translateY(${(1 - spring({ frame: frame - 8, fps: FPS })) * 300}px)` }}>
-        ttbik.vercel.app
+        {ctaLine}
       </div>
       <div dir="rtl" style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 64, color: GOLD,
-        opacity: interpolate(frame, [14, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) }}>شام AI</div>
+        opacity: interpolate(frame, [14, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) }}>{brand}</div>
     </AbsoluteFill>
   );
 };
 
-export const Promo: React.FC<PromoProps> = ({ title, hook, words }) => {
+export const Promo: React.FC<PromoProps> = ({ title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها ببلاش", ctaLine = "ttbik.vercel.app" }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   const ctaStart = durationInFrames - Math.round(CTA_SEC * FPS);
@@ -143,10 +144,10 @@ export const Promo: React.FC<PromoProps> = ({ title, hook, words }) => {
       <div style={{ position: "absolute", width: 800, height: 800, borderRadius: "50%", background: "rgba(14,200,160,0.18)", filter: "blur(120px)",
         right: -300 + Math.cos(frame / 35) * 200, bottom: 100 + Math.sin(frame / 45) * 300 }} />
       <Sequence from={HOOK_F - 10} layout="none"><Phone /></Sequence>
-      <TopBar title={title} />
-      <Sequence durationInFrames={HOOK_F} layout="none"><Hook hook={hook} title={title} /></Sequence>
+      <TopBar title={title} brand={brand} />
+      <Sequence durationInFrames={HOOK_F} layout="none"><Hook hook={hook} title={title} brand={brand} /></Sequence>
       <Sequence from={HOOK_F - 6} durationInFrames={ctaStart - HOOK_F + 6} layout="none"><Captions words={words} /></Sequence>
-      <Sequence from={ctaStart} layout="none"><CTA /></Sequence>
+      <Sequence from={ctaStart} layout="none"><CTA ctaTitle={ctaTitle} ctaLine={ctaLine} brand={brand} /></Sequence>
       <Audio src={staticFile("voice.mp3")} />
       <Audio src={staticFile("music.mp3")} volume={(f) => {
         const base = interpolate(f, [0, 6, voiceEndF, voiceEndF + 12], [0.28, 0.07, 0.07, 0.3], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
