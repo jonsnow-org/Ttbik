@@ -1,6 +1,19 @@
 """Merge spoken brand «شام إيه آي» into caption «شام AI»; build props.json for Remotion."""
-import json
+import json, re
 w = json.load(open("public/words.json")); ep = json.load(open("episode.json"))
+def restore_punctuation(words, script):
+    """The TTS boundaries drop punctuation (English especially), so captions broke mid-phrase ("birthday your anniversary").
+    Walk the script and give each spoken word back the comma / full stop / question mark it had, so the caption pages break where the sentence does."""
+    norm = lambda x: re.sub(r"\W", "", x.lower())
+    toks, j = script.split(), 0
+    for word in words:
+        for k in range(j, min(j + 4, len(toks))):
+            if norm(toks[k]) and norm(toks[k]) == norm(word["text"]):
+                word["text"] = toks[k]; j = k + 1; break
+    return words
+
+if ep.get("lang") == "en":
+    w = restore_punctuation(w, ep["script"])
 out, i = [], 0
 while i < len(w):
     t = w[i]["text"].strip("،,.؟?!")
