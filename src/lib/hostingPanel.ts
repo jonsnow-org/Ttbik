@@ -70,7 +70,7 @@ import { readSnapshot } from "@/lib/znbtIndex";
 import { prisma } from "@/lib/prisma";
 
 export function platformKeyboard(open: boolean): InlineKeyboard {
-  return (open ? new InlineKeyboard().text("⛔ إغلاق المنصة", "zp:off") : new InlineKeyboard().text("🪙 فتح المنصة للجميع", "zp:on")).row().text("🔄 تحديث", "zp:refresh");
+  return (open ? new InlineKeyboard().text("⛔ إغلاق المنصة", "zp:off") : new InlineKeyboard().text("🪙 فتح المنصة للجميع", "zp:on")).row().webApp("💰 الأرباح · Earnings", `${HOSTING.gateUrl}/zenobia/earnings.html`).row().text("🔄 تحديث", "zp:refresh");
 }
 export async function platformText(): Promise<{ text: string; open: boolean }> {
   const cfg = await getConfig().catch(() => null);
@@ -82,7 +82,7 @@ export async function platformText(): Promise<{ text: string; open: boolean }> {
   lines.push(`ZNBt: ${cfg?.curve ? `✅ مُطلقة (${cfg.curve.slice(0, 6)}…${cfg.curve.slice(-4)})${cfg.launchedAt ? " · " + cfg.launchedAt.slice(0, 10) : ""}` : "لم تُطلَق بعد: افتح صفحة الإطلاق أولاً"}`);
   lines.push(`العملات المفهرسة: ${snap?.coins?.length ?? 0}${snap ? "" : " (لا فهرس بعد)"}`);
   lines.push(`عملات عليها بلاغات: ${reports}`);
-  lines.push("", `الإدارة (إخفاء وسحب الرسوم): ${HOSTING.gateUrl}/zenobia/coins.html#admin`, `الإطلاق: ${HOSTING.gateUrl}/zenobia/launch.html`);
+  lines.push("", `الأرباح (سحب كل شيء لمحفظتك بزر واحد): ${HOSTING.gateUrl}/zenobia/earnings.html`, `الإدارة (إخفاء عملة): ${HOSTING.gateUrl}/zenobia/coins.html#admin`, `الإطلاق: ${HOSTING.gateUrl}/zenobia/launch.html`);
   return { text: lines.join("\n"), open };
 }
 /** A tap on «zp:*». The platform cannot be opened before ZNBt itself exists. */
