@@ -481,8 +481,9 @@ test("athar (flag on in QA env): match modal, birthday, gift moment, month card,
   // birthday card
   await nav(a.page, "ملفي"); await a.page.waitForTimeout(800);
   await a.page.getByRole("button", { name: "👤 ملفي", exact: true }).first().click({ force: true }); await a.page.waitForTimeout(600);
-  await a.page.getByLabel("تاريخ الميلاد").fill("1990-05-01");
-  await a.page.getByRole("button", { name: "افتح", exact: true }).click({ force: true }); await a.page.waitForTimeout(800);
+  await a.page.getByRole("button", { name: "📅 اختر يومك" }).click({ force: true });
+  await a.page.getByLabel("اختر يوماً").fill("1990-05-01"); await a.page.waitForTimeout(1200);   // the card reloads for that day
+  await a.page.getByRole("button", { name: /افتح هذا اليوم/ }).click({ force: true }); await a.page.waitForTimeout(800);
   const bIdx = Math.round((Date.UTC(1990, 4, 1) - Date.UTC(1950, 0, 1)) / 864e5);
   expect(await a.page.evaluate(() => (window as any).__tg.links)).toContainEqual(expect.stringContaining(`/date?i=${bIdx}&lang=ar`));
   await shot(a.page, "athar-birthday");

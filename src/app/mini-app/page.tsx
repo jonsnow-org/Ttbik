@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MonetagSdkLoader, MonetagBannerSlot, showRewardedAd } from "@/components/MonetagAd";
 import { mediaStreamUrl } from "@/lib/mediaStream";
 import AdsterraBanner from "@/components/AdsterraBanner";
+import { AtharFeedCard, AtharProfileCard } from "@/components/AtharMediaCard";
 
 // "video" was a duplicate of Trending (both listed the latest downloads);
 // owner directive 2026-09-24: it became "تتابعه" — posts from the people
@@ -296,6 +297,14 @@ export default function MiniAppPage() {
     setPlayingId(null);
     setAutoId(null);
     track("tab", { tab: t });
+  }
+  // Athar cards (components/AtharMediaCard): open Athar's own page / bot; count the tap for the owner's stats
+  function openAthar(url: string, where: string) {
+    haptic();
+    track("athar", { where });
+    const w = tg();
+    if (url.startsWith("https://t.me/") && w?.openTelegramLink) w.openTelegramLink(url);
+    else if (w?.openLink) w.openLink(url); else window.open(url, "_blank", "noopener");
   }
   function track(event: string, meta?: Record<string, string | number | undefined>) {
     try {
@@ -1311,6 +1320,7 @@ export default function MiniAppPage() {
             )}
           </div>
         )}
+        {isOwnProfile && !overlayOpen && <AtharProfileCard onOpen={openAthar} />}
 
         {tab === "admin" && isOwner && !viewUserId && !overlayOpen && (
           <div className="mb-4 space-y-3">
@@ -1468,7 +1478,7 @@ export default function MiniAppPage() {
             const p = platformOf(item.url);
             const mine = !!userId && item.sharer_id === userId;
             return (
-              <FeedAdBefore key={item.id} index={idx}>
+              <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {playingId === item.id ? (
@@ -1607,10 +1617,13 @@ function SheetButton({ icon, label, hint, color, onClick }: { icon: string; labe
 
 // Every 5th post is preceded by one in-feed ad card (300×250), mounted only
 // when it scrolls near the screen so ads don't slow the first load.
-function FeedAdBefore({ index, children }: { index: number; children: React.ReactNode }) {
+function FeedAdBefore({ index, createdAt, onOpenAthar, children }: { index: number; createdAt?: number; onOpenAthar: (url: string, where: string) => void; children: React.ReactNode }) {
+  // every 5th post is preceded by a card: an ad, and in between (5th, 15th, 25th ...) Athar's card for the post's own day;
+  // when Athar does not answer that slot shows the usual ad
   return (
     <>
-      {index > 0 && index % 5 === 0 && <LazyFeedAd />}
+      {index > 0 && index % 10 === 0 && <LazyFeedAd />}
+      {index > 0 && index % 10 === 5 && <AtharFeedCard createdAt={createdAt} onOpen={onOpenAthar} fallback={<LazyFeedAd />} />}
       {children}
     </>
   );
