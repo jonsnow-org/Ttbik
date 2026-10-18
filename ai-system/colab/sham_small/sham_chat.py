@@ -27,11 +27,14 @@ Data (licensed, human-written, verified before use):
   - CohereLabs/aya_dataset — apache-2.0, human-written; only rows whose
     `language` contains "Arabic". Its TEST split's Arabic rows are never
     trained on — sham_eval.py uses them as the fixed yardstick.
+  - FreedomIntelligence/alpaca-gpt4-arabic, 2A2I/Arabic-OpenHermes-2.5 — apache-2.0 (added 2026-10-14);
+    every source gives its share each session and starts again when used up (several epochs).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import random
 from pathlib import Path
 
@@ -43,12 +46,47 @@ from sham_decoding import SHAM_TURN, USER_TURN
 IGNORE = -100
 
 DESCRIBE_IMAGE = ["صف هذه الصورة.", "ماذا ترى في الصورة؟", "اكتب وصفاً لهذه الصورة.", "ما الذي تظهره هذه الصورة؟"]
-DRAW_IMAGE = ["ارسم: {}", "أنشئ صورة: {}", "ارسم لي صورة لـ {}", "صورة: {}"]
+DRAW_IMAGE = ["ارسم: {}", "أنشئ صورة: {}", "ارسم لي صورة لـ {}", "صورة: {}",
+              # 2026-10-12: how people really ask on Telegram — the model must DECIDE to draw from many phrasings, not from one fixed template
+              "اعطني صورة {}", "أعطني صورة {}", "أريد صورة {}", "ولّد صورة {}", "اصنع لي صورة {}", "أرني صورة {}", "صوّر لي {}", "هات صورة {}",
+              "ارسم {}", "اريد رسمة {}", "أنشئ لي صورة عن {}", "اعرض صورة {}"]
 DESCRIBE_VIDEO = ["صف هذا الفيديو.", "ماذا يحدث في هذا الفيديو؟", "ما الذي يظهر في المقطع؟"]
-MAKE_VIDEO = ["أنشئ فيديو: {}", "اصنع مقطع فيديو: {}", "فيديو: {}"]
+MAKE_VIDEO = ["أنشئ فيديو: {}", "اصنع مقطع فيديو: {}", "فيديو: {}",
+              "اعطني فيديو {}", "أعطني مقطع فيديو {}", "أريد فيديو {}", "ولّد فيديو {}", "اصنع لي فيديو {}", "أرني فيديو {}", "هات فيديو {}", "صوّر فيديو {}"]
 ASK_ABOUT = ["ما هو {}؟", "حدثني عن {}.", "ماذا تعرف عن {}؟", "من هو {}؟", "عرّف {}."]
 TRANSCRIBE_AUDIO = ["اكتب ما يقال في هذا المقطع.", "ماذا يقول هذا الصوت؟", "حوّل هذا الصوت إلى نص."]
-SPEAK_AUDIO = ["انطق: {}", "قل بصوتك: {}", "حوّل إلى صوت: {}"]
+SPEAK_AUDIO = ["انطق: {}", "قل بصوتك: {}", "حوّل إلى صوت: {}",
+               "اعطني صوت {}", "أعطني تسجيلاً صوتياً {}", "أريد صوتاً {}", "ولّد صوتاً {}", "اقرأ بصوت عالٍ {}", "تكلّم عن {}", "أسمعني {}", "هات صوت {}"]
+
+
+# ---- today's date as CONTEXT (owner, 2026-10-12): a model that only remembers answers "the date is 2024". The date is handed to it in the
+# prompt like any other input, and these examples teach it to READ it (and convert it: the context line has the ISO date, the answer says the month in words).
+WEEKDAYS_AR = ["الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت", "الأحد"]      # datetime.date.weekday(): Monday = 0
+MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"]
+DATE_QUESTIONS = ["ما تاريخ اليوم؟", "كم التاريخ اليوم؟", "في أي سنة نحن؟", "ما هو اليوم؟", "في أي شهر نحن؟", "ما اليوم وتاريخه؟"]
+
+
+def date_context_line(d) -> str:
+    """The context line put in front of a question: «التاريخ اليوم: 2026-10-12 (الاثنين)»."""
+    return f"التاريخ اليوم: {d.isoformat()} ({WEEKDAYS_AR[d.weekday()]})"
+
+
+def build_date_example(text_ids_fn, rng: random.Random, today=None) -> tuple[list[int], list[int]]:
+    """A question about the date whose answer is read from the date line in the context. `today` is a datetime.date; None draws a random day
+    from 2024-2028, so the model learns the skill, never a particular date."""
+    import datetime
+    d = today or datetime.date(2024, 1, 1) + datetime.timedelta(days=rng.randrange(0, 365 * 5))
+    q = rng.choice(DATE_QUESTIONS)
+    wd, mon = WEEKDAYS_AR[d.weekday()], MONTHS_AR[d.month - 1]
+    if "سنة" in q:
+        a = f"نحن في سنة {d.year}."
+    elif "شهر" in q:
+        a = f"نحن في شهر {mon} من سنة {d.year}."
+    elif q == "ما هو اليوم؟":
+        a = f"اليوم {wd}."
+    else:
+        a = f"اليوم {wd} {d.day} {mon} {d.year}."
+    return build_chat_example(text_ids_fn(date_context_line(d) + "\n" + q), text_ids_fn(a))
 
 
 def build_chat_example(
@@ -108,6 +146,7 @@ def build_video_chat_examples(
 
 def build_search_example(
     text_ids_fn, title: str, article: str, rng: random.Random, max_result_tokens: int = 160, max_answer_tokens: int = 96,
+    date_line: str | None = None,
 ) -> tuple[list[int], list[int]] | None:
     """Learned search, self-supervised from Wikipedia (no labels needed):
         <USER> ما هو {title}؟ <SHAM> <SEARCH_START> title <SEARCH_END>
@@ -120,7 +159,7 @@ def build_search_example(
     first = paragraphs[0]
     answer = first.split(". ")[0].strip()
     answer = answer if answer.endswith(".") else answer + "."
-    q = text_ids_fn(rng.choice(ASK_ABOUT).format(title))
+    q = text_ids_fn((date_line + "\n" if date_line else "") + rng.choice(ASK_ABOUT).format(title))
     query = text_ids_fn(title)
     result = text_ids_fn(" ".join(paragraphs[:2]))[:max_result_tokens]
     ans = text_ids_fn(answer)[:max_answer_tokens]
@@ -180,37 +219,191 @@ def _is_arabic_row(row: dict) -> bool:
     return "Arabic" in (row.get("language") or "")
 
 
-def load_arabic_dialogues(progress: dict, max_examples: int) -> tuple[list[tuple[str, str]], dict]:
-    """Next `max_examples` NEW (question, answer) pairs, continuing where
-    `progress` (saved next to the checkpoint) stopped: CIDAR first, then
-    Aya's Arabic training rows. Returns (pairs, updated progress)."""
-    from datasets import load_dataset
+def _conversation_pair(row: dict) -> tuple[str, str]:
+    """First user turn and the reply after it, from a ShareGPT-style `conversations` list (from: human/gpt or role/content)."""
+    if row.get("user") and row.get("gpt") and isinstance(row["user"], str):        # Arabic-OpenHermes: ready columns
+        return row["user"].strip(), str(row["gpt"]).strip()
+    conv = row.get("conversations") or []
+    if isinstance(conv, str):                                                      # a JSON string in some sets
+        try:
+            conv = json.loads(conv)
+        except Exception:
+            return "", ""
+    for k, t in enumerate(conv[:-1]):
+        if not isinstance(t, dict) or not isinstance(conv[k + 1], dict):
+            continue
+        who = (t.get("from") or t.get("role") or "").lower()
+        nxt = conv[k + 1]
+        if who in ("human", "user") and (nxt.get("from") or nxt.get("role") or "").lower() in ("gpt", "assistant"):
+            return (t.get("value") or t.get("content") or "").strip(), (nxt.get("value") or nxt.get("content") or "").strip()
+    return "", ""
 
-    progress = dict(progress or {})
-    pairs: list[tuple[str, str]] = []
-    plan = [
-        ("cidar", lambda: load_dataset("arbml/CIDAR", split="train"), "instruction", "output", None),
-        ("aya_ar", lambda: load_dataset("CohereLabs/aya_dataset", split="train"), "inputs", "targets", _is_arabic_row),
+
+# (progress key, loader, question column, answer column, keep-filter, streaming). The first two are the original plan, unchanged; the
+# last two were added 2026-10-14 (apache-2.0 on their dataset cards; both are GPT-4-written / translated Arabic conversations):
+#   FreedomIntelligence/alpaca-gpt4-arabic — 49,969 Arabic instruction → answer conversations
+#   2A2I/Arabic-OpenHermes-2.5           — 981,618 Arabic conversations (streamed: never downloaded whole)
+def _chat_plan():
+    from datasets import load_dataset
+    return [
+        ("cidar", lambda: load_dataset("arbml/CIDAR", split="train"), "instruction", "output", None, False),
+        ("aya_ar", lambda: load_dataset("CohereLabs/aya_dataset", split="train"), "inputs", "targets", _is_arabic_row, False),
+        ("alpaca_gpt4_ar", lambda: load_dataset("FreedomIntelligence/alpaca-gpt4-arabic", split="train"), None, None, None, False),
+        ("openhermes_ar", lambda: load_dataset("2A2I/Arabic-OpenHermes-2.5", split="train", streaming=True), None, None, None, True),
     ]
-    for key, loader, q_col, a_col, keep in plan:
-        if len(pairs) >= max_examples:
+
+
+CHAT_SOURCE_SIZES = {"openhermes_ar": 981_618}      # a streamed source has no len(): its wrap-around point
+
+
+def load_arabic_dialogues(progress: dict, max_examples: int, plan=None) -> tuple[list[tuple[str, str]], dict]:
+    """Next `max_examples` NEW (question, answer) pairs, continuing where `progress` (saved next to the checkpoint) stopped.
+
+    2026-10-14: every source gives its SHARE each session (before, the plan was strictly sequential, so with 4,000 per session the
+    second source waited until CIDAR was used up), and a source that is used up starts again from its beginning by itself
+    (progress["<key>_epoch"] counts the passes) — several epochs over the chat data, and a session never comes back empty.
+    SHAM_CHAT_SOURCES=cidar,aya_ar limits the plan. Returns (pairs, updated progress)."""
+    import os
+    progress = dict(progress or {})
+    plan = plan if plan is not None else _chat_plan()
+    only = {k.strip() for k in os.environ.get("SHAM_CHAT_SOURCES", "").split(",") if k.strip()}
+    if only:
+        plan = [p for p in plan if p[0] in only]
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    share = max(1, max_examples // max(1, len(plan)))
+    for n, (key, loader, q_col, a_col, keep, streaming) in enumerate(plan):
+        want = min(share if n < len(plan) - 1 else max_examples - len(pairs), max_examples - len(pairs))
+        if want <= 0:
             break
-        start = int(progress.get(key, 0))
         try:
             ds = loader()
+            if keep is not None:
+                ds = ds.filter(keep)
         except Exception as exc:  # one source down must not stop the run
             print(f"⚠ تعذّر تحميل {key}: {exc}")
             continue
-        if keep is not None:
-            ds = ds.filter(keep)
-        end = min(len(ds), start + (max_examples - len(pairs)))
-        for row in ds.select(range(start, end)):
-            q, a = (row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()
-            if q and a:
+        size = CHAT_SOURCE_SIZES.get(key) if streaming else len(ds)
+        start = int(progress.get(key, 0))
+        if size and start >= size:                      # used up: the next pass over this source
+            start = 0
+            progress[f"{key}_epoch"] = int(progress.get(f"{key}_epoch", 0)) + 1
+        end = min(size, start + want) if size else start + want
+        rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
+        got = 0
+        for row in rows:
+            q, a = ((row.get(q_col) or "").strip(), (row.get(a_col) or "").strip()) if q_col else _conversation_pair(row)
+            norm_q = " ".join(q.split())
+            if q and a and norm_q not in seen:            # the same question from two sources is kept once
+                seen.add(norm_q)
                 pairs.append((q, a))
+                got += 1
         progress[key] = end
-        print(f"{key}: الأمثلة {start:,}..{end:,} من {len(ds):,}")
+        print(f"{key}: الأمثلة {start:,}..{end:,} من {size or '?'} (الدورة {progress.get(f'{key}_epoch', 0)}) — {got:,} زوج")
     return pairs, progress
+
+# ---------------------------------------------------------------- multi-turn dialogues (memory, 2026-10-14)
+# build_chat_example trains ONE turn, so the model never saw a conversation that refers back to something said earlier. The functions below are
+# additive: the single-turn path is untouched; sham_live and the chat-stage notebook add them unless SHAM_CHAT_MULTITURN=0, and what they train still passes the same
+# held-out gate (the yardstick examples stay single-turn, exactly as before).
+
+def multiturn_enabled() -> bool:
+    """ON by default since 2026-10-14 (owner: multi-turn training must actually run); SHAM_CHAT_MULTITURN=0 switches it off."""
+    import os
+    return os.environ.get("SHAM_CHAT_MULTITURN", "1").strip().lower() not in ("0", "off", "false", "no", "")
+
+
+def _conversation_turns(row: dict, max_turns: int = 8) -> list[tuple[str, str]]:
+    """EVERY (user, assistant) pair of a ShareGPT-style conversation, in order (the single-turn loader keeps only the first)."""
+    if row.get("user") and row.get("gpt") and isinstance(row["user"], str):
+        return [(row["user"].strip(), str(row["gpt"]).strip())]
+    conv = row.get("conversations") or []
+    if isinstance(conv, str):
+        try:
+            conv = json.loads(conv)
+        except Exception:
+            return []
+    turns: list[tuple[str, str]] = []
+    k = 0
+    while k < len(conv) - 1 and len(turns) < max_turns:
+        t, nxt = conv[k], conv[k + 1]
+        if isinstance(t, dict) and isinstance(nxt, dict):
+            who = (t.get("from") or t.get("role") or "").lower()
+            if who in ("human", "user") and (nxt.get("from") or nxt.get("role") or "").lower() in ("gpt", "assistant"):
+                q = (t.get("value") or t.get("content") or "").strip()
+                a = (nxt.get("value") or nxt.get("content") or "").strip()
+                if q and a:
+                    turns.append((q, a))
+                k += 2
+                continue
+        k += 1
+    return turns
+
+
+def build_multiturn_example(turns: list[tuple[list[int], list[int]]], max_len: int = 1024, max_user: int = 192,
+                            max_answer: int = 256) -> tuple[list[int], list[int]]:
+    """<BOS> [<USER> q <SHAM> a <EOS>]* — the layout sham_decoding.chat_prompt_ids(history=...) builds at answer time. Labels: every SHAM answer
+    and its <EOS>; user turns and markers are IGNORE. Too long: the OLDEST turns are dropped (the last turn is always kept), the way the live
+    memory window drops them. One turn gives exactly build_chat_example's ids and labels (when it fits)."""
+    pieces = []
+    for q, a in turns:
+        q, a = q[:max_user], a[:max_answer]
+        pieces.append(([USER_TURN] + q + [SHAM_TURN], a + [SpecialTokens.EOS]))
+    while len(pieces) > 1 and 1 + sum(len(u) + len(a) for u, a in pieces) > max_len:
+        pieces.pop(0)
+    ids, labels = [SpecialTokens.BOS], [IGNORE]
+    for u, a in pieces:
+        room = max_len - len(ids) - len(u)
+        if room <= 1:
+            break
+        a = a if len(a) <= room else a[:room - 1] + [SpecialTokens.EOS]
+        ids += u + a
+        labels += [IGNORE] * len(u) + a
+    return ids, labels
+
+
+def load_arabic_conversations(progress: dict, max_examples: int, plan=None, min_turns: int = 2, max_turns: int = 8):
+    """Like load_arabic_dialogues, but whole conversations (lists of (q, a)) with at least `min_turns` turns, from the sources that HAVE
+    conversations (column sources are single-turn and skipped). Its own progress keys ("<key>_mt"), so the single-turn positions never move."""
+    import os
+    progress = dict(progress or {})
+    plan = plan if plan is not None else _chat_plan()
+    only = {k.strip() for k in os.environ.get("SHAM_CHAT_SOURCES", "").split(",") if k.strip()}
+    plan = [p for p in plan if p[2] is None and (not only or p[0] in only)]
+    convs: list[list[tuple[str, str]]] = []
+    share = max(1, max_examples // max(1, len(plan)))
+    for key, loader, _q, _a, keep, streaming in plan:
+        try:
+            ds = loader()
+            if keep is not None:
+                ds = ds.filter(keep)
+        except Exception as exc:
+            print(f"⚠ تعذّر تحميل {key}: {exc}")
+            continue
+        size = CHAT_SOURCE_SIZES.get(key) if streaming else len(ds)
+        pk = f"{key}_mt"
+        start = int(progress.get(pk, 0))
+        if size and start >= size:
+            start = 0
+        scan = share * 20                                    # most rows are single-turn: read further to find enough conversations
+        end = min(size, start + scan) if size else start + scan
+        rows = ds.skip(start).take(end - start) if streaming else ds.select(range(start, end))
+        got, pos = 0, start
+        for row in rows:
+            pos += 1
+            t = _conversation_turns(row, max_turns)
+            if len(t) >= min_turns:
+                convs.append(t)
+                got += 1
+                if got >= share:
+                    break
+        progress[pk] = pos
+        print(f"{key}: محادثات متعددة الأدوار {got:,} (حتى الصف {pos:,})")
+    return convs, progress
+
+
+def conversation_examples(convs: list[list[tuple[str, str]]], encode, max_len: int = 1024) -> list[tuple[list[int], list[int]]]:
+    return [build_multiturn_example([(encode(q), encode(a)) for q, a in c], max_len=max_len) for c in convs if c]
 
 
 def load_progress(search_paths: list[Path]) -> dict:
@@ -232,6 +425,34 @@ def load_progress(search_paths: list[Path]) -> dict:
     return best
 
 
+def _general_replay(tokenizer, seq_len: int, batch_size: int, n_batches: int, rng) -> list[torch.Tensor]:
+    """2026-10-17 (review): the rehearsal used to be Arabic Wikipedia only, while the merge gate measures the GENERAL mixture (many languages, code, math, web):
+    every chat / media lineage kept its Arabic and slowly lost the rest, so the gate refused it. Now the rehearsal windows are drawn from the same general mix
+    (the pre-tokenized shards the GitHub job builds daily, sham_token_shards), cut to seq_len. Falls back to Arabic Wikipedia when no shards fit this
+    tokenizer. SHAM_REPLAY_GENERAL=0 restores the old behaviour."""
+    if os.environ.get("SHAM_REPLAY_GENERAL", "1").strip().lower() in ("0", "off", "false", "no"):
+        return []
+    try:
+        import sham_token_shards
+        wins = sham_token_shards.load(tokenizer, 1024)
+        if not wins and not os.environ.get("SHAM_NO_SHARD_DOWNLOAD"):
+            from sham_inputs import fetch_dataset
+            if fetch_dataset(sham_token_shards.DATASET):
+                wins = sham_token_shards.load(tokenizer, 1024)
+        if not wins or len(wins) < n_batches * batch_size // 4:
+            return []
+        take = min(seq_len, 1024)
+        out = []
+        for _ in range(n_batches):
+            rows = [torch.tensor(wins[rng.randrange(len(wins))][:take], dtype=torch.long) for _ in range(batch_size)]
+            out.append(torch.stack(rows))
+        print(f"تذكّر النص: {len(out):,} دفعة من المزيج العام ({len(wins):,} نافذة جاهزة)")
+        return out
+    except Exception as exc:
+        print(f"⚠ المزيج العام غير متاح للتذكّر ({type(exc).__name__}): ويكيبيديا العربية بدلاً منه")
+        return []
+
+
 def text_replay_batches(
     tokenizer, seq_len: int, batch_size: int, n_batches: int, workdir: str | Path,
     max_position: int = 200_000, seed: int | None = None, extra_files: list[str] | None = None,
@@ -245,6 +466,9 @@ def text_replay_batches(
     if n_batches <= 0:
         return []
     rng = random.Random(seed)
+    general = _general_replay(tokenizer, seq_len, batch_size, n_batches, rng)
+    if general:
+        return general
     need_tokens = n_batches * batch_size * seq_len
     docs = max(200, need_tokens // 250)  # ~250 tokens per article on average, measured loosely
     skip = rng.randrange(0, max(1, max_position - docs))
@@ -282,6 +506,22 @@ def interleave(groups: list[list], weights: list[float], seed: int = 0) -> list:
 
 if __name__ == "__main__":
     # Offline self-test (no network): format, labels, media turns, batching.
+    class _DS(list):
+        def filter(self, f):
+            return _DS(r for r in self if f(r))
+
+        def select(self, r):
+            return [self[i] for i in r]
+
+    _plan = [("a", lambda: _DS({"q": f"س{i}", "a": f"ج{i}"} for i in range(5)), "q", "a", None, False),
+             ("b", lambda: _DS({"conversations": [{"from": "human", "value": f"سؤال{i}"}, {"from": "gpt", "value": f"جواب{i}"}]}
+                               for i in range(3)), None, None, None, False)]
+    _p, _prog = load_arabic_dialogues({}, 4, plan=_plan)
+    assert len(_p) == 4 and _prog == {"a": 2, "b": 2} and ("سؤال0", "جواب0") in _p, (_p, _prog)       # both sources give a share
+    _p, _prog = load_arabic_dialogues(_prog, 4, plan=_plan)
+    assert _prog["b"] == 3 and _prog["a"] == 4
+    _p, _prog = load_arabic_dialogues(_prog, 4, plan=_plan)
+    assert _prog.get("b_epoch") == 1 and _p, _prog                                                      # used up → next pass
     rng = random.Random(0)
     fake = lambda s: [ord(c) % 1000 for c in s]
     ids, labels = build_chat_example(fake("سؤال"), fake("جواب"))
@@ -300,6 +540,38 @@ if __name__ == "__main__":
     t_ids, t_lab = build_search_example(fake, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng)
     s0, r0 = t_ids.index(SpecialTokens.SEARCH_START), t_ids.index(SpecialTokens.RESULT_START)
     assert t_lab[s0] == SpecialTokens.SEARCH_START and t_lab[r0 + 1] == IGNORE and t_lab[-1] == SpecialTokens.EOS
+    # the date is context: the line goes in front of the question and the answer is read from it (the model learns the skill, not a date)
+    import datetime
+    seen: list[str] = []
+    cap = lambda t: (seen.append(t), fake(t))[1]
+    build_date_example(cap, random.Random(1), today=datetime.date(2026, 10, 12))
+    assert seen[0].startswith("التاريخ اليوم: 2026-10-12 (الاثنين)\n") and any(q in seen[0] for q in DATE_QUESTIONS), seen
+    assert "2026" in seen[1] or "الاثنين" in seen[1], seen
+    days = {build_date_example(lambda t: [len(t)], random.Random(k))[0][-2] for k in range(30)}
+    assert len(days) > 3                                              # random days: not one memorised date
+    dated = build_search_example(cap, "دمشق", "دمشق عاصمة سوريا وأقدم مدينة مأهولة في العالم. " * 3, rng, date_line=date_context_line(datetime.date(2026, 1, 5)))
+    assert seen[-4].startswith("التاريخ اليوم: 2026-01-05") and dated[0].count(SpecialTokens.SEARCH_START) == 1
     tr, ho = split_holdout(list(range(100)))
     assert len(ho) == 5 and not set(tr) & set(ho)
+    # multi-turn: every turn, labels only on Sham's answers, oldest turns dropped first, one turn == build_chat_example
+    row = {"conversations": [{"from": "system", "value": "x"}, {"from": "human", "value": "اسمي سامر"}, {"from": "gpt", "value": "أهلاً سامر"},
+                             {"from": "human", "value": "ما اسمي؟"}, {"from": "gpt", "value": "اسمك سامر"}]}
+    assert _conversation_turns(row) == [("اسمي سامر", "أهلاً سامر"), ("ما اسمي؟", "اسمك سامر")]
+    assert _conversation_pair(row) == ("اسمي سامر", "أهلاً سامر")                       # the single-turn loader is unchanged
+    one = build_multiturn_example([(fake("سؤال"), fake("جواب"))])
+    assert one == build_chat_example(fake("سؤال"), fake("جواب")), "one turn must equal the single-turn layout"
+    mt_ids, mt_lab = build_multiturn_example([(fake("اسمي سامر"), fake("أهلاً سامر")), (fake("ما اسمي؟"), fake("اسمك سامر"))])
+    assert mt_ids.count(USER_TURN) == 2 and mt_ids.count(SHAM_TURN) == 2 and mt_ids.count(SpecialTokens.EOS) == 2
+    scored = [i for i, l in zip(mt_ids, mt_lab) if l != IGNORE]
+    assert scored == fake("أهلاً سامر") + [SpecialTokens.EOS] + fake("اسمك سامر") + [SpecialTokens.EOS], scored
+    for i, (tok, lab) in enumerate(zip(mt_ids, mt_lab)):
+        if tok in (USER_TURN, SHAM_TURN, SpecialTokens.BOS):
+            assert lab == IGNORE
+    long_ids, long_lab = build_multiturn_example([(fake("ق" * 50), fake("ج" * 50))] * 10 + [(fake("آخر"), fake("رد"))], max_len=120)
+    assert len(long_ids) <= 120 and long_ids[-len(fake("رد")) - 1:-1] == fake("رد") and long_ids.count(USER_TURN) < 11
+    _mplan = [("q", lambda: _DS({"q": "س", "a": "ج"} for _ in range(3)), "q", "a", None, False),
+              ("c", lambda: _DS({"conversations": row["conversations"] if i % 2 else row["conversations"][:3]} for i in range(10)), None, None, None, False)]
+    _c, _cp = load_arabic_conversations({}, 2, plan=_mplan)
+    assert len(_c) == 2 and all(len(x) == 2 for x in _c) and "c_mt" in _cp and "q_mt" not in _cp, (_c, _cp)
+    assert len(conversation_examples(_c, fake)) == 2
     print("sham_chat self-test OK")

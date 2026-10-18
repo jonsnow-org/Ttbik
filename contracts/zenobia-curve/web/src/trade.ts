@@ -13,7 +13,7 @@ let me: Address | null = null;
 let thresholdTon = 1000n * 1_000_000_000n;
 let isZnbt = false;
 
-const ui = new TonConnectUI({ manifestUrl: 'https://ttbik.vercel.app/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
+const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
 const say = (m: string) => ($('log').textContent = m);
 const send = (tx: any) => ui.sendTransaction(toTonConnect(tx, { validUntil: Math.floor(Date.now() / 1000) + 300, network: '-239' }));
 

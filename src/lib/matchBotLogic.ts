@@ -10,6 +10,27 @@ import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { startGuide } from "@/lib/botStartGuide";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { handleMatchInlineQuery, handleHybridCallback, openProfileDeepLink, ensureMiniAppMenu, miniAppUrl } from "@/lib/match/hybrid";
+import { parseProfileStart } from "@/lib/match/inline";
+import { clearAnonHistory, recordAnonMessage, getAnonFilterRow, getAnonFilterRows, setAnonActiveQueue, setAnonFilterValue, markAnonNotified } from "@/lib/match/appStore";
+import { anonPairOk, activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
+import { sanitizeAnonFilter, anonFilterIsEmpty, type AnonFilter } from "@/lib/match/premium";
+import { randomUUID } from "crypto";
+import { after } from "next/server";
+import { CONTACT_BLOCKED_TEXT, containsContactInfo } from "@/lib/match/contactGuard";
+import { pgRateLimit } from "@/lib/match/rateLimitPg";
+import { auditAdmin, ensureMatchAppTables, idleRandomSessions } from "@/lib/match/appStore";
+import { pushNotification } from "@/lib/match/social";
+import { pingAnonSession } from "@/lib/match/realtime";
+import { deliverToUser } from "@/lib/match/surface";
+import {
+  PRICE_BOOST_24H, PRICE_VERIFIED_BADGE, PRICE_EXTRA_PHOTOS, PRICE_PROFILE_VISITORS, PRICE_ADVANCED_FILTERS, PRICE_SUPER_LIKE, PRICE_VIP_30D,
+  isVipActive, hasAdvancedFilters, hasProfileVisitors, isEffectivelyBoosted, depositLink, insufficientBalanceText, chargeMatchUser,
+  purchaseBoost, purchaseVip, purchaseAnonFilters, hasAnonFilters, PRICE_ANON_FILTERS, ANON_FILTERS_DAYS, unlockProfileVisitors, unlockAdvancedFilters, unlockExtraPhotos, toggleIncognito, chargeSuperLike,
+  purchaseByKey, purchaseRewind, recordPass, isBuyNowKey, PRICE_REWIND, firstPurchaseEligible, discountedPrice, FIRST_PURCHASE_DISCOUNT,
+} from "@/lib/match/entitlements";
+import { trackFunnel } from "@/lib/match/growth";
+import { atharEnabled, recordMoment } from "@/lib/match/athar";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment, depositChoicesText } from "@/lib/starsPayment";
 
 /**
@@ -30,6 +51,10 @@ import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload
  */
 
 const SUPER_ADMIN_ID = process.env.SUPER_ADMIN_TELEGRAM_ID || "";
+/** The bot's EXACT admin check (single SUPER_ADMIN, global env) — reused by the Mini App dashboard. */
+export function isMatchAdmin(tgUserId: string | null | undefined): boolean {
+  return !!SUPER_ADMIN_ID && String(tgUserId || "") === SUPER_ADMIN_ID;
+}
 const RANDOM_CHAT_WINDOW_SECONDS = 60;
 const SKIP_COOLDOWN_HOURS = 24;
 const ONLINE_THRESHOLD_MINUTES = 5;
@@ -38,14 +63,7 @@ const CONTACT_REQUEST_THRESHOLD = 15; // messages exchanged before offering the 
 // Paid feature pricing (owner spec, 2026-09-05) — USD-equivalent, charged
 // from MatchUser.balance (see the MARRIAGE_BOT ledger). All one-time
 // purchases are permanent unlocks except Boost (24h) and VIP (30 days).
-const PRICE_BOOST_24H = 2;
-const PRICE_VERIFIED_BADGE = 3;
-const PRICE_EXTRA_PHOTOS = 2;
-const PRICE_PROFILE_VISITORS = 2;
-const PRICE_ADVANCED_FILTERS = 2;
-const PRICE_SUPER_LIKE = 1;
-const PRICE_VIP_30D = 8;
-const VIP_DAYS = 30;
+// Prices/durations now live in src/lib/match/entitlements.ts (shared with the Mini App).
 
 // Duplicated (not imported) from adBotLogic.ts's own BANNED_WORDS list on
 // purpose — MARRIAGE_BOT's logic never imports from or edits AD_BOT's
@@ -73,7 +91,7 @@ const MATCH_BANNED_WORDS = [
   "scam",
   "phishing",
 ];
-function containsMatchBannedWords(text: string): boolean {
+export function containsMatchBannedWords(text: string): boolean {
   const lower = text.toLowerCase();
   return MATCH_BANNED_WORDS.some((w) => lower.includes(w.toLowerCase()));
 }
@@ -120,6 +138,7 @@ type PendingAction =
   | { mode: "admin_reject_reason"; profileId: string }
   | { mode: "confirm_delete_profile" }
   | { mode: "admin_broadcast" }
+  | { mode: "admin_broadcast_confirm"; text: string }
   | { mode: "admin_lookup" }
   | { mode: "admin_unban" }
   | { mode: "contact_admin_compose" }
@@ -145,17 +164,35 @@ function mainMenu(): Keyboard {
     .text("⭐ الترقيات والمزايا")
     .resized();
 }
-function upgradesMenu(): Keyboard {
+// Upgrade button labels. With the first-purchase discount (server-checked) the label shows the
+// discounted price; handlers accept BOTH variants (isUpgradeLabel), so old keyboards keep working.
+const UPGRADE_LABELS = {
+  boost: ["🚀 رفع ملفي", PRICE_BOOST_24H, "/24س"],
+  verify: ["☑️ طلب التوثيق", PRICE_VERIFIED_BADGE, ""],
+  photos: ["🖼 صور إضافية", PRICE_EXTRA_PHOTOS, ""],
+  visitors: ["👀 من زار ملفي", PRICE_PROFILE_VISITORS, ""],
+  filters: ["🎯 فلاتر متقدمة", PRICE_ADVANCED_FILTERS, ""],
+  vip: ["👑 العضوية الذهبية", PRICE_VIP_30D, "/شهر"],
+} as const;
+export function upgradeLabel(k: keyof typeof UPGRADE_LABELS, discount = false): string {
+  const [name, price, unit] = UPGRADE_LABELS[k];
+  return discount ? `${name} ($${discountedPrice(price, true)} بدل $${price}${unit})` : `${name} ($${price}${unit})`;
+}
+export function isUpgradeLabel(text: string, k: keyof typeof UPGRADE_LABELS): boolean {
+  return text === upgradeLabel(k, false) || text === upgradeLabel(k, true);
+}
+function upgradesMenu(discount = false): Keyboard {
   const kb = new Keyboard().text("💰 رصيدي وإيداع").row();
   if (isNativeTonConfigured()) kb.text("🔷 إيداع TON / USDT مباشر").row();
   return kb
-    .text(`🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`).row()
-    .text(`☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`).row()
-    .text(`🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`).row()
-    .text(`👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`).row()
-    .text(`🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`).row()
+    .text(upgradeLabel("boost", discount)).row()
+    .text(upgradeLabel("verify", discount)).row()
+    .text(upgradeLabel("photos", discount)).row()
+    .text(upgradeLabel("visitors", discount)).row()
+    .text(upgradeLabel("filters", discount)).row()
+    .text(ANON_FILTERS_BUTTON(discount)).row()
     .text("🎯 بحث دقيق (للمشتركين)").row()
-    .text(`👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`).row()
+    .text(upgradeLabel("vip", discount)).row()
     .text("🕶 وضع التخفي (ضمن الذهبية)").row()
     .text(backLabel())
     .resized();
@@ -165,16 +202,24 @@ function infoMenu(): Keyboard {
   if (novaAssistConfigured()) kb.text("✨ اسأل نوفا (ذكاء اصطناعي)").row();
   return kb.text(backLabel()).resized();
 }
-function adminMenu(): Keyboard {
-  return new Keyboard()
+function adminMenu(botId?: string): Keyboard {
+  const kb = new Keyboard()
     .text("📊 الإحصائيات").text("📋 الملفات المعلقة").row()
     .text("🚩 بلاغات المطابقة").text("🚩 بلاغات الدردشة العشوائية").row()
     .text("📢 بث جماعي").text("🔎 بحث عن مستخدم").row()
-    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة")
-    .resized();
+    .text("🔓 رفع حظر/كتم").text("📥 الرسائل الواردة").row()
+    .text("🩺 فحص البحث");
+  // 📱 opens the Mini App straight on «🛡 لوحة القيادة» (same isMatchAdmin / SUPER_ADMIN_TELEGRAM_ID check server-side).
+  // Reply-keyboard web_app buttons get an EMPTY initData (Telegram design), so the app could not
+  // authenticate the admin. This is a plain text button; the bot answers with an INLINE web_app
+  // button (which carries signed initData) and sets the admin's menu button to the dashboard.
+  if (botId && process.env.MATCH_ADMIN_APP_BUTTON !== "0") kb.row().text(ADMIN_APP_BUTTON);
+  return kb.resized();
 }
+const ADMIN_APP_BUTTON = "📱 التطبيق المصغر";
 const ADMIN_COMMANDS = new Set([
   "/start",
+  ADMIN_APP_BUTTON,
   "📊 الإحصائيات",
   "📋 الملفات المعلقة",
   "🚩 بلاغات المطابقة",
@@ -183,6 +228,7 @@ const ADMIN_COMMANDS = new Set([
   "🔎 بحث عن مستخدم",
   "🔓 رفع حظر/كتم",
   "📥 الرسائل الواردة",
+  "🩺 فحص البحث",
 ]);
 const DELETE_CONFIRM_LABEL = "✅ نعم، احذف نهائياً";
 function confirmDeleteMenu(): Keyboard {
@@ -229,7 +275,7 @@ function isManual(text: string): boolean {
 function skipMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
-function plainBackMenu(): Keyboard {
+export function plainBackMenu(): Keyboard {
   return new Keyboard().text(backLabel()).resized();
 }
 function genderMenu(): Keyboard {
@@ -242,8 +288,11 @@ function photoStepMenu(): Keyboard {
   return new Keyboard().text(SKIP_LABEL).row().text(backLabel()).resized();
 }
 function randomChatMenu(): Keyboard {
-  return new Keyboard().text("⏹ إنهاء المحادثة").resized();
+  return new Keyboard().text("⏹ إنهاء المحادثة").row().text("🎛 فلاتر الدردشة").resized();
 }
+const ANON_FILTERS_BUTTON = (discount = false) => discount
+  ? `🎛 فلاتر الدردشة العشوائية ($${discountedPrice(PRICE_ANON_FILTERS, true)} بدل $${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`
+  : `🎛 فلاتر الدردشة العشوائية ($${PRICE_ANON_FILTERS}/${ANON_FILTERS_DAYS} يوم)`;
 function isBack(text: string): boolean {
   return text === backLabel() || text === "/cancel";
 }
@@ -292,41 +341,8 @@ async function isMutuallyBlocked(aId: string, bId: string): Promise<boolean> {
 // ---------------------------------------------------------------------
 // Paid features — shared helpers (owner spec, 2026-09-05)
 // ---------------------------------------------------------------------
-function isVipActive(user: Pick<MatchUser, "vipUntil">): boolean {
-  return !!user.vipUntil && user.vipUntil > new Date();
-}
-function hasAdvancedFilters(user: Pick<MatchUser, "advancedFiltersUnlocked" | "vipUntil">): boolean {
-  return user.advancedFiltersUnlocked || isVipActive(user);
-}
-function hasProfileVisitors(user: Pick<MatchUser, "profileVisitorsUnlocked" | "vipUntil">): boolean {
-  return user.profileVisitorsUnlocked || isVipActive(user);
-}
-function isEffectivelyBoosted(profile: Pick<MatchProfile, "boostedUntil">, user: Pick<MatchUser, "vipUntil">): boolean {
-  return (!!profile.boostedUntil && profile.boostedUntil > new Date()) || isVipActive(user);
-}
-
-function depositLink(userId: string): string {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-  return `${base}/pay/marriage?uid=${userId}`;
-}
-function insufficientBalanceText(userId: string, needed: number, have: number): string {
-  return `❌ رصيدك الحالي $${have.toFixed(2)} لا يكفي (المطلوب $${needed.toFixed(2)}). أودِع من هنا:\n${depositLink(userId)}`;
-}
-
-// Deducts `amount` from the user's MARRIAGE_BOT balance and logs a
-// MatchTransaction — atomically, so a crash between the two is
-// impossible. Returns ok:false (charging nothing) if the balance is too
-// low; the caller is responsible for showing insufficientBalanceText.
-async function chargeMatchUser(userId: string, amount: number, type: string): Promise<{ ok: boolean; balance: number }> {
-  const user = await prisma.matchUser.findUnique({ where: { id: userId } });
-  const balance = Number(user?.balance || 0);
-  if (balance < amount) return { ok: false, balance };
-  await prisma.$transaction([
-    prisma.matchUser.update({ where: { id: userId }, data: { balance: { decrement: amount } } }),
-    prisma.matchTransaction.create({ data: { userId, amount, currency: "internal", type, status: "COMPLETED" } }),
-  ]);
-  return { ok: true, balance: balance - amount };
-}
+// isVipActive / hasAdvancedFilters / hasProfileVisitors / isEffectivelyBoosted /
+// depositLink / insufficientBalanceText / chargeMatchUser: see src/lib/match/entitlements.ts.
 
 // ---------------------------------------------------------------------
 // Profile wizard
@@ -405,47 +421,60 @@ async function saveProfile(bot: TelegramBot, chatId: number, userId: string, dat
     maritalStatus: data.maritalStatus ?? null,
     contactMethod: data.contactMethod!,
     contactValue: data.contactValue!,
-    status: "PENDING",
   };
+  // Owner decision (2026-10-11): profiles go live immediately so the search is
+  // never empty because of the review queue; the admin still gets every new or
+  // changed profile with ✅/❌ buttons and can reject afterwards. Editing keeps
+  // an approved profile approved; only a previously REJECTED profile goes back
+  // to manual review (so a rejection cannot be bypassed by re-saving).
+  const existing = await prisma.matchProfile.findUnique({ where: { userId } });
+  const status = existing?.status === "REJECTED" ? "PENDING" : "APPROVED";
+  const sensitiveChanged =
+    !existing || existing.name !== shared.name || (existing.attributes ?? null) !== shared.attributes || !!data.photoFileId || !!data.voiceFileId;
   await prisma.matchProfile.upsert({
     where: { userId },
-    update: { ...shared, ...(data.photoFileId ? { photoFileId: data.photoFileId } : {}), ...(data.voiceFileId ? { voiceFileId: data.voiceFileId } : {}) },
-    create: { userId, ...shared, photoFileId: data.photoFileId ?? null, voiceFileId: data.voiceFileId ?? null },
+    update: { ...shared, status, ...(data.photoFileId ? { photoFileId: data.photoFileId } : {}), ...(data.voiceFileId ? { voiceFileId: data.voiceFileId } : {}) },
+    create: { userId, ...shared, status, photoFileId: data.photoFileId ?? null, voiceFileId: data.voiceFileId ?? null },
   });
   await setPending(userId, null);
   await bot.api.sendMessage(
     chatId,
-    "✅ تم حفظ ملفك الشخصي، وهو الآن قيد المراجعة من إدارة البوت. سيصلك إشعار فور اعتماده.",
+    status === "APPROVED"
+      ? "✅ تم حفظ ملفك الشخصي وهو الآن ظاهر في البحث. يمكنك الضغط على «🔍 البحث عن شريك»."
+      : "✅ تم حفظ ملفك الشخصي، وهو قيد المراجعة من إدارة البوت لأنه رُفض سابقاً. سيصلك إشعار فور اعتماده.",
     { reply_markup: mainMenu() }
   );
-  if (SUPER_ADMIN_ID) {
+  if (status === "APPROVED" && !existing) await grantReferralReward(bot, userId);
+  if (SUPER_ADMIN_ID && (status === "PENDING" || sensitiveChanged)) {
     const profile = await prisma.matchProfile.findUnique({ where: { userId } });
     if (profile) await notifyAdminNewProfile(bot, profile);
   }
 }
 
-async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
+export async function notifyAdminNewProfile(bot: TelegramBot, profile: MatchProfile) {
   // Buttons carry the full userId in callback_data — see handleAdminCallback.
   // The text commands (موافقة ملف/رفض ملف <رمز>) still work too, as a
   // fallback for whenever a message with buttons has scrolled out of view.
   const text =
-    (profile.status === "PENDING" ? `👤 ملف بانتظار المراجعة` : `👤 ملف`) + ` #${shortId(profile.userId)}\n\n` +
+    (profile.status === "PENDING" ? `👤 ملف بانتظار المراجعة` : `👤 ملف جديد/معدَّل (ظاهر في البحث — ارفضه إن خالف الشروط)`) + ` #${shortId(profile.userId)}\n\n` +
     `الاسم: ${profile.name}\nالجنس: ${profile.gender === "MALE" ? "ذكر" : "أنثى"}\nالعمر: ${profile.age}\nالدولة: ${profile.country}\n` +
     `العمل: ${profile.job || "غير محدد"}\nالتعليم: ${profile.education || "غير محدد"}\nالمواصفات: ${profile.attributes || "غير محدد"}\n` +
     `التواصل: ${profile.contactMethod === "TELEGRAM" ? "تلجرام" : "واتساب"} — ${profile.contactValue}`;
   const kb = new InlineKeyboard().text("✅ قبول", `madmin_approve|${profile.userId}`).text("❌ رفض", `madmin_reject|${profile.userId}`);
   try {
-    if (profile.photoFileId) {
-      await bot.api.sendPhoto(Number(SUPER_ADMIN_ID), profile.photoFileId, { caption: text, reply_markup: kb });
-    } else {
-      await bot.api.sendMessage(Number(SUPER_ADMIN_ID), text, { reply_markup: kb });
-    }
+    // Duplicates: an older pending card for the same profile is removed before the new one.
+    await clearReviewCards(bot, profile.userId, "↪️ استُبدل ببطاقة أحدث").catch(() => null);
+    const sent = profile.photoFileId
+      ? await bot.api.sendPhoto(Number(SUPER_ADMIN_ID), profile.photoFileId, { caption: text, reply_markup: kb })
+      : await bot.api.sendMessage(Number(SUPER_ADMIN_ID), text, { reply_markup: kb });
+    if (sent?.message_id) await storeReviewCard(profile.userId, Number(SUPER_ADMIN_ID), [sent.message_id]).catch(() => null);
     // Admin review is always the one context that sees the real photo
     // directly (the consent-gating on sendSearchCard is for other members
     // browsing search results, not for moderation) — same for the voice
     // intro, so the admin can actually judge it before approving.
     if (profile.voiceFileId) {
-      await bot.api.sendVoice(Number(SUPER_ADMIN_ID), profile.voiceFileId).catch(() => null);
+      const v = await bot.api.sendVoice(Number(SUPER_ADMIN_ID), profile.voiceFileId).catch(() => null);
+      if (v?.message_id) await storeReviewCard(profile.userId, Number(SUPER_ADMIN_ID), [v.message_id]).catch(() => null);
     }
   } catch {
     // admin unreachable — not fatal, they can still review later once they message the bot
@@ -652,9 +681,11 @@ async function countryOnlyOwners(ids: string[]): Promise<Set<string>> {
 
 // strict = "🎯 بحث دقيق" (paid): the original all-requirements-must-match
 // filter. Normal search only weights them.
-async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false): Promise<string[]> {
+// genderMode (Mini App only): "all" = mixed cards, or an explicit gender (paid 🚻 filter).
+// The bot never passes it, so its search stays opposite-gender exactly as before.
+export async function buildSearchQueue(botId: string, selfId: string, selfProfile: MatchProfile, selfPref: PartnerPreference, strict = false, genderMode?: "all" | Gender): Promise<string[]> {
   const oppositeGender: Gender = selfProfile.gender === "MALE" ? "FEMALE" : "MALE";
-  const where = { status: "APPROVED", isHidden: false, gender: oppositeGender, userId: { not: selfId }, user: { botId } };
+  const where = { status: "APPROVED", isHidden: false, ...(genderMode === "all" ? {} : { gender: genderMode ?? oppositeGender }), userId: { not: selfId }, user: { botId } };
 
   const total = await prisma.matchProfile.count({ where });
   const candidates = await prisma.matchProfile.findMany({
@@ -716,6 +747,8 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
     if (isEffectivelyBoosted(c, c.user)) w *= 2.5;
     if (c.verificationStatus === "VERIFIED") w *= 1.3;
     if (now - c.user.lastActiveAt.getTime() < 3 * 86400000) w *= 1.3;
+    // Recently refreshed profiles get a small lift so stale ones don't crowd the top.
+    if (c.updated_at && now - new Date(c.updated_at).getTime() < 14 * 86400000) w *= 1.2;
     if (seenSet.has(c.userId)) w *= 0.35;
     w *= Math.max(0.6, Math.min(1.6, 1.6 / (1 + (exposureOf.get(c.userId) || 0) / 25)));
 
@@ -728,7 +761,7 @@ async function buildSearchQueue(botId: string, selfId: string, selfProfile: Matc
 // Share of the searcher's stated preferences this profile meets (0-100),
 // shown on the card as "💞 توافق X%". Country and age count double; age
 // outside the range still earns partial credit when it is close.
-function compatibilityPercent(profile: MatchProfile, pref: PartnerPreference | null, advanced: boolean): number | null {
+export function compatibilityPercent(profile: MatchProfile, pref: PartnerPreference | null, advanced: boolean): number | null {
   if (!pref) return null;
   let got = 0;
   let total = 0;
@@ -796,7 +829,8 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   ]);
   if (!profile || !targetUser) return null;
 
-  const pct = compatibilityPercent(profile, viewerPref, viewerUser ? hasAdvancedFilters(viewerUser) : false);
+  const viewerOwn = viewerPref ? null : await prisma.matchProfile.findUnique({ where: { userId: viewerId } });
+  const pct = compatibilityPercent(profile, viewerPref ?? (viewerOwn ? defaultPref(viewerId, viewerOwn) : null), viewerUser ? hasAdvancedFilters(viewerUser) : false);
   const head = [
     `👤 ${profile.name}، ${profile.age}${profile.verificationStatus === "VERIFIED" ? " ☑️" : ""}`,
     `🌍 ${profile.country}${profile.city ? ` · ${clip(profile.city, 40)}` : ""}`,
@@ -822,8 +856,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   // collision risk between different users; the full ID easily fits
   // Telegram's 64-byte callback_data limit anyway.
   const kb = new InlineKeyboard();
-  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(`⭐ سوبر لايك`, `msuperlike|${targetUserId}`).row();
-  kb.text(expanded ? "🔼 إخفاء التفاصيل" : "📖 المزيد من المعلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`);
+  kb.text(likeButtonLabel(likeCount), `mlike|${targetUserId}`).text(expanded ? "🔼 إخفاء" : "📖 معلومات", `${expanded ? "mless" : "mmore"}|${targetUserId}`).text(`⭐`, `msuperlike|${targetUserId}`).row();
   const contactUrl = profile.contactMethod === "TELEGRAM" ? `https://t.me/${profile.contactValue.replace(/^@/, "")}` : `https://wa.me/${profile.contactValue.replace(/[^0-9]/g, "")}`;
   kb.url("💬 رسالة", contactUrl).row();
   const photoGranted = photoPermission?.status === "GRANTED";
@@ -833,7 +866,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
   kb.row();
   // The profile id rides on "next" so a double tap on the same card is
   // recognised and ignored instead of skipping a profile.
-  kb.text("➡️ الملف التالي", `mnext|${targetUserId}`).row();
+  kb.text("↩️ السابق", "mrewind").text("➡️ الملف التالي", `mnext|${targetUserId}`).row();
   kb.text("🚩 إبلاغ", `mreport|${targetUserId}`).text("⛔ حظر", `mblock|${targetUserId}`);
 
   // Photo access is consent-gated (owner spec, 2026-09-05): the real photo is
@@ -846,7 +879,7 @@ async function buildSearchCard(targetUserId: string, viewerId: string, expanded 
 // Records the visit for the paid "who viewed my profile" feature (skipped
 // while the VIEWER has incognito active -- their own activity, not the
 // profile owner's, is what incognito hides).
-async function trackProfileVisit(targetUserId: string, viewerId: string) {
+export async function trackProfileVisit(targetUserId: string, viewerId: string) {
   const viewer = await prisma.matchUser.findUnique({ where: { id: viewerId }, include: { profile: true } });
   const viewerIncognito = !!viewer && !!viewer.profile?.isIncognito && isVipActive(viewer);
   if (targetUserId !== viewerId && !viewerIncognito) {
@@ -887,6 +920,11 @@ async function sendSearchCard(bot: TelegramBot, chatId: number, targetUserId: st
   return shownId;
 }
 
+// Used when the user never filled in partner preferences: own country only.
+export function defaultPref(userId: string, profile: MatchProfile): PartnerPreference {
+  return { id: "", userId, country: profile.country, ageMin: null, ageMax: null, job: null, education: null, attributes: null, city: null, maritalStatus: null, updated_at: new Date() } as PartnerPreference;
+}
+
 async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, pending: Extract<PendingAction, { mode: "search_browsing" }>, messageId?: number) {
   let queue = pending.queue;
   let idx = pending.index;
@@ -914,8 +952,8 @@ async function advanceSearch(bot: TelegramBot, chatId: number, userId: string, p
       prisma.matchProfile.findUnique({ where: { userId } }),
       prisma.partnerPreference.findUnique({ where: { userId } }),
     ]);
-    if (!me || !prof || !pref) break;
-    const fresh = await buildSearchQueue(me.botId, userId, prof, pref, !!pending.strict);
+    if (!me || !prof || (!pref && pending.strict)) break;
+    const fresh = await buildSearchQueue(me.botId, userId, prof, pref ?? defaultPref(userId, prof), !!pending.strict);
     if (fresh.length === 0) break;
     queue = fresh;
     idx = 0;
@@ -933,18 +971,44 @@ async function startSearch(bot: TelegramBot, chatId: number, userId: string, bot
     await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي واعتماده من الإدارة أولاً.", { reply_markup: mainMenu() });
     return;
   }
-  if (!pref) {
-    await bot.api.sendMessage(chatId, "⚠️ يجب تحديد مواصفات الشريك الذي تبحث عنه أولاً.", { reply_markup: mainMenu() });
+  // Partner preferences are optional for a normal search: without them we
+  // search with the user's own country and nothing else, instead of refusing.
+  // (The precise search still needs real preferences to be meaningful.)
+  if (!pref && strict) {
+    await bot.api.sendMessage(chatId, "⚠️ البحث الدقيق يحتاج مواصفات الشريك. حدّدها من «💍 مواصفات الشريك» أولاً.", { reply_markup: mainMenu() });
     return;
   }
-  const queue = await buildSearchQueue(botId, userId, profile, pref, strict);
+  const effectivePref: PartnerPreference = pref ?? defaultPref(userId, profile);
+  const queue = await buildSearchQueue(botId, userId, profile, effectivePref, strict);
   if (queue.length === 0) {
+    if (strict) {
+      await bot.api.sendMessage(chatId, "🎯 لا توجد ملفات تطابق كل مواصفاتك حرفياً الآن. جرّب «🔍 البحث عن شريك» لعرض الأقرب لها.", { reply_markup: mainMenu() });
+      return;
+    }
+    // Say WHY it is empty instead of a vague "no results".
+    const opposite: Gender = profile.gender === "MALE" ? "FEMALE" : "MALE";
+    const visible = await prisma.matchProfile.count({ where: { status: "APPROVED", isHidden: false, gender: opposite, userId: { not: userId }, user: { botId } } });
+    const me = await bot.api.getMe().catch(() => null);
     await bot.api.sendMessage(
       chatId,
-      strict ? "🎯 لا توجد ملفات تطابق كل مواصفاتك حرفياً الآن. جرّب «🔍 البحث عن شريك» لعرض الأقرب لها." : "😔 لا توجد نتائج مطابقة حالياً.",
+      (visible === 0
+        ? "🌿 لا توجد نتائج مطابقة في هذه اللحظة. يستقبل البوت ملفات جديدة كل يوم، وسنُعلمك فور توفر ملفات تناسبك، فعاود البحث لاحقاً بإذن الله."
+        : "📭 لا توجد ملفات يمكن عرضها لك الآن (قد تكون محظورة أو مقيّدة بدولة أخرى).") +
+        (me?.username ? `\n\nيمكنك دعوة من تثق بهم عبر رابطك الخاص، وستصلك رسالة عند انضمام ملفات جديدة:\nhttps://t.me/${me.username}?start=ref_${userId}` : ""),
       { reply_markup: mainMenu() }
     );
     return;
+  }
+  // Honest notice (friend's suggestion): when none of the first profiles meets
+  // every stated requirement, say we are showing the closest ones instead.
+  if (!strict) {
+    const head = await prisma.matchProfile.findMany({ where: { userId: { in: queue.slice(0, 10) } } });
+    const best = head.reduce((m, h) => Math.max(m, compatibilityPercent(h, effectivePref, false) ?? 0), 0);
+    if (best < 100) {
+      await bot.api
+        .sendMessage(chatId, "ℹ️ لا يوجد ملف يطابق كل مواصفاتك بالضبط حالياً، فنعرض لك الأقرب إليها. نسبة التوافق ظاهرة على كل بطاقة.")
+        .catch(() => null);
+    }
   }
   await advanceSearch(bot, chatId, userId, { mode: "search_browsing", queue, index: 0, strict }, messageId);
 }
@@ -958,7 +1022,7 @@ async function resumeBrowsing(userId: string, resume: { queue: string[]; index: 
 }
 
 // Both people liked each other: tell both, once, with a button to message.
-async function notifyMutualLike(bot: TelegramBot, fromId: string, toId: string) {
+export async function notifyMutualLike(bot: TelegramBot, fromId: string, toId: string) {
   const back = await prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: toId, toUserId: fromId } } });
   if (!back) return;
   const [a, b] = await Promise.all([
@@ -1065,12 +1129,27 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     if (pending?.mode === "search_browsing") {
       // A second tap on a card that has already moved on is ignored.
       if (shownId && pending.current && shownId !== pending.current && cardMsg === pending.msgId) return;
+      if (shownId) await recordPass(tgUserId, shownId).catch(() => null); // for «↩️ السابق»
       await advanceSearch(bot, chatId, tgUserId, pending, cardMsg);
     } else {
       // No active browsing session (menu used meanwhile, old card): start a
       // fresh search right inside this same card instead of doing nothing.
       await startSearch(bot, chatId, tgUserId, botRow.id, cardMsg);
     }
+    return;
+  }
+  if (data === "mrewind") {
+    // ↩️ استرجاع آخر ملف تخطّيته — $PRICE_REWIND (same function as the app).
+    const r = await purchaseRewind(tgUserId);
+    if (!r.ok) {
+      await bot.api.answerCallbackQuery(cq.id, { text: r.reason === "no_pass" ? "لا يوجد ملف سابق لاسترجاعه." : `رصيدك لا يكفي ($${PRICE_REWIND}).`, show_alert: r.reason !== "no_pass" }).catch(() => null);
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() }).catch(() => null);
+      return;
+    }
+    await bot.api.answerCallbackQuery(cq.id, { text: `↩️ تم الاسترجاع (-$${PRICE_REWIND})` }).catch(() => null);
+    void trackFunnel(tgUserId, "rewind", undefined, "bot");
+    const card = await buildSearchCard(r.targetId, tgUserId, false);
+    if (card) await bot.api.sendPhoto(chatId, card.photo, { caption: card.caption, reply_markup: card.kb }).catch(() => null);
     return;
   }
   if (data.startsWith("mmore|") || data.startsWith("mless|")) {
@@ -1086,10 +1165,7 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     const targetId = data.split("|")[1];
     const target = await prisma.matchProfile.findUnique({ where: { userId: targetId } });
     if (target) {
-      await prisma.matchReport.create({ data: { reporterId: tgUserId, targetId: target.userId, source: "SEARCH" } }).catch(() => null);
-      if (SUPER_ADMIN_ID) {
-        await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🚩 بلاغ جديد على ملف #${shortId(target.userId)} (${target.name}) من المستخدم ${tgUserId}.\nراجعه من «🚩 بلاغات المطابقة».`).catch(() => null);
-      }
+      await fileMatchReport(bot, tgUserId, target.userId, "SEARCH", `🚩 بلاغ جديد على ملف #${shortId(target.userId)} (${target.name}) من المستخدم ${tgUserId}.\nراجعه من «🚩 بلاغات المطابقة».`);
     }
     await bot.api.answerCallbackQuery(cq.id, { text: "🚩 تم إرسال بلاغك" }).catch(() => null);
     if (pending?.mode === "search_browsing") {
@@ -1177,6 +1253,11 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
     await bot.api.answerCallbackQuery(cq.id, { text: approve ? "✅ تم السماح" : "تم الرفض" }).catch(() => null);
     return;
   }
+  if (data.startsWith("maf|")) {
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await handleAnonFilterCallback(bot, botRow, chatId, tgUserId, data, messageId);
+    return;
+  }
   if (data.startsWith("mexit|")) {
     const code = data.split("|")[1];
     const label = EXIT_REASON_LABELS[code] || EXIT_REASON_LABELS.other;
@@ -1191,25 +1272,9 @@ async function handleMatchCallback(bot: TelegramBot, botRow: BotRow, cq: any) {
       await bot.api.answerCallbackQuery(cq.id).catch(() => null);
       return;
     }
-    const session = await prisma.randomChatSession.findUnique({ where: { id: pending.sessionId } });
-    if (!session || session.status !== "ACTIVE") {
-      await bot.api.answerCallbackQuery(cq.id, { text: "انتهت هذه المحادثة." }).catch(() => null);
-      return;
-    }
-    if (!session.contactRequestedBy) {
-      await prisma.randomChatSession.update({ where: { id: session.id }, data: { contactRequestedBy: tgUserId } }).catch(() => null);
-      await bot.api
-        .sendMessage(Number(pending.partnerId), "📇 يرغب الطرف الآخر بتبادل بيانات التواصل الرسمي معك. إن وافقت، اضغط الزر:", {
-          reply_markup: new InlineKeyboard().text("✅ أوافق على التبادل", "mcontact"),
-        })
-        .catch(() => null);
-      await bot.api.answerCallbackQuery(cq.id, { text: "تم إرسال الطلب، بانتظار موافقة الطرف الآخر" }).catch(() => null);
-    } else if (session.contactRequestedBy === tgUserId) {
-      await bot.api.answerCallbackQuery(cq.id, { text: "طلبك قيد الانتظار بالفعل" }).catch(() => null);
-    } else {
-      await revealContacts(bot, tgUserId, pending.partnerId);
-      await bot.api.answerCallbackQuery(cq.id, { text: "✅ تم تبادل بيانات التواصل" }).catch(() => null);
-    }
+    const r = await requestRandomChatContact(bot, tgUserId, { sessionId: pending.sessionId, partnerId: pending.partnerId });
+    const answer = { ended: "انتهت هذه المحادثة.", not_offered: undefined, requested: "تم إرسال الطلب، بانتظار موافقة الطرف الآخر", already: "طلبك قيد الانتظار بالفعل", revealed: "✅ تم تبادل بيانات التواصل" }[r];
+    await bot.api.answerCallbackQuery(cq.id, answer ? { text: answer } : undefined).catch(() => null);
     return;
   }
   if (data.startsWith("mblock|")) {
@@ -1411,19 +1476,27 @@ export async function expireFakeChatIfIdle(userId: string, lastAt: number): Prom
   await setPending(userId, null);
   const botRow = await prisma.bot.findUnique({ where: { id: user.botId } });
   if (botRow) {
-    await new TelegramBot(botRow.token).api
-      .sendMessage(Number(userId), "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() })
-      .catch(() => null);
+    await pingAnonSession(fakeSessionId(userId));
+    await deliverToUser(new TelegramBot(botRow.token), userId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
   }
   return "ended";
 }
 
+/** Fake-partner chats live in the same history table under "fake:<uid>" so the app can render them. */
+export const fakeSessionId = (uid: string) => `fake:${uid}`;
+export const FAKE_SENDER = "partner";
+async function fakeSay(bot: TelegramBot, tgUserId: string, text: string) {
+  await recordAnonMessage(fakeSessionId(tgUserId), FAKE_SENDER, text);
+  await pingAnonSession(fakeSessionId(tgUserId));
+  await deliverToUser(bot, tgUserId, text);
+}
 async function endFakeChat(bot: TelegramBot, chatId: number, tgUserId: string) {
   await setPending(tgUserId, null);
-  await bot.api.sendMessage(chatId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
+  await pingAnonSession(fakeSessionId(tgUserId));
+  await deliverToUser(bot, tgUserId, "⚠️ غادر المستخدم الآخر المحادثة.\nاضغط «🔀 مراسلة عشوائية» للبحث من جديد.", { reply_markup: mainMenu() });
 }
 
-async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number; lastAt: number }, userText: string) {
+export async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: string, pending: { fakeBotId: number; step: number; lastAt: number }, userText: string) {
   if (Date.now() - pending.lastAt > FAKE_CHAT_TIMEOUT_MS) {
     await endFakeChat(bot, chatId, tgUserId);
     return;
@@ -1437,7 +1510,7 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 
   if (node.reply) {
     await new Promise((r) => setTimeout(r, node.delayMs ?? 2000));
-    await bot.api.sendMessage(chatId, node.reply).catch(() => null);
+    await fakeSay(bot, tgUserId, node.reply);
   }
 
   if (node.disconnect) {
@@ -1478,28 +1551,45 @@ async function handleFakeBotReply(bot: TelegramBot, chatId: number, tgUserId: st
 // ---------------------------------------------------------------------
 // Random anonymous chat
 // ---------------------------------------------------------------------
-async function findWaitingPartner(botId: string, selfId: string) {
+type AnonSelf = { profile: { gender: string; age: number; country: string } | null; filter: AnonFilter | null };
+async function anonSelfSide(userId: string, filter: AnonFilter | null): Promise<AnonSelf> {
+  const profile = await prisma.matchProfile.findUnique({ where: { userId }, select: { gender: true, age: true, country: true } });
+  return { profile, filter };
+}
+
+// Returns waiting partners in queue order that pass the bot's rules (no
+// mutual block, 24h cooldown) AND the mutual 🎛 anon-filter rule.
+async function findWaitingPartners(botId: string, selfId: string, self: AnonSelf, skip: Set<string>) {
   const now = new Date();
   const waiting = await prisma.randomChatQueue.findMany({
     where: { botId, status: "WAITING", expiresAt: { gt: now }, userId: { not: selfId } },
     orderBy: { created_at: "asc" },
     take: 50,
+    include: { user: { select: { vipUntil: true, profile: { select: { gender: true, age: true, country: true } } } } },
   });
+  const filters = await getAnonFilterRows(waiting.map((w) => w.userId)).catch(() => new Map());
+  const ids = waiting.map((w) => w.userId);
+  // Batched: one query for blocks, one for recent sessions (was N+1).
+  const [blocks, recent] = ids.length
+    ? await Promise.all([
+        prisma.matchBlock.findMany({ where: { OR: [{ blockerId: selfId, blockedId: { in: ids } }, { blockedId: selfId, blockerId: { in: ids } }] }, select: { blockerId: true, blockedId: true } }),
+        prisma.randomChatSession.findMany({
+          where: { OR: [{ user1Id: selfId, user2Id: { in: ids } }, { user2Id: selfId, user1Id: { in: ids } }], created_at: { gt: new Date(Date.now() - SKIP_COOLDOWN_HOURS * 3600 * 1000) } },
+          select: { user1Id: true, user2Id: true },
+        }),
+      ])
+    : [[], []];
+  const excluded = new Set<string>([...blocks.flatMap((b) => [b.blockerId, b.blockedId]), ...recent.flatMap((r) => [r.user1Id, r.user2Id])]);
+  excluded.delete(selfId);
+  const out: typeof waiting = [];
   for (const w of waiting) {
-    if (await isMutuallyBlocked(selfId, w.userId)) continue;
-    const recentSession = await prisma.randomChatSession.findFirst({
-      where: {
-        OR: [
-          { user1Id: selfId, user2Id: w.userId },
-          { user1Id: w.userId, user2Id: selfId },
-        ],
-        created_at: { gt: new Date(Date.now() - SKIP_COOLDOWN_HOURS * 3600 * 1000) },
-      },
-    });
-    if (recentSession) continue;
-    return w;
+    if (skip.has(w.id) || excluded.has(w.userId)) continue;
+    const fr: any = filters.get(w.userId) ?? null;
+    const other = { profile: w.user.profile, filter: activeFilterFor(fr, w.id, hasAnonFilters(w.user, fr?.paid_until)) };
+    if (!anonPairOk(self, other)) continue;
+    out.push(w);
   }
-  return null;
+  return out;
 }
 
 async function getAvailableFakeBotIds(): Promise<number[]> {
@@ -1513,43 +1603,119 @@ async function getAvailableFakeBotIds(): Promise<number[]> {
   return FAKE_BOT_SCRIPTS.map((_, i) => i).filter((id) => !busyIds.has(id));
 }
 
-async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, ownQueueId?: string) {
-  const partnerEntry = await findWaitingPartner(botRow.id, tgUserId);
-  if (!partnerEntry) return false;
-  const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
-  await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { status: "MATCHED", sessionId: session.id } });
-  if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { status: "MATCHED", sessionId: session.id } }).catch(() => null);
-  await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
-  await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
-  await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
-  await bot.api.sendMessage(Number(partnerEntry.userId), "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() }).catch(() => null);
-  return true;
+async function matchWithRealPartner(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, ownQueueId?: string, self?: AnonSelf) {
+  const me = self ?? (await anonSelfSide(tgUserId, null));
+  const tried = new Set<string>();
+  for (let round = 0; round < 3; round++) {
+    const candidates = await findWaitingPartners(botRow.id, tgUserId, me, tried);
+    if (!candidates.length) return false;
+    for (const partnerEntry of candidates) {
+      tried.add(partnerEntry.id);
+      // Own row first (if any): if someone already took us, stop here.
+      if (ownQueueId) {
+        const mine = await prisma.randomChatQueue.updateMany({ where: { id: ownQueueId, status: "WAITING" }, data: { status: "MATCHED" } });
+        if (mine.count === 0) return false;
+      }
+      // Atomic claim of the partner's row: only one matcher can flip WAITING→MATCHED.
+      const claimed = await prisma.randomChatQueue.updateMany({
+        where: { id: partnerEntry.id, status: "WAITING", expiresAt: { gt: new Date() } },
+        data: { status: "MATCHED" },
+      });
+      if (claimed.count === 0) {
+        if (ownQueueId) await prisma.randomChatQueue.updateMany({ where: { id: ownQueueId, status: "MATCHED", sessionId: null }, data: { status: "WAITING" } });
+        continue;
+      }
+      const session = await prisma.randomChatSession.create({ data: { user1Id: tgUserId, user2Id: partnerEntry.userId, botId: botRow.id } });
+      await prisma.randomChatQueue.update({ where: { id: partnerEntry.id }, data: { sessionId: session.id } }).catch(() => null);
+      if (ownQueueId) await prisma.randomChatQueue.update({ where: { id: ownQueueId }, data: { sessionId: session.id } }).catch(() => null);
+      await setPending(tgUserId, { mode: "random_chatting", sessionId: session.id, partnerId: partnerEntry.userId });
+      await setPending(partnerEntry.userId, { mode: "random_chatting", sessionId: session.id, partnerId: tgUserId });
+      await deliverToUser(bot, tgUserId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await deliverToUser(bot, partnerEntry.userId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await pingAnonSession(session.id);
+      return true;
+    }
+  }
+  return false;
 }
 
-async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string) {
-  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId)) return;
+function anonWidenKeyboard(): InlineKeyboard {
+  return new InlineKeyboard().text("🌐 ابحث هذه المرة بدون فلاتر", "maf|once").row().text("🎛 تعديل / توسيع الفلاتر", "maf|menu");
+}
+const anonTimeoutText = (f: AnonFilter | null) =>
+  `⌛ لم نجد خلال دقيقة شريكاً يطابق فلاترك (${describeAnonFilter(f)}).\nلم نتجاهل فلاترك — يمكنك توسيعها، أو البحث هذه المرة بدون فلاتر، أو الضغط على «🔀 مراسلة عشوائية» للمحاولة مجدداً.`;
+
+// Resolves which filter applies to this search and tells the user (never silently).
+async function resolveAnonFilter(bot: TelegramBot, chatId: number, tgUserId: string, ignoreFilter: boolean): Promise<AnonFilter | null> {
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  // A previous filtered queue entry that expired unmatched → tell the user once.
+  if (row?.active_queue_id) {
+    const prev = await prisma.randomChatQueue.findUnique({ where: { id: row.active_queue_id } }).catch(() => null);
+    if (prev && prev.status === "WAITING" && prev.expiresAt <= new Date() && (await markAnonNotified(tgUserId, prev.id).catch(() => false))) {
+      await bot.api.sendMessage(chatId, anonTimeoutText(row.filter), { reply_markup: anonWidenKeyboard() }).catch(() => null);
+    }
+  }
+  const f = row?.filter ? sanitizeAnonFilter(row.filter) : null;
+  if (!f || anonFilterIsEmpty(f) || ignoreFilter) return null;
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  if (!hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until)) {
+    await bot.api
+      .sendMessage(chatId, `ℹ️ انتهى اشتراك «🎛 فلاتر الدردشة العشوائية»، لذا سيكون هذا البحث بدون فلاتر (لم يُخصم شيء).\nللتجديد: $${PRICE_ANON_FILTERS} لمدة ${ANON_FILTERS_DAYS} يوماً.`, {
+        reply_markup: new InlineKeyboard().text(`🎛 تجديد ($${PRICE_ANON_FILTERS})`, "maf|buy"),
+      })
+      .catch(() => null);
+    return null;
+  }
+  return f;
+}
+
+export async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow, tgUserId: string, opts: { ignoreFilter?: boolean; quiet?: boolean } = {}) {
+  const filter = await resolveAnonFilter(bot, chatId, tgUserId, !!opts.ignoreFilter);
+  const self = await anonSelfSide(tgUserId, filter);
+  await prisma.randomChatQueue.updateMany({ where: { userId: tgUserId, status: "WAITING" }, data: { status: "CANCELLED" } });
+  // Snapshot the filter onto THIS queue row id before the row exists, so no
+  // matcher can ever see the row without its filter.
+  const queueId = randomUUID();
+  await setAnonActiveQueue(tgUserId, filter ? queueId : null).catch(() => null);
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, undefined, self)) return;
 
   const queueEntry = await prisma.randomChatQueue.create({
-    data: { userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
+    data: { id: queueId, userId: tgUserId, botId: botRow.id, status: "WAITING", expiresAt: new Date(Date.now() + RANDOM_CHAT_WINDOW_SECONDS * 1000) },
   });
   await setPending(tgUserId, { mode: "random_waiting" });
-  await animateSearchingMessage(bot, chatId);
+  if (filter) {
+    await bot.api
+      .sendMessage(chatId, `🎛 البحث بفلاترك: ${describeAnonFilter(filter)}\nننتظر شريكاً يطابقها (ويطابق هو فلاتره عليك) لمدة دقيقة.`, { reply_markup: anonWidenKeyboard() })
+      .catch(() => null);
+  }
+  // Animation (~6s), the second pairing attempt and the fake-partner greeting
+  // run AFTER the webhook response (next/server after()), so Telegram's request
+  // returns fast. Same steps, same order; the app path (quiet) runs inline.
+  const rest = async () => {
+  if (!opts.quiet) await animateSearchingMessage(bot, chatId);
+  // App path: no animation, but the SAME waiting window before the second pairing
+  // attempt / fake fallback, so two app users searching together meet each other.
+  else await new Promise((r) => setTimeout(r, appSearchWaitMs()));
 
   const current = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
   if ((current?.pendingAction as any)?.mode === "random_chatting") return;
 
-  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, queueEntry.id)) return;
+  if (await matchWithRealPartner(bot, chatId, botRow, tgUserId, queueEntry.id, self)) return;
 
+  // Filtered users are never handed a scripted fake partner (it can't satisfy a filter).
+  if (filter) return;
   if (await shouldUseFakeBots(botRow.id)) {
     const availableIds = await getAvailableFakeBotIds();
     if (availableIds.length > 0) {
       const fakeBotId = availableIds[Math.floor(Math.random() * availableIds.length)];
       const script = FAKE_BOT_SCRIPTS[fakeBotId];
       await prisma.randomChatQueue.update({ where: { id: queueEntry.id }, data: { status: "MATCHED" } }).catch(() => null);
+      await clearAnonHistory(fakeSessionId(tgUserId));
       await setPending(tgUserId, { mode: "fake_chatting", fakeBotId, step: 0, lastAt: Date.now() });
-      await bot.api.sendMessage(chatId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await deliverToUser(bot, tgUserId, "✅ تم الاتصال! ابدأ الدردشة الآن (مجهولة الهوية بالكامل).", { reply_markup: randomChatMenu() });
+      await pingAnonSession(fakeSessionId(tgUserId));
       await new Promise((r) => setTimeout(r, script.greetingDelay ?? 1500));
-      await bot.api.sendMessage(chatId, script.greeting).catch(() => null);
+      await fakeSay(bot, tgUserId, script.greeting);
       // Restart the 5-minute clock from the greeting itself, unless the user
       // already replied during the greeting delay (that reply owns the clock).
       const now = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } });
@@ -1563,6 +1729,23 @@ async function startRandomChat(bot: TelegramBot, chatId: number, botRow: BotRow,
       }
       return;
     }
+  }
+  };
+  // App path too: the app polls for the result, so its request returns at once.
+  runAfterResponse(rest);
+}
+
+/** Same length as the bot's search animation (frames × 650ms + final 650ms). */
+export function appSearchWaitMs(): number {
+  return SEARCH_BAR_FRAMES.length * 650;
+}
+
+/** Schedule work after the HTTP response when inside a request; otherwise run now. */
+function runAfterResponse(fn: () => Promise<void>): void | Promise<void> {
+  try {
+    after(() => fn().catch((e) => console.error("[match after]", e)));
+  } catch {
+    return fn();
   }
 }
 
@@ -1623,13 +1806,214 @@ async function animateSearchingMessage(bot: TelegramBot, chatId: number) {
     .catch((e) => console.error("[randomChat] final edit FAILED", e));
 }
 
+
+// ---- 🎛 فلاتر الدردشة العشوائية (paid, $2/30d, included in VIP) --------------------------------
+const AGE_PRESETS: [string, number | undefined, number | undefined][] = [["أي عمر", undefined, undefined], ["18–25", 18, 25], ["26–35", 26, 35], ["36–45", 36, 45], ["46+", 46, undefined]];
+async function anonFilterKeyboard(tgUserId: string, f: AnonFilter): Promise<InlineKeyboard> {
+  const mark = (on: boolean, t: string) => (on ? `✅ ${t}` : t);
+  const kb = new InlineKeyboard()
+    .text(mark(!f.gender, "الجنس: الكل"), "maf|g|any").text(mark(f.gender === "MALE", "ذكر"), "maf|g|MALE").text(mark(f.gender === "FEMALE", "أنثى"), "maf|g|FEMALE").row();
+  const me = await prisma.matchProfile.findUnique({ where: { userId: tgUserId }, select: { country: true } });
+  kb.text(mark(!f.country, "أي دولة"), "maf|c|any");
+  if (me?.country) kb.text(mark(f.country === me.country, `دولتي (${me.country})`), "maf|c|mine");
+  kb.row();
+  AGE_PRESETS.forEach(([label, a, b], i) => {
+    kb.text(mark(f.ageMin === a && f.ageMax === b, label), `maf|a|${i}`);
+    if (i === 2) kb.row();
+  });
+  return kb.row().text("🔀 ابدأ البحث بهذه الفلاتر", "maf|go");
+}
+export async function showAnonFiltersMenu(bot: TelegramBot, chatId: number, tgUserId: string) {
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  const owned = hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until);
+  if (!owned) {
+    await bot.api.sendMessage(
+      chatId,
+      `🎛 فلاتر الدردشة العشوائية\n\nاختر من تُطابَق معه في «🔀 مراسلة عشوائية»: الجنس، الدولة، والفئة العمرية. تتم المطابقة فقط مع من يحقق فلاترك (وإن كان لديه فلاتر فيجب أن تحققها أنت أيضاً).\n\nالسعر: $${PRICE_ANON_FILTERS} لمدة ${ANON_FILTERS_DAYS} يوماً — ومشمولة مجاناً في «👑 العضوية الذهبية».\nلا تجديد تلقائي.`,
+      { reply_markup: new InlineKeyboard().text(`✅ تفعيل ($${PRICE_ANON_FILTERS} / ${ANON_FILTERS_DAYS} يوماً)`, "maf|buy") }
+    ).catch(() => null);
+    return;
+  }
+  const f = sanitizeAnonFilter(row?.filter ?? {});
+  const until = u?.vipUntil && u.vipUntil > new Date() ? "ضمن العضوية الذهبية" : `حتى ${row?.paid_until?.toLocaleDateString("ar")}`;
+  await bot.api
+    .sendMessage(chatId, `🎛 فلاتر الدردشة العشوائية (${until})\nالحالية: ${describeAnonFilter(f)}\n\nاختر ثم اضغط «🔀 ابدأ البحث»:`, { reply_markup: await anonFilterKeyboard(tgUserId, f) })
+    .catch(() => null);
+}
+async function handleAnonFilterCallback(bot: TelegramBot, botRow: BotRow, chatId: number, tgUserId: string, data: string, messageId?: number) {
+  const [, kind, val] = data.split("|");
+  if (kind === "menu") return showAnonFiltersMenu(bot, chatId, tgUserId);
+  if (kind === "once") return startRandomChat(bot, chatId, botRow, tgUserId, { ignoreFilter: true });
+  if (kind === "go") return startRandomChat(bot, chatId, botRow, tgUserId);
+  if (kind === "buy") {
+    const r = await purchaseAnonFilters(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() }).catch(() => null);
+      return;
+    }
+    await bot.api.sendMessage(chatId, r.viaVip ? "👑 الفلاتر مشمولة في عضويتك الذهبية — لم يُخصم شيء." : `✅ تم تفعيل فلاتر الدردشة العشوائية حتى ${r.until?.toLocaleDateString("ar")} (خُصم $${PRICE_ANON_FILTERS}).`).catch(() => null);
+    return showAnonFiltersMenu(bot, chatId, tgUserId);
+  }
+  const row = await getAnonFilterRow(tgUserId).catch(() => null);
+  const u = await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { vipUntil: true } });
+  if (!hasAnonFilters({ vipUntil: u?.vipUntil ?? null }, row?.paid_until)) return showAnonFiltersMenu(bot, chatId, tgUserId);
+  const f = sanitizeAnonFilter(row?.filter ?? {});
+  if (kind === "g") { if (val === "any") delete f.gender; else f.gender = val as any; }
+  if (kind === "c") {
+    if (val === "any") delete f.country;
+    else { const me = await prisma.matchProfile.findUnique({ where: { userId: tgUserId }, select: { country: true } }); if (me?.country) f.country = me.country; }
+  }
+  if (kind === "a") {
+    const p = AGE_PRESETS[Number(val)] ?? AGE_PRESETS[0];
+    delete f.ageMin; delete f.ageMax;
+    if (p[1] != null) f.ageMin = p[1];
+    if (p[2] != null) f.ageMax = p[2];
+  }
+  await setAnonFilterValue(tgUserId, f);
+  if (messageId) {
+    await bot.api.editMessageReplyMarkup(chatId, messageId, { reply_markup: await anonFilterKeyboard(tgUserId, f) }).catch(() => null);
+  }
+}
+
+export const ANON_IDLE_MINUTES = 30;
+/** Every minute (fake-chat sweeper): end real random chats idle for 30 min. */
+export async function sweepIdleRandomSessions(): Promise<number> {
+  const idle = await idleRandomSessions(ANON_IDLE_MINUTES);
+  const tokens = new Map<string, string>();
+  let n = 0;
+  for (const sess of idle) {
+    const ended = await prisma.randomChatSession.updateMany({ where: { id: sess.id, status: "ACTIVE" }, data: { status: "ENDED", ended_at: new Date() } });
+    if (ended.count === 0) continue;
+    let token = tokens.get(sess.botId);
+    if (!token) { const b = await prisma.bot.findUnique({ where: { id: sess.botId } }); if (b) { token = b.token; tokens.set(sess.botId, token); } }
+    for (const uid of [sess.user1Id, sess.user2Id]) {
+      const u = await prisma.matchUser.findUnique({ where: { id: uid }, select: { pendingAction: true } });
+      if ((u?.pendingAction as any)?.sessionId === sess.id) await setPending(uid, null);
+      if (token) await new TelegramBot(token).api.sendMessage(Number(uid), `⌛ انتهت المحادثة العشوائية تلقائياً بعد ${ANON_IDLE_MINUTES} دقيقة دون رسائل.`, { reply_markup: mainMenu() }).catch(() => null);
+    }
+    await pingAnonSession(sess.id);
+    n++;
+  }
+  return n;
+}
+
+/** Every minute (fake-chat sweeper): filtered queue entries that expired unmatched get a "widen?" notice. */
+export async function sweepAnonFilterTimeouts(): Promise<number> {
+  const expired = await prisma.randomChatQueue.findMany({
+    where: { status: "WAITING", expiresAt: { lte: new Date(), gt: new Date(Date.now() - 15 * 60_000) } },
+    take: 100,
+  });
+  if (!expired.length) return 0;
+  const rows = await getAnonFilterRows(expired.map((q) => q.userId));
+  const tokens = new Map<string, string>();
+  let n = 0;
+  for (const q of expired) {
+    const fr: any = rows.get(q.userId) ?? null;
+    const pending = await prisma.matchUser.findUnique({ where: { id: q.userId }, select: { pendingAction: true, vipUntil: true } });
+    const f = activeFilterFor(fr, q.id, !!pending && hasAnonFilters(pending, fr?.paid_until));
+    if (!f) continue;
+    if ((pending?.pendingAction as any)?.mode !== "random_waiting") continue;
+    if (!(await markAnonNotified(q.userId, q.id))) continue;
+    let token = tokens.get(q.botId);
+    if (!token) { const b = await prisma.bot.findUnique({ where: { id: q.botId } }); if (!b) continue; token = b.token; tokens.set(q.botId, token); }
+    await new TelegramBot(token).api.sendMessage(Number(q.userId), anonTimeoutText(f), { reply_markup: anonWidenKeyboard() }).catch(() => null);
+    n++;
+  }
+  return n;
+}
+
+/** The bot's random-chat relay (text only), shared verbatim with the Mini App. */
+export async function relayRandomChatText(bot: TelegramBot, chatId: number, tgUserId: string, pending: { sessionId: string; partnerId: string }, text: string): Promise<"sent" | "banned" | "contact"> {
+    if (containsContactInfo(text)) {
+      await bot.api.sendMessage(chatId, CONTACT_BLOCKED_TEXT).catch(() => null);
+      return "contact";
+    }
+    if (containsMatchBannedWords(text)) {
+      await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها.").catch(() => null);
+      return "banned";
+    }
+    await deliverToUser(bot, pending.partnerId, text);
+    // Mini App chat window reads this history (additive, never throws).
+    await recordAnonMessage(pending.sessionId, tgUserId, text);
+    await pingAnonSession(pending.sessionId);
+
+    const updatedSession = await prisma.randomChatSession
+      .update({ where: { id: pending.sessionId }, data: { messageCount: { increment: 1 } } })
+      .catch(() => null);
+    if (updatedSession && !updatedSession.contactOfferSent && updatedSession.messageCount >= CONTACT_REQUEST_THRESHOLD) {
+      await prisma.randomChatSession.update({ where: { id: pending.sessionId }, data: { contactOfferSent: true } }).catch(() => null);
+      const offerKb = new InlineKeyboard().text("📇 طلب تبادل التواصل الرسمي", "mcontact");
+      const offerText = "💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي لمتابعة الأمر بجدية أكبر:";
+      await deliverToUser(bot, tgUserId, offerText, { reply_markup: offerKb });
+      await deliverToUser(bot, pending.partnerId, offerText, { reply_markup: offerKb });
+    }
+    return "sent";
+}
+
+export const AUTO_MUTE_DISTINCT_REPORTERS = 3;
+const AUTO_MUTE_DAYS = 30; // "until the admin reviews" — admin's ignore/unban lifts it.
+/**
+ * Every user report goes through here (bot + app): shared rate limit, the
+ * bot's admin alert exactly as before, then auto-mute once 3 DIFFERENT users
+ * have PENDING reports against the same person (admin notified to review).
+ */
+export async function fileMatchReport(bot: TelegramBot, reporterId: string, targetId: string, source: "SEARCH" | "RANDOM_CHAT", adminText: string, reason?: string): Promise<"ok" | "limited"> {
+  if (!(await pgRateLimit(`report:${reporterId}`, 10, 3600))) return "limited";
+  await prisma.matchReport.create({ data: { reporterId, targetId, source, ...(reason ? { reason } : {}) } }).catch(() => null);
+  if (SUPER_ADMIN_ID) await bot.api.sendMessage(Number(SUPER_ADMIN_ID), adminText).catch(() => null);
+  const distinct = await prisma.matchReport.findMany({ where: { targetId, status: "PENDING" }, distinct: ["reporterId"], select: { reporterId: true } });
+  if (distinct.length >= AUTO_MUTE_DISTINCT_REPORTERS) {
+    const until = new Date(Date.now() + AUTO_MUTE_DAYS * 86400_000);
+    const muted = await prisma.matchUser.updateMany({ where: { id: targetId, isBanned: false, OR: [{ mutedUntil: null }, { mutedUntil: { lt: new Date() } }] }, data: { mutedUntil: until } });
+    if (muted.count === 1) {
+      await auditAdmin("system", "auto_mute", targetId, `${distinct.length} distinct reporters`);
+      if (SUPER_ADMIN_ID) {
+        await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🔇 كتم تلقائي للمستخدم ${targetId} بعد بلاغات من ${distinct.length} مستخدمين مختلفين.\nراجع البلاغات؛ إن لم تثبت المخالفة ارفع الكتم من «🔓 رفع حظر/كتم».`).catch(() => null);
+      }
+    }
+  }
+  return "ok";
+}
+
+/** 🚩 إبلاغ during a random chat (bot button and Mini App). */
+export async function reportRandomChat(bot: TelegramBot, chatId: number, tgUserId: string, partnerId: string) {
+  await fileMatchReport(bot, tgUserId, partnerId, "RANDOM_CHAT", `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`);
+  await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.").catch(() => null);
+}
+
+/** «📇 طلب تبادل التواصل الرسمي» — same consent flow for bot and app. Only after the 15-message offer. */
+export async function requestRandomChatContact(bot: TelegramBot, tgUserId: string, pending: { sessionId: string; partnerId: string }): Promise<"ended" | "not_offered" | "requested" | "already" | "revealed"> {
+  const session = await prisma.randomChatSession.findUnique({ where: { id: pending.sessionId } });
+  if (!session || session.status !== "ACTIVE") return "ended";
+  if (!session.contactOfferSent) return "not_offered";
+  if (!session.contactRequestedBy) {
+    // Atomic: only one side can become "the requester"; if both tap at once the
+    // loser falls through to the consent branch below and the exchange happens.
+    const claimed = await prisma.randomChatSession.updateMany({ where: { id: session.id, contactRequestedBy: null }, data: { contactRequestedBy: tgUserId } });
+    if (claimed.count === 1) {
+      await deliverToUser(bot, pending.partnerId, "📇 يرغب الطرف الآخر بتبادل بيانات التواصل الرسمي معك. إن وافقت، اضغط الزر:", {
+        reply_markup: new InlineKeyboard().text("✅ أوافق على التبادل", "mcontact"),
+      });
+      await pingAnonSession(pending.sessionId);
+      return "requested";
+    }
+    const fresh = await prisma.randomChatSession.findUnique({ where: { id: session.id }, select: { contactRequestedBy: true } });
+    if (!fresh?.contactRequestedBy || fresh.contactRequestedBy === tgUserId) return "already";
+  } else if (session.contactRequestedBy === tgUserId) return "already";
+  await revealContacts(bot, tgUserId, pending.partnerId);
+  // Athar «gift the date of your first chat» suggestion (flag-gated; nothing visible in the bot).
+  if (atharEnabled()) await recordMoment([tgUserId, pending.partnerId], "contact", session.created_at).catch(() => null);
+  return "revealed";
+}
+
 // Respectful exit system (owner spec, 2026-09-05) — ending a random chat
 // used to just vanish on the other side with a bare "انتهت المحادثة."
 // Now the leaving side picks a short polite reason first (see
 // exitReasonKeyboard below) and the partner gets a proper closing message
 // instead of an abrupt cutoff. The reason is optional (a plain "⛔ حظر" or
 // the global back-button escape hatch still end instantly without one).
-const EXIT_REASON_LABELS: Record<string, string> = {
+export const EXIT_REASON_LABELS: Record<string, string> = {
   no_match: "عدم توافق في الشروط",
   satisfied: "اكتفيت من المحادثة، شكراً",
   no_time: "لا يوجد وقت كافٍ حالياً",
@@ -1653,7 +2037,7 @@ function exitReasonKeyboard(): InlineKeyboard {
 // contactValue already used on the search-result card's "💬 رسالة"
 // button. Random chat has no MatchProfile requirement, so either side may
 // not have one — handled gracefully rather than erroring.
-async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
+export async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
   const [profileA, profileB] = await Promise.all([
     prisma.matchProfile.findUnique({ where: { userId: userA } }),
     prisma.matchProfile.findUnique({ where: { userId: userB } }),
@@ -1666,7 +2050,7 @@ async function revealContacts(bot: TelegramBot, userA: string, userB: string) {
   await bot.api.sendMessage(Number(userB), `✅ تم الاتفاق على تبادل التواصل الرسمي.\n${contactLine(profileA)}`).catch(() => null);
 }
 
-async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
+export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
   await prisma.randomChatSession.update({ where: { id: sessionId }, data: { status: "ENDED", ended_at: new Date() } }).catch(() => null);
   if (reason === "block") {
     await prisma.matchBlock.upsert({
@@ -1681,16 +2065,36 @@ async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: stri
     reason === "block" || !exitReasonLabel
       ? "انتهت المحادثة."
       : `🙏 أنهى الطرف الآخر المحادثة (السبب: ${exitReasonLabel}). شكراً لوقتك، ونتمنى لك التوفيق في إيجاد شريك مناسب.`;
-  await bot.api.sendMessage(Number(tgUserId), "انتهت المحادثة.", { reply_markup: mainMenu() }).catch(() => null);
-  await bot.api.sendMessage(Number(partnerId), partnerText, { reply_markup: mainMenu() }).catch(() => null);
+  await pingAnonSession(sessionId);
+  await deliverToUser(bot, tgUserId, "انتهت المحادثة.", { reply_markup: mainMenu() });
+  await deliverToUser(bot, partnerId, partnerText, { reply_markup: mainMenu() });
 }
 
 // ---------------------------------------------------------------------
 // SUPER_ADMIN moderation (text commands, same convention as adBotLogic)
 // ---------------------------------------------------------------------
-async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profile: MatchProfile, approve: boolean) {
+// Referral reward (owner spec, 2026-09-05) — 24h free Boost for the referrer,
+// granted exactly once per referred person, only when the referred profile goes
+// live (never on rejection).
+export async function grantReferralReward(bot: TelegramBot, profileUserId: string) {
+  const referredUser = await prisma.matchUser.findUnique({ where: { id: profileUserId } });
+  if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
+    await prisma.matchUser.update({ where: { id: profileUserId }, data: { referralRewardGranted: true } }).catch(() => null);
+    const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
+    await prisma.matchProfile
+      .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
+      .catch(() => null);
+    await bot.api
+      .sendMessage(Number(referredUser.referredBy), "🎁 اعتُمد ملف صديق دعوته! حصلت على رفع مجاني لملفك لمدة 24 ساعة.")
+      .catch(() => null);
+  }
+}
+
+async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profile: MatchProfile, approve: boolean, say?: (t: string) => Promise<unknown>) {
   await prisma.matchProfile.update({ where: { userId: profile.userId }, data: { status: approve ? "APPROVED" : "REJECTED" } });
-  await bot.api.sendMessage(adminChatId, approve ? `✅ تم اعتماد ملف ${profile.name}.` : `❌ تم رفض ملف ${profile.name}.`);
+  await auditAdmin(String(adminChatId), approve ? "profile_approve" : "profile_reject", profile.userId, null, adminVia);
+  const note = approve ? `✅ تم اعتماد ملف ${profile.name}.` : `❌ تم رفض ملف ${profile.name}.`;
+  if (say) await say(note); else await bot.api.sendMessage(adminChatId, note);
   await bot.api
     .sendMessage(
       Number(profile.userId),
@@ -1698,44 +2102,84 @@ async function applyProfileDecision(bot: TelegramBot, adminChatId: number, profi
     )
     .catch(() => null);
 
-  // Referral reward (owner spec, 2026-09-05) — 24h free Boost for the
-  // referrer, granted exactly once per referred person, only on a real
-  // approval (never on rejection).
-  if (approve) {
-    const referredUser = await prisma.matchUser.findUnique({ where: { id: profile.userId } });
-    if (referredUser?.referredBy && !referredUser.referralRewardGranted) {
-      await prisma.matchUser.update({ where: { id: profile.userId }, data: { referralRewardGranted: true } }).catch(() => null);
-      const boostUntil = new Date(Date.now() + 24 * 3600 * 1000);
-      await prisma.matchProfile
-        .update({ where: { userId: referredUser.referredBy }, data: { boostedUntil: boostUntil } })
-        .catch(() => null);
-      await bot.api
-        .sendMessage(Number(referredUser.referredBy), "🎁 اعتمدت الإدارة ملف صديق دعوته! حصلت على رفع مجاني لملفك لمدة 24 ساعة.")
-        .catch(() => null);
-    }
-  }
+  if (approve) await grantReferralReward(bot, profile.userId);
+  // 🔔 Mini App feed (additive; never affects the bot flow).
+  await pushNotification(profile.userId, approve ? "profile_ok" : "profile_rejected", approve ? "✅ تم اعتماد ملفك — أنت الآن ظاهر في البطاقات" : "❌ لم يُعتمد ملفك — راجع بياناتك من «ملفي»").catch(() => null);
 }
 
 async function decideProfile(bot: TelegramBot, chatId: number, idSuffix: string, approve: boolean) {
-  const candidates = await prisma.matchProfile.findMany({ where: { status: "PENDING" }, take: 200 });
+  const candidates = await prisma.matchProfile.findMany({ where: { status: approve ? { in: ["PENDING", "APPROVED", "REJECTED"] } : { in: ["PENDING", "APPROVED"] } }, take: 500 });
   const profile = candidates.find((p) => shortId(p.userId) === idSuffix);
   if (!profile) {
     await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
     return;
   }
-  await applyProfileDecision(bot, chatId, profile, approve);
+  await decideProfileByUserId(bot, chatId, profile.userId, approve);
 }
 
-async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean) {
+/**
+ * opts.quiet (✅/❌ buttons): no extra admin chat message — the short result is
+ * returned for the callback toast. Every decision (button, text command, app
+ * dashboard) removes the stored review cards for that profile.
+ */
+export async function decideProfileByUserId(bot: TelegramBot, chatId: number, userId: string, approve: boolean, opts: { quiet?: boolean } = {}): Promise<string> {
+  let result = "";
+  const say = async (t: string) => { result = t; if (!opts.quiet) await bot.api.sendMessage(chatId, t); };
   const profile = await prisma.matchProfile.findUnique({ where: { userId } });
-  if (!profile || profile.status !== "PENDING") {
-    await bot.api.sendMessage(chatId, "الملف غير موجود أو رُوجع مسبقاً.");
-    return;
+  // Profiles now go live automatically, so the admin must still be able to
+  // reject an already-APPROVED profile afterwards.
+  if (!profile || (profile.status === "REJECTED" && !approve)) {
+    await say("الملف غير موجود أو رُوجع مسبقاً.");
+    await clearReviewCards(bot, userId, profile ? "❌ مرفوض مسبقاً" : "").catch(() => null);
+    return result;
   }
-  await applyProfileDecision(bot, chatId, profile, approve);
+  // Edited/old profiles are auto-live (APPROVED) — the admin's ✅ on the
+  // «ملف جديد/معدّل» notice is a confirmation, not an error.
+  if (approve && profile.status === "APPROVED") {
+    await confirmApprovedProfile(bot, chatId, profile, say);
+  } else {
+    await applyProfileDecision(bot, chatId, profile, approve, say);
+  }
+  await clearReviewCards(bot, userId, approve ? "✅ تم القبول" : "❌ تم الرفض").catch(() => null);
+  return result;
 }
 
-async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
+// ---- admin review cards: stored so a decision removes every card for that profile ----
+async function storeReviewCard(userId: string, chatId: number, messageIds: number[]) {
+  await ensureMatchAppTables();
+  for (const m of messageIds) await prisma.$executeRaw`INSERT INTO match_review_cards (user_id, chat_id, message_id) VALUES (${userId}, ${String(chatId)}, ${m}) ON CONFLICT DO NOTHING`;
+}
+/** Delete (fallback: strip buttons + mark result) one admin card. */
+export async function removeReviewMessage(bot: TelegramBot, chatId: number | string, messageId: number, resultLabel: string, isMedia = false) {
+  const deleted = await bot.api.deleteMessage(Number(chatId), messageId).then(() => true).catch(() => false);
+  if (deleted) return "deleted" as const;
+  // e.g. older than 48h: Telegram refuses to delete → remove the buttons and show the result instead.
+  await bot.api.editMessageReplyMarkup(Number(chatId), messageId, { reply_markup: new InlineKeyboard() }).catch(() => null);
+  if (resultLabel) {
+    const edit = isMedia
+      ? bot.api.editMessageCaption(Number(chatId), messageId, { caption: resultLabel })
+      : bot.api.editMessageText(Number(chatId), messageId, resultLabel);
+    await edit.catch(() => null);
+  }
+  return "edited" as const;
+}
+export async function clearReviewCards(bot: TelegramBot, userId: string, resultLabel: string) {
+  await ensureMatchAppTables();
+  const rows = await prisma.$queryRaw<{ chat_id: string; message_id: number }[]>`DELETE FROM match_review_cards WHERE user_id = ${userId} RETURNING chat_id, message_id`;
+  for (const r of rows) await removeReviewMessage(bot, r.chat_id, Number(r.message_id), resultLabel);
+}
+
+async function confirmApprovedProfile(bot: TelegramBot, adminChatId: number, profile: MatchProfile, say?: (t: string) => Promise<unknown>) {
+  const out = say ?? ((t: string) => bot.api.sendMessage(adminChatId, t));
+  if (profile.isHidden) {
+    await out(`✅ ملف ${profile.name} معتمد، لكن صاحبه أخفاه مؤقتاً بنفسه (لن يظهر حتى يعيد إظهاره).`);
+  } else {
+    await out(`✅ تم تأكيد ملف ${profile.name} — معتمد وظاهر في البحث وبطاقات التطبيق.`);
+  }
+  await auditAdmin(String(adminChatId), "profile_confirm", profile.userId, null, adminVia).catch(() => null);
+}
+
+export async function adminStatsData(botId: string) {
   const onlineSince = new Date(Date.now() - ONLINE_THRESHOLD_MINUTES * 60000);
   // The SUPER_ADMIN also gets a MatchUser row (purely to store their own
   // pendingAction state for the broadcast/lookup/unban flows below) — it
@@ -1754,6 +2198,11 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     prisma.adminMessage.count({ where: { status: "PENDING", sender: { botId } } }),
   ]);
   const totalUsers = await countBotVisitors(botId, SUPER_ADMIN_ID, ownUsers);
+  return { totalUsers, ownUsers, onlineUsers, pendingProfiles, approvedProfiles, rejectedProfiles, pendingSearchReports, pendingChatReports, activeSessions, waitingQueue, pendingInbox };
+}
+
+async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
+  const { totalUsers, onlineUsers, pendingProfiles, approvedProfiles, rejectedProfiles, pendingSearchReports, pendingChatReports, activeSessions, waitingQueue, pendingInbox } = await adminStatsData(botId);
   const text =
     `📊 إحصائيات بوت التعارف\n\n` +
     `👥 إجمالي المستخدمين: ${totalUsers}\n` +
@@ -1763,6 +2212,41 @@ async function sendAdminStats(bot: TelegramBot, botId: string, chatId: number) {
     `🔀 المحادثة العشوائية الآن:\n💬 محادثات نشطة: ${activeSessions}\n⏳ بانتظار شريك: ${waitingQueue}\n\n` +
     `📥 رسائل واردة غير مقروءة: ${pendingInbox}`;
   await bot.api.sendMessage(chatId, text);
+}
+
+// Read-only report for the admin: WHY searches come back empty, from real
+// numbers instead of guesses. Counts exactly the conditions buildSearchQueue
+// applies (APPROVED, not hidden, opposite gender, same bot, not country-only
+// for other countries) and shows where profiles are lost.
+export async function sendSearchDiagnostics(bot: TelegramBot, botId: string, chatId: number) {
+  const [all, byStatus, hidden, otherBot, prefs, users] = await Promise.all([
+    prisma.matchProfile.count({ where: { user: { botId } } }),
+    prisma.matchProfile.groupBy({ by: ["status", "gender"], where: { user: { botId } }, _count: { _all: true } }),
+    prisma.matchProfile.count({ where: { user: { botId }, status: "APPROVED", isHidden: true } }),
+    prisma.matchProfile.count({ where: { user: { botId: { not: botId } } } }),
+    prisma.partnerPreference.count({ where: { user: { botId } } }),
+    prisma.matchUser.count({ where: { botId } }),
+  ]);
+  const n = (st: string, g: string) => byStatus.find((x) => x.status === st && x.gender === g)?._count._all ?? 0;
+  const visible = (g: string) => n("APPROVED", g);
+  const countryOnly = await prisma.matchProfilePrivacy.count({ where: { countryOnly: true } }).catch(() => null);
+  const lines = [
+    "🩺 فحص البحث عن شريك",
+    "",
+    `👥 مستخدمو هذا البوت: ${users}`,
+    `📋 ملفات هذا البوت: ${all}`,
+    `⏳ بانتظار المراجعة: ذكور ${n("PENDING", "MALE")} · إناث ${n("PENDING", "FEMALE")}`,
+    `✅ معتمدة: ذكور ${visible("MALE")} · إناث ${visible("FEMALE")}`,
+    `❌ مرفوضة: ${n("REJECTED", "MALE") + n("REJECTED", "FEMALE")}`,
+    `⏸ معتمدة لكنها مخفية بقرار أصحابها: ${hidden}`,
+    `💍 أصحاب مواصفات شريك محفوظة: ${prefs}`,
+    countryOnly != null ? `🌍 ملفات «لدولتي فقط»: ${countryOnly}` : null,
+    otherBot > 0 ? `\n⚠️ يوجد ${otherBot} ملفاً مسجّلاً على بوت آخر (botId مختلف) ولا يظهر في بحث هذا البوت.` : null,
+    "",
+    "ما يراه الباحث: ذكر يرى الإناث المعتمدات غير المخفيات، والعكس.",
+    `→ الباحثون الذكور يرون حتى ${Math.max(0, visible("FEMALE") - 0)} ملفاً، والباحثات يرين حتى ${Math.max(0, visible("MALE") - 0)} ملفاً.`,
+  ].filter((l): l is string => l !== null);
+  await bot.api.sendMessage(chatId, lines.join("\n"));
 }
 
 async function sendPendingProfilesList(bot: TelegramBot, chatId: number) {
@@ -1823,22 +2307,41 @@ async function sendInboxMessages(bot: TelegramBot, chatId: number) {
   }
 }
 
-async function runBroadcast(bot: TelegramBot, chatId: number, text: string) {
-  const recipients = await prisma.matchUser.findMany({
-    where: { phoneVerified: true, isBanned: false, id: { not: SUPER_ADMIN_ID || "__none__" } },
-    select: { id: true },
-  });
+export const BROADCAST_CONFIRM = "✅ تأكيد البث";
+export const BROADCAST_CANCEL = "❌ إلغاء البث";
+function broadcastWhere(botId?: string) {
+  // Scoped to THIS bot's members (was: every match bot's users, sent through this bot's token).
+  return { phoneVerified: true, isBanned: false, id: { not: SUPER_ADMIN_ID || "__none__" }, ...(botId ? { botId } : {}) };
+}
+export async function broadcastAudience(botId?: string): Promise<number> {
+  return prisma.matchUser.count({ where: broadcastWhere(botId) });
+}
+export async function runBroadcast(bot: TelegramBot, chatId: number, text: string, botId?: string) {
+  // Double-send guard (double tap / Telegram webhook retry): one broadcast per minute.
+  if (!(await pgRateLimit(`bcast:${botId || "all"}`, 1, 60).catch(() => true))) {
+    await bot.api.sendMessage(chatId, "⏳ أُرسل بث قبل أقل من دقيقة — انتظر قليلاً ثم أعد المحاولة.");
+    return;
+  }
+  await auditAdmin(String(chatId), "broadcast", null, text, adminVia);
+  const recipients = await prisma.matchUser.findMany({ where: broadcastWhere(botId), select: { id: true } });
   const messageText = formatBroadcastText(text);
   let sent = 0;
-  for (const r of recipients) {
-    try {
-      await bot.api.sendMessage(Number(r.id), messageText);
-      sent++;
-    } catch {
-      // user blocked the bot or is unreachable — skip and keep going
+  for (const [i, r] of recipients.entries()) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await bot.api.sendMessage(Number(r.id), messageText);
+        sent++;
+        break;
+      } catch (e: any) {
+        // 429: honour Telegram's retry_after once; other errors (blocked bot…) → skip.
+        const wait = Number(e?.parameters?.retry_after || 0);
+        if (e?.error_code === 429 && wait > 0 && wait <= 10 && attempt === 0) { await new Promise((res) => setTimeout(res, wait * 1000)); continue; }
+        break;
+      }
     }
+    if (i % 25 === 24) await new Promise((res) => setTimeout(res, 1000)); // stay under ~30 msg/s
   }
-  await bot.api.sendMessage(chatId, `✅ تم إرسال البث إلى ${sent} من أصل ${recipients.length} مستخدم.`);
+  await bot.api.sendMessage(chatId, `✅ تم إرسال البث إلى ${sent} من أصل ${recipients.length} مستخدم.`, { reply_markup: adminMenu(botId) });
 }
 
 async function sendUserLookup(bot: TelegramBot, chatId: number, rawId: string) {
@@ -1879,7 +2382,7 @@ async function sendUserLookup(bot: TelegramBot, chatId: number, rawId: string) {
   }
 }
 
-async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
+export async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
   const targetId = rawId.replace(/[^0-9]/g, "");
   if (!targetId) {
     await bot.api.sendMessage(chatId, "آيدي غير صالح.");
@@ -1891,13 +2394,25 @@ async function runUnban(bot: TelegramBot, chatId: number, rawId: string) {
     return;
   }
   await prisma.matchUser.update({ where: { id: targetId }, data: { isBanned: false, mutedUntil: null } });
+  await auditAdmin(String(chatId), "unban", targetId, null, adminVia);
   await bot.api.sendMessage(chatId, `✅ تم رفع الحظر/الكتم عن المستخدم ${targetId}.`);
   await bot.api.sendMessage(Number(targetId), "✅ تم رفع الحظر/الكتم عنك من قِبل الإدارة، يمكنك استخدام البوت الآن.").catch(() => null);
 }
 
 async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: number, text: string, adminId: string) {
   if (text === "/start") {
-    await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+    await ensureMatchBotSetup(bot, botId).catch(() => null);
+    await setAdminMenuButton(bot, botId, chatId).catch(() => null);
+    await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu(botId) });
+    return;
+  }
+  if (text === ADMIN_APP_BUTTON) {
+    await setAdminMenuButton(bot, botId, chatId).catch(() => null);
+    await bot.api.sendMessage(chatId, "📱 لوحة القيادة في التطبيق المصغر:", { reply_markup: new InlineKeyboard().webApp("🛡 فتح لوحة القيادة", `${miniAppUrl(botId)}?tab=admin`) });
+    return;
+  }
+  if (text === "🩺 فحص البحث") {
+    await sendSearchDiagnostics(bot, botId, chatId);
     return;
   }
   if (text === "📊 الإحصائيات") {
@@ -1941,54 +2456,103 @@ async function handleAdminMessage(bot: TelegramBot, botId: string, chatId: numbe
     if (idSuffix) await decideProfile(bot, chatId, idSuffix, approve);
     return;
   }
-  await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu() });
+  await bot.api.sendMessage(chatId, "🛠 لوحة تحكم مشرف بوت التعارف والزواج.", { reply_markup: adminMenu(botId) });
+}
+
+// ---- shared admin actions (bot buttons AND the Mini App «🛡 لوحة القيادة») -------------------
+// `adminVia` only tags the audit log; the app sets it around its calls.
+let adminVia: "bot" | "app" = "bot";
+export async function withAdminVia<T>(via: "bot" | "app", fn: () => Promise<T>): Promise<T> {
+  const prev = adminVia;
+  adminVia = via;
+  try { return await fn(); } finally { adminVia = prev; }
+}
+
+export async function decideVerification(bot: TelegramBot, adminId: string, targetId: string, approve: boolean) {
+  await prisma.matchProfile
+    .update({ where: { userId: targetId }, data: { verificationStatus: approve ? "VERIFIED" : "REJECTED" } })
+    .catch(() => null);
+  await auditAdmin(adminId, approve ? "verify_approve" : "verify_reject", targetId, null, adminVia);
+  await bot.api
+    .sendMessage(
+      Number(targetId),
+      approve ? "☑️ تم توثيق ملفك! ستظهر الشارة بجانب اسمك في نتائج البحث." : "❌ لم يتم قبول طلب التوثيق. رسم المراجعة غير قابل للاسترجاع."
+    )
+    .catch(() => null);
+}
+
+export async function inboxAction(bot: TelegramBot, chatId: number, msgId: string, kind: "read" | "mute" | "ban"): Promise<"ok" | "missing"> {
+  if (kind === "read") {
+    await prisma.adminMessage.update({ where: { id: msgId }, data: { status: "READ" } }).catch(() => null);
+    await auditAdmin(String(chatId), "inbox_read", msgId, null, adminVia);
+    return "ok";
+  }
+  const inboxMsg = await prisma.adminMessage.findUnique({ where: { id: msgId } });
+  if (!inboxMsg) return "missing";
+  if (kind === "ban") {
+    await prisma.matchUser.update({ where: { id: inboxMsg.senderId }, data: { isBanned: true } }).catch(() => null);
+    await bot.api.sendMessage(chatId, "⛔ تم حظر المستخدم نهائياً من البوت لتجاوزه التحذير.").catch(() => null);
+  } else {
+    await prisma.matchUser.update({ where: { id: inboxMsg.senderId }, data: { mutedUntil: new Date(Date.now() + 24 * 3600 * 1000) } }).catch(() => null);
+    await bot.api.sendMessage(chatId, "🔇 تم كتم المستخدم لمدة 24 ساعة.").catch(() => null);
+  }
+  await prisma.adminMessage.update({ where: { id: msgId }, data: { status: "READ" } }).catch(() => null);
+  await auditAdmin(String(chatId), `inbox_${kind}`, inboxMsg.senderId, null, adminVia);
+  return "ok";
+}
+
+export async function replyToInbox(bot: TelegramBot, chatId: number, messageId: string, targetUserId: string, text: string) {
+  await bot.api.sendMessage(Number(targetUserId), `↩️ رد من الإدارة:\n\n${text}`).catch(() => null);
+  await prisma.adminMessage.update({ where: { id: messageId }, data: { status: "READ" } }).catch(() => null);
+  await auditAdmin(String(chatId), "inbox_reply", targetUserId, text, adminVia);
+  await bot.api.sendMessage(chatId, "✅ تم إرسال ردك إلى المستخدم.").catch(() => null);
+}
+
+/** 🙈 / 🔇 24س / ⛔ on a report — atomic PENDING→REVIEWED so two clicks never act twice. */
+export async function resolveMatchReport(bot: TelegramBot, chatId: number, reportId: string, action: "ignore" | "mute" | "ban"): Promise<"ok" | "missing" | "already"> {
+  const report = await prisma.matchReport.findUnique({ where: { id: reportId } });
+  if (!report) return "missing";
+  const claimed = await prisma.matchReport.updateMany({ where: { id: reportId, status: "PENDING" }, data: { status: "REVIEWED" } });
+  if (claimed.count === 0) return "already";
+  if (action === "ban") {
+    await prisma.matchUser.update({ where: { id: report.targetId }, data: { isBanned: true } }).catch(() => null);
+    await bot.api.sendMessage(chatId, "⛔ تم حظر المستخدم المُبلَّغ عنه نهائياً من البوت.").catch(() => null);
+  } else if (action === "mute") {
+    await prisma.matchUser.update({ where: { id: report.targetId }, data: { mutedUntil: new Date(Date.now() + 24 * 3600 * 1000) } }).catch(() => null);
+    await bot.api.sendMessage(chatId, "🔇 تم كتم المستخدم لمدة 24 ساعة.").catch(() => null);
+  } else {
+    await bot.api.sendMessage(chatId, "🙈 تم تجاهل البلاغ.").catch(() => null);
+  }
+  await auditAdmin(String(chatId), `report_${action}`, report.targetId, report.source, adminVia);
+  await pushNotification(report.reporterId, "report", action === "ignore" ? "🚩 راجعت الإدارة بلاغك — لم تثبت مخالفة" : "🚩 راجعت الإدارة بلاغك واتخذت إجراءً بحق الحساب. شكراً لك").catch(() => null);
+  return "ok";
 }
 
 async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: number, data: string, cq: any) {
   if (data.startsWith("mverify_yes|") || data.startsWith("mverify_no|")) {
     const targetId = data.split("|")[1];
     const approve = data.startsWith("mverify_yes|");
-    await prisma.matchProfile
-      .update({ where: { userId: targetId }, data: { verificationStatus: approve ? "VERIFIED" : "REJECTED" } })
-      .catch(() => null);
-    await bot.api
-      .sendMessage(
-        Number(targetId),
-        approve ? "☑️ تم توثيق ملفك! ستظهر الشارة بجانب اسمك في نتائج البحث." : "❌ لم يتم قبول طلب التوثيق. رسم المراجعة غير قابل للاسترجاع."
-      )
-      .catch(() => null);
+    await decideVerification(bot, String(cq.from.id), targetId, approve);
     await bot.api.answerCallbackQuery(cq.id, { text: approve ? "✅ تم التوثيق" : "❌ تم الرفض" }).catch(() => null);
     return;
   }
   if (data.startsWith("madmin_approve|") || data.startsWith("madmin_reject|")) {
     const approve = data.startsWith("madmin_approve|");
     const userId = data.split("|")[1];
-    await decideProfileByUserId(bot, chatId, userId, approve);
-    await bot.api.answerCallbackQuery(cq.id, { text: approve ? "✅ تم القبول" : "❌ تم الرفض" }).catch(() => null);
+    const result = await decideProfileByUserId(bot, chatId, userId, approve, { quiet: true });
+    // The tapped card disappears at once (also cards sent before ids were stored).
+    if (cq.message) await removeReviewMessage(bot, cq.message.chat.id, cq.message.message_id, approve ? "✅ تم القبول" : "❌ تم الرفض", !!cq.message.photo).catch(() => null);
+    await bot.api.answerCallbackQuery(cq.id, { text: (result || (approve ? "✅ تم القبول" : "❌ تم الرفض")).slice(0, 190) }).catch(() => null);
     return;
   }
   if (data.startsWith("madmin_msgread|")) {
-    const msgId = data.split("|")[1];
-    await prisma.adminMessage.update({ where: { id: msgId }, data: { status: "READ" } }).catch(() => null);
+    await inboxAction(bot, chatId, data.split("|")[1], "read");
     await bot.api.answerCallbackQuery(cq.id, { text: "✅ تم التحديد كمقروء" }).catch(() => null);
     return;
   }
   if (data.startsWith("madmin_msgban|") || data.startsWith("madmin_msgmute|")) {
-    const msgId = data.split("|")[1];
-    const inboxMsg = await prisma.adminMessage.findUnique({ where: { id: msgId } });
-    if (!inboxMsg) {
-      await bot.api.answerCallbackQuery(cq.id, { text: "الرسالة غير موجودة." }).catch(() => null);
-      return;
-    }
-    if (data.startsWith("madmin_msgban|")) {
-      await prisma.matchUser.update({ where: { id: inboxMsg.senderId }, data: { isBanned: true } }).catch(() => null);
-      await bot.api.sendMessage(chatId, "⛔ تم حظر المستخدم نهائياً من البوت لتجاوزه التحذير.");
-    } else {
-      await prisma.matchUser.update({ where: { id: inboxMsg.senderId }, data: { mutedUntil: new Date(Date.now() + 24 * 3600 * 1000) } }).catch(() => null);
-      await bot.api.sendMessage(chatId, "🔇 تم كتم المستخدم لمدة 24 ساعة.");
-    }
-    await prisma.adminMessage.update({ where: { id: msgId }, data: { status: "READ" } }).catch(() => null);
-    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    const r = await inboxAction(bot, chatId, data.split("|")[1], data.startsWith("madmin_msgban|") ? "ban" : "mute");
+    await bot.api.answerCallbackQuery(cq.id, r === "missing" ? { text: "الرسالة غير موجودة." } : undefined).catch(() => null);
     return;
   }
   if (data.startsWith("madmin_msgreply|")) {
@@ -2006,26 +2570,8 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
   }
   if (data.startsWith("mrep_")) {
     const [action, reportId] = data.split("|");
-    const report = await prisma.matchReport.findUnique({ where: { id: reportId } });
-    if (!report) {
-      await bot.api.answerCallbackQuery(cq.id, { text: "البلاغ غير موجود." }).catch(() => null);
-      return;
-    }
-    if (report.status === "REVIEWED") {
-      await bot.api.answerCallbackQuery(cq.id, { text: "تمت مراجعة هذا البلاغ مسبقاً." }).catch(() => null);
-      return;
-    }
-    await prisma.matchReport.update({ where: { id: reportId }, data: { status: "REVIEWED" } });
-    if (action === "mrep_ban") {
-      await prisma.matchUser.update({ where: { id: report.targetId }, data: { isBanned: true } }).catch(() => null);
-      await bot.api.sendMessage(chatId, "⛔ تم حظر المستخدم المُبلَّغ عنه نهائياً من البوت.");
-    } else if (action === "mrep_mute") {
-      await prisma.matchUser.update({ where: { id: report.targetId }, data: { mutedUntil: new Date(Date.now() + 24 * 3600 * 1000) } }).catch(() => null);
-      await bot.api.sendMessage(chatId, "🔇 تم كتم المستخدم لمدة 24 ساعة.");
-    } else {
-      await bot.api.sendMessage(chatId, "🙈 تم تجاهل البلاغ.");
-    }
-    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    const r = await resolveMatchReport(bot, chatId, reportId, action === "mrep_ban" ? "ban" : action === "mrep_mute" ? "mute" : "ignore");
+    await bot.api.answerCallbackQuery(cq.id, r === "missing" ? { text: "البلاغ غير موجود." } : r === "already" ? { text: "تمت مراجعة هذا البلاغ مسبقاً." } : undefined).catch(() => null);
     return;
   }
   await bot.api.answerCallbackQuery(cq.id).catch(() => null);
@@ -2035,6 +2581,12 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
 // Main dispatcher
 // ---------------------------------------------------------------------
 export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  // Hybrid mode (2026-10-14, additive): inline search + consent chat requests.
+  if (update.inline_query) {
+    await handleMatchInlineQuery(bot, botRow, update.inline_query);
+    return;
+  }
+  if (update.callback_query && (await handleHybridCallback(bot, botRow, update.callback_query))) return;
   if (update.callback_query) {
     await handleMatchCallback(bot, botRow, update.callback_query);
     return;
@@ -2055,7 +2607,21 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     if (adminPending && !ADMIN_COMMANDS.has(text)) {
       await setPending(tgUserId, null);
       if (adminPending.mode === "admin_broadcast") {
-        await runBroadcast(bot, chatId, text);
+        // Preview + confirmation before anything is sent.
+        await setPending(tgUserId, { mode: "admin_broadcast_confirm", text });
+        const n = await broadcastAudience(botRow.id);
+        await bot.api.sendMessage(chatId, `👁 معاينة البث (سيصل إلى ${n} مستخدم):\n\n${formatBroadcastText(text)}`, {
+          reply_markup: new Keyboard().text(BROADCAST_CONFIRM).text(BROADCAST_CANCEL).resized(),
+        });
+        return;
+      }
+      if (adminPending.mode === "admin_broadcast_confirm") {
+        if (text === BROADCAST_CONFIRM) {
+          await bot.api.sendMessage(chatId, "📤 جارٍ الإرسال…");
+          await runBroadcast(bot, chatId, adminPending.text, botRow.id);
+        } else {
+          await bot.api.sendMessage(chatId, "❎ أُلغي البث.", { reply_markup: adminMenu(botRow.id) });
+        }
         return;
       }
       if (adminPending.mode === "admin_lookup") {
@@ -2067,9 +2633,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
         return;
       }
       if (adminPending.mode === "admin_reply") {
-        await bot.api.sendMessage(Number(adminPending.targetUserId), `↩️ رد من الإدارة:\n\n${text}`).catch(() => null);
-        await prisma.adminMessage.update({ where: { id: adminPending.messageId }, data: { status: "READ" } }).catch(() => null);
-        await bot.api.sendMessage(chatId, "✅ تم إرسال ردك إلى المستخدم.");
+        await replyToInbox(bot, chatId, adminPending.messageId, adminPending.targetUserId, text);
         return;
       }
     }
@@ -2091,7 +2655,9 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // Referral capture (owner spec, 2026-09-05) — only meaningful on a
   // brand-new user's very first /start; ensureMatchUser only writes
   // referredBy on creation, never overwrites an existing row.
-  const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+ref_(\d+)/) : null;
+  // ref_<id> (own link) or ath_<id> (the same referral, shared from Athar — see docs/MATCH_ATHAR.md).
+  const refMatch = typeof msg.text === "string" ? msg.text.match(/^\/start(?:@\w+)?\s+(?:ref|ath)_(\d+)/) : null;
+  if (typeof msg.text === "string" && /^\/start(?:@\w+)?\s+ath_\d+/.test(msg.text)) void trackFunnel(tgUserId, "athar_arrival", refMatch?.[1], "bot");
   const user = await ensureMatchUser(botRow.id, tgUserId, refMatch?.[1]);
   await recordBotVisit(botRow.id, tgUserId);
   await prisma.matchUser.update({ where: { id: tgUserId }, data: { lastActiveAt: new Date() } }).catch(() => null);
@@ -2126,6 +2692,25 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
         await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
       }
     }
+    // ⚡ «اشترِ الآن بالنجوم» (app + bot): tops up the exact shortfall, then activates the
+    // feature from balance. Idempotent: the Stars charge id is the ledger's unique txHash,
+    // so a redelivered update credits nothing and activates nothing twice.
+    if (parsed?.kind.startsWith("MATCH_BUY_") && parsed.userId === tgUserId) {
+      const key = parsed.kind.slice("MATCH_BUY_".length);
+      const usd = usdForStars(Number(sp.total_amount || 0));
+      const outcome = await creditStarsPayment(
+        "match-stars-buy",
+        async (tx) => { await tx.matchTransaction.create({ data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id } }); },
+        async (tx) => { await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } }); },
+      );
+      if (outcome === "ok") {
+        void trackFunnel(tgUserId, "stars_paid", key, "bot");
+        const r = isBuyNowKey(key) ? await purchaseByKey(tgUserId, key) : null;
+        if (r?.ok) void trackFunnel(tgUserId, "purchase_success", key, "bot");
+        const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+        await bot.api.sendMessage(chatId, `${r?.ok ? r.message : `✅ تم شحن $${usd.toFixed(2)} في رصيدك (لم تُفعَّل الميزة تلقائياً — فعّلها من «⭐ الترقيات والمزايا»).`}\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() }).catch(() => null);
+      }
+    }
     return;
   }
 
@@ -2146,6 +2731,25 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       { reply_markup: new Keyboard().requestContact("📱 مشاركة رقم الهاتف").resized() }
     );
     return;
+  }
+
+  // Hybrid mode (2026-10-14): Mini App menu button + /start profile_<id> deep
+  // links from inline results. Runs after the ban/mute/phone gates on purpose.
+  if (typeof msg.text === "string" && msg.text.startsWith("/start")) {
+    await ensureMatchBotSetup(bot, botRow.id).catch(() => null);
+    await ensureMiniAppMenu(bot, botRow, chatId);
+    const profileRef = parseProfileStart(startPayload);
+    const curMode = (user.pendingAction as any)?.mode;
+    if (profileRef && curMode !== "random_chatting" && curMode !== "fake_chatting") {
+      await openProfileDeepLink(bot, botRow, chatId, tgUserId, profileRef);
+      return;
+    }
+    if (startPayload === "app") {
+      await bot.api.sendMessage(chatId, "💍 افتح التطبيق لإدارة ملفك وتصفّح المطابقات:", {
+        reply_markup: new InlineKeyboard().webApp("فتح التطبيق 💍", miniAppUrl(botRow.id)),
+      });
+      return;
+    }
   }
 
   const pending = user.pendingAction as PendingAction | null;
@@ -2255,29 +2859,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       return;
     }
     if (text === "🚩 إبلاغ") {
-      await prisma.matchReport.create({ data: { reporterId: tgUserId, targetId: pending.partnerId, source: "RANDOM_CHAT" } }).catch(() => null);
-      if (SUPER_ADMIN_ID) {
-        await bot.api.sendMessage(Number(SUPER_ADMIN_ID), `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${pending.partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`).catch(() => null);
-      }
-      await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.");
+      await reportRandomChat(bot, chatId, tgUserId, pending.partnerId);
       return;
     }
-    if (containsMatchBannedWords(text)) {
-      await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به ولم يتم إرسالها.").catch(() => null);
+    if (text === "🎛 فلاتر الدردشة") {
+      await showAnonFiltersMenu(bot, chatId, tgUserId);
       return;
     }
-    await bot.api.sendMessage(Number(pending.partnerId), text).catch(() => null);
-
-    const updatedSession = await prisma.randomChatSession
-      .update({ where: { id: pending.sessionId }, data: { messageCount: { increment: 1 } } })
-      .catch(() => null);
-    if (updatedSession && !updatedSession.contactOfferSent && updatedSession.messageCount >= CONTACT_REQUEST_THRESHOLD) {
-      await prisma.randomChatSession.update({ where: { id: pending.sessionId }, data: { contactOfferSent: true } }).catch(() => null);
-      const offerKb = new InlineKeyboard().text("📇 طلب تبادل التواصل الرسمي", "mcontact");
-      const offerText = "💬 المحادثة مستمرة بشكل جيد. عند الرغبة، يمكنكما طلب تبادل بيانات التواصل الرسمي لمتابعة الأمر بجدية أكبر:";
-      await bot.api.sendMessage(chatId, offerText, { reply_markup: offerKb }).catch(() => null);
-      await bot.api.sendMessage(Number(pending.partnerId), offerText, { reply_markup: offerKb }).catch(() => null);
-    }
+    await relayRandomChatText(bot, chatId, tgUserId, pending as any, text);
     return;
   }
 
@@ -2394,6 +2983,10 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await startSearch(bot, chatId, tgUserId, botRow.id, undefined, true);
     return;
   }
+  if (text === ANON_FILTERS_BUTTON() || text === ANON_FILTERS_BUTTON(true) || text === "🎛 فلاتر الدردشة") {
+    await showAnonFiltersMenu(bot, chatId, tgUserId);
+    return;
+  }
   if (text === "🔀 مراسلة عشوائية") {
     await startRandomChat(bot, chatId, botRow, tgUserId);
     return;
@@ -2411,8 +3004,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `📌 طريقة الاستخدام:\n` +
       `1️⃣ أنشئ ملفك الشخصي من «👤 ملفي الشخصي» — الاسم والعمر والدولة والحالة والصورة.\n` +
       `2️⃣ حدد مواصفات الشريك من «💍 مواصفات الشريك» — العمر والدولة والحالة المطلوبة.\n` +
-      `3️⃣ اضغط «🔍 البحث عن شريك» لعرض الملفات المطابقة لمواصفاتك.\n` +
-      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً تُتبادل معلومات التواصل.\n\n` +
+      `3️⃣ اضغط «🔍 البحث عن شريك»: تظهر الملفات الأقرب لمواصفاتك أولاً مع نسبة التوافق، و«➡️ الملف التالي» يستبدل البطاقة بملف آخر. «📖 المزيد من المعلومات» يعرض بقية التفاصيل.\n` +
+      `4️⃣ أعجبك ملف؟ اضغط إعجاب — إذا أُعجب الطرف الآخر بك أيضاً يصل كلاً منكما إشعار «إعجاب متبادل» مع زر للمراسلة.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔀 المراسلة العشوائية:\n` +
       `• محادثة مجهولة فورية مع شخص عشوائي.\n` +
@@ -2427,12 +3020,13 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       `• 🖼 صور إضافية — أضف صوراً أكثر لملفك.\n` +
       `• 👀 من زار ملفي — اعرف من اطّلع على ملفك.\n` +
       `• 🎯 فلاتر متقدمة — فلترة حسب المدينة والحالة الاجتماعية.\n` +
+      `• 🎯 بحث دقيق — يعرض فقط الملفات التي تطابق كل مواصفاتك (للمشتركين في الفلاتر المتقدمة أو الذهبية).\n` +
       `• 👑 العضوية الذهبية — كل المزايا مجتمعة + وضع التخفي.\n\n` +
       `━━━━━━━━━━━━━━━\n` +
       `🔒 الخصوصية والأمان:\n` +
       `• لا تُشارَك بياناتك حتى تختار أنت بدء التواصل.\n` +
-      `• كل ملف جديد يُراجَع يدوياً من الإدارة قبل ظهوره.\n` +
-      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت.\n\n` +
+      `• ملفك يظهر فور حفظه، وتراجعه الإدارة لاحقاً وقد ترفضه إن خالف الشروط.\n` +
+      `• يمكنك إيقاف ظهور ملفك أو حذفه في أي وقت، أو جعله ظاهراً لأهل دولتك فقط من «👤 ملفي الشخصي».\n\n` +
       `🎁 ادعُ أصدقاءك — عند اعتماد ملف صديق دعوته، يُرفع ملفك مجاناً 24 ساعة.\n\n` +
       `📲 شارك البوت: https://t.me/${me.username}`;
     await bot.api.sendMessage(chatId, info, { reply_markup: infoMenu() });
@@ -2455,7 +3049,8 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   // Paid features menu (owner spec, 2026-09-05)
   // ---------------------------------------------------------------------
   if (text === "⭐ الترقيات والمزايا") {
-    await bot.api.sendMessage(chatId, "⭐ الترقيات والمزايا المدفوعة — اختر ما يناسبك:", { reply_markup: upgradesMenu() });
+    const disc = await firstPurchaseEligible(tgUserId).catch(() => false);
+    await bot.api.sendMessage(chatId, `⭐ الترقيات والمزايا المدفوعة — اختر ما يناسبك:${disc ? `\n🎁 خصم ${Math.round(FIRST_PURCHASE_DISCOUNT * 100)}% على أول ترقية (مرة واحدة) — الأسعار أدناه بعد الخصم.` : ""}`, { reply_markup: upgradesMenu(disc) });
     return;
   }
   if (text === "💰 رصيدي وإيداع") {
@@ -2475,14 +3070,13 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     );
     return;
   }
-  if (text === `🚀 رفع ملفي ($${PRICE_BOOST_24H}/24س)`) {
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+  if (isUpgradeLabel(text, "boost")) {
+    const r = await purchaseBoost(tgUserId);
+    if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (dbUser && isVipActive(dbUser)) {
+    if (!r.ok && r.reason === "vip_included") {
       await bot.api.sendMessage(
         chatId,
         "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل — لا حاجة لشراء رفع إضافي.",
@@ -2490,17 +3084,14 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       );
       return;
     }
-    const charge = await chargeMatchUser(tgUserId, PRICE_BOOST_24H, "BOOST");
-    if (!charge.ok) {
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_BOOST_24H, charge.balance), { reply_markup: upgradesMenu() });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
       return;
     }
-    const boostedUntil = new Date(Date.now() + 24 * 3600 * 1000);
-    await prisma.matchProfile.update({ where: { userId: tgUserId }, data: { boostedUntil } });
-    await bot.api.sendMessage(chatId, `🚀 تم رفع ملفك! سيظهر أولاً في نتائج البحث حتى ${boostedUntil.toLocaleString("ar")}.`, { reply_markup: upgradesMenu() });
+    await bot.api.sendMessage(chatId, `🚀 تم رفع ملفك! سيظهر أولاً في نتائج البحث حتى ${r.boostedUntil.toLocaleString("ar")}.`, { reply_markup: upgradesMenu() });
     return;
   }
-  if (text === `☑️ طلب التوثيق ($${PRICE_VERIFIED_BADGE})`) {
+  if (isUpgradeLabel(text, "verify")) {
     const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
     if (!profile) {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
@@ -2522,21 +3113,17 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     );
     return;
   }
-  if (text === `🖼 صور إضافية ($${PRICE_EXTRA_PHOTOS})`) {
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+  if (isUpgradeLabel(text, "photos")) {
+    const r = await unlockExtraPhotos(tgUserId);
+    if (!r.ok && r.reason === "no_profile") {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser?.extraPhotosUnlocked && !(dbUser && isVipActive(dbUser))) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_EXTRA_PHOTOS, "EXTRA_PHOTOS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_EXTRA_PHOTOS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { extraPhotosUnlocked: true } });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
+    const profile = r.profile;
     const slot: 2 | 3 | null = !profile.photoFileId2 ? 2 : !profile.photoFileId3 ? 3 : null;
     if (!slot) {
       await bot.api.sendMessage(chatId, "لديك بالفعل الحد الأقصى من الصور (3).", { reply_markup: upgradesMenu() });
@@ -2546,16 +3133,11 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, "🖼 أرسل الصورة الإضافية الآن:", { reply_markup: plainBackMenu() });
     return;
   }
-  if (text === `👀 من زار ملفي ($${PRICE_PROFILE_VISITORS})`) {
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser) return;
-    if (!hasProfileVisitors(dbUser)) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_PROFILE_VISITORS, "PROFILE_VISITORS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_PROFILE_VISITORS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { profileVisitorsUnlocked: true } });
+  if (isUpgradeLabel(text, "visitors")) {
+    const r = await unlockProfileVisitors(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
     const visits = await prisma.matchProfileVisit.findMany({ where: { ownerId: tgUserId }, orderBy: { visitedAt: "desc" }, take: 20 });
     if (visits.length === 0) {
@@ -2571,36 +3153,27 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.sendMessage(chatId, `👀 آخر زوار ملفك:\n\n${lines.join("\n")}`, { reply_markup: upgradesMenu() });
     return;
   }
-  if (text === `🎯 فلاتر متقدمة ($${PRICE_ADVANCED_FILTERS})`) {
-    const pref = await prisma.partnerPreference.findUnique({ where: { userId: tgUserId } });
-    if (!pref) {
+  if (isUpgradeLabel(text, "filters")) {
+    const r = await unlockAdvancedFilters(tgUserId);
+    if (!r.ok && r.reason === "no_pref") {
       await bot.api.sendMessage(chatId, "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser) return;
-    if (!hasAdvancedFilters(dbUser)) {
-      const charge = await chargeMatchUser(tgUserId, PRICE_ADVANCED_FILTERS, "ADVANCED_FILTERS");
-      if (!charge.ok) {
-        await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_ADVANCED_FILTERS, charge.balance), { reply_markup: upgradesMenu() });
-        return;
-      }
-      await prisma.matchUser.update({ where: { id: tgUserId }, data: { advancedFiltersUnlocked: true } });
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
+      return;
     }
     await setPending(tgUserId, { mode: "advanced_filter_wizard", step: "city", data: {} });
     await bot.api.sendMessage(chatId, "🎯 المدينة المطلوبة للشريك:", { reply_markup: skipMenu() });
     return;
   }
-  if (text === `👑 العضوية الذهبية ($${PRICE_VIP_30D}/شهر)`) {
-    const charge = await chargeMatchUser(tgUserId, PRICE_VIP_30D, "VIP_MEMBERSHIP");
-    if (!charge.ok) {
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_VIP_30D, charge.balance), { reply_markup: upgradesMenu() });
+  if (isUpgradeLabel(text, "vip")) {
+    const r = await purchaseVip(tgUserId);
+    if (!r.ok) {
+      if (r.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, r.needed, r.balance), { reply_markup: upgradesMenu() });
       return;
     }
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    const base = dbUser?.vipUntil && dbUser.vipUntil > new Date() ? dbUser.vipUntil : new Date();
-    const vipUntil = new Date(base.getTime() + VIP_DAYS * 24 * 3600 * 1000);
-    await prisma.matchUser.update({ where: { id: tgUserId }, data: { vipUntil } });
+    const vipUntil = r.vipUntil;
     await bot.api.sendMessage(
       chatId,
       `👑 تم تفعيل العضوية الذهبية حتى ${vipUntil.toLocaleString("ar")}!\nتشمل: رفع مستمر للملف، فلاتر متقدمة، من زار ملفي، ووضع التخفي.`,
@@ -2609,18 +3182,16 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   if (text === "🕶 وضع التخفي (ضمن الذهبية)") {
-    const dbUser = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-    if (!dbUser || !isVipActive(dbUser)) {
+    const r = await toggleIncognito(tgUserId);
+    if (!r.ok && r.reason === "not_vip") {
       await bot.api.sendMessage(chatId, "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين. فعّل «👑 العضوية الذهبية» أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const profile = await prisma.matchProfile.findUnique({ where: { userId: tgUserId } });
-    if (!profile) {
+    if (!r.ok) {
       await bot.api.sendMessage(chatId, "⚠️ يجب إنشاء ملفك الشخصي أولاً.", { reply_markup: upgradesMenu() });
       return;
     }
-    const newState = !profile.isIncognito;
-    await prisma.matchProfile.update({ where: { userId: tgUserId }, data: { isIncognito: newState } });
+    const newState = r.on;
     await bot.api.sendMessage(chatId, newState ? "🕶 تم تفعيل وضع التخفي." : "👁 تم إيقاف وضع التخفي.", { reply_markup: upgradesMenu() });
     return;
   }
@@ -2709,19 +3280,12 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
       await bot.api.sendMessage(chatId, "⚠️ هذه الرسالة تحتوي على محتوى غير مسموح به.");
       return;
     }
-    const charge = await chargeMatchUser(tgUserId, PRICE_SUPER_LIKE, "SUPER_LIKE");
+    const charge = await chargeSuperLike(tgUserId, pending.targetUserId, text);
     if (!charge.ok) {
       if (!(await resumeBrowsing(tgUserId, pending.resume))) await setPending(tgUserId, null);
-      await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, PRICE_SUPER_LIKE, charge.balance), { reply_markup: mainMenu() });
+      if (charge.reason === "insufficient") await bot.api.sendMessage(chatId, insufficientBalanceText(tgUserId, charge.needed, charge.balance), { reply_markup: mainMenu() });
       return;
     }
-    await prisma.matchLike
-      .upsert({
-        where: { fromUserId_toUserId: { fromUserId: tgUserId, toUserId: pending.targetUserId } },
-        update: { note: text },
-        create: { fromUserId: tgUserId, toUserId: pending.targetUserId, note: text },
-      })
-      .catch(() => null);
     const resumed = await resumeBrowsing(tgUserId, pending.resume);
     if (!resumed) await setPending(tgUserId, null);
     await notifyMutualLike(bot, tgUserId, pending.targetUserId);
@@ -2758,4 +3322,27 @@ export async function cleanupExpiredFakeChats() {
     cleaned++;
   }
   return cleaned;
+}
+
+
+// ---- bot menu setup (match bot only, its own token): commands + web_app menu button ----
+// The bot showed another project's command list (/website /articles /write …) left on
+// this token from an earlier use. Every scope we can reach is reset to this bot's own
+// /start, and the default menu button opens the Mini App. Runs once per instance.
+const setupDone = new Set<string>();
+export const MATCH_BOT_COMMANDS = [{ command: "start", description: "القائمة الرئيسية" }];
+export async function ensureMatchBotSetup(bot: TelegramBot, botId: string) {
+  if (setupDone.has(botId)) return;
+  setupDone.add(botId);
+  const scopes: any[] = [{ type: "all_private_chats" }, { type: "all_group_chats" }, { type: "all_chat_administrators" }];
+  for (const scope of scopes) await bot.api.deleteMyCommands({ scope }).catch(() => null);
+  for (const language_code of ["ar", "en", "ru", "tr", "fa"] as const) {
+    await bot.api.deleteMyCommands({ language_code: language_code as any }).catch(() => null);
+    await bot.api.deleteMyCommands({ scope: { type: "all_private_chats" }, language_code: language_code as any }).catch(() => null);
+  }
+  await bot.api.setMyCommands(MATCH_BOT_COMMANDS).catch(() => null);
+  await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "التطبيق", web_app: { url: miniAppUrl(botId) } } }).catch(() => null);
+}
+async function setAdminMenuButton(bot: TelegramBot, botId: string, chatId: number) {
+  await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "لوحة القيادة", web_app: { url: `${miniAppUrl(botId)}?tab=admin` } } });
 }

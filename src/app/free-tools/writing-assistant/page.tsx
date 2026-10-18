@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import WritingAssistant from "./WritingAssistant";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "مساعد الكتابة الذكي مجاناً | شام AI",
   description: "منشورات سوشيال ميديا، مقالات مدونة، أوصاف منتجات، وترجمة نصوص عمل — بالذكاء الاصطناعي، مجاناً وبدون تسجيل.",
 };
 
-export default function WritingAssistantPage() {
+function WritingAssistantPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -25,5 +26,14 @@ export default function WritingAssistantPage() {
         <AdSlot position="in-content" label="أسفل مساعد الكتابة" />
       </div>
     </div>
+  );
+}
+
+export default function WritingAssistantPage() {
+  return (
+    <>
+      <WritingAssistantPageBody />
+      <ToolSeoSection slug="writing-assistant" />
+    </>
   );
 }

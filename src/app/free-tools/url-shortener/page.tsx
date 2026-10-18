@@ -3,6 +3,7 @@ import Link from "next/link";
 import UrlShortener from "./UrlShortener";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "اختصار روابط مجاني مع عداد نقرات حقيقي | شام AI",
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function UrlShortenerPage() {
+function UrlShortenerPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <div className="flex items-center justify-between gap-3">
@@ -56,5 +57,14 @@ export default function UrlShortenerPage() {
         <AdSlot position="in-content" label="أسفل مصغّر الروابط" />
       </div>
     </div>
+  );
+}
+
+export default function UrlShortenerPage() {
+  return (
+    <>
+      <UrlShortenerPageBody />
+      <ToolSeoSection slug="url-shortener" />
+    </>
   );
 }

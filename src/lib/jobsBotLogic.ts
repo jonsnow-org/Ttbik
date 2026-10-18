@@ -289,6 +289,21 @@ async function chargeJobsUser(userId: string, amount: number, type: string): Pro
     return { ok: true, balance };
   });
 }
+/**
+ * Moves an escrowed order to its final status and pays the winner in ONE
+ * transaction; only the caller that wins the ESCROWED -> final status change pays.
+ * A double tap on "received", an admin decision racing the 7-day auto release,
+ * or two overlapping cron runs can therefore never pay an order twice.
+ */
+export async function settleEscrow(orderId: string, finalStatus: "RELEASED" | "REFUNDED", payeeId: string, amount: number, ledgerType: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const claim = await tx.storeOrder.updateMany({ where: { id: orderId, status: "ESCROWED" }, data: { status: finalStatus, releasedAt: new Date() } });
+    if (claim.count !== 1) return false;
+    await tx.jobsUser.update({ where: { id: payeeId }, data: { balance: { increment: amount } } });
+    await tx.jobsTransaction.create({ data: { userId: payeeId, amount, currency: "internal", type: ledgerType, status: "COMPLETED" } });
+    return true;
+  });
+}
 async function creditJobsUser(userId: string, amount: number, type: string) {
   await prisma.$transaction([
     prisma.jobsUser.update({ where: { id: userId }, data: { balance: { increment: amount } } }),
@@ -1273,8 +1288,10 @@ async function confirmReceived(bot: TelegramBot, chatId: number, buyerId: string
     await bot.api.sendMessage(chatId, "هذا الطلب غير متاح لهذا الإجراء.");
     return;
   }
-  await creditJobsUser(order.sellerId, order.amount, "ESCROW_RELEASE");
-  await prisma.storeOrder.update({ where: { id: order.id }, data: { status: "RELEASED", releasedAt: new Date() } });
+  if (!(await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE"))) {
+    await bot.api.sendMessage(chatId, "هذا الطلب غير متاح لهذا الإجراء.");
+    return;
+  }
   await bot.api.sendMessage(chatId, "✅ تم تأكيد الاستلام وتحويل المبلغ للبائع.", { reply_markup: mainMenu() });
   await bot.api.sendMessage(Number(order.sellerId), `✅ أكّد المشتري استلام طلبه — تم إضافة $${order.amount.toFixed(2)} لرصيدك.`).catch(() => null);
 }
@@ -1333,12 +1350,14 @@ async function resolveDispute(bot: TelegramBot, chatId: number, orderId: string,
     await bot.api.sendMessage(chatId, "هذا الطلب لم يعد بحالة نزاع نشطة.");
     return;
   }
-  if (winner === "seller") {
-    await creditJobsUser(order.sellerId, order.amount, "ESCROW_RELEASE");
-  } else {
-    await creditJobsUser(order.buyerId, order.amount, "ESCROW_REFUND");
+  const settled =
+    winner === "seller"
+      ? await settleEscrow(order.id, "RELEASED", order.sellerId, order.amount, "ESCROW_RELEASE")
+      : await settleEscrow(order.id, "REFUNDED", order.buyerId, order.amount, "ESCROW_REFUND");
+  if (!settled) {
+    await bot.api.sendMessage(chatId, "هذا الطلب لم يعد بحالة نزاع نشطة.");
+    return;
   }
-  await prisma.storeOrder.update({ where: { id: order.id }, data: { status: winner === "seller" ? "RELEASED" : "REFUNDED", releasedAt: new Date() } });
   await prisma.jobsDispute.update({ where: { orderId }, data: { status: "RESOLVED", resolution: winner === "seller" ? "RELEASED_TO_SELLER" : "REFUNDED_TO_BUYER", resolvedAt: new Date() } });
   await bot.api.sendMessage(chatId, "✅ تم تنفيذ القرار.");
   await bot.api.sendMessage(Number(order.buyerId), winner === "buyer" ? "✅ تم استرداد مبلغ طلبك بعد مراجعة النزاع." : "❌ تقرر تحويل مبلغ الطلب للبائع بعد مراجعة النزاع.").catch(() => null);

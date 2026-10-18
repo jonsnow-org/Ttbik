@@ -1,3 +1,5 @@
+import { youtubeStartUrl, verifyYoutubeSubscription, hasYoutubeLink } from "./youtubeLink";
+import { socialStartUrl, verifySocialProof, type SocialPlatform } from "./socialProof";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
@@ -7,6 +9,9 @@ import { askNovaAssist, improveListingText, novaAssistConfigured } from "@/lib/n
 import { isAdVerifyPayload, consumeAdVerifyPayload } from "@/lib/adVerifyPayload";
 import { recordBotVisit, countBotVisitors } from "@/lib/botVisit";
 import { formatBroadcastText, BROADCAST_COMPOSE_HINT } from "@/lib/utils";
+import { availableChains, checkUserDeposits, createDepositRequest, CHAIN_LABEL, MIN_USD, MAX_USD, type Chain } from "@/lib/chainDeposits";
+import { ownerWalletSummary, sweepOwnerProfits, setPayoutsPaused } from "@/lib/ownerPayout";
+import { debitUserBalance, requestWithdrawal, claimWithdrawal, rejectWithdrawal } from "@/lib/ledgerGuards";
 import { sendStarsInvoice, starsDepositKeyboard, starsPayload, parseStarsPayload, usdForStars, creditStarsPayment } from "@/lib/starsPayment";
 import {
   getOrCreateTonMemo,
@@ -124,7 +129,11 @@ type PendingAction =
   | { mode: "admin_global_ad_platform" }
   | { mode: "admin_global_ad_target"; type: AdTypeStr }
   | { mode: "admin_credit_target" }
+  | { mode: "owner_sweep_confirm" }
+  | { mode: "chain_dep_pick" }
+  | { mode: "chain_dep_amount"; chain: string }
   | { mode: "admin_credit_amount"; targetId: string }
+  | { mode: "admin_transfer_owner" }
   | { mode: "owner_broadcast" }
   | { mode: "owner_channel_setup" }
   | { mode: "owner_withdraw_address" }
@@ -369,7 +378,8 @@ function mainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnCreateAd")).text(t(lang, "btnMyAds")).row()
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
-    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row();
+    .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
+    .text(t(lang, "btnAccounts")).row();
   // No "🔙 Back to main menu" button here on purpose — this IS the main
   // menu, so pressing it would just re-send the exact same screen (owner
   // report, 2026-09-14: confusing to see it while already home). Every
@@ -377,6 +387,28 @@ function mainMenu(lang: Lang): Keyboard {
   // those genuinely need a way back.
   if (novaAssistConfigured()) kb.text(t(lang, "btnAskNova")).row();
   return kb.resized();
+}
+function accountsMenu(lang: Lang, linked: boolean): Keyboard {
+  return new Keyboard()
+    .text(t(lang, linked ? "btnYoutubeChange" : "btnYoutubeLink")).row()
+    .text(t(lang, "btnXLink")).text(t(lang, "btnTiktokLink")).row()
+    .text(t(lang, "btnFacebookLink")).text(t(lang, "btnInstagramLink")).row()
+    .text(t(lang, "btnSiteLink")).row()
+    .text(backLabel(lang))
+    .resized();
+}
+const CHAIN_DEPOSIT_BTN = "🪙 إيداع USDT / TRX / DOGE";
+const CHAIN_CHECK_BTN = "✅ تحققت من تحويلي";
+function chainDepositMenu(): Keyboard {
+  const kb = new Keyboard();
+  for (const c of availableChains()) kb.text(CHAIN_LABEL[c]).row();
+  kb.text(CHAIN_CHECK_BTN).row().text(backLabel("ar"));
+  return kb.resized();
+}
+// Credits a confirmed on-chain deposit to the user's balance (same ledger as every other deposit).
+async function applyChainDeposit(tx: any, p: { userId: string; usd: number; chain: Chain; hash: string }) {
+  await tx.user.update({ where: { id: p.userId }, data: { balance: { increment: p.usd } } });
+  await tx.transaction.create({ data: { userId: p.userId, amount: p.usd, currency: p.chain === "USDT_TRC20" ? "USDT" : p.chain, type: "DEPOSIT", status: "COMPLETED", txHash: p.hash } });
 }
 function walletMenu(lang: Lang): Keyboard {
   const kb = new Keyboard().text(t(lang, "btnDeposit")).text(t(lang, "btnWithdraw")).row();
@@ -391,6 +423,7 @@ function walletMenu(lang: Lang): Keyboard {
   // existing 50% worker / 20% creator / 30% platform split already applies
   // automatically once it's spent on an ad campaign.
   kb.text(t(lang, "btnStarsDeposit")).row();
+  if (availableChains().length > 0) kb.text(CHAIN_DEPOSIT_BTN).row();
   kb.text(backLabel(lang));
   return kb.resized();
 }
@@ -436,8 +469,29 @@ function phoneRequestMenu(lang: Lang): Keyboard {
 const ADMIN_MENU = new Keyboard()
   .text("📢 إعلان إجباري شامل").text("📣 إذاعة لكل المستخدمين").row()
   .text("📊 الإحصائيات والأرباح").text("➕ شحن رصيد").row()
-  .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري")
+  .text("🔌 فحص الويبهوك").text("📢 قناة الاشتراك الإجباري").row()
+  .text("🤖 البوتات والمشرفون").text("🔁 نقل ملكية هذا البوت").row()
+  .text("🔒 تبديل: بوت خاص بالمالك / عام").text("👁 لوحة المشرفين (قراءة فقط)").row()
+  .text("💰 محفظة المالك")
   .resized();
+const OWNER_WALLET_MENU = new Keyboard()
+  .text("📤 حوّل أرباحي الآن").row()
+  .text("⏸ إيقاف التحويلات").text("▶ استئناف التحويلات").row()
+  .text("⬅️ رجوع للوحة المالك")
+  .resized();
+const OWNER_SWEEP_CONFIRM_MENU = new Keyboard().text("✅ تأكيد التحويل").row().text("⬅️ رجوع للوحة المالك").resized();
+const SWEEP_REASON_AR: Record<string, string> = {
+  no_wallet: "لم يُضبط عنوان المحفظة النهائية (OWNER_PAYOUT_WALLET) في إعدادات الخادم.",
+  ton_not_configured: "محفظة TON الساخنة غير مضبوطة.",
+  paused: "التحويلات متوقفة (استأنفها من الزر).",
+  no_rate: "تعذّر الحصول على سعر TON موثوق الآن، حاول بعد قليل.",
+  below_threshold: "الأرباح أقل من الحد الأدنى للتحويل.",
+  daily_cap: "بلغت السقف اليومي للتحويل.",
+  dust: "المبلغ صغير جداً.",
+  balance_changed: "تغيّر الرصيد أثناء التحويل، أعد المحاولة.",
+  hot_wallet_short: "رصيد المحفظة الساخنة لا يكفي المبلغ مع رسوم الشبكة الآن (ينتظر وصول دفعات NOWPayments).",
+  send_failed: "فشل الإرسال على الشبكة. أُعيد المبلغ لأرباحك وأُوقفت التحويلات تلقائياً حتى تراجع سجل المحفظة ثم تستأنفها.",
+};
 // A bot's own creator is also a full participant in their own bot — not a
 // separate, exclusive role — per owner instruction (2026-08-31): "لوحة
 // المستخدم العادي هي ذاتها، أضف أزرار الأدمن المنشئ عليها، ولا تفصل
@@ -456,6 +510,7 @@ function ownerMainMenu(lang: Lang): Keyboard {
     .text(t(lang, "btnWatchEarn")).text(t(lang, "btnWallet")).row()
     .text(t(lang, "btnReferrals")).text(t(lang, "btnStats")).row()
     .text(t(lang, "btnLanguage")).text(t(lang, "btnFaq")).row()
+    .text(t(lang, "btnAccounts")).row()
     .text(t(lang, "btnOwnerPanel"))
     .resized();
 }
@@ -481,9 +536,14 @@ function topLevelTexts(lang: Lang): string[] {
     t(lang, "btnStats"),
     t(lang, "btnLanguage"),
     t(lang, "btnFaq"),
+    t(lang, "btnAccounts"),
+    t("ar", "btnAccounts"),
+    t("en", "btnAccounts"),
     t(lang, "btnWantOwnBot"),
     t(lang, "btnOwnerPanel"),
     t(lang, "btnTonDeposit"),
+    CHAIN_DEPOSIT_BTN,
+    CHAIN_CHECK_BTN,
     t(lang, "btnContactAdmin"),
   ];
 }
@@ -533,7 +593,30 @@ async function sendOwnerPanel(bot: TelegramBot, chatId: number, botRow: BotRow, 
   );
 }
 
+
+// Owner-only mode: the owner can lock a bot row so only the platform owner (SUPER_ADMIN) can use it -- for a private admin bot.
+// Stored in bot_settings under private_bot:<row id>; anything unreadable counts as "public" so a database hiccup never locks everyone out.
+async function isPrivateBot(botId: string): Promise<boolean> {
+  try {
+    const { supabaseAdmin } = await import("@/lib/supabase");
+    const { data } = await supabaseAdmin().from("bot_settings").select("value").eq("key", `private_bot:${botId}`).maybeSingle();
+    return (data as { value?: unknown } | null)?.value === true;
+  } catch {
+    return false;
+  }
+}
+async function setPrivateBot(botId: string, on: boolean): Promise<void> {
+  const { supabaseAdmin } = await import("@/lib/supabase");
+  await supabaseAdmin().from("bot_settings").upsert({ key: `private_bot:${botId}`, value: on, updated_at: new Date().toISOString() });
+}
+
 export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
+  const actor = String(update.callback_query?.from?.id ?? update.message?.from?.id ?? "");
+  if (actor && actor !== SUPER_ADMIN_ID && (await isPrivateBot(botRow.id))) {
+    const chat = update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
+    if (chat && update.message) await bot.api.sendMessage(chat, "🔒 هذا البوت خاص بإدارة المنصة. للخدمات استخدم بوت الإعلان العام.").catch(() => null);
+    return;
+  }
   if (update.callback_query) {
     await handleCarouselCallback(bot, botRow, update.callback_query);
     return;
@@ -628,8 +711,14 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     // panel, never the end-user main menu (no "شاهد واربح"/"ضع إعلانك"
     // etc.), matching the same "recognized immediately by ID" rule as
     // /admin itself. Only an ordinary member sees the normal menu.
-    if (tgUserId === SUPER_ADMIN_ID) {
+    if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
       await sendSuperAdminPanel(bot, chatId);
+      return;
+    }
+    if (tgUserId === SUPER_ADMIN_ID) {
+      // The platform owner on a bot that belongs to a supervisor: the supervisor's bot looks like a normal bot to the owner too.
+      // The owner panel is one command away (/admin), it does not take over the supervisor's bot.
+      await bot.api.sendMessage(chatId, `${t(lang, "welcome")}\n\n👑 أنت مالك المنصة وهذا بوت المشرف ${botRow.ownerId}. أرسل /admin لفتح لوحتك عند الحاجة.`, { reply_markup: mainMenu(lang) });
       return;
     }
     if (tgUserId === botRow.ownerId) {
@@ -637,6 +726,23 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return;
     }
     await bot.api.sendMessage(chatId, t(lang, "welcome"), { reply_markup: mainMenu(lang) });
+    return;
+  }
+
+  // /whoami: which bot is this, which platform row serves it, and what is MY role here. Two accounts that run /whoami and see the
+  // same row id are talking to the very same bot (same token, same @username), just with different roles.
+  if (/^\/whoami(?:@\w+)?$/i.test(text)) {
+    const me = await bot.api.getMe().catch(() => null);
+    const role = tgUserId === SUPER_ADMIN_ID ? "مالك المنصة" : tgUserId === botRow.ownerId ? "مشرف هذا البوت" : "مستخدم";
+    const lines = [
+      `🤖 البوت: ${me?.username ? `@${me.username}` : "؟"}${me?.id ? ` (رقمه ${me.id})` : ""}`,
+      `🆔 صف المنصة الذي يخدمه: ${botRow.id.slice(0, 8)}`,
+      `🎭 دورك هنا: ${role}`,
+    ];
+    if (tgUserId === SUPER_ADMIN_ID || tgUserId === botRow.ownerId) {
+      lines.push(`👤 مشرف هذا البوت المسجّل: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}`);
+    }
+    await bot.api.sendMessage(chatId, lines.join("\n"));
     return;
   }
 
@@ -665,7 +771,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // through to the normal branch below is correct.
   if (isBack(lang, text)) {
     await setPending(user.id, null);
-    if (tgUserId === SUPER_ADMIN_ID) {
+    if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
       await sendSuperAdminPanel(bot, chatId);
       return;
     }
@@ -676,6 +782,12 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
 
   if (topLevelTexts(lang).includes(text) && pending) {
     await setPending(user.id, null);
+  }
+
+  if (text === t(lang, "btnAccounts") || text === t("ar", "btnAccounts") || text === t("en", "btnAccounts") || text === "حساباتي") {
+    const linked = await hasYoutubeLink(String(tgUserId)).catch(() => false);
+    await bot.api.sendMessage(chatId, t(lang, "accountsTitle"), { reply_markup: accountsMenu(lang, linked) });
+    return;
   }
 
   if (text === t(lang, "btnCreateAd")) {
@@ -734,6 +846,40 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   }
   if (text === t(lang, "btnStats")) {
     await sendStats(bot, chatId, user.id, lang);
+    return;
+  }
+  const socialButtons: Record<string, SocialPlatform> = {
+    [t(lang, "btnXLink")]: "twitter",
+    [t("ar", "btnXLink")]: "twitter",
+    [t("en", "btnXLink")]: "twitter",
+    [t(lang, "btnTiktokLink")]: "tiktok",
+    [t("ar", "btnTiktokLink")]: "tiktok",
+    [t("en", "btnTiktokLink")]: "tiktok",
+    [t(lang, "btnFacebookLink")]: "facebook",
+    [t("ar", "btnFacebookLink")]: "facebook",
+    [t("en", "btnFacebookLink")]: "facebook",
+    [t(lang, "btnInstagramLink")]: "instagram",
+    [t("ar", "btnInstagramLink")]: "instagram",
+    [t("en", "btnInstagramLink")]: "instagram",
+    [t(lang, "btnSiteLink")]: "link",
+    [t("ar", "btnSiteLink")]: "link",
+    [t("en", "btnSiteLink")]: "link",
+  };
+  if (socialButtons[text]) {
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const link = socialStartUrl(site, String(tgUserId), socialButtons[text]);
+    await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), { reply_markup: accountsMenu(lang, await hasYoutubeLink(String(tgUserId))) });
+    return;
+  }
+  if ([t(lang, "btnYoutubeLink"), t("ar", "btnYoutubeLink"), t("en", "btnYoutubeLink"), t(lang, "btnYoutubeChange"), t("ar", "btnYoutubeChange"), t("en", "btnYoutubeChange")].includes(text)) {
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+    const link = youtubeStartUrl(site, user.id);
+    const linked = await hasYoutubeLink(String(tgUserId));
+    if (!link) {
+      await bot.api.sendMessage(chatId, t(lang, "youtubeLinkUnconfigured"), { reply_markup: accountsMenu(lang, linked) });
+      return;
+    }
+    await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link }), { reply_markup: accountsMenu(lang, linked) });
     return;
   }
   if (text === t(lang, "btnLanguage")) {
@@ -893,12 +1039,21 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
         return;
       }
       const refund = Number(ad.remaining);
-      const fresh = await prisma.user.findUnique({ where: { id: user.id } });
-      await prisma.$transaction([
-        prisma.ad.update({ where: { id: ad.id }, data: { status: "CANCELLED", remaining: 0 } }),
-        prisma.user.update({ where: { id: user.id }, data: { balance: round2(Number(fresh?.balance || 0) + refund) } }),
-        prisma.transaction.create({ data: { userId: user.id, amount: refund, currency: "internal", type: "AD_REFUND", status: "COMPLETED" } }),
-      ]);
+      // Compare-and-swap on (status, remaining) inside one transaction: a
+      // repeated confirm, or a task paid out between the read above and this
+      // write, must not refund twice or refund a stale amount.
+      const cancelled = await prisma.$transaction(async (tx) => {
+        const r = await tx.ad.updateMany({ where: { id: ad.id, status: ad.status, remaining: ad.remaining }, data: { status: "CANCELLED", remaining: 0 } });
+        if (r.count !== 1) return false;
+        await tx.user.update({ where: { id: user.id }, data: { balance: { increment: refund } } });
+        await tx.transaction.create({ data: { userId: user.id, amount: refund, currency: "internal", type: "AD_REFUND", status: "COMPLETED" } });
+        return true;
+      });
+      if (!cancelled) {
+        await bot.api.sendMessage(chatId, t(lang, "myAdNotFound"));
+        await sendMyAdsList(bot, chatId, user.id, lang);
+        return;
+      }
       await bot.api.sendMessage(chatId, t(lang, "myAdCancelledOk", { amount: fmt(refund) }));
       await sendMyAdsList(bot, chatId, user.id, lang);
       return;
@@ -925,14 +1080,20 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return;
     }
     const newRemaining = round2(Number(ad.remaining) + amount);
-    await prisma.$transaction([
-      prisma.ad.update({
+    const toppedUp = await prisma.$transaction(async (tx) => {
+      if (!(await debitUserBalance(tx, user.id, amount))) return false;
+      await tx.ad.update({
         where: { id: ad.id },
-        data: { remaining: newRemaining, totalBudget: round2(Number(ad.totalBudget) + amount), status: ad.status === "EXPIRED" ? "ACTIVE" : ad.status },
-      }),
-      prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - amount) } }),
-      prisma.transaction.create({ data: { userId: user.id, amount, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } }),
-    ]);
+        data: { remaining: { increment: amount }, totalBudget: { increment: amount }, status: ad.status === "EXPIRED" ? "ACTIVE" : ad.status },
+      });
+      await tx.transaction.create({ data: { userId: user.id, amount, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+      return true;
+    });
+    if (!toppedUp) {
+      const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+      await bot.api.sendMessage(chatId, t(lang, "myAdTopupInsufficient", { amount: fmt(amount), balance: fmt(balance), link }));
+      return;
+    }
     await bot.api.sendMessage(chatId, t(lang, "myAdTopupDone", { amount: fmt(amount), remaining: fmt(newRemaining) }));
     await sendAdManageScreen(bot, chatId, user.id, ad.id, lang);
     return;
@@ -949,6 +1110,61 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     const address = getMasterHotWalletAddress()!;
     const memo = await getOrCreateTonMemo(user.id);
     await bot.api.sendMessage(chatId, t(lang, "tonDepositInfo", { address, memo }), { reply_markup: walletMenu(lang) });
+    return;
+  }
+  if (text === CHAIN_DEPOSIT_BTN && availableChains().length > 0) {
+    await setPending(user.id, { mode: "chain_dep_pick" });
+    await bot.api.sendMessage(
+      chatId,
+      `🪙 اختر العملة التي سترسلها.\nبعد اختيار المبلغ ستحصل على عنوان ومبلغ دقيق (بكسور صغيرة مميّزة لك). أرسل المبلغ كما هو بالضبط، ثم اضغط «${CHAIN_CHECK_BTN}».`,
+      { reply_markup: chainDepositMenu() }
+    );
+    return;
+  }
+  if (pending?.mode === "chain_dep_pick") {
+    const picked = availableChains().find((c) => CHAIN_LABEL[c] === text);
+    if (picked) {
+      await setPending(user.id, { mode: "chain_dep_amount", chain: picked });
+      await bot.api.sendMessage(chatId, `كم دولاراً تريد إيداع؟ (من ${MIN_USD}$ إلى ${MAX_USD}$)`, { reply_markup: amountEntryMenu(lang) });
+      return;
+    }
+  }
+  if (pending?.mode === "chain_dep_amount") {
+    const chain = pending.chain as Chain;
+    const usd = Number(text.replace(/[^0-9.]/g, ""));
+    const r = await createDepositRequest(user.id, chain, usd);
+    if (!r.ok) {
+      const why: Record<string, string> = {
+        range: `المبلغ يجب أن يكون بين ${MIN_USD}$ و${MAX_USD}$.`,
+        too_many: "لديك طلبات إيداع مفتوحة كثيرة. أكمل أحدها أو انتظر انتهاءها.",
+        price: "تعذّر الحصول على سعر موثوق الآن، حاول بعد قليل.",
+        busy: "ازدحام مؤقت، أعد المحاولة.",
+        no_address: "هذه العملة غير متاحة حالياً.",
+      };
+      await bot.api.sendMessage(chatId, why[r.reason] || "تعذّر إنشاء الطلب.");
+      return;
+    }
+    await setPending(user.id, null);
+    await bot.api.sendMessage(
+      chatId,
+      `🪙 طلب إيداع ${fmt(r.usd)}\n\nأرسل بالضبط:\n${r.amount} ${r.asset}\n\nإلى العنوان:\n${r.address}\n\n⚠️ المبلغ يجب أن يطابق الرقم أعلاه حرفياً (بكسوره) وإلا لن يُحتسب تلقائياً. لا ترسل من شبكة أخرى.\n⏳ صالح ${r.expiresInMin} دقيقة. بعد الإرسال وتأكيد الشبكة اضغط «${CHAIN_CHECK_BTN}».`,
+      { reply_markup: chainDepositMenu() }
+    );
+    return;
+  }
+  if (text === CHAIN_CHECK_BTN) {
+    const res = await checkUserDeposits(user.id, applyChainDeposit);
+    if (res.credited.length > 0) {
+      const total = res.credited.reduce((a, c) => a + c.usd, 0);
+      const fresh = await prisma.user.findUnique({ where: { id: user.id } });
+      await bot.api.sendMessage(chatId, `✅ تم إيداع ${fmt(total)} في رصيدك.\n💰 رصيدك الآن: ${fmt(Number(fresh?.balance || 0))}`, { reply_markup: walletMenu(lang) });
+    } else {
+      await bot.api.sendMessage(
+        chatId,
+        res.pending === 0 ? "لا يوجد طلب إيداع مفتوح." : res.readFailed ? "تعذّر قراءة الشبكة الآن، حاول بعد دقائق." : "لم يصل تحويل مطابق بعد. تأكد من المبلغ الدقيق وانتظر تأكيد الشبكة (قد يستغرق بضع دقائق) ثم اضغط التحقق مجدداً.",
+        { reply_markup: chainDepositMenu() }
+      );
+    }
     return;
   }
   if (text === t(lang, "btnWithdraw")) {
@@ -1078,6 +1294,118 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     if (idSuffix) await decideWithdrawal(bot, chatId, idSuffix, approve);
     return;
   }
+  // ---- Platform-owner tools: who owns which bot (owner = SUPER_ADMIN, supervisor = a bot's own creator) ----
+  // A bot's creator (Bot.ownerId) is a SUPERVISOR: he gets the "🛠 لوحة المشرف" panel (his earnings, his bot's stats).
+  // Only the platform owner (SUPER_ADMIN) has the owner panel, on every bot. If the platform's main bot was ever activated
+  // with someone else's ID, that person is its supervisor; "🔁 نقل ملكية هذا البوت" moves it back in two taps.
+  if (text === "🤖 البوتات والمشرفون" && tgUserId === SUPER_ADMIN_ID) {
+    const rows = await prisma.bot.findMany({ orderBy: { created_at: "asc" }, take: 40 });
+    const lines = await Promise.all(
+      rows.map(async (r) => {
+        let uname = "?";
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${r.token}/getMe`, { signal: AbortSignal.timeout(4000) });
+          const j = (await res.json().catch(() => null)) as { result?: { username?: string; id?: number } } | null;
+          uname = j?.result?.username ? `@${j.result.username} #${j.result.id ?? ""}` : "؟";
+        } catch {
+          uname = "؟";
+        }
+        const who = r.ownerId === SUPER_ADMIN_ID ? "المالك (أنت)" : `مشرف ${r.ownerId}`;
+        const money = r.template === "AD_BOT" ? ` — عمولة المشرف: جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}` : "";
+        return `${r.id === botRow.id ? "👉 " : "• "}${uname} — صف ${r.id.slice(0, 8)} — ${r.template} — ${who}${r.isActive ? "" : " (متوقف)"}${money}`;
+      }),
+    );
+    await bot.api.sendMessage(
+      chatId,
+      `🤖 البوتات على المنصة (${rows.length}):\n\n${lines.join("\n")}\n\n👉 = البوت الذي تحادثه الآن.\nالمشرف = منشئ البوت (يرى لوحة المشرف وأرباحه). المالك أنت وحدك: لوحتك الكاملة تعمل على كل البوتات.`,
+      { reply_markup: ADMIN_MENU },
+    );
+    return;
+  }
+  // Read-only view of every supervisor's panel (same numbers the supervisor sees in "📊 إحصائيات البوت" / "💼 أرباحي والسحب"). No buttons that change anything.
+  if (text === "👁 لوحة المشرفين (قراءة فقط)" && tgUserId === SUPER_ADMIN_ID) {
+    const rows = await prisma.bot.findMany({ where: { template: "AD_BOT", ownerId: { not: SUPER_ADMIN_ID } }, orderBy: { created_at: "asc" }, take: 20 });
+    if (!rows.length) {
+      await bot.api.sendMessage(chatId, "👁 لا يوجد مشرفون بعد: كل بوتات الإعلان على المنصة بمالكها أنت.", { reply_markup: ADMIN_MENU });
+      return;
+    }
+    const blocks = await Promise.all(
+      rows.map(async (r) => {
+        let uname = "?";
+        try {
+          const res = await fetch(`https://api.telegram.org/bot${r.token}/getMe`, { signal: AbortSignal.timeout(4000) });
+          const j = (await res.json().catch(() => null)) as { result?: { username?: string } } | null;
+          uname = j?.result?.username ? `@${j.result.username}` : "؟";
+        } catch {
+          uname = "؟";
+        }
+        const [users, tasks, ads, supUser] = await Promise.all([
+          countBotVisitors(r.id, r.ownerId),
+          prisma.transaction.count({ where: { botId: r.id, type: "TASK_REWARD" } }),
+          prisma.ad.aggregate({ where: { botId: r.id }, _sum: { totalBudget: true } }),
+          prisma.user.findUnique({ where: { id: r.ownerId }, select: { balance: true } }),
+        ]);
+        const adsSum = Number(ads._sum.totalBudget ?? 0);
+        return [
+          `🤖 ${uname} — مشرف ${r.ownerId}${r.isActive ? "" : " (متوقف)"}`,
+          `👥 المستخدمون: ${users} | ✅ المهام المكتملة: ${tasks}`,
+          `📢 إجمالي قيمة الإعلانات: ${fmt(adsSum)}`,
+          `💼 عمولته (20%): جاهزة ${fmt(Number(r.ownerBalance))} + محجوزة ${fmt(Number(r.pendingBalance))}`,
+          `👛 رصيد حسابه الداخلي: ${fmt(Number(supUser?.balance ?? 0))}`,
+        ].join("\n");
+      }),
+    );
+    await bot.api.sendMessage(chatId, `👁 لوحة المشرفين — قراءة فقط\n\n${blocks.join("\n\n")}`.slice(0, 4000), { reply_markup: ADMIN_MENU });
+    return;
+  }
+  if (text === "🔒 تبديل: بوت خاص بالمالك / عام" && tgUserId === SUPER_ADMIN_ID) {
+    const now = await isPrivateBot(botRow.id);
+    try {
+      await setPrivateBot(botRow.id, !now);
+      await bot.api.sendMessage(
+        chatId,
+        !now
+          ? "🔒 صار هذا البوت خاصاً بك وحدك: أي شخص آخر يراسله يتلقى «بوت خاص» ولا يصل لأي ميزة."
+          : "🌐 صار هذا البوت عاماً: يستعمله الجميع كالمعتاد.",
+        { reply_markup: ADMIN_MENU },
+      );
+    } catch {
+      await bot.api.sendMessage(chatId, "⚠️ تعذّر حفظ الإعداد الآن. أعد المحاولة.", { reply_markup: ADMIN_MENU });
+    }
+    return;
+  }
+  if (text === "🔁 نقل ملكية هذا البوت" && tgUserId === SUPER_ADMIN_ID) {
+    await setPending(user.id, { mode: "admin_transfer_owner" });
+    await bot.api.sendMessage(
+      chatId,
+      `🔁 المشرف الحالي لهذا البوت: ${botRow.ownerId === SUPER_ADMIN_ID ? "أنت (المالك)" : botRow.ownerId}.\nعمولة المشرف المتراكمة على هذا البوت: جاهزة ${fmt(Number(botRow.ownerBalance))} + محجوزة ${fmt(Number(botRow.pendingBalance))} (20% من كل مهمة تُنجز داخله؛ تنتقل مع الملكية).\n\nأرسل الآيدي الرقمي للمشرف الجديد، أو أرسل «أنا» لتكون أنت صاحب البوت.\nمن تنقل الملكية عنه يعود مستخدماً عادياً ويفقد لوحة المشرف وأرباحه المستقبلية. لا يتغير شيء في حساب BotFather (انظر النقل الرسمي هناك).`,
+      { reply_markup: amountEntryMenu("ar") },
+    );
+    return;
+  }
+  if (pending?.mode === "admin_transfer_owner" && tgUserId === SUPER_ADMIN_ID) {
+    const wantsMe = /^(أنا|انا|me)$/i.test(text);
+    const target = wantsMe ? SUPER_ADMIN_ID : text.replace(/\D/g, "");
+    if (!/^\d{5,15}$/.test(target)) {
+      await bot.api.sendMessage(chatId, "أرسل آيدي رقمياً صحيحاً، أو «أنا».");
+      return;
+    }
+    const previous = botRow.ownerId;
+    await prisma.bot.update({ where: { id: botRow.id }, data: { ownerId: target } });
+    await setPending(user.id, null);
+    await bot.api.sendMessage(
+      chatId,
+      `✅ صار صاحب هذا البوت: ${target === SUPER_ADMIN_ID ? "أنت (المالك)" : `المشرف ${target}`}.\nالمشرف السابق (${previous}) أصبح مستخدماً عادياً. اطلب منه إرسال /start ليتحدّث الكيبورد عنده.`,
+      { reply_markup: ADMIN_MENU },
+    );
+    if (previous !== target && previous !== SUPER_ADMIN_ID) {
+      await bot.api.sendMessage(Number(previous), "ℹ️ تم نقل إدارة هذا البوت إلى مالك المنصة. أرسل /start لتحديث القائمة.").catch(() => null);
+    }
+    if (target !== SUPER_ADMIN_ID) {
+      await bot.api.sendMessage(Number(target), "🛠 أصبحت مشرف هذا البوت. أرسل /start لفتح لوحة المشرف.").catch(() => null);
+    }
+    return;
+  }
   if (text === "➕ شحن رصيد" && tgUserId === SUPER_ADMIN_ID) {
     await setPending(user.id, { mode: "admin_credit_target" });
     await bot.api.sendMessage(chatId, "أرسل آيدي تليجرام للمستخدم (أو التاجر/منشئ البوت) الذي تريد شحن رصيده:", { reply_markup: amountEntryMenu("ar") });
@@ -1107,6 +1435,62 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
     await setPending(user.id, null);
     await bot.api.sendMessage(chatId, `✅ تمت إضافة ${fmt(amount)} لرصيد ${pending.targetId}. رصيده الآن: ${fmt(Number(target.balance))}.`, { reply_markup: ADMIN_MENU });
     await bot.api.sendMessage(Number(pending.targetId), `🎁 أضاف مالك المنصة ${fmt(amount)} لرصيدك! رصيدك الآن: ${fmt(Number(target.balance))}.`).catch(() => null);
+    return;
+  }
+
+  // --- 💰 Owner wallet (SUPER_ADMIN only): platform profit, personal balance, final wallet ---
+  if (tgUserId === SUPER_ADMIN_ID && (text === "💰 محفظة المالك" || text === "⬅️ رجوع للوحة المالك")) {
+    await setPending(user.id, null);
+    if (text === "⬅️ رجوع للوحة المالك") {
+      await bot.api.sendMessage(chatId, "لوحة المالك", { reply_markup: ADMIN_MENU });
+      return;
+    }
+    const w = await ownerWalletSummary();
+    const mine = await prisma.user.findUnique({ where: { id: user.id } });
+    const addr = w.address ? `${w.address.slice(0, 6)}…${w.address.slice(-6)}` : "غير مضبوط ⚠️";
+    await bot.api.sendMessage(
+      chatId,
+      `💰 محفظة المالك\n\n` +
+        `📈 أرباح البوت (حصة المنصة فقط): ${fmt(w.accumulatedUsd)}\n` +
+        `👤 رصيدك الشخصي كمستخدم (منفصل عن الأرباح): ${fmt(Number(mine?.balance || 0))}\n` +
+        `🏦 المحفظة النهائية (TON): ${addr}\n` +
+        `🔥 رصيد المحفظة الساخنة (تستقبل الإيداعات): ${w.hotWalletTon === null ? "غير متاح" : `${w.hotWalletTon.toFixed(3)} TON`}\n\n` +
+        `✅ حُوّل اليوم: ${fmt(w.sentTodayUsd)} · الإجمالي: ${fmt(w.sentTotalUsd)}\n` +
+        `الحد الأدنى للتحويل التلقائي اليومي: ${fmt(w.thresholdUsd)}\n` +
+        `الحالة: ${w.paused ? "⏸ متوقفة" : "▶ تعمل"}` +
+        (w.lastFailure ? `\n⚠️ آخر فشل: ${w.lastFailure}` : "") +
+        `\n\nلا يُحوَّل إلا ربح المنصة؛ أرصدة المستخدمين والمشرفين لا تُلمس.`,
+      { reply_markup: OWNER_WALLET_MENU }
+    );
+    return;
+  }
+  if (tgUserId === SUPER_ADMIN_ID && (text === "⏸ إيقاف التحويلات" || text === "▶ استئناف التحويلات")) {
+    await setPayoutsPaused(text.startsWith("⏸"));
+    await bot.api.sendMessage(chatId, text.startsWith("⏸") ? "⏸ تم إيقاف كل تحويلات الأرباح." : "▶ استُؤنفت التحويلات.", { reply_markup: OWNER_WALLET_MENU });
+    return;
+  }
+  if (tgUserId === SUPER_ADMIN_ID && text === "📤 حوّل أرباحي الآن") {
+    const w = await ownerWalletSummary();
+    if (!w.address) {
+      await bot.api.sendMessage(chatId, SWEEP_REASON_AR.no_wallet, { reply_markup: OWNER_WALLET_MENU });
+      return;
+    }
+    await setPending(user.id, { mode: "owner_sweep_confirm" });
+    await bot.api.sendMessage(
+      chatId,
+      `سيُحوَّل من أرباح المنصة (${fmt(w.accumulatedUsd)}) ما تسمح به الحدود إلى:\n${w.address}\n\nأرسل «✅ تأكيد التحويل» للمتابعة.`,
+      { reply_markup: OWNER_SWEEP_CONFIRM_MENU }
+    );
+    return;
+  }
+  if (pending?.mode === "owner_sweep_confirm" && tgUserId === SUPER_ADMIN_ID && text === "✅ تأكيد التحويل") {
+    await setPending(user.id, null);
+    const r = await sweepOwnerProfits({ manual: true });
+    await bot.api.sendMessage(
+      chatId,
+      r.swept ? `✅ أُرسل ${r.amountTon} TON (≈ ${fmt(r.amountUsd || 0)}) إلى محفظتك النهائية.` : `⚠️ لم يتم التحويل: ${SWEEP_REASON_AR[r.reason || ""] || r.reason || "سبب غير معروف"}`,
+      { reply_markup: OWNER_WALLET_MENU }
+    );
     return;
   }
 
@@ -1148,10 +1532,13 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
       return;
     }
     const isAudit = amount > AUDIT_THRESHOLD;
-    await prisma.bot.update({ where: { id: botRow.id }, data: { ownerBalance: round2(ownerBalance - amount) } });
-    const tx = await prisma.transaction.create({
-      data: { userId: user.id, botId: botRow.id, amount: round2(amount), currency: "internal", type: "OWNER_WITHDRAWAL", status: isAudit ? "PENDING_AUDIT" : "PENDING", destination: pending.address },
-    });
+    const created = await requestWithdrawal({ userId: user.id, botId: botRow.id, amount: round2(amount), destination: pending.address, audit: isAudit });
+    if (!created.ok) {
+      const now = await prisma.bot.findUnique({ where: { id: botRow.id } });
+      await bot.api.sendMessage(chatId, `رصيدك الحالي القابل للسحب ${fmt(Number(now?.ownerBalance || 0))} فقط.`);
+      return;
+    }
+    const tx = { id: created.id };
     await setPending(user.id, null);
     await bot.api.sendMessage(
       chatId,
@@ -1364,7 +1751,7 @@ export async function handleAdBotUpdate(bot: TelegramBot, botRow: BotRow, update
   // sender — SUPER_ADMIN never sees the regular end-user menu; a bot
   // owner's menu already includes it, so it's the same fallback message
   // with their merged keyboard.
-  if (tgUserId === SUPER_ADMIN_ID) {
+  if (tgUserId === SUPER_ADMIN_ID && botRow.ownerId === SUPER_ADMIN_ID) {
     await sendSuperAdminPanel(bot, chatId);
     return;
   }
@@ -1542,10 +1929,14 @@ async function consumeWithdrawAmount(bot: TelegramBot, chatId: number, user: any
     return;
   }
   const isAudit = amount > AUDIT_THRESHOLD;
-  await prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - amount) } });
-  const tx = await prisma.transaction.create({
-    data: { userId: user.id, amount: round2(amount), currency: "internal", type: "WITHDRAWAL", status: isAudit ? "PENDING_AUDIT" : "PENDING", destination: address },
-  });
+  // Balance check + debit + request row in one atomic step (see requestWithdrawal).
+  const created = await requestWithdrawal({ userId: user.id, amount: round2(amount), destination: address, audit: isAudit });
+  if (!created.ok) {
+    const now = await prisma.user.findUnique({ where: { id: user.id } });
+    await bot.api.sendMessage(chatId, t(lang, "withdrawInsufficient", { balance: fmt(Number(now?.balance || 0)) }));
+    return;
+  }
+  const tx = { id: created.id };
   await setPending(user.id, null);
   await bot.api.sendMessage(chatId, t(lang, "withdrawSent", { amount: fmt(amount) }), { reply_markup: mainMenu(lang) });
 
@@ -1752,7 +2143,8 @@ type PayoutResult =
 // the completing user (if any), then a further 5%-of-what's-left B2B
 // commission goes to whoever referred the completing bot's own activation
 // (if any); whatever remains is the platform's actual PLATFORM_PROFIT.
-async function payoutTask(tgUserId: string, adId: string, currentBotId: string): Promise<PayoutResult> {
+class AdBudgetMoved extends Error {}
+async function payoutTask(tgUserId: string, adId: string, currentBotId: string, attempt = 0): Promise<PayoutResult> {
   const ad = await prisma.ad.findUnique({ where: { id: adId } });
   if (!ad || ad.status !== "ACTIVE" || Number(ad.remaining) < Number(ad.cpc)) return { ok: false, reason: "gone" };
   if (ad.userId === tgUserId) return { ok: false, reason: "own" };
@@ -1793,54 +2185,61 @@ async function payoutTask(tgUserId: string, adId: string, currentBotId: string):
   // the log row. Without $transaction here, a crash between steps could
   // leave the ad's budget decremented with no one actually paid, or the
   // reverse — a real risk once real money is on the line.
-  const ops: Prisma.PrismaPromise<any>[] = [
-    prisma.transaction.create({
-      data: { userId: tgUserId, botId: currentBotId, amount: workerCut, currency: "internal", type: "TASK_REWARD", status: "COMPLETED", txHash: `task_${adId}_${tgUserId}` },
-    }),
-    prisma.ad.update({ where: { id: ad.id }, data: { remaining: newRemaining, status: adExpired ? "EXPIRED" : ad.status } }),
-    prisma.user.update({ where: { id: tgUserId }, data: { balance: { increment: workerCut } } }),
-    // 20% creator cut goes into the completing bot's 48h hold
-    // (pendingBalance), not the withdrawable ownerBalance directly —
-    // matured later by the release-pending-earnings cron.
-    prisma.bot.update({ where: { id: currentBotId }, data: { pendingBalance: { increment: creatorCut }, totalRevenue: { increment: ownerCut } } }),
-    prisma.transaction.create({
-      data: { userId: currentBot.ownerId, botId: currentBotId, amount: creatorCut, currency: "internal", type: "CREATOR_EARNING_PENDING", status: "PENDING" },
-    }),
-  ];
-  if (referrerId) {
-    ops.push(
-      prisma.user.update({ where: { id: referrerId }, data: { balance: { increment: referralCut } } }),
-      prisma.transaction.create({ data: { userId: referrerId, botId: currentBotId, amount: referralCut, currency: "internal", type: "REFERRAL_COMMISSION", status: "COMPLETED" } })
-    );
-  }
-  if (b2bOwnerId) {
-    ops.push(
-      prisma.user.upsert({
-        where: { id: b2bOwnerId },
-        update: { balance: { increment: b2bCut } },
-        create: { id: b2bOwnerId, botId: currentBotId, role: "BOT_OWNER", balance: b2bCut },
-      }),
-      prisma.transaction.create({ data: { userId: b2bOwnerId, botId: currentBotId, amount: b2bCut, currency: "internal", type: "REFERRAL_B2B_COMMISSION", status: "COMPLETED" } })
-    );
-  }
-  if (SUPER_ADMIN_ID) {
-    ops.push(
-      prisma.transaction.create({ data: { userId: SUPER_ADMIN_ID, botId: currentBotId, amount: platformFinal, currency: "internal", type: "PLATFORM_PROFIT", status: "COMPLETED" } }),
-      // Real (not just logged) accumulator behind the periodic TON sweep to
-      // the owner's personal external wallet (owner spec, 2026-09-02) — see
-      // checkAndSweepOwnerProfits in ton-service.ts.
-      prisma.platformSettings.upsert({
-        where: { id: 1 },
-        update: { accumulatedOwnerProfit: { increment: platformFinal } },
-        create: { id: 1, accumulatedOwnerProfit: platformFinal },
-      })
-    );
-  }
-
-  let results;
+  // One interactive transaction. The ad's budget is claimed first with a
+  // compare-and-swap on (status, remaining) as just read: two workers finishing
+  // the same ad at the same moment can no longer both be paid from the last
+  // bit of budget (the loser re-reads and retries, or finds the ad exhausted).
+  // The dedup guard (unique txHash) still rolls the whole thing back on a
+  // double claim.
+  let results: any[];
   try {
-    results = await prisma.$transaction(ops);
-  } catch {
+    results = await prisma.$transaction(async (tx) => {
+      const out: any[] = [];
+      const budget = await tx.ad.updateMany({
+        where: { id: ad.id, status: "ACTIVE", remaining: ad.remaining },
+        data: { remaining: newRemaining, status: adExpired ? "EXPIRED" : ad.status },
+      });
+      if (budget.count !== 1) throw new AdBudgetMoved();
+      out.push(
+        await tx.transaction.create({
+          data: { userId: tgUserId, botId: currentBotId, amount: workerCut, currency: "internal", type: "TASK_REWARD", status: "COMPLETED", txHash: `task_${adId}_${tgUserId}` },
+        })
+      );
+      out.push(budget);
+      out.push(await tx.user.update({ where: { id: tgUserId }, data: { balance: { increment: workerCut } } }));
+      // 20% creator cut goes into the completing bot's 48h hold
+      // (pendingBalance), not the withdrawable ownerBalance directly —
+      // matured later by the release-pending-earnings cron.
+      await tx.bot.update({ where: { id: currentBotId }, data: { pendingBalance: { increment: creatorCut }, totalRevenue: { increment: ownerCut } } });
+      await tx.transaction.create({
+        data: { userId: currentBot.ownerId, botId: currentBotId, amount: creatorCut, currency: "internal", type: "CREATOR_EARNING_PENDING", status: "PENDING" },
+      });
+      if (referrerId) {
+        await tx.user.update({ where: { id: referrerId }, data: { balance: { increment: referralCut } } });
+        await tx.transaction.create({ data: { userId: referrerId, botId: currentBotId, amount: referralCut, currency: "internal", type: "REFERRAL_COMMISSION", status: "COMPLETED" } });
+      }
+      if (b2bOwnerId) {
+        await tx.user.upsert({
+          where: { id: b2bOwnerId },
+          update: { balance: { increment: b2bCut } },
+          create: { id: b2bOwnerId, botId: currentBotId, role: "BOT_OWNER", balance: b2bCut },
+        });
+        await tx.transaction.create({ data: { userId: b2bOwnerId, botId: currentBotId, amount: b2bCut, currency: "internal", type: "REFERRAL_B2B_COMMISSION", status: "COMPLETED" } });
+      }
+      if (SUPER_ADMIN_ID) {
+        await tx.transaction.create({ data: { userId: SUPER_ADMIN_ID, botId: currentBotId, amount: platformFinal, currency: "internal", type: "PLATFORM_PROFIT", status: "COMPLETED" } });
+        // Real (not just logged) accumulator behind the periodic TON sweep to
+        // the owner's personal external wallet (owner spec, 2026-09-02).
+        await tx.platformSettings.upsert({
+          where: { id: 1 },
+          update: { accumulatedOwnerProfit: { increment: platformFinal } },
+          create: { id: 1, accumulatedOwnerProfit: platformFinal },
+        });
+      }
+      return out;
+    });
+  } catch (e) {
+    if (e instanceof AdBudgetMoved) return attempt < 3 ? payoutTask(tgUserId, adId, currentBotId, attempt + 1) : { ok: false, reason: "gone" };
     return { ok: false, reason: "already_claimed" };
   }
 
@@ -1886,6 +2285,11 @@ async function isAdClickTimeVerified(adId: string, tgUserId: string): Promise<bo
 }
 
 async function isAdVerifiedByUser(bot: TelegramBot, ad: any, tgUserId: string): Promise<boolean> {
+  if (ad.type === "YOUTUBE") {
+    return verifyYoutubeSubscription(tgUserId, String(ad.content || ""));
+  }
+  const proofType: Record<string, SocialPlatform> = { TWITTER: "twitter", TIKTOK: "tiktok", FACEBOOK: "facebook", INSTAGRAM: "instagram", LINK: "link" };
+  if (proofType[ad.type]) return verifySocialProof(tgUserId, proofType[ad.type]);
   if (ad.type === "TELEGRAM") {
     const handle = normalizeChannelHandle(String(ad.content));
     if (isBotHandle(handle)) {
@@ -2009,6 +2413,25 @@ async function handleCarouselCallback(bot: TelegramBot, botRow: BotRow, cq: any)
     }
     const verified = await isAdVerifiedByUser(bot, ad, tgUserId);
     if (!verified) {
+      const proofType: Record<string, SocialPlatform> = { TWITTER: "twitter", TIKTOK: "tiktok", FACEBOOK: "facebook", INSTAGRAM: "instagram", LINK: "link" };
+      if (proofType[ad.type]) {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        const link = socialStartUrl(site, tgUserId, proofType[ad.type]);
+        await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "socialNeedCode"), show_alert: true }).catch(() => null);
+        await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link })).catch(() => null);
+        return;
+      }
+      if (ad.type === "YOUTUBE") {
+        const site = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+        const link = youtubeStartUrl(site, tgUserId);
+        const linked = await hasYoutubeLink(tgUserId);
+        const alert = !linked ? t(lang, "youtubeNeedLinkAlert") : t(lang, "youtubeNotSubscribedAlert");
+        await bot.api.answerCallbackQuery(cq.id, { text: alert, show_alert: true }).catch(() => null);
+        if (!linked && link) {
+          await bot.api.sendMessage(chatId, t(lang, "youtubeLinkPrompt", { link })).catch(() => null);
+        }
+        return;
+      }
       await bot.api.answerCallbackQuery(cq.id, { text: t(lang, "carouselNotDoneAlert"), show_alert: true }).catch(() => null);
       return;
     }
@@ -2136,31 +2559,44 @@ async function confirmAd(bot: TelegramBot, chatId: number, user: any, pending: E
     rejected = await isLinkUnsafe(url);
   }
 
-  await prisma.ad.create({
-    data: {
-      userId: user.id,
-      botId: fresh!.botId,
-      type: type as any,
-      content: collected.target || "",
-      description: collected.description || null,
-      totalBudget: budget,
-      cpc,
-      ownerCut,
-      creatorCut,
-      workerCut,
-      remaining: budget,
-      status: rejected ? "REJECTED" : "ACTIVE",
-      scope,
-      targetBotId: scope === "TARGETED" ? fresh!.botId : null,
-    },
-  });
-  await setPending(user.id, null);
+  // The charge and the ad row are one atomic step: the balance check is part
+  // of the UPDATE itself, so two quick confirms can't both launch an ad on the
+  // same money, and a failed charge never leaves a free ad behind. A rejected
+  // ad is never charged.
+  const adData = {
+    userId: user.id,
+    botId: fresh!.botId,
+    type: type as any,
+    content: collected.target || "",
+    description: collected.description || null,
+    totalBudget: budget,
+    cpc,
+    ownerCut,
+    creatorCut,
+    workerCut,
+    remaining: budget,
+    status: rejected ? "REJECTED" : "ACTIVE",
+    scope,
+    targetBotId: scope === "TARGETED" ? fresh!.botId : null,
+  };
   if (rejected) {
+    await prisma.ad.create({ data: adData });
+    await setPending(user.id, null);
     await bot.api.sendMessage(chatId, t(lang, "adAutoRejected"), { reply_markup: mainMenu(lang) });
     return;
   }
-  await prisma.user.update({ where: { id: user.id }, data: { balance: round2(balance - budget) } });
-  await prisma.transaction.create({ data: { userId: user.id, amount: budget, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+  const launched = await prisma.$transaction(async (tx) => {
+    if (!(await debitUserBalance(tx, user.id, budget))) return false;
+    await tx.ad.create({ data: adData });
+    await tx.transaction.create({ data: { userId: user.id, amount: budget, currency: "internal", type: "AD_PAYMENT", status: "COMPLETED" } });
+    return true;
+  });
+  if (!launched) {
+    const link = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "")}/pay?uid=${user.id}`;
+    await bot.api.sendMessage(chatId, t(lang, "adInsufficientBalance", { budget: fmt(budget), balance: fmt(balance), link }), { reply_markup: reviewInsufficientMenu(lang) });
+    return;
+  }
+  await setPending(user.id, null);
   await bot.api.sendMessage(chatId, t(lang, "adLaunched", { budget: fmt(budget) }), { reply_markup: mainMenu(lang) });
 }
 
@@ -2285,9 +2721,26 @@ async function decideWithdrawal(bot: TelegramBot, chatId: number, txIdSuffix: st
     // gate above — it automates the actual sending step, not the approval
     // decision itself.
     if (tx.destination && isTonAddress(tx.destination) && isNativeTonConfigured()) {
+      // Take exclusive ownership BEFORE touching the chain: a repeated "موافقة"
+      // (or two admins at once) finds the request already claimed and can never
+      // broadcast a second transfer for the same request.
+      if (!(await claimWithdrawal(tx.id, tx.status, "PROCESSING"))) {
+        await bot.api.sendMessage(chatId, "الطلب غير موجود أو عولج مسبقاً (أو قيد التنفيذ الآن).");
+        return;
+      }
+      let amountTon: number;
       try {
-        const amountTon = await usdToTon(Number(tx.amount));
+        amountTon = await usdToTon(Number(tx.amount));
         await sendTonWithdrawal(tx.destination, amountTon);
+      } catch (error: any) {
+        // Back to its open status so re-sending "موافقة <id>" retries. If the
+        // failure is ambiguous (e.g. a timeout after broadcast) check the hot
+        // wallet's history first.
+        await prisma.transaction.updateMany({ where: { id: tx.id, status: "PROCESSING" }, data: { status: tx.status } });
+        await bot.api.sendMessage(chatId, `⚠️ فشل الإرسال الآلي على شبكة TON: ${error.message || error}\nتحقق من سجل المحفظة أولاً، ثم أرسل "موافقة ${shortId(tx.id)}" مجدداً للمحاولة، أو حوّل المبلغ يدوياً.`);
+        return;
+      }
+      try {
         await prisma.$transaction([
           prisma.transaction.update({ where: { id: tx.id }, data: { status: "COMPLETED" } }),
           prisma.tonTransaction.create({
@@ -2302,28 +2755,29 @@ async function decideWithdrawal(bot: TelegramBot, chatId: number, txIdSuffix: st
             },
           }),
         ]);
-        await bot.api.sendMessage(chatId, `✅ تمت الموافقة وأُرسل ${amountTon.toFixed(4)} TON فعلياً إلى ${tx.destination}.`);
       } catch (error: any) {
-        // Leave status as PENDING/PENDING_AUDIT (unchanged) so re-sending
-        // "موافقة <id>" retries the send — never mark COMPLETED on a
-        // transfer that may not have actually gone through.
-        await bot.api.sendMessage(chatId, `⚠️ فشل الإرسال الآلي على شبكة TON: ${error.message || error}\nأرسل "موافقة ${shortId(tx.id)}" مجدداً للمحاولة، أو حوّل المبلغ يدوياً.`);
+        // The money HAS been sent: leave the request locked in PROCESSING (never
+        // reopen it) so nobody can approve it again, and tell the admin.
+        console.error("[withdrawal] sent but not recorded", tx.id, error);
+        await bot.api.sendMessage(chatId, `⚠️ أُرسل ${amountTon.toFixed(4)} TON إلى ${tx.destination} لكن تعذّر تسجيل العملية (${shortId(tx.id)}). لا تعيد الموافقة: الطلب مقفل بحالة PROCESSING، سجّله يدوياً.`);
+        return;
       }
+      await bot.api.sendMessage(chatId, `✅ تمت الموافقة وأُرسل ${amountTon.toFixed(4)} TON فعلياً إلى ${tx.destination}.`);
       return;
     }
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "COMPLETED" } });
+    if (!(await claimWithdrawal(tx.id, tx.status, "COMPLETED"))) {
+      await bot.api.sendMessage(chatId, "الطلب غير موجود أو عولج مسبقاً.");
+      return;
+    }
     await bot.api.sendMessage(chatId, "✅ تمت الموافقة — حوّل المبلغ يدوياً للمستفيد.");
-  } else if (tx.type === "OWNER_WITHDRAWAL" && tx.botId) {
-    // Refund goes back to the bot's withdrawable commission, not a user balance.
-    const botRow = await prisma.bot.findUnique({ where: { id: tx.botId } });
-    await prisma.bot.update({ where: { id: tx.botId }, data: { ownerBalance: round2(Number(botRow?.ownerBalance || 0) + Number(tx.amount)) } });
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "FAILED" } });
-    await bot.api.sendMessage(chatId, "❌ رُفض الطلب وأُعيد المبلغ لرصيد منشئ البوت.");
   } else {
-    const user = await prisma.user.findUnique({ where: { id: tx.userId } });
-    await prisma.user.update({ where: { id: tx.userId }, data: { balance: round2(Number(user?.balance || 0) + Number(tx.amount)) } });
-    await prisma.transaction.update({ where: { id: tx.id }, data: { status: "FAILED" } });
-    await bot.api.sendMessage(chatId, "❌ رُفض الطلب وأُعيد المبلغ للمستخدم.");
+    // Refund exactly once: the status change and the balance increment are one
+    // transaction and only the call that wins the status change refunds.
+    if (!(await rejectWithdrawal({ id: tx.id, userId: tx.userId, botId: tx.botId, type: tx.type, amount: Number(tx.amount) }))) {
+      await bot.api.sendMessage(chatId, "الطلب غير موجود أو عولج مسبقاً.");
+      return;
+    }
+    await bot.api.sendMessage(chatId, tx.type === "OWNER_WITHDRAWAL" && tx.botId ? "❌ رُفض الطلب وأُعيد المبلغ لرصيد منشئ البوت." : "❌ رُفض الطلب وأُعيد المبلغ للمستخدم.");
   }
 }
 

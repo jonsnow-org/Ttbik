@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import ZakatCalculator from "./ZakatCalculator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "حاسبة الزكاة الذكية | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "احسب زكاة المال والذهب والفضة والأسهم وعروض التجارة فوراً — نصاب قابل للتعديل، 2.5%. أداة عربية مجانية بلا تسجيل.",
 };
 
-export default function ZakatCalculatorPage() {
+function ZakatCalculatorPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -29,5 +30,14 @@ export default function ZakatCalculatorPage() {
         <AdSlot position="in-content" label="أسفل حاسبة الزكاة" />
       </div>
     </div>
+  );
+}
+
+export default function ZakatCalculatorPage() {
+  return (
+    <>
+      <ZakatCalculatorPageBody />
+      <ToolSeoSection slug="zakat-calculator" />
+    </>
   );
 }

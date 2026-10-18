@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import hashlib
 import itertools
+import os
 
 import torch
 
 HOLDOUT_BATCHES = 8
+TOLERANCE = 0.003      # the end of a session may be this much (relative) worse than the best weights seen before they are restored
 RESULT: dict = {}   # filled by every session: before / after / train_tail / n_tokens
 
 
@@ -62,8 +64,38 @@ def install() -> None:
         rest = (b for b in it if not (isinstance(b, torch.Tensor) and _key(b) in banned))
         model.to(device)
         before = _loss(model, held, device)
-        history = original(model, rest, cfg, *args, **kwargs)
+        # REGRESSION GUARD (2026-10-10): the reports showed Track A ending a session WORSE on unseen text (+0.056, +0.270,
+        # +0.062) and still publishing "the last weights". Every EVAL_EVERY micro-batches the weights are scored on the held-out
+        # windows; the best ones seen (the starting weights included) are kept on the CPU, and if the session ends worse than
+        # the best they are put back. Nothing is written for the model: it only chooses between weights Sham itself produced.
+        every = int(os.environ.get("SHAM_EVAL_EVERY", 0)) or (400 if str(device).startswith("cuda") else 100)
+        guard = {"best": before, "snap": None, "at": 0, "n": 0, "curve": []}   # snap None = the starting weights are the best
+
+        def _snapshot():
+            return {k: v.detach().to("cpu", copy=True) for k, v in model.state_dict().items()}
+
+        start_weights = _snapshot()
+
+        def guarded(it):
+            for b in it:
+                guard["n"] += 1
+                if guard["n"] % every == 0:
+                    cur = _loss(model, held, device)
+                    guard["curve"].append((guard["n"], round(cur, 4)))
+                    if cur < guard["best"] * (1 - 1e-4):
+                        guard.update(best=cur, snap=_snapshot(), at=guard["n"])
+                yield b
+
+        history = original(model, guarded(rest), cfg, *args, **kwargs)
         after = _loss(model, held, device)
+        restored = False
+        if after > guard["best"] * (1 + TOLERANCE):
+            model.load_state_dict(guard["snap"] if guard["snap"] is not None else start_weights)
+            restored, final = True, after
+            after = _loss(model, held, device)
+        RESULT.update(guard=dict(restored=restored, best=guard["best"], best_at=guard["at"], final=after if not restored else final,
+                                 evals=guard["curve"][-12:]))
+        del start_weights
         tail = history[-50:]
         RESULT.update(before=before, after=after, train_tail=(sum(tail) / len(tail)) if tail else None,
                       tokens=sum(b.numel() for b in held))
@@ -86,6 +118,14 @@ def report_lines() -> list[str]:
         return []
     lines = [f"📏 على نص لم يُدرَّب عليه: قبل {RESULT['before']:.3f} → بعد {RESULT['after']:.3f} "
              f"({RESULT['after'] - RESULT['before']:+.3f})"]
+    g = RESULT.get("guard")
+    if g:
+        if g["restored"]:
+            where = f"بعد {g['best_at']} دفعة" if g["best_at"] else "أوزان بداية الجلسة"
+            lines.append(f"🛡 الحارس: نهاية الجلسة كانت أسوأ على النص غير المرئي ({g['final']:.3f}) فاستُعيدت أفضل أوزان وُجدت ({where}، {g['best']:.3f}) "
+                         "ولم تُنشر الأوزان الأسوأ.")
+        else:
+            lines.append(f"🛡 الحارس: نهاية الجلسة هي الأفضل أو ضمن الهامش (أفضل {g['best']:.3f}) — لا استعادة.")
     tail = RESULT.get("train_tail")
     if tail is not None:
         lines.append(f"خسارة التدريب في آخر 50 خطوة: {tail:.3f}")
@@ -131,6 +171,36 @@ if __name__ == "__main__":
     assert {_key(b) for b in windows[HOLDOUT_BATCHES:]} <= set(seen), "the rest must still be trained on"
     assert RESULT["before"] > 0 and "after" in RESULT
     assert any("نص لم يُدرَّب" in l for l in report_lines())
+    # the guard: a session whose training RUINS the held-out loss ends on the best weights, not the last
+    torch.manual_seed(1)
+    m2 = ShamSmall(cfg_m)
+    w2 = [torch.randint(0, 500, (2, 16)) for _ in range(40)]
+    T.train = original_train = None
+    import importlib
+    importlib.reload(T)
+
+    def ruin(model_, batches_, cfg_, *a, **k):          # a "training" that destroys the model after a few steps
+        for i, _b in enumerate(batches_):
+            if i == 60:
+                with torch.no_grad():
+                    for p_ in model_.parameters():
+                        p_.add_(torch.randn_like(p_) * 0.5)
+            if i >= 80:
+                break
+        return [1.0] * 80
+
+    T.train = ruin
+    install()
+    os.environ["SHAM_EVAL_EVERY"] = "10"
+    ref_before = {k: v.clone() for k, v in m2.state_dict().items()}
+    RESULT.clear()
+    T.train(m2, iter(w2 * 4), T.TrainConfig(seq_len=16, batch_size=2, total_steps=80, warmup_steps=1), device="cpu")
+    g = RESULT["guard"]
+    assert g["restored"], g
+    assert all(torch.equal(v, m2.state_dict()[k]) for k, v in ref_before.items()), "the starting weights must come back"
+    assert any("الحارس" in l and "استُعيدت" in l for l in report_lines())
+    # and a normal improving session is left alone
+    os.environ.pop("SHAM_EVAL_EVERY", None)
     # tuple batches (chat / stage 2): untouched
     calls = []
     T.train = lambda m, b, c, *a, **k: calls.append(list(b)) or []

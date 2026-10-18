@@ -1,0 +1,69 @@
+name: Sham runtime creds (private Kaggle dataset for API-pushed runs)
+
+# كاكل يرفض الأسرار (HTTP 400) في النسخ التي يدفعها المراقب آلياً، فتقرأ الدفاتر
+# kaggle.json من مجموعة بيانات خاصة اسمها sham-runtime-creds بدلاً منها.
+# ينشئها هذا المسار (أو يحدّثها) من سرّ المستودع KAGGLE_API_TOKEN، خاصة دائماً، ولا يطبع المفتاح.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  creds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -q kaggle
+      - name: Create or update the private dataset
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          raw = (os.environ.get("KAGGLE_API_TOKEN") or "").strip()
+          if not raw:
+              sys.exit("KAGGLE_API_TOKEN is empty")
+          user = os.environ["KAGGLE_USERNAME"]
+          try:
+              d = json.loads(raw)
+              user, key = d.get("username") or user, d["key"]
+          except Exception:
+              key = raw.split(":", 1)[1] if ":" in raw and not raw.startswith("KGAT_") else raw
+              if ":" in raw and not raw.startswith("KGAT_"):
+                  user = raw.split(":", 1)[0] or user
+          print(f"::add-mask::{key}")
+          print("token format:", "KGAT access token" if key.startswith("KGAT_") else "legacy key")
+          slug = f"{user}/sham-runtime-creds"
+          out = pathlib.Path(os.environ["RUNNER_TEMP"]) / "creds"
+          out.mkdir(parents=True, exist_ok=True)
+          (out / "kaggle.json").write_text(json.dumps({"username": user, "key": key}))
+          (out / "dataset-metadata.json").write_text(json.dumps(
+              {"title": "sham-runtime-creds", "id": slug, "licenses": [{"name": "unknown"}]}))
+          def run(args):
+              r = subprocess.run(args, capture_output=True, text=True)
+              print(((r.stdout or "") + (r.stderr or "")).replace(key, "***")[-1500:])
+              return r.returncode
+          exists = run(["kaggle", "datasets", "status", slug]) == 0
+          if exists:
+              rc = run(["kaggle", "datasets", "version", "-p", str(out), "-m", "refresh"])
+          else:
+              rc = run(["kaggle", "datasets", "create", "-p", str(out)])  # private by default (no --public)
+          (out / "kaggle.json").unlink()
+          if rc:
+              sys.exit(rc)
+          meta = pathlib.Path(os.environ["RUNNER_TEMP"]) / "meta"
+          meta.mkdir(exist_ok=True)
+          run(["kaggle", "datasets", "metadata", "-p", str(meta), slug])
+          try:
+              m = json.loads((meta / "dataset-metadata.json").read_text())
+              print("isPrivate:", m.get("isPrivate"))
+          except Exception:
+              pass
+          print("ready:", slug)
+          PY

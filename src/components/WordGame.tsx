@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ShareCard from "@/components/ShareCard";
 import {
   MAX_GUESSES,
   WORD_LEN,
@@ -173,14 +174,15 @@ export default function WordGame({ answer, dayIndex, siteUrl }: { answer: string
 
   const filledRows = [...rows];
   const displayRows: (string | null)[][] = [];
-  for (let i = 0; i < MAX_GUESSES; i++) {
+  const visible = Math.min(MAX_GUESSES, guesses.length + (done ? 0 : 1));
+  for (let i = 0; i < visible; i++) {
     if (i < guesses.length) displayRows.push([...guesses[i]]);
-    else if (i === guesses.length) displayRows.push(Array.from({ length: WORD_LEN }, (_, j) => current[j] ?? null));
-    else displayRows.push(Array(WORD_LEN).fill(null));
+    else displayRows.push(Array.from({ length: WORD_LEN }, (_, j) => current[j] ?? null));
   }
 
   return (
     <div className="flex flex-col items-center gap-4" dir="rtl">
+      <p className="text-xs font-bold text-slate-500">{guesses.length}/{MAX_GUESSES}</p>
       <div className="flex flex-col gap-1.5">
         {displayRows.map((row, i) => (
           <div key={i} className={`flex gap-1.5 ${i === guesses.length && shake ? "animate-[shake_0.4s]" : ""}`}>
@@ -216,6 +218,7 @@ export default function WordGame({ answer, dayIndex, siteUrl }: { answer: string
               لعبت {stats.played} · فزت {stats.won} · سلسلة حالية {stats.streak} · أفضل سلسلة {stats.maxStreak}
             </p>
           )}
+          <ShareCard kicker="تحدي اليوم" title={won ? "حللت اللغز" : "لم تكتمل المحاولة"} lines={[{ label: "المحاولات", value: String(guesses.length) }, { label: "السلسلة", value: String(stats?.streak || 0) }]} path="/guess-word" />
           <button type="button" onClick={share} className="mt-3 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700">
             {copied ? "✓ نُسخت النتيجة" : "📤 شارك نتيجتك"}
           </button>

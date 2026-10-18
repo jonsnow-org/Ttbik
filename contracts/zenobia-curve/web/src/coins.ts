@@ -17,7 +17,7 @@ let filter: 'all' | 'curve' | 'grad' | 'watch' = 'all';
 let watched = watch();
 
 const admin = location.hash === '#admin';
-const ui = new TonConnectUI({ manifestUrl: 'https://ttbik.vercel.app/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
+const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
 let proofReq: any = null;
 let hidden = new Set<string>();
 let coins: Coin[] = [];

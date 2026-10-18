@@ -366,3 +366,20 @@ describe("Caravan Board", () => {
     expect(buildBoard([]).entries).toEqual([]);
   });
 });
+
+describe("ZNB watch message", () => {
+  const { watchMessage } = require("../zenobiaWatch");
+  const base = { holders: 2, supply: "8381617588697515", owners: ["0:aaa", "0:bbb"] };
+  it("says nothing on the first look or when nothing changed", () => {
+    expect(watchMessage(null, base, 9, "L")).toBeNull();
+    expect(watchMessage(base, { ...base }, 9, "L")).toBeNull();
+  });
+  it("tells a buy and a new holder", () => {
+    const m = watchMessage(base, { holders: 3, supply: "9381617588697515", owners: ["0:aaa", "0:bbb", "0:ccc111122223333"] }, 9, "LINK")!;
+    expect(m).toContain("شراء"); expect(m).toContain("+1,000,000"); expect(m).toContain("2 ← 3"); expect(m).toContain("حامل جديد"); expect(m).toContain("LINK");
+  });
+  it("tells a sell", () => {
+    const m = watchMessage(base, { ...base, supply: "8281617588697515" }, 9, "L")!;
+    expect(m).toContain("بيع"); expect(m).toContain("-100,000");
+  });
+});

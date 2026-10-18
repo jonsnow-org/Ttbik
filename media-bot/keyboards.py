@@ -1,5 +1,6 @@
 """Telegram keyboards — Owner Panel vs User Panel."""
 
+import os
 from telegram import (
     ReplyKeyboardMarkup,
     KeyboardButton,
@@ -10,7 +11,7 @@ from telegram import (
     MenuButtonDefault,
 )
 
-MINI_APP_URL = "https://ttbik.vercel.app/mini-app"
+MINI_APP_URL = os.getenv("MINI_APP_URL") or "https://ttbik.vercel.app/mini-app"   # the gate's address after the move (docs/HOSTING.md)
 
 INFO_TEXT = (
     "ℹ️ طريقة الاستخدام\n\n"

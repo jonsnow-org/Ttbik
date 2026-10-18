@@ -1,0 +1,13 @@
+{
+  // The gate (see worker.js and docs/HOSTING.md). Deployed by the same Cloudflare Workers Builds run that deploys athar-meta:
+  // athar-front/wrangler.jsonc runs `wrangler deploy -c ../site-gate/wrangler.jsonc` as a non-fatal build step, so a merge to main updates both.
+  "name": "ttbik-gate",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "kv_namespaces": [{ "binding": "GATE", "id": "8e190df2c9184c9cb94aab2f55724503" }],
+  "vars": {
+    "PRIMARY_ORIGIN": "https://89-168-89-15.sslip.io",
+    "SECONDARY_ORIGIN": "https://ttbik.vercel.app"
+  }
+}

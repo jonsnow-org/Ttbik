@@ -32,7 +32,9 @@ export function PackagesScreen() {
   const [copied, setCopied] = useState(false)
 
   const wallet =
-    channel === 'payeer' ? settings.payeerWallet : `${settings.cryptoUsdt}\nBTC: ${settings.cryptoBtc}`
+    channel === 'payeer'
+      ? settings.payeerWallet
+      : [settings.cryptoUsdt, settings.cryptoBtc ? `BTC: ${settings.cryptoBtc}` : ''].filter(Boolean).join('\n')
 
   const copyWallet = async () => {
     try {
@@ -155,16 +157,19 @@ export function PackagesScreen() {
                 ) : null}
               </div>
               <div className="rounded-xl bg-[var(--color-surface-2)] p-3 text-sm break-all border border-[var(--color-border)]">
-                <div className="whitespace-pre-wrap font-mono text-xs">{wallet}</div>
-                <button type="button" className="btn btn-secondary mt-2 !min-h-9 !text-xs" onClick={copyWallet}>
-                  {copied ? t(locale, 'copied') : t(locale, 'copy')}
-                </button>
+                {/* No built-in demo address: until the admin sets a real one nothing is shown to pay to. */}
+                <div className="whitespace-pre-wrap font-mono text-xs">{wallet || '—'}</div>
+                {wallet ? (
+                  <button type="button" className="btn btn-secondary mt-2 !min-h-9 !text-xs" onClick={copyWallet}>
+                    {copied ? t(locale, 'copied') : t(locale, 'copy')}
+                  </button>
+                ) : null}
               </div>
               <label className="block">
                 <span className="label">{t(locale, 'reference')}</span>
                 <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} />
               </label>
-              <button type="button" className="btn btn-primary w-full" onClick={send} disabled={!reference.trim()}>
+              <button type="button" className="btn btn-primary w-full" onClick={send} disabled={!reference.trim() || !wallet}>
                 {t(locale, 'submit_payment')}
               </button>
             </>

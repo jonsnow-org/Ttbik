@@ -4,5 +4,8 @@
   "name": "athar-meta",
   "main": "../athar-front-worker.js",
   "compatibility_date": "2026-10-01",
-  "workers_dev": true
+  "workers_dev": true,
+  // Also publishes the site gate (../site-gate) from this same run, because that is the only deploy pipeline connected to the account.
+  // It can never block or change Athar's own deploy: time-limited, and any failure is swallowed.
+  "build": { "command": "CI=true timeout 240 npx wrangler deploy -c ../site-gate/wrangler.jsonc || echo 'site-gate deploy skipped'" }
 }

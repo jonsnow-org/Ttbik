@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 
@@ -7,12 +8,16 @@ function expectedPassword(): string {
   return (process.env.ADMIN_PASSWORD || "").trim();
 }
 
-/** Server component usage — reads the same cookie the /admin dashboard sets. */
-export async function isOwnerServer(): Promise<boolean> {
+/**
+ * Server component usage — reads the same cookie the /admin dashboard sets.
+ * Wrapped in React cache() so multiple AdSlot/layout calls in one request
+ * share a single cookies() read (avoids N+1 owner checks per page).
+ */
+export const isOwnerServer = cache(async (): Promise<boolean> => {
   const value = (await cookies()).get(COOKIE_NAME)?.value;
   const expected = expectedPassword();
   return !!value && !!expected && value === expected;
-}
+});
 
 /** Route handler usage — reads the cookie straight off the request. */
 export function isOwnerRequest(req: NextRequest): boolean {

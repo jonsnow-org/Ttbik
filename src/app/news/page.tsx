@@ -1,24 +1,26 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
+import EditorialHubNav from "@/components/editorial/EditorialHubNav";
 import { latestNewsItem } from "@/lib/newsItems";
-import { LIVE_DESKS, isMajorStory, liveEmbedSrc } from "@/lib/newsLive";
+import { LIVE_DESKS, isMajorStory } from "@/lib/newsLive";
 import { clusterHeadlines, coverFor, fetchAllNews, interleaveNews, type NewsCluster, type RssItem } from "@/lib/newsRss";
 import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 const PATH = "/news";
 
-export const revalidate = 600;
+/** شريط عاجل — تحديث أسرع من 10 دقائق السابقة */
+export const revalidate = 120;
 
 export const metadata: Metadata = {
-  title: "أخبار وأحداث | سوق تولز",
+  title: "أخبار وأحداث",
   description:
     "شريط عاجل من مصادر عربية موثوقة، بطاقات بصور، وبث رسمي للأحداث الكبرى. لا نسخ للمقالات.",
-  keywords: ["أخبار عربية", "خبر اليوم", "سوق تولز", "بث مباشر"],
+  keywords: ["أخبار عربية", "خبر اليوم", "شام AI", "بث مباشر"],
   alternates: { canonical: `${SITE}${PATH}` },
   openGraph: {
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل بصور وبث رسمي للأحداث الكبرى.",
     url: `${SITE}${PATH}`,
     locale: "ar_AR",
@@ -27,7 +29,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "أخبار وأحداث | سوق تولز",
+    title: "أخبار وأحداث | شام AI",
     description: "شريط عاجل بصور وبث رسمي.",
     images: [`${SITE}/og/news.jpg`],
   },
@@ -43,7 +45,13 @@ const BREADCRUMB = {
 };
 
 export default async function NewsHubPage() {
-  const all = await fetchAllNews();
+  let all: RssItem[] = [];
+  try {
+    all = await fetchAllNews();
+  } catch {
+    // allSettled normally prevents throws; keep hub renderable if something else fails.
+    all = [];
+  }
   const ticker = interleaveNews(all, 12);
   const stories = clusterHeadlines(all).slice(0, 6);
   const now = Date.now();
@@ -70,36 +78,38 @@ export default async function NewsHubPage() {
           </ol>
         </nav>
 
+        <EditorialHubNav active="news" />
+
         <h1 className="mb-2 text-2xl font-extrabold text-slate-900">مركز الأخبار</h1>
         <p className="mb-6 text-sm leading-7 text-slate-600">
-          العناوين من الموجزات الرسمية كل عشر دقائق. الصورة من المصدر إن وُجدت، وإلا غلاف ثابت للبطاقة. الرابط يفتح المقال الأصلي. لا نسخ للمقالات.
+          العناوين من الموجزات الرسمية. الصورة من المصدر إن وُجدت، وإلا غلاف ثابت للبطاقة. الرابط يفتح المقال الأصلي. لا نسخ للمقالات.
         </p>
 
         <section className="mb-8" aria-labelledby="live-desk">
           <h2 id="live-desk" className="mb-1 text-lg font-extrabold text-slate-900">
-            بث الأحداث الكبرى
+            البث المباشر للأحداث الكبرى
           </h2>
           <p className="mb-3 text-xs leading-6 text-slate-500">
-            بث القناة الرسمي على يوتيوب. ليس إعادة بث من سوق تولز. إن لم تكن القناة على الهواء الآن يظهر آخر بث متاح.
+            روابط البث الرسمي للقنوات على يوتيوب (تُفتح في صفحة القناة نفسها، وليس إعادة بث من شام AI). العناوين أدناه تتحدث تلقائياً.
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-wrap gap-2">
             {LIVE_DESKS.map((desk) => (
-              <figure key={desk.channelId} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950">
-                <div className="aspect-video w-full">
-                  <iframe
-                    title={`بث ${desk.name}`}
-                    src={liveEmbedSrc(desk)}
-                    className="h-full w-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    loading="lazy"
-                  />
-                </div>
-                <figcaption className="px-3 py-2 text-xs font-bold text-white">مباشر · {desk.name}</figcaption>
-              </figure>
+              <a
+                key={desk.channelId}
+                href={`https://www.youtube.com/channel/${desk.channelId}/live`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full bg-red-600 px-4 py-2 text-xs font-extrabold text-white hover:bg-red-500"
+              >
+                ▶ مباشر · {desk.name}
+              </a>
             ))}
           </div>
         </section>
+
+        <div className="mb-8">
+          <AdSlot position="in-content" label="بعد قسم البث المباشر" />
+        </div>
 
         {stories.length > 0 && (
           <section className="mb-8" aria-labelledby="top-stories">
@@ -163,9 +173,9 @@ export default async function NewsHubPage() {
           {" · "}
           <Link href="/events" className="font-bold text-indigo-800 hover:underline">الأحداث ←</Link>
           {" · "}
-          <Link href="/bots" className="font-bold text-indigo-800 hover:underline">أدوات البوتات ←</Link>
+          <Link href="/articles" className="font-bold text-indigo-800 hover:underline">المقالات ←</Link>
         </p>
-        <AdSlot position="in-content" label="أسفل مركز الأخبار" />
+        <AdSlot position="footer-banner" label="أسفل مركز الأخبار" />
       </main>
     </>
   );

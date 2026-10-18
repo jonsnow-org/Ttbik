@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import TextAnalyzer from "./TextAnalyzer";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "محلل النصوص الذكي مجاناً | شام AI",
   description: "لخّص تقاريرك الطويلة، أو حلّل آراء عملائك بالجملة مع رد مقترح جاهز لكل واحد — بالذكاء الاصطناعي، مجاناً.",
 };
 
-export default function TextAnalyzerPage() {
+function TextAnalyzerPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -25,5 +26,14 @@ export default function TextAnalyzerPage() {
         <AdSlot position="in-content" label="أسفل محلل النصوص" />
       </div>
     </div>
+  );
+}
+
+export default function TextAnalyzerPage() {
+  return (
+    <>
+      <TextAnalyzerPageBody />
+      <ToolSeoSection slug="text-analyzer" />
+    </>
   );
 }

@@ -7,6 +7,9 @@ import { SITE_URL } from "@/lib/siteUrl";
 
 const SITE = SITE_URL;
 
+/** ISR — static editorial body; refresh periodically */
+export const revalidate = 3600;
+
 export function generateStaticParams() {
   return ARTICLE_ITEMS.map((a) => ({ slug: a.slug }));
 }
@@ -16,7 +19,7 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   const a = getArticle(params.slug);
   if (!a) return { title: "مقال" };
   return {
-    title: `${a.title} | شام AI`,
+    title: a.title,
     description: a.description,
     alternates: { canonical: `${SITE}/articles/${a.slug}` },
     openGraph: {

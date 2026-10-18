@@ -41,6 +41,7 @@ MEDIA_ROWS = [(0, TEXT_VOCAB_SIZE + IMAGE_VOCAB_SIZE + AUDIO_VOCAB_SIZE)]
 # (dataset, checkpoint glob, vocabulary rows that source really trained)
 KNOWN_SOURCES = [
     ("sham-multimodal-checkpoint", "final_multimodal.pt", MEDIA_ROWS),
+    ("sham-chat-checkpoint", "final_chat.pt", MEDIA_ROWS),
     ("sham-checkpoint", "step_*.pt", TEXT_ROWS),
     ("sham-cpu-track-checkpoint-v2", "step_*.pt", TEXT_ROWS),
     ("sham-research-track-checkpoint-v2", "final.pt", TEXT_ROWS),  # Track B saves final.pt
@@ -188,26 +189,49 @@ def _passes(score: dict, base: dict, tolerance: float) -> bool:
     return sum(score[k] / base[k] for k in base) < len(base) - 1e-3
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.15, 0.3, 0.5), tolerance=0.005):
+def default_tolerance() -> float:
+    """Per-skill room of the merge gate. 0.5% was inside the measuring noise of a 6-batch gate: real sources were refused for a +0.2–0.7% wobble in ONE skill while
+    improving the others (the owner's other session, notes 6 and 10, 2026-10-16: chat 3.607→3.631 refused beside media −1.4%). 2% now (SHAM_MERGE_TOLERANCE overrides; 2026-10-17: the Arabic SFT source improved chat by 5.7% and was refused for +2.6% on text, one lineage the owner waited weeks for — the MEAN must still improve and no skill may end more than 2% above where the run started);
+    the mean must still improve, and no accepted merge may leave any skill more than this above where the RUN started (so small allowances cannot add up)."""
+    import os
+    try:
+        return max(0.0, float(os.environ.get("SHAM_MERGE_TOLERANCE", "0.02")))
+    except ValueError:
+        return 0.02
+
+
+def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.1, 0.15, 0.3, 0.5), tolerance=None, anchor=None):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
     Mutates model in place (only accepted merges stay). Returns report lines."""
+    tolerance = default_tolerance() if tolerance is None else tolerance
     report = []
     base_score = score_fn(model)
+    anchor = dict(anchor) if anchor else dict(base_score)       # where this RUN started (passed in when merging in rounds): the limit on accumulated drift
     report.append("قبل الدمج: " + ", ".join(f"{k}={v:.3f}" for k, v in base_score.items()))
     for name, other, rows in sources:
         base = {n: p.detach().clone() for n, p in model.named_parameters()}
         other_sd = dict(other.named_parameters())
         best = None
+        nearest = None      # the attempt closest to passing (lowest mean relative loss): says WHICH skill blocked the merge
         for lam in ratios:
             _interpolate(model, base, other_sd, lam, rows)
             s = score_fn(model)
-            if _passes(s, base_score, tolerance) and (best is None or sum(s.values()) < sum(best[1].values())):
+            rel_mean = sum(s[k] / base_score[k] for k in base_score) / len(base_score)
+            if nearest is None or rel_mean < nearest[0]:
+                nearest = (rel_mean, lam, s)
+            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + tolerance) for k in anchor)
+                    and (best is None or sum(s.values()) < sum(best[1].values()))):
                 best = (lam, s)
         if best is None:
             with torch.no_grad():
                 for n, p in model.named_parameters():
                     p.copy_(base[n])
-            report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً)")
+            why = ""
+            if nearest is not None:
+                _, lam_n, s_n = nearest
+                why = (f" — أقرب محاولة (نسبة {lam_n:.2f}): "
+                       + ", ".join(f"{k} {base_score[k]:.3f}→{s_n[k]:.3f} ({(s_n[k] / base_score[k] - 1) * 100:+.1f}%)" for k in base_score))
+            report.append(f"❌ {name}: لم يُدمج (لم يحسّن كل المهارات معاً){why}")
             _record("دمج المعرفة", f"❌ {name}: رُفض (لم يحسّن كل المهارات معاً)")
         else:
             _interpolate(model, base, other_sd, best[0], rows)

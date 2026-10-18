@@ -98,6 +98,93 @@ def format_cycle_report(
     return "\n".join(lines)
 
 
+# --- Additive fallback (2026-10-16). Revert with SHAM_CRAWL_FALLBACK=0. ---------
+_DEFAULT_FALLBACK_DIRS = "/kaggle/working/corpus/wikipedia_ar:/kaggle/working/corpus"
+
+
+def _seed_rotation_enabled() -> bool:
+    import os
+    return os.environ.get("SHAM_SEED_ROTATION", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _crawl_seed_rotation(stats: CrawlStats, search_fn, fetch_fn, corpus, perplexity_filter) -> CrawlStats:
+    """Additive (2026-10-16): the normal crawl added nothing, so try more search
+    topics, then rotating verified seed URLs (sham_seed_sources). Still goes
+    through fetch_fn (real_fetch checks robots.txt on every URL)."""
+    import dataclasses
+    import sham_seed_sources as seeds
+    _crawl_seed_rotation.calls = getattr(_crawl_seed_rotation, "calls", 0) + 1
+    c = _crawl_seed_rotation.calls
+    seed_list = seeds.seed_urls_for_cycle(c)
+    rounds = [
+        ({"ar": seeds.extra_topics_for_cycle(c)}, search_fn, 3),
+        ({"ar": ["__seed__"]}, (lambda _q, _l: list(seed_list)), len(seed_list)),
+    ]
+    for topics, sfn, pages in rounds:
+        try:
+            extra = crawl_and_learn(topics, sfn, fetch_fn, corpus,
+                                    perplexity_filter=perplexity_filter, max_pages_per_topic=pages)
+        except Exception as exc:  # never let the extra round break the cycle
+            logger.info("seed rotation round failed: %s", exc)
+            continue
+        for f in dataclasses.fields(stats):
+            v = getattr(stats, f.name)
+            if isinstance(v, int):
+                setattr(stats, f.name, v + getattr(extra, f.name))
+            elif isinstance(v, list):
+                v.extend(getattr(extra, f.name))
+        if stats.added:
+            break
+    print(f"seed rotation: crawl had added 0 -> extra topics/seeds added {stats.added} (disable with SHAM_SEED_ROTATION=0)")
+    return stats
+
+
+def _crawl_fallback_enabled() -> bool:
+    import os
+    return os.environ.get("SHAM_CRAWL_FALLBACK", "0").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _fallback_text_paths(corpus_paths: list) -> list:
+    """Existing text to train on when a cycle's crawl added nothing: local
+    text shards (e.g. the Arabic Wikipedia stream the notebook already
+    wrote) first, then the existing crawl corpus. Rotates the start
+    position each call so repeated fallback cycles don't always begin
+    with the same file."""
+    import os
+    dirs = os.environ.get("SHAM_FALLBACK_TEXT_DIRS", _DEFAULT_FALLBACK_DIRS)
+    paths: list = []
+    seen: set = set()
+    for d in [x for x in dirs.split(":") if x.strip()]:
+        root = Path(d)
+        if root.is_dir():
+            for p in sorted(root.rglob("*.txt")):
+                key = str(p)
+                if key not in seen and p.stat().st_size > 0:
+                    seen.add(key)
+                    paths.append(p)
+    for p in corpus_paths:
+        if str(p) not in seen:
+            seen.add(str(p))
+            paths.append(p)
+    if not paths:
+        return []
+    _fallback_text_paths.calls = getattr(_fallback_text_paths, "calls", 0) + 1
+    k = (_fallback_text_paths.calls - 1) % len(paths)
+    return paths[k:] + paths[:k]
+
+
+def _fallback_train_cfg(train_cfg: StreamTrainConfig) -> StreamTrainConfig:
+    """Same config, only the per-cycle step cap is bounded so one fallback
+    cycle can't overrun the session (SHAM_FALLBACK_MAX_STEPS, default 150)."""
+    import dataclasses
+    import os
+    try:
+        cap = max(1, int(os.environ.get("SHAM_FALLBACK_MAX_STEPS", "150")))
+    except ValueError:
+        cap = 150
+    return dataclasses.replace(train_cfg, total_steps=min(train_cfg.total_steps, cap))
+
+
 def run_autonomous_cycle(
     model: ShamSmall,
     tokenizer: ShamTextTokenizer,
@@ -126,6 +213,8 @@ def run_autonomous_cycle(
         perplexity_filter=perplexity_filter,
         max_pages_per_topic=max_pages_per_topic,
     )
+    if crawl_stats.added == 0 and _seed_rotation_enabled():
+        crawl_stats = _crawl_seed_rotation(crawl_stats, search_fn, fetch_fn, corpus, perplexity_filter)
     logger.info(
         "autonomous cycle: crawl done -- added=%d duplicate=%d near_duplicate=%d "
         "not_learnable=%d fetch_failed=%d",
@@ -138,6 +227,18 @@ def run_autonomous_cycle(
     # memory), so retraining on all of it every cycle would repeat the same
     # documents over and over -- train only on what this cycle added.
     file_paths = [p for p in all_paths if p not in files_before] if train_on_new_only else all_paths
+    fallback_cfg = None
+    if not file_paths and train_on_new_only and _crawl_fallback_enabled():
+        # 2026-10-16 (additive): a cycle whose crawl added nothing used to train 0
+        # steps, so a whole session could freeze the step counter. Fall back to text
+        # already on disk (existing corpus + local text shards), capped in steps.
+        file_paths = _fallback_text_paths(all_paths)
+        if file_paths:
+            fallback_cfg = _fallback_train_cfg(train_cfg)
+            logger.info("autonomous cycle: crawl added nothing -- fallback training on %d existing "
+                        "text files (max %d steps).", len(file_paths), fallback_cfg.total_steps)
+            print(f"fallback: crawl added 0 -> training on {len(file_paths)} existing text file(s), "
+                  f"max {fallback_cfg.total_steps} steps (disable with SHAM_CRAWL_FALLBACK=0)")
     if not file_paths:
         logger.info("autonomous cycle: corpus is empty -- nothing to train on this cycle.")
         return CycleResult(crawl_stats=crawl_stats, train_losses=[], total_documents_in_corpus=len(all_paths))
@@ -149,7 +250,7 @@ def run_autonomous_cycle(
                 yield text
 
     logger.info("autonomous cycle: training on %d real corpus documents...", len(file_paths))
-    losses = train_from_stream(model, _corpus_text_stream(), tokenizer, train_cfg, device=device)
+    losses = train_from_stream(model, _corpus_text_stream(), tokenizer, fallback_cfg or train_cfg, device=device)
     logger.info("autonomous cycle: training done -- %d real steps, final loss=%.4f",
                 len(losses), losses[-1] if losses else float("nan"))
 
@@ -201,6 +302,8 @@ def run_forever(
 
 
 if __name__ == "__main__":
+    import os as _os
+    _os.environ.setdefault("SHAM_SEED_ROTATION", "0")  # self-test uses fake fetchers; real seed URLs are irrelevant here
     import tempfile
 
     import torch

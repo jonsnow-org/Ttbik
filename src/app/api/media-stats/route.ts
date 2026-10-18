@@ -30,6 +30,7 @@ const ALLOWED = new Set([
   "comment",
   "report",
   "settings",
+  "athar",
 ]);
 
 const g = globalThis as unknown as {

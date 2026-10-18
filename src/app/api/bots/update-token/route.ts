@@ -10,7 +10,17 @@ import { prisma } from "@/lib/prisma";
 //
 // GET exists purely so this can be triggered by opening a link in a phone
 // browser (no way to fire a POST from a tap) — same logic either way.
+// Platform owner only: the caller must present CRON_SECRET (?secret= or Authorization: Bearer). This route used to be open to anyone
+// who knew a bot token + a bot id, and it called setWebhook BEFORE checking that the token was free, so a token that already belongs
+// to another bot could be re-pointed at the wrong bot row (its updates then reached a bot that is not theirs).
+function authorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  return req.nextUrl.searchParams.get("secret") === secret || req.headers.get("authorization") === `Bearer ${secret}`;
+}
+
 export async function GET(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ success: false, error: "unauthorized" }, { status: 401 });
   const newToken = req.nextUrl.searchParams.get("newToken");
   const botId = req.nextUrl.searchParams.get("botId") || undefined;
   const template = req.nextUrl.searchParams.get("template") || undefined;
@@ -18,6 +28,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!authorized(req)) return NextResponse.json({ success: false, error: "unauthorized" }, { status: 401 });
   try {
     const { botId, newToken, template } = await req.json();
     return handleUpdate(newToken, botId, template);
@@ -76,6 +87,15 @@ async function handleUpdate(newToken: string | null | undefined, botId: string |
     const botRow = await prisma.bot.findUnique({ where: { id: targetId } });
     if (!botRow) {
       return NextResponse.json({ success: false, error: "bot not found" }, { status: 404 });
+    }
+
+    // Never re-point a token that another bot row already holds (that would hijack its updates).
+    const holder = await prisma.bot.findUnique({ where: { token: newToken } });
+    if (holder && holder.id !== botRow.id) {
+      return NextResponse.json(
+        { success: false, error: "this token already belongs to another bot row", already_holds_this_token: { id: holder.id, template: holder.template, ownerId: holder.ownerId } },
+        { status: 409 },
+      );
     }
 
     const newBot = new Bot(newToken);

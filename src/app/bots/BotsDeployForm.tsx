@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getCategoryTheme } from "@/lib/categoryTheme";
 import SectionBackdrop from "@/components/SectionBackdrop";
+import { useTemplateReady } from "./useTemplateReady";
 
 const theme = getCategoryTheme("bots");
 
@@ -29,6 +30,8 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
   const [botUsername, setBotUsername] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  const { gatedOption, notReadyHints } = useTemplateReady(isOwner, setTemplate);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -71,18 +74,27 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           activationCode: activationCode || undefined,
           password: password || undefined,
         }),
+        signal: AbortSignal.timeout(45_000),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({ success: false, error: "تعذّر قراءة رد الخادم." }));
       if (data.success) {
         setStatus(`✅ ${data.message}`);
         const match = String(data.message || "").match(/@([A-Za-z0-9_]+)/);
         if (match) setBotUsername(match[1]);
       } else {
-        setStatus(`❌ خطأ: ${data.error}`);
+        let msg = `❌ خطأ: ${data.error || "فشل التفعيل"}`;
+        if (data.migrationFile) {
+          msg += `\n⚠️ شغّل في Supabase SQL Editor: prisma/${data.migrationFile}`;
+        }
+        if (Array.isArray(data.missingTables) && data.missingTables.length) {
+          msg += `\nجداول ناقصة: ${data.missingTables.join(", ")}`;
+        }
+        setStatus(msg);
       }
     } catch (err: any) {
-      setStatus(`❌ فشل الاتصال بالخادم: ${err.message}`);
+      const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+      setStatus(timedOut ? "❌ انتهت مهلة الاتصال بالخادم — حاول مجدداً." : `❌ فشل الاتصال بالخادم: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -115,10 +127,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           <input
             type="text"
             required
+            disabled={loading}
             value={token}
             onChange={(e) => setToken(extractBotToken(e.target.value))}
             placeholder="الصق التوكن أو رسالة BotFather كاملة"
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
           />
         </div>
         <div>
@@ -126,10 +139,11 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           <input
             type="text"
             required
+            disabled={loading}
             value={ownerId}
             onChange={(e) => setOwnerId(e.target.value.replace(/\D/g, ""))}
             placeholder="مثال: 987654321"
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
           />
           <p className="mt-1 text-xs text-gray-500">
             احصل عليه مجاناً من{" "}
@@ -146,20 +160,29 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
           <label className="mb-1 block text-sm font-medium">اختر قالب البوت</label>
           <select
             value={template}
+            disabled={loading}
             onChange={(e) => setTemplate(e.target.value)}
-            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
           >
             <option value="AD_BOT">بوت الإعلانات والمهام</option>
+            {isOwner && <option value="SITE_BANNER_ADMIN">بوت الموقع: البنر والرصيد والتطبيق</option>}
+            {isOwner && <option value="CHANNEL_PUBLISH_BOT">بوت النشر في قناة الموقع</option>}
             {isOwner && <option value="MARRIAGE_BOT">بوت التعارف والزواج الشرعي</option>}
             {isOwner && <option value="JOBS_BOT">بوت فرص العمل والمتجر</option>}
             {isOwner && <option value="MEDICAL_BOT">البوت الطبي (عيادات ومشافي وصيدليات)</option>}
             {isOwner && <option value="NOVA_BOT">Nova AI (مساعد ذكاء اصطناعي مجاني)</option>}
             {isOwner && <option value="CONFESSION_BOT">بوت الاعترافات المجهولة</option>}
             {isOwner && <option value="NAME_COMPAT_BOT">بوت نسبة التوافق بين الأسماء</option>}
-            {isOwner && <option value="QUIZ_BOT">بوت اختبارات الشخصية</option>}
-            {isOwner && <option value="STREAK_BOT">بوت السلاسل اليومية</option>}
-            {isOwner && <option value="PRAYER_BOT">بوت مواقيت الصلاة</option>}
-            {isOwner && <option value="CAPSULE_BOT">بوت كبسولة الزمن</option>}
+            {gatedOption("QUIZ_BOT", "بوت اختبارات الشخصية")}
+            {gatedOption("STREAK_BOT", "بوت السلاسل اليومية")}
+            {gatedOption("PRAYER_BOT", "بوت مواقيت الصلاة")}
+            {gatedOption("CAPSULE_BOT", "بوت كبسولة الزمن")}
+            {isOwner && <option value="HUB_APP_BOT">المنشئ: صانع التطبيقات المصغّرة بالكلام</option>}
+            {isOwner && <option value="HUB_LEGAL_BOT">المنشئ: المساعد القانوني (معلومات عامة)</option>}
+            {isOwner && <option value="HUB_MIND_BOT">المنشئ: الدعم النفسي الأولي</option>}
+            {isOwner && <option value="HUB_DIALECT_BOT">المنشئ: مترجم اللهجات العربية</option>}
+            {isOwner && <option value="HUB_REPURPOSE_BOT">المنشئ: محوّل المحتوى</option>}
+            {isOwner && <option value="HUB_POINTS_BOT">المنشئ: النقاط والمكافآت</option>}
           </select>
           {!isOwner && (
             <p className="mt-2 text-xs text-slate-500">
@@ -170,16 +193,31 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
               .
             </p>
           )}
+          {notReadyHints.length > 0 && (
+            <div className="mt-2 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+              <p className="font-bold">قوالب مخفية لأن جداولها غير موجودة بعد — شغّل SQL في Supabase:</p>
+              <ul className="list-inside list-disc">
+                {notReadyHints.map((h) => (
+                  <li key={h.id}>
+                    {h.label}: <code className="font-mono">prisma/{h.file}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-        {template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" ? (
+        {template === "SITE_BANNER_ADMIN" || template === "CHANNEL_PUBLISH_BOT" ? (
+          <p className="text-xs text-slate-500">قالب المالك. يُفعّل بمعرف 420066855 بلا كود تفعيل.</p>
+        ) : template === "MARRIAGE_BOT" || template === "JOBS_BOT" || template === "MEDICAL_BOT" || template === "NOVA_BOT" || template === "CONFESSION_BOT" || template === "NAME_COMPAT_BOT" || template === "QUIZ_BOT" || template === "STREAK_BOT" || template === "PRAYER_BOT" || template === "CAPSULE_BOT" || template.startsWith("HUB_") ? (
           <div>
             <label className="mb-1 block text-sm font-medium">كلمة السر</label>
             <input
               type="password"
               required
+              disabled={loading}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />
           </div>
         ) : (
@@ -188,20 +226,21 @@ export default function BotsDeployForm({ isOwner, adSlot }: { isOwner: boolean; 
             <input
               type="text"
               required
+              disabled={loading}
               value={activationCode}
               onChange={(e) => setActivationCode(e.target.value.toUpperCase())}
               placeholder="احصل عليه من داخل أي بوت على المنصة عبر زر «أريد بوتاً مماثلاً»"
-              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-xl border border-slate-300 bg-white p-2.5 font-mono text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-60"
             />
           </div>
         )}
-        <button type="submit" disabled={loading} className={`w-full rounded-xl py-2.5 font-bold text-white shadow-sm transition disabled:opacity-50 ${theme.button}`}>
+        <button type="submit" disabled={loading} aria-busy={loading} className={`w-full rounded-xl py-2.5 font-bold text-white shadow-sm transition disabled:opacity-50 ${theme.button}`}>
           {loading ? "جاري ربط وتفعيل البوت..." : "تفعيل البوت على تلجرام فوراً"}
         </button>
       </form>
       {status && (
         <div className="mt-4 space-y-3">
-          <div className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{status}</div>
+          <div role="status" aria-live="polite" className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">{status}</div>
           {botUsername && (
             <div className="flex flex-col gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 sm:flex-row sm:items-center sm:justify-between">
               <a

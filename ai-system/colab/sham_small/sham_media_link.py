@@ -20,6 +20,7 @@ the chat stage so every later change lands here, not in notebook cells.
 
 from __future__ import annotations
 
+import os
 import hashlib
 import math
 from pathlib import Path
@@ -85,7 +86,7 @@ def confirm_saved_tokenizers(image_tok, audio_tok, checkpoint_dir) -> bool:
 
 # ---------------------------------------------------------------- 3) fixed yardstick
 
-def collect_fixed_pairs(kinds, ledgers: dict, workdir="/kaggle/working/fixed_pairs", image_size: int = 256):
+def collect_fixed_pairs(kinds, ledgers: dict, workdir=os.environ.get("SHAM_LIVE_WORK", "/kaggle/working") + "/fixed_pairs", image_size: int = 256):
     """Collects the SAME first FIXED_PAIRS pairs of each modality every run
     (a fresh, empty ledger always starts at the first source's beginning),
     then merges their fingerprints and positions into the training ledgers so
@@ -114,11 +115,14 @@ def _pairs(kind, manifest, tokenizer, media_tok):
         ds = ImageCaptionDataset(manifest, image_size=media_tok.cfg.image_size)
         encode = MultimodalCollator(tokenizer, media_tok).encode_batch_images
     else:
-        ds = AudioTranscriptDataset(manifest, n_mels=media_tok.cfg.n_mels, segment_frames=media_tok.cfg.segment_frames)
+        ds = AudioTranscriptDataset(manifest, n_mels=media_tok.cfg.n_mels, segment_frames=media_tok.cfg.segment_frames, max_segments=4)
         encode = AudioMultimodalCollator(tokenizer, media_tok).encode_batch_audio
     items = [ds[i] for i in range(len(ds))]
     with torch.no_grad():
-        media = encode(items).tolist() if items else []
+        encoded = encode(items) if items else []
+        # audio clips of several segments come back as a LIST of id tensors (one per clip), a single-segment batch as one tensor:
+        # `.tolist()` on the list stopped the all-in-one notebook's link-measuring cell (2026-10-13)
+        media = [m.tolist() if hasattr(m, "tolist") else list(m) for m in encoded] if isinstance(encoded, (list, tuple)) else encoded.tolist()
     return [(c, tokenizer.encode(c), m) for (c, _), m in zip(items, media)]
 
 
@@ -201,7 +205,7 @@ TEXT_SHARE = 0.5          # one text-rehearsal batch per two media batches (was 
 
 
 def session_batches(media_batches: list, tokenizer, seq_len: int, batch_size: int, budget: int,
-                    seen_articles: int = 0, workdir: str = "/kaggle/working/replay_text") -> tuple[list, str]:
+                    seen_articles: int = 0, workdir: str = os.environ.get("SHAM_LIVE_WORK", "/kaggle/working") + "/replay_text") -> tuple[list, str]:
     """Media-heavy session list: media batches (×MEDIA_PASSES) interleaved with
     a smaller share of Arabic text rehearsal, cut to the session's budget."""
     from sham_chat import interleave, text_replay_batches

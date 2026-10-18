@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import soundfile as sf
+import numpy as np
 import torch
 from PIL import Image
 
@@ -146,10 +147,14 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
         manifest_path: str,
         n_mels: int,
         segment_frames: int,
+        max_segments: int = 1,
     ):
+        # max_segments=1: the original behaviour (one center-cropped 2.56 s segment per clip). >1 (2026-10-11): every consecutive segment of
+        # the clip up to that many, returned as (K, 1, n_mels, segment_frames) — a clip is no longer cut to 2.56 s
         manifest_dir = Path(manifest_path).parent
         self.n_mels = n_mels
         self.segment_frames = segment_frames
+        self.max_segments = max_segments
         self.entries: list[tuple[Path, str]] = []
         with open(manifest_path, encoding="utf-8") as f:
             for line in f:
@@ -165,9 +170,15 @@ class AudioTranscriptDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx: int) -> tuple[str, torch.Tensor]:
         audio_path, transcript = self.entries[idx]
-        waveform, sample_rate = sf.read(str(audio_path), dtype="float32", always_2d=False)
-        if waveform.ndim > 1:
-            waveform = waveform.mean(axis=1)  # real stereo-to-mono downmix, not just dropping a channel
+        from sham_media_load import load_audio_any   # any format (mp3/m4a/opus too), any rate: mono 16 kHz; unreadable -> a silent segment
+        waveform = load_audio_any(audio_path)
+        sample_rate = 16000
+        if waveform is None:
+            waveform = np.zeros(sample_rate, dtype="float32")
+        if self.max_segments > 1:
+            from mel_spectrogram import waveform_to_mel_segments
+            return transcript, waveform_to_mel_segments(torch.from_numpy(waveform), sample_rate, self.n_mels, self.segment_frames,
+                                                        self.max_segments)
         mel = waveform_to_mel_spectrogram(
             torch.from_numpy(waveform), sample_rate, self.n_mels, self.segment_frames
         )
@@ -289,10 +300,16 @@ class AudioMultimodalCollator:
             + transcript_ids + [SpecialTokens.EOS]
         )
 
-    def encode_batch_audio(self, batch: list[tuple[str, torch.Tensor]]) -> torch.Tensor:
-        mels = torch.stack([mel for _, mel in batch], dim=0)
-        audio_token_grids = self.audio_tokenizer.encode(mels)
-        return audio_token_id_to_vocab_id(audio_token_grids.view(mels.shape[0], -1))
+    def encode_batch_audio(self, batch: list[tuple[str, torch.Tensor]]) -> torch.Tensor | list[torch.Tensor]:
+        if all(mel.dim() == 3 for _, mel in batch):            # one segment per clip (the original shape): a plain tensor
+            mels = torch.stack([mel for _, mel in batch], dim=0)
+            audio_token_grids = self.audio_tokenizer.encode(mels)
+            return audio_token_id_to_vocab_id(audio_token_grids.view(mels.shape[0], -1))
+        out = []                                              # clips of several segments: one flat id list per clip, in time order
+        for _, mel in batch:
+            seg = mel if mel.dim() == 4 else mel.unsqueeze(0)
+            out.append(audio_token_id_to_vocab_id(self.audio_tokenizer.encode(seg).reshape(1, -1))[0])
+        return out
 
     @staticmethod
     def _pad_sequences(sequences: list[list[int]]) -> tuple[torch.Tensor, torch.Tensor]:

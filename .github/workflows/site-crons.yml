@@ -1,0 +1,53 @@
+name: site-crons
+# The daily jobs that Vercel Cron ran (vercel.json), run from here against the site's public address (the gate), so they follow the active server.
+# OFF until the file deploy/hosting/CRONS_ON exists. Switch on in the same change that removes "crons" from vercel.json (docs/HOSTING.md, step 6),
+# otherwise every job would run twice.
+on:
+  schedule:
+    - cron: "0 1 * * *"
+    - cron: "0 10 * * *"
+    - cron: "0 11 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 17 * * *"
+    - cron: "0 2 * * *"
+    - cron: "0 20 * * *"
+    - cron: "0 3 * * *"
+    - cron: "0 4 * * *"
+    - cron: "0 5 * * *"
+    - cron: "0 6 * * *"
+    - cron: "0 7 * * *"
+    - cron: "0 8 * * *"
+    - cron: "0 9 * * *"
+    - cron: "20 6 * * *"
+    - cron: "30 1 * * *"
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "run one job now, e.g. /api/cron/prayer-reminders"
+        required: false
+concurrency:
+  group: site-crons-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            vercel.json
+            scripts/hosting
+            deploy/hosting
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+      - name: is the scheduler switched on here?
+        id: on
+        run: |
+          if [ -f deploy/hosting/CRONS_ON ] || [ -n "${{ github.event.inputs.path }}" ]; then echo "go=1" >> "$GITHUB_OUTPUT"; else echo "go=0" >> "$GITHUB_OUTPUT"; echo "scheduler is off (deploy/hosting/CRONS_ON missing): the jobs still run on Vercel Cron"; fi
+      - name: run the jobs of this schedule
+        if: steps.on.outputs.go == '1'
+        run: |
+          if [ -n "${{ github.event.inputs.path }}" ]; then node scripts/hosting/run-crons.mjs --path "${{ github.event.inputs.path }}"; else node scripts/hosting/run-crons.mjs "${{ github.event.schedule }}"; fi
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

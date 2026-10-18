@@ -1,0 +1,118 @@
+name: Sham ModelScope Studio (host + worker)
+
+# يجسّر بين Kaggle (حيث نقاط حفظ شام) واستوديو ModelScope المجاني (16 جيجا، يعمل دائماً، ولا يصل github.com):
+#  1) ينزّل sham-merged-checkpoint من Kaggle ويرفعه إلى مستودع نموذج خاص في ModelScope — فقط حين يتغيّر (بصمة sha256)
+#  2) ينسخ تطبيق شام (ai-system/modelscope-sham + كود sham_small) إلى مستودع git الخاص بالاستوديو ويدفعه.
+#     تطبيق نوفا القديم يُنقل إلى legacy-nova/ داخل الاستوديو (لا يُحذف).
+# الاستوديو يقرأ المستودع الخاص بمفتاح يضعه المالك مرة واحدة في إعدادات الاستوديو (MODELSCOPE_API_TOKEN) — لا يُكتب في أي كود.
+# الكود الذي يسحبه الاستوديو بنفسه (studio_code/) موقَّع بـ HMAC (codesign.py) ولا يُنفَّذ بدون توقيع صحيح.
+# الأسرار: KAGGLE_API_TOKEN، MODELSCOPE_TOKEN (موجودان)، SHAM_CODE_SIGNING_KEY (اختياري، يقوّي التوقيع).
+
+on:
+  schedule:
+    - cron: "20 2 */2 * *"     # 2026-10-17 (owner): every other day (about 48 h), not after every merge — each sync that changes the Studio's code means a manual redeploy for her
+  workflow_dispatch: {}
+
+concurrency:
+  group: sham-modelscope
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: ${{ vars.SHAM_PAUSE_ALL != '1' && vars.SHAM_PAUSE_MODELSCOPE != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: sham-main
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - run: |
+          pip install kaggle modelscope
+          pip install --index-url https://download.pytorch.org/whl/cpu torch   # reads the image / audio tokenizer files (decoder-refined one is adopted only if its ids are identical)
+          pip install numpy pillow tokenizers
+
+      - name: Download the merged checkpoint from Kaggle
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/ck
+          DS=jonsnowjonsnow/sham-merged-checkpoint
+          # the whole-dataset archive can answer a bare 404 while every file downloads fine one by one (2026-10-11): fall back to file by file
+          if ! kaggle datasets download -d $DS -p /tmp/ck --unzip -q; then
+            for f in final_merged.pt sham_small_tokenizer.json image_tokenizer.pt audio_tokenizer.pt merge_progress.json; do
+              kaggle datasets download -d $DS -f $f -p /tmp/ck --unzip -q
+            done
+          fi
+          ls -la /tmp/ck
+
+      # 2026-10-17: the decoder-only refined image / audio tokenizer (sham_decoder_refine.py). Best effort: adopted only if it encodes into the same ids.
+      - name: Refined media tokenizers (optional)
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/refined
+          kaggle datasets download -d jonsnowjonsnow/sham-media-refined -p /tmp/refined --unzip -q 2>/dev/null && ls -la /tmp/refined || echo "- no refined tokenizers yet"
+
+      # 2026-10-14 (owner): the chat-stage checkpoint (Kaggle sham-chat-checkpoint/final_chat.pt) and the guarded self-learn one
+      # (final_chat_self.pt, when a dataset carries it) go to the Studio too; app.py prefers them by name. OFF unless the repo variable
+      # SHAM_STUDIO_CHAT_CKPT is '1': final_chat.pt is the chat stage BEFORE the merge gate and without the multimodal line, so turning it on
+      # trades the merged model's picture / sound skills (and its gate) for a chattier text model — the owner decides.
+      - name: Chat checkpoints for the Studio (optional)
+        if: ${{ vars.SHAM_STUDIO_CHAT_CKPT == '1' }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          for spec in sham-chat-checkpoint:final_chat.pt sham-chat-checkpoint:final_chat_self.pt sham-merged-checkpoint:final_chat_self.pt; do
+            ds=${spec%%:*}; f=${spec##*:}
+            [ -f /tmp/ck/$f ] && continue
+            kaggle datasets download -d jonsnowjonsnow/$ds -f $f -p /tmp/ck --unzip -q 2>/dev/null && echo "+ $f from $ds" || echo "- $f not in $ds"
+          done
+          ls -la /tmp/ck
+
+      # 2026-10-15 (owner, additive): the separate Arabic SFT notebook's checkpoint (Kaggle sham-chat-arabic-sft-checkpoint/final_chat.pt,
+      # same file name/format as the chat stage). OFF by default: only when the repo variable SHAM_STUDIO_ARABIC_SFT is '1' does it
+      # replace final_chat.pt in what the Studio receives. Unset / anything else = nothing changes.
+      - name: Arabic SFT checkpoint for the Studio (optional, default OFF)
+        if: ${{ vars.SHAM_STUDIO_ARABIC_SFT == '1' }}
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          mkdir -p /tmp/sft
+          if kaggle datasets download -d jonsnowjonsnow/sham-chat-arabic-sft-checkpoint -f final_chat.pt -p /tmp/sft --unzip -q; then
+            cp -f /tmp/sft/final_chat.pt /tmp/ck/final_chat.pt && echo "+ final_chat.pt from sham-chat-arabic-sft-checkpoint"
+          else
+            echo "- sham-chat-arabic-sft-checkpoint not available; Studio keeps its current checkpoint"
+          fi
+          ls -la /tmp/ck
+
+      - name: Push the model, stage the Studio app
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          SHAM_CODE_SIGNING_KEY: ${{ secrets.SHAM_CODE_SIGNING_KEY }}   # اختياري: مفتاح توقيع منفصل (يضاف أيضاً في أسرار الاستوديو)
+        run: |
+          git clone "https://oauth2:${MODELSCOPE_TOKEN}@www.modelscope.cn/studios/novaai2026/nova-inference-server.git" /tmp/studio
+          python ai-system/modelscope-sham/sync_to_modelscope.py /tmp/ck /tmp/studio
+
+      - name: Commit and push the Studio
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+        working-directory: /tmp/studio
+        run: |
+          git config user.name "Sham CI"
+          git config user.email "ci@sham.local"
+          date -u +"sync: %Y-%m-%dT%H:%MZ" > .last_deploy_trigger
+          git add -A
+          if git diff --cached --quiet; then echo "No changes to deploy."; else git commit -q -m "Sham app (from CI ${GITHUB_SHA})" && git push -q; echo pushed; fi

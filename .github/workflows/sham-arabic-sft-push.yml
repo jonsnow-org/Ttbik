@@ -1,0 +1,31 @@
+name: Sham Arabic SFT (push the separate notebook to Kaggle)
+
+# 2026-10-15 (owner-approved, additive): pushes ONLY the new, separate notebook jonsnowjonsnow/sham-arabic-sft.
+# It never touches the engineer's 3 notebooks or their checkpoint datasets; it reads sham-chat-checkpoint and
+# publishes to its own dataset sham-chat-arabic-sft-checkpoint. Not part of sham-restarter (proposal only).
+on:
+  push:
+    branches: [sham-main]
+    paths:
+      - "ai-system/colab/sham_small/kaggle_notebooks/arabic_sft/**"
+  workflow_dispatch: {}
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade kaggle
+      - name: Push and start the kernel
+        env:
+          KAGGLE_USERNAME: jonsnowjonsnow
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          D=ai-system/colab/sham_small/kaggle_notebooks/arabic_sft
+          mkdir -p /tmp/k && cp $D/sham_arabic_sft.ipynb $D/kernel-metadata.json /tmp/k/
+          kaggle kernels push -p /tmp/k
+          sleep 60
+          kaggle kernels status jonsnowjonsnow/sham-arabic-sft || true

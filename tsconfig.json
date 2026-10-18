@@ -41,6 +41,7 @@
     "athar",
     "contracts",
     ".smoke",
-    "src/lib/__tests__"
+    "src/lib/__tests__",
+    "e2e"
   ]
 }

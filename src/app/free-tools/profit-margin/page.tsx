@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import ProfitMarginCalculator from "./ProfitMarginCalculator";
 import AdSlot from "@/components/AdSlot";
+import ToolSeoSection from "@/components/ToolSeoSection";
 
 export const metadata: Metadata = {
   title: "حاسبة هامش الربح ونقطة التعادل | أدوات مجانية | شام AI",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
     "احسب هامش الربح ونسبة الإضافة ونقطة التعادل فوراً — تكلفة الوحدة، سعر البيع، التكاليف الثابتة. أداة عربية مجانية بلا تسجيل.",
 };
 
-export default function ProfitMarginPage() {
+function ProfitMarginPageBody() {
   return (
     <div className="mx-auto max-w-xl px-4 py-12">
       <span className="inline-block rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
@@ -29,5 +30,14 @@ export default function ProfitMarginPage() {
         <AdSlot position="in-content" label="أسفل حاسبة هامش الربح" />
       </div>
     </div>
+  );
+}
+
+export default function ProfitMarginPage() {
+  return (
+    <>
+      <ProfitMarginPageBody />
+      <ToolSeoSection slug="profit-margin" />
+    </>
   );
 }

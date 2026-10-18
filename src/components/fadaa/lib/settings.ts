@@ -8,9 +8,9 @@ export const defaultSettings = (): AppSettings => ({
   pin: '7042',
   payeerEnabled: true,
   cryptoEnabled: true,
-  payeerWallet: 'P1234567890',
-  cryptoUsdt: 'TXyzUSDTDemoWallet1234567890',
-  cryptoBtc: 'bc1qdemoBitcoinWalletAddress000',
+  payeerWallet: '',
+  cryptoUsdt: '',
+  cryptoBtc: '',
   packages: {
     upgrade_session: { enabled: true, price: 5, currency: 'USD' },
     advanced_summary: { enabled: true, price: 3, currency: 'USD' },

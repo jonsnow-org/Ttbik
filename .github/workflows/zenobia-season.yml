@@ -10,10 +10,15 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
       - name: daily holder snapshot and weekly season close
         run: |
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
-          code=$(curl -sS -m 120 -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/zenobia-season?secret=${CRON_SECRET}")
+          code=$(curl -sS -m 120 -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/zenobia-season?secret=${CRON_SECRET}")
           echo "HTTP ${code}"; cat body.json; echo
           [ "${code}" -lt 500 ]
         env:

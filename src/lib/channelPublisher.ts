@@ -252,12 +252,17 @@ function freshenSiteLinks(text: string): string {
   return text.replace(new RegExp(`${base}(/[^\\s"<>?#]*)?(?=[\\s"<>#]|$)`, "g"), (m) => `${m}?tg=${day}`);
 }
 
+export async function channelBotToken() {
+  const row = await prisma.bot.findFirst({ where: { template: "CHANNEL_PUBLISH_BOT", isActive: true }, select: { token: true } }).catch(() => null);
+  return row?.token || process.env.TELEGRAM_BOT_TOKEN || "";
+}
+
 export async function sendToChannel(
   text: string,
   opts: { html?: boolean; previewUrl?: string } = {}
 ): Promise<boolean> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const channel = process.env.TELEGRAM_CHANNEL_ID;
+  const token = await channelBotToken();
+  const channel = process.env.TELEGRAM_CHANNEL_ID || "@ttbik5";
   if (!token || !channel) return false;
   text = freshenSiteLinks(text);
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {

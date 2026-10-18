@@ -1,0 +1,9 @@
+{
+  "_": "One file that decides the site's public identity for BOTH servers (Vercel and Oracle build from it) and for the GitHub scheduled jobs. See docs/HOSTING.md.",
+  "gateUrl": "https://ttbik-gate.jonsnowx1r.workers.dev",
+  "vercelUrl": "https://ttbik.vercel.app",
+  "oracleUrl": "https://89-168-89-15.sslip.io",
+  "oracleIp": "89.168.89.15",
+  "engineUrl": "",
+  "canonicalUrl": ""
+}

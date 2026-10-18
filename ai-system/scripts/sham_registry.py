@@ -66,6 +66,15 @@ TRACKS: list[dict[str, Any]] = [
         "markers": ["sham_bot_test"],
         "kind": "tool",
     },
+    # The three COMBINED notebooks (owner, 2026-10-13: three notebooks in all). Each carries the cell-marker line `# SHAM_SECTION: <section>` that only the
+    # generated notebooks have, so they are recognised before the single-notebook tracks whose markers also appear inside them. kind "combined": roles
+    # primary/duplicate like any track, but never resumed by the old orchestrator (the GitHub restarter watches them).
+    {"id": "all_in_one", "name": "الدفتر الشامل (المدرّب الحي + المرحلة الأولى + المرحلة الثانية)",
+     "markers": ["# SHAM_SECTION: sham_live_trainer"], "kind": "combined"},
+    {"id": "ab_in_one", "name": "دفتر المسارين A وB",
+     "markers": ["# SHAM_SECTION: sham_cpu_research_track"], "kind": "combined"},
+    {"id": "chat_image_in_one", "name": "دفتر المحادثة والمرمزات",
+     "markers": ["# SHAM_SECTION: sham_chat_stage"], "kind": "combined"},
     {
         "id": "live_trainer",
         "name": "المدرّب الحي — زحف وترميز وتدريب في دفتر واحد",
@@ -311,9 +320,16 @@ def fetch_failure_log(api: Any, ref: str, workdir: Path) -> str:
                 raw = "".join(lines)
             except Exception:
                 pass
-            errs = [l for l in raw.splitlines() if re.search(r"Error|Exception|Traceback|خطأ", l)]
-            tail = (errs[-3:] if errs else raw.splitlines()[-5:])
-            return "\n".join(tail)[-600:]
+            lines = raw.splitlines()
+            errs = [l for l in lines if re.search(r"Error|Exception|Traceback|خطأ", l)]
+            tail = (errs[-3:] if errs else lines[-5:])
+            out = "\n".join(tail)[-600:]
+            # a dead kernel leaves only "Kernel died": the lines BEFORE it say what the notebook was doing (stage, step, memory)
+            first_err = next((i for i, l in enumerate(lines) if re.search(r"Error|Exception|Traceback|خطأ", l)), len(lines))
+            before = [l.strip()[:140] for l in lines[:first_err] if l.strip()][-6:]
+            if before and errs:
+                out += "\nقبل الفشل: " + " | ".join(before)
+            return out[-1100:]
         except Exception:
             continue
     return ""

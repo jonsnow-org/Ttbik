@@ -82,6 +82,22 @@ def _ensure_credentials() -> str | None:
         os.environ["KAGGLE_KEY"] = secrets.get_secret("KAGGLE_KEY")
         return os.environ["KAGGLE_USERNAME"]
     except Exception as exc:
+        # SHAM_SECRETS_FALLBACK (2026-10-15): API-pushed runs get HTTP 400 from Kaggle Secrets;
+        # read the private sham-runtime-creds dataset's kaggle.json instead.
+        import glob as _glob
+        import json as _json
+        for _p in sorted(_glob.glob("/kaggle/input/**/kaggle.json", recursive=True)):
+            try:
+                _d = _json.loads(Path(_p).read_text())
+            except Exception:
+                continue
+            if _d.get("username") and _d.get("key"):
+                os.environ["KAGGLE_USERNAME"] = _d["username"]
+                os.environ["KAGGLE_KEY"] = _d["key"]
+                if str(_d["key"]).startswith("KGAT_"):
+                    os.environ["KAGGLE_API_TOKEN"] = _d["key"]
+                print("  ✓ بيانات دخول Kaggle من مجموعة البيانات الخاصة sham-runtime-creds")
+                return os.environ["KAGGLE_USERNAME"]
         print(f"  ⚠ لا توجد بيانات دخول Kaggle (KAGGLE_USERNAME/KAGGLE_KEY): {exc}")
         return None
 
@@ -219,6 +235,22 @@ def _repair(base: str, foreign: Path, good: Path) -> bool:
     return ok
 
 
+def _kaggle(cmd: list, tries: int = 6):
+    """subprocess.run for a kaggle command that waits and retries while Kaggle answers 429 / 5xx: a throttled answer used to be read as «this
+    dataset does not exist» (2026-10-13: a trainer started from a 9.4-loss checkpoint, the merged head and the grown line looked missing)."""
+    import time as _time
+    r = None
+    for attempt in range(tries):
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        out = (r.stderr or "") + (r.stdout or "")
+        if r.returncode == 0 or not any(t in out for t in ("429", "Too Many Requests", "502", "503", "504", "timed out", "Connection")):
+            return r
+        wait = 15 * (attempt + 1)
+        print(f"  ⏳ Kaggle يتمهّل ({out.strip().splitlines()[-1][:80] if out.strip() else '?'}) — انتظار {wait} ث ثم إعادة {attempt + 2}/{tries}")
+        _time.sleep(wait)
+    return r
+
+
 def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> Path | None:
     """Folder holding the latest version of the account's dataset `name`,
     or None when it doesn't exist yet / can't be reached.
@@ -253,9 +285,21 @@ def fetch_dataset(name: str, owner: str | None = None, fresh: bool = False) -> P
         subprocess.run(["pip", "install", "-q", "-U", "kaggle"], check=False)
     dest.mkdir(parents=True, exist_ok=True)
     ref = f"{owner or user}/{base}"
-    r = subprocess.run(["kaggle", "datasets", "download", "-d", ref, "-p", str(dest), "--unzip"],
-                       capture_output=True, text=True)
+    r = _kaggle(["kaggle", "datasets", "download", "-d", ref, "-p", str(dest), "--unzip"])
     _unzip_nested(dest)
+    if r.returncode != 0 or not any(dest.iterdir()):
+        # the whole-dataset archive can answer a bare 404 while every file of the dataset downloads fine one by one (found 2026-10-11 for
+        # sham-merged-checkpoint: the lineage silently restarted on each run because this fetch returned None): fall back to file by file
+        listing = _kaggle(["kaggle", "datasets", "files", ref, "--csv"])
+        names = [l.split(",", 1)[0] for l in (listing.stdout or "").splitlines()[1:] if l.strip() and "," in l]
+        got = 0
+        for fname in names:
+            one = _kaggle(["kaggle", "datasets", "download", "-d", ref, "-f", fname, "-p", str(dest), "--unzip"])
+            got += int(one.returncode == 0)
+        if got:
+            print(f"  • {base}: التنزيل الكامل فشل فنُزّلت الملفات واحداً واحداً ({got}/{len(names)})")
+            _unzip_nested(dest)
+            r = subprocess.CompletedProcess(r.args, 0, r.stdout, "")
     if r.returncode != 0 or not any(dest.iterdir()):
         shutil.rmtree(dest, ignore_errors=True)
         msg = ((r.stderr or "") + (r.stdout or "")).strip().splitlines()
@@ -381,7 +425,45 @@ def resume_text_lineage(own: str, forks: list[str] | tuple[str, ...] = (),
               f"+ {picked['tokenizer'].name}")
     else:
         print("لا توجد نقطة حفظ سابقة — يبدأ من الصفر (متوقَّع فقط في أول تشغيل حقيقي).")
+    return adopt_published_head(picked, pair_in)
+
+
+HEAD_DATASET = "sham-merged-checkpoint"
+
+
+def adopt_published_head(picked: dict | None, pair_in=None) -> dict | None:
+    """2026-10-13: every notebook continued only its OWN old lineage (Track A at step 43,587 on Arabic Wikipedia alone, Track B, …), while the model the Studio
+    serves is the published head (sham-merged-checkpoint). Lineages that diverge for weeks cannot be merged back (the gate refuses them), so two months of
+    training never reached the model. Now, when the head MEASURES at least as good as the notebook's own lineage on general text (the merge gate's
+    distribution), the notebook continues FROM THE HEAD; otherwise it keeps its own lineage exactly as before. Any failure leaves `picked` untouched."""
+    if picked is None or picked.get("dataset") == HEAD_DATASET or os.environ.get("SHAM_NO_HEAD") == "1":
+        return picked
+    try:
+        root = fetch_dataset(HEAD_DATASET)
+        files = sorted(root.rglob("final_merged.pt")) if root else []     # the head's file is not named step_N.pt / final.pt
+        toks = sorted(root.rglob("sham_small_tokenizer.json")) if root else []
+        if not files or not toks:
+            return picked
+        head = {"checkpoint": files[0], "step": _checkpoint_step(files[0])[0], "has_optimizer": False, "tokenizer": toks[0],
+                "dataset": HEAD_DATASET}
+        from sham_base_select import choose_base, make_probe
+        best, scores = choose_base([("own", picked["checkpoint"], picked["tokenizer"]), ("head", head["checkpoint"], head["tokenizer"])],
+                                   make_probe("cuda" if _cuda() else "cpu"), keep="own", hysteresis=1.0)
+        if best == "head" and "head" in scores and "own" in scores:
+            print(f"✅ النقطة المنشورة (رأس السلسلة) أفضل بالقياس من سلالة هذا الدفتر: يُكمل منها ({head['step']:,} خطوة)")
+            head.update(has_optimizer=False, forked=True)
+            return head
+    except Exception as exc:
+        print(f"⚠ تعذّر الاستئناف من الرأس المنشور ({type(exc).__name__}): تبقى سلالة الدفتر كما هي")
     return picked
+
+
+def _cuda() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
 
 
 CRAWL_PREFIX = "sham-crawl-"
@@ -432,13 +514,44 @@ def account_dataset_names() -> list[str]:
     return sorted(set(names))
 
 
+_TOKENIZERS_FETCHED = {"done": False}
+
+
+def tokenizer_dataset_names(names: list[str] | None = None) -> list[str]:
+    """Every tokenizer output of the account: a dataset starting with "sham" whose name says tokenizer (the CPU tracks', the Lightning trainer's,
+    the old combined ones). Which of them is used is decided by looking inside (tokenizer_select), never by the name."""
+    names = account_dataset_names() if names is None else names
+    return sorted(n for n in names if n.startswith("sham") and "tokenizer" in n)
+
+
+def fetch_all_tokenizer_datasets(force: bool = False) -> list[str]:
+    """Downloads every tokenizer dataset of the account once per process so the selector sees all of them (owner, 2026-10-12: each notebook must
+    find the outputs that exist, not only the ones it was told about). Returns the names that arrived."""
+    if _TOKENIZERS_FETCHED["done"] and not force:
+        return []
+    _TOKENIZERS_FETCHED["done"] = True
+    got = []
+    for n in tokenizer_dataset_names():
+        try:
+            if fetch_dataset(n):
+                got.append(n)
+        except Exception as exc:
+            print(f"  ⚠ تعذّر جلب {n}: {exc.__class__.__name__}")
+    if got:
+        print(f"🧩 مُرمِّزات الحساب التي دخلت المفاضلة: {', '.join(got)}")
+    return got
+
+
 def model_dataset_candidates(names: list[str] | None = None) -> list[str]:
     """Account datasets that may hold a Sham model to merge: every dataset starting with "sham"
     (or the old "nova-small") that is not a tokenizer-only or text-corpus dataset — the name need
     not say "checkpoint". Whether one really holds a model is decided by looking inside it (the
     repair stage + the gate), so a wrong guess costs one log line, never a bad merge."""
     names = account_dataset_names() if names is None else names
-    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in ("tokenizer", "corpus", "reports"))]
+    # 2026-10-17: the media factory's batches (sham-media-*), the keeper/orchestrator state, the creds, the token shards and the video data hold no model: they used to be
+    # downloaded one by one (60+ datasets, GBs) every merge run only to answer "no checkpoint", and they crowded the real sources out of the per-run budget.
+    skip = ("tokenizer", "corpus", "reports", "sham-media-", "keeper", "orchestrator", "runtime-creds", "text-shards", "video", "sham-merged")
+    return [n for n in names if n.startswith(("sham", "nova-small")) and not any(x in n for x in skip)]
 
 
 def repo_dataset_names() -> set[str]:
@@ -466,6 +579,31 @@ def dataset_inventory(names: list[str] | None = None) -> str:
             + (f" | لا أحد يقرؤها: {', '.join(unused)}" if unused else ""))
 
 
+def dataset_exists(slug: str, run=subprocess.run) -> bool:
+    """Does the account already hold this dataset? `kaggle datasets list` returns ONE page (20 rows, hottest first), so an
+    account with more datasets than that made an existing one look absent and every "create" then failed with "title already
+    in use" — the checkpoint stayed in the session's Output and the next session resumed from an older point. Ask Kaggle for
+    the dataset by name first, then read every page of the list."""
+    try:
+        r = run(["kaggle", "datasets", "status", slug], capture_output=True, text=True)
+        out = ((r.stdout or "") + (r.stderr or "")).strip().lower()
+        if r.returncode == 0 and out and not any(w in out for w in ("404", "not found", "does not exist", "error")):
+            return True
+    except Exception:
+        pass
+    for page in range(1, 11):
+        try:
+            listed = run(["kaggle", "datasets", "list", "-m", "--csv", "-p", str(page)], capture_output=True, text=True)
+        except Exception:
+            return False
+        text = listed.stdout or ""
+        if slug in text:
+            return True
+        if len(text.strip().splitlines()) < 2:
+            break
+    return False
+
+
 def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | None:
     """Create-or-version the account's dataset `name` from upload_dir
     (subfolders zipped, same "-r zip" rule as every track). Returns the
@@ -482,12 +620,15 @@ def publish_dataset(upload_dir: str | Path, name: str, message: str) -> str | No
     upload_dir = Path(upload_dir)
     (upload_dir / "dataset-metadata.json").write_text(
         json.dumps({"title": name, "id": slug, "licenses": [{"name": "unknown"}]}))
-    listed = subprocess.run(["kaggle", "datasets", "list", "-m", "--csv"], capture_output=True, text=True)
-    exists = slug in (listed.stdout or "")
-    cmd = (["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"] if exists
-           else ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"])
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    exists = dataset_exists(slug)
+    version_cmd = ["kaggle", "datasets", "version", "-p", str(upload_dir), "-m", message, "-r", "zip"]
+    create_cmd = ["kaggle", "datasets", "create", "-p", str(upload_dir), "-r", "zip"]
+    r = subprocess.run(version_cmd if exists else create_cmd, capture_output=True, text=True)
     out = (r.stdout or "") + (r.stderr or "")
+    if not exists and "already in use" in out.lower():
+        exists = True
+        r = subprocess.run(version_cmd, capture_output=True, text=True)
+        out = (r.stdout or "") + (r.stderr or "")
     if r.returncode == 0 and "error" not in out.lower():
         print(f"{'نُشرت نسخة جديدة إلى' if exists else 'أُنشئت'} {slug} — التشغيل القادم يلتقطها تلقائياً.")
         return slug
@@ -636,3 +777,19 @@ try:
     _sham_cell_sync.install()
 except Exception as _exc:
     print(f"sham_cell_sync not installed: {_exc}")
+
+# SHAM_HUB_COMPAT (2026-10-16): مجموعات بسكربت تحميل قديم (مثل Bactrian-X) تُقرأ
+# من نسخة parquet بدل أن ترجع 0 صفوف. إضافي فقط؛ لا يؤثر على أي مصدر آخر.
+try:
+    from sham_hub_compat import install as _sham_hub_compat_install
+    _sham_hub_compat_install()
+except Exception:
+    pass
+
+
+# When this session ends (even on failure), ask the restarter to run instead of waiting for GitHub's lagging cron (sham_trigger_restarter.py, 2026-10-16).
+try:
+    import sham_trigger_restarter as _sham_trigger_restarter
+    _sham_trigger_restarter.install()
+except Exception as _exc:
+    print(f"sham_trigger_restarter not installed: {_exc}")

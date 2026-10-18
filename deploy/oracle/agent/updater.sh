@@ -11,10 +11,14 @@ BR="${BRANCH:-$(tr -d ' \n' < "$OR/agent/BRANCH" 2>/dev/null)}"; BR="${BR:-main}
 cd /opt/ttbik || exit 0
 if ! git fetch -q --depth 1 origin "$BR" 2>/dev/null; then echo "$(now) fetch failed" > "$STATE/last_update"; report; exit 0; fi
 NEW=$(git rev-parse FETCH_HEAD); CUR=$(git rev-parse HEAD)
+# the site's settings come from Vercel with no hand copying, only inside the window the owner opens from the bot panel (agent/env-sync.sh)
+[ -f "$OR/agent/SITE_ON" ] && [ -f "$OR/agent/env-sync.sh" ] && { bash "$OR/agent/env-sync.sh" >/dev/null 2>&1 || true; }
 PROFILES=$(cat "$OR/profiles" 2>/dev/null || true)   # e.g. "--profile site"
 PATHS='^(media-bot/|deploy/oracle/)'
 case "$PROFILES" in *site*) PATHS='^(media-bot/|deploy/oracle/|src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json)';; esac
 [ -f "$OR/agent/ATHAR_ON" ] && PATHS="$PATHS|^athar/"
+# the site itself (agent/SITE_ON, docs/HOSTING.md): its sources count too
+[ -f "$OR/agent/SITE_ON" ] && PATHS="$PATHS|^(src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json|scripts/hosting/)"
 if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"
@@ -31,6 +35,19 @@ if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
     else
       echo "$(now) FAILED $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/last_update"
       tg_notify "فشل بناء التحديث $(git -C /opt/ttbik rev-parse --short HEAD). النسخة القديمة ما زالت تعمل."
+    fi
+    # The site (Next.js: pages, API, bot webhooks, mini apps) is built on its own too (agent/SITE_ON): a failed build leaves the running site in
+    # place, can never block the media engine or Athar, and the gate (cloudflare/site-gate) sends visitors to Vercel while this one is down.
+    if [ -f "$OR/agent/SITE_ON" ]; then
+      if ! grep -qE '^DATABASE_URL=.+' "$OR/.env" 2>/dev/null; then
+        echo "$(now) WAITING for the settings: tap «نقل الإعدادات إلى Oracle» in the bot panel" > "$STATE/site_status"
+      elif docker compose --profile site up -d --build site > "$STATE/site.log" 2>&1; then
+        echo "$(now) OK $(git -C /opt/ttbik rev-parse --short HEAD)" > "$STATE/site_status"
+        [ -f "$STATE/site_was_ok" ] || { touch "$STATE/site_was_ok"; tg_notify "الموقع يعمل الآن على Oracle. جرّب /api/health?deep=1 ثم اختر الوضع من لوحة الاستضافة."; }
+      else
+        echo "$(now) FAILED: $(tail -3 "$STATE/site.log" | tr '\n' ' ' | mask | cut -c1-200)" > "$STATE/site_status"
+        tg_notify "فشل بناء الموقع على Oracle. النسخة السابقة ما زالت تعمل (إن وُجدت)، والبوابة تحوّل إلى Vercel عند الحاجة."
+      fi
     fi
     # Athar is built on its own so a problem there can never block the media engine or the rest.
     if [ -f "$OR/agent/ATHAR_ON" ]; then

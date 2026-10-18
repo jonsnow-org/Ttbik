@@ -1,5 +1,17 @@
+import { readFileSync } from "node:fs";
+
+// The site's public identity comes from ONE committed file (deploy/hosting/site.json), so the Vercel build and the Oracle build always agree and
+// moving behind the gate is a commit, not a dashboard edit. Empty engineUrl = no override: the environment variables (or the old defaults) apply.
+let hosting = {};
+try { hosting = JSON.parse(readFileSync(new URL("./deploy/hosting/site.json", import.meta.url), "utf8")); } catch { /* the file is optional */ }
+const hostingEnv = {
+  ...(hosting.engineUrl ? { NEXT_PUBLIC_SITE_URL: String(hosting.engineUrl).replace(/\/$/, "") } : {}),
+  ...(hosting.canonicalUrl ? { NEXT_PUBLIC_CANONICAL_URL: String(hosting.canonicalUrl).replace(/\/$/, "") } : {}),
+};
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: hostingEnv,
   images: { unoptimized: true },   // no next/image anywhere: the image optimizer (a known attack surface of Next) is off
   // Self-hosting (Oracle, see deploy/oracle): NEXT_OUTPUT=standalone builds a
   // small self-contained server. Unset on Vercel, so nothing changes there.
