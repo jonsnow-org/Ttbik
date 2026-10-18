@@ -1,0 +1,9 @@
+node_modules
+out
+public/screen.*
+public/voice.mp3
+public/words.json
+public/music.mp3
+props.json
+episode.json
+rec
