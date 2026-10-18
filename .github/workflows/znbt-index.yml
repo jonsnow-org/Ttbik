@@ -1,0 +1,20 @@
+name: znbt-index
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: znbt-index
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: refresh the ZNBt coin index
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
+          code=$(curl -sS -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "https://ttbik.vercel.app/api/cron/znbt-index")
+          echo "HTTP ${code}"; cat body.json; echo
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
