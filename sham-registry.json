@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-17 23:15 UTC",
+  "generated_at": "2026-10-18 04:45 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -79,8 +79,8 @@
       "track": "all_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-17",
-      "gpu": false,
+      "last_run": "2026-10-18",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -151,7 +151,7 @@
       "track": "ab_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-17",
+      "last_run": "2026-10-18",
       "gpu": false,
       "failure": ""
     },
@@ -216,8 +216,8 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-17",
+      "size_mb": 792.0,
+      "last_updated": "2026-10-18",
       "progress": {},
       "has_key_files": true
     },
@@ -225,7 +225,7 @@
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
       "size_mb": 718.7,
-      "last_updated": "2026-10-17",
+      "last_updated": "2026-10-18",
       "progress": {},
       "has_key_files": true
     },
@@ -241,15 +241,15 @@
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "size_mb": 144.3,
-      "last_updated": "2026-10-17",
+      "last_updated": "2026-10-18",
       "progress": {
-        "samples_consumed": 103900,
-        "step": 10235,
+        "samples_consumed": 101668,
+        "step": 9677,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 2963,
-        "recon": 0.0655687032888333
+        "codebook_usage": 3268,
+        "recon": 0.05176412287567343
       },
       "has_key_files": true
     },
@@ -270,18 +270,10 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 791.5,
-      "last_updated": "2026-10-15",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 580.6,
-      "last_updated": "2026-10-17",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-18",
       "progress": {},
       "has_key_files": true
     },
@@ -294,7 +286,7 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 3",
+      "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
       "size_mb": 792.2,
       "last_updated": "2026-10-17",
@@ -310,10 +302,10 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الأولى 1",
-      "track": "text_stage1",
-      "size_mb": 1586.3,
-      "last_updated": "2026-10-17",
+      "alias": "نتائج المدرّب الحي 3",
+      "track": "live_trainer",
+      "size_mb": 791.5,
+      "last_updated": "2026-10-15",
       "progress": {},
       "has_key_files": true
     },
@@ -346,21 +338,19 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصوت 2",
-      "track": "audio_tokenizer",
-      "size_mb": 35.0,
-      "last_updated": "2026-10-15",
-      "progress": {
-        "steps": 240,
-        "samples": 7680,
-        "chunks": 2,
-        "recon": 0.018765535205602646,
-        "codebook_usage": 2024,
-        "perplexity": 1561.1805419921875,
-        "image_size": null,
-        "updated": "2026-10-15 01:47",
-        "samples_consumed": 7680
-      },
+      "alias": "نتائج المرحلة الأولى 1",
+      "track": "text_stage1",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-17",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الثالثة 2",
+      "track": "chat_stage",
+      "size_mb": 580.2,
+      "last_updated": "2026-10-17",
+      "progress": {},
       "has_key_files": true
     }
   ],
