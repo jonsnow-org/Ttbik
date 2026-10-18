@@ -10,6 +10,7 @@ import { readMeta } from './meta';
 export interface IndexedCoin {
   curve: string; creator: string; salt: string; name: string; symbol: string; description: string; image: string;
   supply: string; creatorFeeBps: number; createdAt: number;
+  features?: { shape: number; maxBuyBps: number; buyback: boolean; split: boolean };   // advanced launch options chosen by the creator (fixed on chain)
   minter?: string;           // the coin's jetton minter (for holders and portfolio)
   state?: number;            // 1 = on the curve, 2+ = graduated
   raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; statsAt?: number;
@@ -50,7 +51,7 @@ export async function refreshIndex(opts: { master: string; prev: Snapshot | null
     // body.options is already the on-chain options struct: ask the master directly (sdk.getLaunchAddress expects the user-level preset and rejected real launches with "Invalid launch preset")
     const curve = await call(() => sdk.master(master).getLaunchAddress(m.info.src as Address, body.salt, body.options as any));
     const o = body.options.ref;
-    coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
+    coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), features: { shape: Number(o.reserveRatio), maxBuyBps: Number(o.maxBuyBps), buyback: !!o.buybackBurn, split: !!o.beneficiaries }, supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
   }
 
   // 2. live numbers, oldest statistics first, within the time budget

@@ -4,7 +4,7 @@ import { toTonConnect, flushFees, withdrawProtocolFees } from '../../sdk/dist/in
 import { client, sdk, OWNER, $, loadConfig, fmt } from './common';
 import { scanCoins, hiddenSet, Coin } from './registry';
 
-interface Row extends Coin { minter?: string; state?: number; raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; chg24?: number | null; raised24?: string | null; mcTon?: number | null }
+interface Row extends Coin { features?: { shape: number; maxBuyBps: number; buyback: boolean; split: boolean }; minter?: string; state?: number; raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; chg24?: number | null; raised24?: string | null; mcTon?: number | null }
 type Sort = 'new' | 'progress' | 'raised';
 const WATCH = 'znbt-watch-v1';
 const watch = (): Set<string> => { try { return new Set(JSON.parse(localStorage.getItem(WATCH) || '[]')); } catch { return new Set(); } };
@@ -123,6 +123,9 @@ function render() {
     if (k === official) badges.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
     if (Date.now() / 1000 - c.createdAt < 86400) badges.append(el('span', { className: 'badge new', textContent: 'NEW' }));
     if ((c.state ?? 1) >= 2) badges.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
+    if (c.features?.maxBuyBps) badges.append(el('span', { className: 'badge', textContent: '🐋 max buy ' + (c.features.maxBuyBps / 100) + '%' }));
+    if (c.features?.buyback) badges.append(el('span', { className: 'badge', textContent: '🔥 buyback & burn' }));
+    if (c.features?.split) badges.append(el('span', { className: 'badge', textContent: '🤝 fee split' }));
     const rep = reports.get(k);
     if (admin && rep) badges.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
     body.append(t);

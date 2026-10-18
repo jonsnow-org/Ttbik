@@ -70,9 +70,25 @@ $('go').onclick = async () => {
       supplyTokens: Number(val('supply')),
       creatorFeeBps: Number(val('fee')),
       graduationTon: Number(val('threshold')),
-      reserveRatio: 5,
+      reserveRatio: Number(val('shape') || '5'),
       devBuyAmount: parseUnits(val('dev') || '0'),
+      maxBuyBps: Number(val('maxbuy') || '0'),
+      buybackBurn: ($('burn') as HTMLInputElement).checked,
     };
+    const split = val('split');
+    if (split) {
+      const lines = split.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      cfg.beneficiaries = lines.map((l) => {
+        const m = l.split(/\s+/);
+        let address: Address;
+        try { address = Address.parse(m[0]); } catch { throw new Error('Fee split: not a TON address: ' + m[0]); }
+        const pctv = Number(m[1]);
+        if (!(pctv > 0 && pctv <= 100)) throw new Error('Fee split: a percent between 1 and 100 is needed for ' + m[0]);
+        return { address, shareBps: Math.round(pctv * 100) };
+      });
+      if (cfg.beneficiaries.length > 8) throw new Error('Fee split: at most 8 addresses');
+      if (cfg.beneficiaries.reduce((a: number, b: any) => a + b.shareBps, 0) !== 10000) throw new Error('Fee split: the percents must add up to 100');
+    }
     const options = launchOptions(cfg);
     const cfgJson = await loadConfig();
     const master = Address.parse(cfgJson.master);
@@ -104,7 +120,7 @@ async function estimate() {
   if (!box) return;
   try {
     const cfgJson = await loadConfig();
-    const cfg: any = { supplyTokens: Number(val('supply')), creatorFeeBps: Number(val('fee')), graduationTon: Number(val('threshold')), reserveRatio: 5, devBuyAmount: 0n };
+    const cfg: any = { supplyTokens: Number(val('supply')), creatorFeeBps: Number(val('fee')), graduationTon: Number(val('threshold')), reserveRatio: Number(val('shape') || '5'), devBuyAmount: 0n };
     const pv = await retry(() => sdk.getLaunchPreview(Address.parse(cfgJson.master), cfg));
     const price = Number(pv.initialPriceNanoPerBillion);            // nano TON per billion tokens at launch
     const grad = Number(pv.graduationPriceNanoPerBillion);
@@ -120,5 +136,5 @@ async function estimate() {
   } catch { box.textContent = ''; }
 }
 for (const id of ['supply', 'fee', 'threshold', 'dev']) ($(id) as HTMLElement).addEventListener('input', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 700); });
-for (const id of ['supply', 'fee', 'threshold']) ($(id) as HTMLElement).addEventListener('change', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 300); });
+for (const id of ['supply', 'fee', 'threshold', 'shape']) ($(id) as HTMLElement).addEventListener('change', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 300); });
 setTimeout(estimate, 500);
