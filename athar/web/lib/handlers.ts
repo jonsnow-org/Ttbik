@@ -107,7 +107,7 @@ export async function metaResponse(idParam: string, origin = SITE_URL, imgBase =
     external_url: `${origin}/token/${id}`,
     // the picture markets show: an SVG with its motion built in (Getgems lists svg among its image formats): browsers play it, apps
     // that only draw still pictures show the first frame. A picture the owner chose is shown as it was stored.
-    image: hidden ? `${imgBase}/hidden.svg` : permanent && st?.mediaRef ? `${imgBase}/${id}.svg${q}&p=${st.mediaRef}&live=1` : `${imgBase}/${id}.svg${q}&live=1`,   // always the living picture (motion, age, colours), a photo included
+    image: hidden ? `${imgBase}/hidden.svg` : permanent && st?.mediaRef ? `${imgBase}/${id}.svg${q}&p=${st.mediaRef}&live=1` : `${imgBase}/${id}.png${q}`,   // generated art: a still PNG (Telegram Wallet and other raster-only viewers show no picture for the moving SVG); the moving picture lives on animation_url / the site
     // Getgems shows these as buttons on the token's page (label up to 24 characters)
     ...(!hidden ? { buttons: [{ label: "Open on Athar", uri: `${origin}/token/${id}` }, { label: "Living view", uri: livingView }] } : {}),
     // a number 0 is shown as «attribute missing» by some wallets (Telegram Wallet): zero is written as the text "0"

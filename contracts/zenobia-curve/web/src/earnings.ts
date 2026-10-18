@@ -5,7 +5,7 @@ import { TonConnectUI } from '@tonconnect/ui';
 import { toTonConnect, flushFees, flushCreatorFees, claimFees, withdrawProtocolFees } from '../../sdk/dist/index.js';
 import { sdk, OWNER, $, loadConfig, retry, fmt, sleep } from './common';
 
-const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
+const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect', actionsConfiguration: { twaReturnUrl: 'https://t.me/PalmyraLaunchBot' as `${string}://${string}` } });
 const say = (m: string) => ($('log').textContent = m);
 type Row = { curve: string; creator: string; name: string; symbol: string };
 type Found = { coin: Row; creator: boolean; accrued: bigint; splitter: Address | null; claimable: bigint };
