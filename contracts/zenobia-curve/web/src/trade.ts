@@ -142,6 +142,10 @@ async function loadFacts() {
     row('Created', new Date(coin.createdAt * 1000).toISOString().slice(0, 10));
     row('Supply', fmt(BigInt(coin.supply), 9, 0));
     row('Creator fee', (coin.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '% per trade');
+    if (coin.features) {
+      const f = [coin.features.maxBuyBps ? 'Anti-whale: a single buy is capped at ' + coin.features.maxBuyBps / 100 + '% of the supply' : '', coin.features.buyback ? 'Buyback & burn: creator fees buy the coin back and burn it' : '', coin.features.split ? 'Creator fee is shared between several wallets' : ''].filter(Boolean);
+      if (f.length) row('Features', f.join(' · '));
+    }
   }
   row('Platform fee', '1.5% per trade');
   row('Contract', link(curve!.toString({ bounceable: true }), short(curve!.toString({ bounceable: true }))));

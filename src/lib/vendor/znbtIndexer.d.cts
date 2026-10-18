@@ -1,6 +1,6 @@
 export interface IndexedCoin {
   curve: string; creator: string; salt: string; name: string; symbol: string; description: string; image: string;
-  supply: string; creatorFeeBps: number; createdAt: number;
+  supply: string; creatorFeeBps: number; createdAt: number; features?: { shape: number; maxBuyBps: number; buyback: boolean; split: boolean };
   minter?: string; state?: number; raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; statsAt?: number;
 }
 export interface Snapshot { coins: IndexedCoin[]; updatedAt: number; scannedTo?: string }
