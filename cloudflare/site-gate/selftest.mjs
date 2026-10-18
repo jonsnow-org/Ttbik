@@ -19,6 +19,11 @@ const reset = (mode = "auto") => { calls = []; script = {}; kvData.clear(); kvDa
 const get = (path, init, e = env) => gate.fetch(new Request("https://gate.test" + path, init), e, ctx);
 const hdr = (i) => new Headers(calls[i].headers);
 
+// a tiny in-memory Cache API for the icon tests
+const store = new Map();
+globalThis.caches = { default: { match: async (r) => { const v = store.get(r.url); return v ? v.clone() : undefined; }, put: async (r, v) => { store.set(r.url, v.clone()); } } };
+const WEBP = (u) => new Response(new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4, 87, 69, 66, 80]), { headers: { "content-type": "image/webp" } });
+
 // --- forwarding
 reset();
 let r = await get("/hello?x=1");
@@ -97,4 +102,20 @@ reset(); r = await get("/__gate/status"); assert.equal(r.status, 401);
 const keyed = { ...env, GATE_KEY: "k3y" };
 r = await get("/__gate/mode", { method: "POST", headers: { "x-gate-key": "k3y" }, body: JSON.stringify({ mode: "oracle" }) }, keyed); assert.equal(r.status, 200); assert.equal(kvData.get("mode"), "oracle");
 r = await get("/__gate/mode", { method: "POST", headers: { "x-gate-key": "nope" }, body: JSON.stringify({ mode: "vercel" }) }, keyed); assert.equal(r.status, 401);
+// --- the coin icon: never fails
+const ICON = "/api/zenobia/znbt/icon";
+store.clear(); reset(); script.oracle = WEBP;
+r = await get(ICON); assert.equal(r.headers.get("content-type"), "image/webp"); assert.equal(r.headers.get("x-gate-origin"), "oracle"); assert.equal((await r.arrayBuffer()).byteLength, 12);
+calls = []; r = await get(ICON); assert.equal(r.headers.get("x-gate-origin"), "kept-fresh"); assert.equal(calls.length, 0, "a fresh copy spares the servers");
+// both servers down, an old copy exists -> the old copy
+for (const v of store.values()) { /* age the kept copy */ }
+store.set("https://znbt-icon.invalid/icon", new Response(new Uint8Array([1, 2, 3]), { headers: { "x-kept-at": String(Math.floor(Date.now() / 1000) - 3600) } }));
+reset(); script.oracle = () => { throw new TypeError("down"); }; script.vercel = () => new Response("nope", { status: 502 });
+r = await get(ICON); assert.equal(r.headers.get("x-gate-origin"), "kept-old"); assert.equal((await r.arrayBuffer()).byteLength, 3);
+// nothing kept and both down -> the picture inside the Worker (a real webp)
+store.clear(); r = await get(ICON); assert.equal(r.headers.get("x-gate-origin"), "builtin");
+const bytes = new Uint8Array(await r.arrayBuffer()); assert.equal(String.fromCharCode(...bytes.slice(0, 4)), "RIFF"); assert.equal(String.fromCharCode(...bytes.slice(8, 12)), "WEBP");
+// a server answering with something that is not an image is not trusted as the icon
+store.clear(); reset(); script.oracle = () => new Response("<html>", { headers: { "content-type": "text/html" } }); script.vercel = () => WEBP();
+r = await get(ICON); assert.equal(r.headers.get("x-gate-origin"), "vercel");
 console.log("site-gate selftest: all checks passed");
