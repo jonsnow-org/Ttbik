@@ -95,3 +95,30 @@ $('go').onclick = async () => {
 void client;
 
 loadConfig().then((c) => { if (!c.open) { $('closed').style.display = 'block'; ($('go') as HTMLButtonElement).disabled = true; } }).catch(() => {});
+
+
+// ---- what the creator gets: the curve sells every token (there is no free allocation); the creator's share is the first buy, at the lowest price ----
+let estTimer: ReturnType<typeof setTimeout> | undefined;
+async function estimate() {
+  const box = document.getElementById('est');
+  if (!box) return;
+  try {
+    const cfgJson = await loadConfig();
+    const cfg: any = { supplyTokens: Number(val('supply')), creatorFeeBps: Number(val('fee')), graduationTon: Number(val('threshold')), reserveRatio: 5, devBuyAmount: 0n };
+    const pv = await retry(() => sdk.getLaunchPreview(Address.parse(cfgJson.master), cfg));
+    const price = Number(pv.initialPriceNanoPerBillion);            // nano TON per billion tokens at launch
+    const grad = Number(pv.graduationPriceNanoPerBillion);
+    const dev = Number(val('dev') || '0');
+    const perTon = price > 0 ? 1e18 / price : 0;   // the preview prices are nano TON per billion tokens
+    const supply = Number(val('supply'));
+    const mine = dev * perTon;
+    const lines = [
+      'Starting price: 1 TON ≈ ' + Math.round(perTon).toLocaleString('en-US') + ' tokens · price at graduation is about ' + (price > 0 ? (grad / price).toFixed(0) : '?') + '× higher.',
+      dev > 0 ? 'Your first buy of ' + dev + ' TON gets you ≈ ' + Math.round(mine).toLocaleString('en-US') + ' tokens (≈ ' + (supply > 0 ? ((mine / supply) * 100).toFixed(2) : '0') + '% of the supply) at the lowest price the curve ever offers.' : 'First buy is 0: you will hold none of your own coin until you buy it on its page. Every token is sold by the curve; there is no free allocation.',
+    ];
+    box.textContent = lines.join('\n');
+  } catch { box.textContent = ''; }
+}
+for (const id of ['supply', 'fee', 'threshold', 'dev']) ($(id) as HTMLElement).addEventListener('input', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 700); });
+for (const id of ['supply', 'fee', 'threshold']) ($(id) as HTMLElement).addEventListener('change', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 300); });
+setTimeout(estimate, 500);

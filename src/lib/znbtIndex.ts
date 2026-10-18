@@ -14,6 +14,7 @@ export function ensureIndexTables(): Promise<void> {
       await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS znbt_index (id INT PRIMARY KEY, snapshot TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS znbt_reports (id BIGSERIAL PRIMARY KEY, curve TEXT NOT NULL, reason TEXT NOT NULL, details TEXT, ip_hash TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS znbt_reports_curve ON znbt_reports(curve)`);
+      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS znbt_ticks (curve TEXT NOT NULL, ts INT NOT NULL, raised TEXT NOT NULL, tpt TEXT NOT NULL, PRIMARY KEY (curve, ts))`);
     })().catch((e) => { ready = null; throw e; });
   }
   return ready;
@@ -32,6 +33,7 @@ export async function refreshSnapshot(budgetMs = 45_000): Promise<Snapshot> {
   const prev = await readSnapshot();
   const next = await refreshIndex({ master: cfg.master, prev, apiKey: process.env.TONCENTER_API_KEY || undefined, budgetMs });
   await prisma.$executeRawUnsafe(`INSERT INTO znbt_index (id, snapshot, updated_at) VALUES (1,$1,now()) ON CONFLICT (id) DO UPDATE SET snapshot=EXCLUDED.snapshot, updated_at=now()`, JSON.stringify(next));
+  await recordTicks(next.coins).catch(() => null);   // price history for the charts and the 24h change
   await adoptZnbt(next.coins).catch(() => null);   // ZNBt's own address and launch time are picked up from the chain, no human step
   return next;
 }
@@ -40,3 +42,31 @@ export async function refreshSnapshot(budgetMs = 45_000): Promise<Snapshot> {
 export const REPORT_REASONS = ["scam", "impersonation", "illegal", "copyright", "spam", "other"] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 export const isReason = (x: unknown): x is ReportReason => typeof x === "string" && (REPORT_REASONS as readonly string[]).includes(x);
+
+
+// ---- price history: one tick per coin each time its live numbers were refreshed (at most one per 10 minutes), kept 30 days ----
+export async function recordTicks(coins: Snapshot["coins"]): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  for (const c of coins) {
+    if (!c.statsAt || c.raisedNano === undefined || !c.tokensPerTon) continue;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO znbt_ticks (curve, ts, raised, tpt) SELECT $1,$2,$3,$4 WHERE NOT EXISTS (SELECT 1 FROM znbt_ticks WHERE curve=$1 AND ts > $2 - 600)`,
+      c.curve, c.statsAt, c.raisedNano, c.tokensPerTon,
+    );
+  }
+  await prisma.$executeRawUnsafe(`DELETE FROM znbt_ticks WHERE ts < $1`, now - 30 * 86400);
+}
+export type Tick = { ts: number; raised: string; tpt: string };
+export async function ticksOf(curve: string, days = 7, max = 240): Promise<Tick[]> {
+  await ensureIndexTables();
+  const rows = (await prisma.$queryRawUnsafe(`SELECT ts, raised, tpt FROM znbt_ticks WHERE curve=$1 AND ts > $2 ORDER BY ts`, curve, Math.floor(Date.now() / 1000) - days * 86400)) as Tick[];
+  if (rows.length <= max) return rows;
+  const step = rows.length / max;
+  return Array.from({ length: max }, (_, i) => rows[Math.min(rows.length - 1, Math.floor(i * step))]).concat(rows[rows.length - 1]);
+}
+/** Per coin: the numbers 24 hours ago (the oldest tick inside that window), to compute the 24h change next to the live numbers. */
+export async function baselines24h(): Promise<Record<string, { raised: string; tpt: string }>> {
+  await ensureIndexTables();
+  const rows = (await prisma.$queryRawUnsafe(`SELECT DISTINCT ON (curve) curve, raised, tpt FROM znbt_ticks WHERE ts > $1 ORDER BY curve, ts ASC`, Math.floor(Date.now() / 1000) - 86400)) as { curve: string; raised: string; tpt: string }[];
+  return Object.fromEntries(rows.map((r) => [r.curve, { raised: r.raised, tpt: r.tpt }]));
+}

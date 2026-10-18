@@ -10,6 +10,7 @@ import { readMeta } from './meta';
 export interface IndexedCoin {
   curve: string; creator: string; salt: string; name: string; symbol: string; description: string; image: string;
   supply: string; creatorFeeBps: number; createdAt: number;
+  minter?: string;           // the coin's jetton minter (for holders and portfolio)
   state?: number;            // 1 = on the curve, 2+ = graduated
   raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; statsAt?: number;
 }
@@ -60,7 +61,7 @@ export async function refreshIndex(opts: { master: string; prev: Snapshot | null
       const curve = Address.parse(c.curve);
       const d = await call(() => sdk.getCurveData(curve));
       const q = d.state === 1 ? await call(() => sdk.quoteBuy(curve, 1_000_000_000n)) : 0n;
-      Object.assign(c, { state: Number(d.state), raisedNano: d.realTonReserve.toString(), thresholdNano: d.graduationThreshold.toString(), tokensPerTon: q.toString(), statsAt: Math.floor(Date.now() / 1000) });
+      Object.assign(c, { minter: d.jettonMinter ? d.jettonMinter.toString({ bounceable: true }) : c.minter, state: Number(d.state), raisedNano: d.realTonReserve.toString(), thresholdNano: d.graduationThreshold.toString(), tokensPerTon: q.toString(), statsAt: Math.floor(Date.now() / 1000) });
     } catch { /* keep the previous numbers; the next run tries again */ }
   }
   return { coins: [...coins.values()].sort((a, b) => b.createdAt - a.createdAt), updatedAt: Math.floor(Date.now() / 1000) };
