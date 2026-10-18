@@ -6,7 +6,7 @@ import { beginCell, Dictionary } from '@ton/core';
 import { sha256_sync } from '@ton/crypto';
 
 const NANO = 1_000_000_000n;
-const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
+const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect', actionsConfiguration: { twaReturnUrl: 'https://t.me/PalmyraLaunchBot' as `${string}://${string}` } });
 const val = (id: string) => (($(id) as HTMLInputElement).value || '').trim();
 const say = (m: string) => ($('log').textContent = m);
 
