@@ -98,7 +98,9 @@ export function callerIp(h: { get(n: string): string | null }): string {
 
 // ---------- telling the owner ----------
 async function ownerBot(): Promise<{ api: Bot["api"]; chat: string } | null> {
-  const row = await prisma.bot.findFirst({ where: { template: "ATHAR_BOT", isActive: true }, select: { token: true, ownerId: true } }).catch(() => null);
+  // the platform's own bot first; the Athar bot only as a fallback until the platform bot is activated
+  const pick = (template: string) => prisma.bot.findFirst({ where: { template, isActive: true }, select: { token: true, ownerId: true } }).catch(() => null);
+  const row = (await pick("ZNBT_PLATFORM_BOT")) ?? (await pick("ATHAR_BOT"));
   return row ? { api: new Bot(row.token).api, chat: row.ownerId } : null;
 }
 export async function notifyOwner(text: string): Promise<void> {
