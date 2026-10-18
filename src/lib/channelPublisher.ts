@@ -58,8 +58,8 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /\bnova\b|نوفا/i, // Nova stays unpromoted (owner directive 2026-09-21)
   // "Sham" alone stays blocked; the site brand itself is allowed (owner renamed the site 2026-10-03):
   // "Sham AI" / "شام AI" / "شام للذكاء الاصطناعي".
-  /\bsham\b(?!\s*ai\b)/i,
-  /(^|[^\u0600-\u06FF])شام(?![\u0600-\u06FF])(?!\s*(ai\b|للذكاء))/i,
+  /\bsham\b(?![\s_]*ai\b)/i,
+  /(^|[^\u0600-\u06FF])شام(?![\u0600-\u06FF])(?![\s_]*(ai\b|للذكاء))/i,
   /\/(admin|api|owner|pay)\b/i, // internal site paths
   /8452320/,
 ];

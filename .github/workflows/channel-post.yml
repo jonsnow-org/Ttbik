@@ -3,6 +3,10 @@ on:
   schedule:
     - cron: "0 5,7,9,11,13,15,17,19 * * *"
   workflow_dispatch:
+    inputs:
+      dry:
+        description: "1 = preview the next post only"
+        default: ""
 concurrency:
   group: channel-post
   cancel-in-progress: false
@@ -21,7 +25,7 @@ jobs:
             echo "::error::GitHub secret CRON_SECRET is empty or missing (Settings > Secrets and variables > Actions)"
             exit 1
           fi
-          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/telegram-post?secret=${CRON_SECRET}")
+          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/telegram-post?secret=${CRON_SECRET}${DRY:+&dry=1}")
           echo "HTTP ${code}"
           cat body.json
           echo
@@ -32,3 +36,4 @@ jobs:
           [ "${code}" -lt 500 ]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DRY: ${{ github.event.inputs.dry }}
