@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import MonetagInPagePush from "@/components/MonetagInPagePush";
 import { headers } from "next/headers";
 import "./globals.css";
 import Logo from "@/components/Logo";
@@ -109,6 +110,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <TelegramSwipeLock />
           <AdServiceWorker />
           <AnalyticsTracker isOwner={isOwner} />
+        {/* In-Page Push for the gate address only, never on money/private/owner pages (lib/monetagGate.ts) */}
+        {!isOwner && <MonetagInPagePush />}
           <header className="sticky top-0 z-30 border-b border-slate-200 bg-white">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3.5">
               <a href="/en" className="flex shrink-0 items-center gap-2 text-lg font-extrabold text-brand-800">
