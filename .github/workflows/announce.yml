@@ -1,0 +1,32 @@
+name: announce
+# Posts a prepared announcement (src/lib/announce.ts) once to the general channel and the coins channel. Manual only.
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "announcement id"
+        default: "znbt-launch"
+      to:
+        description: "both | general | coins"
+        default: "both"
+      dry:
+        description: "1 = check only, send nothing"
+        default: ""
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: send
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          ID: ${{ github.event.inputs.id }}
+          TO: ${{ github.event.inputs.to }}
+          DRY: ${{ github.event.inputs.dry }}
+        run: |
+          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
+          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/announce" --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "id=${ID}" --data-urlencode "to=${TO}" ${DRY:+--data-urlencode "dry=1"})
+          echo "HTTP $code"; cat resp.json; echo
+          [ "$code" = "200" ]
