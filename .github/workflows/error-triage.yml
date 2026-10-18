@@ -1,0 +1,60 @@
+name: error-triage
+# Every hour: the site's grouped open errors (/api/ops/errors) and failed scheduled workflows become GitHub issues labelled "auto-error",
+# one per distinct error. A scheduled Claude session fixes them and closes the issue; closing it marks the error "fixed" here.
+on:
+  schedule:
+    - cron: "11 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+  actions: read
+concurrency:
+  group: error-triage
+  cancel-in-progress: false
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: issues from the site's error log
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)
+          gh label create auto-error --color B60205 --description "found by the site's error log, to be fixed automatically" 2>/dev/null || true
+          code=$(curl -sS -o open.json -w "%{http_code}" -G "$SITE_BASE/api/ops/errors" --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "status=open")
+          echo "errors endpoint: HTTP $code"
+          if [ "$code" = "200" ]; then
+            jq -c '.errors[]' open.json | while read -r row; do
+              fp=$(echo "$row" | jq -r .fp)
+              n=$(gh issue list --label auto-error --state all --search "$fp in:title" --json number --jq 'length')
+              if [ "$n" = "0" ]; then
+                title="[auto-error] $(echo "$row" | jq -r '.source + " · " + (.message | split("\n")[0] | .[0:90])') · $fp"
+                body=$(echo "$row" | jq -r '"**Source:** \(.source)\n**Seen:** \(.count) times, first \(.first_seen), last \(.last_seen)\n\n**Message**\n```\n\(.message)\n```\n\n**Stack**\n```\n\(.stack // "none")\n```\n\n**Context:** \(.ctx // "none")\n\nFingerprint `\(.fp)`. Fix the root cause in the repository (see CLAUDE.md: hands-off paths stay untouched), open a pull request, then close this issue; closing marks the error fixed."')
+                gh issue create --label auto-error --title "$title" --body "$body" || true
+              fi
+            done
+          fi
+          # issues closed by the fixing session mark their error as fixed
+          gh issue list --label auto-error --state closed --limit 50 --json title --jq '.[].title' | while read -r t; do
+            fp=$(echo "$t" | grep -o '[0-9a-f]\{16\}$' || true)
+            [ -n "$fp" ] && curl -sS -o /dev/null -X POST "$SITE_BASE/api/ops/errors?secret=${CRON_SECRET}" -H 'content-type: application/json' -d "{\"fp\":\"$fp\",\"status\":\"fixed\",\"note\":\"issue closed\"}" || true
+          done
+      - name: issues from failed scheduled workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          since=$(date -u -d '26 hours ago' +%FT%TZ)
+          for wf in site-crons znbt-index znbt-guard zenobia-watch zenobia-season channel-post coins-channel-post promo-remotion athar-mints athar-stars; do
+            last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf.yml/runs?per_page=3&status=completed" --jq "[.workflow_runs[]|select(.created_at>\"$since\")]|.[0]|[.conclusion,.html_url]|@tsv" 2>/dev/null || true)
+            concl=$(echo "$last" | cut -f1); url=$(echo "$last" | cut -f2)
+            if [ "$concl" = "failure" ]; then
+              fp=$(echo -n "wf-$wf" | sha1sum | cut -c1-16)
+              n=$(gh issue list --label auto-error --state open --search "$fp in:title" --json number --jq 'length')
+              [ "$n" = "0" ] && gh issue create --label auto-error --title "[auto-error] workflow $wf failed · $fp" --body "The latest run of **$wf** failed: $url\n\nRead the failing step's log, find the cause, fix it in the repository, open a pull request, then close this issue." || true
+            fi
+          done

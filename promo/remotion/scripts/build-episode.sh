@@ -7,9 +7,12 @@ IN=$(python3 -c "import json;print(json.load(open('episode.json'))['input'])")
 TXT=$(python3 -c "import json;print(json.load(open('episode.json'))['script'])")
 VOICE=$(python3 -c "import json;print(json.load(open('episode.json'))['voice'])")
 LANGV=$(python3 -c "import json;print(json.load(open('episode.json')).get('lang','ar'))")
+HOMEV=$(python3 -c "import json;print('0' if json.load(open('episode.json')).get('home') is False else '1')")
+RECV=$(python3 -c "import json;print('1' if json.load(open('episode.json')).get('rec') else '0')")
+INTV=$(python3 -c "import json;print('0' if json.load(open('episode.json')).get('interact') is False else '1')")
 RATE=$(python3 -c "import json;print(json.load(open('episode.json'))['rate'])")
 mkdir -p out rec
-node scripts/record.mjs "$SITE" "$P" "$IN" rec "$LANGV"
+node scripts/record.mjs "$SITE" "$P" "$IN" rec "$LANGV" "$HOMEV" "$RECV" "$INTV"
 # drop the blank first ~1.5s of page load, encode to h264 for Remotion
 ffmpeg -y -loglevel error -ss 1.5 -i rec/screen.webm -vf "fps=30,scale=720:1280:flags=lanczos" -c:v libx264 -pix_fmt yuv420p -crf 18 -an public/screen.mp4
 python3 scripts/tts.py "$TXT" "$VOICE" "$RATE" public
