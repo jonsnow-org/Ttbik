@@ -35,7 +35,7 @@
 4. Nothing else is needed for the pages: the platform finds ZNBt by itself within 5 minutes (address, launch time for the age badge). Check `…/zenobia/znbt/config.json` shows `curve`.
 5. When you are ready for other people to launch coins: the **Palmyra Launch bot** (@PalmyraLaunchBot, owner-only) ← **Owner panel** or `/platform` ← **«🪙 فتح المنصة للجميع»** (and «⛔ إغلاق المنصة» to close again; it also shows ZNBt's status, the coin count and the reports). It refuses to open before ZNBt exists.
 
-**Claude then (no deploy needed):** runs the chain check (`node znbt-verify.cjs <coin>`; build with `cd contracts/zenobia-curve/web && npx esbuild src/verify.ts --bundle --platform=node --outfile=/tmp/znbt-verify.cjs`), checks `/jetton2` in the Zenobia bot, the age badge icon (`/api/zenobia/znbt/icon`) and the coin pages.
+**Claude then (no deploy needed):** runs the chain check (`node znbt-verify.cjs <coin>`; build with `cd contracts/zenobia-curve/web && npx esbuild src/verify.ts --bundle --platform=node --outfile=/tmp/znbt-verify.cjs --alias:@ton/core=$PWD/node_modules/@ton/core --alias:@ton/crypto=$PWD/node_modules/@ton/crypto --alias:@ton/ton=$PWD/node_modules/@ton/ton` (the aliases are required: without them two copies of @ton/core are bundled and the SDK answers "Invalid address")), checks `/jetton2` in the Zenobia bot, the age badge icon (`/api/zenobia/znbt/icon`) and the coin pages.
 
 **Permanent facts fixed at launch (they cannot be changed afterwards):** name and symbol, 9B supply, fees 1.5% + 1.5%, graduation at 1,000 TON, the coin's `image` = `https://ttbik-gate.jonsnowx1r.workers.dev/api/zenobia/znbt/icon` (the gate's permanent address, served by Oracle or Vercel), a small static picture stored on-chain as fallback.
 

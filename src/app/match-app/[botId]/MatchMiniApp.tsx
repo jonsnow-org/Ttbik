@@ -849,7 +849,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
         : <span className="whitespace-nowrap rounded-full border border-white/10 px-3 py-1 text-white/35">🎯 بحث دقيق (للمشتركين)</span>}
     </div></>
   );
-  if (!deck) return <div>{strictBar}<div className={`mt-2 h-[460px] animate-pulse rounded-[32px] ${GLASS}`} /></div>;
+  if (!deck) return <div>{strictBar}<DeckSkeleton /></div>;
   if (deck.length === 0) return (
     <div>{strictBar}
       <Empty icon="✨" text="شاهدت كل المطابقات الحالية. جرّب أحد هذه الخيارات:" action="🔄 تحديث" onAction={load} />
@@ -1021,7 +1021,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
       <h2 className="text-lg font-bold">المحادثات</h2>
       {segBar}
       <p className="text-[11px] text-white/45">رسائل من أعضاء لم يحدث بينكم إعجاب متبادل: 3 رسائل مجانية لكل طرف، ثم تُفتح المحادثة بترقية بسيطة.</p>
-      {!threads && <div className={`h-16 animate-pulse rounded-3xl ${GLASS}`} />}
+      {!threads && <RowSkeleton />}
       {threads && reqThreads.length === 0 && <p className="text-sm text-white/40">لا توجد طلبات بعد.</p>}
       {reqThreads.map(threadRow)}
     </div>
@@ -1052,7 +1052,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
         </div>
       ))}
       <h3 className="pt-2 text-sm text-white/60">💞 إعجابات متبادلة</h3>
-      {!matches && <div className={`h-20 animate-pulse rounded-3xl ${GLASS}`} />}
+      {!matches && <RowSkeleton tall />}
       {matches?.length === 0 && <p className="text-sm text-white/40">لا توجد إعجابات متبادلة بعد. استمر في التصفح 🔥</p>}
       {matches?.map((c) => (
         <motion.div key={c.ref} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className={`rounded-3xl p-4 ${GLASS}`}>
@@ -1818,6 +1818,31 @@ function UpdateCampaign({ api, say }: { api: any; say: any }) {
         say(r.message || r.error, r.ok ? "success" : "error");
         const n = await api("admin_update_broadcast_preview"); if (n?.ok) setP(n);
       }} className={`mt-2 w-full rounded-2xl py-2.5 font-bold disabled:opacity-50 ${GRAD}`}>{busy ? "جارٍ الإرسال…" : p.pending ? "إرسال الحملة" : "✅ أُرسلت للجميع"}</button>
+    </div>
+  );
+}
+
+
+/** Loading placeholders shaped like what is coming (a card with its buttons; a list row), so the screen does not jump when data arrives. */
+function DeckSkeleton() {
+  return (
+    <div className={`sk sk-dark relative mt-2 h-[460px] rounded-[32px] ${GLASS}`} aria-hidden>
+      <div className="absolute inset-x-5 bottom-28 space-y-2">
+        <div className="h-6 w-2/3 rounded-full bg-white/10" />
+        <div className="h-3 w-1/3 rounded-full bg-white/10" />
+        <div className="flex gap-2 pt-2"><div className="h-7 w-20 rounded-full bg-white/10" /><div className="h-7 w-16 rounded-full bg-white/10" /></div>
+      </div>
+      <div className="absolute inset-x-8 bottom-5 flex justify-between">
+        {[44, 44, 60, 44, 44].map((s, i) => <div key={i} className="rounded-full bg-white/10" style={{ width: s, height: s }} />)}
+      </div>
+    </div>
+  );
+}
+function RowSkeleton({ tall }: { tall?: boolean }) {
+  return (
+    <div className={`sk sk-dark flex items-center gap-3 rounded-3xl p-3 ${tall ? "h-20" : "h-16"} ${GLASS}`} aria-hidden>
+      <div className="h-11 w-11 shrink-0 rounded-full bg-white/10" />
+      <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded-full bg-white/10" /><div className="h-3 w-3/4 rounded-full bg-white/10" /></div>
     </div>
   );
 }

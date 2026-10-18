@@ -293,6 +293,7 @@ export default function MiniAppPage() {
   }
   /** Lightweight behavior ping — identity from Telegram initData only */
   function goTab(t: Tab) {
+    haptic();
     setTab(t);
     setPlayingId(null);
     setAutoId(null);
@@ -1469,7 +1470,7 @@ export default function MiniAppPage() {
           </div>
         )}
 
-        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="animate-pulse overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
+        {tab !== "admin" && !overlayOpen && !(showProfile && viewedBlockedMe) && (loading ? <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="sk overflow-hidden rounded-3xl bg-sky-100"><div className="aspect-[9/15] max-h-[70vh] w-full bg-sky-200/80" /><div className="space-y-2 p-4"><div className="h-3 w-2/3 rounded bg-sky-200" /><div className="h-3 w-1/2 rounded bg-sky-200" /></div></div>)}</div> : visible.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-sky-200 bg-white p-8 text-center"><div className="text-4xl">{tab === "following" && !showProfile ? "💜" : "📭"}</div><p className="mt-3 text-sm font-bold text-slate-700">{emptyText}</p><button type="button" onClick={() => load()} className="mt-3 rounded-xl bg-gradient-to-l from-sky-500 to-indigo-500 px-4 py-2 text-xs font-bold text-white">🔄 تحديث</button></div>
         ) : (
           <div className="space-y-4">{visible.map((item, idx) => {
@@ -1479,7 +1480,7 @@ export default function MiniAppPage() {
             const mine = !!userId && item.sharer_id === userId;
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
-              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
+              <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
                 <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
@@ -1533,7 +1534,7 @@ export default function MiniAppPage() {
       {/* ⋮ menu — bottom sheet */}
       {menuItem && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setMenuItem(null)}>
-          <div className="w-full rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up w-full rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="mb-3 line-clamp-1 text-center text-xs font-bold text-slate-500">{displayTitle(menuItem)}</p>
             <div className="space-y-1.5">
@@ -1562,7 +1563,7 @@ export default function MiniAppPage() {
       {/* Report sheet */}
       {reportItem && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setReportItem(null)}>
-          <div className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="text-center text-base font-black text-rose-700">🚩 إبلاغ عن منشور</p>
             <p className="mb-3 mt-1 line-clamp-1 text-center text-xs text-slate-500">{displayTitle(reportItem)}</p>
@@ -1579,10 +1580,10 @@ export default function MiniAppPage() {
 
       {peopleSheet && (
         <div className="fixed inset-0 z-40 flex items-end bg-black/40" onClick={() => setPeopleSheet(null)}>
-          <div className="max-h-[75vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="sheet-up max-h-[75vh] w-full overflow-y-auto rounded-t-3xl bg-white p-4 pb-8 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200" />
             <p className="mb-3 text-center text-base font-black text-violet-700">{peopleSheet.kind === "followers" ? "💜 المتابِعون" : "👥 يتابع"}</p>
-            {peopleSheet.people === null ? <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="h-12 animate-pulse rounded-2xl bg-violet-50" />)}</div>
+            {peopleSheet.people === null ? <div className="space-y-2">{[1, 2, 3].map((i) => <div key={i} className="sk h-12 rounded-2xl bg-violet-50" />)}</div>
               : peopleSheet.people.length === 0 ? <p className="py-6 text-center text-sm text-slate-500">{socialReady === false ? "الميزة بانتظار تفعيلها من المالك" : "لا أحد بعد"}</p>
               : <ul className="space-y-1.5">{peopleSheet.people.map((pp) => (
                 <li key={pp.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-2">
