@@ -11,18 +11,17 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SECRET = "8452320"
 
 
 def _secret() -> str:
-    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or DEFAULT_SECRET).strip()
+    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
 
 
 def _api_url() -> str:
     # Swaps FEED_API_URL's trailing /api/media-feed for /api/media-bot/
     # verify-premium, so this reuses the one env var already configured
     # for services/feed.py instead of needing a second one set on Render.
-    base = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
+    base = (os.getenv("FEED_API_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev/api/media-feed").rstrip("/")
     base = base.rsplit("/api/", 1)[0]
     return f"{base}/api/media-bot/verify-premium"
 

@@ -13,15 +13,14 @@ import httpx
 logger = logging.getLogger(__name__)
 
 _local_feed: list[dict[str, Any]] = []
-DEFAULT_SECRET = "8452320"
 
 
 def _secret() -> str:
-    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or DEFAULT_SECRET).strip()
+    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
 
 
 def _api_url() -> str:
-    return (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
+    return (os.getenv("FEED_API_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev/api/media-feed").rstrip("/")
 
 
 def local_items(limit: int = 50) -> list[dict[str, Any]]:

@@ -11,7 +11,6 @@ from typing import Any
 import httpx
 
 logger = logging.getLogger(__name__)
-DEFAULT_SECRET = "8452320"
 
 TYPE_LABELS = {
     "like": "الإعجابات",
@@ -24,11 +23,11 @@ TYPE_LABELS = {
 
 
 def _secret() -> str:
-    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or DEFAULT_SECRET).strip()
+    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
 
 
 def _url() -> str:
-    base = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
+    base = (os.getenv("FEED_API_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev/api/media-feed").rstrip("/")
     return base.rsplit("/api/", 1)[0] + "/api/media-bot/notify-prefs"
 
 
