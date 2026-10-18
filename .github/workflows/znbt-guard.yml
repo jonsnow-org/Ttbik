@@ -1,0 +1,26 @@
+name: znbt-guard
+# Hourly watch over what ZNBt depends on for ever: its on-chain image address, the gate, both servers and (after launch) the contracts.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: znbt-guard
+  cancel-in-progress: false
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+      - name: check
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
+          code=$(curl -sS -m 90 -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/znbt-guard")
+          echo "HTTP ${code}"; cat body.json; echo
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
