@@ -1,5 +1,4 @@
 import { Bot as TelegramBot, InlineKeyboard, Keyboard } from "grammy";
-import { handlePlatformCallback, platformKeyboard, platformText } from "@/lib/hostingPanel";
 import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
@@ -512,17 +511,6 @@ export async function handleZenobiaBotUpdate(bot: TelegramBot, botRow: BotRow, b
       `INSERT INTO zenobia_passport (idx, bot_id, tg_user_id) VALUES ($1,$2,$3) ON CONFLICT (idx) DO UPDATE SET bot_id=EXCLUDED.bot_id, tg_user_id=EXCLUDED.tg_user_id`, n, botId, id,
     );
     await panel({ text: t.passportOn(n) });
-    return;
-  }
-
-  // the owner's coin-platform panel: /platform (open or close the platform, see ZNBt and the reports)
-  if (id === ownerId && !cq && act === "zn:platform") {
-    const p = await platformText();
-    await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } });
-    return;
-  }
-  if (id === ownerId && cq && act.startsWith("zp:")) {
-    await handlePlatformCallback(bot, chatId, act, cq.message?.message_id);
     return;
   }
 

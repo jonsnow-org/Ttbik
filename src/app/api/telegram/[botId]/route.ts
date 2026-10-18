@@ -1,3 +1,4 @@
+import { handlePlatformBotUpdate } from "@/lib/platformBotLogic";
 import { NextRequest, NextResponse } from "next/server";
 import { preCheckout } from "@/lib/atharStars";
 import { noteFailover } from "@/lib/hostingOps";
@@ -65,6 +66,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
   FADAA_BOT: "migration_fadaa.sql",
   ATHAR_BOT: "migration_full_current_schema.sql",
   ZENOBIA_BOT: "migration_full_current_schema.sql", // its table is created on first use
+  ZNBT_PLATFORM_BOT: "migration_full_current_schema.sql", // uses the znbt_* tables created on first use
 };
 
 export async function POST(req: NextRequest, props: { params: Promise<{ botId: string }> }) {
@@ -177,6 +179,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         await handleAtharBotUpdate(bot, botRow, body);
       } else if (botRow.template === "ZENOBIA_BOT") {
         await handleZenobiaBotUpdate(bot, botRow, body);
+      } else if (botRow.template === "ZNBT_PLATFORM_BOT") {
+        await handlePlatformBotUpdate(bot, botRow, body);
       } else if (isHubTemplate(botRow.template)) {
         await handleHubBotUpdate(bot, botRow, body); // creator hub (/create) templates, tables created on first use
       } else {
