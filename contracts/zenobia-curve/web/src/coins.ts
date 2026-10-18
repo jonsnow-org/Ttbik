@@ -4,7 +4,7 @@ import { toTonConnect, flushFees, withdrawProtocolFees } from '../../sdk/dist/in
 import { client, sdk, OWNER, $, loadConfig, fmt } from './common';
 import { scanCoins, hiddenSet, Coin } from './registry';
 
-interface Row extends Coin { state?: number; raisedNano?: string; thresholdNano?: string; tokensPerTon?: string }
+interface Row extends Coin { minter?: string; state?: number; raisedNano?: string; thresholdNano?: string; tokensPerTon?: string; chg24?: number | null; raised24?: string | null; mcTon?: number | null }
 type Sort = 'new' | 'progress' | 'raised';
 const WATCH = 'znbt-watch-v1';
 const watch = (): Set<string> => { try { return new Set(JSON.parse(localStorage.getItem(WATCH) || '[]')); } catch { return new Set(); } };
@@ -64,6 +64,32 @@ function toolbar() {
   box.append(input, chips, sorts);
 }
 
+const sign = (n: number) => (n > 0 ? '+' : '') + n.toFixed(Math.abs(n) >= 100 ? 0 : 1) + '%';
+function mini(c: Row, note: string, cls = '') {
+  const a = el('a', { className: 'mini', href: '/zenobia/trade.html?c=' + encodeURIComponent(c.curve) });
+  const ph = el('div', { className: 'ph', textContent: (c.symbol || '?').slice(0, 1) });
+  if (c.image) { const img = el('img', { alt: '', referrerPolicy: 'no-referrer', loading: 'lazy' }) as HTMLImageElement; img.src = c.image; img.onerror = () => img.remove(); ph.append(img); }
+  a.append(ph, el('b', { textContent: c.symbol || '?' }), el('span', { className: cls, textContent: note }));
+  return a;
+}
+function sections() {
+  const box = $('sections');
+  box.textContent = '';
+  const live = rows.filter((c) => (admin || !hidden.has(key(c))) && (c.state ?? 1) === 1);
+  const king = [...live].sort((a, b) => (pct(b) ?? -1) - (pct(a) ?? -1))[0];
+  const hot = [...live].filter((c) => c.raised24 && BigInt(c.raised24) > 0n).sort((a, b) => Number(BigInt(b.raised24!) - BigInt(a.raised24!))).slice(0, 8);
+  if (king && (pct(king) ?? 0) > 0) {
+    box.append(el('h2', { className: 'sec', textContent: '👑 King of the hill' }));
+    box.append(el('a', { className: 'king', href: '/zenobia/trade.html?c=' + encodeURIComponent(king.curve) }, el('b', { textContent: (king.name || king.symbol) + ' · ' + king.symbol }), el('span', { textContent: (pct(king) ?? 0).toFixed(1) + '% to graduation · ' + fmt(BigInt(king.raisedNano!), 9, 2) + ' TON raised' })));
+  }
+  if (hot.length) {
+    box.append(el('h2', { className: 'sec', textContent: '🔥 Trending now' }));
+    const strip = el('div', { className: 'strip' });
+    for (const c of hot) strip.append(mini(c, '+' + fmt(BigInt(c.raised24!), 9, 2) + ' TON', 'up'));
+    box.append(strip);
+  }
+}
+
 function stats() {
   const shown = rows.filter((c) => admin || !hidden.has(key(c)));
   let raised = 0n;
@@ -106,6 +132,8 @@ function render() {
     if (p !== null) {
       body.append(el('div', { className: 'bar' }, el('div', { style: 'width:' + p + '%' })));
       body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' TON' }), el('b', { textContent: p.toFixed(1) + '%' })));
+      const extra = [c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' TON' : '', typeof c.chg24 === 'number' ? sign(c.chg24) + ' 24h' : ''].filter(Boolean);
+      if (extra.length) body.append(el('div', { className: 'm' }, el('span', { textContent: extra[0] }), el('span', { className: typeof c.chg24 === 'number' ? (c.chg24 >= 0 ? 'up' : 'down') : '', textContent: extra[1] || '' })));
     } else {
       body.append(el('div', { className: 'm' }, el('span', { textContent: 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%' }), el('span', { textContent: new Date(c.createdAt * 1000).toISOString().slice(0, 10) })));
     }
@@ -173,6 +201,28 @@ async function setupAdmin() {
   };
 }
 
+async function mine() {
+  const show = async () => {
+    const box = $('mine');
+    box.textContent = '';
+    if (!ui.account) return;
+    try {
+      const r = await fetch('/api/zenobia/portfolio?w=' + encodeURIComponent(ui.account.address), { cache: 'no-store' });
+      const j = await r.json();
+      if (!j.ok || !j.holdings.length) return;
+      box.append(el('h2', { className: 'sec', textContent: '💼 Your coins' }));
+      let total = 0;
+      for (const h of j.holdings) {
+        total += h.valueTon || 0;
+        box.append(el('a', { className: 'coin', href: '/zenobia/trade.html?c=' + encodeURIComponent(h.curve) }, el('div', { className: 'ph', textContent: (h.symbol || '?').slice(0, 1) }), el('div', { className: 'body' }, el('div', { className: 't' }, h.name || h.symbol, el('span', { className: 'sym', textContent: h.symbol })), el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(h.balance), 9, 2) + ' ' + h.symbol }), el('b', { textContent: h.valueTon != null ? '≈ ' + h.valueTon.toFixed(2) + ' TON' : '' })))));
+      }
+      box.append(el('div', { className: 'mut', textContent: 'Estimated value at the current curve price: ' + total.toFixed(2) + ' TON' }));
+    } catch {}
+  };
+  ui.onStatusChange(() => { void show(); });
+  await show();
+}
+
 (async () => {
   const cfg = await loadConfig();
   master = Address.parse(cfg.master);
@@ -202,6 +252,8 @@ async function setupAdmin() {
   }
   toolbar();
   stats();
+  sections();
   render();
+  mine();
 })().catch((e) => say('Error: ' + (e.message || e)));
 void client;
