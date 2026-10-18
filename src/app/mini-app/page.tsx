@@ -938,6 +938,12 @@ export default function MiniAppPage() {
 
   const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewAvatar(""); setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); goTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
   const closeOtherProfile = () => { setViewAvatar(""); setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
+  const [burst, setBurst] = useState<{ id: string; n: number } | null>(null);
+  const doubleTapLike = (item: FeedItem) => {
+    setBurst({ id: item.id, n: Date.now() });
+    setTimeout(() => setBurst((b) => (b && b.id === item.id ? null : b)), 800);
+    if (!liked[item.id]) toggleLike(item); else haptic();
+  };
   const toggleLike = (item: FeedItem) => {
     const id = item.id;
     const was = !!liked[id];
@@ -1126,21 +1132,31 @@ export default function MiniAppPage() {
     : tab === "audio" ? "لا يوجد صوت بعد" : showProfile ? "لا منشورات هنا بعد" : "لا يوجد محتوى";
 
   return (
-    <div className="min-h-screen bg-[#eaf6ff] text-slate-800">
+    <div className="min-h-screen bg-[#eaf6ff] pb-24 text-slate-800">
       
       {showTopBtn && (
         <button
           type="button"
           aria-label="العودة للأعلى"
           onClick={() => { haptic(); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-          className="fixed bottom-5 left-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/40 text-lg text-white shadow-md backdrop-blur-md ring-1 ring-white/50 transition active:scale-95"
+          className="fixed bottom-20 left-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-sky-500/40 text-lg text-white shadow-md backdrop-blur-md ring-1 ring-white/50 transition active:scale-95"
         >
           ↑
         </button>
       )}
 
       <MonetagSdkLoader />
-      <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/95 px-4 pb-1.5 pt-1.5 backdrop-blur-xl">
+      <nav aria-label="التنقل" className="fixed inset-x-0 bottom-0 z-30 border-t border-sky-100 bg-white/80 px-2 pb-[max(env(safe-area-inset-bottom),6px)] pt-1.5 shadow-[0_-4px_20px_rgba(14,116,144,0.08)] backdrop-blur-xl">
+        <div className="mx-auto flex max-w-xl items-stretch justify-around">
+          {tabs.map((t) => { const active = !viewUserId && tab === t.id; return (
+            <button key={t.id} type="button" aria-current={active ? "page" : undefined} onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); window.scrollTo({ top: 0 }); }} className="relative flex flex-1 flex-col items-center gap-0.5 py-1 transition active:scale-90">
+              <span className={`flex h-8 w-14 items-center justify-center rounded-full text-xl transition-all duration-200 ${active ? TAB_STYLES[t.id].active : ""}`}>{t.icon}</span>
+              <span className={`text-[10px] font-bold ${active ? "text-slate-800" : "text-slate-400"}`}>{t.label}</span>
+              {t.id === "admin" && openReports.length > 0 && <span className="absolute right-3 top-0 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}
+            </button>); })}
+        </div>
+      </nav>
+      <header className="sticky top-0 z-20 border-b border-sky-100 bg-[#eaf6ff]/75 px-4 pb-1.5 pt-1.5 backdrop-blur-2xl">
         <div className="flex items-center justify-between">
           <div><p className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-sky-500">TELEGRAM MINI APP <LiveDot online={botOnline} /></p><h1 className="text-base font-black leading-tight text-slate-800">{headerName ? `أهلاً ${headerName.split(" ")[0]}` : "موجز الوسائط"}</h1></div>
           <div className="flex items-center gap-2">
@@ -1151,7 +1167,6 @@ export default function MiniAppPage() {
             <button type="button" onClick={() => { closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); goTab("me"); }} className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-sky-400 to-indigo-500 ring-2 ring-white shadow">{avatarUrl || photoUrl ? <img src={avatarUrl || photoUrl} alt="" className="h-full w-full object-cover" /> : <span className="text-lg font-black text-white">{(displayName || "U").slice(0, 1)}</span>}</button>
           </div>
         </div>
-        <nav className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">{tabs.map((t) => { const active = !viewUserId && tab === t.id; return (<button key={t.id} type="button" onClick={() => { haptic(); closeOtherProfile(); setShowNotifs(false); setShowInbox(false); setShowComments(false); setTab(t.id); setPlayingId(null); setAutoId(null); }} className={`relative flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-xs font-bold transition ${active ? TAB_STYLES[t.id].active : TAB_STYLES[t.id].idle}`}><span>{t.icon}</span>{t.label}{t.id === "admin" && openReports.length > 0 && <span className="mr-0.5 rounded-full bg-rose-500 px-1.5 text-[9px] font-black text-white">{openReports.length}</span>}</button>); })}</nav>
         {tab === "trending" && !viewUserId && (
           <div className="mt-1.5 flex gap-1.5">
             <button
@@ -1481,7 +1496,8 @@ export default function MiniAppPage() {
             return (
               <FeedAdBefore key={item.id} index={idx} createdAt={item.created_at} onOpenAthar={openAthar}>
               <article data-feed-id={item.id} data-auto-id={!isAudio ? item.id : undefined} className="fade-up overflow-hidden rounded-3xl bg-white shadow-md shadow-sky-100 ring-1 ring-sky-100">
-                <div className={`relative w-full bg-slate-900 ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
+                <div onDoubleClick={() => doubleTapLike(item)} className={`relative w-full select-none bg-slate-900 [touch-action:manipulation] ${isAudio ? "aspect-[16/7]" : "aspect-[9/15] max-h-[70vh]"}`}>
+                  {burst?.id === item.id && <span key={burst.n} className="heart-burst pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-7xl">❤️</span>}
                   {playingId === item.id ? (
                     isAudio ? (<div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-indigo-100 to-sky-200"><span className="text-5xl">🎵</span><audio key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} controls autoPlay className="w-[90%]" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} /></div>)
                     : (<video key={viaVercel[item.id] ? "v" : "c"} src={mediaStreamUrl(item.id, !!viaVercel[item.id])} poster={item.thumbnail || undefined} controls autoPlay playsInline onLoadedMetadata={(e) => setRatio(item.id, e.currentTarget.videoWidth, e.currentTarget.videoHeight)} className="h-full w-full bg-black object-cover" onError={() => onPlayError(item.id)} onTimeUpdate={(e) => { const el = e.currentTarget; const t = el.currentTime || 0; const d = el.duration; if (t >= 1.5 || (d > 0 && d < 3 && t >= d * 0.5)) markViewed(item, t); }} onEnded={() => markViewed(item, 99, true)} />)
