@@ -15,7 +15,7 @@
     if (lang === "ar") return;
     if (node.nodeType === 3) {
       var p = node.parentNode;
-      if (!p || /^(SCRIPT|STYLE)$/.test(p.nodeName)) return;
+      if (!p || /^(SCRIPT|STYLE)$/.test(p.nodeName) || (p.closest && p.closest("[data-keep]"))) return;
       var v = node.nodeValue, c = clean(v);
       if (c !== v) {
         node.nodeValue = c;
@@ -36,10 +36,11 @@
   }).observe(document.documentElement, { childList: true, characterData: true, subtree: true });
   document.addEventListener("DOMContentLoaded", function () {
     run();
-    var b = document.createElement("a");
-    b.href = "#"; b.textContent = lang === "en" ? "العربية" : "English";
-    b.style.cssText = "position:fixed;top:10px;right:10px;z-index:9;font:12px system-ui,sans-serif;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;text-decoration:none";
+    var b = document.getElementById("langBtn");   // the tab bar's language item (nav.js); a small floating button when a page has no tab bar
+    var txt = document.getElementById("langTxt");
+    var label = lang === "en" ? "العربية" : "English";
+    if (b) { if (txt) txt.textContent = label; }
+    else { b = document.createElement("a"); b.href = "#"; b.textContent = label; b.style.cssText = "position:fixed;top:10px;right:10px;z-index:9;font:12px system-ui,sans-serif;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;text-decoration:none"; document.body.appendChild(b); }
     b.onclick = function (e) { e.preventDefault(); try { localStorage.setItem("znbtLang", lang === "en" ? "ar" : "en"); } catch (x) {} location.reload(); };
-    document.body.appendChild(b);
   });
 })();
