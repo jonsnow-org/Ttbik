@@ -6,6 +6,7 @@
     ['/zenobia/create.html', '🚀', 'Launch'],
     ['/zenobia/terms.html', 'ℹ️', 'Info'],
   ];
+  if (/[?&]rec=1/.test(location.search)) return;   // screen recordings for videos: no tab bar
   function build() {
     var nav = document.createElement('nav');
     nav.className = 'tabbar';
