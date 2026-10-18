@@ -24,7 +24,7 @@ async function saveState(s: State): Promise<void> {
   await supabaseAdmin().from("bot_settings").upsert({ key: STATE_KEY, value: s, updated_at: new Date().toISOString() });
 }
 
-async function posterToken(): Promise<string> {
+export async function posterToken(): Promise<string> {
   for (const template of ["ZENOBIA_BOT", "ZNBT_PLATFORM_BOT"]) {
     const row = await prisma.bot.findFirst({ where: { template, isActive: true }, select: { token: true } }).catch(() => null);
     if (row?.token) return row.token;

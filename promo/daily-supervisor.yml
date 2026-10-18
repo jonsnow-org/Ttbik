@@ -1,0 +1,49 @@
+# انقل هذا الملف إلى .github/workflows/promo-daily-supervisor.yml على الفرع الافتراضي
+# (الجدولة في GitHub Actions لا تعمل إلا من الفرع الافتراضي). مجاني ولا يحتاج خطة Claude مدفوعة.
+name: promo-daily-supervisor
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 09:00 بتوقيت إسطنبول
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  supervise:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect status
+        id: s
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://ttbik.vercel.app/ || echo 000)
+          rel=$(gh release list -R "$REPO" --limit 20 --json tagName,publishedAt --jq '[.[]|select(.tagName|startswith("promo-"))][0] | if . then .tagName+" ("+.publishedAt+")" else "none" end')
+          pr=$(gh pr list -R "$REPO" --search 'Promo supervision in:title' --state open --json number --jq '.[0].number // empty')
+          {
+            echo "code=$code"
+            echo "rel=$rel"
+            echo "pr=$pr"
+          } >> "$GITHUB_OUTPUT"
+      - name: Comment on supervision PR
+        if: steps.s.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment ${{ steps.s.outputs.pr }} -R "$REPO" --body "🤖 تقرير الإشراف اليومي $(date -u +%F)
+          - الموقع: HTTP ${{ steps.s.outputs.code }}
+          - آخر فيديو ترويجي: ${{ steps.s.outputs.rel }}
+          - المطلوب من جلسة Claude التالية: مراجعة جدول Metricool وقناة تلجرام وتجديد الأسبوع القادم."
+      - name: Open issue if site is down
+        if: steps.s.outputs.code != '200'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue create -R "$REPO" --title "الموقع لا يستجيب (HTTP ${{ steps.s.outputs.code }}) — $(date -u +%F)" --body "فحص الإشراف اليومي: https://ttbik.vercel.app أعاد ${{ steps.s.outputs.code }}. أوقفوا الترويج حتى يعود الموقع."
