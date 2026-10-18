@@ -801,7 +801,8 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     const top = deck?.[0];
     if (top) api("seen", { target: top.ref }); // same visit tracking as the bot's card
     // Prefetch the photos of the visible stack (top 3) so the next card is ready.
-    for (const c of (deck || []).slice(0, 3)) if (c.photo && !photos[c.ref]) api("photo", { target: c.ref }).then((r: any) => r.ok && setPhotos((p) => ({ ...p, [c.ref]: r.src })));
+    // in parallel and a little deeper, and decode each image before it is needed, so the next card is already there when the first is gone
+    for (const c of (deck || []).slice(0, 5)) if (c.photo && !photos[c.ref]) api("photo", { target: c.ref }).then((r: any) => { if (!r.ok) return; try { const im = new Image(); im.src = r.src; } catch {} setPhotos((p) => ({ ...p, [c.ref]: r.src })); });
   }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -826,8 +827,10 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
       void api("swipe", { target: card.ref, kind }).then((r: any) => (r?.ok ? r : api("swipe", { target: card.ref, kind })));
       return;
     }
-    const r = await api("swipe", { target: card.ref, kind });
-    if (!r.ok) { say(r.error, "error"); return; }
+    // One quiet retry for a dropped request; if it still fails the card comes back instead of being lost.
+    let r = await api("swipe", { target: card.ref, kind });
+    if (!r.ok && r.error === "تعذّر الاتصال") r = await api("swipe", { target: card.ref, kind });
+    if (!r.ok) { if (kind === "like") setDeck((d) => (d && !d.some((x) => x.ref === card.ref) ? [card, ...d] : d)); say(r.error, "error"); return; }
     if (r.message) say(r.message);
     if (r.match) onMatch({ ...card, ...r.card });
   };
@@ -869,35 +872,35 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
             <SwipeCard key={c.ref} card={c} photo={photos[c.ref]} isTop={i === arr.length - 1} depth={arr.length - 1 - i}
-              onSwipe={(dir) => act(dir === "right" ? "like" : dir === "up" ? "super" : "pass")} onTap={() => onInfo(c)}
+              onSwipe={() => act("pass")} onTap={() => onInfo(c)}
               onPhotoRequest={async () => { const r = await api("photo_request", { target: c.ref }); say(r.message || r.error); }} />
           ))}
         </AnimatePresence>
       </div>
       {/* Floating actions over the photo (Tinder-style), above the bottom gradient */}
       <div data-testid="card-actions" className="pointer-events-none relative z-20 -mt-[92px] flex items-center justify-center gap-4 [&>*]:pointer-events-auto">
-        <ActionBtn label="تخطي" size="md" onClick={() => act("pass")}>✖️</ActionBtn>
-        <ActionBtn label="رسالة" size="md" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
+        <ActionBtn label="تخطي" size="md" tone="bg-rose-600" onClick={() => act("pass")}>✖️</ActionBtn>
+        <ActionBtn label="رسالة" size="md" tone="bg-sky-500" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
         <ActionBtn label="إعجاب" size="lg" glow="#ff2e93" gradient onClick={() => act("like")}>❤️</ActionBtn>
-        <ActionBtn label="معلومات" size="md" onClick={() => deck[0] && onInfo(deck[0])}>ℹ️</ActionBtn>
+        <ActionBtn label="معلومات" size="md" tone="bg-slate-500" onClick={() => deck[0] && onInfo(deck[0])}>ℹ️</ActionBtn>
       </div>
       <div className="mt-3 flex items-center justify-center gap-3">
-        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" onClick={rewind}>↩️</ActionBtn>}
-        <ActionBtn label="مميز $1" size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
-        <ActionBtn label="طلب زواج" size="sm" glow="#e8b4a0" onClick={() => act("propose")}>💍</ActionBtn>
-        <ActionBtn label="مجاملة" size="sm" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
+        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" tone="bg-slate-500" onClick={rewind}>↩️</ActionBtn>}
+        <ActionBtn label="مميز $1" size="sm" tone="bg-amber-500" glow="#fbbf24" onClick={() => act("super")}>⭐</ActionBtn>
+        <ActionBtn label="طلب زواج" size="sm" tone="bg-violet-600" glow="#a78bfa" onClick={() => act("propose")}>💍</ActionBtn>
+        <ActionBtn label="مجاملة" size="sm" tone="bg-emerald-600" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
       </div>
-      <p className="mt-3 text-center text-[11px] text-white/35">اسحب يميناً للإعجاب · يساراً للتخطي · للأعلى للإعجاب المميز</p>
+      <p className="mt-3 text-center text-[11px] text-white/35">اسحب يميناً أو يساراً للتخطي · الإعجاب بزر ❤️</p>
     </div>
   );
 }
 
-function ActionBtn({ children, onClick, label, size, glow, gradient }: { children: React.ReactNode; onClick: () => void; label: string; size: "sm" | "md" | "lg"; glow?: string; gradient?: boolean }) {
+function ActionBtn({ children, onClick, label, size, glow, gradient, tone }: { children: React.ReactNode; onClick: () => void; label: string; size: "sm" | "md" | "lg"; glow?: string; gradient?: boolean; tone?: string }) {
   const dim = size === "lg" ? "h-16 w-16 text-2xl" : size === "md" ? "h-13 w-13 h-[52px] w-[52px] text-xl" : "h-11 w-11 text-lg";
   return (
     <div className="flex flex-col items-center gap-1">
       <motion.button whileTap={{ scale: 0.85 }} whileHover={{ scale: 1.06 }} onClick={onClick} aria-label={label}
-        className={`grid place-items-center rounded-full ${dim} ${gradient ? GRAD : GLASS}`} style={glow ? { boxShadow: `0 0 24px ${glow}55` } : undefined}>{children}</motion.button>
+        className={`grid place-items-center rounded-full ring-2 ring-white/25 shadow-lg ${dim} ${gradient ? GRAD : tone || "bg-slate-600"}`} style={glow ? { boxShadow: `0 0 24px ${glow}66` } : undefined}>{children}</motion.button>
       <span className="text-[10px] text-white/45">{label}</span>
     </div>
   );
@@ -907,15 +910,14 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-220, 220], [-14, 14]);
-  const likeOp = useTransform(x, [30, 120], [0, 1]);
-  const nopeOp = useTransform(x, [-120, -30], [1, 0]);
-  const superOp = useTransform(y, [-120, -30], [1, 0]);
-  const [exit, setExit] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const nopeOp = useTransform(x, [-120, -30], [1, 0]);
+  const skipRightOp = useTransform(x, [30, 120], [0, 1]);
+    const [exit, setExit] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const end = (_: unknown, info: PanInfo) => {
     const { offset, velocity } = info;
-    if (offset.y < -110 || velocity.y < -700) { setExit({ x: 0, y: -700 }); onSwipe("up"); }
-    else if (offset.x > 110 || velocity.x > 700) { setExit({ x: 600, y: 0 }); onSwipe("right"); }
+    // Dragging either way only skips the card; liking is the ❤️ button (owner, 2026-10-18: a drag must never send a like or a paid super like).
+    if (offset.x > 110 || velocity.x > 700) { setExit({ x: 600, y: 0 }); onSwipe("right"); }
     else if (offset.x < -110 || velocity.x < -700) { setExit({ x: -600, y: 0 }); onSwipe("left"); }
   };
 
@@ -923,7 +925,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
     <motion.div
       className={`absolute inset-0 overflow-hidden rounded-[32px] border border-white/10 ${isTop ? "cursor-grab active:cursor-grabbing" : ""}`}
       style={{ x, y, rotate, zIndex: 10 - depth, touchAction: "none" }}
-      drag={isTop} dragElastic={0.7} dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }} onDragEnd={end}
+      drag={isTop} dragElastic={0.7} dragDirectionLock dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }} onDragEnd={end}
       onTap={() => { if (isTop && Math.abs(x.get()) < 8 && Math.abs(y.get()) < 8) { haptic("light"); onTap?.(); } }}
       data-testid={isTop ? "top-card" : undefined}
       initial={{ scale: 0.92, opacity: 0, y: 20 }}
@@ -953,9 +955,8 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
         </div>
       </div>
 
-      <motion.span style={{ opacity: likeOp }} className="absolute top-20 left-6 -rotate-12 rounded-xl border-4 border-emerald-400 px-3 py-1 text-2xl font-black text-emerald-300">إعجاب</motion.span>
+      <motion.span style={{ opacity: skipRightOp }} className="absolute top-20 left-6 -rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
       <motion.span style={{ opacity: nopeOp }} className="absolute top-20 right-6 rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
-      <motion.span style={{ opacity: superOp }} className="absolute bottom-40 inset-x-0 mx-auto w-fit rounded-xl border-4 border-sky-400 px-3 py-1 text-2xl font-black text-sky-300">⭐ مميز</motion.span>
 
       <div className="absolute bottom-0 inset-x-0 p-5 pb-28">
         <h2 className="text-2xl font-extrabold">
