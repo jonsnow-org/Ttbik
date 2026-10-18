@@ -10,13 +10,18 @@ jobs:
   post:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
       - name: publish
         run: |
           if [ -z "${CRON_SECRET}" ]; then
             echo "::error::GitHub secret CRON_SECRET is empty or missing (Settings > Secrets and variables > Actions)"
             exit 1
           fi
-          code=$(curl -sS -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/telegram-post?secret=${CRON_SECRET}")
+          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/telegram-post?secret=${CRON_SECRET}")
           echo "HTTP ${code}"
           cat body.json
           echo

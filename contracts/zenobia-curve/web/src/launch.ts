@@ -20,7 +20,7 @@ const CONFIG = {
 };
 
 const ui = new TonConnectUI({
-  manifestUrl: 'https://ttbik.vercel.app/zenobia/tonconnect-manifest.json',
+  manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json',
   buttonRootId: 'connect',
 });
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { preCheckout } from "@/lib/atharStars";
+import { noteFailover } from "@/lib/hostingOps";
 import { ATHAR_SITE } from "@/lib/atharMirror";
 import { Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
@@ -67,6 +68,7 @@ const MIGRATION_FOR_TEMPLATE: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest, props: { params: Promise<{ botId: string }> }) {
+  void noteFailover(req.headers);   // when the gate serves this request from the standby because Oracle is down, tell the owner (throttled)
   const params = await props.params;
   let botRow: Awaited<ReturnType<typeof prisma.bot.findUnique>> = null;
   let rawBody: any = null;
