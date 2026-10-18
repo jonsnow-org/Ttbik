@@ -42,6 +42,7 @@
     "contracts",
     ".smoke",
     "src/lib/__tests__",
-    "e2e"
+    "e2e",
+    "promo"
   ]
 }
