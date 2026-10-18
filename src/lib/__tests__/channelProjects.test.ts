@@ -30,3 +30,24 @@ describe("the owner's projects in the channel rotation", () => {
     expect(coin.blurb).toMatch(/Not financial advice/);
   });
 });
+
+import { isSafeForChannel } from "../channelPublisher";
+describe("channel posts pass the safety filter", () => {
+  test("the #شام_AI tag is the site brand, not a blocked word", () => {
+    expect(isSafeForChannel("🛠 أداة\n\n#أدوات_مجانية #شام_AI")).toBe(true);
+    expect(isSafeForChannel("شام وحدها ممنوعة")).toBe(false);
+  });
+  test("every pool post, including ZNBt and Palmyra Launch, is safe in all three layouts", () => {
+    const pool = buildPool({ znbt: true, platform: true });
+    for (const kind of ["project", "coin", "tool", "bot"] as const) {  // news/articles may legitimately be skipped by the filter at run time
+      for (const it of pool[kind]) for (let v = 0; v < 3; v++) {
+        if (!isSafeForChannel(formatPost(it, v))) throw new Error(`blocked: ${it.id} variant ${v}`);
+      }
+    }
+  });
+  test("ZNBt and the platform are absent until the owner launched / opened", () => {
+    const ids = buildPool().project.map((p) => p.id);
+    expect(ids).not.toContain("project:znbt");
+    expect(ids).not.toContain("project:palmyra-launch");
+  });
+});

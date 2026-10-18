@@ -35,7 +35,28 @@ const short = (s: string, n: number) => (clean(s).length > n ? clean(s).slice(0,
 // Strip decorative leading emoji so the template can add its own header.
 const noEmoji = (s: string) => clean(s.replace(/^[\p{Extended_Pictographic}️\s]+/u, ""));
 
-export function buildPool(): Record<PoolKind, PoolItem[]> {
+export type PoolFlags = { znbt: boolean; platform: boolean };
+const PLATFORM_BOT = (process.env.NEXT_PUBLIC_PLATFORM_BOT_URL || "https://t.me/PalmyraLaunchBot").trim();
+
+/** Posts about ZNBt and Palmyra Launch. Fixed wording, English first, never a promise; they exist only once the owner has launched / opened. */
+export function platformPosts(flags: PoolFlags): PoolItem[] {
+  const out: PoolItem[] = [];
+  if (flags.znbt) out.push({
+    kind: "project", id: "project:znbt", title: "ZNBt · Zenobia of Tadmor",
+    blurb: "ZNBt is Zenobia's new coin on TON, launched on our own platform with the fees shown on the page. Not financial advice; crypto is risky. ZNBt عملة زنوبيا الجديدة على TON أُطلقت على منصتنا والرسوم ظاهرة في الصفحة. ليست نصيحة مالية والعملات الرقمية محفوفة بالمخاطر.",
+    url: `${SITE_URL}/zenobia/coins.html`, cta: "🪙 Palmyra Launch", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch bot" },
+    tags: ["#ZNBt", "#TON"], repeatDays: 3,
+  });
+  if (flags.platform) out.push({
+    kind: "project", id: "project:palmyra-launch", title: "Palmyra Launch · تدمر لانش",
+    blurb: "Launch your own coin on TON in a few taps, or browse coins others launched. Fees are fixed and shown before you confirm. Not financial advice; crypto is risky. أطلق عملتك على TON بخطوات قليلة أو تصفّح عملات الآخرين. الرسوم ثابتة وتظهر قبل التأكيد. ليست نصيحة مالية.",
+    url: `${SITE_URL}/zenobia/coins.html`, cta: "🪙 Open Palmyra Launch", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch bot" },
+    tags: ["#PalmyraLaunch", "#TON"], repeatDays: 3,
+  });
+  return out;
+}
+
+export function buildPool(flags: PoolFlags = { znbt: false, platform: false }): Record<PoolKind, PoolItem[]> {
   const tools: PoolItem[] = FREE_TOOLS.filter((t) => !t.href.startsWith("/bashar")).map((t) => ({
     kind: "tool",
     id: `tool:${t.href}`,
@@ -151,7 +172,7 @@ export function buildPool(): Record<PoolKind, PoolItem[]> {
       url: ATHAR_BOT, cta: "📅 رمز اليوم", tags: ["#أثر", "#TON"], repeatDays: 7,
     },
   ];
-  return { tool: tools, bot: bots, news, event: events, article: articles, project: projects, coin: coinPosts };
+  return { tool: tools, bot: bots, news, event: events, article: articles, project: [...projects, ...platformPosts(flags)], coin: coinPosts };
 }
 
 // Category order for the rotation (cursor % length): varied, tools and bots

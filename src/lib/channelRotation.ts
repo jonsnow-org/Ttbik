@@ -6,7 +6,8 @@ import { EVENT_ITEMS } from "@/lib/eventsIndex";
 import { CHANNEL_CHANGELOG } from "@/lib/channelChangelog";
 import { isSafeForChannel } from "@/lib/channelPublisher";
 import { supabaseAdmin } from "@/lib/supabase";
-import { buildPool, formatPost, ROTATION, type PoolItem } from "@/lib/channelPool";
+import { buildPool, formatPost, ROTATION, type PoolFlags, type PoolItem } from "@/lib/channelPool";
+import { getConfig } from "@/lib/znbtConfig";
 
 /**
  * Channel rotation. Owner list, 2026-10-09:
@@ -248,8 +249,11 @@ async function sendText(captionText: string): Promise<boolean> {
   return data?.ok === true;
 }
 
+// What the owner has switched on right now (ZNBt launched, platform open); read once per run, so posts about them start by themselves and never before.
+let promoFlags: PoolFlags = { znbt: false, platform: false };
+
 function pickPool(state: State): PoolItem | null {
-  const pool = buildPool();
+  const pool = buildPool(promoFlags);
   const now = Date.now();
   for (let i = 0; i < ROTATION.length; i++) {
     const kind = ROTATION[(state.cursor + i) % ROTATION.length];
@@ -286,6 +290,8 @@ async function sendPost(item: PoolItem, text: string): Promise<{ ok: boolean; er
 }
 
 export async function publishRotation(slot: number, opts: { dry?: boolean } = {}): Promise<RotationResult> {
+  const cfg = await getConfig().catch(() => null);
+  promoFlags = { znbt: !!cfg?.curve, platform: !!cfg?.curve && !!cfg?.open };
   const state = await loadState();
   state.recent = fresh(state);
   if (state.lastPostAt && Date.now() - Date.parse(state.lastPostAt) < MIN_GAP_MS) {
@@ -303,7 +309,16 @@ export async function publishRotation(slot: number, opts: { dry?: boolean } = {}
       : pickPool(state);
     if (pick) {
       const text = formatPost(pick, state.cursor);
-      if (!isSafeForChannel(text)) return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: "blocked" };
+      if (!isSafeForChannel(text)) {
+        // One blocked item must never freeze the channel (the "#شام_AI" tag did exactly that for two weeks): skip it from now on.
+        if (!opts.dry) {
+          state.seenAt[pick.id] = new Date().toISOString();
+          const blockedLog = CHANNEL_CHANGELOG.find((e) => e.title === pick.title && e.url === pick.url);
+          if (blockedLog) state.postedChangelog.push(blockedLog.id);
+          await saveState(state).catch(() => null);
+        }
+        return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: "blocked" };
+      }
       if (opts.dry) return { ok: true, slot, topic: pick.title, kind: pick.kind, text, reason: "dry-run" };
       const sent = await sendPost(pick, text);
       if (!sent.ok) return { ok: false, slot, topic: pick.title, kind: pick.kind, reason: `telegram: ${sent.error}` };
