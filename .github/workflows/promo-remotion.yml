@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       publish:
-        description: "1 = also post the video to its Telegram channel (scheduled runs always do, once promo/PUBLISH_ON exists)"
+        description: "1 = post the video to its Telegram channel, 0 = render only; empty = post when promo/PUBLISH_ON exists (scheduled runs)"
         required: false
       episode:
         description: "Force a specific episode id (optional; re-renders and replaces its release)"
@@ -72,6 +72,7 @@ jobs:
           PUBLISH: ${{ inputs.publish }}
         run: |
           # The site fetches the release asset and sends it with the channel's own bot; nothing secret leaves GitHub except the cron secret the other jobs already use.
+          if [ "$PUBLISH" = "0" ]; then echo "publish=0: render only"; exit 0; fi
           if [ -z "$PUBLISH" ] && [ ! -f ../PUBLISH_ON ]; then echo "publishing is off (no promo/PUBLISH_ON, no publish input): video stays a pre-release"; exit 0; fi
           ID=${{ steps.pick.outputs.id }}
           SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
