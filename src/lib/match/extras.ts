@@ -13,6 +13,8 @@ const DDL = [
   `CREATE TABLE IF NOT EXISTS match_why (pair TEXT PRIMARY KEY, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
   `CREATE TABLE IF NOT EXISTS match_referral_log (referred_id TEXT PRIMARY KEY, referrer_id TEXT NOT NULL, granted_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
   `CREATE INDEX IF NOT EXISTS match_referral_log_referrer_idx ON match_referral_log (referrer_id, granted_at DESC)`,
+  `CREATE TABLE IF NOT EXISTS match_voice (id BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL, sender_id TEXT NOT NULL, mime TEXT NOT NULL, dur INT NOT NULL, data BYTEA NOT NULL, keep_until TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+  `CREATE INDEX IF NOT EXISTS match_voice_session_idx ON match_voice (session_id)`,
 ];
 export function ensureExtras(): Promise<void> {
   if (!ready) ready = (async () => { for (const s of DDL) await prisma.$executeRawUnsafe(s); })().catch((e) => { ready = null; throw e; });
@@ -117,4 +119,40 @@ export async function inviteStats(userId: string): Promise<{ rewardsLast30d: num
     prisma.matchUser.count({ where: { referredBy: userId } }),
   ]);
   return { rewardsLast30d: r[0]?.n ?? 0, cap: REFERRAL_REWARDS_PER_30D, joined: j };
+}
+
+
+// ---------- anonymous voice notes (between two people who are both in the app) ----------
+export const VOICE_MAX_SECONDS = 30;
+export const VOICE_MAX_BYTES = 350_000;
+const VOICE_PER_SESSION = 12;
+const VOICE_MIMES = /^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)(;.*)?$/i;
+export const voiceMarker = (id: number | bigint, dur: number) => `🎤voice:${id}:${dur}`;
+
+export async function saveVoice(sessionId: string, senderId: string, mime: string, dur: number, b64: string): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  if (!VOICE_MIMES.test(mime)) return { ok: false, error: "صيغة الصوت غير مدعومة" };
+  if (!(dur >= 1 && dur <= VOICE_MAX_SECONDS)) return { ok: false, error: `الرسالة الصوتية حتى ${VOICE_MAX_SECONDS} ثانية` };
+  const buf = Buffer.from(b64, "base64");
+  if (buf.length < 200 || buf.length > VOICE_MAX_BYTES) return { ok: false, error: "حجم الرسالة الصوتية غير مقبول" };
+  await ensureExtras();
+  const n = await prisma.$queryRawUnsafe<{ n: number; last: Date | null }[]>(`SELECT COUNT(*)::int AS n, MAX(created_at) AS last FROM match_voice WHERE session_id=$1`, sessionId);
+  if ((n[0]?.n ?? 0) >= VOICE_PER_SESSION) return { ok: false, error: "بلغتَ حد الرسائل الصوتية في هذه المحادثة" };
+  if (n[0]?.last && Date.now() - new Date(n[0].last).getTime() < 8000) return { ok: false, error: "انتظر لحظات قبل رسالة صوتية أخرى" };
+  const r = await prisma.$queryRawUnsafe<{ id: bigint }[]>(`INSERT INTO match_voice (session_id, sender_id, mime, dur, data) VALUES ($1,$2,$3,$4,$5) RETURNING id`, sessionId, senderId, mime.split(";")[0], dur, buf);
+  return { ok: true, id: Number(r[0].id) };
+}
+export async function getVoice(id: number, sessionId: string): Promise<{ mime: string; b64: string } | null> {
+  await ensureExtras();
+  const r = await prisma.$queryRawUnsafe<{ mime: string; data: Buffer }[]>(`SELECT mime, data FROM match_voice WHERE id=$1 AND session_id=$2`, id, sessionId);
+  return r[0] ? { mime: r[0].mime, b64: Buffer.from(r[0].data).toString("base64") } : null;
+}
+/** The voice notes disappear when the conversation ends; a reported conversation keeps its notes 7 days so an admin can listen. */
+export async function endVoice(sessionId: string): Promise<void> {
+  try { await ensureExtras(); await prisma.$executeRawUnsafe(`DELETE FROM match_voice WHERE session_id=$1 AND (keep_until IS NULL OR keep_until < now())`, sessionId); } catch { /* best effort */ }
+}
+export async function keepVoiceForReview(sessionId: string): Promise<void> {
+  try { await ensureExtras(); await prisma.$executeRawUnsafe(`UPDATE match_voice SET keep_until = now() + interval '7 days' WHERE session_id=$1`, sessionId); } catch { /* best effort */ }
+}
+export async function sweepVoice(): Promise<void> {
+  try { await ensureExtras(); await prisma.$executeRawUnsafe(`DELETE FROM match_voice WHERE (keep_until IS NULL AND created_at < now() - interval '1 day') OR keep_until < now()`); } catch { /* best effort */ }
 }

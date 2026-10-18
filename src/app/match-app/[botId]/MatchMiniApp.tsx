@@ -17,7 +17,7 @@ type Card = {
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
-type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean };
+type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean; voice?: boolean };
 
 const tg = (): any => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null);
 const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select" = "light") => {
@@ -471,7 +471,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
           {msgs.map((m) => (
             <motion.div key={m.id} initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`max-w-[80%] rounded-2xl px-3 py-2 text-[15px] leading-6 ${m.mine ? `mr-auto ${GRAD} rounded-bl-md` : "ml-auto bg-white/10 rounded-br-md"}`}>
-              {m.text}
+              {m.text.startsWith("🎤voice:") ? <VoiceBubble api={api} text={m.text} /> : m.text}
               {m.mine && <span className="mr-1 align-bottom text-[10px] opacity-70" title={!poll.fake && (poll.partnerRead ?? 0) >= m.id ? "قُرئت" : "أُرسلت"}>{!poll.fake && (poll.partnerRead ?? 0) >= m.id ? "✓✓" : "✓"}</span>}
             </motion.div>
           ))}
@@ -504,7 +504,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
         )}
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2 p-3">
           <input value={text} onChange={(e) => { setText(e.target.value); if (!poll.fake && Date.now() - typingAt.current > 3000) { typingAt.current = Date.now(); api("anon_typing"); } }} placeholder="اكتب رسالتك (نص فقط)…" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-pink-400/60" />
-          <motion.button whileTap={{ scale: 0.9 }} className={`rounded-2xl px-4 font-bold ${GRAD}`}>إرسال</motion.button>
+          {poll.voice && !poll.fake && !text.trim() ? <VoiceButton api={api} say={say} onSent={pollNow} /> : <motion.button whileTap={{ scale: 0.9 }} className={`rounded-2xl px-4 font-bold ${GRAD}`}>إرسال</motion.button>}
         </form>
       </div>
     );
@@ -1903,4 +1903,66 @@ function QuizCard({ api, say, done, reload }: { api: any; say: any; done: boolea
       )}
     </div>
   );
+}
+
+
+/** 🎤 Record up to 30 s and send it (anonymous chat, both people in the app). Needs the phone's microphone permission. */
+function VoiceButton({ api, say, onSent }: { api: any; say: any; onSent: () => void }) {
+  const [rec, setRec] = useState(false);
+  const [sec, setSec] = useState(0);
+  const mr = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const t0 = useRef(0);
+  const cancelled = useRef(false);
+  const stopTimer = () => { if (timer.current) clearInterval(timer.current); timer.current = null; };
+  const start = async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { say("التسجيل غير مدعوم على جهازك", "error"); return; }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported?.(m)) || "";
+      const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunks.current = []; cancelled.current = false;
+      r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
+      r.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        stopTimer(); setRec(false);
+        const dur = Math.max(1, Math.round((Date.now() - t0.current) / 1000));
+        if (cancelled.current) return;
+        const blob = new Blob(chunks.current, { type: r.mimeType || mime || "audio/webm" });
+        const data = await new Promise<string>((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
+        const out = await api("anon_voice_send", { mime: blob.type || mime || "audio/webm", dur: Math.min(30, dur), data });
+        if (!out.ok) { say(out.error, "error"); return; }
+        haptic("light"); onSent();
+      };
+      mr.current = r; t0.current = Date.now(); r.start(); setRec(true); setSec(0); haptic("medium");
+      timer.current = setInterval(() => { const s = Math.round((Date.now() - t0.current) / 1000); setSec(s); if (s >= 30) r.stop(); }, 500);
+    } catch { say("اسمح باستخدام الميكروفون لإرسال رسالة صوتية", "error"); }
+  };
+  if (!rec) return <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={start} aria-label="رسالة صوتية" className="rounded-2xl bg-sky-500 px-4 font-bold">🎤</motion.button>;
+  return (
+    <div className="flex gap-2">
+      <button type="button" onClick={() => { cancelled.current = true; mr.current?.stop(); }} className="rounded-2xl bg-slate-600 px-3 text-sm">✕</button>
+      <motion.button type="button" animate={{ opacity: [1, 0.6, 1] }} transition={{ repeat: Infinity, duration: 1 }} onClick={() => mr.current?.stop()} className="rounded-2xl bg-rose-600 px-4 text-sm font-bold">⏹ {sec}s · إرسال</motion.button>
+    </div>
+  );
+}
+
+/** A voice note in the chat: tap to fetch and play (it exists only while the conversation lasts). */
+function VoiceBubble({ api, text }: { api: any; text: string }) {
+  const [, id, dur] = text.split(":");
+  const [state, setState] = useState<"idle" | "loading" | "playing" | "gone">("idle");
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const play = async () => {
+    if (state === "playing") { audio.current?.pause(); setState("idle"); return; }
+    setState("loading");
+    const r = await api("anon_voice_get", { id: Number(id) });
+    if (!r.ok) { setState("gone"); return; }
+    const a = new Audio(`data:${r.mime};base64,${r.b64}`);
+    audio.current = a;
+    a.onended = () => setState("idle");
+    a.play().then(() => setState("playing")).catch(() => setState("idle"));
+  };
+  if (state === "gone") return <span className="text-xs opacity-70">🎤 الرسالة الصوتية لم تعد متاحة</span>;
+  return <button type="button" onClick={play} className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full bg-white/20">{state === "loading" ? "…" : state === "playing" ? "⏸" : "▶"}</span><span className="text-sm">🎤 {dur}s</span></button>;
 }

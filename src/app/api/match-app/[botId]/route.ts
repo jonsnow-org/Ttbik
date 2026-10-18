@@ -20,7 +20,7 @@ import { atharClientConfig, atharDateLink, atharDay, createShare, dismissMoment,
 import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
-import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart } from "@/lib/match/anon";
+import { ANON_EXIT_REASONS, anonTyping, anonContact, anonEnd, anonPoll, anonReport, anonSend, anonStart, anonVoiceGet, anonVoiceSend } from "@/lib/match/anon";
 import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, compatibilityPercent, containsMatchBannedWords, defaultPref, grantReferralReward, notifyAdminNewProfile, notifyMutualLike, plainBackMenu } from "@/lib/matchBotLogic";
 import { scrubContacts } from "@/lib/match/inline";
 import { cardGenderStatus, setCardGender } from "@/lib/match/entitlements";
@@ -332,6 +332,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const r = await anonSend(bot, tg.id, String(body.text || ""));
         return r.ok ? NextResponse.json({ ok: true }) : err(r.error || "تعذّر الإرسال");
       }
+      if (action === "anon_voice_send") {
+        if (!(await pgRateLimit(`voice:${tg.id}`, 20, 3600))) return err("تمهّل قليلاً");
+        const r = await anonVoiceSend(tg.id, String(body.mime || ""), Number(body.dur) || 0, String(body.data || ""));
+        return r.ok ? NextResponse.json({ ok: true }) : err(r.error || "تعذّر الإرسال");
+      }
+      if (action === "anon_voice_get") { const r = await anonVoiceGet(tg.id, Number(body.id) || 0); return r.ok ? NextResponse.json(r) : err(r.error || "غير متاح"); }
       if (action === "anon_typing") { await anonTyping(tg.id).catch(() => null); return NextResponse.json({ ok: true }); }
       if (action === "anon_end") { await anonEnd(bot, tg.id, "end", body.reason ? String(body.reason) : undefined); return NextResponse.json({ ok: true }); }
       if (action === "anon_block") { await anonEnd(bot, tg.id, "block"); return NextResponse.json({ ok: true, message: "⛔ تم الحظر" }); }

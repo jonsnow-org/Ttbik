@@ -1,4 +1,4 @@
-import { referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
+import { endVoice, keepVoiceForReview, referralRewardAllowed, verifyByTelegram } from "@/lib/match/extras";
 import { Bot as TelegramBot, Keyboard, InlineKeyboard } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { SITE_URL } from "@/lib/siteUrl";
@@ -1979,6 +1979,8 @@ export async function fileMatchReport(bot: TelegramBot, reporterId: string, targ
 
 /** 🚩 إبلاغ during a random chat (bot button and Mini App). */
 export async function reportRandomChat(bot: TelegramBot, chatId: number, tgUserId: string, partnerId: string) {
+  const pend = (await prisma.matchUser.findUnique({ where: { id: tgUserId }, select: { pendingAction: true } }))?.pendingAction as { sessionId?: string } | null;
+  if (pend?.sessionId) await keepVoiceForReview(pend.sessionId);
   await fileMatchReport(bot, tgUserId, partnerId, "RANDOM_CHAT", `🚩 بلاغ من محادثة عشوائية — المُبلِّغ ${tgUserId} ضد ${partnerId}.\nراجعه من «🚩 بلاغات الدردشة العشوائية».`);
   await bot.api.sendMessage(chatId, "🚩 تم إرسال بلاغك.").catch(() => null);
 }
@@ -2053,6 +2055,7 @@ export async function revealContacts(bot: TelegramBot, userA: string, userB: str
 
 export async function endRandomChat(bot: TelegramBot, tgUserId: string, sessionId: string, partnerId: string, reason: "end" | "block", exitReasonLabel?: string) {
   await prisma.randomChatSession.update({ where: { id: sessionId }, data: { status: "ENDED", ended_at: new Date() } }).catch(() => null);
+  await endVoice(sessionId);   // the voice notes disappear with the conversation (a reported one is kept 7 days for an admin)
   if (reason === "block") {
     await prisma.matchBlock.upsert({
       where: { blockerId_blockedId: { blockerId: tgUserId, blockedId: partnerId } },
