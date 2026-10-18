@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_URL } from "@/lib/siteUrl";
 import { NEWS_ITEMS } from "@/lib/newsItems";
 import { EN_NEWS, EN_ARTICLES, EN_EVENTS } from "@/lib/enDesk";
 import { ARTICLE_ITEMS } from "@/lib/articlesIndex";
@@ -11,7 +12,7 @@ import { PRAYER_CITIES } from "@/lib/prayerCities";
 export const revalidate = 30;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
+  const base = SITE_URL;
 
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: base, changeFrequency: "daily", priority: 1 },

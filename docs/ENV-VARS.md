@@ -29,3 +29,6 @@
 
 ## حسابات لا يحفظها أي أرشيف
 Cloudflare (Worker `athar-meta`) · Supabase · Vercel · Render · Oracle · BotFather (رموز البوتات) · Arweave/Turbo (محفظة الرفع إن وجدت).
+
+## الاستضافة (2026-10-18، انظر docs/HOSTING.md)
+`NEXT_PUBLIC_SITE_URL` = عنوان الهوية العامة (البوابة بعد النقل) · `NEXT_PUBLIC_CANONICAL_URL` = عنوان الصفحات العامة لمحركات البحث (يبقى `https://ttbik.vercel.app`) · `MEDIA_ENABLE_ATHAR` · `MATCH_ENABLE_ATHAR` · `ATHAR_ENABLE_STARS` · `ATHAR_STARS_PRICES` · متغير مستودع GitHub `SITE_BASE` (عنوان البوابة لمهام GitHub المجدولة) · في media.env: `MINI_APP_URL` و`FEED_API_URL`.

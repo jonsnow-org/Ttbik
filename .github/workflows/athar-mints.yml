@@ -13,8 +13,9 @@ jobs:
       - name: look for new Athar payments
         run: |
           if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
-          code=$(curl -sS -o body.json -w "%{http_code}" "https://ttbik.vercel.app/api/cron/athar-mints?secret=${CRON_SECRET}")
+          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/athar-mints?secret=${CRON_SECRET}")
           echo "HTTP ${code}"; cat body.json; echo
           [ "${code}" -lt 500 ]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SITE_BASE: ${{ vars.SITE_BASE || 'https://ttbik.vercel.app' }}   # repo variable SITE_BASE = the gate's address after the move

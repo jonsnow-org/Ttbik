@@ -5,7 +5,7 @@ import { client, sdk, OWNER, $, loadConfig, fmt } from './common';
 import { scanCoins, hiddenSet, Coin } from './registry';
 
 const admin = location.hash === '#admin';
-const ui = new TonConnectUI({ manifestUrl: 'https://ttbik.vercel.app/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
+const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
 let proofReq: any = null;
 let hidden = new Set<string>();
 let coins: Coin[] = [];
