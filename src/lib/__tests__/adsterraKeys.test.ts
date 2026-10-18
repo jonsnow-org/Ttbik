@@ -11,3 +11,14 @@ describe("Adsterra keys per address", () => {
     expect(adsterraKeyFor(GATE_HOST, "4f06d38f318a4c96638f8e2289f8ca0c")).toBeNull();
   });
 });
+
+import { inPagePushZone } from "../monetagGate";
+describe("In-Page Push placement", () => {
+  it("loads only on the gate's host and never on money, private or owner pages", () => {
+    expect(inPagePushZone("ttbik.vercel.app", "/")).toBeNull();
+    expect(inPagePushZone(GATE_HOST, "/")).toBe("12062586");
+    expect(inPagePushZone(GATE_HOST, "/mini-app")).toBe("12062586");
+    for (const p of ["/admin", "/admin/bots", "/match-app/x", "/pay/1", "/order/A", "/service/media-bot-premium", "/zenobia/x.html", "/api/x"]) expect(inPagePushZone(GATE_HOST, p)).toBeNull();
+    expect(inPagePushZone(GATE_HOST, "/payments-guide")).toBe("12062586");   // a prefix must be a whole path segment
+  });
+});
