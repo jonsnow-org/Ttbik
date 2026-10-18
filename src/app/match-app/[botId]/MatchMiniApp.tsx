@@ -13,7 +13,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 type Tab = "anon" | "discover" | "chats" | "me" | "admin";
 type Card = {
   ref: string; shortId: string; name?: string | null; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
-  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null;
+  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null; values?: number | null; tgv?: boolean;
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
@@ -45,6 +45,8 @@ const FUNNEL_LABELS: Record<string, string> = {
 export default function MatchMiniApp({ botId }: { botId: string }) {
   const [boot, setBoot] = useState<"loading" | "outside" | "start" | "phone" | "ready">("loading");
   const [tab, setTab] = useState<Tab>("discover");
+  const [canTg, setCanTg] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [toast, setToast] = useState("");
   const [anonUnread, setAnonUnread] = useState(0);
@@ -79,6 +81,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     if (!r.registered) {
       // The admin may use the dashboard without a member profile (server re-checks every admin call).
       if (r.isAdmin) { setMe(r); setTab("admin"); setBoot("ready"); return r; }
+      if (r.reason === "phone") setCanTg(!!r.canTgVerify);
       setBoot(r.reason === "phone" ? "phone" : "start"); return null;
     }
     setMe(r); setBoot("ready");
@@ -146,7 +149,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
       loading: "جارٍ التحميل…",
       outside: toast || "افتح هذا التطبيق من زر القائمة داخل البوت في تلجرام.",
       start: "اضغط «ابدأ» في البوت أولاً ثم ارجع للتطبيق.",
-      phone: "وثّق رقم هاتفك داخل البوت أولاً (خطوة أمان إلزامية) ثم ارجع.",
+      phone: canTg ? "خطوة أمان واحدة قبل الدخول: وثّق حسابك على تيليجرام بضغطة (بلا رقم هاتف)، أو وثّق رقمك من البوت." : "وثّق رقم هاتفك داخل البوت أولاً (خطوة أمان إلزامية) ثم ارجع. أو أضف اسم مستخدم (@username) لحسابك في تيليجرام ثم أعد فتح التطبيق للتوثيق بدون رقم.",
     }[boot];
     return (
       <Shell>
@@ -154,6 +157,10 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`${GLASS} rounded-3xl p-8 max-w-xs`}>
             <div className="text-5xl mb-3">{boot === "loading" ? "💞" : "🔒"}</div>
             <p className="text-white/80 leading-7">{text}</p>
+            {boot === "phone" && canTg && (
+              <button disabled={tgBusy} onClick={async () => { haptic("medium"); setTgBusy(true); const r = await api("tg_verify"); setTgBusy(false); if (r.ok) { haptic("success"); setBoot("loading"); void reloadMe(); } else say(r.error, "error"); }}
+                className={`mt-4 w-full rounded-2xl py-3 text-sm font-bold disabled:opacity-60 ${GRAD}`}>{tgBusy ? "جارٍ التوثيق…" : "✅ وثّق بحساب تيليجرام"}</button>
+            )}
             {boot === "loading" && <div className="mt-4 h-1 overflow-hidden rounded bg-white/10"><motion.div className={`h-full w-1/3 ${GRAD}`} animate={{ x: ["-100%", "300%"] }} transition={{ repeat: Infinity, duration: 1.2 }} /></div>}
           </motion.div>
         </div>
@@ -952,6 +959,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
         </span>
         <div className="flex flex-col items-end gap-1">
           {card.compat != null && <span className={`rounded-full px-3 py-1 text-xs font-bold ${GRAD}`}>💞 {card.compat}%</span>}
+          {card.values != null && <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-bold">🧠 قيم {card.values}%</span>}
         </div>
       </div>
 
@@ -960,7 +968,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
 
       <div className="absolute bottom-0 inset-x-0 p-5 pb-28">
         <h2 className="text-2xl font-extrabold">
-          {card.flag} {card.name || `#${card.shortId}`}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}
+          {card.flag} {card.name || `#${card.shortId}`}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}{card.tgv && !card.verified && <span title="حساب تيليجرام موثّق" className="text-sky-300">🔹</span>}
           {card.boosted && <span className="mr-2 text-sm">🚀</span>}
         </h2>
         <p className="text-sm text-white/70">{card.country}{card.city ? ` · ${card.city}` : ""}</p>
@@ -1183,6 +1191,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
         </div>
       )}
 
+      {section === "pref" && <QuizCard api={api} say={say} done={!!me?.quizDone} reload={reload} />}
       {section === "pref" && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <Field label="الدولة المفضلة" value={pref.country} onChange={set(pref, setPref, "country")} />
@@ -1365,7 +1374,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
       {me?.referral?.link && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <p className="font-bold">🔗 ادعُ أصدقاءك</p>
-          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل تلقائياً على رفع مجاني لملفك 24 ساعة (نظام البوت). حصلت عليه {me.referral.rewarded} مرة.</p>
+          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل على رفع مجاني لملفك 24 ساعة، بحد أقصى {me.referral.cap ?? 3} مكافآت كل 30 يوماً (استخدمت {me.referral.rewardsLast30d ?? 0}). حصلت عليه إجمالاً {me.referral.rewarded} مرة.</p>
           <button onClick={() => { haptic("medium"); const u = `https://t.me/share/url?url=${encodeURIComponent(me.referral.link)}&text=${encodeURIComponent("انضم معي لبوت التعارف بغرض الزواج 💍")}`; tg()?.openTelegramLink ? tg().openTelegramLink(u) : window.open(u); }}
             className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>
         </div>
@@ -1844,6 +1853,51 @@ function RowSkeleton({ tall }: { tall?: boolean }) {
     <div className={`sk sk-dark flex items-center gap-3 rounded-3xl p-3 ${tall ? "h-20" : "h-16"} ${GLASS}`} aria-hidden>
       <div className="h-11 w-11 shrink-0 rounded-full bg-white/10" />
       <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded-full bg-white/10" /><div className="h-3 w-3/4 rounded-full bg-white/10" /></div>
+    </div>
+  );
+}
+
+
+/** 🧠 Six short questions about values. Optional; it only adds a separate chip («🧠 قيم X%») between people who both answered, and never changes the existing 💞 percent. */
+function QuizCard({ api, say, done, reload }: { api: any; say: any; done: boolean; reload: () => Promise<any> }) {
+  const [open, setOpen] = useState(false);
+  const [qs, setQs] = useState<{ id: string; q: string; options: string[] }[] | null>(null);
+  const [ans, setAns] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    haptic("light");
+    const r = await api("quiz_get");
+    if (!r.ok) { say(r.error, "error"); return; }
+    setQs(r.questions); setAns(r.answers ?? r.questions.map(() => -1)); setOpen(true);
+  };
+  const save = async () => {
+    setBusy(true);
+    const r = await api("quiz_save", { answers: ans });
+    setBusy(false);
+    if (!r.ok) { say(r.error, "error"); return; }
+    haptic("success"); say(r.message); setOpen(false); void reload();
+  };
+  return (
+    <div className={`rounded-3xl p-4 ${GLASS}`}>
+      <p className="font-bold">🧠 اختبار القيم {done && <span className="text-xs text-emerald-300">· مكتمل</span>}</p>
+      <p className="text-[11px] text-white/50">ست أسئلة قصيرة (اختياري). تظهر نسبة «تطابق القيم» مع من أجاب مثلك، وتُحفظ أجوبتك خاصة بك ولا يراها أحد.</p>
+      {!open && <button onClick={start} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>{done ? "تعديل أجوبتي" : "ابدأ الاختبار"}</button>}
+      {open && qs && (
+        <div className="mt-3 space-y-4">
+          {qs.map((q, i) => (
+            <div key={q.id}>
+              <p className="text-sm font-semibold">{i + 1}. {q.q}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {q.options.map((o, j) => (
+                  <button key={j} onClick={() => { haptic("select"); setAns((a) => a.map((v, k) => (k === i ? j : v))); }}
+                    className={`rounded-full px-3 py-1.5 text-xs ${ans[i] === j ? GRAD : "border border-white/20 text-white/80"}`}>{o}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button disabled={busy || ans.some((v) => v < 0)} onClick={save} className={`w-full rounded-2xl py-2.5 text-sm font-bold disabled:opacity-40 ${GRAD}`}>{busy ? "جارٍ الحفظ…" : "حفظ"}</button>
+        </div>
+      )}
     </div>
   );
 }
