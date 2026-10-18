@@ -1685,7 +1685,9 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
   const [photo, setPhoto] = useState<string | null>(null);
   const [full, setFull] = useState(false);
   const [rep, setRep] = useState<null | { code: string; note: string }>(null);
+  const [why, setWhy] = useState<string | null>(null);
   useEffect(() => { if (card.photo) api("photo", { target: card.ref }).then((r: any) => r?.ok && setPhoto(r.src)); }, [api, card]);
+  useEffect(() => { if (card.values != null) api("why", { target: card.ref }).then((r: any) => r?.ok && r.text && setWhy(r.text)); }, [api, card]);
   const rows: [string, string | null][] = [["🌍 الدولة", `${card.flag} ${card.country}`], ["🏙 المدينة", card.city], ["🎂 العمر", String(card.age)], ["💼 العمل", card.job], ["🎓 التعليم", card.education], ["💍 الحالة", card.maritalStatus]];
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
@@ -1699,6 +1701,7 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
           <div>
             <p className="text-xl font-extrabold">{card.name || `#${card.shortId}`} {card.verified && <span className="text-sky-300">☑️</span>}</p>
             <p className="text-xs text-white/55">{card.presence.online ? "● " : ""}{card.presence.label}{card.compat != null ? ` · 💞 ${card.compat}%` : ""}</p>
+            {card.values != null && <p className="mt-1 text-xs text-violet-200">🧠 تطابق القيم {card.values}%{why ? ` · ${why}` : ""}</p>}
             {card.photoLocked && <button onClick={async () => { const r = await api("photo_request", { target: card.ref }); say(r.message || r.error); }} className="mt-2 rounded-full border border-[#e8b4a0]/50 px-3 py-1 text-[11px] text-[#f3cbbd]">🔒 اطلب رؤية الصورة</button>}
           </div>
         </div>
