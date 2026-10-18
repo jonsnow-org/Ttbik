@@ -37,7 +37,7 @@ async function run(req: NextRequest) {
   // 1. today's snapshot (all holders with a balance; a re-run on the same day just replaces it)
   const today = new Date().toISOString().slice(0, 10);
   const holders = await fetchHolders(jetton, { delayMs: 1100, apiKey: process.env.TONAPI_KEY });
-  await prisma.$executeRawUnsafe(`DELETE FROM zenobia_snap WHERE day=$1`, today);
+  await prisma.$executeRawUnsafe(`DELETE FROM zenobia_snap WHERE day=$1::date`, today);
   const owners: string[] = [], balances: string[] = [];
   for (const [owner, bal] of holders) if (bal > 0n) { owners.push(owner); balances.push(bal.toString()); }
   if (owners.length) {

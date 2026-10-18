@@ -33,7 +33,7 @@
 2. **Step 1 · Deploy master**, wait for "deployed ✅" (Refresh).
 3. **Step 2 · Create ZNBt** (choose a first buy or 0), wait for "launched ✅".
 4. Nothing else is needed for the pages: the platform finds ZNBt by itself within 5 minutes (address, launch time for the age badge). Check `…/zenobia/znbt/config.json` shows `curve`.
-5. When you are ready for other people to launch coins: the **Zenobia bot** ← `/platform` ← **«🪙 فتح المنصة للجميع»** (and «⛔ إغلاق المنصة» to close again; it also shows ZNBt's status, the coin count and the reports). It refuses to open before ZNBt exists.
+5. When you are ready for other people to launch coins: the **Palmyra Launch bot** (@PalmyraLaunchBot, owner-only) ← **Owner panel** or `/platform` ← **«🪙 فتح المنصة للجميع»** (and «⛔ إغلاق المنصة» to close again; it also shows ZNBt's status, the coin count and the reports). It refuses to open before ZNBt exists.
 
 **Claude then (no deploy needed):** runs the chain check (`node znbt-verify.cjs <coin>`; build with `cd contracts/zenobia-curve/web && npx esbuild src/verify.ts --bundle --platform=node --outfile=/tmp/znbt-verify.cjs`), checks `/jetton2` in the Zenobia bot, the age badge icon (`/api/zenobia/znbt/icon`) and the coin pages.
 
