@@ -58,7 +58,8 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
   },
   other: {
-    monetag: "36da4061f0ef04286fa5040bef5547dc",
+    // two verification tags: the first for ttbik.vercel.app, the second for the gate address (ttbik-gate.jonsnowx1r.workers.dev); public/sw.js is the gate site's Monetag push worker
+    monetag: ["36da4061f0ef04286fa5040bef5547dc", "af3ca743d204313f459c35df00b83322"],
   },
 };
 
