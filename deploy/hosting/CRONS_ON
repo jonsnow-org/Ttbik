@@ -1,0 +1,1 @@
+The scheduled jobs of vercel.json now run from GitHub (.github/workflows/site-crons.yml). Delete this file to switch the scheduler off.
