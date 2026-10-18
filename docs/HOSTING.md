@@ -44,7 +44,9 @@
 - ذاكرة Oracle: 12GB، منها محرك الوسائط (حتى 4GB) وأثر ومشغّل شام والموقع (حتى 4GB). قِس بـ `free -h` بعد تشغيل الموقع.
 
 ## 6) خطوات النقل (آلية، وضغطتان منك في اللوحة فقط)
-**ما أنجزته بنفسي:** البوابة وإنشاء مساحة KV (`ttbik-gate`) وربطها في `wrangler.jsonc`؛ نشر البوابة يتم تلقائياً من خطوة بناء غير حرجة داخل نشر `athar-meta` عند كل دمج على `main` (خط النشر الوحيد المتصل بحسابك)؛ اللوحة؛ `/api/health`؛ نقل الإعدادات؛ تشغيل الموقع على Oracle بعلم `agent/SITE_ON`؛ المهام المجدولة على GitHub؛ والتحقق الخارجي في كل مرحلة.
+**ما أنجزته بنفسي:** البوابة وإنشاء مساحة KV (`ttbik-gate`) وربطها في `wrangler.jsonc`؛ اللوحة؛ `/api/health`؛ نقل الإعدادات؛ تشغيل الموقع على Oracle بعلم `agent/SITE_ON`؛ المهام المجدولة على GitHub؛ ودمج الفرعين وتوحيدهما. نُشر كل ذلك وهو يعمل على Vercel الآن (تحققت: `/api/health?deep=1` يعيد `db:true`، و`env-sync` يردّ 403 خارج النافذة).
+
+**ما لم أستطع تنفيذه (حدّ صلاحياتي):** نشر البوابة نفسها على Cloudflare. لا أملك رمز نشر؛ جرّبت أن يُنشر مع تشغيل Workers Builds الخاص بـ`athar-meta` (خطوة `cloudflare/site-gate/deploy.sh` غير الحرجة التي تترك سجلاً في D1 باسم `ttbik-diag`) فلم يظهر Worker جديد. الحل بنموذج واحد في Cloudflare (كما نُشر `athar-meta`): Workers & Pages ← Create ← **Import a repository** ← `Ttbik` ← اسم المشروع `ttbik-gate`، **Root directory** = `cloudflare/site-gate`، الفرع `main`، أمر النشر الافتراضي `npx wrangler deploy` ← Save and Deploy. يقرأ `wrangler.jsonc` فيربط KV والمتغيرات وحده ويتحدّث عند كل دمج، ولا أسرار. بعدها يمكن حذف الخطوة غير الحرجة من `cloudflare/athar-front/wrangler.jsonc`.
 
 | # | المرحلة | من يفعل | الأثر على المستخدمين |
 |---|---|---|---|
