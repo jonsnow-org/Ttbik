@@ -25,17 +25,29 @@
 - Nothing links them on-chain: no conversion, no airdrop, no shared journey. Holding one gives nothing on the other. Do not call ZNBt a "new edition" or an "upgrade" of ZNB: say it is a separate coin, chapter 2 of the story.
 - The passport, hall, board and bot still read the **ZNB** jetton only (`src/lib/zenobiaPay.ts` `holdsCoin`). Decide before launch whether they should also accept ZNBt.
 
-## Go-live checklist (everything is prepared; nothing below has been done on mainnet)
-Costs: master about 2 TON, create coin about 1 TON (plus an optional first buy), DeDust migration 20 TON taken from the raise and only at 1,000 TON.
-1. Owner opens `/zenobia/launch.html`, connects the owner wallet, step 1 (deploy master), then step 2 (create ZNBt). Nothing else is needed from the owner.
-2. Owner sends Claude the coin address. Claude then sets in `public/zenobia/znbt/config.json`: `curve` (the coin), `open: true`, and `launchedAt` (the ISO time of the launch, which starts the age badge), then merges.
-3. Claude runs the chain check: `cd contracts/zenobia-curve/web && npx esbuild src/verify.ts --bundle --platform=node --outfile=/tmp/znbt-verify.cjs && node /tmp/znbt-verify.cjs <coin address>`. Every line must say OK (master admin and treasury are the owner wallet, the coin is deployed, supply 9B, fees as designed, metadata readable).
-4. In the Zenobia bot run `/jetton2` to confirm the passport and hall see ZNBt.
-5. Optional: set `NEXT_PUBLIC_MATCH_BOT_URL` so the Athar bot's marriage-match button points at a fixed bot.
-6. Disclosures that stay on the pages: unaudited fork, no profit promises, the coin is a collectible.
+## Launch day (2026-10-18 evening): everything below is prepared; nothing has been sent to mainnet
+**Before:** the owner wallet `UQBt3hz…QJSz` must hold **at least 4 TON** (it held 0.81 TON when checked on 2026-10-18): master about 2 TON, coin about 1 TON, plus your optional first buy and fees. The launch page shows the balance and warns when it is low.
 
-### The age badge (icon that shows how long the coin has lived)
-The coin's `image` points to `/api/zenobia/znbt/icon`, which serves a pre-rendered animated badge for the coin's age (`new`, `1d`..`29d`, `1m`..`11m`, `1y`..`10y`; 51 files in `public/zenobia/znbt/age/`, built by `docs/zenobia/animation/make_age_icons.py`). Limits, stated plainly: the metadata is immutable, so this endpoint must stay up for as long as the coin exists; wallets and explorers cache the picture, so some will show an older age for a while (a static picture is stored on-chain as the fallback). The age counts from `launchedAt`.
+**The owner's steps (about 5 minutes):**
+1. Open `https://ttbik-gate.jonsnowx1r.workers.dev/zenobia/launch.html` (the permanent address; it follows whichever server is up), connect the owner wallet.
+2. **Step 1 · Deploy master**, wait for "deployed ✅" (Refresh).
+3. **Step 2 · Create ZNBt** (choose a first buy or 0), wait for "launched ✅".
+4. Nothing else is needed for the pages: the platform finds ZNBt by itself within 5 minutes (address, launch time for the age badge). Check `…/zenobia/znbt/config.json` shows `curve`.
+5. When you are ready for other people to launch coins: Athar bot ← `/hosting` ← **«🪙 فتح منصة العملات»** (and «⛔ إغلاقها» to close again). It refuses to open before ZNBt exists.
+
+**Claude then (no deploy needed):** runs the chain check (`node znbt-verify.cjs <coin>`; build with `cd contracts/zenobia-curve/web && npx esbuild src/verify.ts --bundle --platform=node --outfile=/tmp/znbt-verify.cjs`), checks `/jetton2` in the Zenobia bot, the age badge icon (`/api/zenobia/znbt/icon`) and the coin pages.
+
+**Permanent facts fixed at launch (they cannot be changed afterwards):** name and symbol, 9B supply, fees 1.5% + 1.5%, graduation at 1,000 TON, the coin's `image` = `https://ttbik-gate.jonsnowx1r.workers.dev/api/zenobia/znbt/icon` (the gate's permanent address, served by Oracle or Vercel), a small static picture stored on-chain as fallback.
+
+**Rollback:** nothing to undo before step 1. After step 1 the master stays deployed (it costs nothing to keep); the platform stays closed (`open` false) until you open it from the panel.
+
+### Announcement drafts (English first, no promises of profit)
+> **Zenobia of Tadmor (ZNBt) is live on TON.** 🪙 A coin that remembers your journey: hold it and grow from Child to Queen to Warrior; sell everything and you become a Captive; burn it and you become a Legend. Fees: 1.5% platform + 1.5% creator. Experimental, unaudited contracts: you can lose everything you put in. Not financial advice. Terms and risks: https://ttbik-gate.jonsnowx1r.workers.dev/zenobia/terms.html
+>
+> **زنوبيا التدمرية (ZNBt) على شبكة TON.** 🪙 عملة تتذكّر رحلتك: احتفظ بها لتنمو من طفل إلى ملكة إلى محارب؛ بع كل شيء فتصير أسيراً؛ احرقها فتصير أسطورة. الرسوم 1.5% للمنصة + 1.5% للمُطلِق. العقود تجريبية وغير مدقَّقة وقد تخسر كل ما تضعه. ليست نصيحة مالية. الشروط والمخاطر: الرابط أعلاه.
+
+### The age badge
+The coin's `image` points to `/api/zenobia/znbt/icon`, which serves a pre-rendered animated badge for the coin's age (`new`, `1d`..`29d`, `1m`..`11m`, `1y`..`10y`; 51 files in `public/zenobia/znbt/age/`, built by `docs/zenobia/animation/make_age_icons.py`). Limits, stated plainly: the metadata is immutable, so this endpoint must stay up for as long as the coin exists (the gate is the permanent address); wallets and explorers cache the picture, so some will show an older age for a while. The age counts from the coin's launch time on the chain.
 
 ### Telegram Stars never appear on the ZNBt platform
-Stars exist only in the Athar bot, behind `ATHAR_ENABLE_STARS=1` (off by default), and in the owner's admin queue. No `/zenobia/*` page, script or API mentions them (checked by search). See `docs/ATHAR_STARS.md`.
+Stars exist only in the Athar bot, behind `ATHAR_ENABLE_STARS=1` (off by default), and in the owner's admin queue. No `/zenobia/*` page, script or API mentions them. See `docs/ATHAR_STARS.md`.

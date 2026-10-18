@@ -9,8 +9,8 @@ export const COIN = {
   decimals: '9',
   description:
     'Zenobia of Tadmor (ZNBt): a coin that remembers your journey. Hold it and grow from Child to Queen to Warrior; sell everything and you become a Captive; burn it all and you become a Legend. Stored on-chain. أول عملة تحمل رحلة حاملها في عقدها.',
-  // the icon endpoint adds the coin's age badge (new, 1d..29d, 1m..11m, 1y..10y); the small copy below (image_data) has no badge and never depends on a server
-  image: 'https://ttbik.vercel.app/api/zenobia/znbt/icon',
+  // the permanent address of the gate (it follows whichever server is up); the icon endpoint adds the coin's age badge (new, 1d..29d, 1m..11m, 1y..10y); the small copy below (image_data) has no badge and never depends on a server
+  image: 'https://ttbik-gate.jonsnowx1r.workers.dev/api/zenobia/znbt/icon',
 };
 
 // TEP-64 snake data: 0x00 prefix byte, then bytes spread over a chain of cells.
