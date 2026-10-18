@@ -76,7 +76,7 @@ jobs:
           ID=${{ steps.pick.outputs.id }}
           SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
           CH=$(python3 -c "import json;print(json.load(open('episode.json')).get('channel','general'))")
-          CAP=$(python3 -c "import json;print(json.load(open('episode.json')).get('caption') or (json.load(open('episode.json'))['title']+' | شام AI'))")
+          CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+' | شام AI'+chr(10)+e['site']+e['path']))")
           code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" \
             --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
             --data-urlencode "to=$CH" --data-urlencode "caption=$CAP")
