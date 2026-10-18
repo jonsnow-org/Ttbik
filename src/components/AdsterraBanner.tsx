@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { adsterraKeyFor } from "@/lib/adsterraKeys";
 
 /**
  * Adsterra "iframe" format banner (the atOptions technique). Rendered
@@ -27,6 +28,11 @@ export default function AdsterraBanner({ adKey, width, height, reloadKey = 0, on
   // leaving an empty box. A new reloadKey (pull-to-refresh) also reloads it.
   const [attempt, setAttempt] = useState(0);
   const ref = useRef<HTMLIFrameElement>(null);
+  // the unit key depends on the address the page is served from (lib/adsterraKeys.ts); until the browser tells us, nothing is requested
+  const [host, setHost] = useState<string | null>(null);
+  useEffect(() => { setHost(window.location.hostname); }, []);
+  const unitKey = host === null ? null : adsterraKeyFor(host, adKey);
+  useEffect(() => { if (host !== null && unitKey === null) onEmpty?.(); }, [host, unitKey, onEmpty]);
   useEffect(() => { setAttempt(0); }, [reloadKey]);
   useEffect(() => {
     const t = setTimeout(() => {
@@ -49,17 +55,18 @@ export default function AdsterraBanner({ adKey, width, height, reloadKey = 0, on
     return () => clearTimeout(t);
   }, [attempt, reloadKey, onEmpty]);
 
+  if (unitKey === null) return <div style={{ width, height }} aria-hidden />;
   const html = `<!DOCTYPE html><html><head><style>html,body{margin:0;padding:0;overflow:hidden}</style></head><body>
 <script>
   atOptions = {
-    'key': '${adKey}',
+    'key': '${unitKey}',
     'format': 'iframe',
     'height': ${height},
     'width': ${width},
     'params': {}
   };
 </script>
-<script src="https://www.highrevenueformat.com/${adKey}/invoke.js"></script>
+<script src="https://www.highrevenueformat.com/${unitKey}/invoke.js"></script>
 </body></html>`;
 
   return (
