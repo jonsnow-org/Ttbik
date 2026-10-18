@@ -97,3 +97,36 @@ export async function readShare(token: string): Promise<{ botId: string; day: st
   const r = await prisma.$queryRaw<{ bot_id: string; day: string }[]>`SELECT bot_id, day FROM match_share WHERE token = ${token}`;
   return r[0] ? { botId: r[0].bot_id, day: r[0].day } : null;
 }
+
+// ---- a live look at one day of Athar: its picture and which kinds can still be gifted (the app's showcase card) -------------------
+const MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+const KIND_AR = ["عادي", "فضي", "ذهبي"];
+export type AtharDay = { index: number; label: string; link: string; img: string; known: boolean; kinds: { name: string; free: boolean | null }[]; anyFree: boolean | null };
+const dayCache = new Map<number, { at: number; taken: boolean[] | null }>();
+/** Which of the three direct kinds of a date are taken (null: Athar did not say). Cached 10 minutes per date. */
+async function takenKinds(index: number, now: number): Promise<boolean[] | null> {
+  const hit = dayCache.get(index);
+  if (hit && now - hit.at < 600_000) return hit.taken;
+  let taken: boolean[] | null = null;
+  try {
+    const r = await fetch(`${ATHAR_URL}/api/date/${index}`, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+    const j: any = r.ok ? await r.json() : null;
+    if (j && j.onChain && Array.isArray(j.taken)) taken = [0, 1, 2].map((k) => !!j.taken[k] || !!j.auction?.[k] || !!j.reserved?.[k]);
+  } catch { taken = null; }
+  if (dayCache.size > 400) dayCache.clear();
+  dayCache.set(index, { at: now, taken });
+  return taken;
+}
+export async function atharDay(x: Ymd, now = Date.now()): Promise<AtharDay | null> {
+  const link = atharDateLink(x);
+  if (!link) return null;
+  const index = indexOf(x.y, x.m, x.d);
+  const taken = await takenKinds(index, now);
+  const kinds = KIND_AR.map((name, k) => ({ name, free: taken ? !taken[k] : null }));
+  // the picture shows the richest kind that is still free (gold, silver, normal); when nothing is free, the normal one
+  const show = taken ? [2, 1, 0].find((k) => !taken[k]) ?? 0 : 2;
+  return {
+    index, link, label: `${x.d} ${MONTHS_AR[x.m - 1]} ${x.y}`, img: `/api/athar/img/${show * 65536 + index}`, known: !!taken, kinds,
+    anyFree: taken ? taken.some((t) => !t) : null,
+  };
+}

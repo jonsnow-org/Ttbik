@@ -149,7 +149,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     }[boot];
     return (
       <Shell>
-        <div className="grid min-h-[80vh] place-items-center text-center">
+        <div className="grid min-h-[80dvh] place-items-center text-center">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`${GLASS} rounded-3xl p-8 max-w-xs`}>
             <div className="text-5xl mb-3">{boot === "loading" ? "💞" : "🔒"}</div>
             <p className="text-white/80 leading-7">{text}</p>
@@ -208,13 +208,13 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
 // ---------------------------------------------------------------------------------------------
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main dir="rtl" className="relative min-h-screen overflow-x-hidden bg-[#0b1020] text-white font-sans selection:bg-pink-500/40">
+    <main dir="rtl" className="relative min-h-[100dvh] overflow-x-hidden bg-[#0b1020] text-white font-sans selection:bg-pink-500/40">
       <div aria-hidden className="pointer-events-none fixed inset-0">
         <div className="absolute -top-32 -right-24 h-80 w-80 rounded-full bg-[#ff2e93]/25 blur-[100px]" />
         <div className="absolute top-1/3 -left-24 h-72 w-72 rounded-full bg-[#e8b4a0]/15 blur-[100px]" />
         <div className="absolute bottom-0 right-1/4 h-64 w-64 rounded-full bg-indigo-600/20 blur-[100px]" />
       </div>
-      <div className="relative mx-auto max-w-md px-4 pt-4">{children}</div>
+      <div className="relative mx-auto max-w-md px-4 pt-[max(1rem,env(safe-area-inset-top))]">{children}</div>
     </main>
   );
 }
@@ -233,7 +233,7 @@ function Header({ me, onUpgrade, bell }: { me: any; onUpgrade: () => void; bell?
       <div className="flex items-center gap-2">{bell}
       <motion.button whileTap={{ scale: 0.92 }} onClick={() => { haptic("medium"); onUpgrade(); }}
         className={`flex items-center gap-1.5 rounded-2xl px-3 py-2 text-sm ${GLASS}`} aria-label="الرصيد والترقيات">
-        <span>💰</span><b>${Number(me?.ent?.balance ?? 0).toFixed(2)}</b><span className="text-[#f3cbbd]">⭐</span>
+        <span>💰</span><b className="tabular-nums">${Number(me?.ent?.balance ?? 0).toFixed(2)}</b><span className="text-[#f3cbbd]">⭐</span>
       </motion.button></div>
     </header>
   );
@@ -243,11 +243,11 @@ function BottomNav({ tab, setTab, admin, unread = 0, chatsUnread = 0 }: { tab: T
   const items: [Tab, string, string][] = [["anon", "🔀", "دردشة مجهولة"], ["discover", "🔥", "المطابقات"], ["chats", "💬", "محادثاتي"], ["me", "👤", "ملفي"]];
   if (admin !== null) items.push(["admin", "🛡", "لوحة القيادة"]);
   return (
-    <nav className={`fixed bottom-4 inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ paddingBottom: "max(6px, env(safe-area-inset-bottom))" }}>
+    <nav aria-label="التنقل الرئيسي" className={`fixed bottom-4 inset-x-4 z-40 mx-auto max-w-md rounded-[28px] p-1.5 ${GLASS}`} style={{ paddingBottom: "max(6px, env(safe-area-inset-bottom))" }}>
       <ul className={`grid gap-1 ${admin !== null ? "grid-cols-5" : "grid-cols-4"}`}>
         {items.map(([t, icon, label]) => (
           <li key={t}>
-            <button onClick={() => setTab(t)} className="relative w-full rounded-3xl py-2 text-center">
+            <button onClick={() => setTab(t)} aria-current={tab === t ? "page" : undefined} className="relative w-full rounded-3xl py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-white/60">
               {tab === t && <motion.span layoutId="navpill" className={`absolute inset-0 rounded-3xl ${GRAD} opacity-90`} transition={{ type: "spring", stiffness: 420, damping: 32 }} />}
               <span className="relative block text-lg leading-none">{icon}</span>
               {t === "anon" && !!unread && tab !== "anon" && <span className="absolute right-2 top-1 min-w-4 rounded-full bg-emerald-500 px-1 text-[9px] font-bold leading-4">{unread > 9 ? "9+" : unread}</span>}
@@ -275,7 +275,8 @@ function Empty({ icon, text, action, onAction }: { icon: string; text: string; a
 function Pill({ active, children, onClick }: { active?: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
     <button onClick={() => { haptic("select"); onClick(); }}
-      className={`flex-1 rounded-2xl px-3 py-2 text-sm transition ${active ? `${GRAD} font-bold text-white shadow-[0_0_20px_rgba(255,46,147,0.35)]` : "bg-white/5 text-white/70 border border-white/10"}`}>
+      aria-pressed={!!active}
+      className={`min-w-fit flex-1 whitespace-nowrap rounded-2xl px-3 py-2 text-sm transition ${active ? `${GRAD} font-bold text-white shadow-[0_0_20px_rgba(255,46,147,0.35)]` : "bg-white/5 text-white/70 border border-white/10"}`}>
       {children}
     </button>
   );
@@ -434,7 +435,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
 
   if (poll.state === "chatting") {
     return (
-      <div className={`flex h-[calc(100vh-190px)] flex-col rounded-3xl ${GLASS}`}>
+      <div className={`flex h-[calc(100dvh-190px)] flex-col rounded-3xl ${GLASS}`}>
         <div className="flex items-center justify-between border-b border-white/10 p-3">
           <div className="flex items-center gap-2">
             <div className={`grid h-10 w-10 place-items-center rounded-full ${GRAD}`}>🎭</div>
@@ -840,11 +841,11 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     </div>
   );
   const strictBar = (<>{genderBar}
-    <div className="mb-2 flex items-center justify-between text-xs">
-      <span className="text-white/50">{strict ? "🎯 بحث دقيق: كل مواصفاتك" : "🔍 البحث عن شريك (نفس ترتيب البوت)"}</span>
+    <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+      <span className="text-white/50">{strict ? "🎯 بحث دقيق: كل مواصفاتك" : "🔍 البحث عن شريك"}</span>
       {me?.ent?.advancedFilters
-        ? <button onClick={() => { haptic("select"); setStrict((v) => !v); }} className={`rounded-full px-3 py-1 ${strict ? GRAD : "border border-white/15"}`}>🎯 بحث دقيق</button>
-        : <span className="rounded-full border border-white/10 px-3 py-1 text-white/35">🎯 بحث دقيق (للمشتركين)</span>}
+        ? <button onClick={() => { haptic("select"); setStrict((v) => !v); }} className={`whitespace-nowrap rounded-full px-3 py-1 ${strict ? GRAD : "border border-white/15"}`}>🎯 بحث دقيق</button>
+        : <span className="whitespace-nowrap rounded-full border border-white/10 px-3 py-1 text-white/35">🎯 بحث دقيق (للمشتركين)</span>}
     </div></>
   );
   if (!deck) return <div>{strictBar}<div className={`mt-2 h-[460px] animate-pulse rounded-[32px] ${GLASS}`} /></div>;
@@ -863,7 +864,7 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
   return (
     <div>
       {strictBar}
-      <div className="relative mt-2 h-[540px]">
+      <div className="relative mt-2 h-[min(540px,calc(100dvh-300px))] min-h-[400px]">
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
             <SwipeCard key={c.ref} card={c} photo={photos[c.ref]} isTop={i === arr.length - 1} depth={arr.length - 1 - i}
@@ -1028,7 +1029,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
     <div className="space-y-4">
       <h2 className="text-lg font-bold">المحادثات</h2>
       {segBar}
-      {athar && <AtharEntry athar={athar} api={api} where="chats" />}
+      {athar && <AtharEntry athar={athar} api={api} where="chats" variant="full" title="هدية لا تُنسى لشريكك" />}
       {matchThreads.length > 0 && <div className="space-y-2">{matchThreads.map(threadRow)}</div>}
       <motion.button whileTap={{ scale: 0.98 }} onClick={goAnon} className={`flex w-full items-center gap-3 rounded-3xl p-4 text-right ${GLASS}`}>
         <div className={`grid h-12 w-12 place-items-center rounded-full ${GRAD}`}>🎭</div>
@@ -1141,7 +1142,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
           </div>
         </div>
       )}
-      {me?.athar && <AtharEntry athar={me.athar} api={api} where="me" />}
+      {me?.athar && section !== "profile" && <AtharEntry athar={me.athar} api={api} where="me" />}
       <div className="mb-4 flex gap-1.5 overflow-x-auto">
         {([["upgrades", "⭐ الترقيات"], ["profile", "👤 ملفي"], ["pref", "💍 معايير الزواج"], ["privacy", "🔒 الخصوصية"]] as const).map(([k, l]) => (
           <Pill key={k} active={section === k} onClick={() => setSection(k)}>{l}</Pill>
@@ -1519,17 +1520,97 @@ function Notifier({ api, say, enabled, onOpen }: { api: any; say: (m: string) =>
 
 // ---------------------------------------------------------------------------------------------
 // 🕰 Athar (flag MATCH_ENABLE_ATHAR; me.athar === null → nothing renders). Links only — no payments.
-/** 💎 Prominent entry: opens Athar's own web app (TonConnect/TON payment stay inside Athar). */
-function AtharEntry({ athar, api, where }: { athar: { bot: string; today: string; home?: string }; api?: any; where: string }) {
+type AtharCfg = { bot: string; today: string; home?: string };
+type AtharDayInfo = { index: number; label: string; link: string; img: string; known: boolean; kinds: { name: string; free: boolean | null }[]; anyFree: boolean | null };
+const atharDayMemo = new Map<string, AtharDayInfo>();
+/** One live day of Athar (today, or the picked date): its picture and which kinds are still free. Remembered for the session. */
+function useAtharDay(api: any, date: string): { day: AtharDayInfo | null; bad: boolean } {
+  const [day, setDay] = useState<AtharDayInfo | null>(() => atharDayMemo.get(date) ?? null);
+  const [bad, setBad] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const hit = atharDayMemo.get(date);
+    if (hit) { setDay(hit); setBad(false); return; }
+    api("athar_day", date ? { date } : {}).then((r: any) => {
+      if (!live) return;
+      if (r?.ok && r.day) { atharDayMemo.set(date, r.day); setDay(r.day); setBad(false); } else setBad(!r?.hidden);
+    }).catch(() => live && setBad(true));
+    return () => { live = false; };
+  }, [api, date]);
+  return { day, bad };
+}
+function AtharToken({ day, size }: { day: AtharDayInfo | null; size: number }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [day?.img]);
   return (
-    <button data-testid={`athar-entry-${where}`} onClick={() => openAthar(athar.home || athar.today, `entry_${where}`, api)}
-      className="mb-4 flex w-full items-center gap-3 rounded-3xl border border-amber-300/30 bg-gradient-to-l from-amber-400/15 via-[#e8b4a0]/10 to-transparent p-4 text-right">
-      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-amber-300 to-amber-600 text-2xl">💎</span>
-      <span className="flex-1">
-        <span className="block font-bold">أثر — امتلك يوماً للأبد</span>
-        <span className="block text-[11px] text-white/60">يوم تعارفكما، ميلادك، أو ذكرى عزيزة — هدية تبقى. افتح أثر ←</span>
-      </span>
-    </button>
+    <span style={{ width: size, height: size }} className="relative grid shrink-0 place-items-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-300/30 to-amber-600/20 ring-1 ring-amber-300/40">
+      {day && !broken
+        // eslint-disable-next-line @next/next/no-img-element
+        ? <img src={day.img} alt={day.label} width={size} height={size} loading="lazy" onError={() => setBroken(true)} className="h-full w-full object-cover" />
+        : <span className="text-2xl">💎</span>}
+    </span>
+  );
+}
+function KindChips({ day }: { day: AtharDayInfo }) {
+  return (
+    <span className="flex flex-wrap gap-1">
+      {day.kinds.map((k) => (
+        <span key={k.name} className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${k.free === false ? "bg-white/5 text-white/35 line-through" : k.free ? "bg-emerald-400/15 text-emerald-200" : "bg-white/5 text-white/50"}`}>
+          {k.free === false ? "🔒" : k.free ? "✓" : "•"} {k.name}
+        </span>
+      ))}
+    </span>
+  );
+}
+/**
+ * 💎 Athar showcase. "slim": one tappable row with today's real token. "full": the live card — the day's token art, which kinds are still free,
+ * a date picker that updates it in place (birthday, anniversary, a day you love) and one button to open that day in Athar's own app
+ * (TonConnect and TON payment stay inside Athar). Gift / memory wording only: no prices, no returns.
+ */
+function AtharEntry({ athar, api, where, variant = "slim", title }: { athar: AtharCfg; api?: any; where: string; variant?: "slim" | "full"; title?: string }) {
+  const [date, setDate] = useState("");
+  const [picking, setPicking] = useState(false);
+  const { day, bad } = useAtharDay(api, date);
+  const link = day?.link || athar.home || athar.today;
+  const free = day?.anyFree;
+  const status = !day ? (bad ? "افتح أثر" : "…") : free === null ? "ذكرى لهذا اليوم" : free ? "✨ متاح للإهداء الآن" : "🔒 لهذا اليوم مالك — جرّب يوماً آخر";
+  if (variant === "slim") {
+    return (
+      <button data-testid={`athar-entry-${where}`} onClick={() => openAthar(link, `entry_${where}`, api)}
+        className="mb-4 flex w-full items-center gap-3 rounded-3xl border border-amber-300/30 bg-gradient-to-l from-amber-400/15 via-[#e8b4a0]/10 to-transparent p-3 text-right">
+        <AtharToken day={day} size={48} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-bold">أثر — امتلك يوماً للأبد</span>
+          <span className="block truncate text-[11px] text-white/60">{day ? `${day.label} · ${status}` : "ذكرى تبقى — افتح أثر"}</span>
+        </span>
+        <span className="text-white/40">‹</span>
+      </button>
+    );
+  }
+  return (
+    <div data-testid={`athar-entry-${where}`} className="mb-4 overflow-hidden rounded-3xl border border-amber-300/30 bg-gradient-to-br from-amber-400/15 via-[#e8b4a0]/10 to-transparent">
+      <div className="flex items-center gap-3 p-4">
+        <AtharToken day={day} size={84} />
+        <div className="min-w-0 flex-1 text-right">
+          <p className="text-[10px] font-bold tracking-wide text-amber-200/80">🕰 أثر · رمز لكل يوم على TON</p>
+          <p className="mt-0.5 font-bold leading-snug">{title || (date ? "يومك في أثر" : "يوم اليوم في أثر")}{day ? <span className="block text-sm font-normal text-white/80">{day.label}</span> : null}</p>
+          <p className="mt-1 text-[11px] text-white/60">{status}</p>
+        </div>
+      </div>
+      {day && <div className="px-4 pb-3"><KindChips day={day} /></div>}
+      <div className="flex gap-2 border-t border-white/10 bg-black/10 p-3">
+        <button onClick={() => openAthar(link, `entry_${where}`, api)} className={`flex-1 rounded-2xl px-3 py-2.5 text-sm font-bold ${GRAD}`}>افتح هذا اليوم ←</button>
+        <button onClick={() => setPicking((v) => !v)} aria-expanded={picking} className="rounded-2xl border border-white/15 px-3 py-2.5 text-xs font-bold text-white/80">📅 اختر يومك</button>
+      </div>
+      {picking && (
+        <div className="border-t border-white/10 p-3">
+          <p className="mb-2 text-[11px] text-white/50">ميلادك، ذكرى زواجكما، أو أي يوم تحبه (1950–2049). لا يُحفظ شيء.</p>
+          <input type="date" min="1950-01-01" max="2049-12-31" value={date} onChange={(e) => setDate(e.target.value)} aria-label="اختر يوماً"
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 outline-none" />
+          <button onClick={() => openAthar(athar.bot, `${where}_promo`, api)} className="mt-2 text-[11px] text-[#f3cbbd] underline">🕰 تعرّف على «أثر»</button>
+        </div>
+      )}
+    </div>
   );
 }
 function openAthar(url: string, where: string, api?: any) {
@@ -1539,21 +1620,8 @@ function openAthar(url: string, where: string, api?: any) {
   if (url.startsWith("https://t.me/") && w?.openTelegramLink) w.openTelegramLink(url);
   else if (w?.openLink) w.openLink(url); else window.open(url, "_blank");
 }
-function AtharBirthday({ api, say, athar }: { api: any; say: any; athar: { bot: string; today: string; home?: string } }) {
-  const [date, setDate] = useState("");
-  return (
-    <div className={`mb-3 rounded-3xl p-4 text-sm ${GLASS}`}>
-      <p className="font-bold">🎂 تاريخ ميلادك في أثر <span className="text-[11px] font-normal text-white/40">(اختياري — لا يُحفظ)</span></p>
-      <p className="mt-1 text-[11px] text-white/50">كل يوم من 1950 إلى 2049 له ذكرى في «أثر». اختر تاريخك وافتحه.</p>
-      <div className="mt-2 flex gap-2">
-        <input type="date" min="1950-01-01" max="2049-12-31" value={date} onChange={(e) => setDate(e.target.value)} aria-label="تاريخ الميلاد"
-          className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 outline-none" />
-        <button disabled={!date} onClick={async () => { const r = await api("athar_link", { date }); if (r.ok) openAthar(r.link, "birthday", api); else if (!r.hidden) say(r.error, "error"); }}
-          className={`rounded-2xl px-3 text-xs font-bold disabled:opacity-50 ${GRAD}`}>افتح</button>
-      </div>
-      <button onClick={() => openAthar(athar.bot, "promo", api)} className="mt-2 text-[11px] text-[#f3cbbd] underline">🕰 تعرّف على «أثر» — ذكرى لكل يوم</button>
-    </div>
-  );
+function AtharBirthday({ api, athar }: { api: any; say?: any; athar: AtharCfg }) {
+  return <AtharEntry athar={athar} api={api} where="birthday" variant="full" title="🎂 يوم ميلادك في أثر" />;
 }
 
 

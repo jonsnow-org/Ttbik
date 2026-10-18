@@ -13,7 +13,7 @@ Optional: `NEXT_PUBLIC_ATHAR_BOT_URL` (default `https://t.me/AtharDaysBot`, same
 | Chats tab, after a contact exchange or an accepted 💍 | 🎁 أهدِ شريكك تاريخ أول محادثة / ذكرى يوم القبول (dismissable) | date of the first chat / acceptance |
 | Chats tab, mutual match ≥ 30 days | 🗓 مرّ شهر على تعارفكما | mutual-like date |
 | Profile section | 🎂 تاريخ ميلادك في أثر (1950-2049, not stored) + «تعرّف على أثر» | chosen date / Athar bot |
-| 💎 Prominent entry (Profile/Upgrades tab top + Chats tab top) | 💎 أثر — امتلك يوماً للأبد | `ATHAR_URL/` — Athar's own web app; TonConnect + TON payment stay inside Athar |
+| 💎 Showcase (2026-10-18, live): Chats tab top (full card), Me tab top (slim row), Profile section (full card with date picker) | The real token art of today's (or the picked) day from `/api/athar/img`, which kinds are still free (`/api/date/<i>`, cached 10 min; unknown = no claim), «افتح هذا اليوم» + «📅 اختر يومك» picker that updates the card in place | the day's own page `ATHAR_URL/date?i=<index>&lang=ar`; TonConnect + TON payment stay inside Athar |
 | Shared match page `/match-share/<token>` | 🕰 ذكرى هذا اليوم في أثر | match date |
 
 Deep-link format verified, not guessed: Athar's birthday reminder (`src/app/api/cron/athar-birthdays/route.ts`) opens
@@ -43,3 +43,7 @@ match (rate limited 10/h).
 The match app contains no wallet or payment code for Athar. Users who buy a day do it inside Athar's own web app
 (TonConnect, TON — Athar's existing flow). Telegram Stars for Athar are NOT active; see
 docs/SPEC_FOR_ATHAR_STARS.md and docs/FOR_ATHAR_CREATOR_REVIEW_stars_payments.md for the engineer.
+
+
+## Showcase (2026-10-18)
+API action `athar_day` ({date?: YYYY-MM-DD}, default today) returns `{index,label,link,img,kinds[{name,free}],anyFree}`; `src/lib/match/athar.ts: atharDay`. Wording stays gift/memory only: no price, no return, no investment claim. Hidden with the rest of Athar when the flag is off or Athar does not answer.

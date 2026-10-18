@@ -15,7 +15,7 @@ import { adminBadges, handleAdminAction } from "@/lib/match/adminApp";
 import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
 import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { trackFunnel } from "@/lib/match/growth";
-import { atharClientConfig, atharDateLink, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
+import { atharClientConfig, atharDateLink, atharDay, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
 import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
@@ -224,6 +224,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         const y = parseYmd(String(body.date || ""));
         const link = y && atharDateLink(y);
         return link ? NextResponse.json({ ok: true, link }) : err("اختر تاريخاً بين 1950 و2049");
+      }
+      if (action === "athar_day") {
+        // today by default; a chosen date (YYYY-MM-DD) from the picker otherwise
+        const y = body.date ? parseYmd(String(body.date)) : ymdOf(new Date());
+        const day = y && (await atharDay(y).catch(() => null));
+        return day ? NextResponse.json({ ok: true, day }) : err("اختر تاريخاً بين 1950 و2049");
       }
       if (action === "athar_click") { void trackFunnel(tg.id, "athar_click", String(body.where || "").slice(0, 20)); return NextResponse.json({ ok: true }); }
       return err("إجراء غير معروف");
