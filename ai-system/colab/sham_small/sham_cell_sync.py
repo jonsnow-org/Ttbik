@@ -88,8 +88,8 @@ def build(repo: Path | None = None, keep: int = KEEP_VERSIONS) -> dict:
     top = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "--show-toplevel"], text=True).strip()
     rel_dir = os.path.relpath(NOTEBOOKS, top)
     table = {"map": {}, "text": {}}
-    for nb_path in sorted(NOTEBOOKS.glob("*.ipynb")):
-        rel = f"{rel_dir}/{nb_path.name}".replace("\\", "/")
+    for nb_path in sorted(NOTEBOOKS.rglob("*.ipynb")):        # also the notebooks kept in sub-folders (arabic_sft/ ...)
+        rel = f"{rel_dir}/{nb_path.relative_to(NOTEBOOKS).as_posix()}".replace("\\", "/")
         current = _code_cells(json.loads(nb_path.read_text(encoding="utf-8")))
         revs = subprocess.check_output(["git", "-C", top, "log", f"-{keep}", "--format=%H", "--", rel], text=True).split()
         for rev in revs:
