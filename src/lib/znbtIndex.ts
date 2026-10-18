@@ -1,7 +1,7 @@
 // The coin index of the open ZNBt platform: one snapshot in our database, refreshed by a cron, served to every visitor.
 // (Reading the chain from each visitor's browser through a keyless endpoint cannot carry real traffic.) Also the abuse reports.
 import { prisma } from "@/lib/prisma";
-import cfg from "../../public/zenobia/znbt/config.json";
+import { BASE as cfg, adoptZnbt } from "@/lib/znbtConfig";
 import type { Snapshot } from "./vendor/znbtIndexer.cjs";
 
 export type { Snapshot, IndexedCoin } from "./vendor/znbtIndexer.cjs";
@@ -32,6 +32,7 @@ export async function refreshSnapshot(budgetMs = 45_000): Promise<Snapshot> {
   const prev = await readSnapshot();
   const next = await refreshIndex({ master: cfg.master, prev, apiKey: process.env.TONCENTER_API_KEY || undefined, budgetMs });
   await prisma.$executeRawUnsafe(`INSERT INTO znbt_index (id, snapshot, updated_at) VALUES (1,$1,now()) ON CONFLICT (id) DO UPDATE SET snapshot=EXCLUDED.snapshot, updated_at=now()`, JSON.stringify(next));
+  await adoptZnbt(next.coins).catch(() => null);   // ZNBt's own address and launch time are picked up from the chain, no human step
   return next;
 }
 

@@ -57,6 +57,6 @@ describe("caller checks", () => {
   it("the committed hosting file points at the Oracle address the sync route expects", () => {
     expect(HOSTING.oracleIp).toBe("89.168.89.15");
     expect(HOSTING.oracleUrl).toContain("89-168-89-15");
-    expect(HOSTING.engineUrl).toBe("");   // nothing moves until the cutover commit
+    expect(HOSTING.engineUrl).toBe(HOSTING.gateUrl);   // after the cutover the site speaks as the gate
   });
 });
