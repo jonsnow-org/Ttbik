@@ -56055,7 +56055,7 @@ async function refreshIndex(opts) {
     const creator = m.info.src.toString({ bounceable: false });
     const key = creator + ":" + body.salt.toString();
     if (coins.has(key)) continue;
-    const curve = await call(() => sdk.getLaunchAddress(master, m.info.src, body.salt, body.options));
+    const curve = await call(() => sdk.master(master).getLaunchAddress(m.info.src, body.salt, body.options));
     const o = body.options.ref;
     coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
   }

@@ -7,7 +7,9 @@ import { prisma } from "@/lib/prisma";
 import base from "./znbtBase.json";
 
 export const OWNER_WALLET = "UQBt3hzFFJ11GjBjzD523m3NnyhqRNyfKCmzVq9_zVfjQJSz";
-export const ZNBT_SALT = "1000001";   // the salt the owner's launch page uses (contracts/zenobia-curve/web/src/launch.ts)
+export const ZNBT_SALT = "1000001";
+/** ZNBt's jetton minter (read from the chain after the owner's launch of 2026-10-18, verified by znbt-verify): a fixed on-chain fact, so the passport and the hall can count ZNBt without any command. */
+export const ZNBT_MINTER = "EQAbVrwm8FAEVLyN9qxPCMc084CsQ3CWn07Azi8MU6PqdKIr";   // the salt the owner's launch page uses (contracts/zenobia-curve/web/src/launch.ts)
 
 export type ZnbtConfig = { master: string; curve: string; open: boolean; launchedAt: string };
 export const BASE = base as ZnbtConfig;

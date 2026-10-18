@@ -5,6 +5,37 @@
  "gate": "https://ttbik-gate.jonsnowx1r.workers.dev",
  "episodes": [
   {
+   "id": 15,
+   "path": "/zenobia/coins.html",
+   "title": "ZNBt",
+   "hook": "Zenobia's new coin",
+   "input": "",
+   "channel": "coins",
+   "needs": "znbt",
+   "caption": "ZNBt is Zenobia's new coin on TON, launched on our own platform. Not financial advice; crypto is risky.\nhttps://t.me/PalmyraLaunchBot",
+   "script": "Zenobia's new coin is here. ZNBt, launched on our own platform, Palmyra Launch, on TON. The fees are clear on the page, and everything is in front of you. This is not financial advice, and crypto is risky. Learn more in the bot.",
+   "brand": "Palmyra Launch",
+   "ctaTitle": "Learn more",
+   "ctaLine": "@PalmyraLaunchBot",
+   "lang": "en",
+   "voice": "en-US-AriaNeural",
+   "rate": "-5%"
+  },
+  {
+   "id": 16,
+   "path": "/zenobia/trade.html",
+   "title": "ZNBt",
+   "hook": "عملة زنوبيا الجديدة",
+   "input": "",
+   "channel": "general",
+   "needs": "znbt",
+   "brand": "ZNBt",
+   "ctaTitle": "اعرف أكثر",
+   "ctaLine": "@PalmyraLaunchBot",
+   "caption": "Zenobia of Tadmor (ZNBt) is live on TON, launched on our own platform. Not financial advice; crypto is risky.\nزنوبيا التدمرية (ZNBt) على TON، أُطلقت على منصتنا. ليست نصيحة مالية، والعملات الرقمية محفوفة بالمخاطر.\nhttps://t.me/PalmyraLaunchBot",
+   "script": "عملة زنوبيا الجديدة وصلت. زد إن بي تي، على شبكة تون، أُطلقت على منصّتنا تدمر لانش. إذا احتفظت فيها بتكبر من طفلة لملكة لمحاربة، وإذا بعت كلّ شي بتصير أسيرة، وإذا حرقتها بتصير أسطورة. الرسوم واضحة بالصفحة. هاد مو نصيحة مالية، والعملات الرقمية فيها مخاطرة."
+  },
+  {
    "id": 1,
    "path": "/free-tools/qr-generator",
    "title": "مولّد رمز QR",
@@ -109,23 +140,6 @@
    "hook": "اسمك… بس أحلى!",
    "input": "شام",
    "script": "بدّك اسمك يطلع مزخرف للألعاب والسوشيال؟ اكتب اسمك بأداة الزخرفة من شام إيه آي، وبتطلعلك عشرات الأشكال الحلوة، انسخ واستعمل. ببلاش تماماً. جرّبها هلّق."
-  },
-  {
-   "id": 15,
-   "path": "/zenobia/coins.html",
-   "title": "ZNBt",
-   "hook": "Zenobia's new coin",
-   "input": "",
-   "channel": "coins",
-   "needs": "znbt",
-   "caption": "ZNBt is Zenobia's new coin on TON, launched on our own platform. Not financial advice; crypto is risky.\nhttps://t.me/PalmyraLaunchBot",
-   "script": "Zenobia's new coin is here. ZNBt, launched on our own platform, Palmyra Launch, on TON. The fees are clear on the page, and everything is in front of you. This is not financial advice, and crypto is risky. Learn more in the bot.",
-   "brand": "Palmyra Launch",
-   "ctaTitle": "Learn more",
-   "ctaLine": "@PalmyraLaunchBot",
-   "lang": "en",
-   "voice": "en-US-AriaNeural",
-   "rate": "-5%"
   },
   {
    "id": 6,

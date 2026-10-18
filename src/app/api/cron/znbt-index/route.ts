@@ -14,6 +14,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: "ok", coins: s.coins.length });
   } catch (e) {
     console.error("[znbt-index]", e);
-    return NextResponse.json({ status: "error" }, { status: 500 });
+    return NextResponse.json({ status: "error", error: String((e as Error)?.message ?? e).slice(0, 200) }, { status: 500 });
   }
 }

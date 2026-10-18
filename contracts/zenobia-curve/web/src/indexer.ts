@@ -46,7 +46,8 @@ export async function refreshIndex(opts: { master: string; prev: Snapshot | null
     const creator = (m.info.src as Address).toString({ bounceable: false });
     const key = creator + ':' + body.salt.toString();
     if (coins.has(key)) continue;
-    const curve = await call(() => sdk.getLaunchAddress(master, m.info.src as Address, body.salt, body.options as any));
+    // body.options is already the on-chain options struct: ask the master directly (sdk.getLaunchAddress expects the user-level preset and rejected real launches with "Invalid launch preset")
+    const curve = await call(() => sdk.master(master).getLaunchAddress(m.info.src as Address, body.salt, body.options as any));
     const o = body.options.ref;
     coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
   }
