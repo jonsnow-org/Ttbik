@@ -37,6 +37,22 @@ function totalFee() {
 ($('fee') as HTMLElement).onchange = totalFee;
 totalFee();
 
+// live preview, symbol hygiene and a warning when the symbol is already taken or imitates a well-known one
+const RESERVED = new Set(['TON', 'USDT', 'USDC', 'BTC', 'ETH', 'NOT', 'DOGS', 'HMSTR', 'CATI', 'STON', 'DUST', 'ZNB', 'ZNBT', 'TELEGRAM', 'DURGER', 'GRAM']);
+let takenSymbols = new Map<string, string>();
+fetch('/api/zenobia/coins/index').then((r) => r.json()).then((j) => { for (const c of j.coins || []) takenSymbols.set(String(c.symbol).toUpperCase(), c.curve); }).catch(() => {});
+function preview() {
+  const sym = val('symbol').toUpperCase();
+  $('pvTitle').textContent = (val('name') || 'Your coin · عملتك') + (sym ? ' · ' + sym : '');
+  $('pvDesc').textContent = val('desc') || '…';
+  const img = $('pvImg') as HTMLImageElement, u = val('image');
+  if (/^https:\/\/[^\s"'<>]{4,200}$/.test(u)) { img.referrerPolicy = 'no-referrer'; img.onerror = () => { img.style.display = 'none'; $('symWarn').textContent = 'The image link could not be loaded. · تعذّر تحميل الصورة'; }; img.onload = () => { $('symWarn').textContent = ''; }; img.src = u; img.style.display = 'block'; } else img.style.display = 'none';
+  const w = RESERVED.has(sym) ? 'This symbol imitates a well-known coin and will be hidden. · الرمز يحاكي عملة معروفة وسيُخفى.' : takenSymbols.has(sym) ? 'A coin with this symbol already exists. Choose another to avoid confusion. · الرمز مستخدم.' : '';
+  if (w || !$('symWarn').textContent.startsWith('The image')) $('symWarn').textContent = w;
+}
+for (const id of ['name', 'symbol', 'desc', 'image']) ($(id) as HTMLElement).oninput = preview;
+($('symbol') as HTMLInputElement).addEventListener('input', (e) => { const t = e.target as HTMLInputElement; t.value = t.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+
 $('go').onclick = async () => {
   try {
     const cfgOpen = await loadConfig();
@@ -46,6 +62,7 @@ $('go').onclick = async () => {
     const name = val('name'), symbol = val('symbol'), description = val('desc'), image = val('image');
     if (name.length < 2 || name.length > 32) throw new Error('Name: 2 to 32 characters');
     if (!/^[A-Za-z0-9]{2,10}$/.test(symbol)) throw new Error('Symbol: 2 to 10 letters or digits');
+    if (RESERVED.has(symbol.toUpperCase())) throw new Error('This symbol imitates a well-known coin. Choose another. / الرمز يحاكي عملة معروفة');
     if (description.length > 300) throw new Error('Description: at most 300 characters');
     if (image && !/^https:\/\/[^\s"'<>]{4,200}$/.test(image)) throw new Error('Image must be an https link');
     if (!($('agree') as HTMLInputElement).checked) throw new Error('Please accept the notice / وافق على التنبيه');

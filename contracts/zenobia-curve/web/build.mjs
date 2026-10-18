@@ -14,3 +14,11 @@ for (const name of ['trade', 'launch', 'create', 'coins']) {
     alias: { '@ton/core': path.join(here, 'node_modules/@ton/core'), '@ton/crypto': path.join(here, 'node_modules/@ton/crypto') },
   });
 }
+
+// the server-side coin indexer (Node, read-only), used by src/lib/znbtIndex.ts
+await build({
+  entryPoints: [path.join(here, 'src/indexer.ts')],
+  bundle: true, minify: false, format: 'cjs', platform: 'node', target: 'node20',
+  outfile: path.join(here, '../../../src/lib/vendor/znbtIndexer.cjs'),
+  alias: { '@ton/core': path.join(here, 'node_modules/@ton/core'), '@ton/crypto': path.join(here, 'node_modules/@ton/crypto'), '@ton/ton': path.join(here, 'node_modules/@ton/ton') },
+});
