@@ -29,4 +29,6 @@ body {
 .sheet-up { animation: sheet-up .25s cubic-bezier(.2, .8, .2, 1) both; }
 @keyframes heart-burst { 0% { opacity: 0; transform: scale(.3); } 25% { opacity: 1; transform: scale(1.25); } 60% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.4) translateY(-30px); } }
 .heart-burst { animation: heart-burst .8s ease both; filter: drop-shadow(0 4px 12px rgba(0,0,0,.35)); }
+@keyframes heart-pop { 0% { transform: scale(.8); } 50% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.heart-pop { animation: heart-pop .3s ease; }
 @media (prefers-reduced-motion: reduce) { .sk::after, .fade-up, .sheet-up, .heart-burst { animation: none; } }

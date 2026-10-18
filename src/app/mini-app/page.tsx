@@ -1527,11 +1527,11 @@ export default function MiniAppPage() {
                     <span>❤ {item.likes || 0}</span>
                   </div>
                   <div className="mt-3 grid grid-cols-5 gap-1.5">
-                    <a href={cloneHref(item.id)} onClick={() => haptic()} className="col-span-1 rounded-xl bg-gradient-to-l from-sky-500 to-blue-600 py-2.5 text-center text-[11px] font-black text-white shadow-sm">⚡ فوري</a>
-                    <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[13px] font-black transition ${isLiked ? "bg-rose-500 text-white shadow-sm" : "bg-rose-50 text-rose-500 ring-1 ring-rose-100"}`}>{isLiked ? "❤️" : "🤍"}</button>
-                    <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} className="rounded-xl bg-amber-50 py-2.5 text-[13px] font-black text-amber-600 ring-1 ring-amber-100">💬</button>
-                    <a href={item.url || "#"} target="_blank" rel="noreferrer" title="المصدر الأصلي" className="rounded-xl bg-emerald-50 py-2.5 text-center text-[13px] font-black text-emerald-600 ring-1 ring-emerald-100">🌐</a>
-                    <button type="button" onClick={() => void forwardInTelegram(item)} title="إرسال في تيليجرام" className="rounded-xl bg-gradient-to-l from-violet-500 to-fuchsia-500 py-2.5 text-[13px] font-black text-white shadow-sm">↪️</button>
+                    <a href={cloneHref(item.id)} onClick={() => haptic()} className="col-span-1 transition active:scale-90 rounded-xl bg-gradient-to-l from-sky-500 to-blue-600 py-2.5 text-center text-[11px] font-black text-white shadow-sm">⚡ فوري</a>
+                    <button type="button" onClick={() => toggleLike(item)} className={`rounded-xl py-2.5 text-[13px] font-black transition active:scale-90 ${isLiked ? "heart-pop" : ""} ${isLiked ? "bg-rose-500 text-white shadow-sm" : "bg-rose-50 text-rose-500 ring-1 ring-rose-100"}`}>{isLiked ? "❤️" : "🤍"}</button>
+                    <button type="button" onClick={() => void openComments(item.id, displayTitle(item))} className="rounded-xl transition active:scale-90 bg-amber-50 py-2.5 text-[13px] font-black text-amber-600 ring-1 ring-amber-100">💬</button>
+                    <a href={item.url || "#"} target="_blank" rel="noreferrer" title="المصدر الأصلي" className="rounded-xl transition active:scale-90 bg-emerald-50 py-2.5 text-center text-[13px] font-black text-emerald-600 ring-1 ring-emerald-100">🌐</a>
+                    <button type="button" onClick={() => void forwardInTelegram(item)} title="إرسال في تيليجرام" className="rounded-xl transition active:scale-90 bg-gradient-to-l from-violet-500 to-fuchsia-500 py-2.5 text-[13px] font-black text-white shadow-sm">↪️</button>
                   </div>
                   {mine && showProfile && isOwnProfile && (
                     <button type="button" onClick={() => void deletePost(item)} className="mt-2 w-full rounded-xl bg-rose-50 py-2 text-[11px] font-bold text-rose-600 ring-1 ring-rose-100">🗑 حذف المنشور</button>
