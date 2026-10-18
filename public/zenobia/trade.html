@@ -13,8 +13,13 @@
 <div class="card"><h2>Sell · بيع</h2><input id="sellAmt" inputmode="decimal" value="0" aria-label="ZNBt amount"><button id="sell" class="alt">Sell for TON</button></div>
 <div class="card"><h2>Creator fees · رسوم المُطلِق</h2><div class="mut">Only for the wallet that launched this coin. Step 1, wait a minute, then step 2.</div><button id="flush" class="alt">1 · Move fees to my claim box</button><button id="claim">2 · Withdraw my creator fees</button></div>
 <div class="card mut" id="log"></div>
+<div class="card"><h2>Coin facts · معلومات العملة</h2><dl class="facts" id="facts"><dt>Loading</dt><dd>…</dd></dl></div>
+<div class="card"><h2>Share · شارك</h2><div class="links"><button id="copyLink" class="alt">Copy link</button><a id="tgShare" class="btn alt" target="_blank" rel="noopener">Telegram</a></div></div>
 <div class="card"><h2>The journey · الرحلة</h2><img src="/zenobia/znbt-emblem.svg" alt="" style="width:100%;border-radius:12px"><div class="mut">Child (days 0-6) → Queen (7-20) → Warrior (21+). Sell everything: Captive. Burn everything: Legend.</div><a class="btn alt" href="/zenobia/coins.html">All coins · كل العملات</a></div>
 <div class="card mut">Contract: <code id="addr">–</code></div>
+<div class="card"><h2>Report this coin · بلّغ عن العملة</h2><div class="mut">Scam, impersonation, illegal or copied content? Tell us. A report never hides a coin by itself; the platform owner reviews it. · البلاغ لا يُخفي العملة تلقائياً، يراجعه المالك.</div>
+<select id="repReason" aria-label="Reason"><option value="scam">Scam / fraud</option><option value="impersonation">Impersonation</option><option value="illegal">Illegal content</option><option value="copyright">Copyright</option><option value="spam">Spam</option><option value="other">Other</option></select>
+<input id="repDetails" maxlength="400" placeholder="Details (optional) · تفاصيل" aria-label="Details"><button id="repSend" class="alt">Send report</button></div>
 </div>
-<div class="card mut">Fees per trade: 1.5% platform + the creator fee set by the coin's creator (shown on the coins list). Slippage limit 3%. Unaudited experimental contract: you can lose everything you put in. Not financial advice; no profit is promised.<br>الرسوم 3% لكل صفقة (1.5% للمنصة + 1.5% للمُطلِق). العقد تجريبي وغير مدقَّق: قد تخسر كل ما تضعه. ليست نصيحة مالية ولا وعداً بربح.</div>
+<div class="card mut">Fees per trade: 1.5% platform + the creator fee set by the coin's creator (shown on the coins list). Slippage limit 3%. Unaudited experimental contract: you can lose everything you put in. Not financial advice; no profit is promised. <a href="/zenobia/terms.html">Terms &amp; risks</a>.<br>الرسوم لكل صفقة: 1.5% للمنصة + رسم المُطلِق الذي حدده صاحب العملة (حتى 2%). العقد تجريبي وغير مدقَّق: قد تخسر كل ما تضعه. ليست نصيحة مالية ولا وعداً بربح.</div>
 </main><script src="/zenobia/znbt/trade.js"></script></body></html>
