@@ -61,7 +61,7 @@ export async function refreshIndex(opts: { master: string; prev: Snapshot | null
     try {
       const curve = Address.parse(c.curve);
       const d = await call(() => sdk.getCurveData(curve));
-      const q = d.state === 1 ? await call(() => sdk.quoteBuy(curve, 1_000_000_000n)) : 0n;
+      const q = Number(d.state) === 1 ? await call(() => sdk.quoteBuy(curve, 1_000_000_000n)) : 0n;
       Object.assign(c, { minter: d.jettonMinter ? d.jettonMinter.toString({ bounceable: true }) : c.minter, state: Number(d.state), raisedNano: d.realTonReserve.toString(), thresholdNano: d.graduationThreshold.toString(), tokensPerTon: q.toString(), statsAt: Math.floor(Date.now() / 1000) });
     } catch { /* keep the previous numbers; the next run tries again */ }
   }
