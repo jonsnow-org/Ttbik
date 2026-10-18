@@ -17,6 +17,7 @@ import { anonSessionTopic, realtimeConfig } from "@/lib/match/realtime";
 import { STAR_DEPOSIT_TIERS, starsForUsd, starsPayload, usdForStars } from "@/lib/starsPayment";
 import { trackFunnel } from "@/lib/match/growth";
 import { atharClientConfig, atharDateLink, atharDay, createShare, dismissMoment, parseYmd, pendingMoments, ymdOf } from "@/lib/match/athar";
+import { chargeMatchUser } from "@/lib/match/entitlements";
 import { BUY_NOW_KEYS, BUY_NOW_PRICE, FIRST_PURCHASE_DISCOUNT, PRICE_REWIND, effectivePrice, firstPurchaseEligible, isBuyNowKey, purchaseByKey, purchaseRewind, recordPass, shortfallUsd } from "@/lib/match/entitlements";
 import { isNativeTonConfigured, getMasterHotWalletAddress } from "@/services/ton-service";
 import { getOrCreateMatchTonMemo } from "@/services/marriageTonService";
@@ -25,9 +26,9 @@ import { fileMatchReport, isMatchAdmin, trackProfileVisit, buildSearchQueue, com
 import { scrubContacts } from "@/lib/match/inline";
 import { cardGenderStatus, setCardGender } from "@/lib/match/entitlements";
 import { PRICE_CARD_GENDER } from "@/lib/match/entitlementRules";
-import { dmState, dmThread, dmThreads, dmUnreadCount, notificationFeed, sendDm, unlockDm } from "@/lib/match/social";
+import { dmState, dmThread, dmThreads, dmUnreadCount, notificationFeed, pushNotification, sendDm, unlockDm } from "@/lib/match/social";
 import { miniAppUrl } from "@/lib/match/hybrid";
-import { QUIZ, explainWhy, identitiesOf, identityOf, inviteStats, quizOf, saveQuiz, validQuizAnswers, valuesPercent, verifyByTelegram } from "@/lib/match/extras";
+import { GIFTS, giftOf, giftsReceived, recordGift, QUIZ, explainWhy, identitiesOf, identityOf, inviteStats, quizOf, saveQuiz, validQuizAnswers, valuesPercent, verifyByTelegram } from "@/lib/match/extras";
 
 const REPORT_REASONS: Record<string, string> = { fake: "ملف مزيّف", photo: "صورة غير لائقة", harass: "تحرّش أو إزعاج", scam: "احتيال أو طلب مال", minor: "قاصر (أقل من 18)", other: "سبب آخر" };
 
@@ -131,6 +132,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         // Bot's own referral reward: 24h boost per invited friend whose profile goes live.
         referral: { link: username ? `https://t.me/${username}?start=ref_${tg.id}` : null, rewarded: referralsRewarded, ...(await inviteStats(tg.id).catch(() => null)) },
         identity: (await identityOf(tg.id).catch(() => null))?.method ?? (user.phoneNumber ? "phone" : null),
+        gifts: GIFTS,
+        giftsReceived: await giftsReceived(tg.id).catch(() => ({})),
         quizDone: (await quizOf([tg.id]).catch(() => new Map())).has(tg.id),
         compliments: COMPLIMENTS,
       });
@@ -494,6 +497,25 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
     }
 
     if (blocked && action !== "report") return err("هذا الملف غير متاح");
+
+    if (action === "gift_send") {
+      // Gifts go between people who matched (or when the other person liked you), never to strangers: no unsolicited gifts.
+      const g = giftOf(String(body.gift || ""));
+      if (!g) return err("هدية غير معروفة");
+      if (targetProfile.status !== "APPROVED") return err("هذا الملف غير متاح");
+      if (!(await pgRateLimit(`gift:${tg.id}`, 20, 3600))) return err("تمهّل قليلاً");
+      const [ab, ba] = await Promise.all([
+        prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: tg.id, toUserId: target } } }),
+        prisma.matchLike.findUnique({ where: { fromUserId_toUserId: { fromUserId: target, toUserId: tg.id } } }),
+      ]);
+      if (!(ab && ba) && !ba) return err("الهدايا بين المتطابقين فقط");
+      const charge = await chargeMatchUser(tg.id, g.price, "GIFT");
+      if (!charge.ok) return NextResponse.json({ ok: false, error: insufficientMsg(g.price, charge.balance), insufficient: true, shortfall: shortfallUsd(g.price, charge.balance), stars: starsForUsd(shortfallUsd(g.price, charge.balance)) }, { status: 400 });
+      await recordGift(tg.id, target, g.key, g.price);
+      await pushNotification(target, "gift", `🎁 وصلتك هدية ${g.emoji} ${g.name} من ${cardName(user.profile?.name) ?? "أحد المتطابقين معك"}`).catch(() => null);
+      after(() => bot.api.sendMessage(Number(target), `🎁 وصلتك هدية ${g.emoji} ${g.name}! افتح التطبيق لتراها.`).catch(() => null));
+      return NextResponse.json({ ok: true, message: `🎁 أُرسلت ${g.emoji} ${g.name}` });
+    }
 
     if (action === "why") {
       const q = await quizOf([tg.id, target]);

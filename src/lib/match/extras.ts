@@ -15,6 +15,8 @@ const DDL = [
   `CREATE INDEX IF NOT EXISTS match_referral_log_referrer_idx ON match_referral_log (referrer_id, granted_at DESC)`,
   `CREATE TABLE IF NOT EXISTS match_voice (id BIGSERIAL PRIMARY KEY, session_id TEXT NOT NULL, sender_id TEXT NOT NULL, mime TEXT NOT NULL, dur INT NOT NULL, data BYTEA NOT NULL, keep_until TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
   `CREATE INDEX IF NOT EXISTS match_voice_session_idx ON match_voice (session_id)`,
+  `CREATE TABLE IF NOT EXISTS match_gifts (id BIGSERIAL PRIMARY KEY, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL, gift TEXT NOT NULL, price NUMERIC NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`,
+  `CREATE INDEX IF NOT EXISTS match_gifts_recipient_idx ON match_gifts (recipient_id, id DESC)`,
 ];
 export function ensureExtras(): Promise<void> {
   if (!ready) ready = (async () => { for (const s of DDL) await prisma.$executeRawUnsafe(s); })().catch((e) => { ready = null; throw e; });
@@ -155,4 +157,25 @@ export async function keepVoiceForReview(sessionId: string): Promise<void> {
 }
 export async function sweepVoice(): Promise<void> {
   try { await ensureExtras(); await prisma.$executeRawUnsafe(`DELETE FROM match_voice WHERE (keep_until IS NULL AND created_at < now() - interval '1 day') OR keep_until < now()`); } catch { /* best effort */ }
+}
+
+
+// ---------- virtual gifts between matched people (paid from the member's balance, which can be topped up with Telegram Stars) ----------
+export const GIFTS = [
+  { key: "rose", emoji: "🌹", name: "وردة", price: 0.5 },
+  { key: "teddy", emoji: "🧸", name: "دبدوب", price: 1 },
+  { key: "heart", emoji: "💝", name: "قلب", price: 1.5 },
+  { key: "ring", emoji: "💍", name: "خاتم", price: 3 },
+  { key: "crown", emoji: "👑", name: "تاج", price: 5 },
+] as const;
+export type GiftKey = (typeof GIFTS)[number]["key"];
+export const giftOf = (k: string) => GIFTS.find((g) => g.key === k) ?? null;
+export async function recordGift(sender: string, recipient: string, gift: string, price: number): Promise<void> {
+  await ensureExtras();
+  await prisma.$executeRawUnsafe(`INSERT INTO match_gifts (sender_id, recipient_id, gift, price) VALUES ($1,$2,$3,$4)`, sender, recipient, gift, price);
+}
+export async function giftsReceived(userId: string): Promise<Record<string, number>> {
+  await ensureExtras();
+  const r = await prisma.$queryRawUnsafe<{ gift: string; n: number }[]>(`SELECT gift, COUNT(*)::int AS n FROM match_gifts WHERE recipient_id=$1 GROUP BY gift`, userId);
+  return Object.fromEntries(r.map((x) => [x.gift, x.n]));
 }

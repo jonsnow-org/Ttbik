@@ -990,6 +990,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
 type Thread = Card & { last: string; at: string; lastMine: boolean; unread: number; matched: boolean };
 function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenChat, onRead }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string; home?: string } | null; onOpenChat: (c: Card) => void; onRead?: () => void }) {
   const [seg, setSeg] = useState<"matches" | "requests">("matches");
+  const [giftFor, setGiftFor] = useState<Card | null>(null);
   const [threads, setThreads] = useState<Thread[] | null>(null);
   useEffect(() => { if (hasProfile) api("dm_threads").then((r: any) => { setThreads(r.ok ? r.items : []); onRead?.(); }); else setThreads([]); }, [api, hasProfile]); // eslint-disable-line react-hooks/exhaustive-deps
   const reqThreads = (threads || []).filter((t) => !t.matched);
@@ -1038,6 +1039,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold">المحادثات</h2>
+      <AnimatePresence>{giftFor && <GiftSheet key="gift" api={api} say={say} card={giftFor} onClose={() => setGiftFor(null)} />}</AnimatePresence>
       {segBar}
       {athar && <AtharEntry athar={athar} api={api} where="chats" variant="full" title="هدية لا تُنسى لشريكك" />}
       {matchThreads.length > 0 && <div className="space-y-2">{matchThreads.map(threadRow)}</div>}
@@ -1080,6 +1082,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
             <button aria-label="دردشة مجهولة" onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-white/15 px-3 text-sm">🎭</button>
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
+            <button aria-label="هدية" onClick={() => { haptic("light"); setGiftFor(c); }} className="rounded-2xl border border-amber-300/40 bg-amber-400/10 px-3 text-sm">🎁</button>
             <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent("💞 تطابق جديد على توافق")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
           </div>
           {(c as any).metLink && (
@@ -1965,4 +1968,37 @@ function VoiceBubble({ api, text }: { api: any; text: string }) {
   };
   if (state === "gone") return <span className="text-xs opacity-70">🎤 الرسالة الصوتية لم تعد متاحة</span>;
   return <button type="button" onClick={play} className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full bg-white/20">{state === "loading" ? "…" : state === "playing" ? "⏸" : "▶"}</span><span className="text-sm">🎤 {dur}s</span></button>;
+}
+
+
+/** 🎁 Virtual gifts between matched people, paid from the member's balance (which Telegram Stars can top up). The recipient is notified in the app and the bot. */
+function GiftSheet({ api, say, card, onClose }: { api: any; say: any; card: Card; onClose: () => void }) {
+  const [gifts, setGifts] = useState<{ key: string; emoji: string; name: string; price: number }[]>([]);
+  const [busy, setBusy] = useState("");
+  useEffect(() => { api("me").then((r: any) => r?.ok && setGifts(r.gifts || [])); }, [api]);
+  const send = async (key: string) => {
+    setBusy(key); haptic("medium");
+    const r = await api("gift_send", { target: card.ref, gift: key });
+    setBusy("");
+    if (!r.ok) { say(r.error, "error"); return; }
+    haptic("success"); say(r.message); onClose();
+  };
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`w-full rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+        <p className="font-bold">🎁 أرسل هدية إلى {card.name || `#${card.shortId}`}</p>
+        <p className="text-[11px] text-white/50">تُخصم من رصيدك، وتصل للطرف الآخر في التطبيق والبوت. بين المتطابقين فقط.</p>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {gifts.map((g) => (
+            <button key={g.key} disabled={!!busy} onClick={() => send(g.key)} className="rounded-2xl border border-white/15 bg-white/5 p-3 text-center disabled:opacity-50">
+              <div className="text-3xl">{g.emoji}</div>
+              <div className="mt-1 text-xs">{g.name}</div>
+              <div className="text-[11px] text-amber-300">${g.price}</div>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
 }

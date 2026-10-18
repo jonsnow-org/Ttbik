@@ -23,3 +23,11 @@ describe("values quiz", () => {
   });
 });
 test("voice marker is the format the chat renders", () => { expect(voiceMarker(12, 7)).toBe("🎤voice:12:7"); });
+
+import { GIFTS, giftOf } from "../match/extras";
+test("gift catalogue: known keys, positive prices, unknown key refused", () => {
+  expect(GIFTS.length).toBeGreaterThan(3);
+  for (const g of GIFTS) expect(g.price).toBeGreaterThan(0);
+  expect(giftOf("rose")?.emoji).toBe("🌹");
+  expect(giftOf("nope")).toBeNull();
+});
