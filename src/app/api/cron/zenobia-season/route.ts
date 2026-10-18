@@ -10,6 +10,17 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  try {
+    return await run(req);
+  } catch (e) {
+    // the job answered an empty 500 for days; say what failed (message only, nothing secret) so the workflow log shows it
+    const err = e as { code?: string; message?: string };
+    console.error("[zenobia-season]", e);
+    return NextResponse.json({ ok: false, code: err.code ?? null, error: String(err.message ?? e).slice(0, 300) }, { status: 500 });
+  }
+}
+
+async function run(req: NextRequest) {
   const auth = req.headers.get("authorization");
   const q = req.nextUrl.searchParams.get("secret");
   const ok = !!process.env.CRON_SECRET && (auth === `Bearer ${process.env.CRON_SECRET}` || q === process.env.CRON_SECRET);
