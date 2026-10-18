@@ -10,6 +10,11 @@ jobs:
   post:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
       - name: publish
         run: |
           if [ -z "${CRON_SECRET}" ]; then
@@ -27,4 +32,3 @@ jobs:
           [ "${code}" -lt 500 ]
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          SITE_BASE: ${{ vars.SITE_BASE || 'https://ttbik.vercel.app' }}   # repo variable SITE_BASE = the gate's address after the move

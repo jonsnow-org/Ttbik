@@ -7,5 +7,7 @@ media-bot
 docs
 cloudflare
 templates
-deploy
+deploy/oracle
+deploy/hosting/*.sh
+deploy/hosting/env-names.txt
 *.log

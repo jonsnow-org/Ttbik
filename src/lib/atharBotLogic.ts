@@ -3,6 +3,7 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { recordBotVisit } from "@/lib/botVisit";
 import { BD, BD_OFF, bdText, parseBirthday, saveBirthday } from "@/lib/atharBirthday";
+import { handleHostingCallback, panelKeyboard, panelText } from "@/lib/hostingPanel";
 import { handleStarsCallback, handleStarsMessage, handleStarsPayment, starsButton } from "@/lib/atharStarsBot";
 import { starsEnabled } from "@/lib/atharStars";
 import { checkPayments, dayKey, daySummary, fetchBalance, fetchIncoming, loadWatch, setAlerts, tons, txLink, walletLink, weekSummary } from "@/lib/atharWatch";
@@ -106,14 +107,15 @@ const ADMIN_URL = (process.env.ATHAR_ADMIN_URL || "").trim();
 // The sections open the mini app directly; 🌐 changes the language; the owner has two more buttons.
 const OWNER_STATS = "📊 Stats", OWNER_CHANNEL = "📢 قناة الاشتراك الإجباري";
 const OWNER_BALANCE = "💰 الرصيد", OWNER_PAYMENTS = "📈 آخر الدفعات", OWNER_ALERTS = "🔔 التنبيهات", OWNER_CHECK = "🔄 افحص الآن";
-const OWNER_USERVIEW = "👁 شكل المستخدم", OWNER_BACK = "🛠 لوحة الأدمن";
+const OWNER_USERVIEW = "👁 شكل المستخدم", OWNER_BACK = "🛠 لوحة الأدمن", OWNER_HOSTING = "🌐 الاستضافة";
 
 /** The owner's own panel: nothing like the public one (balance, payments, alerts, stats, channel, preview). */
 function adminMenu(): Keyboard {
   const kb = new Keyboard()
     .text(OWNER_BALANCE).text(OWNER_PAYMENTS).row()
     .text(OWNER_STATS).text(OWNER_ALERTS).row()
-    .text(OWNER_CHECK).text(OWNER_CHANNEL).row();
+    .text(OWNER_CHECK).text(OWNER_CHANNEL).row()
+    .text(OWNER_HOSTING).row();
   if (ADMIN_URL) kb.webApp("🛠 Admin", ADMIN_URL).row();
   return kb.text(OWNER_USERVIEW).resized(); // not persistent: the phone's Back button collapses it, the keyboard icon opens it again
 }
@@ -285,6 +287,7 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
     const from = String(cb.from?.id || ""), chatId = cb.message?.chat?.id, data = String(cb.data || "");
     await bot.api.answerCallbackQuery(cb.id).catch(() => null);
     if (!chatId || !from) return;
+    if (data.startsWith("hg:")) { if (isOwner(botRow, from)) await handleHostingCallback(bot, chatId, data, cb.message?.message_id); return; }
     if (data.startsWith("as:")) { await handleStarsCallback(bot, chatId, data, await getLang(botRow.id, from)); return; }
     if (data === "al:menu") {
       const cur = await getLang(botRow.id, from);
@@ -347,6 +350,10 @@ export async function handleAtharBotUpdate(bot: TelegramBot, botRow: BotRow, bod
   }
   if (text === T[lang].back || text === T[lang].joined) {
     await bot.api.sendMessage(chatId, T[lang].welcome, { reply_markup: menu(lang, owner) });
+    return;
+  }
+  if (owner && (text === OWNER_HOSTING || /^\/hosting(?:@\w+)?$/i.test(text))) {
+    await bot.api.sendMessage(chatId, await panelText(), { reply_markup: panelKeyboard() });
     return;
   }
   if (owner && text === OWNER_STATS) {
