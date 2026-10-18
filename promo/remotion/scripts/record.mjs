@@ -1,13 +1,13 @@
 // Mobile-viewport screen recording of the live site (free, Playwright). Usage: node record.mjs <site> <path> <input> <outDir>
 import { chromium, devices } from "playwright";
 import fs from "node:fs";
-const [site, path, input, out] = process.argv.slice(2);
+const [site, path, input, out, lang = "ar"] = process.argv.slice(2);
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
   ...devices["Pixel 7"],
   viewport: { width: 412, height: 732 },
   recordVideo: { dir: out, size: { width: 412, height: 732 } },
-  locale: "ar",
+  locale: lang === "en" ? "en-US" : "ar",
 });
 const page = await ctx.newPage();
 const wait = (ms) => page.waitForTimeout(ms);

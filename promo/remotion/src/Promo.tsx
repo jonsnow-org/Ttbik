@@ -9,10 +9,11 @@ export const FPS = 30;
 export const CTA_SEC = 3.2;
 const HOOK_F = 54;
 const FONT = "Cairo";
+let DIR: "rtl" | "ltr" = "rtl";   // set per episode from props.lang ("en" renders left to right)
 loadFont({ family: FONT, url: staticFile("Cairo.ttf"), weight: "200 1000" });
 
 type Word = { text: string; startMs: number; endMs: number };
-export type PromoProps = { title: string; hook: string; words: Word[]; voiceSec: number; brand?: string; ctaTitle?: string; ctaLine?: string };
+export type PromoProps = { title: string; hook: string; words: Word[]; voiceSec: number; lang?: string; brand?: string; ctaTitle?: string; ctaLine?: string };
 export const DEFAULT_BRAND = "شام AI";
 
 const GOLD = "#FFC83D";
@@ -44,7 +45,7 @@ const Captions: React.FC<{ words: Word[] }> = ({ words }) => {
   return (
     <div style={{ position: "absolute", left: 60, right: 60, bottom: 250, display: "flex", justifyContent: "center",
       transform: `scale(${0.8 + 0.2 * pop}) translateY(${(1 - pop) * 40}px)` }}>
-      <div dir="rtl" style={{ direction: "rtl", display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 40px", fontFamily: FONT, fontWeight: 900, fontSize: 92, lineHeight: 1.35,
+      <div dir={DIR} style={{ direction: DIR, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0 40px", fontFamily: FONT, fontWeight: 900, fontSize: 92, lineHeight: 1.35,
         background: "rgba(5,15,30,0.72)", padding: "14px 40px 22px", borderRadius: 36 }}>
         {p.map((w, i) => {
           const active = ms >= w.startMs - 40;
@@ -84,11 +85,11 @@ const Hook: React.FC<{ hook: string; title: string; brand: string }> = ({ hook, 
   const shake = frame < 10 ? Math.sin(frame * 2.5) * (10 - frame) : 0;
   return (
     <AbsoluteFill style={{ alignItems: "center", justifyContent: "center", opacity: out, transform: `translateY(${(1 - out) * -200}px)` }}>
-      <div dir="rtl" style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 132, color: "#fff", textAlign: "center", padding: "0 70px",
+      <div dir={DIR} style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 132, color: "#fff", textAlign: "center", padding: "0 70px",
         lineHeight: 1.25, transform: `scale(${0.4 + 0.6 * s}) translateX(${shake}px)`, textShadow: "0 10px 40px rgba(0,0,0,0.6)" }}>
         {hook}
       </div>
-      <div dir="rtl" style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 56, color: "#0b1f3a", background: GOLD,
+      <div dir={DIR} style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 56, color: "#0b1f3a", background: GOLD,
         padding: "6px 36px 14px", borderRadius: 999, transform: `scale(${spring({ frame: frame - 12, fps: FPS })})` }}>
         {brand ? `${title} · ${brand}` : title}
       </div>
@@ -100,7 +101,7 @@ const TopBar: React.FC<{ title: string; brand: string }> = ({ title, brand }) =>
   const frame = useCurrentFrame();
   const s = spring({ frame: frame - HOOK_F, fps: FPS, config: { damping: 14 } });
   return (
-    <div dir="rtl" style={{ position: "absolute", top: 80, left: 0, right: 0, display: "flex", justifyContent: "center",
+    <div dir={DIR} style={{ position: "absolute", top: 80, left: 0, right: 0, display: "flex", justifyContent: "center",
       transform: `translateY(${(1 - s) * -200}px)`, opacity: s }}>
       <div style={{ fontFamily: FONT, fontWeight: 900, fontSize: 60, color: "#fff", background: "rgba(255,255,255,0.12)",
         border: "2px solid rgba(255,255,255,0.25)", padding: "4px 40px 12px", borderRadius: 999 }}>
@@ -117,21 +118,22 @@ const CTA: React.FC<{ ctaTitle: string; ctaLine: string; brand: string }> = ({ c
   const bg = interpolate(frame, [0, 10], [0, 1], { extrapolateRight: "clamp" });
   return (
     <AbsoluteFill style={{ background: `rgba(8,20,40,${0.88 * bg})`, alignItems: "center", justifyContent: "center" }}>
-      <div dir="rtl" style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 150, color: "#fff", transform: `scale(${s * pulse})`,
+      <div dir={DIR} style={{ fontFamily: FONT, fontWeight: 1000, fontSize: 150, color: "#fff", transform: `scale(${s * pulse})`,
         textShadow: "0 10px 40px rgba(0,0,0,0.5)" }}>{ctaTitle}</div>
       <div style={{ marginTop: 50, fontFamily: FONT, fontWeight: 900, fontSize: 76, color: "#0b1f3a", background: GOLD,
         padding: "10px 50px 20px", borderRadius: 30, transform: `translateY(${(1 - spring({ frame: frame - 8, fps: FPS })) * 300}px)` }}>
         {ctaLine}
       </div>
-      <div dir="rtl" style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 64, color: GOLD,
+      <div dir={DIR} style={{ marginTop: 40, fontFamily: FONT, fontWeight: 800, fontSize: 64, color: GOLD,
         opacity: interpolate(frame, [14, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" }) }}>{brand}</div>
     </AbsoluteFill>
   );
 };
 
-export const Promo: React.FC<PromoProps> = ({ title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها ببلاش", ctaLine = "ttbik.vercel.app" }) => {
+export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها ببلاش", ctaLine = "ttbik.vercel.app" }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
+  DIR = lang === "en" ? "ltr" : "rtl";
   const ctaStart = durationInFrames - Math.round(CTA_SEC * FPS);
   const hue = interpolate(frame, [0, durationInFrames], [0, 25]);
   const voiceEndF = words.length ? Math.round((words[words.length - 1].endMs / 1000) * FPS) : ctaStart;

@@ -9,6 +9,6 @@ while i < len(w):
     out.append(w[i]); i += 1
 import subprocess
 dur = float(subprocess.check_output(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0","public/voice.mp3"]).decode())
-extra = {k: ep[k] for k in ("brand", "ctaTitle", "ctaLine") if k in ep}
+extra = {k: ep[k] for k in ("lang", "brand", "ctaTitle", "ctaLine") if k in ep}
 json.dump({"title": ep["title"], "hook": ep["hook"], "words": out, "voiceSec": dur, **extra}, open("props.json","w"), ensure_ascii=False)
 print("props ok", len(out), dur)
