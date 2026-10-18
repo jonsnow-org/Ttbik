@@ -15,8 +15,9 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 function secretOk(req: NextRequest) {
-  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || "8452320").trim();
-  return (req.headers.get("x-feed-secret") || "").trim() === expected;
+  // no built-in default: the old one was written in the public repository, so it opened this endpoint to anyone when the variable was missing
+  const expected = (process.env.FEED_SECRET || process.env.ADMIN_PASSWORD || "").trim();
+  return !!expected && (req.headers.get("x-feed-secret") || "").trim() === expected;
 }
 async function status(db: any, userId: string) {
   const { data } = await db.from("media_ad_rewards").select("ads,bonus,last_at").eq("user_id", userId).eq("day", today()).maybeSingle();
