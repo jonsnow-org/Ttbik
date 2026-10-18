@@ -1,0 +1,39 @@
+name: coins-channel-post
+on:
+  schedule:
+    - cron: "20 6,11,16 * * *"
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "1 = preview the next post only"
+        default: ""
+concurrency:
+  group: coins-channel-post
+  cancel-in-progress: false
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+      - name: publish
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::GitHub secret CRON_SECRET is empty or missing (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+          code=$(curl -sS -o body.json -w "%{http_code}" "${SITE_BASE}/api/cron/coins-channel-post?secret=${CRON_SECRET}${DRY:+&dry=1}")
+          echo "HTTP ${code}"
+          cat body.json
+          echo
+          if [ "${code}" = "401" ]; then
+            echo "::error::CRON_SECRET in GitHub does not match the one in Vercel"
+            exit 1
+          fi
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DRY: ${{ github.event.inputs.dry }}
