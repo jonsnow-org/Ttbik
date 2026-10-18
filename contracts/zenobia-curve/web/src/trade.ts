@@ -133,7 +133,7 @@ ui.onStatusChange(() => {
   isZnbt = !!cfg.curve && Address.parse(cfg.curve).equals(curve);
   if (isZnbt) {
     ($('hero') as HTMLElement).style.display = 'block';
-    ($('coinImg') as HTMLImageElement).src = '/zenobia/znbt-coin.webp';
+    ($('coinImg') as HTMLImageElement).src = '/api/zenobia/znbt/icon';   // the coin with its age badge
     ($('coinImg') as HTMLElement).style.display = 'block';
   }
   const hid = await hiddenSet();
