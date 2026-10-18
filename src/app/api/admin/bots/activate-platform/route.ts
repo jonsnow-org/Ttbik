@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
   const webhookSecret = crypto.randomBytes(32).toString("hex");
   await temp.api.setWebhook(`${SITE}/api/telegram/${botId}`, { secret_token: webhookSecret });
   await temp.api.setMyCommands(PLATFORM_COMMANDS).catch(() => null);
+  await temp.api.setChatMenuButton({ menu_button: { type: "web_app", text: "Palmyra Launch", web_app: { url: `${SITE}/zenobia/coins.html` } } }).catch(() => null);
   const row = await prisma.bot.create({ data: { id: botId, token, template: "ZNBT_PLATFORM_BOT", ownerId, webhookSecret, isActive: true } });
   return NextResponse.json({ ok: true, botId: row.id, username: me.username, message: `تم تفعيل @${me.username} كبوت منصة العملات. أرسل /platform.` });
 }
