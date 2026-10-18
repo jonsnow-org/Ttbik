@@ -56057,7 +56057,7 @@ async function refreshIndex(opts) {
     if (coins.has(key)) continue;
     const curve = await call(() => sdk.master(master).getLaunchAddress(m.info.src, body.salt, body.options));
     const o = body.options.ref;
-    coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
+    coins.set(key, { curve: curve.toString({ bounceable: true }), creator, salt: body.salt.toString(), ...readMeta(body.metadata), features: { shape: Number(o.reserveRatio), maxBuyBps: Number(o.maxBuyBps), buyback: !!o.buybackBurn, split: !!o.beneficiaries }, supply: o.supply.toString(), creatorFeeBps: Number(o.creatorFeeBps), createdAt: tx.now });
   }
   const order = [...coins.values()].sort((a, b) => (a.statsAt ?? 0) - (b.statsAt ?? 0));
   for (const c of order) {
