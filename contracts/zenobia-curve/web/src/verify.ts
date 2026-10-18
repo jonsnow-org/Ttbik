@@ -30,7 +30,7 @@ async function main() {
     check('total supply is 9,000,000,000', jd.totalSupply === 9_000_000_000n * 1_000_000_000n, fmt(jd.totalSupply, 9, 0));
     const meta = readMeta(jd.jettonContent as any);
     check('name and symbol', meta.name === 'Zenobia of Tadmor' && meta.symbol === 'ZNBt', `${meta.name} / ${meta.symbol}`);
-    check('icon points to the age-badge endpoint', meta.image === 'https://ttbik.vercel.app/api/zenobia/znbt/icon', meta.image);
+    check('icon points to the age-badge endpoint', meta.image === 'https://ttbik-gate.jonsnowx1r.workers.dev/api/zenobia/znbt/icon', meta.image);
     console.log('     minter:', d.jettonMinter.toString({ bounceable: true }));
   }
   console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');

@@ -1,6 +1,7 @@
 // The owner's «🌐 الاستضافة» panel in the Athar bot: see both servers, switch the gate, move the bots' webhooks, move the settings to Oracle.
 // Owner-only (the caller checks). Texts are Arabic with short English. See docs/HOSTING.md.
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
+import { getConfig, patchOverride } from "@/lib/znbtConfig";
 import { HOSTING, MODES, gateState, gateUrl, openEnvWindow, probeOrigin, rehookBots, setGateMode, type Mode } from "@/lib/hostingOps";
 
 const MODE_NAME: Record<Mode, string> = { auto: "تلقائي (Oracle أولاً ثم Vercel)", oracle: "Oracle فقط", vercel: "Vercel فقط (الاحتياطي)" };
@@ -12,6 +13,7 @@ export function panelKeyboard(): InlineKeyboard {
     .text("🔁 تلقائي", "hg:auto").text("🖥 Oracle فقط", "hg:oracle").text("☁️ Vercel فقط", "hg:vercel").row()
     .text("🔗 نقل الويبهوكات إلى البوابة", "hg:hooks").row()
     .text("📥 نقل الإعدادات إلى Oracle", "hg:env").row()
+    .text("🪙 فتح منصة العملات", "hg:coins:on").text("⛔ إغلاقها", "hg:coins:off").row()
     .text("🔄 تحديث الحالة", "hg:refresh");
 }
 
@@ -25,6 +27,8 @@ export async function panelText(): Promise<string> {
     if (gate.downUntil > Date.now()) lines.push("⚠️ Oracle فشل قبل لحظات، والبوابة تخدم من Vercel مؤقتاً.");
   }
   lines.push(`Oracle: ${mark(oracle)}`, `Vercel: ${mark(vercel)}`, "");
+  const z = await getConfig().catch(() => null);
+  if (z) lines.push(`منصة العملات: ${z.open ? "✅ مفتوحة للجميع" : "⛔ مغلقة"} · ZNBt: ${z.curve ? "✅ مُطلقة (" + z.curve.slice(0, 6) + "…)" : "لم تُطلق بعد"}`, "");
   lines.push("التثبيت على خادم يعود إلى «تلقائي» بعد 12 ساعة وحده.");
   return lines.join("\n");
 }
@@ -41,6 +45,13 @@ export async function handleHostingCallback(bot: TelegramBot, chatId: number, da
   if ((MODES as readonly string[]).includes(mode)) {
     const r = await setGateMode(mode as Mode);
     await send(r.ok ? `✅ الوضع الآن: ${MODE_NAME[mode as Mode]}${mode !== "auto" && r.until ? ` (حتى ${hhmm(r.until)})` : ""}` : `❌ لم يتغيّر الوضع: ${r.error}`);
+    return refresh();
+  }
+  if (data === "hg:coins:on" || data === "hg:coins:off") {
+    const cfg = await getConfig();
+    if (data === "hg:coins:on" && !cfg.curve) { await send("⚠️ لن أفتح المنصة قبل أن تُطلَق ZNBt (لم أجد عملتك على السلسلة بعد). افتح صفحة الإطلاق أولاً."); return refresh(); }
+    const next = await patchOverride({ open: data === "hg:coins:on" });
+    await send(next.open ? "✅ فُتحت منصة العملات: يستطيع أي شخص إطلاق عملة الآن." : "⛔ أُغلقت منصة العملات: صفحة الإنشاء تعرض «لم يُفتح بعد».");
     return refresh();
   }
   if (data === "hg:refresh") return refresh();
