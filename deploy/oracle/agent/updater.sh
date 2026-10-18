@@ -18,7 +18,7 @@ PATHS='^(media-bot/|deploy/oracle/)'
 case "$PROFILES" in *site*) PATHS='^(media-bot/|deploy/oracle/|src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json)';; esac
 [ -f "$OR/agent/ATHAR_ON" ] && PATHS="$PATHS|^athar/"
 # the site itself (agent/SITE_ON, docs/HOSTING.md): its sources count too
-[ -f "$OR/agent/SITE_ON" ] && PATHS="$PATHS|^(src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json|scripts/hosting/)"
+[ -f "$OR/agent/SITE_ON" ] && PATHS="$PATHS|^(src/|public/|prisma/|package(-lock)?\.json|next\.config\.mjs|vercel\.json|scripts/hosting/|deploy/hosting/)"
 if [ "$NEW" != "$CUR" ] || [ -f "$STATE/force-update" ]; then
   CHANGED=$(git diff --name-only "$CUR" "$NEW" 2>/dev/null | grep -E "$PATHS" || true)
   git reset -q --hard "$NEW"

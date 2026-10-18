@@ -1,6 +1,0 @@
-{
-  // only used by deploy.sh to leave a build diagnostic in D1
-  "name": "ttbik-gate-diag",
-  "compatibility_date": "2026-10-01",
-  "d1_databases": [{ "binding": "DB", "database_name": "ttbik-diag", "database_id": "d52c865d-9f5c-4b4e-8cfc-234b50f3ad3b" }]
-}
