@@ -242,7 +242,7 @@ export function paginate<T>(items: T[], offsetRaw: string | undefined, size = IN
 
 // --- Mini App initData -------------------------------------------------------
 export const INIT_DATA_MAX_AGE_S = 24 * 3600;
-export type TgWebAppUser = { id: string; firstName?: string; languageCode?: string };
+export type TgWebAppUser = { id: string; firstName?: string; languageCode?: string; username?: string; isPremium?: boolean };
 
 /** Telegram WebApp initData verification (HMAC-SHA256, timing-safe, auth_date freshness). */
 export function verifyInitData(initData: string, botToken: string, nowS = Math.floor(Date.now() / 1000), maxAgeS = INIT_DATA_MAX_AGE_S): TgWebAppUser | null {
@@ -263,7 +263,7 @@ export function verifyInitData(initData: string, botToken: string, nowS = Math.f
     if (!authDate || nowS - authDate > maxAgeS || authDate - nowS > 300) return null;
     const user = JSON.parse(params.get("user") || "null");
     if (!user?.id) return null;
-    return { id: String(user.id), firstName: user.first_name, languageCode: user.language_code };
+    return { id: String(user.id), firstName: user.first_name, languageCode: user.language_code, username: user.username, isPremium: !!user.is_premium };
   } catch {
     return null;
   }

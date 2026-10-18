@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { randomInt } from "crypto";
+import sharp from "sharp";
 import { Bot as TelegramBot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { rateLimit, toPublicProfile, validatePrefInput, validateProfileInput, verifyInitData } from "@/lib/match/inline";
@@ -26,6 +27,7 @@ import { cardGenderStatus, setCardGender } from "@/lib/match/entitlements";
 import { PRICE_CARD_GENDER } from "@/lib/match/entitlementRules";
 import { dmState, dmThread, dmThreads, dmUnreadCount, notificationFeed, sendDm, unlockDm } from "@/lib/match/social";
 import { miniAppUrl } from "@/lib/match/hybrid";
+import { QUIZ, explainWhy, identitiesOf, identityOf, inviteStats, quizOf, saveQuiz, validQuizAnswers, valuesPercent, verifyByTelegram } from "@/lib/match/extras";
 
 const REPORT_REASONS: Record<string, string> = { fake: "ملف مزيّف", photo: "صورة غير لائقة", harass: "تحرّش أو إزعاج", scam: "احتيال أو طلب مال", minor: "قاصر (أقل من 18)", other: "سبب آخر" };
 
@@ -58,7 +60,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
   if (!botRow || !botRow.isActive || botRow.template !== "MARRIAGE_BOT") return err("البوت غير متاح", 404);
   const tg = verifyInitData(body.initData, botRow.token);
   if (!tg) return err("افتح التطبيق من داخل تلجرام", 401);
-  if (!rateLimit(`app:${botId}:${tg.id}`, 120, 60_000)) return err("طلبات كثيرة، تمهّل قليلاً", 429);
+  if (!rateLimit(`app:${botId}:${tg.id}`, 240, 60_000)) return err("طلبات كثيرة، تمهّل قليلاً", 429);
 
   // 🛡 Admin dashboard: gated server-side by the bot's own admin check, on EVERY call.
   const isAdmin = isMatchAdmin(tg.id);
@@ -75,7 +77,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
   const user = await prisma.matchUser.findUnique({ where: { id: tg.id }, include: { profile: true, preference: true } });
   if (!user) return NextResponse.json({ ok: true, registered: false, reason: "start", ...adminInfo });
   if (user.isBanned) return err("حسابك محظور", 403);
-  if (!user.phoneVerified) return NextResponse.json({ ok: true, registered: false, reason: "phone", ...adminInfo });
+  if (body.action === "tg_verify") {
+    // Verification by the Telegram account itself (the signed Mini App data), as an alternative to sharing a phone number.
+    const ok = await verifyByTelegram(tg.id, { username: tg.username, isPremium: tg.isPremium }).catch(() => false);
+    return NextResponse.json(ok ? { ok: true } : { ok: false, error: "حسابك بلا اسم مستخدم (@username) ولا اشتراك Premium. أضف اسم مستخدم في إعدادات تيليجرام ثم أعد المحاولة، أو شارك رقمك من البوت." });
+  }
+  if (!user.phoneVerified) return NextResponse.json({ ok: true, registered: false, reason: "phone", canTgVerify: !!(tg.username || tg.isPremium), ...adminInfo });
   if (user.mutedUntil && user.mutedUntil > new Date() && body.action !== "me") return err("حسابك مقيّد مؤقتاً", 403);
   void prisma.matchUser.update({ where: { id: tg.id }, data: { lastActiveAt: new Date() } }).catch(() => null);
 
@@ -122,7 +129,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
         deposit: { stars: STAR_DEPOSIT_TIERS.map((s) => ({ stars: s, usd: usdForStars(s) })), web: depositLink(tg.id), ton: isNativeTonConfigured() },
         complimentsLeft: daily ? Math.max(0, COMPLIMENTS_PER_DAY - daily.compliments) : COMPLIMENTS_PER_DAY,
         // Bot's own referral reward: 24h boost per invited friend whose profile goes live.
-        referral: { link: username ? `https://t.me/${username}?start=ref_${tg.id}` : null, rewarded: referralsRewarded },
+        referral: { link: username ? `https://t.me/${username}?start=ref_${tg.id}` : null, rewarded: referralsRewarded, ...(await inviteStats(tg.id).catch(() => null)) },
+        identity: (await identityOf(tg.id).catch(() => null))?.method ?? (user.phoneNumber ? "phone" : null),
+        quizDone: (await quizOf([tg.id]).catch(() => new Map())).has(tg.id),
         compliments: COMPLIMENTS,
       });
     }
@@ -352,11 +361,15 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       });
       const byId = new Map(profiles.map((p) => [p.userId, p]));
       const now = new Date();
+      const [quizzes, tgIds] = await Promise.all([quizOf([tg.id, ...pick]).catch(() => new Map<string, number[]>()), identitiesOf(pick).catch(() => new Set<string>())]);
+      const myQuiz = quizzes.get(tg.id);
       const items = pick.map((id) => byId.get(id)).filter((p): p is NonNullable<typeof p> => !!p).map((p) => ({
         ...toPublicProfile(p),
         name: cardName(p.name), // the display name typed in the bot profile (app cards only; inline sharing stays nameless)
         flag: countryFlag(p.country),
         compat: compatibilityPercent(p, pref, advanced), // bot's own «💞 توافق X%»
+        values: myQuiz && quizzes.get(p.userId) ? valuesPercent(myQuiz, quizzes.get(p.userId)!) : null, // 🧠 values quiz, only when both answered
+        tgv: tgIds.has(p.userId),
         presence: onlineLabel(p.user.lastActiveAt),
         photo: !!p.photoFileId && !denied.has(p.userId),
         photoLocked: !!p.photoFileId && denied.has(p.userId),
@@ -432,6 +445,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       return NextResponse.json({ ok: true, me: myPub, items, strict, advanced });
     }
 
+    if (action === "quiz_get") {
+      const mine = (await quizOf([tg.id])).get(tg.id) ?? null;
+      return NextResponse.json({ ok: true, questions: QUIZ.map((q) => ({ id: q.id, q: q.q, options: q.options })), answers: mine });
+    }
+    if (action === "quiz_save") {
+      if (!validQuizAnswers(body.answers)) return err("أجب عن كل الأسئلة");
+      await saveQuiz(tg.id, body.answers);
+      return NextResponse.json({ ok: true, message: "🧠 حُفظت أجوبتك. ستظهر نسبة تطابق القيم مع من أجاب مثلك." });
+    }
+
     // ---- actions on a target profile (by public profile ref only) ----
     const ref = String(body.target || "").toLowerCase();
     if (!/^[0-9a-f-]{36}$/.test(ref)) return err("هدف غير صالح");
@@ -452,12 +475,26 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const res = await fetch(`https://api.telegram.org/file/bot${botRow.token}/${file.file_path}`).catch(() => null);
       if (!res?.ok) return err("الصورة غير متاحة", 404);
       const cached = photoCache.get(targetProfile.photoFileId);
-      const b64 = cached ?? Buffer.from(await res.arrayBuffer()).toString("base64");
-      if (!cached) { photoCache.set(targetProfile.photoFileId, b64); if (photoCache.size > 40) photoCache.delete(photoCache.keys().next().value as string); }
+      let b64 = cached;
+      if (!b64) {
+        const raw = Buffer.from(await res.arrayBuffer());
+        // Cards show the photo at phone size: shrink it (a typical Telegram photo is 150-600 KB, this is about 40-90 KB), so the next card appears sooner.
+        const small = await sharp(raw).rotate().resize({ width: 720, height: 960, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 74, mozjpeg: true }).toBuffer().catch(() => null);
+        b64 = (small ?? raw).toString("base64");
+        photoCache.set(targetProfile.photoFileId, b64);
+        if (photoCache.size > 120) photoCache.delete(photoCache.keys().next().value as string);
+      }
       return NextResponse.json({ ok: true, src: `data:image/jpeg;base64,${b64}` }, { headers: { "Cache-Control": "private, max-age=600" } });
     }
 
     if (blocked && action !== "report") return err("هذا الملف غير متاح");
+
+    if (action === "why") {
+      const q = await quizOf([tg.id, target]);
+      const a = q.get(tg.id), b = q.get(target);
+      if (!a || !b) return NextResponse.json({ ok: true, text: null });
+      return NextResponse.json({ ok: true, text: await explainWhy(tg.id, target, a, b), values: valuesPercent(a, b) });
+    }
 
     if (action === "share_match") {
       // Privacy-safe public page: only the match date and the app name (no ids, names, photos, countries).
