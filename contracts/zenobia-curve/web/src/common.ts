@@ -22,7 +22,7 @@ export async function retry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {
   throw last;
 }
 
-export async function loadConfig(): Promise<{ master: string; curve: string; open?: boolean }> {
+export async function loadConfig(): Promise<{ master: string; curve: string; open?: boolean; launchedAt?: string }> {
   const r = await fetch('/zenobia/znbt/config.json', { cache: 'no-store' });
   return r.json();
 }
