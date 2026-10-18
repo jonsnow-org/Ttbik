@@ -16,7 +16,8 @@ import { activeFilterFor, describeAnonFilter } from "@/lib/match/anonRules";
 import { after } from "next/server";
 import { recordAnonMessage } from "@/lib/match/appStore";
 import { pingAnonSession } from "@/lib/match/realtime";
-import { touchAppPresence } from "@/lib/match/surface";
+import { isAppActive, touchAppPresence } from "@/lib/match/surface";
+import { getVoice, saveVoice, voiceMarker } from "@/lib/match/extras";
 import {
   fakeSessionId, handleFakeBotReply,
   EXIT_REASON_LABELS, endRandomChat, relayRandomChatText, reportRandomChat, requestRandomChatContact, startRandomChat,
@@ -45,7 +46,7 @@ export type AnonPoll =
   | { state: "idle" }
   | { state: "waiting"; filter: string | null }
   | { state: "timeout"; filter: string | null }
-  | { state: "chatting"; sessionId: string; fake?: boolean; messages: { id: number; mine: boolean; text: string; at: string }[]; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean }
+  | { state: "chatting"; sessionId: string; fake?: boolean; messages: { id: number; mine: boolean; text: string; at: string }[]; voice?: boolean; contact: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean }
   | { state: "ended" };
 
 export async function anonPoll(me: string, afterId: number, lastSessionId?: string): Promise<AnonPoll> {
@@ -83,6 +84,7 @@ export async function anonPoll(me: string, afterId: number, lastSessionId?: stri
       sessionId: p.sessionId,
       messages: msgs.map((m) => ({ id: m.id, mine: m.sender_id === me, text: m.text, at: m.created_at.toISOString() })),
       contact,
+      voice: await isAppActive(partner).catch(() => false),   // voice notes only while the partner is reading in the app too
       partnerRead: st.partnerRead,
       partnerTyping: st.partnerTyping,
     };
@@ -164,4 +166,24 @@ export async function anonTyping(me: string): Promise<void> {
   await ensureMatchAppTables();
   await prisma.$executeRaw`INSERT INTO match_anon_state (session_id, user_id, typing_at) VALUES (${p.sessionId}, ${me}, now())
     ON CONFLICT (session_id, user_id) DO UPDATE SET typing_at = now()`;
+}
+
+
+/** A voice note in the anonymous chat: only between two people who are both in the app (the partner's Telegram cannot play it), at most 30 s. */
+export async function anonVoiceSend(me: string, mime: string, dur: number, b64: string): Promise<{ ok: boolean; error?: string }> {
+  const p = await pendingOf(me);
+  await touchAppPresence(me);
+  if (p?.mode !== "random_chatting" || !p.sessionId || !p.partnerId) return { ok: false, error: "الرسائل الصوتية مع شريك حقيقي فقط" };
+  if (!(await isAppActive(p.partnerId))) return { ok: false, error: "الطرف الآخر ليس في التطبيق الآن، أرسل رسالة نصية" };
+  const v = await saveVoice(p.sessionId, me, mime, dur, b64);
+  if (!v.ok) return v;
+  await recordAnonMessage(p.sessionId, me, voiceMarker(v.id, dur));
+  await pingAnonSession(p.sessionId);
+  return { ok: true };
+}
+export async function anonVoiceGet(me: string, id: number): Promise<{ ok: boolean; mime?: string; b64?: string; error?: string }> {
+  const p = await pendingOf(me);
+  if (p?.mode !== "random_chatting" || !p.sessionId) return { ok: false, error: "انتهت المحادثة" };
+  const v = await getVoice(id, p.sessionId);
+  return v ? { ok: true, mime: v.mime, b64: v.b64 } : { ok: false, error: "الرسالة الصوتية لم تعد متاحة" };
 }

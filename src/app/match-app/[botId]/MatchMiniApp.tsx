@@ -13,11 +13,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 type Tab = "anon" | "discover" | "chats" | "me" | "admin";
 type Card = {
   ref: string; shortId: string; name?: string | null; gender: "MALE" | "FEMALE"; age: number; country: string; city: string | null; job: string | null;
-  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null;
+  education: string | null; maritalStatus: string | null; verified: boolean; flag: string; compat: number | null; values?: number | null; tgv?: boolean;
   presence: { online: boolean; label: string }; photo: boolean; photoLocked: boolean; likedYou?: boolean; boosted?: boolean;
 };
 type Msg = { id: number; mine: boolean; text: string; at: string };
-type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean };
+type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean; voice?: boolean };
 
 const tg = (): any => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null);
 const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select" = "light") => {
@@ -45,6 +45,8 @@ const FUNNEL_LABELS: Record<string, string> = {
 export default function MatchMiniApp({ botId }: { botId: string }) {
   const [boot, setBoot] = useState<"loading" | "outside" | "start" | "phone" | "ready">("loading");
   const [tab, setTab] = useState<Tab>("discover");
+  const [canTg, setCanTg] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [toast, setToast] = useState("");
   const [anonUnread, setAnonUnread] = useState(0);
@@ -79,6 +81,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     if (!r.registered) {
       // The admin may use the dashboard without a member profile (server re-checks every admin call).
       if (r.isAdmin) { setMe(r); setTab("admin"); setBoot("ready"); return r; }
+      if (r.reason === "phone") setCanTg(!!r.canTgVerify);
       setBoot(r.reason === "phone" ? "phone" : "start"); return null;
     }
     setMe(r); setBoot("ready");
@@ -146,7 +149,7 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
       loading: "جارٍ التحميل…",
       outside: toast || "افتح هذا التطبيق من زر القائمة داخل البوت في تلجرام.",
       start: "اضغط «ابدأ» في البوت أولاً ثم ارجع للتطبيق.",
-      phone: "وثّق رقم هاتفك داخل البوت أولاً (خطوة أمان إلزامية) ثم ارجع.",
+      phone: canTg ? "خطوة أمان واحدة قبل الدخول: وثّق حسابك على تيليجرام بضغطة (بلا رقم هاتف)، أو وثّق رقمك من البوت." : "وثّق رقم هاتفك داخل البوت أولاً (خطوة أمان إلزامية) ثم ارجع. أو أضف اسم مستخدم (@username) لحسابك في تيليجرام ثم أعد فتح التطبيق للتوثيق بدون رقم.",
     }[boot];
     return (
       <Shell>
@@ -154,6 +157,10 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className={`${GLASS} rounded-3xl p-8 max-w-xs`}>
             <div className="text-5xl mb-3">{boot === "loading" ? "💞" : "🔒"}</div>
             <p className="text-white/80 leading-7">{text}</p>
+            {boot === "phone" && canTg && (
+              <button disabled={tgBusy} onClick={async () => { haptic("medium"); setTgBusy(true); const r = await api("tg_verify"); setTgBusy(false); if (r.ok) { haptic("success"); setBoot("loading"); void reloadMe(); } else say(r.error, "error"); }}
+                className={`mt-4 w-full rounded-2xl py-3 text-sm font-bold disabled:opacity-60 ${GRAD}`}>{tgBusy ? "جارٍ التوثيق…" : "✅ وثّق بحساب تيليجرام"}</button>
+            )}
             {boot === "loading" && <div className="mt-4 h-1 overflow-hidden rounded bg-white/10"><motion.div className={`h-full w-1/3 ${GRAD}`} animate={{ x: ["-100%", "300%"] }} transition={{ repeat: Infinity, duration: 1.2 }} /></div>}
           </motion.div>
         </div>
@@ -464,7 +471,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
           {msgs.map((m) => (
             <motion.div key={m.id} initial={{ opacity: 0, y: 8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }}
               className={`max-w-[80%] rounded-2xl px-3 py-2 text-[15px] leading-6 ${m.mine ? `mr-auto ${GRAD} rounded-bl-md` : "ml-auto bg-white/10 rounded-br-md"}`}>
-              {m.text}
+              {m.text.startsWith("🎤voice:") ? <VoiceBubble api={api} text={m.text} /> : m.text}
               {m.mine && <span className="mr-1 align-bottom text-[10px] opacity-70" title={!poll.fake && (poll.partnerRead ?? 0) >= m.id ? "قُرئت" : "أُرسلت"}>{!poll.fake && (poll.partnerRead ?? 0) >= m.id ? "✓✓" : "✓"}</span>}
             </motion.div>
           ))}
@@ -497,7 +504,7 @@ function AnonTab({ api, say, me, active, onUsed, onSeen }: { api: any; say: any;
         )}
         <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex gap-2 p-3">
           <input value={text} onChange={(e) => { setText(e.target.value); if (!poll.fake && Date.now() - typingAt.current > 3000) { typingAt.current = Date.now(); api("anon_typing"); } }} placeholder="اكتب رسالتك (نص فقط)…" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 outline-none focus:border-pink-400/60" />
-          <motion.button whileTap={{ scale: 0.9 }} className={`rounded-2xl px-4 font-bold ${GRAD}`}>إرسال</motion.button>
+          {poll.voice && !poll.fake && !text.trim() ? <VoiceButton api={api} say={say} onSent={pollNow} /> : <motion.button whileTap={{ scale: 0.9 }} className={`rounded-2xl px-4 font-bold ${GRAD}`}>إرسال</motion.button>}
         </form>
       </div>
     );
@@ -801,7 +808,8 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
     const top = deck?.[0];
     if (top) api("seen", { target: top.ref }); // same visit tracking as the bot's card
     // Prefetch the photos of the visible stack (top 3) so the next card is ready.
-    for (const c of (deck || []).slice(0, 3)) if (c.photo && !photos[c.ref]) api("photo", { target: c.ref }).then((r: any) => r.ok && setPhotos((p) => ({ ...p, [c.ref]: r.src })));
+    // in parallel and a little deeper, and decode each image before it is needed, so the next card is already there when the first is gone
+    for (const c of (deck || []).slice(0, 5)) if (c.photo && !photos[c.ref]) api("photo", { target: c.ref }).then((r: any) => { if (!r.ok) return; try { const im = new Image(); im.src = r.src; } catch {} setPhotos((p) => ({ ...p, [c.ref]: r.src })); });
   }, [deck]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -826,8 +834,10 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
       void api("swipe", { target: card.ref, kind }).then((r: any) => (r?.ok ? r : api("swipe", { target: card.ref, kind })));
       return;
     }
-    const r = await api("swipe", { target: card.ref, kind });
-    if (!r.ok) { say(r.error, "error"); return; }
+    // One quiet retry for a dropped request; if it still fails the card comes back instead of being lost.
+    let r = await api("swipe", { target: card.ref, kind });
+    if (!r.ok && r.error === "تعذّر الاتصال") r = await api("swipe", { target: card.ref, kind });
+    if (!r.ok) { if (kind === "like") setDeck((d) => (d && !d.some((x) => x.ref === card.ref) ? [card, ...d] : d)); say(r.error, "error"); return; }
     if (r.message) say(r.message);
     if (r.match) onMatch({ ...card, ...r.card });
   };
@@ -869,35 +879,35 @@ function DiscoverTab({ api, say, me, onMatch, onCompliment, onSuper, onUsed, onG
         <AnimatePresence>
           {deck.slice(0, 3).reverse().map((c, i, arr) => (
             <SwipeCard key={c.ref} card={c} photo={photos[c.ref]} isTop={i === arr.length - 1} depth={arr.length - 1 - i}
-              onSwipe={(dir) => act(dir === "right" ? "like" : dir === "up" ? "super" : "pass")} onTap={() => onInfo(c)}
+              onSwipe={() => act("pass")} onTap={() => onInfo(c)}
               onPhotoRequest={async () => { const r = await api("photo_request", { target: c.ref }); say(r.message || r.error); }} />
           ))}
         </AnimatePresence>
       </div>
       {/* Floating actions over the photo (Tinder-style), above the bottom gradient */}
       <div data-testid="card-actions" className="pointer-events-none relative z-20 -mt-[92px] flex items-center justify-center gap-4 [&>*]:pointer-events-auto">
-        <ActionBtn label="تخطي" size="md" onClick={() => act("pass")}>✖️</ActionBtn>
-        <ActionBtn label="رسالة" size="md" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
+        <ActionBtn label="تخطي" size="md" tone="bg-rose-600" onClick={() => act("pass")}>✖️</ActionBtn>
+        <ActionBtn label="رسالة" size="md" tone="bg-sky-500" glow="#60a5fa" onClick={() => deck[0] && onMessage(deck[0])}>💬</ActionBtn>
         <ActionBtn label="إعجاب" size="lg" glow="#ff2e93" gradient onClick={() => act("like")}>❤️</ActionBtn>
-        <ActionBtn label="معلومات" size="md" onClick={() => deck[0] && onInfo(deck[0])}>ℹ️</ActionBtn>
+        <ActionBtn label="معلومات" size="md" tone="bg-slate-500" onClick={() => deck[0] && onInfo(deck[0])}>ℹ️</ActionBtn>
       </div>
       <div className="mt-3 flex items-center justify-center gap-3">
-        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" onClick={rewind}>↩️</ActionBtn>}
-        <ActionBtn label="مميز $1" size="sm" glow="#60a5fa" onClick={() => act("super")}>⭐</ActionBtn>
-        <ActionBtn label="طلب زواج" size="sm" glow="#e8b4a0" onClick={() => act("propose")}>💍</ActionBtn>
-        <ActionBtn label="مجاملة" size="sm" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
+        {canRewind && <ActionBtn label={`السابق $${me?.rewindPrice ?? 0.5}`} size="sm" tone="bg-slate-500" onClick={rewind}>↩️</ActionBtn>}
+        <ActionBtn label="مميز $1" size="sm" tone="bg-amber-500" glow="#fbbf24" onClick={() => act("super")}>⭐</ActionBtn>
+        <ActionBtn label="طلب زواج" size="sm" tone="bg-violet-600" glow="#a78bfa" onClick={() => act("propose")}>💍</ActionBtn>
+        <ActionBtn label="مجاملة" size="sm" tone="bg-emerald-600" onClick={() => deck[0] && onCompliment(deck[0])}>💌</ActionBtn>
       </div>
-      <p className="mt-3 text-center text-[11px] text-white/35">اسحب يميناً للإعجاب · يساراً للتخطي · للأعلى للإعجاب المميز</p>
+      <p className="mt-3 text-center text-[11px] text-white/35">اسحب يميناً أو يساراً للتخطي · الإعجاب بزر ❤️</p>
     </div>
   );
 }
 
-function ActionBtn({ children, onClick, label, size, glow, gradient }: { children: React.ReactNode; onClick: () => void; label: string; size: "sm" | "md" | "lg"; glow?: string; gradient?: boolean }) {
+function ActionBtn({ children, onClick, label, size, glow, gradient, tone }: { children: React.ReactNode; onClick: () => void; label: string; size: "sm" | "md" | "lg"; glow?: string; gradient?: boolean; tone?: string }) {
   const dim = size === "lg" ? "h-16 w-16 text-2xl" : size === "md" ? "h-13 w-13 h-[52px] w-[52px] text-xl" : "h-11 w-11 text-lg";
   return (
     <div className="flex flex-col items-center gap-1">
       <motion.button whileTap={{ scale: 0.85 }} whileHover={{ scale: 1.06 }} onClick={onClick} aria-label={label}
-        className={`grid place-items-center rounded-full ${dim} ${gradient ? GRAD : GLASS}`} style={glow ? { boxShadow: `0 0 24px ${glow}55` } : undefined}>{children}</motion.button>
+        className={`grid place-items-center rounded-full ring-2 ring-white/25 shadow-lg ${dim} ${gradient ? GRAD : tone || "bg-slate-600"}`} style={glow ? { boxShadow: `0 0 24px ${glow}66` } : undefined}>{children}</motion.button>
       <span className="text-[10px] text-white/45">{label}</span>
     </div>
   );
@@ -907,15 +917,14 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-220, 220], [-14, 14]);
-  const likeOp = useTransform(x, [30, 120], [0, 1]);
-  const nopeOp = useTransform(x, [-120, -30], [1, 0]);
-  const superOp = useTransform(y, [-120, -30], [1, 0]);
-  const [exit, setExit] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const nopeOp = useTransform(x, [-120, -30], [1, 0]);
+  const skipRightOp = useTransform(x, [30, 120], [0, 1]);
+    const [exit, setExit] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const end = (_: unknown, info: PanInfo) => {
     const { offset, velocity } = info;
-    if (offset.y < -110 || velocity.y < -700) { setExit({ x: 0, y: -700 }); onSwipe("up"); }
-    else if (offset.x > 110 || velocity.x > 700) { setExit({ x: 600, y: 0 }); onSwipe("right"); }
+    // Dragging either way only skips the card; liking is the ❤️ button (owner, 2026-10-18: a drag must never send a like or a paid super like).
+    if (offset.x > 110 || velocity.x > 700) { setExit({ x: 600, y: 0 }); onSwipe("right"); }
     else if (offset.x < -110 || velocity.x < -700) { setExit({ x: -600, y: 0 }); onSwipe("left"); }
   };
 
@@ -923,7 +932,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
     <motion.div
       className={`absolute inset-0 overflow-hidden rounded-[32px] border border-white/10 ${isTop ? "cursor-grab active:cursor-grabbing" : ""}`}
       style={{ x, y, rotate, zIndex: 10 - depth, touchAction: "none" }}
-      drag={isTop} dragElastic={0.7} dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }} onDragEnd={end}
+      drag={isTop} dragElastic={0.7} dragDirectionLock dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }} onDragEnd={end}
       onTap={() => { if (isTop && Math.abs(x.get()) < 8 && Math.abs(y.get()) < 8) { haptic("light"); onTap?.(); } }}
       data-testid={isTop ? "top-card" : undefined}
       initial={{ scale: 0.92, opacity: 0, y: 20 }}
@@ -950,16 +959,16 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
         </span>
         <div className="flex flex-col items-end gap-1">
           {card.compat != null && <span className={`rounded-full px-3 py-1 text-xs font-bold ${GRAD}`}>💞 {card.compat}%</span>}
+          {card.values != null && <span className="rounded-full bg-violet-600 px-3 py-1 text-xs font-bold">🧠 قيم {card.values}%</span>}
         </div>
       </div>
 
-      <motion.span style={{ opacity: likeOp }} className="absolute top-20 left-6 -rotate-12 rounded-xl border-4 border-emerald-400 px-3 py-1 text-2xl font-black text-emerald-300">إعجاب</motion.span>
+      <motion.span style={{ opacity: skipRightOp }} className="absolute top-20 left-6 -rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
       <motion.span style={{ opacity: nopeOp }} className="absolute top-20 right-6 rotate-12 rounded-xl border-4 border-rose-400 px-3 py-1 text-2xl font-black text-rose-300">تخطي</motion.span>
-      <motion.span style={{ opacity: superOp }} className="absolute bottom-40 inset-x-0 mx-auto w-fit rounded-xl border-4 border-sky-400 px-3 py-1 text-2xl font-black text-sky-300">⭐ مميز</motion.span>
 
       <div className="absolute bottom-0 inset-x-0 p-5 pb-28">
         <h2 className="text-2xl font-extrabold">
-          {card.flag} {card.name || `#${card.shortId}`}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}
+          {card.flag} {card.name || `#${card.shortId}`}<span className="font-light">، {card.age}</span> {card.verified && <span title="موثّق" className="text-sky-300">☑️</span>}{card.tgv && !card.verified && <span title="حساب تيليجرام موثّق" className="text-sky-300">🔹</span>}
           {card.boosted && <span className="mr-2 text-sm">🚀</span>}
         </h2>
         <p className="text-sm text-white/70">{card.country}{card.city ? ` · ${card.city}` : ""}</p>
@@ -981,6 +990,7 @@ function SwipeCard({ card, photo, isTop, depth, onSwipe, onPhotoRequest, onTap }
 type Thread = Card & { last: string; at: string; lastMine: boolean; unread: number; matched: boolean };
 function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenChat, onRead }: { api: any; say: any; hasProfile: boolean; goAnon: () => void; onCompliment: (c: Card) => void; athar?: { bot: string; today: string; home?: string } | null; onOpenChat: (c: Card) => void; onRead?: () => void }) {
   const [seg, setSeg] = useState<"matches" | "requests">("matches");
+  const [giftFor, setGiftFor] = useState<Card | null>(null);
   const [threads, setThreads] = useState<Thread[] | null>(null);
   useEffect(() => { if (hasProfile) api("dm_threads").then((r: any) => { setThreads(r.ok ? r.items : []); onRead?.(); }); else setThreads([]); }, [api, hasProfile]); // eslint-disable-line react-hooks/exhaustive-deps
   const reqThreads = (threads || []).filter((t) => !t.matched);
@@ -1029,6 +1039,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-bold">المحادثات</h2>
+      <AnimatePresence>{giftFor && <GiftSheet key="gift" api={api} say={say} card={giftFor} onClose={() => setGiftFor(null)} />}</AnimatePresence>
       {segBar}
       {athar && <AtharEntry athar={athar} api={api} where="chats" variant="full" title="هدية لا تُنسى لشريكك" />}
       {matchThreads.length > 0 && <div className="space-y-2">{matchThreads.map(threadRow)}</div>}
@@ -1071,6 +1082,7 @@ function ChatsTab({ api, say, hasProfile, goAnon, onCompliment, athar, onOpenCha
             <button aria-label="دردشة مجهولة" onClick={async () => { const r = await api("request", { target: c.ref }); say(r.ok ? `${r.message || "📨 أُرسل الطلب"} — عند القبول تُفتح المحادثة هنا في تبويب 🔀` : r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-white/15 px-3 text-sm">🎭</button>
             <button onClick={async () => { const r = await api("swipe", { target: c.ref, kind: "propose" }); say(r.message || r.error, r.ok ? "success" : "error"); }} className="rounded-2xl border border-[#e8b4a0]/40 px-3 text-sm">💍</button>
             <button onClick={() => onCompliment(c)} className="rounded-2xl border border-white/15 px-3 text-sm">🌹</button>
+            <button aria-label="هدية" onClick={() => { haptic("light"); setGiftFor(c); }} className="rounded-2xl border border-amber-300/40 bg-amber-400/10 px-3 text-sm">🎁</button>
             <button aria-label="مشاركة" onClick={async () => { const r = await api("share_match", { target: c.ref }); if (!r.ok) { say(r.error, "error"); return; } const u = `https://t.me/share/url?url=${encodeURIComponent(r.url)}&text=${encodeURIComponent("💞 تطابق جديد على توافق")}`; const w = tg(); if (w?.openTelegramLink) w.openTelegramLink(u); else window.open(u); }} className="rounded-2xl border border-white/15 px-3 text-sm">🔗</button>
           </div>
           {(c as any).metLink && (
@@ -1182,6 +1194,7 @@ function MeTab({ api, say, me, reload }: { api: any; say: any; me: any; reload: 
         </div>
       )}
 
+      {section === "pref" && <QuizCard api={api} say={say} done={!!me?.quizDone} reload={reload} />}
       {section === "pref" && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <Field label="الدولة المفضلة" value={pref.country} onChange={set(pref, setPref, "country")} />
@@ -1364,7 +1377,7 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
       {me?.referral?.link && (
         <div className={`rounded-3xl p-4 ${GLASS}`}>
           <p className="font-bold">🔗 ادعُ أصدقاءك</p>
-          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل تلقائياً على رفع مجاني لملفك 24 ساعة (نظام البوت). حصلت عليه {me.referral.rewarded} مرة.</p>
+          <p className="text-[11px] text-white/50">عند اعتماد ملف أي صديق دعوته تحصل على رفع مجاني لملفك 24 ساعة، بحد أقصى {me.referral.cap ?? 3} مكافآت كل 30 يوماً (استخدمت {me.referral.rewardsLast30d ?? 0}). حصلت عليه إجمالاً {me.referral.rewarded} مرة.</p>
           <button onClick={() => { haptic("medium"); const u = `https://t.me/share/url?url=${encodeURIComponent(me.referral.link)}&text=${encodeURIComponent("انضم معي لبوت التعارف بغرض الزواج 💍")}`; tg()?.openTelegramLink ? tg().openTelegramLink(u) : window.open(u); }}
             className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>📤 مشاركة رابطي</button>
         </div>
@@ -1675,7 +1688,9 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
   const [photo, setPhoto] = useState<string | null>(null);
   const [full, setFull] = useState(false);
   const [rep, setRep] = useState<null | { code: string; note: string }>(null);
+  const [why, setWhy] = useState<string | null>(null);
   useEffect(() => { if (card.photo) api("photo", { target: card.ref }).then((r: any) => r?.ok && setPhoto(r.src)); }, [api, card]);
+  useEffect(() => { if (card.values != null) api("why", { target: card.ref }).then((r: any) => r?.ok && r.text && setWhy(r.text)); }, [api, card]);
   const rows: [string, string | null][] = [["🌍 الدولة", `${card.flag} ${card.country}`], ["🏙 المدينة", card.city], ["🎂 العمر", String(card.age)], ["💼 العمل", card.job], ["🎓 التعليم", card.education], ["💍 الحالة", card.maritalStatus]];
   return (
     <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
@@ -1689,6 +1704,7 @@ function InfoSheet({ card, api, say, reasons, onClose, onMessage }: { card: Card
           <div>
             <p className="text-xl font-extrabold">{card.name || `#${card.shortId}`} {card.verified && <span className="text-sky-300">☑️</span>}</p>
             <p className="text-xs text-white/55">{card.presence.online ? "● " : ""}{card.presence.label}{card.compat != null ? ` · 💞 ${card.compat}%` : ""}</p>
+            {card.values != null && <p className="mt-1 text-xs text-violet-200">🧠 تطابق القيم {card.values}%{why ? ` · ${why}` : ""}</p>}
             {card.photoLocked && <button onClick={async () => { const r = await api("photo_request", { target: card.ref }); say(r.message || r.error); }} className="mt-2 rounded-full border border-[#e8b4a0]/50 px-3 py-1 text-[11px] text-[#f3cbbd]">🔒 اطلب رؤية الصورة</button>}
           </div>
         </div>
@@ -1844,5 +1860,145 @@ function RowSkeleton({ tall }: { tall?: boolean }) {
       <div className="h-11 w-11 shrink-0 rounded-full bg-white/10" />
       <div className="flex-1 space-y-2"><div className="h-3 w-1/2 rounded-full bg-white/10" /><div className="h-3 w-3/4 rounded-full bg-white/10" /></div>
     </div>
+  );
+}
+
+
+/** 🧠 Six short questions about values. Optional; it only adds a separate chip («🧠 قيم X%») between people who both answered, and never changes the existing 💞 percent. */
+function QuizCard({ api, say, done, reload }: { api: any; say: any; done: boolean; reload: () => Promise<any> }) {
+  const [open, setOpen] = useState(false);
+  const [qs, setQs] = useState<{ id: string; q: string; options: string[] }[] | null>(null);
+  const [ans, setAns] = useState<number[]>([]);
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    haptic("light");
+    const r = await api("quiz_get");
+    if (!r.ok) { say(r.error, "error"); return; }
+    setQs(r.questions); setAns(r.answers ?? r.questions.map(() => -1)); setOpen(true);
+  };
+  const save = async () => {
+    setBusy(true);
+    const r = await api("quiz_save", { answers: ans });
+    setBusy(false);
+    if (!r.ok) { say(r.error, "error"); return; }
+    haptic("success"); say(r.message); setOpen(false); void reload();
+  };
+  return (
+    <div className={`rounded-3xl p-4 ${GLASS}`}>
+      <p className="font-bold">🧠 اختبار القيم {done && <span className="text-xs text-emerald-300">· مكتمل</span>}</p>
+      <p className="text-[11px] text-white/50">ست أسئلة قصيرة (اختياري). تظهر نسبة «تطابق القيم» مع من أجاب مثلك، وتُحفظ أجوبتك خاصة بك ولا يراها أحد.</p>
+      {!open && <button onClick={start} className={`mt-3 w-full rounded-2xl py-2.5 text-sm font-bold ${GRAD}`}>{done ? "تعديل أجوبتي" : "ابدأ الاختبار"}</button>}
+      {open && qs && (
+        <div className="mt-3 space-y-4">
+          {qs.map((q, i) => (
+            <div key={q.id}>
+              <p className="text-sm font-semibold">{i + 1}. {q.q}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {q.options.map((o, j) => (
+                  <button key={j} onClick={() => { haptic("select"); setAns((a) => a.map((v, k) => (k === i ? j : v))); }}
+                    className={`rounded-full px-3 py-1.5 text-xs ${ans[i] === j ? GRAD : "border border-white/20 text-white/80"}`}>{o}</button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button disabled={busy || ans.some((v) => v < 0)} onClick={save} className={`w-full rounded-2xl py-2.5 text-sm font-bold disabled:opacity-40 ${GRAD}`}>{busy ? "جارٍ الحفظ…" : "حفظ"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/** 🎤 Record up to 30 s and send it (anonymous chat, both people in the app). Needs the phone's microphone permission. */
+function VoiceButton({ api, say, onSent }: { api: any; say: any; onSent: () => void }) {
+  const [rec, setRec] = useState(false);
+  const [sec, setSec] = useState(0);
+  const mr = useRef<MediaRecorder | null>(null);
+  const chunks = useRef<Blob[]>([]);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const t0 = useRef(0);
+  const cancelled = useRef(false);
+  const stopTimer = () => { if (timer.current) clearInterval(timer.current); timer.current = null; };
+  const start = async () => {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") { say("التسجيل غير مدعوم على جهازك", "error"); return; }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported?.(m)) || "";
+      const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunks.current = []; cancelled.current = false;
+      r.ondataavailable = (e) => { if (e.data.size) chunks.current.push(e.data); };
+      r.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        stopTimer(); setRec(false);
+        const dur = Math.max(1, Math.round((Date.now() - t0.current) / 1000));
+        if (cancelled.current) return;
+        const blob = new Blob(chunks.current, { type: r.mimeType || mime || "audio/webm" });
+        const data = await new Promise<string>((res) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(",")[1] || ""); fr.readAsDataURL(blob); });
+        const out = await api("anon_voice_send", { mime: blob.type || mime || "audio/webm", dur: Math.min(30, dur), data });
+        if (!out.ok) { say(out.error, "error"); return; }
+        haptic("light"); onSent();
+      };
+      mr.current = r; t0.current = Date.now(); r.start(); setRec(true); setSec(0); haptic("medium");
+      timer.current = setInterval(() => { const s = Math.round((Date.now() - t0.current) / 1000); setSec(s); if (s >= 30) r.stop(); }, 500);
+    } catch { say("اسمح باستخدام الميكروفون لإرسال رسالة صوتية", "error"); }
+  };
+  if (!rec) return <motion.button type="button" whileTap={{ scale: 0.9 }} onClick={start} aria-label="رسالة صوتية" className="rounded-2xl bg-sky-500 px-4 font-bold">🎤</motion.button>;
+  return (
+    <div className="flex gap-2">
+      <button type="button" onClick={() => { cancelled.current = true; mr.current?.stop(); }} className="rounded-2xl bg-slate-600 px-3 text-sm">✕</button>
+      <motion.button type="button" animate={{ opacity: [1, 0.6, 1] }} transition={{ repeat: Infinity, duration: 1 }} onClick={() => mr.current?.stop()} className="rounded-2xl bg-rose-600 px-4 text-sm font-bold">⏹ {sec}s · إرسال</motion.button>
+    </div>
+  );
+}
+
+/** A voice note in the chat: tap to fetch and play (it exists only while the conversation lasts). */
+function VoiceBubble({ api, text }: { api: any; text: string }) {
+  const [, id, dur] = text.split(":");
+  const [state, setState] = useState<"idle" | "loading" | "playing" | "gone">("idle");
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const play = async () => {
+    if (state === "playing") { audio.current?.pause(); setState("idle"); return; }
+    setState("loading");
+    const r = await api("anon_voice_get", { id: Number(id) });
+    if (!r.ok) { setState("gone"); return; }
+    const a = new Audio(`data:${r.mime};base64,${r.b64}`);
+    audio.current = a;
+    a.onended = () => setState("idle");
+    a.play().then(() => setState("playing")).catch(() => setState("idle"));
+  };
+  if (state === "gone") return <span className="text-xs opacity-70">🎤 الرسالة الصوتية لم تعد متاحة</span>;
+  return <button type="button" onClick={play} className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full bg-white/20">{state === "loading" ? "…" : state === "playing" ? "⏸" : "▶"}</span><span className="text-sm">🎤 {dur}s</span></button>;
+}
+
+
+/** 🎁 Virtual gifts between matched people, paid from the member's balance (which Telegram Stars can top up). The recipient is notified in the app and the bot. */
+function GiftSheet({ api, say, card, onClose }: { api: any; say: any; card: Card; onClose: () => void }) {
+  const [gifts, setGifts] = useState<{ key: string; emoji: string; name: string; price: number }[]>([]);
+  const [busy, setBusy] = useState("");
+  useEffect(() => { api("me").then((r: any) => r?.ok && setGifts(r.gifts || [])); }, [api]);
+  const send = async (key: string) => {
+    setBusy(key); haptic("medium");
+    const r = await api("gift_send", { target: card.ref, gift: key });
+    setBusy("");
+    if (!r.ok) { say(r.error, "error"); return; }
+    haptic("success"); say(r.message); onClose();
+  };
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-end bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
+      <motion.div onClick={(e) => e.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }} exit={{ y: 300 }} transition={{ type: "spring", damping: 26 }} className={`w-full rounded-t-[32px] p-5 pb-8 ${GLASS} bg-[#0f1530]/95`}>
+        <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-white/20" />
+        <p className="font-bold">🎁 أرسل هدية إلى {card.name || `#${card.shortId}`}</p>
+        <p className="text-[11px] text-white/50">تُخصم من رصيدك، وتصل للطرف الآخر في التطبيق والبوت. بين المتطابقين فقط.</p>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          {gifts.map((g) => (
+            <button key={g.key} disabled={!!busy} onClick={() => send(g.key)} className="rounded-2xl border border-white/15 bg-white/5 p-3 text-center disabled:opacity-50">
+              <div className="text-3xl">{g.emoji}</div>
+              <div className="mt-1 text-xs">{g.name}</div>
+              <div className="text-[11px] text-amber-300">${g.price}</div>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
