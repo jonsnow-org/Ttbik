@@ -4,7 +4,7 @@ import { isOwnerServer } from "@/lib/isOwner";
 import PlatformBotCreator from "./PlatformBotCreator";
 
 export const metadata: Metadata = {
-  title: "بوت منصة العملات | أدوات الأدمن",
+  title: "بوت Palmyra Launch | أدوات الأدمن",
   description: "تفعيل بوت المالك لمنصة العملات.",
   robots: { index: false, follow: false },
 };
