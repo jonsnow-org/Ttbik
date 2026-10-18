@@ -20,12 +20,12 @@ CACHE_SECONDS = 60
 
 
 def _url() -> str:
-    feed = (os.getenv("FEED_API_URL") or "https://ttbik.vercel.app/api/media-feed").rstrip("/")
+    feed = (os.getenv("FEED_API_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev/api/media-feed").rstrip("/")
     return feed.rsplit("/", 1)[0] + "/media-reward"
 
 
 def _secret() -> str:
-    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "8452320").strip()
+    return (os.getenv("FEED_SECRET") or os.getenv("ADMIN_PASSWORD") or "").strip()
 
 
 async def refresh_bonus(store, user_id: int) -> int:

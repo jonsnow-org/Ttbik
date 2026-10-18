@@ -488,7 +488,7 @@ async def user_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 def _premium_info_text(user_id: int) -> str:
-    site = (os.environ.get("NEXT_PUBLIC_SITE_URL") or os.environ.get("SITE_URL") or "https://ttbik.vercel.app").rstrip("/")
+    site = (os.environ.get("NEXT_PUBLIC_SITE_URL") or os.environ.get("SITE_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev").rstrip("/")
     if store.is_premium(user_id):
         return f"💎 الترقية المدفوعة مُفعّلة على حسابك.\nحدك اليومي الحالي: {PREMIUM_DAILY_LIMIT} تحميل."
     return (

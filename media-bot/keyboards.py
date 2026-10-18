@@ -11,7 +11,7 @@ from telegram import (
     MenuButtonDefault,
 )
 
-MINI_APP_URL = os.getenv("MINI_APP_URL") or "https://ttbik.vercel.app/mini-app"   # the gate's address after the move (docs/HOSTING.md)
+MINI_APP_URL = os.getenv("MINI_APP_URL") or "https://ttbik-gate.jonsnowx1r.workers.dev/mini-app"   # the gate's address after the move (docs/HOSTING.md)
 
 INFO_TEXT = (
     "ℹ️ طريقة الاستخدام\n\n"

@@ -22,6 +22,7 @@ const CONFIG = {
 const ui = new TonConnectUI({
   manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json',
   buttonRootId: 'connect',
+  actionsConfiguration: { twaReturnUrl: 'https://t.me/PalmyraLaunchBot' as `${string}://${string}` },
 });
 
 const say = (m: string) => ($('log').textContent = m);

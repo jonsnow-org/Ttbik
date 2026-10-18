@@ -4,6 +4,7 @@
   var tabs = [
     ['/zenobia/coins.html', '🏠', 'Explore'],
     ['/zenobia/create.html', '🚀', 'Launch'],
+    ['/zenobia/earnings.html', '💰', 'Earnings'],
     ['/zenobia/terms.html', 'ℹ️', 'Info'],
   ];
   if (/[?&]rec=1/.test(location.search)) return;   // screen recordings for videos: no tab bar
