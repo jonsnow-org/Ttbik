@@ -40,7 +40,7 @@
     var txt = document.getElementById("langTxt");
     var label = lang === "en" ? "العربية" : "English";
     if (b) { if (txt) txt.textContent = label; }
-    else { b = document.createElement("a"); b.href = "#"; b.textContent = label; b.style.cssText = "position:fixed;top:10px;right:10px;z-index:9;font:12px system-ui,sans-serif;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;text-decoration:none"; document.body.appendChild(b); }
-    b.onclick = function (e) { e.preventDefault(); try { localStorage.setItem("znbtLang", lang === "en" ? "ar" : "en"); } catch (x) {} location.reload(); };
+    else if (!/[?&]rec=1/.test(location.search)) { b = document.createElement("a"); b.href = "#"; b.textContent = label; b.style.cssText = "position:fixed;top:10px;right:10px;z-index:9;font:12px system-ui,sans-serif;padding:4px 10px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;text-decoration:none"; document.body.appendChild(b); }
+    if (b) b.onclick = function (e) { e.preventDefault(); try { localStorage.setItem("znbtLang", lang === "en" ? "ar" : "en"); } catch (x) {} location.reload(); };
   });
 })();

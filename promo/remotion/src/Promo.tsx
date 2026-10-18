@@ -130,7 +130,7 @@ const CTA: React.FC<{ ctaTitle: string; ctaLine: string; brand: string }> = ({ c
   );
 };
 
-export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها ببلاش", ctaLine = "ttbik.vercel.app" }) => {
+export const Promo: React.FC<PromoProps> = ({ lang, title, hook, words, brand = DEFAULT_BRAND, ctaTitle = "جرّبها مجاناً", ctaLine = "ttbik.vercel.app" }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
   DIR = lang === "en" ? "ltr" : "rtl";

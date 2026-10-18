@@ -51,3 +51,16 @@ describe("channel posts pass the safety filter", () => {
     expect(ids).not.toContain("project:palmyra-launch");
   });
 });
+
+import { coinsPool } from "../coinsChannel";
+describe("the coins channel is English only", () => {
+  test("no Arabic in any post, button or hashtag, and every post passes the safety filter", () => {
+    for (const flags of [{ znbt: false, platform: false }, { znbt: true, platform: true }]) {
+      for (const it of coinsPool(flags)) {
+        const all = [it.title, it.text, it.cta, it.target?.label ?? "", it.tags].join(" ");
+        expect(/[؀-ۿ]/.test(all)).toBe(false);
+        expect(isSafeForChannel(`${it.title}\n${it.text}\n${it.tags}`)).toBe(true);
+      }
+    }
+  });
+});
