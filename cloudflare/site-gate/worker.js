@@ -1,3 +1,4 @@
+// (build trigger 2026-10-18: first Git-connected deploy of the gate)
 // Cloudflare Worker "ttbik-gate": the one permanent public address of the site, the bots' webhooks and the mini apps.
 // It forwards every request to the PRIMARY server (Oracle) and, when that is down, to the STANDBY (Vercel). Telegram, TonConnect and every
 // link point at the gate's own address, so switching servers never means re-registering webhooks or changing links.
