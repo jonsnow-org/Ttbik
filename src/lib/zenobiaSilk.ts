@@ -1,3 +1,5 @@
+import { Address } from "@ton/core";
+import { getConfig, ZNBT_MINTER } from "@/lib/znbtConfig";
 import { prisma } from "@/lib/prisma";
 import { STAGE_IMG_SQ, STAGE_ANIM } from "@/lib/zenobiaPassport";
 import type { Stage } from "@/lib/zenobiaScore";
@@ -66,5 +68,11 @@ export async function silkConfig(k: string): Promise<string | undefined> {
 export async function silkJettons(): Promise<string[]> {
   const a = await silkConfig("jetton");
   const b = await silkConfig("jetton2");
-  return [a, b].filter((x): x is string => !!x);
+  // ZNBt counts by itself once it exists on the chain (owner's order 2026-10-18), whether or not /jetton2 was ever sent.
+  let znbt: string | undefined;
+  try { if ((await getConfig()).curve) znbt = ZNBT_MINTER; } catch { /* config table unavailable: ZNB only */ }
+  const all = [a, b, znbt].filter((x): x is string => !!x);
+  const seen = new Set<string>(), out: string[] = [];
+  for (const j of all) { let k = j; try { k = Address.parse(j).toRawString(); } catch { /* keep as is */ } if (!seen.has(k)) { seen.add(k); out.push(j); } }
+  return out;
 }
