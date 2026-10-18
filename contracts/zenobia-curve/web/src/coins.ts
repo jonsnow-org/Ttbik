@@ -15,6 +15,7 @@ let q = '';
 let sort: Sort = 'new';
 let filter: 'all' | 'curve' | 'grad' | 'watch' = 'all';
 let watched = watch();
+let official = '';   // ZNBt's own curve, pinned first
 
 const admin = location.hash === '#admin';
 const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect' });
@@ -50,63 +51,75 @@ function visible(): Row[] {
 function toolbar() {
   const box = $('tools');
   box.textContent = '';
-  const input = el('input', { type: 'search', placeholder: 'Search name, symbol, address · بحث', value: q, ariaLabel: 'Search' }) as HTMLInputElement;
-  input.oninput = () => { q = input.value; render(); };
-  const sel = el('select', { ariaLabel: 'Sort' }) as HTMLSelectElement;
-  for (const [v, t] of [['new', 'Newest · الأحدث'], ['progress', 'Closest to graduation · الأقرب للتخرّج'], ['raised', 'Most raised · الأكثر جمعاً']]) sel.append(el('option', { value: v, textContent: t, selected: v === sort }));
-  sel.onchange = () => { sort = sel.value as Sort; render(); };
   const chips = el('div', { className: 'chips' });
-  for (const [v, t] of [['all', 'All'], ['curve', 'On the curve'], ['grad', 'Graduated'], ['watch', '★ Watchlist']] as const) {
+  for (const [v, t] of [['all', 'All · الكل'], ['curve', '🔥 On the curve'], ['grad', '🎓 Graduated'], ['watch', '★ Watchlist']] as const) {
     chips.append(el('button', { className: 'chip' + (filter === v ? ' on' : ''), textContent: t, onclick: () => { filter = v; toolbar(); render(); } }));
   }
-  box.append(input, sel, chips);
+  const sorts = el('div', { className: 'chips' });
+  for (const [v, t] of [['new', '🆕 Newest'], ['progress', '🎯 Closest to graduation'], ['raised', '💰 Most raised']] as const) {
+    sorts.append(el('button', { className: 'chip' + (sort === v ? ' on' : ''), textContent: t, onclick: () => { sort = v as Sort; toolbar(); render(); } }));
+  }
+  const input = el('input', { type: 'search', placeholder: '🔍 Search name, symbol or address · بحث', value: q, ariaLabel: 'Search' }) as HTMLInputElement;
+  input.oninput = () => { q = input.value; render(); };
+  box.append(input, chips, sorts);
+}
+
+function stats() {
+  const shown = rows.filter((c) => admin || !hidden.has(key(c)));
+  let raised = 0n;
+  for (const c of shown) raised += BigInt(c.raisedNano || '0');
+  const box = $('stats');
+  box.textContent = '';
+  for (const [v, l] of [[String(shown.length), 'Coins · عملات'], [fmt(raised, 9, 1), 'TON raised'], ['1.5%+≤2%', 'Fees']]) box.append(el('div', { className: 'stat' }, el('b', { textContent: v }), el('span', { textContent: l })));
 }
 
 function render() {
   const box = $('list');
   box.textContent = '';
-  const shown = visible();
+  let shown = visible();
+  if (official) shown = [...shown.filter((c) => key(c) === official), ...shown.filter((c) => key(c) !== official)];   // our own coin first
   $('count').textContent = shown.length + (shown.length === 1 ? ' coin' : ' coins') + ' · ' + shown.length + ' عملة';
   if (!shown.length) box.append(el('div', { className: 'card mut', textContent: rows.length ? 'Nothing matches. / لا نتائج.' : 'No coins yet. / لا توجد عملات بعد.' }));
   for (const c of shown) {
     const k = key(c);
     const isHidden = hidden.has(k);
-    const card = el('div', { className: 'card' + (isHidden ? ' dim' : '') });
+    const row = el('a', { className: 'coin' + (k === official ? ' official' : '') + (isHidden ? ' dim' : ''), href: '/zenobia/trade.html?c=' + encodeURIComponent(c.curve) });
+    const ph = el('div', { className: 'ph', textContent: (c.symbol || '?').slice(0, 1) });
     if (c.image) {
-      const img = el('img', { className: 'thumb', alt: '', referrerPolicy: 'no-referrer', loading: 'lazy' }) as HTMLImageElement;
+      const img = el('img', { alt: '', referrerPolicy: 'no-referrer', loading: 'lazy' }) as HTMLImageElement;
       img.src = c.image;
       img.onerror = () => img.remove();
-      card.append(img);
+      ph.append(img);
     }
-    const star = el('button', { className: 'star' + (watched.has(k) ? ' on' : ''), textContent: watched.has(k) ? '★' : '☆', title: 'Watchlist', ariaLabel: 'Watchlist', onclick: () => { watched.has(k) ? watched.delete(k) : watched.add(k); saveWatch(watched); render(); } });
-    card.append(star, el('div', { className: 'ctitle', textContent: (c.name || '(no name)') + ' · ' + (c.symbol || '?') }));
+    const body = el('div', { className: 'body' });
+    const t = el('div', { className: 't' }, c.name || '(no name)', el('span', { className: 'sym', textContent: c.symbol || '?' }));
     const badges = el('div', { className: 'badges' });
+    if (k === official) badges.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
     if (Date.now() / 1000 - c.createdAt < 86400) badges.append(el('span', { className: 'badge new', textContent: 'NEW' }));
-    if ((c.state ?? 1) >= 2) badges.append(el('span', { className: 'badge grad', textContent: 'Graduated · DeDust' }));
-    badges.append(el('span', { className: 'badge', textContent: 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%' }));
+    if ((c.state ?? 1) >= 2) badges.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
     const rep = reports.get(k);
-    if (admin && rep) badges.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' report' + (rep.n > 1 ? 's' : '') + ' · ' + rep.reason }));
-    card.append(badges, el('div', { className: 'mut', textContent: c.description }));
+    if (admin && rep) badges.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
+    body.append(t);
+    if (badges.childElementCount) body.append(badges);
+    body.append(el('div', { className: 'd', textContent: c.description }));
     const p = pct(c);
     if (p !== null) {
-      const bar = el('div', { className: 'bar', style: 'margin:8px 0 4px' }, el('div', { style: 'width:' + p + '%' }));
-      const tpt = c.tokensPerTon && c.tokensPerTon !== '0' ? ' · 1 TON ≈ ' + fmt(BigInt(c.tokensPerTon), 9, 0) + ' ' + (c.symbol || '') : '';
-      card.append(bar, el('div', { className: 'mut', textContent: 'Raised ' + fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' TON (' + p.toFixed(1) + '%)' + tpt }));
+      body.append(el('div', { className: 'bar' }, el('div', { style: 'width:' + p + '%' })));
+      body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' TON' }), el('b', { textContent: p.toFixed(1) + '%' })));
+    } else {
+      body.append(el('div', { className: 'm' }, el('span', { textContent: 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%' }), el('span', { textContent: new Date(c.createdAt * 1000).toISOString().slice(0, 10) })));
     }
-    card.append(el('div', { className: 'mut', textContent: `Supply ${fmt(c.supply, 9, 0)} · by ${c.creator.slice(0, 6)}…${c.creator.slice(-4)} · ${new Date(c.createdAt * 1000).toISOString().slice(0, 10)}` }));
-    const links = el('div', { className: 'links' });
-    links.append(el('a', { className: 'btn', textContent: 'Open · افتح', href: '/zenobia/trade.html?c=' + encodeURIComponent(c.curve) }));
-    links.append(el('a', { className: 'btn alt', textContent: 'Share', href: tgShare(c), target: '_blank', rel: 'noopener' }));
-    card.append(links);
+    const star = el('button', { className: 'star' + (watched.has(k) ? ' on' : ''), textContent: watched.has(k) ? '★' : '☆', title: 'Watchlist', ariaLabel: 'Watchlist', onclick: (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); if (watched.has(k)) watched.delete(k); else watched.add(k); saveWatch(watched); render(); } });
+    row.append(ph, body, star);
+    box.append(row);
     if (admin) {
-      const row = el('div', { className: 'row' });
+      const adm = el('div', { className: 'card', style: 'margin-top:-4px' });
       const reason = el('input', { placeholder: 'reason (optional)', value: '' }) as HTMLInputElement;
-      row.append(reason);
-      row.append(el('button', { textContent: isHidden ? 'Unhide' : 'Hide', onclick: () => setHidden(c, !isHidden, reason.value) }));
-      row.append(el('button', { className: 'alt', textContent: 'Collect platform fees', onclick: () => collect(c) }));
-      card.append(row);
+      adm.append(reason);
+      adm.append(el('button', { textContent: isHidden ? 'Unhide' : 'Hide', onclick: () => setHidden(c, !isHidden, reason.value) }));
+      adm.append(el('button', { className: 'alt', textContent: 'Collect platform fees', onclick: () => collect(c) }));
+      box.append(adm);
     }
-    box.append(card);
   }
 }
 
@@ -163,6 +176,7 @@ async function setupAdmin() {
 (async () => {
   const cfg = await loadConfig();
   master = Address.parse(cfg.master);
+  if (cfg.curve) { try { official = Address.parse(cfg.curve).toString({ bounceable: true, urlSafe: true }); } catch {} }
   if (admin) await setupAdmin();
   // the server index first (fast, carries live numbers); the chain itself only when the index is missing or old
   let usedIndex = false;
@@ -187,6 +201,7 @@ async function setupAdmin() {
     } catch {}
   }
   toolbar();
+  stats();
   render();
 })().catch((e) => say('Error: ' + (e.message || e)));
 void client;
