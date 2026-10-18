@@ -5,11 +5,11 @@ import type { Bot as BotRow } from "@prisma/client";
 import { handlePlatformCallback, platformKeyboard, platformText } from "@/lib/hostingPanel";
 
 export const PLATFORM_COMMANDS = [
-  { command: "platform", description: "Coin platform: open / close / status" },
+  { command: "platform", description: "Palmyra Launch: open / close / status" },
   { command: "help", description: "What this bot does" },
 ];
 
-const HELP = "🪙 Coin platform owner bot · بوت مالك منصة العملات\n\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
+const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
 
 export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, body: any): Promise<void> {
   const cq = body.callback_query;

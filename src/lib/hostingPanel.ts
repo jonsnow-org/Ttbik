@@ -77,7 +77,7 @@ export async function platformText(): Promise<{ text: string; open: boolean }> {
   const snap = await readSnapshot().catch(() => null);
   const reports = await prisma.$queryRawUnsafe(`SELECT COUNT(DISTINCT curve)::int AS n FROM znbt_reports`).then((r) => Number((r as { n: number }[])[0]?.n ?? 0)).catch(() => 0);
   const open = !!cfg?.open;
-  const lines = ["🪙 منصة العملات · Coin platform", ""];
+  const lines = ["🪙 Palmyra Launch · تدمر لانش", ""];
   lines.push(`المنصة: ${open ? "✅ مفتوحة للجميع (يستطيع أي شخص إطلاق عملة)" : "⛔ مغلقة (صفحة الإنشاء تعرض «لم يُفتح بعد»)"}`);
   lines.push(`ZNBt: ${cfg?.curve ? `✅ مُطلقة (${cfg.curve.slice(0, 6)}…${cfg.curve.slice(-4)})${cfg.launchedAt ? " · " + cfg.launchedAt.slice(0, 10) : ""}` : "لم تُطلَق بعد: افتح صفحة الإطلاق أولاً"}`);
   lines.push(`العملات المفهرسة: ${snap?.coins?.length ?? 0}${snap ? "" : " (لا فهرس بعد)"}`);
