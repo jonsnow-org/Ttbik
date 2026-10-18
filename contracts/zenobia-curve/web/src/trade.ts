@@ -124,6 +124,42 @@ ui.onStatusChange(() => {
   loadMe().catch(() => {});
 });
 
+async function loadFacts() {
+  const box = $('facts');
+  const row = (k: string, v: string | Node) => { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.append(v); box.append(dt, dd); };
+  box.textContent = '';
+  let coin: any = null;
+  try {
+    const j = await (await fetch('/api/zenobia/coins/index', { cache: 'no-store' })).json();
+    coin = (j.coins || []).find((c: any) => c.curve === curve!.toString({ bounceable: true }) || Address.parse(c.curve).equals(curve!));
+  } catch {}
+  const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
+  const link = (a: string, t: string) => { const x = document.createElement('a'); x.href = 'https://tonviewer.com/' + a; x.target = '_blank'; x.rel = 'noopener'; x.textContent = t; return x; };
+  if (coin) {
+    row('Creator', link(coin.creator, short(coin.creator)));
+    row('Created', new Date(coin.createdAt * 1000).toISOString().slice(0, 10));
+    row('Supply', fmt(BigInt(coin.supply), 9, 0));
+    row('Creator fee', (coin.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '% per trade');
+  }
+  row('Platform fee', '1.5% per trade');
+  row('Contract', link(curve!.toString({ bounceable: true }), short(curve!.toString({ bounceable: true }))));
+  row('Audit', 'None (experimental fork)');
+}
+
+$('copyLink').onclick = async () => {
+  try { await navigator.clipboard.writeText(location.href); say('Link copied.'); } catch { say(location.href); }
+};
+$('repSend').onclick = async () => {
+  try {
+    if (!curve) return;
+    const r = await fetch('/api/zenobia/coins/report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ curve: curve.toString({ bounceable: true }), reason: ($('repReason') as HTMLSelectElement).value, details: ($('repDetails') as HTMLInputElement).value }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    say('Thank you. The platform owner will review your report.');
+    ($('repDetails') as HTMLInputElement).value = '';
+  } catch (e: any) { say('Error: ' + (e.message || e)); }
+};
+
 (async () => {
   const cfg = await loadConfig();
   const param = new URLSearchParams(location.search).get('c');
@@ -139,7 +175,9 @@ ui.onStatusChange(() => {
   const hid = await hiddenSet();
   if (hid.has(curve.toString({ bounceable: true, urlSafe: true }))) $('hiddenNote').style.display = 'block';
   $('addr').textContent = curve.toString({ bounceable: true });
+  ($('tgShare') as HTMLAnchorElement).href = 'https://t.me/share/url?url=' + encodeURIComponent(location.href);
   await loadMarket();
   await loadIdentity();
+  loadFacts().catch(() => {});
   setInterval(() => loadMarket().catch(() => {}), 30000);
 })().catch((e) => say('Error: ' + (e.message || e)));
