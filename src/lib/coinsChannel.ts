@@ -8,6 +8,7 @@ import { HOSTING } from "@/lib/hostingOps";
 import { getConfig } from "@/lib/znbtConfig";
 import { readSnapshot } from "@/lib/znbtIndex";
 import { ensureHiddenTable } from "@/lib/znbtHideDb";
+import platformFeatures from "../../promo/platform-features.json";
 
 const STATE_KEY = "coins_channel_state";
 const MIN_GAP_MS = 3 * 3600 * 1000;
@@ -45,6 +46,13 @@ const ATHAR_BOT = (process.env.NEXT_PUBLIC_ATHAR_BOT_URL || "https://t.me/AtharD
 const PLATFORM_BOT = (process.env.NEXT_PUBLIC_PLATFORM_BOT_URL || "https://t.me/PalmyraLaunchBot").trim();
 const esc = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// Feature announcements of the platform: promo/platform-features.json (the supervisor checks that every public platform page is covered there).
+type FeatureEntry = { id: string; title: string; text: string; path: string; cta: string; tags: string; repeatDays: number };
+export function featureItems(): Item[] {
+  const G = HOSTING.gateUrl;
+  return (platformFeatures.features as FeatureEntry[]).map((f) => ({ id: f.id, title: f.title, text: f.text, url: `${G}/zenobia/${f.path}${f.path.includes("?") ? "&" : "?"}lang=en`, cta: f.cta, tags: f.tags, repeatDays: f.repeatDays }));
+}
+
 export function coinsPool(flags: { znbt: boolean; platform: boolean }): Item[] {
   const G = HOSTING.gateUrl;
   const items: Item[] = [
@@ -56,6 +64,7 @@ export function coinsPool(flags: { znbt: boolean; platform: boolean }): Item[] {
     { id: "athar:today", title: "Today's token in Athar", text: "A new date every day could become your token. Open Athar, see today's token and claim it if it is free. A keepsake only.", url: ATHAR_BOT, cta: "📅 Today's token", tags: "#Athar #TON", repeatDays: 7 },
   ];
   if (flags.znbt) items.push({ id: "znbt", title: "ZNBt · Zenobia of Tadmor", text: "Zenobia's new coin on TON, launched on our own platform. Hold it and grow from Child to Queen to Warrior. Fees 1.5% platform + 1.5% creator. Experimental, unaudited contracts: you can lose everything you put in. Not financial advice.", url: `${G}/zenobia/trade.html`, cta: "🪙 Open ZNBt", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch" }, tags: "#ZNBt #TON", repeatDays: 3 });
+  if (flags.znbt) items.push(...featureItems());   // the platform pages work as soon as ZNBt exists, whether or not launching is open
   if (flags.platform) items.push({ id: "palmyra-launch", title: "Palmyra Launch", text: "Launch your own coin on TON in a few taps, or browse coins others launched. Fees are fixed and shown before you confirm. Not financial advice; crypto is risky.", url: `${G}/zenobia/coins.html?lang=en`, cta: "🪙 Open Palmyra Launch", target: { url: PLATFORM_BOT, label: "🤖 Palmyra Launch bot" }, tags: "#PalmyraLaunch #TON", repeatDays: 3 });
   return items;
 }

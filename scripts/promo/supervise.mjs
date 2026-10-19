@@ -11,6 +11,7 @@ export const WORKFLOWS = [
   ["promo-remotion.yml", "Promo videos (Remotion)", 100],
   ["promo-projects.yml", "Project videos", 192],
   ["error-triage.yml", "Error triage", 3],
+  ["referral-sync.yml", "Invite reward sync", 12],
 ];
 export const RERUN_OK = new Set(["promo-projects.yml", "error-triage.yml"]);   // idempotent: re-rendering / re-reading never posts anything
 const ARABIC = /[؀-ۿ]/;
@@ -42,6 +43,12 @@ export function evaluate(d, now = Date.now()) {
     const age = hours(d.release.published_at, now) / 24;
     add("Latest promo video release", age > 6 ? "warn" : "ok", `${d.release.tag_name} (${age.toFixed(1)} days old)`);
   } else if (d.release === null) add("Latest promo video release", "warn", "no promo-ep-* release found");
+  // every public tool and platform page must be in the promotion rotation: a new one that is not is reported, never silently missed
+  if (d.coverage) {
+    const c = d.coverage;
+    add("Tools in the promo rotation", c.toolsMissing.length ? "warn" : "ok", c.toolsMissing.length ? `built but not listed in src/lib/freeTools.ts (so never promoted): ${c.toolsMissing.join(", ")}` : `all ${c.tools} tools are listed`);
+    add("Platform pages in the coins-channel announcements", c.pagesMissing.length ? "warn" : "ok", c.pagesMissing.length ? `add to promo/platform-features.json (or its exempt list): ${c.pagesMissing.join(", ")}` : `all ${c.pages} public pages are covered`);
+  }
   if (typeof d.errors === "number") add("Open auto-error issues", d.errors === 0 ? "ok" : "warn", d.errors === 0 ? "none" : `${d.errors} open: ${(d.errorTitles || []).join(" | ")}`);
   return out;
 }
@@ -86,6 +93,16 @@ async function main() {
     const r = await gh(`/repos/${repo}/actions/workflows/${def[0]}/runs?per_page=10&status=completed`);
     data.workflows.push(r.status === 200 ? { def, runs: r.body.workflow_runs || [] } : { def, error: `HTTP ${r.status}` });
   }
+  // coverage of new additions (reads the checked-out repository files)
+  try {
+    const rd = (p) => { try { return fs.readFileSync(p, "utf8"); } catch { return ""; } };
+    const hrefs = [...rd("src/lib/freeTools.ts").matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+    const dirs = fs.existsSync("src/app/free-tools") ? fs.readdirSync("src/app/free-tools", { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name) : [];
+    const man = JSON.parse(rd("promo/platform-features.json") || "{}");
+    const covered = new Set((man.features || []).flatMap((f) => f.pages || [])), exempt = new Set(man.exempt || []);
+    const pages = fs.existsSync("public/zenobia") ? fs.readdirSync("public/zenobia").filter((f) => f.endsWith(".html")) : [];
+    if (hrefs.length && man.features) data.coverage = { tools: dirs.length, toolsMissing: dirs.filter((x) => !hrefs.includes("/free-tools/" + x)), pages: pages.length, pagesMissing: pages.filter((f) => !covered.has(f) && !exempt.has(f)) };
+  } catch { /* the report simply has no coverage lines */ }
   const secret = process.env.CRON_SECRET || "";
   for (const [label, path, coins] of [["general channel", "telegram-post", false], ["coins channel", "coins-channel-post", true]]) {
     if (!secret) { data.previews.push({ label, skipped: "CRON_SECRET is not available to this job" }); continue; }

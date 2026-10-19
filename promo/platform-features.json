@@ -1,0 +1,76 @@
+{
+  "_readme": "Features of the coin platform (Palmyra Launch) that the coins channel announces, in English only, no promise of any return. src/lib/coinsChannel.ts turns each entry into a post (once the platform is live). scripts/promo/supervise.mjs reports any public page in public/zenobia/ that is neither listed under `pages` nor under `exempt`: add an entry here when a new page or feature ships.",
+  "exempt": ["terms.html", "link.html", "launch.html", "earnings.html", "hall.html", "silk.html", "create.html"],
+  "features": [
+    {
+      "id": "feature:explore",
+      "pages": ["coins.html"],
+      "title": "Explore coins like a trading terminal",
+      "text": "Trending, new, closest to graduation, top and graduated lists, 24h top movers and a watchlist, all on one screen. Experimental platform with unaudited contracts: only use what you can afford to lose.",
+      "path": "coins.html",
+      "cta": "🪙 Open Palmyra Launch",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 9
+    },
+    {
+      "id": "feature:coin-page",
+      "pages": ["trade.html"],
+      "title": "Every coin page: candles, curve and a Trust check",
+      "text": "Price candles, the bonding-curve map, a Trust check, the holders list and sticky Buy and Sell buttons. The Trust check helps you look closer; it is not a guarantee of safety.",
+      "path": "coins.html",
+      "cta": "📈 See the coins",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 10
+    },
+    {
+      "id": "feature:swap",
+      "pages": ["swap.html"],
+      "title": "Swap tokens inside Palmyra Launch",
+      "text": "Swap on STON.fi without leaving the app. The quote shows the DEX pool fee plus our 0.30% platform fee before your wallet signs, and unverified tokens are clearly marked. Not financial advice.",
+      "path": "swap.html",
+      "cta": "🔁 Open Swap",
+      "tags": "#PalmyraLaunch #STONfi #TON",
+      "repeatDays": 10
+    },
+    {
+      "id": "feature:journey",
+      "pages": ["journey.html"],
+      "title": "Journey: streaks, quests and ranks",
+      "text": "Check in daily, finish quests and climb from Traveler to Queen of the desert. Points are only a progress score kept on your device: not money, not a token, and nothing is promised for them.",
+      "path": "journey.html",
+      "cta": "🏆 Start your Journey",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 9
+    },
+    {
+      "id": "feature:alerts",
+      "pages": [],
+      "title": "Coin alerts from the bot",
+      "text": "Open a coin from the Palmyra Launch bot and turn on alerts: the bot messages you when it gets close to graduation, graduates to DeDust, or its price moves 20%. Not financial advice.",
+      "path": "coins.html",
+      "cta": "🔔 Open Palmyra Launch",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 11
+    },
+    {
+      "id": "feature:votes",
+      "pages": [],
+      "title": "Vote on coins: ⭐ 🔥 💔",
+      "text": "Quick community votes on every coin page. They show sentiment, not safety or price, so always read the Trust check yourself.",
+      "path": "coins.html",
+      "cta": "⭐ Browse the coins",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 12
+    },
+    {
+      "id": "feature:portfolio",
+      "pages": ["portfolio.html"],
+      "title": "Your portfolio in one place",
+      "text": "See the coins you hold with an estimated value at the current curve price and sell from the same screen. Creators also see the earnings from the coins they launched.",
+      "path": "portfolio.html",
+      "cta": "👛 Open Portfolio",
+      "tags": "#PalmyraLaunch #TON",
+      "repeatDays": 12
+    }
+  ]
+}
