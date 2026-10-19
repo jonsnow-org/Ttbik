@@ -47,8 +47,8 @@ async function masterAddress(): Promise<Address> {
 async function refresh() {
   try {
     const bal = await retry(() => client.getBalance(OWNER));
-    $('bal').textContent = (Number(bal) / 1e9).toFixed(2) + ' TON';
-    $('balWarn').textContent = bal < 4n * NANO ? 'Low: the launch needs about 3 TON plus your optional first buy and fees; keep at least 4 TON. · الرصيد قليل: يلزم نحو 3 TON على الأقل (احتفظ بـ4).' : '';
+    $('bal').textContent = (Number(bal) / 1e9).toFixed(2) + ' GRAM';
+    $('balWarn').textContent = bal < 4n * NANO ? 'Low: the launch needs about 3 GRAM plus your optional first buy and fees; keep at least 4 GRAM. · الرصيد قليل: يلزم نحو 3 GRAM على الأقل (احتفظ بـ4).' : '';
   } catch { $('bal').textContent = '—'; }
   const mAddr = await masterAddress();
   $('master').textContent = mAddr.toString({ bounceable: true });

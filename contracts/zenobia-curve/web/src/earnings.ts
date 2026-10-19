@@ -60,9 +60,9 @@ function render() {
   let waiting = 0n, claimable = 0n;
   for (const f of found) { waiting += f.accrued; claimable += f.claimable; }
   if (!found.length && !isOwner) { box.textContent = 'This wallet has not launched a coin here yet.'; ($('collect') as HTMLButtonElement).disabled = true; return; }
-  line('Fees waiting inside your coins', fmt(waiting, 9, 3) + ' TON');
-  line('Ready to claim (creator fees)', fmt(claimable, 9, 3) + ' TON');
-  if (isOwner) line('Platform fees in the master', fmt(masterFees, 9, 3) + ' TON');
+  line('Fees waiting inside your coins', fmt(waiting, 9, 3) + ' GRAM');
+  line('Ready to claim (creator fees)', fmt(claimable, 9, 3) + ' GRAM');
+  if (isOwner) line('Platform fees in the master', fmt(masterFees, 9, 3) + ' GRAM');
   for (const f of found) line('· ' + (f.coin.symbol || f.coin.name), fmt(f.accrued, 9, 3) + ' waiting · ' + fmt(f.claimable, 9, 3) + ' claimable');
   ($('collect') as HTMLButtonElement).disabled = false;
 }
@@ -98,7 +98,7 @@ async function collect() {
     if (!step2.length) { say('Nothing to collect yet. Fees appear here as people trade your coins.'); return; }
     say('Step 2 of 2: confirm to send everything to your wallet…');
     await send(step2);
-    say('Done. The TON arrives in your wallet in about a minute.');
+    say('Done. The GRAM arrives in your wallet in about a minute.');
     setTimeout(() => { void scan(); }, 60000);
   } catch (e: any) { say('Error: ' + (e.message || e)); }
   finally { busy = false; }

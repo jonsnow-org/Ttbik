@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { isSafeForChannel } from "@/lib/channelPublisher";
 import { HOSTING } from "@/lib/hostingOps";
 import { getConfig } from "@/lib/znbtConfig";
+import { readSnapshot } from "@/lib/znbtIndex";
+import { ensureHiddenTable } from "@/lib/znbtHideDb";
 
 const STATE_KEY = "coins_channel_state";
 const MIN_GAP_MS = 3 * 3600 * 1000;
@@ -87,4 +89,41 @@ export async function publishCoinsChannel(opts: { dry?: boolean } = {}): Promise
   state.cursor += 1;
   await saveState(state).catch(() => null);
   return { ok: true, topic: pick.title, text };
+}
+
+/**
+ * Launch feed: a short English post when a NEW coin appears on Palmyra Launch (created in the last 24h, never announced).
+ * OFF unless COINS_LAUNCH_FEED=1 (the posts carry user-chosen names, so it ships disabled until the owner turns it on).
+ * Safety: plain ASCII name/symbol only, the usual channel filter, never a hidden coin, at most one post per run, no price talk.
+ */
+export async function announceLaunch(opts: { dry?: boolean } = {}): Promise<CoinsResult> {
+  if (process.env.COINS_LAUNCH_FEED !== "1" && !opts.dry) return { ok: false, reason: "feed-off" };
+  const snap = await readSnapshot().catch(() => null);
+  if (!snap) return { ok: false, reason: "no-index" };
+  await ensureHiddenTable().catch(() => null);
+  const hidden = new Set(((await prisma.$queryRawUnsafe(`SELECT curve FROM znbt_hidden LIMIT 1000`).catch(() => [])) as { curve: string }[]).map((h) => h.curve));
+  const state = await loadState();
+  const now = Date.now();
+  const fresh = snap.coins.filter((c) => c.createdAt * 1000 > now - 24 * 3600_000 && !hidden.has(c.curve) && !state.seenAt[`launch:${c.curve}`]);
+  const ascii = /^[\x20-\x7E]{1,32}$/;
+  const pick = fresh.find((c) => ascii.test(c.name || "") && ascii.test(c.symbol || "") && isSafeForChannel(`${c.name} ${c.symbol}`));
+  // coins that cannot be posted are marked so they are not retried forever
+  for (const c of fresh) if (c !== pick && !opts.dry && !(ascii.test(c.name || "") && ascii.test(c.symbol || ""))) state.seenAt[`launch:${c.curve}`] = new Date().toISOString();
+  if (!pick) { if (!opts.dry) await saveState(state).catch(() => null); return { ok: false, reason: "nothing-new" }; }
+  const url = `${HOSTING.gateUrl}/zenobia/trade.html?c=${encodeURIComponent(pick.curve)}`;
+  const card = `${HOSTING.gateUrl}/api/zenobia/card?c=${encodeURIComponent(pick.curve)}`;
+  const fee = (pick.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, "");
+  const text = `<b>New launch: ${esc(pick.name)} (${esc(pick.symbol)})</b>\n\nA new coin just launched on Palmyra Launch. Creator fee ${fee}% per trade, platform fee 1.5%. Check the Trust check on its page before you decide. Experimental unaudited contracts, not financial advice.\n\n#PalmyraLaunch #NewLaunch`;
+  if (opts.dry) return { ok: true, topic: pick.name, text, reason: "dry-run" };
+  const token = await posterToken();
+  if (!token) return { ok: false, reason: "no-bot-token" };
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: channelId(), text, parse_mode: "HTML", reply_markup: { inline_keyboard: [[{ text: "Open the coin", url }]] }, link_preview_options: { url: card, prefer_large_media: true, show_above_text: true } }),
+  }).catch(() => null);
+  const data = res ? await res.json().catch(() => null) : null;
+  if (data?.ok !== true) return { ok: false, topic: pick.name, reason: `telegram: ${String(data?.description || "request-failed").slice(0, 160)}` };
+  state.seenAt[`launch:${pick.curve}`] = new Date().toISOString();
+  await saveState(state).catch(() => null);
+  return { ok: true, topic: pick.name, text };
 }

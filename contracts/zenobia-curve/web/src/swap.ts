@@ -12,7 +12,7 @@ const REF_BPS = 30;   // 0.30% platform fee (STON.fi DEX v2 allows 0.01% to 1%)
 const NATIVE = 'EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c';
 type Tok = { sym: string; addr: string; dec: number; custom?: boolean };
 const BASE: Tok[] = [
-  { sym: 'TON', addr: NATIVE, dec: 9 },
+  { sym: 'GRAM', addr: NATIVE, dec: 9 },
   { sym: 'USDT', addr: 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs', dec: 6 },
   { sym: 'STON', addr: 'EQA2kCVNwVsil2EM2mB0SkXytxCqQjS4mttjDpnXmwG9T6bO', dec: 9 },
 ];
@@ -53,7 +53,7 @@ async function balanceText() {
   const w = wallet();
   if (!w) return;
   try {
-    if (from.addr === NATIVE) { $('bal').textContent = 'Balance: ' + fmt(await client.getBalance(w), 9, 3) + ' TON'; return; }
+    if (from.addr === NATIVE) { $('bal').textContent = 'Balance: ' + fmt(await client.getBalance(w), 9, 3) + ' GRAM'; return; }
     const info: any = await api.getWalletAsset({ walletAddress: w.toString(), assetAddress: from.addr });
     $('bal').textContent = 'Balance: ' + fmt(BigInt(info?.balance ?? '0'), from.dec, 3) + ' ' + from.sym;
   } catch { $('bal').textContent = ''; }
