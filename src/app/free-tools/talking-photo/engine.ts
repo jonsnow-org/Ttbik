@@ -16,8 +16,8 @@
 export type Pt = { x: number; y: number };
 
 // ---------------------------------------------------------------- audio -> weights
-export type Track = { fps: number; J: Float32Array; S: Float32Array; R: Float32Array; F: Float32Array; E: Float32Array };
-export type Weights = { J: number; S: number; R: number; F: number; E: number };
+export type Track = { fps: number; J: Float32Array; S: Float32Array; R: Float32Array; F: Float32Array; E: Float32Array; B: Float32Array };
+export type Weights = { J: number; S: number; R: number; F: number; E: number; B: number };   // B = eyebrow lift on emphasis
 
 function fft(re: Float32Array, im: Float32Array) {
   const n = re.length;
@@ -95,14 +95,18 @@ export function analyzeAudio(buf: AudioBuffer, fps = 30): Track {
     for (let i = 0; i < a.length; i++) { v += (a[i] - v) * (a[i] > v ? up : down); o[i] = v; }
     return o;
   };
-  return { fps, J: smooth(shift(J), 0.7, 0.4), S: smooth(shift(S), 0.5, 0.3), R: smooth(shift(R), 0.5, 0.3), F: smooth(shift(F), 0.6, 0.5), E: smooth(shift(E), 0.7, 0.35) };
+  // eyebrows rise on emphasis: a sudden rise of loudness (a stressed syllable), held a little
+  const Es = smooth(shift(E), 0.7, 0.35);
+  const B0 = new Float32Array(frames);
+  for (let i = 3; i < frames; i++) B0[i] = clamp01((Es[i] - Es[i - 3]) * 2.2) * (Es[i] > 0.45 ? 1 : 0);
+  return { fps, J: smooth(shift(J), 0.7, 0.4), S: smooth(shift(S), 0.5, 0.3), R: smooth(shift(R), 0.5, 0.3), F: smooth(shift(F), 0.6, 0.5), E: Es, B: smooth(B0, 0.5, 0.12) };
 }
 
 export function sampleTrack(tr: Track | null, t: number): Weights {
-  if (!tr) return { J: 0, S: 0, R: 0, F: 0, E: 0 };
+  if (!tr) return { J: 0, S: 0, R: 0, F: 0, E: 0, B: 0 };
   const x = Math.max(0, t) * tr.fps, i = Math.floor(x), k = x - i, n = tr.J.length - 1;
   const g = (a: Float32Array) => a[Math.min(n, i)] * (1 - k) + a[Math.min(n, i + 1)] * k;
-  return { J: g(tr.J), S: g(tr.S), R: g(tr.R), F: g(tr.F), E: g(tr.E) };
+  return { J: g(tr.J), S: g(tr.S), R: g(tr.R), F: g(tr.F), E: g(tr.E), B: g(tr.B) };
 }
 
 // ---------------------------------------------------------------- Delaunay (Bowyer-Watson)
@@ -147,6 +151,7 @@ export type Model = {
   mouth: { x: number; y: number; w: number };
   jawW: Float32Array; lipG: Float32Array; isAnchor: boolean[];
   eyes: { upper: number[]; lower: number[] }[];
+  brows: number[]; faceH: number;
   landmark: boolean;
 };
 
@@ -156,6 +161,7 @@ const LM = {
   lowerInner: [324, 318, 402, 317, 14, 87, 178, 88, 95],
   lowerOuter: [375, 321, 405, 314, 17, 84, 181, 91, 146],
   upperOuter: [185, 40, 39, 37, 0, 267, 269, 270, 409],
+  brows: [70, 63, 105, 66, 107, 336, 296, 334, 293, 300],
   eyeR: { upper: [246, 161, 160, 159, 158, 157, 173], lower: [33, 7, 163, 144, 145, 153, 154, 155, 133] },
   eyeL: { upper: [466, 388, 387, 386, 385, 384, 398], lower: [263, 249, 390, 373, 374, 380, 381, 382, 362] },
 };
@@ -172,7 +178,7 @@ function anchorsAround(W: number, H: number, box: { x0: number; y0: number; x1: 
   return a;
 }
 
-function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInner: number[]; lowerLips: number[]; upperLips: number[]; mouth: Model["mouth"]; nFace: number; eyes: Model["eyes"]; landmark: boolean; box: { x0: number; y0: number; x1: number; y1: number } }, W: number, H: number): Model {
+function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInner: number[]; lowerLips: number[]; upperLips: number[]; mouth: Model["mouth"]; nFace: number; eyes: Model["eyes"]; brows: number[]; landmark: boolean; box: { x0: number; y0: number; x1: number; y1: number } }, W: number, H: number): Model {
   const pts = m.pts.concat(anchorsAround(W, H, m.box));
   const isAnchor = pts.map((_, i) => i >= m.nFace);
   const tris = delaunay(pts);
@@ -189,9 +195,10 @@ function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInne
   for (const i of m.lowerLips) jawW[i] = Math.max(0.12, 1 - 0.88 * Math.min(1, Math.abs(pts[i].x - mx) / (0.5 * mw)) ** 2);
   for (const i of m.upperLips) jawW[i] = 0;
   const eyeIdx = new Set<number>(); m.eyes.forEach((e) => { e.upper.forEach((i) => eyeIdx.add(i)); e.lower.forEach((i) => eyeIdx.add(i)); });
-  const potential = (i: number) => jawW[i] > 0.01 || lipG[i] > 0.01 || eyeIdx.has(i);
+  const browIdx = new Set<number>(m.brows);
+  const potential = (i: number) => jawW[i] > 0.01 || lipG[i] > 0.01 || eyeIdx.has(i) || browIdx.has(i);
   const moving = tris.filter((t) => potential(t[0]) || potential(t[1]) || potential(t[2]));
-  return { pts, tris, moving, inner: m.inner, upperInner: m.upperInner, lowerInner: m.lowerInner, lowerLips: m.lowerLips, upperLips: m.upperLips, mouth: m.mouth, jawW, lipG, isAnchor, eyes: m.eyes, landmark: m.landmark };
+  return { pts, tris, moving, inner: m.inner, upperInner: m.upperInner, lowerInner: m.lowerInner, lowerLips: m.lowerLips, upperLips: m.upperLips, mouth: m.mouth, jawW, lipG, isAnchor, eyes: m.eyes, brows: m.brows, faceH: m.box.y1 - m.box.y0, landmark: m.landmark };
 }
 
 /** From MediaPipe landmarks (normalised x,y). */
@@ -201,7 +208,7 @@ export function modelFromLandmarks(lm: Pt[], W: number, H: number): Model {
   for (const p of pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
   const a = pts[61], b = pts[291], t = pts[13], u = pts[14];
   const mouth = { x: (t.x + u.x) / 2, y: (t.y + u.y) / 2, w: Math.hypot(b.x - a.x, b.y - a.y) };
-  return finish({ pts, inner: LM.inner, upperInner: LM.upperInner.filter((i) => i !== 78 && i !== 308), lowerInner: LM.lowerInner, lowerLips: [...LM.lowerInner, ...LM.lowerOuter], upperLips: [...LM.upperInner.filter((i) => i !== 78 && i !== 308), ...LM.upperOuter], mouth, nFace: pts.length, eyes: [LM.eyeR, LM.eyeL], landmark: true, box: { x0, y0, x1, y1 } }, W, H);
+  return finish({ pts, inner: LM.inner, upperInner: LM.upperInner.filter((i) => i !== 78 && i !== 308), lowerInner: LM.lowerInner, lowerLips: [...LM.lowerInner, ...LM.lowerOuter], upperLips: [...LM.upperInner.filter((i) => i !== 78 && i !== 308), ...LM.upperOuter], mouth, nFace: pts.length, eyes: [LM.eyeR, LM.eyeL], brows: LM.brows, landmark: true, box: { x0, y0, x1, y1 } }, W, H);
 }
 
 /** For drawings, animals, statues: a ring of points built around the mouth the user placed. */
@@ -222,7 +229,7 @@ export function modelFromMouth(mouth: { x: number; y: number; w: number }, W: nu
   const clampPt = (p: Pt) => ({ x: Math.min(W - 1, Math.max(1, p.x)), y: Math.min(H - 1, Math.max(1, p.y)) });
   const cp = pts.map(clampPt);
   const box = { x0: mx - mw * 1.9, y0: my - mw * 2.6, x1: mx + mw * 1.9, y1: my + mw * 2.3 };
-  return finish({ pts: cp, inner, upperInner, lowerInner, lowerLips: lowerInner, upperLips: upperInner.slice(1, 9), mouth, nFace: cp.length, eyes: [], landmark: false, box }, W, H);
+  return finish({ pts: cp, inner, upperInner, lowerInner, lowerLips: lowerInner, upperLips: upperInner.slice(1, 9), mouth, nFace: cp.length, eyes: [], brows: [], landmark: false, box }, W, H);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -259,6 +266,7 @@ function displace(model: Model, w: Weights, blink: number): Pt[] {
     if (p.y < my) y -= raise * lipG[i];
     return { x, y };
   });
+  if (w.B > 0.02) for (const i of model.brows) out[i].y -= w.B * model.faceH * 0.028;
   if (blink > 0.01) {
     for (const e of model.eyes) {
       for (const ui of e.upper) {
@@ -292,17 +300,37 @@ function paintMouth(ctx: CanvasRenderingContext2D, model: Model, moved: Pt[], w:
     ctx.strokeStyle = "rgba(40,8,12,0.55)"; ctx.lineWidth = Math.max(1, mw * 0.012);   // the groove down the middle of the tongue
     ctx.beginPath(); ctx.moveTo(tcx, tcy - try_ * 0.7); ctx.lineTo(tcx, tcy + try_ * 0.3); ctx.stroke();
   }
-  // upper teeth: a band right under the upper lip, grouped like teeth
-  const upperH = Math.min(gh * 0.55, mw * (0.07 + 0.06 * w.F + 0.03 * w.S));
-  const tgU = ctx.createLinearGradient(0, y0, 0, y0 + upperH);
-  tgU.addColorStop(0, "#c2b9aa"); tgU.addColorStop(0.4, "#e2dccd"); tgU.addColorStop(1, "#b3aa9a");
-  ctx.fillStyle = tgU; ctx.fillRect(x0 + gw * 0.07, y0 - 1, gw * 0.86, upperH + 1);
-  ctx.strokeStyle = "rgba(90,70,60,0.22)"; ctx.lineWidth = Math.max(0.6, mw * 0.007);
-  for (let i = 1; i < 8; i++) { const x = x0 + gw * (0.07 + (0.86 * i) / 8); ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + upperH); ctx.stroke(); }
-  // lower teeth when the mouth is wide open
+  // upper teeth: separate rounded teeth hanging from the upper lip, the central ones longest, shorter and darker toward the corners
+  const upperH = Math.min(gh * 0.55, mw * (0.095 + 0.045 * w.F + 0.025 * w.S));
+  const nT = 6, tw = (gw * 0.9) / nT, tx0 = x0 + gw * 0.05;
+  for (let i = 0; i < nT; i++) {
+    const u = Math.abs((i + 0.5) / nT - 0.5) * 2;              // 0 in the middle, 1 at the corners
+    const th = upperH * (1 - 0.42 * Math.pow(u, 1.4));
+    const tx = tx0 + i * tw;
+    const tg = ctx.createLinearGradient(0, y0, 0, y0 + th);
+    const dim = 0.16 + 0.5 * u;                                 // corners sit deeper in the shadow
+    tg.addColorStop(0, `rgb(${178 - 70 * dim | 0},${168 - 66 * dim | 0},${150 - 60 * dim | 0})`);
+    tg.addColorStop(0.3, `rgb(${236 - 90 * dim | 0},${230 - 88 * dim | 0},${214 - 80 * dim | 0})`);
+    tg.addColorStop(1, `rgb(${214 - 80 * dim | 0},${206 - 78 * dim | 0},${190 - 72 * dim | 0})`);
+    ctx.fillStyle = tg;
+    const r = Math.min(tw * 0.38, th * 0.45);
+    ctx.beginPath();
+    ctx.moveTo(tx - 0.3, y0 - 1); ctx.lineTo(tx + tw + 0.3, y0 - 1); ctx.lineTo(tx + tw + 0.3, y0 + th - r);
+    ctx.quadraticCurveTo(tx + tw, y0 + th, tx + tw - r, y0 + th); ctx.lineTo(tx + r, y0 + th);
+    ctx.quadraticCurveTo(tx, y0 + th, tx - 0.3, y0 + th - r); ctx.closePath(); ctx.fill();
+    // a soft seam between neighbouring teeth, not a gap
+    if (i > 0) { ctx.strokeStyle = "rgba(110,95,80,0.28)"; ctx.lineWidth = Math.max(0.5, mw * 0.006); ctx.beginPath(); ctx.moveTo(tx, y0); ctx.lineTo(tx, y0 + th * 0.92); ctx.stroke(); }
+  }
+  // lower teeth when the mouth is open wide: lower, smaller, in more shadow
   if (gh > mw * 0.3) {
-    const lowH = Math.min(gh * 0.22, mw * 0.08);
-    ctx.globalAlpha = 0.82; ctx.fillStyle = "#cdc5b5"; ctx.fillRect(x0 + gw * 0.16, y1 - lowH, gw * 0.68, lowH + 1); ctx.globalAlpha = 1;
+    const lowH = Math.min(gh * 0.24, mw * 0.085), nL = 6, lw = (gw * 0.66) / nL, lx0 = x0 + gw * 0.17;
+    ctx.globalAlpha = 0.85;
+    for (let i = 0; i < nL; i++) {
+      const u = Math.abs((i + 0.5) / nL - 0.5) * 2, lh = lowH * (1 - 0.3 * u);
+      ctx.fillStyle = `rgb(${196 - 50 * u | 0},${188 - 50 * u | 0},${172 - 46 * u | 0})`;
+      ctx.beginPath(); ctx.roundRect?.(lx0 + i * lw + 0.5, y1 - lh, lw - 1, lh + 2, [lh * 0.4, lh * 0.4, 0, 0]); if (!ctx.roundRect) ctx.rect(lx0 + i * lw + 0.5, y1 - lh, lw - 1, lh + 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
   // depth: the top of the opening is in shadow
   const sh = ctx.createLinearGradient(0, y0, 0, y0 + gh * 0.5);
@@ -341,7 +369,7 @@ export function renderFrame(view: HTMLCanvasElement, work: HTMLCanvasElement, ba
   wc.setTransform(1, 0, 0, 1, 0, 0);
   wc.clearRect(0, 0, W, H);
   wc.drawImage(base, 0, 0);
-  if (model && (f.w.J > 0.003 || f.blink > 0.01 || f.w.S > 0.02 || f.w.R > 0.02)) {
+  if (model && (f.w.J > 0.003 || f.blink > 0.01 || f.w.S > 0.02 || f.w.R > 0.02 || f.w.B > 0.02)) {
     const moved = displace(model, f.w, f.blink);
     for (const t of model.moving) drawTri(wc, base, [model.pts[t[0]], model.pts[t[1]], model.pts[t[2]]], [moved[t[0]], moved[t[1]], moved[t[2]]]);
     if (model.eyes.length) paintEyelids(wc, base, model, moved, f.blink);
