@@ -38,7 +38,7 @@ RUNNING = {"RUNNING", "QUEUED"}
 def _key(slug: str) -> str:
     return hashlib.sha1(slug.encode()).hexdigest()[:10]
 
-FIX_EPOCH = "secrets-fallback-v2"
+FIX_EPOCH = "arabic-sft-warmup-fix-v1"   # 2026-10-19: the arabic_sft warm-up bug (versions 6-8) tripped its breaker; the fix is live, the owner's manual run succeeded
 
 
 class HashedState(dict):
