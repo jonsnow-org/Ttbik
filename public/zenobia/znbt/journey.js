@@ -62,7 +62,7 @@
       var bal = el('div', 'jbal');
       bal.append(el('span', 'mut', 'Credited'), el('b', null, j.earned + ' GRAM'));
       box.append(bal);
-      box.append(el('div', 'mut', 'Paying credited rewards out to wallets is not switched on yet. Your balance keeps accumulating here in the meantime.'));
+      box.append(el('div', 'mut', 'Credited rewards are paid out to your linked wallet automatically while payouts are active (minimum 0.25 GRAM, daily limits apply). Until then your balance keeps accumulating here.'));
       var wl = el('div', 'mut'); wl.style.marginTop = '8px';
       if (j.wallet) wl.textContent = 'Your linked wallet: ' + j.wallet.slice(0, 6) + '…' + j.wallet.slice(-4);
       else wl.textContent = 'Link your wallet so rewards can be credited to you and, if you were invited, so your buys are counted for the person who invited you.';
