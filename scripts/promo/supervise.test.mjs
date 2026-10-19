@@ -43,3 +43,12 @@ test("the report carries a machine-readable status marker", () => {
   const md = render(evaluate(healthy(), NOW), "2026-10-19");
   assert.match(md, /^<!-- status:ok -->/); assert.match(md, /all good/);
 });
+
+test("a tool or a platform page that is not in the promotion rotation is a warning", () => {
+  const d = healthy(); d.coverage = { tools: 3, toolsMissing: ["new-tool"], pages: 5, pagesMissing: ["new-page.html"] };
+  const c = evaluate(d, NOW);
+  assert.equal(c.find((x) => x.name.startsWith("Tools in")).level, "warn"); assert.match(c.find((x) => x.name.startsWith("Tools in")).detail, /new-tool/);
+  assert.equal(c.find((x) => x.name.startsWith("Platform pages")).level, "warn");
+  d.coverage = { tools: 3, toolsMissing: [], pages: 5, pagesMissing: [] };
+  assert.equal(overall(evaluate(d, NOW)), "ok");
+});

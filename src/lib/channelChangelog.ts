@@ -64,4 +64,13 @@ export const CHANNEL_CHANGELOG: ChangelogEntry[] = [
       "ثم شارك بطاقتك مع أصدقائك!",
     url: "https://ttbik.vercel.app/free-tools/life-counter",
   },
+  {
+    id: "2026-10-19-talking-photo",
+    date: "2026-10-19",
+    title: "🗣️ أداة جديدة: اجعل أي صورة تتكلم",
+    body:
+      "ارفع صورة شخصية أو رسماً، ثم أضف صوتك أو ملفاً صوتياً، فتتحرك الشفاه والرأس مع الصوت، ويمكنك تغيير الصوت (أنثى، طفلة، روبوت…).\n" +
+      "كل شيء داخل متصفحك دون رفع ملفاتك، وتنزّل فيديو قصيراً. استعمل صوراً تملكها أو بإذن أصحابها.",
+    url: "https://ttbik.vercel.app/free-tools/talking-photo",
+  },
 ];
