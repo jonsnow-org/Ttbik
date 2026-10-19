@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-19 13:31 UTC",
+  "generated_at": "2026-10-19 20:41 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -80,7 +80,7 @@
       "status": "running",
       "role": "primary",
       "last_run": "2026-10-19",
-      "gpu": true,
+      "gpu": false,
       "failure": ""
     },
     {
@@ -216,7 +216,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 791.7,
+      "size_mb": 0.0,
       "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
@@ -224,7 +224,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 718.8,
       "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
@@ -240,16 +240,16 @@
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 144.3,
+      "size_mb": 0.0,
       "last_updated": "2026-10-19",
       "progress": {
-        "samples_consumed": 100440,
-        "step": 9370,
+        "samples_consumed": 101848,
+        "step": 9722,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 3253,
-        "recon": 0.06558963250368834
+        "codebook_usage": 2719,
+        "recon": 0.05912093259394169
       },
       "has_key_files": true
     },
@@ -272,7 +272,7 @@
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 0.0,
+      "size_mb": 580.4,
       "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
@@ -280,8 +280,8 @@
     {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
-      "size_mb": 4238.6,
-      "last_updated": "2026-10-17",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
     },
@@ -297,14 +297,14 @@
       "alias": "نتائج المرحلة الثالثة 2",
       "track": "chat_stage",
       "size_mb": 580.2,
-      "last_updated": "2026-10-18",
+      "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الثانية 1",
       "track": "stage2_multimodal",
-      "size_mb": 582.0,
+      "size_mb": 0.0,
       "last_updated": "2026-10-19",
       "progress": {},
       "has_key_files": true
