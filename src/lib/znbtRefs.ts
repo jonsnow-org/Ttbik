@@ -155,3 +155,30 @@ export async function accountOf(inviter: string): Promise<Account> {
   return { earned, paid, pending: earned - paid, wallet: w[0]?.wallet ?? null };
 }
 export const fmtNano = (n: bigint) => (Number(n) / 1e9).toFixed(3);
+
+/** The owner's log (platform bot /referrals): what was credited, what is due to whom. Read-only. */
+export async function ownerLog(): Promise<string> {
+  await ensureRefTables();
+  const sum = (await prisma.$queryRawUnsafe(
+    `SELECT (SELECT COUNT(*)::int FROM znbt_referrals) AS refs, (SELECT COUNT(*)::int FROM znbt_wallets) AS wallets, COUNT(*)::int AS buys,
+            COALESCE(SUM(fee_nano::numeric),0)::text AS fees, COALESCE(SUM(reward_nano::numeric),0)::text AS rewards FROM znbt_ref_events`,
+  )) as { refs: number; wallets: number; buys: number; fees: string; rewards: string }[];
+  const who = (await prisma.$queryRawUnsafe(`SELECT inviter FROM znbt_ref_events GROUP BY inviter ORDER BY SUM(reward_nano::numeric) DESC LIMIT 15`)) as { inviter: string }[];
+  const lines: string[] = [];
+  let due = 0n;
+  for (const { inviter } of who) {
+    const a = await accountOf(inviter);
+    if (a.pending > 0n) { due += a.pending; lines.push(`• ${inviter}: ${fmtNano(a.pending)} GRAM${a.wallet ? "" : " (no wallet linked)"}`); }
+  }
+  const f = (s: string) => fmtNano(BigInt(s.split(".")[0]));
+  const s = sum[0];
+  return [
+    "🪙 Invite rewards · مكافآت الدعوات",
+    `Invites: ${s.refs} · linked wallets: ${s.wallets}`,
+    `Buys credited: ${s.buys} · platform fees behind them: ${f(s.fees)} GRAM`,
+    `Rewards credited: ${f(s.rewards)} GRAM (20% of those fees) · due now: ${fmtNano(due)} GRAM`,
+    ...(lines.length ? ["", "Due:", ...lines] : []),
+    "",
+    "Payouts are not switched on: nothing is sent automatically.",
+  ].join("\n");
+}
