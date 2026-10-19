@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { analyzeAudio, modelFromLandmarks, modelFromMouth, renderFrame, sampleTrack, type Model, type Track, type Weights } from "./engine";
 
 /**
- * Talking photo, entirely in the browser (nothing is uploaded): a photo + a voice (uploaded or recorded) become a short video of the photo "speaking".
- * The mouth is a puppet jaw: inside a soft elliptical mask around the mouth the lower half of the picture is shifted down by the loudness of the voice
- * and the gap is filled with a dark mouth interior; the head sways a little. The mouth position comes from MediaPipe face landmarks when a human face is
- * found, otherwise (cartoons, animals, statues) the user places it by tapping the picture. Every frame carries an "AI-generated" mark.
+ * Talking photo, entirely in the browser (nothing is uploaded): a photo + a voice (uploaded or recorded) become a short video of the photo speaking.
+ * The voice is analysed into mouth weights (jaw, spread, round, hiss), the face is a triangle mesh (MediaPipe landmarks, or a ring built around the mouth
+ * the user taps for drawings), and see engine.ts for how the mouth, teeth, tongue, blinks and head sway are produced. Every frame carries an "AI-generated" mark.
  */
 
 type Lang = "ar" | "en";
@@ -14,22 +14,24 @@ const T = {
   ar: {
     pickImage: "1) اختر الصورة", pickAudio: "2) الصوت", upload: "رفع ملف صوتي", record: "تسجيل بالميكروفون", stopRec: "إيقاف التسجيل",
     consent: "أقرّ بأن الصورة لي أو لشخصية خيالية أو لشخص أذن لي بذلك، ولن أستخدم الفيديو للانتحال أو الخداع أو الإساءة.",
-    place: "اضغط على الصورة لتحديد موضع الفم، وغيّر حجمه بالشريط.", size: "حجم الفم", detecting: "جارٍ البحث عن الوجه…", found: "وُجد وجه وضُبط الفم تلقائياً. يمكنك تعديله بالضغط على الصورة.",
+    place: "اضغط على الصورة لتحديد موضع الفم، وغيّر حجمه بالشريط.", size: "حجم الفم", detecting: "جارٍ البحث عن الوجه…", found: "وُجد وجه: ستتحرك الشفاه والفك والعينان تلقائياً.",
     notFound: "لم يُعثر على وجه بشري (طبيعي للرسوم والشخصيات): اضغط على الصورة عند الفم.",
-    preview: "معاينة", makeVideo: "اصنع الفيديو", making: "جارٍ التسجيل… (بطول الصوت)", download: "تنزيل الفيديو", share: "مشاركة",
+    analyzing: "جارٍ تحليل الصوت…", analyzed: "تم تحليل الصوت.", analyzeFail: "تعذّر تحليل هذا الصوت؛ سيُستخدم تحليل أبسط.",
+    preview: "معاينة", makeVideo: "اصنع الفيديو", making: "جارٍ التسجيل… (بطول الصوت)", download: "تنزيل الفيديو", share: "مشاركة", del: "حذف الفيديو وإعادة المحاولة",
     needConsent: "فعّل الإقرار أولاً.", needBoth: "اختر صورة وصوتاً.", tooLong: "الصوت أطول من 60 ثانية.", micDenied: "تعذّر الوصول للميكروفون.",
-    noRecorder: "متصفحك لا يدعم تسجيل الفيديو. جرّب Chrome أو Safari حديث.", ready: "الفيديو جاهز.",
-    note: "تعمل الأداة بالكامل في متصفحك: لا تُرفع صورتك ولا صوتك لأي خادم. الحركة بسيطة (فم ورأس) ومناسبة للشخصيات والصور الواضحة.",
+    noRecorder: "متصفحك لا يدعم تسجيل الفيديو. جرّب Chrome أو Safari حديث.", ready: "الفيديو جاهز. إن لم يعجبك احذفه وأعد المحاولة.", deleted: "حُذف الفيديو.",
+    note: "تعمل الأداة بالكامل في متصفحك: لا تُرفع صورتك ولا صوتك لأي خادم. حركة الفم تُشتق من الصوت نفسه (انفتاح الفك، انفراج الشفاه أو استدارتها، الأصوات الصفيرية)، وتُرسم الأسنان واللسان داخل الفم.",
   },
   en: {
     pickImage: "1) Pick the picture", pickAudio: "2) The voice", upload: "Upload an audio file", record: "Record with the microphone", stopRec: "Stop recording",
     consent: "I confirm the picture is mine, a fictional character, or of someone who allowed it, and I will not use the video to impersonate, deceive or abuse.",
-    place: "Tap the picture to place the mouth, and change its size with the slider.", size: "Mouth size", detecting: "Looking for a face…", found: "A face was found and the mouth was set. Tap the picture to adjust it.",
+    place: "Tap the picture to place the mouth, and change its size with the slider.", size: "Mouth size", detecting: "Looking for a face…", found: "A face was found: lips, jaw and eyes will move by themselves.",
     notFound: "No human face found (normal for cartoons and characters): tap the picture at the mouth.",
-    preview: "Preview", makeVideo: "Make the video", making: "Recording… (as long as the audio)", download: "Download the video", share: "Share",
+    analyzing: "Analysing the voice…", analyzed: "Voice analysed.", analyzeFail: "This audio could not be analysed; a simpler analysis is used.",
+    preview: "Preview", makeVideo: "Make the video", making: "Recording… (as long as the audio)", download: "Download the video", share: "Share", del: "Delete the video and try again",
     needConsent: "Tick the confirmation first.", needBoth: "Choose a picture and a voice.", tooLong: "The audio is longer than 60 seconds.", micDenied: "Could not access the microphone.",
-    noRecorder: "Your browser cannot record video. Try a recent Chrome or Safari.", ready: "The video is ready.",
-    note: "Runs entirely in your browser: your picture and voice are never uploaded. The motion is simple (mouth and head), best for characters and clear pictures.",
+    noRecorder: "Your browser cannot record video. Try a recent Chrome or Safari.", ready: "The video is ready. If you do not like it, delete it and try again.", deleted: "The video was deleted.",
+    note: "Runs entirely in your browser: your picture and voice are never uploaded. The mouth follows the voice itself (jaw opening, spread or rounded lips, hissing sounds) and teeth and tongue are drawn inside the mouth.",
   },
 } as const;
 
@@ -38,20 +40,15 @@ const MAX_SECONDS = 60;
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 const MP_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
-type Mouth = { x: number; y: number; w: number };
-
-async function detectMouth(bmp: HTMLCanvasElement): Promise<Mouth | null> {
+async function detectLandmarks(c: HTMLCanvasElement): Promise<{ x: number; y: number }[] | null> {
   try {
     const vision: any = await import(/* webpackIgnore: true */ `${MP}/vision_bundle.mjs`);
     const fileset = await vision.FilesetResolver.forVisionTasks(`${MP}/wasm`);
     const lm = await vision.FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: MP_MODEL }, runningMode: "IMAGE", numFaces: 1 });
-    const res = lm.detect(bmp);
+    const res = lm.detect(c);
     lm.close?.();
     const p = res?.faceLandmarks?.[0];
-    if (!p) return null;
-    const W = bmp.width, H = bmp.height;
-    const top = p[13], bot = p[14], l = p[61], r = p[291];
-    return { x: ((top.x + bot.x) / 2) * W, y: ((top.y + bot.y) / 2) * H, w: Math.hypot((r.x - l.x) * W, (r.y - l.y) * H) };
+    return p && p.length >= 468 ? p.map((q: any) => ({ x: q.x, y: q.y })) : null;
   } catch {
     return null;
   }
@@ -62,13 +59,18 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
   const dir = lang === "ar" ? "rtl" : "ltr";
   const viewRef = useRef<HTMLCanvasElement>(null);
   const baseRef = useRef<HTMLCanvasElement | null>(null);
+  const workRef = useRef<HTMLCanvasElement | null>(null);
+  const modelRef = useRef<Model | null>(null);
+  const hasFace = useRef(false);
+  const mouth = useRef({ x: 0, y: 0, w: 80 });
+  const trackRef = useRef<Track | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const graph = useRef<{ ac: AudioContext; an: AnalyserNode; dest: MediaStreamAudioDestinationNode } | null>(null);
-  const mouth = useRef<Mouth>({ x: 0, y: 0, w: 80 });
-  const openRef = useRef(0);
   const raf = useRef(0);
   const playing = useRef(false);
   const micRec = useRef<MediaRecorder | null>(null);
+  const blink = useRef({ start: -10, next: 1.2 });
+  const fallbackOpen = useRef(0);
 
   const [hasImage, setHasImage] = useState(false);
   const [audioUrl, setAudioUrl] = useState("");
@@ -79,63 +81,46 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
   const [videoUrl, setVideoUrl] = useState("");
   const [videoExt, setVideoExt] = useState("webm");
   const [mouthW, setMouthW] = useState(80);
+  const [manual, setManual] = useState(false);
 
   // ---------- drawing ----------
-  const draw = useCallback((open: number, time: number, marker: boolean) => {
-    const cv = viewRef.current, base = baseRef.current;
-    if (!cv || !base) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
-    const W = cv.width, H = cv.height;
-    const m = mouth.current;
-    ctx.clearRect(0, 0, W, H);
-    ctx.save();
-    ctx.translate(W / 2, H / 2);
-    ctx.rotate(Math.sin(time * 0.9) * 0.012 * (playing.current ? 1 : 0));
-    const s = 1 + (playing.current ? Math.sin(time * 0.6) * 0.004 + open * 0.006 : 0);
-    ctx.scale(s, s);
-    ctx.translate(-W / 2, -H / 2);
-    ctx.drawImage(base, 0, 0);
-    if (open > 0.01) {
-      const ex = m.w * 0.78, ey = m.w * 0.72;
-      const x0 = Math.max(0, m.x - ex), y0 = Math.max(0, m.y - ey);
-      const w = Math.min(W - x0, ex * 2), h = Math.min(H - y0, ey * 2);
-      const cutY = m.y - y0;                      // the mouth line inside the patch
-      const d = open * m.w * 0.42;                // how far the jaw drops
-      const off = document.createElement("canvas");
-      off.width = Math.ceil(w); off.height = Math.ceil(h);
-      const o = off.getContext("2d")!;
-      o.drawImage(base, x0, m.y, w, h - cutY, 0, cutY + d, w, h - cutY);          // jaw, shifted down
-      const g = o.createRadialGradient(w / 2, cutY + d / 2, 1, w / 2, cutY + d / 2, m.w * 0.5);
-      g.addColorStop(0, "#1a0508"); g.addColorStop(0.7, "#3a0f16"); g.addColorStop(1, "#5a1a22");
-      o.fillStyle = g;
-      o.beginPath(); o.ellipse(w / 2 + (m.x - x0 - w / 2), cutY + d / 2, m.w * 0.46, Math.max(1, d / 2 + 1), 0, 0, Math.PI * 2); o.fill();   // mouth interior
-      o.drawImage(base, x0, y0, w, cutY, 0, 0, w, cutY);                          // upper part on top
-      o.globalCompositeOperation = "destination-in";                                // soft edge so the patch melts into the picture
-      const mask = o.createRadialGradient(m.x - x0, m.y - y0, m.w * 0.3, m.x - x0, m.y - y0, Math.min(ex, ey) * 1.05);
-      mask.addColorStop(0, "rgba(0,0,0,1)"); mask.addColorStop(0.75, "rgba(0,0,0,1)"); mask.addColorStop(1, "rgba(0,0,0,0)");
-      o.fillStyle = mask; o.fillRect(0, 0, w, h);
-      ctx.drawImage(off, x0, y0);
+  const paint = useCallback((w: Weights, time: number, moving: boolean, marker: boolean) => {
+    const cv = viewRef.current, base = baseRef.current, work = workRef.current;
+    if (!cv || !base || !work) return;
+    let b = 0;
+    if (moving) {
+      const s = blink.current;
+      if (time >= s.next) { s.start = time; s.next = time + 2.2 + Math.random() * 3; }
+      const k = (time - s.start) / 0.16;
+      b = k >= 0 && k <= 1 ? Math.sin(Math.PI * k) : 0;
     }
-    ctx.restore();
-    // the mark that stays on every frame
-    ctx.font = `${Math.max(12, Math.round(W / 32))}px system-ui, sans-serif`;
-    ctx.textBaseline = "bottom";
+    renderFrame(cv, work, base, modelRef.current, { t: time, w, blink: b, moving });
+    const ctx = cv.getContext("2d")!, W = cv.width, H = cv.height;
+    ctx.font = `${Math.max(12, Math.round(W / 32))}px system-ui, sans-serif`; ctx.textBaseline = "bottom";
     ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(8, H - Math.round(W / 24) - 10, Math.round(W / 4.2), Math.round(W / 24) + 6);
     ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fillText("AI-generated", 14, H - 10);
     if (marker) {
+      const m = mouth.current;
       ctx.strokeStyle = "#ff3355"; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.ellipse(m.x, m.y, m.w / 2, Math.max(8, m.w / 5), 0, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, Math.PI * 2); ctx.fillStyle = "#ff3355"; ctx.fill();
     }
   }, []);
+  const still = useCallback(() => paint({ J: 0, S: 0, R: 0, F: 0, E: 0 }, 0, false, !hasFace.current), [paint]);
 
-  useEffect(() => { mouth.current.w = mouthW; if (!playing.current) draw(0, 0, true); }, [mouthW, draw]);
+  const rebuildManual = useCallback(() => {
+    const base = baseRef.current;
+    if (!base || hasFace.current) return;
+    modelRef.current = modelFromMouth(mouth.current, base.width, base.height);
+    still();
+  }, [still]);
+
+  useEffect(() => { mouth.current.w = mouthW; if (hasImage && !hasFace.current && !playing.current) rebuildManual(); }, [mouthW, hasImage, rebuildManual]);
 
   // ---------- picture ----------
   const onImage = async (f: File | null) => {
     if (!f) return;
-    setVideoUrl(""); setMsg(t.detecting);
+    setVideoUrl(""); setMsg(t.detecting); hasFace.current = false; setManual(false); modelRef.current = null;
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = async () => {
@@ -143,25 +128,27 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
       const W = Math.max(2, Math.round((img.width * k) / 2) * 2), H = Math.max(2, Math.round((img.height * k) / 2) * 2);   // even sizes for video
       const base = document.createElement("canvas"); base.width = W; base.height = H;
       base.getContext("2d")!.drawImage(img, 0, 0, W, H);
-      baseRef.current = base;
+      const work = document.createElement("canvas"); work.width = W; work.height = H;
+      baseRef.current = base; workRef.current = work;
       const cv = viewRef.current!; cv.width = W; cv.height = H;
       mouth.current = { x: W / 2, y: H * 0.68, w: Math.round(W * 0.18) };
       setMouthW(mouth.current.w);
       setHasImage(true);
-      draw(0, 0, true);
       URL.revokeObjectURL(url);
-      const found = await detectMouth(base);
-      if (found) { mouth.current = found; setMouthW(Math.round(found.w)); setMsg(t.found); } else setMsg(t.notFound);
-      draw(0, 0, true);
+      still();
+      const lm = await detectLandmarks(base);
+      if (lm) { hasFace.current = true; modelRef.current = modelFromLandmarks(lm, W, H); setMsg(t.found); setManual(false); }
+      else { setManual(true); modelRef.current = modelFromMouth(mouth.current, W, H); setMsg(t.notFound); }
+      still();
     };
     img.src = url;
   };
 
   const onTap = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!hasImage || playing.current) return;
+    if (!hasImage || playing.current || hasFace.current) return;
     const cv = viewRef.current!, r = cv.getBoundingClientRect();
     mouth.current = { ...mouth.current, x: ((e.clientX - r.left) / r.width) * cv.width, y: ((e.clientY - r.top) / r.height) * cv.height };
-    draw(0, 0, true);
+    rebuildManual();
   };
 
   // ---------- audio ----------
@@ -176,7 +163,19 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
     graph.current = { ac, an, dest };
     return graph.current;
   };
-  const setAudio = (blob: Blob) => { setVideoUrl(""); setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); };
+
+  const analyse = useCallback(async (blob: Blob) => {
+    trackRef.current = null; setMsg(t.analyzing);
+    try {
+      const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const buf = await ac.decodeAudioData(await blob.arrayBuffer());
+      void ac.close();
+      trackRef.current = analyzeAudio(buf, 30);
+      setMsg(t.analyzed);
+    } catch { setMsg(t.analyzeFail); }
+  }, [t]);
+
+  const setAudio = (blob: Blob) => { setVideoUrl(""); setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); void analyse(blob); };
 
   const toggleMic = async () => {
     if (recMic) { micRec.current?.stop(); return; }
@@ -193,13 +192,18 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
   // ---------- playing / recording ----------
   const loop = (an: AnalyserNode) => {
     const buf = new Uint8Array(an.fftSize);
+    const el = audioRef.current!;
     const tick = () => {
-      an.getByteTimeDomainData(buf);
-      let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
-      const rms = Math.sqrt(sum / buf.length);
-      const target = Math.pow(Math.min(1, Math.max(0, (rms - 0.02) * 9)), 0.8);
-      openRef.current += (target - openRef.current) * (target > openRef.current ? 0.55 : 0.25);
-      draw(openRef.current, performance.now() / 1000, false);
+      let w: Weights;
+      if (trackRef.current) w = sampleTrack(trackRef.current, el.currentTime);
+      else {   // no analysis available: loudness only
+        an.getByteTimeDomainData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+        const target = Math.min(1, Math.max(0, (Math.sqrt(sum / buf.length) - 0.02) * 9));
+        fallbackOpen.current += (target - fallbackOpen.current) * (target > fallbackOpen.current ? 0.55 : 0.25);
+        w = { J: fallbackOpen.current, S: 0.2, R: 0, F: 0, E: fallbackOpen.current };
+      }
+      paint(w, el.currentTime + 0.001, true, false);
       if (playing.current) raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
@@ -217,11 +221,11 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
       if (!mime) { setMsg(t.noRecorder); return; }
       ext = mime.startsWith("video/mp4") ? "mp4" : "webm";
       const stream = new MediaStream([...viewRef.current!.captureStream(30).getVideoTracks(), ...g.dest.stream.getAudioTracks()]);
-      rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+      rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 3_000_000 });
       rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       setBusy(true); setMsg(t.making);
     }
-    playing.current = true; openRef.current = 0;
+    playing.current = true; fallbackOpen.current = 0; blink.current = { start: -10, next: 1.0 + Math.random() };
     el.currentTime = 0;
     rec?.start(250);
     loop(g.an);
@@ -229,16 +233,18 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
     el.onended = () => {
       playing.current = false; cancelAnimationFrame(raf.current);
       setTimeout(() => {
-        draw(0, 0, false);
+        still();
         if (rec && rec.state !== "inactive") {
           rec.onstop = () => { setVideoExt(ext); setVideoUrl(URL.createObjectURL(new Blob(chunks, { type: rec!.mimeType }))); setBusy(false); setMsg(t.ready); };
           rec.stop();
-        } else draw(0, 0, true);
+        }
       }, 300);
     };
   };
 
   useEffect(() => () => { cancelAnimationFrame(raf.current); }, []);
+
+  const deleteVideo = () => { setVideoUrl((u) => { if (u) URL.revokeObjectURL(u); return ""; }); setMsg(t.deleted); still(); };
 
   const shareVideo = async () => {
     try {
@@ -259,10 +265,12 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
         {hasImage && (
           <div className="mt-3 space-y-2 text-xs text-slate-600">
             <p>{msg || t.place}</p>
-            <label className="flex items-center gap-3">
-              <span>{t.size}</span>
-              <input type="range" min={20} max={Math.max(60, Math.round((viewRef.current?.width ?? 400) * 0.5))} value={mouthW} onChange={(e) => setMouthW(Number(e.target.value))} className="flex-1" />
-            </label>
+            {manual && (
+              <label className="flex items-center gap-3">
+                <span>{t.size}</span>
+                <input type="range" min={20} max={Math.max(60, Math.round((viewRef.current?.width ?? 400) * 0.5))} value={mouthW} onChange={(e) => setMouthW(Number(e.target.value))} className="flex-1" />
+              </label>
+            )}
           </div>
         )}
       </section>
@@ -298,6 +306,7 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
           <div className="mt-3 flex flex-wrap gap-2">
             <a href={videoUrl} download={`talking-photo.${videoExt}`} className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white">⬇ {t.download}</a>
             <button type="button" onClick={() => void shareVideo()} className="rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200">↗ {t.share}</button>
+            <button type="button" onClick={deleteVideo} className="rounded-xl bg-rose-50 px-5 py-3 text-sm font-bold text-rose-700 ring-1 ring-rose-200">🗑 {t.del}</button>
           </div>
         </section>
       )}
