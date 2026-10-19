@@ -183,8 +183,20 @@ def _interpolate(model, base: dict, other: dict, lam: float, rows) -> None:
             p.copy_((1 - lam) * b + lam * o.to(p.device))
 
 
+def skill_tolerance(skill: str, tolerance: float) -> float:
+    """Room of ONE skill. Chat is the owner's priority skill: it gets a tighter room (default 0.5%, SHAM_CHAT_TOLERANCE overrides) so a media or text gain can
+    never be bought with a chat loss (2026-10-19: a merge that improved text -1.2% and media -3.5% was accepted with chat +0.8%; repeated every run it would creep)."""
+    import os
+    if skill == "chat":
+        try:
+            return min(tolerance, max(0.0, float(os.environ.get("SHAM_CHAT_TOLERANCE", "0.005"))))
+        except ValueError:
+            return min(tolerance, 0.005)
+    return tolerance
+
+
 def _passes(score: dict, base: dict, tolerance: float) -> bool:
-    if any(score[k] > base[k] * (1 + tolerance) for k in base):
+    if any(score[k] > base[k] * (1 + skill_tolerance(k, tolerance)) for k in base):
         return False
     return sum(score[k] / base[k] for k in base) < len(base) - 1e-3
 
@@ -219,7 +231,7 @@ def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.1, 0.15, 0.3, 0.5), 
             rel_mean = sum(s[k] / base_score[k] for k in base_score) / len(base_score)
             if nearest is None or rel_mean < nearest[0]:
                 nearest = (rel_mean, lam, s)
-            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + tolerance) for k in anchor)
+            if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + skill_tolerance(k, tolerance)) for k in anchor)
                     and (best is None or sum(s.values()) < sum(best[1].values()))):
                 best = (lam, s)
         if best is None:

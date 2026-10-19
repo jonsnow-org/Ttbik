@@ -102,6 +102,9 @@ def pick_base(fetch, own_name: str = OWN, probe=None, log=print):
     return main[0], main[1], main[2], {"base": main[2], "base_step": main_step, "merged": {}}
 
 
+_FROZEN: dict = {}      # {"text": the exact gate text}: stored in merge_progress.json so EVERY run (and every candidate) is measured on the same words
+
+
 def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: bool = True):
     """Held-out batches per skill (text / chat / media). Never trained on by this job."""
     from sham_chat import batch_examples, build_chat_example, load_arabic_dialogues, split_holdout
@@ -109,14 +112,22 @@ def default_gate(model, tokenizer, base_dir: Path, device: str, build_media: boo
 
     gate: dict = {}
     max_len = min(1024, model.cfg.max_seq_len)
-    # text: a fixed-seed sample of the general mixture
-    files = sham_text_mix.stream_mix(str(WORK / "gate_text"), max_documents=140, seed=4242, documents_per_file=70,
-                                     sources=sham_text_mix.GATE_SOURCES)
-    text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if f.endswith(".txt"))
-    ids = tokenizer.encode(text)
+    # text: FROZEN. The "fixed-seed" stream returned different documents on different runs (23/24 sources, a live web stream): the SAME head scored text 4.105,
+    # 4.141 and 4.404 on three runs (2026-10-19), a spread 5-10x larger than the effects the gate decides on. The first run now stores the exact text in
+    # merge_progress.json and every later run (and every candidate in it) is scored on those very words.
     L = min(512, max_len)
-    wins = [ids[i:i + L] for i in range(0, len(ids) - L + 1, L)][:24]
-    gate["text"] = [torch.tensor(wins[i:i + 4]) for i in range(0, len(wins) - 3, 4)][:6]
+    need = 40 * L
+    text = _FROZEN.get("text")
+    if not text:
+        files = sham_text_mix.stream_mix(str(WORK / "gate_text"), max_documents=140, seed=4242, documents_per_file=70,
+                                         sources=sham_text_mix.GATE_SOURCES)
+        text = "\n".join(Path(f).read_text(encoding="utf-8") for f in files if f.endswith(".txt"))
+        n_ids = max(len(tokenizer.encode(text)), 1)
+        text = text[: int(len(text) * min(1.0, need * 1.15 / n_ids)) + 1]       # only what the 40 windows need (~100 KB)
+        _FROZEN["text"] = text
+    ids = tokenizer.encode(text)
+    wins = [ids[i:i + L] for i in range(0, len(ids) - L + 1, L)][:40]
+    gate["text"] = [torch.tensor(wins[i:i + 4]) for i in range(0, len(wins) - 3, 4)][:10]
     # chat: held-out dialogues
     try:
         dialogues, _ = load_arabic_dialogues({}, 800)
@@ -174,7 +185,14 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             for src in base_dir.rglob(f):
                 shutil.copy2(src, ref / f)
                 break
+    _FROZEN.clear()
+    if progress.get("gate_text"):
+        _FROZEN["text"] = progress["gate_text"]
     gate = gate_builder(model, tokenizer, base_dir, device)
+    new_gate = False
+    if _FROZEN.get("text") and progress.get("gate_text") != _FROZEN["text"]:
+        progress["gate_text"] = _FROZEN["text"]
+        new_gate = True
     assert gate, "لا ميزان (لا نص ولا محادثة ولا وسائط) — لا دمج بلا ميزان"
     print("الميزان: " + ", ".join(f"{k}={len(v)} دفعة" for k, v in gate.items()))
     score = lambda m: {k: batches_loss(m, v, device) for k, v in gate.items()}
@@ -184,7 +202,8 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     # 2026-10-17 (review): a source was never tried again at the same step, even after the gate's rule changed — candidates refused under the old rule
     # stayed refused forever. The rule is now part of the record: when it changes, every source gets one new try.
     from sham_merge import default_tolerance
-    rule = f"tol={default_tolerance()};anchor=1;grid=5"
+    from sham_merge import skill_tolerance
+    rule = f"tol={default_tolerance()};chat={skill_tolerance('chat', default_tolerance())};anchor=1;grid=5;gate=frozen-text-v2"
     if progress.get("merge_rule") != rule:
         if merged:
             report_note = f"🔁 قاعدة البوابة تغيّرت ({progress.get('merge_rule')} → {rule}): كل المصادر تُجرَّب مرة جديدة"
@@ -238,6 +257,12 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             continue
         if fp:
             tried_fp[name] = fp
+        try:        # the ruler: the candidate ALONE on the gate's own held-out sets, next to the base — so a trainer's own holdout numbers can be compared with this ruler
+            raw = score(other)
+            report.append(f"📏 {name} (خطوة {other_step:,}) وحده على الميزان: " + ", ".join(f"{k}={v:.3f}" for k, v in raw.items())
+                          + " | الأساس: " + ", ".join(f"{k}={v:.3f}" for k, v in before.items()))
+        except Exception as exc:
+            report.append(f"⚠ تعذّر قياس {name} وحده: {type(exc).__name__}: {str(exc)[:80]}")
         candidates.append((f"{name} (خطوة {other_step:,})", other.to(device), rows))
         tried_this_run += 1
         merged[name] = other_step
@@ -279,7 +304,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         from sham_media_edge import plan_switch
         media_plan = plan_switch(base_dir, log=report.append)
     published = None
-    if publish_on_change and (changed or auto_changed or media_plan or not fetch(OWN)):
+    if publish_on_change and (changed or auto_changed or media_plan or new_gate or not fetch(OWN)):
         up = WORK / "upload"
         up.mkdir()
         from sham_tok_id import stamp
