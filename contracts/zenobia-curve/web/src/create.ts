@@ -99,7 +99,7 @@ $('go').onclick = async () => {
       queryId: 0n, salt, options: { ref: options } as any, metadata: metadata(name, symbol, description, image),
     });
     const curve = await retry(() => sdk.getLaunchAddress(master, creator, salt, cfg));
-    await ui.sendTransaction(toTonConnect({ to: master, value: cfg.devBuyAmount + NANO, body, bounce: true }, { validUntil: Math.floor(Date.now() / 1000) + 600, network: '-239' }));
+    await ui.sendTransaction(toTonConnect({ to: master, value: cfg.devBuyAmount + NANO, body, bounce: true }, { validUntil: Math.floor(Date.now() / 1000) + 600, network: '-239' })); (window as any).ZJ?.done('launch');
     $('result').style.display = 'block';
     const link = `/zenobia/trade.html?c=${encodeURIComponent(curve.toString({ bounceable: true }))}`;
     ($('resultLink') as HTMLAnchorElement).href = link;

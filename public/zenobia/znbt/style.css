@@ -184,3 +184,20 @@ input::placeholder,textarea::placeholder{color:#5f6a86}
 /* v3.2: coin pictures fill their tile (the letter stays behind as a fallback) */
 .coin .ph,.mini .ph,.pv .ph{position:relative;overflow:hidden}
 .coin .ph img,.mini .ph img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+
+/* shell stays put while pages cross-fade */
+.top{view-transition-name:zt-top}.tabbar{view-transition-name:zt-tabbar}
+::view-transition-group(zt-top),::view-transition-group(zt-tabbar){animation-duration:0s}
+.rxrow{display:flex;gap:10px}.rx{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 8px;border-radius:16px;background:var(--s2);border:1px solid var(--line,rgba(255,255,255,.08));color:var(--tx,#fff);font-size:18px;transition:transform .15s,background .2s,border-color .2s}.rx b{font-size:15px;font-variant-numeric:tabular-nums}.rx:active{transform:scale(.94)}.rx.on{background:rgba(77,163,255,.16);border-color:#4da3ff}
+.chk{display:flex;align-items:center;gap:10px;padding:10px 2px;font-size:15px}.chk input{width:20px;height:20px;accent-color:#4da3ff}
+/* Journey */
+.jhero .jrow{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.jrank{font-size:26px;font-weight:800;background:linear-gradient(90deg,#8cc4ff,#4da3ff);-webkit-background-clip:text;background-clip:text;color:transparent}
+.jstreak{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:999px;background:var(--s2);font-size:22px}.jstreak b{font-size:22px}
+.jsec{margin:20px 2px 8px;font-size:18px}
+.jq{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;margin-bottom:8px}.jq.claimed{opacity:.55}.jqi{display:flex;flex-direction:column;gap:2px;min-width:0}
+.jgo{padding:10px 16px;border-radius:12px;background:var(--s3);color:var(--tx);text-decoration:none;font-weight:600;white-space:nowrap}.jdone{color:var(--green);font-size:22px;padding:0 8px}
+.jq button{width:auto;padding:10px 18px;margin:0}
+.jl{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.jl:last-of-type{border-bottom:0}.jl .jn{width:24px;height:24px;border-radius:50%;background:var(--s3);display:grid;place-items:center;font-size:12px}.jl b{margin-inline-start:auto;font-size:14px}
+.mini span.down{color:var(--red)}
+.qa{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:4px 0 6px}.qa-i{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px;border-radius:18px;background:linear-gradient(180deg,var(--s2),var(--s1));border:1px solid var(--line);color:var(--tx);text-decoration:none;font-size:12px;font-weight:600;text-align:center;transition:transform .15s}.qa-i i{font-style:normal;font-size:22px;width:44px;height:44px;border-radius:14px;background:var(--s3);display:grid;place-items:center}.qa-i:active{transform:scale(.94)}
+.ptr{position:fixed;top:56px;left:50%;z-index:60;width:38px;height:38px;border-radius:50%;background:var(--s3);border:1px solid var(--line2);display:grid;place-items:center;font-size:20px;color:var(--tx);pointer-events:none;opacity:0;box-shadow:0 6px 20px #0008}.ptr.go{background:#2f6df0;color:#fff}

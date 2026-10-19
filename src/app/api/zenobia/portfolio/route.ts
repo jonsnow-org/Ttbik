@@ -26,6 +26,18 @@ export async function GET(req: NextRequest) {
       holdings.push({ curve: coin.curve, name: coin.name, symbol: coin.symbol, image: coin.image, balance: bal.toString(), valueTon: tpt > 0 ? Math.round((Number(bal) / tpt) * 1000) / 1000 : null });
     }
     holdings.sort((a, b) => (b.valueTon ?? 0) - (a.valueTon ?? 0));
-    return NextResponse.json({ ok: true, holdings });
+    return NextResponse.json({ ok: true, holdings, athar: await atharTokens(w) });
   } catch { return NextResponse.json({ ok: false, reason: "error" }); }
+}
+
+// The Athar day-tokens (one NFT per calendar date) this wallet holds: shown as a small "passport" on the portfolio. Public chain data, best effort.
+const ATHAR_COLLECTION = "EQAuIOwjzSmGQfL925LjD5eG0Qk1zJNRk4Ap8jzSOwnCRIYf";
+async function atharTokens(w: string): Promise<{ count: number; items: { name: string; image: string }[] }> {
+  try {
+    const r = await fetch(`https://tonapi.io/v2/accounts/${encodeURIComponent(w)}/nfts?collection=${ATHAR_COLLECTION}&limit=60&indirect_ownership=false`, { headers: process.env.TONAPI_KEY ? { authorization: `Bearer ${process.env.TONAPI_KEY}` } : {}, signal: AbortSignal.timeout(5000), cache: "no-store" });
+    if (!r.ok) return { count: 0, items: [] };
+    const j = (await r.json()) as { nft_items?: { metadata?: { name?: string; image?: string } }[] };
+    const items = (j.nft_items ?? []).map((n) => ({ name: String(n.metadata?.name || "").slice(0, 60), image: String(n.metadata?.image || "") })).filter((n) => n.name);
+    return { count: items.length, items: items.slice(0, 12) };
+  } catch { return { count: 0, items: [] }; }
 }
