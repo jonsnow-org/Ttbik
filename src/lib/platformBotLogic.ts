@@ -17,6 +17,13 @@ const WELCOME = {
   ar: "🪙 Palmyra Launch · تدمر لانش\nأطلق عملتك وتداولها على TON برسوم ثابتة تظهر قبل التأكيد.\nلا نصيحة مالية ولا وعد بربح.",
   ru: "🪙 Palmyra Launch\nЗапускайте и торгуйте монетами в сети TON: фиксированные комиссии видны до подтверждения.\nЭто не финансовая рекомендация и не обещание прибыли.",
 };
+// What each button under the owner's welcome message does (owner order 2026-10-19: one line per button so he does not forget).
+const OWNER_BUTTONS = [
+  "شرح الأزرار:",
+  "🪙 افتح Palmyra Launch: يفتح تطبيق المنصة (الاستكشاف والتداول والإطلاق).",
+  "🌐 اللغة: يبدّل لغة هذه الرسالة (الإنجليزية ← الروسية ← العربية).",
+  "⚙️ لوحة المالك: حالة المنصة وفتحها/إغلاقها وأرباحك وشرح أوامر /referrals.",
+].join("\n");
 const OPEN_LABEL: Record<Lang, string> = { en: "🪙 Open Palmyra Launch", ar: "🪙 افتح Palmyra Launch", ru: "🪙 Открыть Palmyra Launch" };
 // the language button shows the NEXT language: English -> Russian -> Arabic -> English
 const NEXT: Record<Lang, { label: string; data: string }> = { en: { label: "🌐 Русский", data: "pl:ru" }, ru: { label: "🌐 العربية", data: "pl:ar" }, ar: { label: "🌐 English", data: "pl:en" } };
@@ -54,7 +61,7 @@ export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, 
     if (ref && !isOwner) await import("@/lib/znbtEngage").then((m) => m.recordReferral(from, ref[1])).catch(() => null);   // invite counting only
     const first = startLang((body.message?.from as { language_code?: string } | undefined)?.language_code);
     await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Palmyra Launch", web_app: { url: appUrl(isOwner ? "ar" : first) } } }).catch(() => null);
-    await bot.api.sendMessage(chatId, isOwner ? `${WELCOME.en}\n\n${WELCOME.ar}` : WELCOME[first], { reply_markup: appKeyboard(isOwner ? "ar" : first, isOwner) });
+    await bot.api.sendMessage(chatId, isOwner ? `${WELCOME.en}\n\n${WELCOME.ar}\n\n${OWNER_BUTTONS}` : WELCOME[first], { reply_markup: appKeyboard(isOwner ? "ar" : first, isOwner) });
   } else if (/^\/platform(@\w+)?$/i.test(text) && isOwner) {
     const p = await platformText();
     await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } });
