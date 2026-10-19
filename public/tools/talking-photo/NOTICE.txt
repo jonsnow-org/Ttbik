@@ -1,0 +1,4 @@
+viseme-model.bin is the pre-trained viseme model "model-en-mixed.bin" of HeadAudio by Mika Suominen
+(https://github.com/met4citizen/HeadAudio), MIT License, see LICENSE-HeadAudio.txt.
+The MFCC feature extraction and the Mahalanobis classifier in src/app/free-tools/talking-photo/viseme.ts are a reduced re-implementation of
+HeadAudio's modules/mfcc.mjs and modules/classifier.mjs (same idea as hecomi's uLipSync / wLipSync, MIT).
