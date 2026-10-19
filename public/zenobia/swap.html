@@ -1,0 +1,20 @@
+<!doctype html><html lang="en"><head><script src="https://telegram.org/js/telegram-web-app.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a0a12"><title>Swap · Palmyra Launch</title><link rel="stylesheet" href="/zenobia/znbt/style.css"><script src="/zenobia/znbt/nav.js"></script><script src="/zenobia/znbt/lang.js"></script></head><body><main>
+<div class="top"><a class="brand" href="/zenobia/coins.html"><img src="/zenobia/znbt-coin-small.webp" alt="">Palmyra Launch</a><div id="connect"></div></div>
+<h1>Swap<br><span class="mut">تبديل</span></h1>
+<p class="mut">Trade GRAM, USDT, STON and any coin with a DEX pool, straight from your wallet. We never hold your funds: your wallet signs the swap and the DEX settles it.</p>
+<div class="card">
+<div class="mut">You pay</div>
+<div style="display:flex;gap:8px"><input id="amt" inputmode="decimal" value="1" aria-label="Amount to pay" style="flex:1"><select id="fromSel" aria-label="Pay with" style="width:42%"></select></div>
+<div class="mut" id="bal" style="margin:4px 0 8px"></div>
+<div style="text-align:center"><button id="flip" class="alt" type="button" aria-label="Swap direction" style="width:auto;padding:6px 18px">⇅</button></div>
+<div class="mut">You receive</div>
+<select id="toSel" aria-label="Receive" style="width:100%"></select>
+<div class="mut" style="margin-top:10px">Slippage limit</div>
+<div id="slip" class="chips"><button type="button" class="chip" data-s="0.005">0.5%</button><button type="button" data-s="0.01" class="chip on">1%</button><button type="button" class="chip" data-s="0.03">3%</button></div>
+<div id="out" class="mut" style="margin:12px 0"></div>
+<button id="go" disabled>Swap</button>
+</div>
+<div class="card"><h2>Other token · رمز آخر</h2><div class="mut">Paste a token address (for example a coin launched here after it graduates to the DEX).</div><input id="tokAddr" placeholder="Token address" aria-label="Token address"><button id="addTok" class="alt" type="button">Use this token</button></div>
+<div class="card mut" id="log"></div>
+<div class="foot mut">Total fees shown in the quote = the DEX pool fee + a 0.30% platform fee. Prices move while you confirm; the slippage limit protects you. Tokens other than GRAM, USDT and STON are unverified: anyone can create a token with any name, so check the address. Not financial advice; no profit is promised. <a href="/zenobia/terms.html">Terms &amp; risks</a></div>
+</main><script src="/zenobia/znbt/swap.js"></script></body></html>

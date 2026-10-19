@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { publishCoinsChannel } from "@/lib/coinsChannel";
+import { announceLaunch, publishCoinsChannel } from "@/lib/coinsChannel";
 
 export const maxDuration = 60;
 
@@ -13,5 +13,7 @@ export async function GET(req: NextRequest) {
   const hourIstanbul = (new Date().getUTCHours() + 3) % 24;
   const dry = req.nextUrl.searchParams.get("dry") === "1";
   if (!dry && (hourIstanbul < 8 || hourIstanbul >= 23)) return NextResponse.json({ ok: true, skipped: "quiet-hours", hourIstanbul });
-  return NextResponse.json(await publishCoinsChannel({ dry }).catch((e) => ({ ok: false, reason: String(e).slice(0, 160) })));
+  const post = await publishCoinsChannel({ dry }).catch((e) => ({ ok: false, reason: String(e).slice(0, 160) }));
+  const launch = await announceLaunch({ dry }).catch((e) => ({ ok: false, reason: String(e).slice(0, 160) }));
+  return NextResponse.json({ ...post, launch });
 }
