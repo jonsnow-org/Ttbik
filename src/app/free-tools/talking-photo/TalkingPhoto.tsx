@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { analyzeAudio, modelFromLandmarks, modelFromMouth, renderFrame, sampleTrack, type Model, type Track, type Weights } from "./engine";
+import { EFFECTS, applyEffect, type EffectId } from "./voice";
 
 /**
  * Talking photo, entirely in the browser (nothing is uploaded): a photo + a voice (uploaded or recorded) become a short video of the photo speaking.
@@ -16,7 +17,7 @@ const T = {
     consent: "أقرّ بأن الصورة لي أو لشخصية خيالية أو لشخص أذن لي بذلك، ولن أستخدم الفيديو للانتحال أو الخداع أو الإساءة.",
     place: "اضغط على الصورة لتحديد موضع الفم، وغيّر حجمه بالشريط.", size: "حجم الفم", detecting: "جارٍ البحث عن الوجه…", found: "وُجد وجه: ستتحرك الشفاه والفك والعينان تلقائياً.",
     notFound: "لم يُعثر على وجه بشري (طبيعي للرسوم والشخصيات): اضغط على الصورة عند الفم.",
-    analyzing: "جارٍ تحليل الصوت…", analyzed: "تم تحليل الصوت.", analyzeFail: "تعذّر تحليل هذا الصوت؛ سيُستخدم تحليل أبسط.",
+    voiceFx: "تغيير الصوت", analyzing: "جارٍ تحليل الصوت…", analyzed: "تم تحليل الصوت.", analyzeFail: "تعذّر تحليل هذا الصوت؛ سيُستخدم تحليل أبسط.",
     preview: "معاينة", makeVideo: "اصنع الفيديو", making: "جارٍ التسجيل… (بطول الصوت)", download: "تنزيل الفيديو", share: "مشاركة", del: "حذف الفيديو وإعادة المحاولة",
     needConsent: "فعّل الإقرار أولاً.", needBoth: "اختر صورة وصوتاً.", tooLong: "الصوت أطول من 60 ثانية.", micDenied: "تعذّر الوصول للميكروفون.",
     noRecorder: "متصفحك لا يدعم تسجيل الفيديو. جرّب Chrome أو Safari حديث.", ready: "الفيديو جاهز. إن لم يعجبك احذفه وأعد المحاولة.", deleted: "حُذف الفيديو.",
@@ -27,7 +28,7 @@ const T = {
     consent: "I confirm the picture is mine, a fictional character, or of someone who allowed it, and I will not use the video to impersonate, deceive or abuse.",
     place: "Tap the picture to place the mouth, and change its size with the slider.", size: "Mouth size", detecting: "Looking for a face…", found: "A face was found: lips, jaw and eyes will move by themselves.",
     notFound: "No human face found (normal for cartoons and characters): tap the picture at the mouth.",
-    analyzing: "Analysing the voice…", analyzed: "Voice analysed.", analyzeFail: "This audio could not be analysed; a simpler analysis is used.",
+    voiceFx: "Voice effect", analyzing: "Analysing the voice…", analyzed: "Voice analysed.", analyzeFail: "This audio could not be analysed; a simpler analysis is used.",
     preview: "Preview", makeVideo: "Make the video", making: "Recording… (as long as the audio)", download: "Download the video", share: "Share", del: "Delete the video and try again",
     needConsent: "Tick the confirmation first.", needBoth: "Choose a picture and a voice.", tooLong: "The audio is longer than 60 seconds.", micDenied: "Could not access the microphone.",
     noRecorder: "Your browser cannot record video. Try a recent Chrome or Safari.", ready: "The video is ready. If you do not like it, delete it and try again.", deleted: "The video was deleted.",
@@ -106,7 +107,7 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
       ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, Math.PI * 2); ctx.fillStyle = "#ff3355"; ctx.fill();
     }
   }, []);
-  const still = useCallback(() => paint({ J: 0, S: 0, R: 0, F: 0, E: 0 }, 0, false, !hasFace.current), [paint]);
+  const still = useCallback(() => paint({ J: 0, S: 0, R: 0, F: 0, E: 0, B: 0 }, 0, false, !hasFace.current), [paint]);
 
   const rebuildManual = useCallback(() => {
     const base = baseRef.current;
@@ -164,18 +165,36 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
     return graph.current;
   };
 
-  const analyse = useCallback(async (blob: Blob) => {
-    trackRef.current = null; setMsg(t.analyzing);
+  const decodedRef = useRef<AudioBuffer | null>(null);
+  const [effect, setEffect] = useState<EffectId>("original");
+  const effectRef = useRef<EffectId>("original");
+
+  /** Applies the chosen voice effect to the decoded voice, analyses the result for the mouth, and makes it the audio that plays and is recorded. */
+  const processAudio = useCallback(async (id: EffectId) => {
+    const dec = decodedRef.current;
+    if (!dec) return;
+    setBusy(true); setMsg(t.analyzing);
     try {
-      const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const buf = await ac.decodeAudioData(await blob.arrayBuffer());
-      void ac.close();
-      trackRef.current = analyzeAudio(buf, 30);
+      const { buffer, blob } = await applyEffect(dec, id);
+      trackRef.current = analyzeAudio(buffer, 30);
+      setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
       setMsg(t.analyzed);
     } catch { setMsg(t.analyzeFail); }
+    finally { setBusy(false); }
   }, [t]);
 
-  const setAudio = (blob: Blob) => { setVideoUrl(""); setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); }); void analyse(blob); };
+  const setAudio = async (blob: Blob) => {
+    setVideoUrl(""); trackRef.current = null; decodedRef.current = null;
+    try {
+      const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
+      decodedRef.current = await ac.decodeAudioData(await blob.arrayBuffer());
+      void ac.close();
+      await processAudio(effectRef.current);
+    } catch {   // an unusual format: play it as it is, with the loudness-only mouth
+      setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
+      setMsg(t.analyzeFail);
+    }
+  };
 
   const toggleMic = async () => {
     if (recMic) { micRec.current?.stop(); return; }
@@ -183,7 +202,7 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream); const chunks: Blob[] = [];
       rec.ondataavailable = (e) => chunks.push(e.data);
-      rec.onstop = () => { stream.getTracks().forEach((x) => x.stop()); setRecMic(false); setAudio(new Blob(chunks, { type: rec.mimeType })); };
+      rec.onstop = () => { stream.getTracks().forEach((x) => x.stop()); setRecMic(false); void setAudio(new Blob(chunks, { type: rec.mimeType })); };
       micRec.current = rec; rec.start(); setRecMic(true);
       setTimeout(() => { if (rec.state === "recording") rec.stop(); }, MAX_SECONDS * 1000);
     } catch { setMsg(t.micDenied); }
@@ -201,7 +220,7 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
         let sum = 0; for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
         const target = Math.min(1, Math.max(0, (Math.sqrt(sum / buf.length) - 0.02) * 9));
         fallbackOpen.current += (target - fallbackOpen.current) * (target > fallbackOpen.current ? 0.55 : 0.25);
-        w = { J: fallbackOpen.current, S: 0.2, R: 0, F: 0, E: fallbackOpen.current };
+        w = { J: fallbackOpen.current, S: 0.2, R: 0, F: 0, E: fallbackOpen.current, B: 0 };
       }
       paint(w, el.currentTime + 0.001, true, false);
       if (playing.current) raf.current = requestAnimationFrame(tick);
@@ -280,12 +299,18 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
         <div className="flex flex-wrap gap-2">
           <label className="cursor-pointer rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700">
             {t.upload}
-            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setAudio(f); }} />
+            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void setAudio(f); }} />
           </label>
           <button type="button" onClick={() => void toggleMic()} className={`rounded-xl px-4 py-2 text-sm font-bold ${recMic ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-700"}`}>
             {recMic ? `⏺ ${t.stopRec}` : `🎙 ${t.record}`}
           </button>
         </div>
+        <label className="mt-3 flex items-center gap-3 text-xs text-slate-600">
+          <span>{t.voiceFx}</span>
+          <select value={effect} disabled={busy} onChange={(e) => { const id = e.target.value as EffectId; setEffect(id); effectRef.current = id; void processAudio(id); }} className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm">
+            {EFFECTS.map((x) => <option key={x.id} value={x.id}>{lang === "ar" ? x.ar : x.en}</option>)}
+          </select>
+        </label>
         <audio ref={audioRef} src={audioUrl || undefined} controls className="mt-3 w-full" preload="auto" />
       </section>
 
