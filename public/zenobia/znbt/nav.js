@@ -76,17 +76,17 @@
       var tg = window.Telegram && window.Telegram.WebApp;
       if (tg) {
         try { tg.ready(); tg.expand(); tg.setHeaderColor('#06060b'); tg.setBackgroundColor('#06060b'); } catch (e) {}
-        var home = /coins\.html/.test(p) && !watch;
+        // Back never collapses the app by itself: it asks first (also covers the Android system back).
         var bb = tg.BackButton;
-        if (bb && !home) {
+        var ask = { en: ['Leave the app?', 'Leave'], ru: ['Выйти из приложения?', 'Выйти'], ar: ['هل تريد الخروج من التطبيق؟', 'خروج'] }[cur] || ['Leave the app?', 'Leave'];
+        try { if (tg.enableClosingConfirmation) tg.enableClosingConfirmation(); } catch (e) {}
+        if (bb) {
           bb.show();
           bb.onClick(function () {
-            var open = Array.prototype.find.call(document.querySelectorAll('.sheet'), function (s) { return s.style.display !== 'none'; });
-            if (open) { var sc = document.getElementById('scrim'); if (sc) sc.click(); return; }
-            if (document.querySelector('.ddm')) { close(); return; }
-            if (history.length > 1) history.back(); else location.href = '/zenobia/coins.html';
+            if (tg.showConfirm) tg.showConfirm(ask[0], function (ok) { if (ok) tg.close(); });
+            else if (confirm(ask[0])) tg.close();
           });
-        } else if (bb) bb.hide();
+        }
       }
     } catch (e) {}
     var onScroll = function () { var t = document.querySelector('.top'); if (t) t.classList.toggle('scrolled', window.scrollY > 6); };

@@ -133,16 +133,20 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
     return () => window.clearInterval(id);
   }, [boot, me?.registered, api]);
 
-  // BackButton: closes a modal, otherwise returns to discovery.
+  // BackButton: never collapses the app by itself, asks before leaving (owner's choice).
   useEffect(() => {
     const w = tg();
     if (!w?.BackButton) return;
-    const show = !!modal || !!chatWith || !!info || tab !== "discover";
-    if (show) w.BackButton.show(); else w.BackButton.hide();
-    const h = () => { haptic("light"); if (modal) setModal(null); else if (chatWith) setChatWith(null); else if (info) setInfo(null); else setTab("discover"); };
+    try { w.enableClosingConfirmation?.(); } catch {}
+    w.BackButton.show();
+    const h = () => {
+      haptic("light");
+      if (w.showConfirm) w.showConfirm("هل تريد الخروج من التطبيق؟", (ok: boolean) => { if (ok) w.close(); });
+      else if (window.confirm("هل تريد الخروج من التطبيق؟")) w.close();
+    };
     w.BackButton.onClick(h);
     return () => w.BackButton.offClick(h);
-  }, [modal, chatWith, info, tab]);
+  }, []);
 
   if (boot !== "ready") {
     const text = {
