@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { analyzeAudio, modelFromLandmarks, modelFromMouth, renderFrame, sampleTrack, type Model, type Track, type Weights } from "./engine";
 import { EFFECTS, applyEffect, type EffectId } from "./voice";
+import { loadVisemeModel, refineTrack, type Prototype } from "./viseme";
 
 /**
  * Talking photo, entirely in the browser (nothing is uploaded): a photo + a voice (uploaded or recorded) become a short video of the photo speaking.
@@ -166,6 +167,8 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
   };
 
   const decodedRef = useRef<AudioBuffer | null>(null);
+  const modelPromise = useRef<Promise<Prototype[] | null> | null>(null);
+  const visemeModel = () => (modelPromise.current ??= loadVisemeModel("/tools/talking-photo/viseme-model.bin").catch(() => null));
   const [effect, setEffect] = useState<EffectId>("original");
   const effectRef = useRef<EffectId>("original");
 
@@ -176,7 +179,10 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
     setBusy(true); setMsg(t.analyzing);
     try {
       const { buffer, blob } = await applyEffect(dec, id);
-      trackRef.current = analyzeAudio(buffer, 30);
+      let track = analyzeAudio(buffer, 30);
+      const vm = await visemeModel();
+      if (vm) { try { track = refineTrack(track, buffer.getChannelData(0), buffer.sampleRate, vm); } catch { /* keep the loudness-based track */ } }
+      trackRef.current = track;
       setAudioUrl((old) => { if (old) URL.revokeObjectURL(old); return URL.createObjectURL(blob); });
       setMsg(t.analyzed);
     } catch { setMsg(t.analyzeFail); }
