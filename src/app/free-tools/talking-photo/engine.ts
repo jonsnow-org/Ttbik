@@ -10,7 +10,7 @@
  *    plus static anchor points around them, are triangulated (Delaunay). Each frame the points are displaced (jaw drop, lip width, upper-lip raise,
  *    eyelid blink) and every moved triangle is re-drawn with an affine texture mapping from the original picture, so the real skin and lips move.
  * 3. The inside of the mouth (throat, upper and lower teeth, tongue) is painted into the opening between the displaced inner lips.
- * 4. The whole picture sways slightly like a speaking head (roll, nod with emphasis, drift, breathing) and is scaled up a little so no edge shows.
+ * 4. The whole picture sways slightly like a speaking head (roll, nod with emphasis, drift, breathing) and is scaled up a little (12%) so no edge shows.
  */
 
 export type Pt = { x: number; y: number };
@@ -266,13 +266,22 @@ function drawTri(ctx: CanvasRenderingContext2D, img: CanvasImageSource, s: Pt[],
   ctx.restore();
 }
 
+// Natural head motion is not periodic: it drifts, with quicker nods now and then. Smooth seeded noise (three octaves) instead of a few sines, tuned to the
+// statistics of a learned audio-to-head-pose model (SadTalker's audio2pose, measured on Arabic and English speech: spread 1-3 deg yaw, 3-6 deg pitch,
+// 1.5-3 deg roll, angular speed 5-20 deg/s, energy around 0.4-1 Hz); sines of 0.1-0.3 Hz moved far too slowly (2 deg/s) and repeated visibly.
+const hash1 = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; };
+const smoother = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
+const vnoise = (t: number, seed: number) => { const i = Math.floor(t), f = smoother(t - i); return hash1(i + seed * 17.3) * (1 - f) + hash1(i + 1 + seed * 17.3) * f; };
+/** Aperiodic drift in about [-1, 1] with most of its energy near `hz`. */
+export const drift = (t: number, seed: number, hz: number) => vnoise(t * hz, seed) * 0.5 + vnoise(t * hz * 2.3, seed + 1) * 0.33 + vnoise(t * hz * 5.1, seed + 2) * 0.17;
+
 export type Pose = { yaw: number; pitch: number };
 
-/** The speaking head: slow turns left and right, small nods, a dip on stressed syllables. Radians. */
+/** The speaking head: drifting turns, small nods, a dip on stressed syllables. Radians. */
 export function headPose(t: number, w: Weights): Pose {
   return {
-    yaw: 0.085 * Math.sin(t * 0.72) + 0.04 * Math.sin(t * 1.83 + 1.3),
-    pitch: 0.04 * Math.sin(t * 0.93 + 2) + 0.025 * Math.sin(t * 2.3) + 0.05 * (w.E - 0.3) - 0.04 * w.B,
+    yaw: 0.117 * drift(t, 1, 1),
+    pitch: 0.2 * drift(t, 2, 1) + 0.05 * (w.E - 0.3) - 0.04 * w.B,
   };
 }
 
@@ -416,14 +425,14 @@ export function renderFrame(view: HTMLCanvasElement, work: HTMLCanvasElement, ba
   vc.setTransform(1, 0, 0, 1, 0, 0);
   vc.clearRect(0, 0, W, H);
   const k = f.moving ? 1 : 0, t = f.t;
-  const roll = (Math.sin(t * 0.8) * 0.026 + Math.sin(t * 1.9 + 1) * 0.01 + (f.w.E - 0.4) * 0.008 * Math.sin(t * 3.1)) * k;
-  const dx = (Math.sin(t * 0.55) * 0.011 + Math.sin(t * 1.3 + 2) * 0.005) * W * k;
-  const dy = (Math.sin(t * 0.7 + 1) * 0.007 + f.w.E * 0.008 + f.w.J * 0.005) * H * k;
-  const sc = 1.09 + (Math.sin(t * 0.5) * 0.006 + f.w.E * 0.006) * k;
-  vc.translate(W / 2 + dx, H * 0.92 + dy);
+  const roll = (0.05 * Math.tanh((0.121 * drift(t, 3, 1)) / 0.05) + (f.w.E - 0.4) * 0.008 * Math.sin(t * 3.1)) * k;   // soft cap: a rotated picture shows its corners
+  const dx = 0.012 * drift(t, 4, 0.8) * W * k;
+  const dy = (0.01 * drift(t, 5, 0.9) + f.w.E * 0.008 + f.w.J * 0.005) * H * k;
+  const sc = 1.12 + (Math.sin(t * 0.5) * 0.006 + f.w.E * 0.006) * k;
+  vc.translate(W / 2 + dx, H * 0.62 + dy);
   vc.rotate(roll);
   vc.scale(sc, sc);
-  vc.translate(-W / 2, -H * 0.92);
+  vc.translate(-W / 2, -H * 0.62);
   vc.drawImage(work, 0, 0);
   vc.setTransform(1, 0, 0, 1, 0, 0);
 }
