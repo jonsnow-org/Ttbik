@@ -20,14 +20,16 @@ export async function GET(req: NextRequest) {
     try { u = new URL(pasted.trim()); } catch { /* handled below */ }
     const code = u?.searchParams.get("code");
     if (!u || !code || !stateOk(u.searchParams.get("state") || "")) return html("العنوان غير صالح أو انتهت صلاحيته (15 دقيقة). ابدأ من جديد.", 400);
-    return html((await saveRefreshFromCode(code)) ? "✅ تم الربط: سيُنشر الفيديو الترويجي على يوتيوب تلقائياً." : "⚠️ لم يُرجِع غوغل رمز التحديث. أزل الصلاحية من myaccount.google.com/permissions ثم أعد المحاولة.");
+    const why = await saveRefreshFromCode(code);
+    return html(why === null ? "✅ تم الربط: سيُنشر الفيديو الترويجي على يوتيوب تلقائياً." : `⚠️ فشل الربط.<br><code dir=ltr>${why.replace(/[<>&]/g, "")}</code>`);
   }
   if (q.get("form") && process.env.CRON_SECRET && q.get("secret") === process.env.CRON_SECRET) {
     return html(`<form method=get><input type=hidden name=secret value="${encodeURIComponent(process.env.CRON_SECRET).replace(/"/g, "")}"><p>الصق هنا العنوان الذي ظهر في المتصفح بعد الموافقة (يبدأ بـ http://localhost):</p><textarea name=url rows=5 style="width:100%;direction:ltr"></textarea><p><button style="font-size:18px;padding:8px 20px">ربط</button></p></form>`);
   }
   if (q.get("code")) {
     if (!stateOk(q.get("state") || "")) return html("انتهت صلاحية الرابط أو غير صالح. ابدأ من جديد.", 400);
-    return html((await saveRefreshFromCode(q.get("code")!)) ? "✅ تم الربط: سيُنشر الفيديو الترويجي على يوتيوب تلقائياً." : "⚠️ لم يُرجِع غوغل رمز التحديث. أزل الصلاحية من حسابك في myaccount.google.com/permissions ثم أعد المحاولة.", 200);
+    const why = await saveRefreshFromCode(q.get("code")!);
+    return html(why === null ? "✅ تم الربط: سيُنشر الفيديو الترويجي على يوتيوب تلقائياً." : `⚠️ فشل الربط.<br><code dir=ltr>${why.replace(/[<>&]/g, "")}</code>`);
   }
   if (q.get("error")) return html("رُفض الإذن: " + q.get("error"), 400);
   if (!process.env.CRON_SECRET || q.get("secret") !== process.env.CRON_SECRET) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

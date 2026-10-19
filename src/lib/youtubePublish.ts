@@ -26,16 +26,18 @@ export function consentUrl(): string | null {
   return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
 }
 
-export async function saveRefreshFromCode(code: string): Promise<boolean> {
+/** Returns null on success, otherwise a short reason (Google's own error code, never a credential). */
+export async function saveRefreshFromCode(code: string): Promise<string | null> {
+  if (!youtubeKeysPresent()) return "YOUTUBE_CLIENT_ID / YOUTUBE_CLIENT_SECRET are not set in this deployment (add them in Vercel for Production and redeploy)";
   const r = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ code, client_id: process.env.YOUTUBE_CLIENT_ID || "", client_secret: process.env.YOUTUBE_CLIENT_SECRET || "", redirect_uri: redirectUri(), grant_type: "authorization_code" }),
   }).catch(() => null);
   const j = r ? await r.json().catch(() => null) : null;
-  if (!j?.refresh_token) return false;
+  if (!j?.refresh_token) return j?.error ? `${String(j.error)}: ${String(j.error_description || "").slice(0, 160)}` : "Google returned no refresh token (revoke the app at myaccount.google.com/permissions and retry)";
   await ensure();
   await prisma.$executeRawUnsafe(`INSERT INTO youtube_publish_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, KEY, String(j.refresh_token));
-  return true;
+  return null;
 }
 
 async function refreshToken(): Promise<string | null> {
