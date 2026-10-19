@@ -42,7 +42,7 @@ const MAX_SECONDS = 60;
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 const MP_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
-async function detectLandmarks(c: HTMLCanvasElement): Promise<{ x: number; y: number }[] | null> {
+async function detectLandmarks(c: HTMLCanvasElement): Promise<{ x: number; y: number; z: number }[] | null> {
   try {
     const vision: any = await import(/* webpackIgnore: true */ `${MP}/vision_bundle.mjs`);
     const fileset = await vision.FilesetResolver.forVisionTasks(`${MP}/wasm`);
@@ -50,7 +50,7 @@ async function detectLandmarks(c: HTMLCanvasElement): Promise<{ x: number; y: nu
     const res = lm.detect(c);
     lm.close?.();
     const p = res?.faceLandmarks?.[0];
-    return p && p.length >= 468 ? p.map((q: any) => ({ x: q.x, y: q.y })) : null;
+    return p && p.length >= 468 ? p.map((q: any) => ({ x: q.x, y: q.y, z: q.z ?? 0 })) : null;
   } catch {
     return null;
   }
