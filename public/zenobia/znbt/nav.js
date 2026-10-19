@@ -70,6 +70,25 @@
     });
     document.body.appendChild(nav);
     document.addEventListener('click', close);
+    // Telegram: the system back button (and the header arrow) must go back inside the app, not minimise it.
+    // Explore is the home page, so back there leaves the app as usual; everywhere else it is shown and handled here.
+    try {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) {
+        try { tg.ready(); tg.expand(); tg.setHeaderColor('#06060b'); tg.setBackgroundColor('#06060b'); } catch (e) {}
+        var home = /coins\.html/.test(p) && !watch;
+        var bb = tg.BackButton;
+        if (bb && !home) {
+          bb.show();
+          bb.onClick(function () {
+            var open = Array.prototype.find.call(document.querySelectorAll('.sheet'), function (s) { return s.style.display !== 'none'; });
+            if (open) { var sc = document.getElementById('scrim'); if (sc) sc.click(); return; }
+            if (document.querySelector('.ddm')) { close(); return; }
+            if (history.length > 1) history.back(); else location.href = '/zenobia/coins.html';
+          });
+        } else if (bb) bb.hide();
+      }
+    } catch (e) {}
     var onScroll = function () { var t = document.querySelector('.top'); if (t) t.classList.toggle('scrolled', window.scrollY > 6); };
     window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
   }
