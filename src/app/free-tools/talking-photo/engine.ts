@@ -152,6 +152,7 @@ export type Model = {
   jawW: Float32Array; lipG: Float32Array; isAnchor: boolean[];
   eyes: { upper: number[]; lower: number[] }[];
   brows: number[]; faceH: number;
+  zs: Float32Array; fade: Float32Array; center: Pt; poseAll: boolean;   // depth of each point, how much the head turn moves it, the pivot, and whether the whole face is re-drawn
   landmark: boolean;
 };
 
@@ -178,7 +179,7 @@ function anchorsAround(W: number, H: number, box: { x0: number; y0: number; x1: 
   return a;
 }
 
-function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInner: number[]; lowerLips: number[]; upperLips: number[]; mouth: Model["mouth"]; nFace: number; eyes: Model["eyes"]; brows: number[]; landmark: boolean; box: { x0: number; y0: number; x1: number; y1: number } }, W: number, H: number): Model {
+function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInner: number[]; lowerLips: number[]; upperLips: number[]; mouth: Model["mouth"]; nFace: number; eyes: Model["eyes"]; brows: number[]; landmark: boolean; zs?: number[]; box: { x0: number; y0: number; x1: number; y1: number } }, W: number, H: number): Model {
   const pts = m.pts.concat(anchorsAround(W, H, m.box));
   const isAnchor = pts.map((_, i) => i >= m.nFace);
   const tris = delaunay(pts);
@@ -197,18 +198,25 @@ function finish(m: { pts: Pt[]; inner: number[]; upperInner: number[]; lowerInne
   const eyeIdx = new Set<number>(); m.eyes.forEach((e) => { e.upper.forEach((i) => eyeIdx.add(i)); e.lower.forEach((i) => eyeIdx.add(i)); });
   const browIdx = new Set<number>(m.brows);
   const potential = (i: number) => jawW[i] > 0.01 || lipG[i] > 0.01 || eyeIdx.has(i) || browIdx.has(i);
-  const moving = tris.filter((t) => potential(t[0]) || potential(t[1]) || potential(t[2]));
-  return { pts, tris, moving, inner: m.inner, upperInner: m.upperInner, lowerInner: m.lowerInner, lowerLips: m.lowerLips, upperLips: m.upperLips, mouth: m.mouth, jawW, lipG, isAnchor, eyes: m.eyes, brows: m.brows, faceH: m.box.y1 - m.box.y0, landmark: m.landmark };
+  const cx = (m.box.x0 + m.box.x1) / 2, cy = (m.box.y0 + m.box.y1) / 2, rx = (m.box.x1 - m.box.x0) / 2, ry = (m.box.y1 - m.box.y0) / 2;
+  const zs = new Float32Array(pts.length), fade = new Float32Array(pts.length);
+  if (m.zs) pts.forEach((_, i) => { if (!isAnchor[i]) zs[i] = m.zs![i] ?? 0; });
+  // a head turn moves the middle of the face fully and the rim only a little, so the face does not tear away from the hair
+  pts.forEach((p, i) => { if (!isAnchor[i] && m.zs) fade[i] = 1 - 0.65 * smoothstep(0.7, 1.05, Math.hypot((p.x - cx) / rx, (p.y - cy) / ry)); });
+  const poseAll = !!m.zs;
+  const moving = poseAll ? tris.filter((t) => !isAnchor[t[0]] || !isAnchor[t[1]] || !isAnchor[t[2]]) : tris.filter((t) => potential(t[0]) || potential(t[1]) || potential(t[2]));
+  return { zs, fade, center: { x: cx, y: cy }, poseAll, pts, tris, moving, inner: m.inner, upperInner: m.upperInner, lowerInner: m.lowerInner, lowerLips: m.lowerLips, upperLips: m.upperLips, mouth: m.mouth, jawW, lipG, isAnchor, eyes: m.eyes, brows: m.brows, faceH: m.box.y1 - m.box.y0, landmark: m.landmark };
 }
 
 /** From MediaPipe landmarks (normalised x,y). */
-export function modelFromLandmarks(lm: Pt[], W: number, H: number): Model {
+export function modelFromLandmarks(lm: (Pt & { z?: number })[], W: number, H: number): Model {
   const pts = lm.slice(0, 468).map((p) => ({ x: p.x * W, y: p.y * H }));
+  const zs = lm.slice(0, 468).map((p) => (p.z ?? 0) * W);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const p of pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
   const a = pts[61], b = pts[291], t = pts[13], u = pts[14];
   const mouth = { x: (t.x + u.x) / 2, y: (t.y + u.y) / 2, w: Math.hypot(b.x - a.x, b.y - a.y) };
-  return finish({ pts, inner: LM.inner, upperInner: LM.upperInner.filter((i) => i !== 78 && i !== 308), lowerInner: LM.lowerInner, lowerLips: [...LM.lowerInner, ...LM.lowerOuter], upperLips: [...LM.upperInner.filter((i) => i !== 78 && i !== 308), ...LM.upperOuter], mouth, nFace: pts.length, eyes: [LM.eyeR, LM.eyeL], brows: LM.brows, landmark: true, box: { x0, y0, x1, y1 } }, W, H);
+  return finish({ pts, inner: LM.inner, upperInner: LM.upperInner.filter((i) => i !== 78 && i !== 308), lowerInner: LM.lowerInner, lowerLips: [...LM.lowerInner, ...LM.lowerOuter], upperLips: [...LM.upperInner.filter((i) => i !== 78 && i !== 308), ...LM.upperOuter], mouth, nFace: pts.length, eyes: [LM.eyeR, LM.eyeL], brows: LM.brows, landmark: true, zs, box: { x0, y0, x1, y1 } }, W, H);
 }
 
 /** For drawings, animals, statues: a ring of points built around the mouth the user placed. */
@@ -252,15 +260,31 @@ function drawTri(ctx: CanvasRenderingContext2D, img: CanvasImageSource, s: Pt[],
   ctx.restore();
 }
 
-function displace(model: Model, w: Weights, blink: number): Pt[] {
-  const { pts, jawW, lipG, isAnchor, mouth } = model;
+export type Pose = { yaw: number; pitch: number };
+
+/** The speaking head: slow turns left and right, small nods, a dip on stressed syllables. Radians. */
+export function headPose(t: number, w: Weights): Pose {
+  return {
+    yaw: 0.085 * Math.sin(t * 0.72) + 0.04 * Math.sin(t * 1.83 + 1.3),
+    pitch: 0.04 * Math.sin(t * 0.93 + 2) + 0.025 * Math.sin(t * 2.3) + 0.05 * (w.E - 0.3) - 0.04 * w.B,
+  };
+}
+
+function displace(model: Model, w: Weights, blink: number, pose: Pose): Pt[] {
+  const { pts, jawW, lipG, isAnchor, mouth, zs, fade, center } = model;
   const { x: mx, y: my, w: mw } = mouth;
   const jaw = w.J * mw * 0.36;
   const widthF = 1 + 0.14 * w.S - 0.3 * w.R;
   const raise = 0.09 * w.J * mw;
+  const sy = Math.sin(pose.yaw), cyw = Math.cos(pose.yaw), sp = Math.sin(pose.pitch), cp = Math.cos(pose.pitch);
   const out = pts.map((p, i) => {
     if (isAnchor[i]) return { x: p.x, y: p.y };
     let x = p.x, y = p.y;
+    if (model.poseAll) {   // rotate the landmark in 3D (yaw about the vertical axis, pitch about the horizontal one) and project back
+      const rx = p.x - center.x, ry = p.y - center.y, z = zs[i];
+      const xr = rx * cyw + z * sy, zr = -rx * sy + z * cyw, yr = ry * cp - zr * sp;
+      x += (center.x + xr - p.x) * fade[i]; y += (center.y + yr - p.y) * fade[i];
+    }
     y += jaw * jawW[i];
     x += (p.x - mx) * (widthF - 1) * lipG[i];
     if (p.y < my) y -= raise * lipG[i];
@@ -272,7 +296,7 @@ function displace(model: Model, w: Weights, blink: number): Pt[] {
       for (const ui of e.upper) {
         let best = e.lower[0], bd = Infinity;
         for (const li of e.lower) { const d = Math.abs(pts[li].x - pts[ui].x); if (d < bd) { bd = d; best = li; } }
-        out[ui].y += blink * 0.92 * (pts[best].y - pts[ui].y);
+        out[ui].y += blink * 0.92 * (out[best].y - out[ui].y);
       }
     }
   }
@@ -343,11 +367,11 @@ function paintEyelids(ctx: CanvasRenderingContext2D, base: CanvasImageSource, mo
   if (blink < 0.55) return;
   const bc = document.createElement("canvas"); bc.width = 1; bc.height = 1;
   for (const e of model.eyes) {
-    const upper = e.upper.map((i) => pts[i]), lower = e.lower.map((i) => model.pts[i]);
+    const upper = e.upper.map((i) => pts[i]), lower = e.lower.map((i) => pts[i]);
     const cy = (upper[3].y + lower[4].y) / 2, h = Math.abs(model.pts[e.lower[4]].y - model.pts[e.upper[3]].y) || 4;
     // skin colour from just above the eyelid
     const bx = bc.getContext("2d")!; bx.clearRect(0, 0, 1, 1);
-    bx.drawImage(base, Math.round(upper[3].x), Math.round(upper[3].y - h * 1.4), 1, 1, 0, 0, 1, 1);
+    const rest = model.pts[e.upper[3]]; bx.drawImage(base, Math.round(rest.x), Math.round(rest.y - h * 1.4), 1, 1, 0, 0, 1, 1);
     const [r, g, b] = bx.getImageData(0, 0, 1, 1).data;
     ctx.save();
     ctx.globalAlpha = Math.min(1, (blink - 0.55) / 0.3);
@@ -369,9 +393,15 @@ export function renderFrame(view: HTMLCanvasElement, work: HTMLCanvasElement, ba
   wc.setTransform(1, 0, 0, 1, 0, 0);
   wc.clearRect(0, 0, W, H);
   wc.drawImage(base, 0, 0);
-  if (model && (f.w.J > 0.003 || f.blink > 0.01 || f.w.S > 0.02 || f.w.R > 0.02 || f.w.B > 0.02)) {
-    const moved = displace(model, f.w, f.blink);
-    for (const t of model.moving) drawTri(wc, base, [model.pts[t[0]], model.pts[t[1]], model.pts[t[2]]], [moved[t[0]], moved[t[1]], moved[t[2]]]);
+  if (model && (f.moving || f.w.J > 0.003 || f.blink > 0.01 || f.w.S > 0.02 || f.w.R > 0.02 || f.w.B > 0.02)) {
+    const pose = f.moving ? headPose(f.t, f.w) : { yaw: 0, pitch: 0 };
+    const moved = displace(model, f.w, f.blink, pose);
+    for (const t of model.moving) {
+      const a = t[0], b = t[1], c = t[2];
+      // triangles that did not move by even a quarter pixel are already right in the copy of the picture
+      if (Math.abs(moved[a].x - model.pts[a].x) + Math.abs(moved[a].y - model.pts[a].y) + Math.abs(moved[b].x - model.pts[b].x) + Math.abs(moved[b].y - model.pts[b].y) + Math.abs(moved[c].x - model.pts[c].x) + Math.abs(moved[c].y - model.pts[c].y) < 0.25) continue;
+      drawTri(wc, base, [model.pts[a], model.pts[b], model.pts[c]], [moved[a], moved[b], moved[c]]);
+    }
     if (model.eyes.length) paintEyelids(wc, base, model, moved, f.blink);
     if (f.w.J > 0.02) paintMouth(wc, model, moved, f.w);
   }
@@ -380,10 +410,10 @@ export function renderFrame(view: HTMLCanvasElement, work: HTMLCanvasElement, ba
   vc.setTransform(1, 0, 0, 1, 0, 0);
   vc.clearRect(0, 0, W, H);
   const k = f.moving ? 1 : 0, t = f.t;
-  const roll = (Math.sin(t * 0.8) * 0.014 + Math.sin(t * 1.9 + 1) * 0.006 + (f.w.E - 0.4) * 0.006 * Math.sin(t * 3.1)) * k;
-  const dx = (Math.sin(t * 0.55) * 0.006 + Math.sin(t * 1.3 + 2) * 0.003) * W * k;
-  const dy = (Math.sin(t * 0.7 + 1) * 0.004 + f.w.E * 0.006 + f.w.J * 0.004) * H * k;
-  const sc = 1.07 + (Math.sin(t * 0.5) * 0.004 + f.w.E * 0.004) * k;
+  const roll = (Math.sin(t * 0.8) * 0.026 + Math.sin(t * 1.9 + 1) * 0.01 + (f.w.E - 0.4) * 0.008 * Math.sin(t * 3.1)) * k;
+  const dx = (Math.sin(t * 0.55) * 0.011 + Math.sin(t * 1.3 + 2) * 0.005) * W * k;
+  const dy = (Math.sin(t * 0.7 + 1) * 0.007 + f.w.E * 0.008 + f.w.J * 0.005) * H * k;
+  const sc = 1.09 + (Math.sin(t * 0.5) * 0.006 + f.w.E * 0.006) * k;
   vc.translate(W / 2 + dx, H * 0.92 + dy);
   vc.rotate(roll);
   vc.scale(sc, sc);

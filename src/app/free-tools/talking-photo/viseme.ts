@@ -128,7 +128,7 @@ export type VisemeFrame = { w: Float32Array; active: boolean };   // soft weight
 
 export function classifyFrames(x: Float32Array, sr: number, model: Prototype[]): VisemeFrame[] {
   const { mfcc, le } = mfccFrames(to16k(x, sr));
-  const T = 4;   // temperature of the soft-min over Mahalanobis distances
+  const T = 2.5;   // temperature of the soft-min over Mahalanobis distances
   return mfcc.map((v, f) => {
     const dmin = new Float32Array(VIS_NAMES.length).fill(Infinity);
     for (const p of model) { let d = mahalanobis(v, p); if (p.viseme === SIL) d /= 1.2; if (d < dmin[p.viseme]) dmin[p.viseme] = d; }
@@ -147,16 +147,25 @@ export function refineTrack(track: Track, x: Float32Array, sr: number, model: Pr
   const frames = classifyFrames(x, sr, model);
   if (!frames.length) return track;
   const fpsIn = SR / HOP, n = track.J.length;
+  // classification frames flicker from one 16 ms step to the next; a speaking mouth does not. Smooth the soft weights over about +-50 ms first.
+  const K = [1, 2, 3, 4, 3, 2, 1], ksum = 16, nv = VIS_NAMES.length;
+  const sm = frames.map((_, i) => {
+    const w = new Float32Array(nv);
+    for (let k = 0; k < K.length; k++) { const fr = frames[Math.min(frames.length - 1, Math.max(0, i + k - 3))]; for (let v = 0; v < nv; v++) w[v] += (fr.w[v] * K[k]) / ksum; }
+    return w;
+  });
   const J = new Float32Array(n), S = new Float32Array(n), R = new Float32Array(n), F = new Float32Array(n);
   for (let f = 0; f < n; f++) {
     const pos = (f / track.fps) * fpsIn, i = Math.min(frames.length - 1, Math.floor(pos)), i2 = Math.min(frames.length - 1, i + 1), k = pos - i;
     let j = 0, s = 0, r = 0, ff = 0;
-    for (let v = 0; v < VIS_NAMES.length; v++) {
-      const w = frames[i].w[v] * (1 - k) + frames[i2].w[v] * k, m = MOUTH[VIS_NAMES[v]];
+    for (let v = 0; v < nv; v++) {
+      const w = sm[i][v] * (1 - k) + sm[i2][v] * k, m = MOUTH[VIS_NAMES[v]];
       j += w * m[0]; s += w * m[1]; r += w * m[2]; ff += w * m[3];
     }
     const loud = Math.min(1, 0.35 + 0.9 * track.E[f]);   // quiet syllables open less
-    J[f] = Math.min(1, j * loud); S[f] = Math.min(1, s * (0.5 + 0.5 * loud)); R[f] = Math.min(1, r); F[f] = Math.min(1, ff);
+    // while someone is speaking the mouth never shuts completely between sounds (only the p, b, m sounds close the lips, and those last a moment)
+    const floor = track.E[f] > 0.25 ? 0.1 * loud : 0;
+    J[f] = Math.min(1, Math.max(j * loud, floor)); S[f] = Math.min(1, s * (0.5 + 0.5 * loud)); R[f] = Math.min(1, r); F[f] = Math.min(1, ff);
   }
   // the mouth leads the sound by about two frames, then smooth (fast attack, slower release)
   const shift = (a: Float32Array) => { const o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[Math.min(a.length - 1, i + 2)]; return o; };
