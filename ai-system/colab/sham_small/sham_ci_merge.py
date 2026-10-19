@@ -33,6 +33,21 @@ WORK = Path(os.environ.get("SHAM_WORK", "/tmp/sham_ci_merge"))
 MAX_SOURCES_PER_RUN = 12
 
 
+
+def _fingerprint(path) -> str:
+    """Content fingerprint of a checkpoint file: size + sha1 of its first and last MiB (cheap; two different training runs never collide)."""
+    import hashlib
+    try:
+        size = os.path.getsize(path)
+        h = hashlib.sha1(str(size).encode())
+        with open(path, "rb") as f:
+            h.update(f.read(1 << 20))
+            f.seek(max(0, size - (1 << 20)))
+            h.update(f.read(1 << 20))
+        return h.hexdigest()
+    except Exception:
+        return ""
+
 def _step_of(path: Path) -> int:
     return int(torch.load(path, map_location="cpu", weights_only=False, mmap=True).get("step") or 0)
 
@@ -141,7 +156,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     from checkpoint import load_checkpoint, save_checkpoint
     from sham_inputs import fetch_dataset, publish_dataset
     import sham_merge
-    from sham_merge import KNOWN_SOURCES, batches_loss, guarded_merge, load_source
+    from sham_merge import KNOWN_SOURCES, batches_loss, guarded_merge, latest_checkpoint, load_source
     from text_tokenizer import ShamTextTokenizer
 
     fetch, publish = fetch or fetch_dataset, publish or publish_dataset
@@ -175,7 +190,9 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
             report_note = f"🔁 قاعدة البوابة تغيّرت ({progress.get('merge_rule')} → {rule}): كل المصادر تُجرَّب مرة جديدة"
             print(report_note)
         merged.clear()
+        progress.pop("tried_fp", None)
         progress["merge_rule"] = rule
+    tried_fp = progress.setdefault("tried_fp", {})
     candidates, report = [], []
     changed = False
     # 2026-10-17: after the rule change every source is new at once; holding ALL their models in memory together (up to 12 x ~0.5 GB + the repair copies) starved the
@@ -201,16 +218,26 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
         root = fetch(name)
         if not root:
             continue
+        # 2026-10-19 (measured): a source counted as "tried" when its STEP NUMBER was <= the last tried one. Every trainer restarts from the merged head (step 61,555,
+        # which never moved because nothing was accepted) and reaches ~62,6xx again, so every new checkpoint of sham-crawl-gh (holdout: image -22%, audio -45%, chat -10%)
+        # was skipped as "tried before" and never reached the gate. "Tried" now means the SAME FILE CONTENT (size + head/tail hash), not the same step.
+        fp = _fingerprint(latest_checkpoint(root, pattern))
+        if fp and tried_fp.get(name) == fp:
+            report.append(f"⏭ {name}: النقطة نفسها جُرّبت سابقاً (البصمة {fp[:8]})")
+            shutil.rmtree(root, ignore_errors=True)
+            continue
         loaded, why = load_source(root, pattern, model, tokenizer)
         if loaded is None:
             report.append(f"⏭ {name}: {why}")
             shutil.rmtree(root, ignore_errors=True)   # the runner's disk is small: keep only what is merged now
             continue
         other, other_step = loaded
-        if merged.get(name, -1) >= other_step:
+        if not fp and merged.get(name, -1) >= other_step:      # no file to fingerprint: fall back to the old step rule
             report.append(f"⏭ {name}: الخطوة {other_step:,} جُرّبت سابقاً")
             shutil.rmtree(root, ignore_errors=True)
             continue
+        if fp:
+            tried_fp[name] = fp
         candidates.append((f"{name} (خطوة {other_step:,})", other.to(device), rows))
         tried_this_run += 1
         merged[name] = other_step
