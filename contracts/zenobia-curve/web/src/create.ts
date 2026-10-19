@@ -38,7 +38,7 @@ function totalFee() {
 totalFee();
 
 // live preview, symbol hygiene and a warning when the symbol is already taken or imitates a well-known one
-const RESERVED = new Set(['TON', 'USDT', 'USDC', 'BTC', 'ETH', 'NOT', 'DOGS', 'HMSTR', 'CATI', 'STON', 'DUST', 'ZNB', 'ZNBT', 'TELEGRAM', 'DURGER', 'GRAM']);
+const RESERVED = new Set(['TON', 'GRAM', 'USDT', 'USDC', 'BTC', 'ETH', 'NOT', 'DOGS', 'HMSTR', 'CATI', 'STON', 'DUST', 'ZNB', 'ZNBT', 'TELEGRAM', 'DURGER', 'GRAM']);
 let takenSymbols = new Map<string, string>();
 fetch('/api/zenobia/coins/index').then((r) => r.json()).then((j) => { for (const c of j.coins || []) takenSymbols.set(String(c.symbol).toUpperCase(), c.curve); }).catch(() => {});
 function preview() {
@@ -129,8 +129,8 @@ async function estimate() {
     const supply = Number(val('supply'));
     const mine = dev * perTon;
     const lines = [
-      'Starting price: 1 TON ≈ ' + Math.round(perTon).toLocaleString('en-US') + ' tokens · price at graduation is about ' + (price > 0 ? (grad / price).toFixed(0) : '?') + '× higher.',
-      dev > 0 ? 'Your first buy of ' + dev + ' TON gets you ≈ ' + Math.round(mine).toLocaleString('en-US') + ' tokens (≈ ' + (supply > 0 ? ((mine / supply) * 100).toFixed(2) : '0') + '% of the supply) at the lowest price the curve ever offers.' : 'First buy is 0: you will hold none of your own coin until you buy it on its page. Every token is sold by the curve; there is no free allocation.',
+      'Starting price: 1 GRAM ≈ ' + Math.round(perTon).toLocaleString('en-US') + ' tokens · price at graduation is about ' + (price > 0 ? (grad / price).toFixed(0) : '?') + '× higher.',
+      dev > 0 ? 'Your first buy of ' + dev + ' GRAM gets you ≈ ' + Math.round(mine).toLocaleString('en-US') + ' tokens (≈ ' + (supply > 0 ? ((mine / supply) * 100).toFixed(2) : '0') + '% of the supply) at the lowest price the curve ever offers.' : 'First buy is 0: you will hold none of your own coin until you buy it on its page. Every token is sold by the curve; there is no free allocation.',
     ];
     box.textContent = lines.join('\n');
   } catch { box.textContent = ''; }

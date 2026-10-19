@@ -25,12 +25,13 @@ async function loadMarket() {
   const raised = d.realTonReserve;
   setCurveState(d);
   const pct = Number((raised * 10000n) / thresholdTon) / 100;
-  $('raised').textContent = fmt(raised, 9, 2) + ' / ' + fmt(thresholdTon, 9, 0) + ' TON (' + Math.min(pct, 100).toFixed(1) + '%)';
+  $('raised').textContent = fmt(raised, 9, 2) + ' / ' + fmt(thresholdTon, 9, 0) + ' GRAM (' + Math.min(pct, 100).toFixed(1) + '%)';
   ($('bar') as HTMLElement).style.width = Math.min(pct, 100) + '%';
   const status = await retry(() => sdk.getLaunchStatus(curve!));
   $('status').textContent = status === 1n ? 'Trading on the curve' : status >= 2n ? 'Graduated: trade on DeDust' : 'Starting…';
+  if (status >= 2n && minter) $('status').innerHTML = 'Graduated: trade on <a href="https://dedust.io/swap/TON/' + minter.toString({ bounceable: true, urlSafe: true }) + '" target="_blank" rel="noopener">DeDust</a>';
   const q = await retry(() => sdk.quoteBuy(curve!, 1_000_000_000n));
-  $('price').textContent = '1 TON ≈ ' + fmt(q, 9, 0) + ' ' + $('sym').textContent;
+  $('price').textContent = '1 GRAM ≈ ' + fmt(q, 9, 0) + ' ' + $('sym').textContent;
 }
 
 async function loadIdentity() {
@@ -85,7 +86,7 @@ $('buy').onclick = async () => {
   try {
     if (!curve || !me) throw new Error('Connect your wallet first');
     const ton = parseUnits(($('buyAmt') as HTMLInputElement).value);
-    if (ton < 100_000_000n) throw new Error('Minimum 0.1 TON');
+    if (ton < 100_000_000n) throw new Error('Minimum 0.1 GRAM');
     const { transaction } = await sdk.prepareBuy(curve, ton, slip());
     await send(transaction);
     say('Buy sent. Your balance updates in about a minute.');
@@ -101,7 +102,7 @@ $('sell').onclick = async () => {
     if (amt > max) amt = max;
     const { transaction } = await sdk.prepareSell(curve, me, amt, slip());
     await send(transaction);
-    say('Sell sent. TON arrives in about a minute.');
+    say('Sell sent. GRAM arrives in about a minute.');
     setTimeout(() => loadMe().catch(() => {}), 45000);
   } catch (e: any) { say('Error: ' + (e.message || e)); }
 };
@@ -183,6 +184,7 @@ $('repSend').onclick = async () => {
   if (hid.has(curve.toString({ bounceable: true, urlSafe: true }))) $('hiddenNote').style.display = 'block';
   $('addr').textContent = curve.toString({ bounceable: true });
   ($('tgShare') as HTMLAnchorElement).href = 'https://t.me/share/url?url=' + encodeURIComponent(location.href);
+  ($('cardLink') as HTMLAnchorElement).href = '/api/zenobia/card?c=' + encodeURIComponent(curve.toString({ bounceable: true, urlSafe: true }));
   await loadMarket();
   await loadIdentity();
   loadFacts().catch(() => {});
@@ -201,7 +203,7 @@ function chips(box: HTMLElement, items: [string, () => void][]) {
 }
 function quickAmounts() {
   const buy = $('buyAmt') as HTMLInputElement;
-  chips(buy, ['0.5', '1', '5', '10'].map((v) => [v + ' TON', () => { buy.value = v; }] as [string, () => void]));
+  chips(buy, ['0.5', '1', '5', '10'].map((v) => [v + ' GRAM', () => { buy.value = v; }] as [string, () => void]));
   const sell = $('sellAmt') as HTMLInputElement;
   chips(sell, [25, 50, 75, 100].map((p) => [p + '%', () => { sell.value = fmtExact(myBal * BigInt(p) / 100n); }] as [string, () => void]));
   const sel = document.createElement('select');
@@ -217,9 +219,9 @@ async function loadStats(curveStr: string) {
     const c = (j.coins || []).find((x: any) => x.curve === curveStr || Address.parse(x.curve).equals(Address.parse(curveStr)));
     if (!c) return;
     const parts: string[] = [];
-    if (c.mcTon) parts.push('Market cap ≈ ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' TON');
+    if (c.mcTon) parts.push('Market cap ≈ ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' GRAM');
     if (typeof c.chg24 === 'number') parts.push('24h ' + (c.chg24 > 0 ? '+' : '') + c.chg24.toFixed(1) + '%');
-    if (c.raised24 && BigInt(c.raised24) > 0n) parts.push('+' + fmt(BigInt(c.raised24), 9, 2) + ' TON raised in 24h');
+    if (c.raised24 && BigInt(c.raised24) > 0n) parts.push('+' + fmt(BigInt(c.raised24), 9, 2) + ' GRAM raised in 24h');
     $('stat').textContent = parts.join(' · ');
   } catch {}
 }
@@ -254,7 +256,7 @@ function drawMap() {
     + '<path d="' + path(r) + '" fill="none" stroke="url(#cm1)" stroke-width="3" stroke-linecap="round"/>';
   trail.forEach((t, i) => { const o = 0.15 + 0.7 * ((i + 1) / trail.length); svg += '<circle cx="' + X(t.raised).toFixed(1) + '" cy="' + Y(t.raised).toFixed(1) + '" r="1.8" fill="#fff" opacity="' + o.toFixed(2) + '"/>'; });
   svg += '<g><text x="' + (R - 2) + '" y="' + (top - 8) + '" text-anchor="end" fill="#f6b73c" font-size="10" font-weight="700">🎓 ×' + maxM.toFixed(0) + ' at graduation</text></g>';
-  svg += '<text x="' + L + '" y="' + (bot + 12) + '" fill="#8a8fa0" font-size="9">launch</text><text x="' + R + '" y="' + (bot + 12) + '" text-anchor="end" fill="#8a8fa0" font-size="9">' + cs.T.toFixed(0) + ' TON</text>';
+  svg += '<text x="' + L + '" y="' + (bot + 12) + '" fill="#8a8fa0" font-size="9">launch</text><text x="' + R + '" y="' + (bot + 12) + '" text-anchor="end" fill="#8a8fa0" font-size="9">' + cs.T.toFixed(0) + ' GRAM</text>';
   const amt = Number((document.getElementById('buyAmt') as HTMLInputElement | null)?.value) || 0;
   if (amt > 0 && r < cs.T) {
     const x2 = Math.min(cs.T, r + amt * 0.965), pct = (curveMult(x2) / curveMult(r) - 1) * 100;
@@ -268,7 +270,7 @@ function drawMap() {
   // money in / out between index points: up = TON bought in, down = TON sold out
   const d: number[] = [];
   for (let i = 1; i < trail.length; i++) d.push(trail[i].raised - trail[i - 1].raised);
-  svg += '<text x="' + L + '" y="' + (mid - 28) + '" fill="#8a8fa0" font-size="9">Money in ↑ / out ↓ (TON, 7 days)</text><line x1="' + L + '" y1="' + mid + '" x2="' + R + '" y2="' + mid + '" stroke="#ffffff18"/>';
+  svg += '<text x="' + L + '" y="' + (mid - 28) + '" fill="#8a8fa0" font-size="9">Money in ↑ / out ↓ (GRAM, 7 days)</text><line x1="' + L + '" y1="' + mid + '" x2="' + R + '" y2="' + mid + '" stroke="#ffffff18"/>';
   if (d.length) {
     const n = Math.min(40, d.length), per = d.length / n, bw = (R - L) / n;
     const bk = Array.from({ length: n }, (_, i) => d.slice(Math.floor(i * per), Math.floor((i + 1) * per) || undefined).reduce((a, b) => a + b, 0));
@@ -277,7 +279,7 @@ function drawMap() {
   } else svg += '<text x="' + ((L + R) / 2) + '" y="' + (mid + 4) + '" text-anchor="middle" fill="#8a8fa0" font-size="9">fills in as the coin trades</text>';
   svg += '</svg>';
   const now = curveMult(r), pctDone = (r / cs.T) * 100;
-  box.innerHTML = svg + '<div class="mut" style="margin-top:4px">×' + now.toFixed(2) + ' since launch · ' + pctDone.toFixed(1) + '% of the way to graduation. The price only depends on how much TON the curve holds, so this map is exact, not an estimate.</div>';
+  box.innerHTML = svg + '<div class="mut" style="margin-top:4px">×' + now.toFixed(2) + ' since launch · ' + pctDone.toFixed(1) + '% of the way to graduation. The price only depends on how much GRAM the curve holds, so this map is exact, not an estimate.</div>';
 }
 async function loadChart(curveStr: string) {
   try {
@@ -285,6 +287,43 @@ async function loadChart(curveStr: string) {
     trail = (j.ticks || []).map((t: any) => ({ ts: t.ts, raised: Number(t.raised) / 1e9 })).filter((t: any) => Number.isFinite(t.raised));
   } catch { trail = []; }
   drawMap();
+}
+async function loadTrust(curveStr: string) {
+  const box = $('trust');
+  const items: [string, string, string][] = [];   // [mark, text, tone]
+  let coin: any = null;
+  try {
+    const j = await (await fetch('/api/zenobia/coins/index', { cache: 'no-store' })).json();
+    coin = (j.coins || []).find((c: any) => c.curve === curveStr || Address.parse(c.curve).equals(Address.parse(curveStr)));
+  } catch {}
+  let hold: any = null;
+  try { const h = await (await fetch('/api/zenobia/coins/holders?c=' + encodeURIComponent(curveStr))).json(); if (h.ok) hold = h; } catch {}
+  if (!coin) { box.textContent = 'Trust check is not available for this coin yet.'; return; }
+  items.push(['✅', 'The creator gets no free coins: any creator holding was bought with their own money, like everyone else.', 'ok']);
+  const fee = coin.creatorFeeBps / 100;
+  items.push([fee > 1 ? '⚠️' : '✅', 'Creator fee ' + fee.toFixed(2).replace(/\.?0+$/, '') + '% per trade (platform fee 1.5%).', fee > 1 ? 'warn' : 'ok']);
+  if (coin.features?.maxBuyBps) items.push(['✅', 'Anti-whale: one buy is capped at ' + coin.features.maxBuyBps / 100 + '% of the supply.', 'ok']);
+  const ageH = (Date.now() / 1000 - coin.createdAt) / 3600;
+  if (ageH < 24) items.push(['⚠️', 'Very new coin (' + Math.max(1, Math.floor(ageH)) + 'h old): little history to judge by.', 'warn']);
+  if (hold) {
+    let top = 0, creator = 0;
+    hold.holders.forEach((h: any, i: number) => { if (!h.isCurve && i < 10) top += h.bps; if (h.isCreator) creator += h.bps; });
+    items.push([creator > 2000 ? '⚠️' : '✅', 'Creator holds ' + (creator / 100).toFixed(1) + '% of the supply.', creator > 2000 ? 'warn' : 'ok']);
+    items.push([top > 4000 ? '⚠️' : '✅', 'Top 10 wallets (without the curve) hold ' + (top / 100).toFixed(1) + '%.', top > 4000 ? 'warn' : 'ok']);
+    items.push(['ℹ️', hold.total + ' holders.', 'info']);
+  }
+  items.push(['⚠️', 'Unaudited experimental contract: you can lose everything you put in.', 'warn']);
+  box.textContent = '';
+  for (const [m, tx] of items) {
+    const r = document.createElement('div');
+    r.style.cssText = 'display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--line)';
+    const a = document.createElement('span'); a.textContent = m;
+    const b = document.createElement('span'); b.textContent = tx;
+    r.append(a, b); box.append(r);
+  }
+  const n = document.createElement('div'); n.className = 'mut'; n.style.marginTop = '6px';
+  n.textContent = 'This check reads public data. It is not advice and does not predict price.';
+  box.append(n);
 }
 async function loadHolders(curveStr: string) {
   const box = $('holders');
@@ -318,7 +357,7 @@ void (async () => {
   const t = param || cfg.curve;
   if (!t) return;
   let c: string; try { c = Address.parse(t).toString({ bounceable: true }); } catch { return; }
-  void loadStats(c); void loadChart(c); void loadHolders(c);
+  void loadStats(c); void loadChart(c); void loadHolders(c); void loadTrust(c);
 })();
 
 document.getElementById('buyAmt')?.addEventListener('input', () => drawMap());

@@ -7,14 +7,15 @@
 <div id="app">
 <div class="card"><h2>Market · السوق</h2><div id="status">…</div><div id="price" class="mut">…</div>
 <div id="stat" class="mut"></div><div id="chartBox" class="mut" style="margin:8px 0"></div><div class="bar" style="margin:8px 0"><div id="bar"></div></div><div class="mut">Raised / graduation: <span id="raised">…</span></div></div>
+<div class="card"><h2>Trust check · فحص الثقة</h2><div id="trust" class="mut">Loading…</div></div>
 <div class="card"><h2>Holders · الحاملون</h2><div id="holders" class="mut">Loading…</div></div>
 <div class="card"><h2>Your journey · رحلتك</h2><video id="stageVideo" style="display:none;width:100%;border-radius:12px;margin-bottom:8px" muted loop playsinline autoplay></video><img id="stageImg" alt="" style="display:none;width:100%;border-radius:12px;margin-bottom:8px"><div style="font-size:20px" id="stage">Connect your wallet</div><div class="mut" id="stageNote"></div><div class="mut">Balance: <span id="balance">–</span></div></div>
-<div class="card"><h2>Buy · شراء</h2><input id="buyAmt" inputmode="decimal" value="1" aria-label="TON amount"><button id="buy">Buy with TON</button></div>
+<div class="card"><h2>Buy · شراء</h2><input id="buyAmt" inputmode="decimal" value="1" aria-label="GRAM amount"><button id="buy">Buy with GRAM</button></div>
 <div class="card"><h2>Sell · بيع</h2><input id="sellAmt" inputmode="decimal" value="0" aria-label="ZNBt amount"><button id="sell" class="alt">Sell for TON</button></div>
 <div class="card"><h2>Creator fees · رسوم المُطلِق</h2><div class="mut">Only for the wallet that launched this coin. Step 1, wait a minute, then step 2.</div><button id="flush" class="alt">1 · Move fees to my claim box</button><button id="claim">2 · Withdraw my creator fees</button></div>
 <div class="card mut" id="log"></div>
 <div class="card"><h2>Coin facts · معلومات العملة</h2><dl class="facts" id="facts"><dt>Loading</dt><dd>…</dd></dl></div>
-<div class="card"><h2>Share · شارك</h2><div class="links"><button id="copyLink" class="alt">Copy link</button><a id="tgShare" class="btn alt" target="_blank" rel="noopener">Telegram</a></div></div>
+<div class="card"><h2>Share · شارك</h2><div class="links"><button id="copyLink" class="alt">Copy link</button><a id="tgShare" class="btn alt" target="_blank" rel="noopener">Telegram</a><a id="cardLink" class="btn alt" target="_blank" rel="noopener">Image card</a></div></div>
 <div class="card"><h2>The journey · الرحلة</h2><img src="/zenobia/znbt-emblem.svg" alt="" style="width:100%;border-radius:12px"><div class="mut">Child (days 0-6) → Queen (7-20) → Warrior (21+). Sell everything: Captive. Burn everything: Legend.</div><a class="btn alt" href="/zenobia/coins.html">All coins · كل العملات</a></div>
 <div class="card mut">Contract: <code id="addr">–</code></div>
 <div class="card"><h2>Report this coin · بلّغ عن العملة</h2><div class="mut">Scam, impersonation, illegal or copied content? Tell us. A report never hides a coin by itself; the platform owner reviews it. · البلاغ لا يُخفي العملة تلقائياً، يراجعه المالك.</div>

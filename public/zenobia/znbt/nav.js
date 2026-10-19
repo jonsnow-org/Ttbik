@@ -4,6 +4,7 @@
   var tabs = [
     ['/zenobia/coins.html', '🏠', 'Explore'],
     ['/zenobia/create.html', '🚀', 'Launch'],
+    ['/zenobia/swap.html', '🔁', 'Swap'],
     ['/zenobia/earnings.html', '💰', 'Earnings'],
     ['/zenobia/terms.html', 'ℹ️', 'Info'],
   ];

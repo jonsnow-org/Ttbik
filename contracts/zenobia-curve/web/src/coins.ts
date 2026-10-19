@@ -13,6 +13,13 @@ let rows: Row[] = [];
 let reports = new Map<string, { n: number; reason: string }>();
 let q = '';
 let sort: Sort = 'new';
+let featured = new Set<string>();
+async function loadFeatured() {
+  try {
+    const j = await (await fetch('/api/zenobia/coins/featured')).json();
+    featured = new Set((j.featured || []).map((f: any) => { try { return Address.parse(f.curve).toString({ bounceable: true, urlSafe: true }); } catch { return ''; } }));
+  } catch { featured = new Set(); }
+}
 let filter: 'all' | 'curve' | 'grad' | 'watch' = 'all';
 let watched = watch();
 let official = '';   // ZNBt's own curve, pinned first
@@ -80,12 +87,12 @@ function sections() {
   const hot = [...live].filter((c) => c.raised24 && BigInt(c.raised24) > 0n).sort((a, b) => Number(BigInt(b.raised24!) - BigInt(a.raised24!))).slice(0, 8);
   if (king && (pct(king) ?? 0) > 0) {
     box.append(el('h2', { className: 'sec', textContent: '👑 King of the hill' }));
-    box.append(el('a', { className: 'king', href: '/zenobia/trade.html?c=' + encodeURIComponent(king.curve) }, el('b', { textContent: (king.name || king.symbol) + ' · ' + king.symbol }), el('span', { textContent: (pct(king) ?? 0).toFixed(1) + '% to graduation · ' + fmt(BigInt(king.raisedNano!), 9, 2) + ' TON raised' })));
+    box.append(el('a', { className: 'king', href: '/zenobia/trade.html?c=' + encodeURIComponent(king.curve) }, el('b', { textContent: (king.name || king.symbol) + ' · ' + king.symbol }), el('span', { textContent: (pct(king) ?? 0).toFixed(1) + '% to graduation · ' + fmt(BigInt(king.raisedNano!), 9, 2) + ' GRAM raised' })));
   }
   if (hot.length) {
     box.append(el('h2', { className: 'sec', textContent: '🔥 Trending now' }));
     const strip = el('div', { className: 'strip' });
-    for (const c of hot) strip.append(mini(c, '+' + fmt(BigInt(c.raised24!), 9, 2) + ' TON', 'up'));
+    for (const c of hot) strip.append(mini(c, '+' + fmt(BigInt(c.raised24!), 9, 2) + ' GRAM', 'up'));
     box.append(strip);
   }
 }
@@ -96,13 +103,14 @@ function stats() {
   for (const c of shown) raised += BigInt(c.raisedNano || '0');
   const box = $('stats');
   box.textContent = '';
-  for (const [v, l] of [[String(shown.length), 'Coins · عملات'], [fmt(raised, 9, 1), 'TON raised'], ['1.5%+≤2%', 'Fees']]) box.append(el('div', { className: 'stat' }, el('b', { textContent: v }), el('span', { textContent: l })));
+  for (const [v, l] of [[String(shown.length), 'Coins · عملات'], [fmt(raised, 9, 1), 'GRAM raised'], ['1.5%+≤2%', 'Fees']]) box.append(el('div', { className: 'stat' }, el('b', { textContent: v }), el('span', { textContent: l })));
 }
 
 function render() {
   const box = $('list');
   box.textContent = '';
   let shown = visible();
+  shown = [...shown.filter((c) => featured.has(key(c))), ...shown.filter((c) => !featured.has(key(c)))];   // sponsored coins next
   if (official) shown = [...shown.filter((c) => key(c) === official), ...shown.filter((c) => key(c) !== official)];   // our own coin first
   $('count').textContent = shown.length + (shown.length === 1 ? ' coin' : ' coins') + ' · ' + shown.length + ' عملة';
   if (!shown.length) box.append(el('div', { className: 'card mut', textContent: rows.length ? 'Nothing matches. / لا نتائج.' : 'No coins yet. / لا توجد عملات بعد.' }));
@@ -121,6 +129,7 @@ function render() {
     const t = el('div', { className: 't' }, c.name || '(no name)', el('span', { className: 'sym', textContent: c.symbol || '?' }));
     const badges = el('div', { className: 'badges' });
     if (k === official) badges.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
+    if (featured.has(k)) badges.append(el('span', { className: 'badge', textContent: 'SPONSORED' }));
     if (Date.now() / 1000 - c.createdAt < 86400) badges.append(el('span', { className: 'badge new', textContent: 'NEW' }));
     if ((c.state ?? 1) >= 2) badges.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
     if (c.features?.maxBuyBps) badges.append(el('span', { className: 'badge', textContent: '🐋 max buy ' + (c.features.maxBuyBps / 100) + '%' }));
@@ -134,8 +143,8 @@ function render() {
     const p = pct(c);
     if (p !== null) {
       body.append(el('div', { className: 'bar' }, el('div', { style: 'width:' + p + '%' })));
-      body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' TON' }), el('b', { textContent: p.toFixed(1) + '%' })));
-      const extra = [c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' TON' : '', typeof c.chg24 === 'number' ? sign(c.chg24) + ' 24h' : ''].filter(Boolean);
+      body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' GRAM' }), el('b', { textContent: p.toFixed(1) + '%' })));
+      const extra = [c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' GRAM' : '', typeof c.chg24 === 'number' ? sign(c.chg24) + ' 24h' : ''].filter(Boolean);
       if (extra.length) body.append(el('div', { className: 'm' }, el('span', { textContent: extra[0] }), el('span', { className: typeof c.chg24 === 'number' ? (c.chg24 >= 0 ? 'up' : 'down') : '', textContent: extra[1] || '' })));
     } else {
       body.append(el('div', { className: 'm' }, el('span', { textContent: 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%' }), el('span', { textContent: new Date(c.createdAt * 1000).toISOString().slice(0, 10) })));
@@ -148,6 +157,8 @@ function render() {
       const reason = el('input', { placeholder: 'reason (optional)', value: '' }) as HTMLInputElement;
       adm.append(reason);
       adm.append(el('button', { textContent: isHidden ? 'Unhide' : 'Hide', onclick: () => setHidden(c, !isHidden, reason.value) }));
+      const days = el('input', { placeholder: 'sponsor days (1-30, 0 = remove)', value: '7', inputMode: 'numeric' }) as HTMLInputElement;
+      adm.append(days, el('button', { className: 'alt', textContent: featured.has(k) ? 'Update / remove sponsorship' : 'Sponsor this coin', onclick: () => setFeatured(c, Number(days.value)) }));
       adm.append(el('button', { className: 'alt', textContent: 'Collect platform fees', onclick: () => collect(c) }));
       box.append(adm);
     }
@@ -166,6 +177,18 @@ async function setHidden(c: Coin, hide: boolean, reason: string) {
     hidden = await hiddenSet();
     render();
     say(hide ? 'Hidden from the lists.' : 'Visible again.');
+  } catch (e: any) { say('Error: ' + (e.message || e)); }
+}
+
+async function setFeatured(c: Coin, days: number) {
+  try {
+    if (!proofReq) throw new Error('Connect the owner wallet first');
+    const r = await fetch('/api/zenobia/coins/featured', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...proofReq, curve: c.curve, days }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'failed');
+    await loadFeatured();
+    render();
+    say(days === 0 ? 'Sponsorship removed.' : 'Sponsored for ' + days + ' days.');
   } catch (e: any) { say('Error: ' + (e.message || e)); }
 }
 
@@ -193,13 +216,13 @@ async function setupAdmin() {
       const d = await sdk.master(master).getMasterData();
       if (d.feesBalance <= 0n) throw new Error('No platform fees in the master yet');
       await ui.sendTransaction(toTonConnect(withdrawProtocolFees(master, d.feesBalance), { validUntil: Math.floor(Date.now() / 1000) + 300, network: '-239' }));
-      say('Withdrawal sent: ' + fmt(d.feesBalance, 9, 3) + ' TON.');
+      say('Withdrawal sent: ' + fmt(d.feesBalance, 9, 3) + ' GRAM.');
     } catch (e: any) { say('Error: ' + (e.message || e)); }
   };
   $('balance').onclick = async () => {
     try {
       const d = await sdk.master(master!).getMasterData();
-      say('Platform fees waiting in the master: ' + fmt(d.feesBalance, 9, 3) + ' TON · launches: ' + d.totalLaunches);
+      say('Platform fees waiting in the master: ' + fmt(d.feesBalance, 9, 3) + ' GRAM · launches: ' + d.totalLaunches);
     } catch (e: any) { say('Error: ' + (e.message || e)); }
   };
 }
@@ -217,9 +240,9 @@ async function mine() {
       let total = 0;
       for (const h of j.holdings) {
         total += h.valueTon || 0;
-        box.append(el('a', { className: 'coin', href: '/zenobia/trade.html?c=' + encodeURIComponent(h.curve) }, el('div', { className: 'ph', textContent: (h.symbol || '?').slice(0, 1) }), el('div', { className: 'body' }, el('div', { className: 't' }, h.name || h.symbol, el('span', { className: 'sym', textContent: h.symbol })), el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(h.balance), 9, 2) + ' ' + h.symbol }), el('b', { textContent: h.valueTon != null ? '≈ ' + h.valueTon.toFixed(2) + ' TON' : '' })))));
+        box.append(el('a', { className: 'coin', href: '/zenobia/trade.html?c=' + encodeURIComponent(h.curve) }, el('div', { className: 'ph', textContent: (h.symbol || '?').slice(0, 1) }), el('div', { className: 'body' }, el('div', { className: 't' }, h.name || h.symbol, el('span', { className: 'sym', textContent: h.symbol })), el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(h.balance), 9, 2) + ' ' + h.symbol }), el('b', { textContent: h.valueTon != null ? '≈ ' + h.valueTon.toFixed(2) + ' GRAM' : '' })))));
       }
-      box.append(el('div', { className: 'mut', textContent: 'Estimated value at the current curve price: ' + total.toFixed(2) + ' TON' }));
+      box.append(el('div', { className: 'mut', textContent: 'Estimated value at the current curve price: ' + total.toFixed(2) + ' GRAM' }));
     } catch {}
   };
   ui.onStatusChange(() => { void show(); });
@@ -231,6 +254,7 @@ async function mine() {
   master = Address.parse(cfg.master);
   if (cfg.curve) { try { official = Address.parse(cfg.curve).toString({ bounceable: true, urlSafe: true }); } catch {} }
   if (admin) await setupAdmin();
+  await loadFeatured();
   // the server index first (fast, carries live numbers); the chain itself only when the index is missing or old
   let usedIndex = false;
   try {
