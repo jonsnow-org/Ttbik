@@ -10,7 +10,9 @@ let ready: Promise<void> | null = null;
 const ensure = () => (ready ??= prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS youtube_publish_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`).then(() => undefined).catch((e) => { ready = null; throw e; }));
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/$/, "");
-export const redirectUri = () => `${site()}/api/youtube/oauth`;
+// A Desktop-type OAuth client only accepts loopback redirects, so by default the consent ends on http://localhost (the page fails to load on purpose);
+// the owner pastes that address into /api/youtube/oauth and the code in it is exchanged here. A Web-type client can set YOUTUBE_REDIRECT_URI to <site>/api/youtube/oauth instead.
+export const redirectUri = () => process.env.YOUTUBE_REDIRECT_URI || "http://localhost";
 export const youtubeKeysPresent = () => Boolean(process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET);
 
 const sign = (s: string) => crypto.createHmac("sha256", process.env.CRON_SECRET || "").update(s).digest("base64url");
