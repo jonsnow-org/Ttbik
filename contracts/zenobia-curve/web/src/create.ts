@@ -33,6 +33,7 @@ function metadata(name: string, symbol: string, description: string, image: stri
 function totalFee() {
   const c = Number(val('fee'));
   $('total').textContent = ((150 + c) / 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+  $('feeEx').textContent = (c / 10).toFixed(2).replace(/\.?0+$/, '') + ' GRAM';
 }
 ($('fee') as HTMLElement).onchange = totalFee;
 totalFee();
@@ -138,3 +139,26 @@ async function estimate() {
 for (const id of ['supply', 'fee', 'threshold', 'dev']) ($(id) as HTMLElement).addEventListener('input', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 700); });
 for (const id of ['supply', 'fee', 'threshold', 'shape']) ($(id) as HTMLElement).addEventListener('change', () => { clearTimeout(estTimer); estTimer = setTimeout(estimate, 300); });
 setTimeout(estimate, 500);
+
+// ---- partners: friendly rows instead of a raw text box; they are written into the hidden #split field the launch code reads ----
+const partnersBox = $('partners');
+function syncPartners() {
+  const lines: string[] = [];
+  partnersBox.querySelectorAll('.prow').forEach((r) => {
+    const a = (r.querySelector('.pa') as HTMLInputElement).value.trim(), p = (r.querySelector('.pp') as HTMLInputElement).value.trim();
+    if (a || p) lines.push(a + ' ' + p);
+  });
+  ($('split') as HTMLTextAreaElement).value = lines.join('\n');
+  ($('split') as HTMLTextAreaElement).dispatchEvent(new Event('input'));
+}
+function addPartner() {
+  if (partnersBox.children.length >= 8) return;
+  const r = document.createElement('div'); r.className = 'prow'; r.style.cssText = 'display:flex;gap:8px;align-items:center';
+  const a = document.createElement('input'); a.className = 'pa'; a.placeholder = 'Wallet address'; a.setAttribute('aria-label', 'Partner wallet address'); a.style.flex = '3';
+  const p = document.createElement('input'); p.className = 'pp'; p.placeholder = '%'; p.inputMode = 'numeric'; p.setAttribute('aria-label', 'Partner percent'); p.style.flex = '1';
+  const x = document.createElement('button'); x.type = 'button'; x.className = 'alt'; x.textContent = '✕'; x.style.cssText = 'width:auto;margin:0 0 10px;padding:10px 12px';
+  x.onclick = () => { r.remove(); syncPartners(); };
+  a.oninput = p.oninput = syncPartners;
+  r.append(a, p, x); partnersBox.append(r);
+}
+$('addPartner').onclick = addPartner;
