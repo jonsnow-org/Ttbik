@@ -137,12 +137,12 @@ export default function MatchMiniApp({ botId }: { botId: string }) {
   useEffect(() => {
     const w = tg();
     if (!w?.BackButton) return;
-    const show = !!modal || tab !== "discover";
+    const show = !!modal || !!chatWith || !!info || tab !== "discover";
     if (show) w.BackButton.show(); else w.BackButton.hide();
-    const h = () => { haptic("light"); if (modal) setModal(null); else setTab("discover"); };
+    const h = () => { haptic("light"); if (modal) setModal(null); else if (chatWith) setChatWith(null); else if (info) setInfo(null); else setTab("discover"); };
     w.BackButton.onClick(h);
     return () => w.BackButton.offClick(h);
-  }, [modal, tab]);
+  }, [modal, chatWith, info, tab]);
 
   if (boot !== "ready") {
     const text = {
