@@ -164,11 +164,17 @@ export function refineTrack(track: Track, x: Float32Array, sr: number, model: Pr
     }
     const loud = Math.min(1, 0.35 + 0.9 * track.E[f]);   // quiet syllables open less
     // while someone is speaking the mouth never shuts completely between sounds (only the p, b, m sounds close the lips, and those last a moment)
-    const floor = track.E[f] > 0.25 ? 0.1 * loud : 0;
+    const closure = sm[i][5] * (1 - k) + sm[i2][5] * k;   // weight of the p, b, m sounds: lips together
+    const floor = track.E[f] > 0.25 ? 0.1 * loud * (1 - Math.min(1, closure * 2)) : 0;
     J[f] = Math.min(1, Math.max(j * loud, floor)); S[f] = Math.min(1, s * (0.5 + 0.5 * loud)); R[f] = Math.min(1, r); F[f] = Math.min(1, ff);
+    if (track.E[f] < 0.14) { J[f] = 0; S[f] = 0; R[f] = 0; F[f] = 0; }   // pauses and breaths: lips together
   }
+  // a recording's own loud open vowels reach 0.85 of the jaw range whatever the speaker (classifier weights average out); how loud the voice really is
+  // (a whisper, ordinary speech, a shout) is applied afterwards by track.level
+  const sortedJ = Array.from(J).sort((a, b) => a - b), p95J = sortedJ[Math.floor(sortedJ.length * 0.95)] ?? 0;
+  if (p95J > 0.05) { const k = 0.85 / p95J; for (let f = 0; f < n; f++) J[f] = Math.min(1.15, J[f] * k); }
   // the mouth leads the sound by about two frames, then smooth (fast attack, slower release)
   const shift = (a: Float32Array) => { const o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[Math.min(a.length - 1, i + 2)]; return o; };
   const smooth = (a: Float32Array, up: number, down: number) => { const o = new Float32Array(a.length); let v = 0; for (let i = 0; i < a.length; i++) { v += (a[i] - v) * (a[i] > v ? up : down); o[i] = v; } return o; };
-  return { ...track, J: smooth(shift(J), 0.75, 0.45), S: smooth(shift(S), 0.55, 0.35), R: smooth(shift(R), 0.55, 0.35), F: smooth(shift(F), 0.65, 0.5) };
+  return { ...track, J: smooth(shift(J), 0.75, 0.7), S: smooth(shift(S), 0.55, 0.5), R: smooth(shift(R), 0.55, 0.5), F: smooth(shift(F), 0.65, 0.6) };
 }

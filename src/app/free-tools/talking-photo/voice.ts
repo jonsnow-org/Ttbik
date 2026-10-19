@@ -186,10 +186,20 @@ async function render(x: Float32Array, build: (ctx: OfflineAudioContext, src: Au
 const curve = (k: number) => { const n = 1024, c = new Float32Array(n); for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; c[i] = ((1 + k) * x) / (1 + k * Math.abs(x)); } return c; };
 
 /** Applies an effect to a decoded voice and returns the processed mono buffer and a WAV blob of it. */
-export async function applyEffect(decoded: AudioBuffer, id: EffectId): Promise<{ buffer: AudioBuffer; blob: Blob }> {
+/** Loudness of the loud parts of a recording in dBFS: the 95th percentile of the RMS of 30 ms frames (about -20 for ordinary speech, above -10 for shouting). */
+export function loudnessDb(x: Float32Array, sr: number): number {
+  const n = Math.round(sr * 0.03), hop = Math.round(sr * 0.015), v: number[] = [];
+  for (let s = 0; s + n <= x.length; s += hop) { let e = 0; for (let i = 0; i < n; i++) e += x[s + i] * x[s + i]; v.push(10 * Math.log10(e / n + 1e-10)); }
+  if (!v.length) return -30;
+  v.sort((a, b) => a - b);
+  return v[Math.floor(v.length * 0.95)];
+}
+
+export async function applyEffect(decoded: AudioBuffer, id: EffectId): Promise<{ buffer: AudioBuffer; blob: Blob; loudDb: number }> {
   // work at 22.05 kHz mono (a voice needs no more, and everything below is faster)
   const ratio = decoded.sampleRate / SR;
   let x = resample(toMono(decoded), ratio);
+  const loudDb = loudnessDb(x, SR);   // measured before the level is normalised: a shout must stay a shout
   // normalise the level
   let peak = 0; for (let i = 0; i < x.length; i++) peak = Math.max(peak, Math.abs(x[i]));
   if (peak > 0) { const g = 0.85 / peak; x = x.map((v) => v * g); }
@@ -236,7 +246,7 @@ export async function applyEffect(decoded: AudioBuffer, id: EffectId): Promise<{
 
   const ac = new OfflineAudioContext(1, Math.max(1, x.length), SR);
   const buffer = ac.createBuffer(1, Math.max(1, x.length), SR); buffer.getChannelData(0).set(x);
-  return { buffer, blob: wavBlob(x, SR) };
+  return { buffer, blob: wavBlob(x, SR), loudDb };
 }
 
 export function wavBlob(x: Float32Array, sr: number): Blob {
