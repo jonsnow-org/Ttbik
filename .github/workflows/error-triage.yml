@@ -49,7 +49,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           since=$(date -u -d '26 hours ago' +%FT%TZ)
-          for wf in site-crons znbt-index znbt-guard zenobia-watch zenobia-season channel-post coins-channel-post promo-remotion athar-mints athar-stars; do
+          for wf in site-crons referral-sync znbt-index znbt-guard zenobia-watch zenobia-season channel-post coins-channel-post promo-remotion athar-mints athar-stars; do
             last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$wf.yml/runs?per_page=3&status=completed" --jq "[.workflow_runs[]|select(.created_at>\"$since\")]|.[0]|[.conclusion,.html_url]|@tsv" 2>/dev/null || true)
             concl=$(echo "$last" | cut -f1); url=$(echo "$last" | cut -f2)
             if [ "$concl" = "failure" ]; then
