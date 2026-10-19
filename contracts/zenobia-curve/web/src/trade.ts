@@ -110,7 +110,7 @@ $('buy').onclick = async () => {
     const ton = parseUnits(($('buyAmt') as HTMLInputElement).value);
     if (ton < 100_000_000n) throw new Error('Minimum 0.1 GRAM');
     const { transaction } = await sdk.prepareBuy(curve, ton, slip());
-    await send(transaction);
+    await send(transaction); (window as any).ZJ?.done('trade');
     closeSheet();
     say('Buy sent. Your balance updates in about a minute.');
     setTimeout(() => loadMe().catch(() => {}), 45000);
@@ -124,7 +124,7 @@ $('sell').onclick = async () => {
     const max = await sdk.getMaxSafeSell(curve);
     if (amt > max) amt = max;
     const { transaction } = await sdk.prepareSell(curve, me, amt, slip());
-    await send(transaction);
+    await send(transaction); (window as any).ZJ?.done('trade');
     closeSheet();
     say('Sell sent. GRAM arrives in about a minute.');
     setTimeout(() => loadMe().catch(() => {}), 45000);
@@ -430,8 +430,58 @@ void (async () => {
   const t = param || cfg.curve;
   if (!t) return;
   let c: string; try { c = Address.parse(t).toString({ bounceable: true }); } catch { return; }
-  void loadStats(c); void loadChart(c); void loadHolders(c); void loadTrust(c);
+  void loadStats(c); void loadChart(c); void loadHolders(c); void loadTrust(c); void initEngage(c);
 })();
 
 document.getElementById('buyAmt')?.addEventListener('input', () => drawMap());
 
+
+// ---- community reactions and bot alerts (opt-in; no money moves) ----
+const initData = (): string => (window as any).Telegram?.WebApp?.initData || '';
+const pageLang = (): string => { try { const l = new URLSearchParams(location.search).get('lang') || localStorage.getItem('znbtLang') || 'en'; return /^(en|ru|ar)$/.test(l) ? l : 'en'; } catch { return 'en'; } };
+const RX: [string, string, string][] = [['star', '⭐', 'Like'], ['fire', '🔥', 'Hot'], ['broken', '💔', 'Not for me']];
+const RX_KEY = 'znbt-react-v1';
+const myReacts = (): Record<string, boolean> => { try { return JSON.parse(localStorage.getItem(RX_KEY) || '{}'); } catch { return {}; } };
+
+async function initEngage(c: string) {
+  const row = document.getElementById('reactRow');
+  if (row) {
+    const draw = (counts: Record<string, number>) => {
+      row.textContent = '';
+      const mine = myReacts();
+      for (const [k, emoji, label] of RX) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'rx' + (mine[c + k] ? ' on' : ''); b.setAttribute('aria-label', label);
+        b.innerHTML = `<span>${emoji}</span><b>${counts[k] || 0}</b>`;
+        b.onclick = async () => {
+          b.disabled = true;
+          try {
+            const r = await (await fetch('/api/zenobia/react', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ c, kind: k, initData: initData() }) })).json();
+            if (r.counts) { const m = myReacts(); m[c + k] = !!r.mine; try { localStorage.setItem(RX_KEY, JSON.stringify(m)); } catch {} if (r.mine) (window as any).ZJ?.done('react'); draw(r.counts); }
+          } catch {} finally { b.disabled = false; }
+        };
+        row.append(b);
+      }
+    };
+    draw({});
+    try { const j = await (await fetch('/api/zenobia/react?c=' + encodeURIComponent(c))).json(); if (j.counts) draw(j.counts); } catch {}
+  }
+  const box = document.getElementById('alertBox');
+  if (!box) return;
+  if (!initData()) { box.innerHTML = '<div class="mut">Open this coin from the Telegram bot to get alerts there.</div>'; return; }
+  const hdr = { 'content-type': 'application/json', 'x-tg-init': initData() };
+  let on = new Set<string>();
+  try { const j = await (await fetch('/api/zenobia/alerts?c=' + encodeURIComponent(c), { headers: hdr })).json(); on = new Set((j.alerts || []).map((a: any) => a.kind)); } catch {}
+  box.textContent = '';
+  for (const [k, label] of [['near', 'Near graduation (90%)'], ['grad', 'Graduated to DeDust'], ['move', 'Price moves 20% from now']]) {
+    const l = document.createElement('label'); l.className = 'chk';
+    const i = document.createElement('input'); i.type = 'checkbox'; i.checked = on.has(k);
+    i.onchange = async () => {
+      i.disabled = true;
+      try {
+        const r = await (await fetch('/api/zenobia/alerts', { method: 'POST', headers: hdr, body: JSON.stringify({ c, kind: k, on: i.checked, lang: pageLang() }) })).json();
+        if (r.error) { i.checked = !i.checked; say(r.error); } else if (i.checked) (window as any).ZJ?.done('alert');
+      } catch { i.checked = !i.checked; } finally { i.disabled = false; }
+    };
+    l.append(i, ' ' + label); box.append(l);
+  }
+}

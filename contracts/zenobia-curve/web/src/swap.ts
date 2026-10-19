@@ -105,7 +105,7 @@ async function swap() {
     else p = await router.getSwapJettonToJettonTxParams({ ...base, offerJettonAddress: sim.offerAddress, askJettonAddress: sim.askAddress });
     const msg = toTonConnect(p, { validUntil: Math.floor(Date.now() / 1000) + 600, network: '-239' });
     say('Confirm in your wallet…');
-    await ui.sendTransaction(msg);
+    await ui.sendTransaction(msg); (window as any).ZJ?.done('swap');
     say('Sent. It usually settles within a minute; your balance updates after that.');
     setTimeout(balanceText, 20000);
   } catch (e: any) { say('Not sent: ' + String(e?.message || e).slice(0, 160)); }

@@ -49,7 +49,9 @@ export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
   const text = String(body.message?.text || "").trim();
-  if (/^\/start(@\w+)?$/i.test(text)) {
+  if (/^\/start(@\w+)?(\s+\S+)?$/i.test(text)) {
+    const ref = /^\/start(?:@\w+)?\s+ref_(\d{3,15})$/i.exec(text);
+    if (ref && !isOwner) await import("@/lib/znbtEngage").then((m) => m.recordReferral(from, ref[1])).catch(() => null);   // invite counting only
     const first = startLang((body.message?.from as { language_code?: string } | undefined)?.language_code);
     await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Palmyra Launch", web_app: { url: appUrl(isOwner ? "ar" : first) } } }).catch(() => null);
     await bot.api.sendMessage(chatId, isOwner ? `${WELCOME.en}\n\n${WELCOME.ar}` : WELCOME[first], { reply_markup: appKeyboard(isOwner ? "ar" : first, isOwner) });
