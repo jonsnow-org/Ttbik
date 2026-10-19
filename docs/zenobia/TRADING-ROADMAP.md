@@ -22,3 +22,8 @@ Research sources: STON.fi docs (Omniston referral fees, DEX v2 SDK swap), DeDust
 - **Our own NFT marketplace with a fee / NFT for user coins**: new contracts handling real money; needs an audit and the owner's explicit order.
 - **Automatic trading bots**: a bot that trades for users must hold keys (custody) or use on-chain order contracts. Custody is a legal and security liability (licensing differs by country; a decision for the owner and a lawyer). A safe next step is non-custodial limit orders or DCA via on-chain contracts, no profit claims.
 - No profit is promised anywhere in the product.
+
+## NFT marketplace verdict (2026-10-19)
+- Getgems fixed-price sale v4 supports TON or jetton prices; marketplace fee goes to an address set when the sale contract is deployed. No public audit found.
+- An own sale flow means the user's NFT is transferred into a contract deployed with our parameters. A wrong data layout locks the NFT. It cannot be verified end to end here (no wallet signing, no testnet funds).
+- Revenue is small unless volume exists: Athar tokens already pay the collection royalty on any marketplace, and buyers browse on Getgems. Not built. A testnet pilot with the owner's testnet wallet is the next safe step.
