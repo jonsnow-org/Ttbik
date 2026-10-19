@@ -112,7 +112,7 @@ function render() {
   let shown = visible();
   shown = [...shown.filter((c) => featured.has(key(c))), ...shown.filter((c) => !featured.has(key(c)))];   // sponsored coins next
   if (official) shown = [...shown.filter((c) => key(c) === official), ...shown.filter((c) => key(c) !== official)];   // our own coin first
-  $('count').textContent = shown.length + (shown.length === 1 ? ' coin' : ' coins') + ' · ' + shown.length + ' عملة';
+  $('count').textContent = shown.length + (shown.length === 1 ? ' coin' : ' coins');
   if (!shown.length) box.append(el('div', { className: 'card mut', textContent: rows.length ? 'Nothing matches. / لا نتائج.' : 'No coins yet. / لا توجد عملات بعد.' }));
   for (const c of shown) {
     const k = key(c);
@@ -128,15 +128,18 @@ function render() {
     const body = el('div', { className: 'body' });
     const star = el('button', { className: 'star' + (watched.has(k) ? ' on' : ''), textContent: watched.has(k) ? '★' : '☆', title: 'Watchlist', ariaLabel: 'Watchlist', onclick: (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); if (watched.has(k)) watched.delete(k); else watched.add(k); saveWatch(watched); render(); } });
     const t = el('div', { className: 't' }, el('span', { className: 'nm', textContent: c.name || '(no name)' }));
-    if (k === official) t.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
-    if (featured.has(k)) t.append(el('span', { className: 'badge', textContent: 'SPONSORED' }));
-    if (Date.now() / 1000 - c.createdAt < 86400) t.append(el('span', { className: 'badge new', textContent: 'NEW' }));
-    if ((c.state ?? 1) >= 2) t.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
+    const bd = el('div', { className: 'badges', style: 'margin:2px 0' });
+    if (k === official) bd.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
+    if (featured.has(k)) bd.append(el('span', { className: 'badge', textContent: 'SPONSORED' }));
+    if (Date.now() / 1000 - c.createdAt < 86400) bd.append(el('span', { className: 'badge new', textContent: 'NEW' }));
+    if ((c.state ?? 1) >= 2) bd.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
     const rep = reports.get(k);
-    if (admin && rep) t.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
+    if (admin && rep) bd.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
     const icons = (c.features?.maxBuyBps ? ' 🐋' : '') + (c.features?.buyback ? ' 🔥' : '') + (c.features?.split ? ' 🤝' : '');
     const mc = c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' GRAM' : 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%';
-    body.append(t, el('div', { className: 'd', textContent: (c.symbol || '?') + ' · ' + mc + icons }));
+    body.append(t);
+    if (bd.childElementCount) body.append(bd);
+    body.append(el('div', { className: 'd', textContent: (c.symbol || '?') + ' · ' + mc + icons }));
     const p = pct(c);
     if (p !== null) {
       body.append(el('div', { className: 'bar' }, el('div', { style: 'width:' + p + '%' })));
