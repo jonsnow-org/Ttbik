@@ -70,6 +70,8 @@
     });
     document.body.appendChild(nav);
     document.addEventListener('click', close);
+    var onScroll = function () { var t = document.querySelector('.top'); if (t) t.classList.toggle('scrolled', window.scrollY > 6); };
+    window.addEventListener('scroll', onScroll, { passive: true }); onScroll();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build); else build();
 })();

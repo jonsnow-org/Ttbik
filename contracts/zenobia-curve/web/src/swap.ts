@@ -80,7 +80,7 @@ async function quote() {
       + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px"><span>Price impact</span><b style="color:' + (impact > 5 ? '#ff5d5d' : 'inherit') + '">' + impact.toFixed(2) + '%</b></div>'
       + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:6px"><span>Total fees (pool + platform ' + (REF_BPS / 100).toFixed(2) + '%)</span><b>' + fee.toFixed(2) + '%</b></div>'
       + (impact > 5 ? '<div class="mut" style="color:#ff5d5d">High price impact: you would get much less than the market price. Try a smaller amount.</div>' : '')
-      + (from.custom || to.custom ? '<div class="mut" style="color:#f6b73c">Unverified token: anyone can create a token with any name. Check the address before you swap.</div>' : '');
+      + (from.custom || to.custom ? '<div class="mut" style="color:#ff9f43">Unverified token: anyone can create a token with any name. Check the address before you swap.</div>' : '');
     ($('go') as HTMLButtonElement).disabled = !wallet() || busy;
   } catch (e: any) {
     if (my !== seq) return;

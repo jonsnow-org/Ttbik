@@ -38,7 +38,8 @@ export async function scanCoins(master: Address, limit = 100): Promise<Coin[]> {
     const key = creator.toRawString() + ':' + body.salt.toString();
     let c: any = known[key];
     if (!c) {
-      const curve = await retry(() => sdk.getLaunchAddress(master, creator, body.salt, body.options as any));
+      // body.options is already the on-chain options struct: ask the master directly (sdk.getLaunchAddress expects the user-level preset and rejects real launches)
+      const curve = await retry(() => sdk.master(master).getLaunchAddress(creator, body.salt, body.options as any));
       const o = body.options.ref;
       c = {
         curve: curve.toString({ bounceable: true }),

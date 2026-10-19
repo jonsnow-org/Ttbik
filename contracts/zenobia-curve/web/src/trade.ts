@@ -275,22 +275,22 @@ function curveHtml(): string {
   const path = (to: number, n = 48) => Array.from({ length: n + 1 }, (_, i) => { const x = (to * i) / n; return (i ? 'L' : 'M') + X(x).toFixed(1) + ' ' + Y(x).toFixed(1); }).join(' ');
   const r = Math.min(cs.r, cs.T);
   let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;display:block" role="img" aria-label="Bonding curve map">'
-    + '<defs><linearGradient id="cm1" x1="0" x2="1"><stop offset="0" stop-color="#3ddc84"/><stop offset="1" stop-color="#f6b73c"/></linearGradient>'
-    + '<linearGradient id="cm2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6b73c" stop-opacity=".30"/><stop offset="1" stop-color="#f6b73c" stop-opacity="0"/></linearGradient></defs>';
+    + '<defs><linearGradient id="cm1" x1="0" x2="1"><stop offset="0" stop-color="#3ddc84"/><stop offset="1" stop-color="#4da3ff"/></linearGradient>'
+    + '<linearGradient id="cm2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4da3ff" stop-opacity=".30"/><stop offset="1" stop-color="#4da3ff" stop-opacity="0"/></linearGradient></defs>';
   svg += '<line x1="' + L + '" y1="' + bot + '" x2="' + R + '" y2="' + bot + '" stroke="#ffffff22"/>';
   svg += '<path d="' + path(cs.T) + '" fill="none" stroke="#ffffff30" stroke-width="2" stroke-dasharray="3 4"/>';
   if (r > 0) svg += '<path d="' + path(r) + ' L' + X(r).toFixed(1) + ' ' + bot + ' L' + L + ' ' + bot + ' Z" fill="url(#cm2)"/>'
     + '<path d="' + path(r) + '" fill="none" stroke="url(#cm1)" stroke-width="3" stroke-linecap="round"/>';
   trail.forEach((t, i) => { const o = 0.15 + 0.7 * ((i + 1) / trail.length); svg += '<circle cx="' + X(t.raised).toFixed(1) + '" cy="' + Y(t.raised).toFixed(1) + '" r="1.8" fill="#fff" opacity="' + o.toFixed(2) + '"/>'; });
-  svg += '<g><text x="' + (R - 2) + '" y="' + (top - 8) + '" text-anchor="end" fill="#f6b73c" font-size="10" font-weight="700">🎓 ×' + maxM.toFixed(0) + ' at graduation</text></g>';
+  svg += '<g><text x="' + (R - 2) + '" y="' + (top - 8) + '" text-anchor="end" fill="#4da3ff" font-size="10" font-weight="700">🎓 ×' + maxM.toFixed(0) + ' at graduation</text></g>';
   svg += '<text x="' + L + '" y="' + (bot + 12) + '" fill="#8a8fa0" font-size="9">launch</text><text x="' + R + '" y="' + (bot + 12) + '" text-anchor="end" fill="#8a8fa0" font-size="9">' + cs.T.toFixed(0) + ' GRAM</text>';
   const amt = Number((document.getElementById('buyAmt') as HTMLInputElement | null)?.value) || 0;
   if (amt > 0 && r < cs.T) {
     const x2 = Math.min(cs.T, r + amt * 0.965), pct = (curveMult(x2) / curveMult(r) - 1) * 100;
     const gx = X(x2), gy = Y(x2), lx = Math.min(R - 52, Math.max(L + 52, gx));
-    svg += '<line x1="' + X(r).toFixed(1) + '" y1="' + Y(r).toFixed(1) + '" x2="' + gx.toFixed(1) + '" y2="' + gy.toFixed(1) + '" stroke="#f6b73c" stroke-dasharray="2 3"/>'
-      + '<circle cx="' + gx.toFixed(1) + '" cy="' + gy.toFixed(1) + '" r="4" fill="#0a0a12" stroke="#f6b73c" stroke-width="2"/>'
-      + '<text x="' + lx.toFixed(1) + '" y="' + (gy - 9).toFixed(1) + '" text-anchor="middle" fill="#f6b73c" font-size="9.5" font-weight="700">price +' + (pct < 10 ? pct.toFixed(1) : pct.toFixed(0)) + '% after your buy</text>';
+    svg += '<line x1="' + X(r).toFixed(1) + '" y1="' + Y(r).toFixed(1) + '" x2="' + gx.toFixed(1) + '" y2="' + gy.toFixed(1) + '" stroke="#4da3ff" stroke-dasharray="2 3"/>'
+      + '<circle cx="' + gx.toFixed(1) + '" cy="' + gy.toFixed(1) + '" r="4" fill="#0a0a12" stroke="#4da3ff" stroke-width="2"/>'
+      + '<text x="' + lx.toFixed(1) + '" y="' + (gy - 9).toFixed(1) + '" text-anchor="middle" fill="#4da3ff" font-size="9.5" font-weight="700">price +' + (pct < 10 ? pct.toFixed(1) : pct.toFixed(0)) + '% after your buy</text>';
   }
   svg += '<circle cx="' + X(r).toFixed(1) + '" cy="' + Y(r).toFixed(1) + '" r="4" fill="#3ddc84"><animate attributeName="r" values="4;11;4" dur="2.2s" repeatCount="indefinite"/><animate attributeName="opacity" values=".5;0;.5" dur="2.2s" repeatCount="indefinite"/></circle>'
     + '<circle cx="' + X(r).toFixed(1) + '" cy="' + Y(r).toFixed(1) + '" r="4.5" fill="#fff" stroke="#3ddc84" stroke-width="2"/>';
