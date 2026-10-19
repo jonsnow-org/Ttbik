@@ -1,0 +1,25 @@
+name: referral-sync
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: referral-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+      - name: the site's public address (deploy/hosting/site.json)
+        run: echo "SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' deploy/hosting/site.json)" >> "$GITHUB_ENV"
+      - name: credit invite rewards (ledger only)
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then echo "::error::CRON_SECRET secret is missing"; exit 1; fi
+          code=$(curl -sS -o body.json -w "%{http_code}" -H "Authorization: Bearer ${CRON_SECRET}" "${SITE_BASE}/api/cron/referral-sync")
+          echo "HTTP ${code}"; cat body.json; echo
+          [ "${code}" -lt 500 ]
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

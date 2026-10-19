@@ -48,6 +48,8 @@
     });
   }
 
+  function loadLink(cb) { if (window.ZLink) return cb(); var sc = document.createElement('script'); sc.src = '/zenobia/znbt/jlink.js'; sc.onload = cb; document.head.appendChild(sc); }
+
   function inviteCard() {
     var box = $('invite'); box.textContent = '';
     if (!tg || !tg.initData) { box.append(el('div', 'mut', 'Open the platform from the Telegram bot to get your invite link.')); return; }
@@ -55,8 +57,20 @@
       box.textContent = '';
       if (!j.link) { box.append(el('div', 'mut', 'Invite link is not available right now.')); return; }
       invited = j.invited || 0;
-      box.append(el('div', null, 'Friends who joined with your link: ' + invited), el('div', 'mut', 'Invites are counted only. No payment is attached to them.'));
-      var share = el('button', null, 'Share invite link'); share.style.marginTop = '10px';
+      box.append(el('div', null, 'Friends who joined with your link: ' + invited));
+      box.append(el('div', 'mut', 'You are credited ' + j.sharePct + '% of the platform fee on their buys for ' + j.days + ' days after they link their wallet. A share of fees, not of their trades.'));
+      var bal = el('div', 'jbal');
+      bal.append(el('span', 'mut', 'Credited'), el('b', null, j.earned + ' GRAM'));
+      box.append(bal);
+      box.append(el('div', 'mut', 'Paying credited rewards out to wallets is not switched on yet. Your balance keeps accumulating here in the meantime.'));
+      var wl = el('div', 'mut'); wl.style.marginTop = '8px';
+      if (j.wallet) wl.textContent = 'Your linked wallet: ' + j.wallet.slice(0, 6) + '…' + j.wallet.slice(-4);
+      else wl.textContent = 'Link your wallet so rewards can be credited to you and, if you were invited, so your buys are counted for the person who invited you.';
+      box.append(wl);
+      var lk = el('button', 'alt', j.wallet ? 'Link a different wallet' : 'Link wallet'); lk.style.marginTop = '8px';
+      lk.onclick = function () { lk.disabled = true; loadLink(function () { window.ZLink().then(function () { inviteCard(); }).catch(function (e) { lk.disabled = false; wl.textContent = 'Could not link: ' + (e && e.message || e); }); }); };
+      box.append(lk);
+      var share = el('button', null, 'Share invite link'); share.style.marginTop = '12px';
       share.onclick = function () { var u = 'https://t.me/share/url?url=' + encodeURIComponent(j.link) + '&text=' + encodeURIComponent('Launch and trade coins on TON with Palmyra Launch'); if (tg.openTelegramLink) tg.openTelegramLink(u); else window.open(u, '_blank'); };
       var copy = el('button', 'alt', 'Copy link'); copy.style.marginTop = '8px';
       copy.onclick = function () { try { navigator.clipboard.writeText(j.link); copy.textContent = 'Copied ✓'; } catch (e) {} };
