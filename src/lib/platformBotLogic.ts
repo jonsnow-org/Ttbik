@@ -9,17 +9,24 @@ export const PLATFORM_COMMANDS = [{ command: "start", description: "Open Palmyra
 
 const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
 
-const appUrl = (lang: "en" | "ar" = "en") => `${HOSTING.gateUrl}/zenobia/coins.html${lang === "ar" ? "?lang=ar" : ""}`;
+type Lang = "en" | "ar" | "ru";
+const appUrl = (lang: Lang = "en") => `${HOSTING.gateUrl}/zenobia/coins.html${lang === "en" ? "" : `?lang=${lang}`}`;
 // Users see English only; Arabic appears for the owner (under the English) and for anyone who taps the language button.
 const WELCOME = {
   en: "🪙 Palmyra Launch\nLaunch and trade coins on TON, with fixed fees shown before you confirm.\nNothing here is financial advice or a promise of profit.",
   ar: "🪙 Palmyra Launch · تدمر لانش\nأطلق عملتك وتداولها على TON برسوم ثابتة تظهر قبل التأكيد.\nلا نصيحة مالية ولا وعد بربح.",
+  ru: "🪙 Palmyra Launch\nЗапускайте и торгуйте монетами в сети TON: фиксированные комиссии видны до подтверждения.\nЭто не финансовая рекомендация и не обещание прибыли.",
 };
+const OPEN_LABEL: Record<Lang, string> = { en: "🪙 Open Palmyra Launch", ar: "🪙 افتح Palmyra Launch", ru: "🪙 Открыть Palmyra Launch" };
+// the language button shows the NEXT language: English -> Russian -> Arabic -> English
+const NEXT: Record<Lang, { label: string; data: string }> = { en: { label: "🌐 Русский", data: "pl:ru" }, ru: { label: "🌐 العربية", data: "pl:ar" }, ar: { label: "🌐 English", data: "pl:en" } };
+/** Telegram's own language code decides the first language a user sees: Russian speakers get Russian, everyone else English. */
+export const startLang = (code?: string): Lang => (/^ru\b/i.test(code || "") ? "ru" : "en");
 
 /** The mini-app button (also the menu button next to the message box) and the language switch; the owner gets one more button, nobody else does. */
-export const appKeyboard = (lang: "en" | "ar" = "en", isOwner = false) => {
-  const kb = new InlineKeyboard().webApp(lang === "ar" ? "🪙 افتح Palmyra Launch" : "🪙 Open Palmyra Launch", appUrl(lang));
-  kb.row().text(lang === "ar" ? "🌐 English" : "🌐 العربية", lang === "ar" ? "pl:en" : "pl:ar");
+export const appKeyboard = (lang: Lang = "en", isOwner = false) => {
+  const kb = new InlineKeyboard().webApp(OPEN_LABEL[lang], appUrl(lang));
+  kb.row().text(NEXT[lang].label, NEXT[lang].data);
   if (isOwner) kb.row().text("⚙️ Owner panel · لوحة المالك", "zp:refresh");
   return kb;
 };
@@ -35,16 +42,17 @@ export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, 
     await bot.api.answerCallbackQuery(cq.id).catch(() => null);
     const data = String(cq.data || "");
     if (isOwner && data.startsWith("zp:")) await handlePlatformCallback(bot, chatId, data, cq.message?.message_id);
-    else if (data === "pl:ar" || data === "pl:en") {
-      const l = data === "pl:ar" ? "ar" : "en";
+    else if (data === "pl:ar" || data === "pl:en" || data === "pl:ru") {
+      const l = data.slice(3) as Lang;
       await bot.api.editMessageText(chatId, cq.message.message_id, WELCOME[l], { reply_markup: appKeyboard(l, isOwner) }).catch(() => null);
     }
     return;
   }
   const text = String(body.message?.text || "").trim();
   if (/^\/start(@\w+)?$/i.test(text)) {
-    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Palmyra Launch", web_app: { url: appUrl(isOwner ? "ar" : "en") } } }).catch(() => null);
-    await bot.api.sendMessage(chatId, isOwner ? `${WELCOME.en}\n\n${WELCOME.ar}` : WELCOME.en, { reply_markup: appKeyboard(isOwner ? "ar" : "en", isOwner) });
+    const first = startLang((body.message?.from as { language_code?: string } | undefined)?.language_code);
+    await bot.api.setChatMenuButton({ chat_id: chatId, menu_button: { type: "web_app", text: "Palmyra Launch", web_app: { url: appUrl(isOwner ? "ar" : first) } } }).catch(() => null);
+    await bot.api.sendMessage(chatId, isOwner ? `${WELCOME.en}\n\n${WELCOME.ar}` : WELCOME[first], { reply_markup: appKeyboard(isOwner ? "ar" : first, isOwner) });
   } else if (/^\/platform(@\w+)?$/i.test(text) && isOwner) {
     const p = await platformText();
     await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } });

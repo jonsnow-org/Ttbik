@@ -1,0 +1,33 @@
+# Promo supervisor: one daily read-only health report for every promotion system (see promo/README.md and scripts/promo/supervise.mjs).
+# Scheduled workflows only run from the default branch. Free; no Claude plan needed.
+name: promo-supervisor
+on:
+  schedule:
+    - cron: "5 6,18 * * *"   # 09:05 and 21:05 Istanbul
+  workflow_dispatch:
+concurrency:
+  group: promo-supervisor
+  cancel-in-progress: false
+permissions:
+  contents: read
+  issues: write
+  actions: write
+jobs:
+  supervise:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            deploy/hosting/site.json
+            scripts/promo/supervise.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: report
+        run: node scripts/promo/supervise.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
