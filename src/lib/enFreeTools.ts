@@ -1,6 +1,7 @@
 export const EN_FREE_TOOLS = [
   { href: "/en/free-tools/qr-generator", title: "QR code generator", text: "Make a code for a link or a Wi-Fi name." },
   { href: "/en/free-tools/url-shortener", title: "URL shortener", text: "Turn a long link into a short one." },
+  { href: "/en/free-tools/talking-photo", title: "Talking photo", text: "Make a picture speak with your voice. In your browser." },
   { href: "/en/free-tools/image-optimizer", title: "Image optimizer", text: "Reduce an image before you publish." },
   { href: "/en/free-tools/bmi-calculator", title: "BMI calculator", text: "Check BMI from height and weight." },
   { href: "/en/free-tools/vat-calculator", title: "VAT calculator", text: "Add or remove tax from a price." },
