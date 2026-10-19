@@ -212,7 +212,7 @@ def default_tolerance() -> float:
         return 0.02
 
 
-def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.1, 0.15, 0.3, 0.5), tolerance=None, anchor=None):
+def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.1, 0.15, 0.3, 0.5, 0.75, 1.0), tolerance=None, anchor=None):
     """sources: [(name, other_model, rows)]. score_fn(model) -> {skill: loss}.
     Mutates model in place (only accepted merges stay). Returns report lines."""
     tolerance = default_tolerance() if tolerance is None else tolerance
@@ -232,8 +232,8 @@ def guarded_merge(model, sources, score_fn, ratios=(0.05, 0.1, 0.15, 0.3, 0.5), 
             if nearest is None or rel_mean < nearest[0]:
                 nearest = (rel_mean, lam, s)
             if (_passes(s, base_score, tolerance) and all(s[k] <= anchor[k] * (1 + skill_tolerance(k, tolerance)) for k in anchor)
-                    and (best is None or sum(s.values()) < sum(best[1].values()))):
-                best = (lam, s)
+                    and (best is None or rel_mean < best[2])):      # best = lowest MEAN RELATIVE loss (the sum of raw losses was dominated by media, ~10 vs ~3)
+                best = (lam, s, rel_mean)
         if best is None:
             with torch.no_grad():
                 for n, p in model.named_parameters():
