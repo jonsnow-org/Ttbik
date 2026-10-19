@@ -83,6 +83,16 @@ export async function platformText(): Promise<{ text: string; open: boolean }> {
   lines.push(`العملات المفهرسة: ${snap?.coins?.length ?? 0}${snap ? "" : " (لا فهرس بعد)"}`);
   lines.push(`عملات عليها بلاغات: ${reports}`);
   lines.push("", `الأرباح (سحب كل شيء لمحفظتك بزر واحد): ${HOSTING.gateUrl}/zenobia/earnings.html`, `الإدارة (إخفاء عملة): ${HOSTING.gateUrl}/zenobia/coins.html#admin`, `الإطلاق: ${HOSTING.gateUrl}/zenobia/launch.html`);
+  lines.push("", "شرح الأزرار:",
+    open ? "⛔ إغلاق المنصة: يمنع الناس من إطلاق عملات جديدة (صفحة الإنشاء تعرض «لم يُفتح بعد»). التداول في العملات القائمة يستمر." : "🪙 فتح المنصة للجميع: يسمح لأي شخص بإطلاق عملة. لا يعمل قبل إطلاق ZNBt.",
+    "💰 الأرباح · Earnings: يفتح صفحة أرباحك لتجمع رسوم المنصة وتسحبها لمحفظتك.",
+    "🔄 تحديث: يعيد قراءة الحالة أعلاه (الفتح، ZNBt، العملات، البلاغات).",
+    "", "أوامر مكافآت الدعوات (اكتبها في البوت):",
+    "/referrals: السجل (عنوان محفظة الدفع ورصيدها، المستحق لكل شخص، آخر الدفعات).",
+    "/referrals on · off: تشغيل أو إيقاف الدفع التلقائي (مغلق افتراضياً).",
+    "/referrals pay: يصرف المستحق الآن يدوياً.",
+    "/referrals withdraw العنوان: يسحب كل ما في محفظة الدفع إلى عنوان تحدده.",
+    "/referrals resolve sent أو failed: بعد أن تتحقق من دفعة غير مؤكدة.");
   return { text: lines.join("\n"), open };
 }
 /** A tap on «zp:*». The platform cannot be opened before ZNBt itself exists. */
