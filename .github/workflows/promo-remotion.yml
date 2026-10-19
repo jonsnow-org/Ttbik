@@ -83,3 +83,22 @@ jobs:
             --data-urlencode "to=$CH" --data-urlencode "caption=$CAP")
           echo "HTTP $code"; cat resp.json; echo
           [ "$code" = "200" ] && grep -q '"ok":true' resp.json
+
+      - name: Upload the video to YouTube (Data API v3, through the site)
+        if: steps.pick.outputs.id != ''
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PUBLISH: ${{ inputs.publish }}
+        run: |
+          # Same switch as Telegram. Not fatal: until the owner finishes the one-time consent (/api/youtube/oauth) the site answers youtube-not-set-up and the video stays on Telegram + the release.
+          if [ "$PUBLISH" = "0" ]; then exit 0; fi
+          if [ -z "$PUBLISH" ] && [ ! -f ../PUBLISH_ON ]; then exit 0; fi
+          ID=${{ steps.pick.outputs.id }}
+          SITE_BASE=$(jq -r '[.engineUrl, .vercelUrl] | map(select(length>0)) | .[0]' ../../deploy/hosting/site.json)
+          TITLE=$(python3 -c "import json;e=json.load(open('episode.json'));print(e['title']+' | '+e.get('brand','Sham AI'))")
+          LANGC=$(python3 -c "import json;print(json.load(open('episode.json')).get('lang','ar'))")
+          CAP=$(python3 -c "import json;e=json.load(open('episode.json'));print(e.get('caption') or (e['hook']+chr(10)+e['title']+chr(10)+e['site']+e['path']))")
+          code=$(curl -sS -o resp.json -w "%{http_code}" -G "${SITE_BASE}/api/cron/promo-publish" \
+            --data-urlencode "secret=${CRON_SECRET}" --data-urlencode "tag=promo-ep-$ID" --data-urlencode "asset=sham-ai-ep-$ID.mp4" \
+            --data-urlencode "to=youtube" --data-urlencode "title=$TITLE" --data-urlencode "lang=$LANGC" --data-urlencode "caption=$CAP") || true
+          echo "HTTP $code"; cat resp.json; echo
