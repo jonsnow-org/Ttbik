@@ -938,24 +938,20 @@ export default function MiniAppPage() {
 
   const openProfile = (sid?: string, sname?: string) => { if (!sid) return; setViewAvatar(""); setViewUserId(sid); setViewUserName(sname || names[sid] || ""); setProfileSection("all"); setProfileCounts(null); goTab("me"); setShowNotifs(false); setShowInbox(false); setShowComments(false); };
   const closeOtherProfile = () => { setViewAvatar(""); setViewUserId(null); setViewUserName(""); setProfileSection("all"); setProfileCounts(null); };
-  // Telegram BackButton: step back inside the app (overlay -> other profile -> home tab) instead of letting Telegram collapse the mini app.
+  // Telegram BackButton: never collapses the app by itself, asks before leaving (owner's choice).
   useEffect(() => {
-    const b = tg()?.BackButton;
+    const w = tg();
+    const b = w?.BackButton;
     if (!b) return;
-    const canBack = showNotifs || showInbox || showComments || !!chatPeer || !!viewUserId || tab !== "trending";
-    if (canBack) b.show(); else b.hide();
+    try { w.enableClosingConfirmation?.(); } catch {}
+    b.show();
     const h = () => {
-      haptic();
-      if (showComments) setShowComments(false);
-      else if (chatPeer) setChatPeer(null);
-      else if (showInbox) setShowInbox(false);
-      else if (showNotifs) setShowNotifs(false);
-      else if (viewUserId) closeOtherProfile();
-      else { setTab("trending"); window.scrollTo({ top: 0 }); }
+      if (w.showConfirm) w.showConfirm("هل تريد الخروج من التطبيق؟", (ok: boolean) => { if (ok) w.close(); });
+      else if (window.confirm("هل تريد الخروج من التطبيق؟")) w.close();
     };
     b.onClick(h);
     return () => { b.offClick(h); };
-  }, [showNotifs, showInbox, showComments, chatPeer, viewUserId, tab]);
+  }, []);
   const [burst, setBurst] = useState<{ id: string; n: number } | null>(null);
   const doubleTapLike = (item: FeedItem) => {
     setBurst({ id: item.id, n: Date.now() });
