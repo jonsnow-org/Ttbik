@@ -251,22 +251,25 @@ async function mine() {
   if (cfg.curve) { try { official = Address.parse(cfg.curve).toString({ bounceable: true, urlSafe: true }); } catch {} }
   if (admin) await setupAdmin();
   await loadFeatured();
-  // the server index first (fast, carries live numbers); the chain itself only when the index is missing or old
-  let usedIndex = false;
-  try {
-    const r = await fetch('/api/zenobia/coins/index', { cache: 'no-store' });
-    const j = await r.json();
+  // the server index first (fast, carries live numbers). An old index is still shown (and refreshed in the background);
+  // the chain itself is read only when the index has no coins at all.
+  let usedIndex = false, stale = false;
+  const readIndex = async () => {
+    const j = await (await fetch('/api/zenobia/coins/index', { cache: 'no-store' })).json();
     hidden = new Set<string>(j.hidden || []);
-    if (!j.stale && Array.isArray(j.coins)) {
-      rows = j.coins.map((c: any) => ({ ...c, supply: BigInt(c.supply) }));
-      usedIndex = true;
-    }
-  } catch {}
+    stale = !!j.stale;
+    if (Array.isArray(j.coins) && j.coins.length) { rows = j.coins.map((c: any) => ({ ...c, supply: BigInt(c.supply) })); return true; }
+    return false;
+  };
+  try { usedIndex = await readIndex(); } catch {}
   if (!usedIndex) {
-    hidden = await hiddenSet();
-    rows = (await scanCoins(master)).sort((a, b) => b.createdAt - a.createdAt);
-    say('Showing coins read directly from the chain (live numbers are on each coin page).');
+    try {
+      hidden = await hiddenSet();
+      rows = (await scanCoins(master)).sort((a, b) => b.createdAt - a.createdAt);
+      say('Showing coins read directly from the chain (live numbers are on each coin page).');
+    } catch { say('Could not load the coins right now. Please try again in a moment.'); }
   }
+  if (stale) void fetch('/api/zenobia/coins/refresh', { method: 'POST' }).then(async () => { try { if (await readIndex()) { stats(); render(); } } catch {} }).catch(() => {});
   if (admin) {
     try {
       const r = await fetch('/api/zenobia/coins/report', { cache: 'no-store' });
