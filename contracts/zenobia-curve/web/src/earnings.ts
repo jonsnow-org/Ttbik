@@ -3,7 +3,9 @@
 import { Address } from '@ton/core';
 import { TonConnectUI } from '@tonconnect/ui';
 import { toTonConnect, flushFees, flushCreatorFees, claimFees, withdrawProtocolFees } from '../../sdk/dist/index.js';
-import { sdk, OWNER, $, loadConfig, retry, fmt, sleep } from './common';
+import { StonApiClient } from '@ston-fi/api';
+import { dexFactory } from '@ston-fi/sdk';
+import { client, sdk, OWNER, $, loadConfig, retry, fmt, sleep } from './common';
 
 const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect', actionsConfiguration: { twaReturnUrl: 'https://t.me/PalmyraLaunchBot' as `${string}://${string}` } });
 const say = (m: string) => ($('log').textContent = m);
@@ -102,6 +104,45 @@ async function collect() {
   finally { busy = false; }
 }
 
+// Swap fees: the platform fee on the Swap tab accrues in STON.fi vaults (one per token) owned by the wallet; one confirmation per vault withdraws it.
+const ston = new StonApiClient();
+let vaults: { vault: string; router: string; sym: string; dec: number; balance: bigint }[] = [];
+async function scanVaults() {
+  const card = $('swapCard');
+  vaults = [];
+  const w = wallet();
+  if (!w) { card.style.display = 'none'; return; }
+  try {
+    const rows = (await ston.getWalletVaultsFee({ walletAddress: w.toString() })).filter((v) => BigInt(v.balance) > 0n);
+    for (const v of rows.slice(0, 10)) {
+      let sym = 'token', dec = 9;
+      try { const a: any = await ston.getAsset(v.assetAddress); sym = String(a.symbol || sym).slice(0, 12); dec = Number(a.decimals ?? 9); } catch {}
+      vaults.push({ vault: v.vaultAddress, router: v.routerAddress, sym, dec, balance: BigInt(v.balance) });
+    }
+  } catch {}
+  card.style.display = vaults.length ? '' : 'none';
+  $('swapSum').textContent = vaults.map((v) => fmt(v.balance, v.dec, 4) + ' ' + v.sym).join(' · ');
+}
+async function collectSwap() {
+  if (busy) return;
+  busy = true;
+  try {
+    const txs: any[] = [];
+    for (const v of vaults) {
+      const info: any = await ston.getRouter(v.router);
+      const dex: any = dexFactory(info);
+      const vault: any = client.open(dex.Vault.create(v.vault));
+      txs.push(await vault.getWithdrawFeeTxParams({}));
+    }
+    if (!txs.length) { say('No swap fees to withdraw yet.'); return; }
+    say('Confirm in your wallet to withdraw the swap fees…');
+    await send(txs);
+    say('Sent. The tokens arrive in your wallet in about a minute.');
+    setTimeout(() => { void scanVaults(); }, 60000);
+  } catch (e: any) { say('Error: ' + (e.message || e)); }
+  finally { busy = false; }
+}
+$('swapCollect').onclick = collectSwap;
 $('collect').onclick = collect;
-ui.onStatusChange(() => { void scan().catch((e) => say('Error: ' + (e.message || e))); });
-void (async () => { master = Address.parse((await loadConfig()).master); await scan(); })().catch((e) => say('Error: ' + (e.message || e)));
+ui.onStatusChange(() => { void scan().catch((e) => say('Error: ' + (e.message || e))); void scanVaults(); });
+void (async () => { master = Address.parse((await loadConfig()).master); await scan(); await scanVaults(); })().catch((e) => say('Error: ' + (e.message || e)));

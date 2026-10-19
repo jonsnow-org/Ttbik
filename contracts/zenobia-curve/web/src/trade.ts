@@ -29,6 +29,7 @@ async function loadMarket() {
   ($('bar') as HTMLElement).style.width = Math.min(pct, 100) + '%';
   const status = await retry(() => sdk.getLaunchStatus(curve!));
   $('status').textContent = status === 1n ? 'Trading on the curve' : status >= 2n ? 'Graduated: trade on DeDust' : 'Starting…';
+  if (status >= 2n && minter) $('status').innerHTML = 'Graduated: trade on <a href="https://dedust.io/swap/TON/' + minter.toString({ bounceable: true, urlSafe: true }) + '" target="_blank" rel="noopener">DeDust</a>';
   const q = await retry(() => sdk.quoteBuy(curve!, 1_000_000_000n));
   $('price').textContent = '1 TON ≈ ' + fmt(q, 9, 0) + ' ' + $('sym').textContent;
 }
