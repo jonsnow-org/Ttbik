@@ -168,7 +168,7 @@ def resolve_start(model_dataset: str = MODEL_DATASET):
     if len(cands) > 1:
         try:
             best, _ = choose_base(cands, make_probe("cuda" if torch.cuda.is_available() else "cpu"), keep="own" if own_ok else None,
-                                prefer=("sham-grown-checkpoint",))
+                                prefer=("sham-merged-checkpoint", "sham-grown-checkpoint"))   # the head first: it IS the grown lineage plus every merged gain
         except Exception as exc:
             print(f"⚠ تعذّر اختيار نقطة الانطلاق بالقياس ({type(exc).__name__}): يُستعمل ترتيب الأسماء القديم")
             best = "own" if own_ok else cands[0][0]
