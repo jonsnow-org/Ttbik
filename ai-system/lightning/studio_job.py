@@ -221,6 +221,7 @@ def main() -> int:
                 say(f"تعذّر إيقاف آلة GPU: {type(exc).__name__}: {str(exc)[:100]}")
     except Exception as exc:
         say(f"تعذّر العمل: {type(exc).__name__}: {str(exc)[:240]}")
+        return 1            # 2026-10-19: the run used to end green after "تعذّر العمل" (ApiException 404 for days) — a failed window must look failed
     return 0
 
 
