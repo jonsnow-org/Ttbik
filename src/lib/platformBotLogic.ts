@@ -7,7 +7,7 @@ import { handlePlatformCallback, platformKeyboard, platformText } from "@/lib/ho
 
 export const PLATFORM_COMMANDS = [{ command: "start", description: "Open Palmyra Launch" }];
 
-const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
+const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/referrals — invite rewards log · سجل مكافآت الدعوات\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
 
 type Lang = "en" | "ar" | "ru";
 const appUrl = (lang: Lang = "en") => `${HOSTING.gateUrl}/zenobia/coins.html${lang === "en" ? "" : `?lang=${lang}`}`;
@@ -58,6 +58,9 @@ export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, 
   } else if (/^\/platform(@\w+)?$/i.test(text) && isOwner) {
     const p = await platformText();
     await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } });
+  } else if (/^\/referrals(@\w+)?$/i.test(text) && isOwner) {
+    const { ownerLog } = await import("@/lib/znbtRefs");
+    await bot.api.sendMessage(chatId, await ownerLog().catch((e: Error) => "⚠️ " + String(e?.message || e).slice(0, 300)), { link_preview_options: { is_disabled: true } });
   } else if (text.startsWith("/") && isOwner) {
     await bot.api.sendMessage(chatId, HELP);
   }
