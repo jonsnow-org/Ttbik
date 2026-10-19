@@ -99,13 +99,24 @@ INTRO_GROUP = """# %(title)s
 - لتشغيل قسم بعينه يدوياً: غيّري السطر `FORCE_SECTIONS` في خلية الاختيار.
 """
 
+AB_RESEARCH_BUDGET = (
+    "def _uptime_hours():            # the container lives as long as the Kaggle session: 12 h is a hard kill (A+B lost its research publish that way)\n"
+    "    try:\n"
+    "        return float(open(\"/proc/uptime\").read().split()[0]) / 3600\n"
+    "    except Exception:\n"
+    "        return 8.0\n"
+    "# the crawl loop trained only 0-3 real steps per cycle (searches blocked, robots.txt): cap it at 1.5 h and always leave 1.5 h for the publish below\n"
+    "MAX_SESSION_HOURS = min(1.5, max(0.25, 10.5 - _uptime_hours()))\n"
+    "print(f\"research budget {MAX_SESSION_HOURS:.2f} h (container up {_uptime_hours():.2f} h)\")"
+)
+
 # the other two combined notebooks: name -> (file, group key in sham_chain.STAGE_GROUPS, title, sources, budget note, {source: [(old text, new text)]})
 GROUPS = {
     "sham_ab_in_one": ("ab", "شام — دفتر المسارين A وB (تدريب نصي مستمر + بحث ذاتي)",
                        [("sham_cpu_training_track", "المسار A — التدريب النصي المستمر"), ("sham_cpu_research_track", "المسار B — البحث الذاتي من الإنترنت")],
-                       "خمس ساعات لكل منهما بدل 8.5",
-                       {"sham_cpu_training_track": [("MAX_TRAINING_HOURS = 8.5", "MAX_TRAINING_HOURS = 5.0")],
-                        "sham_cpu_research_track": [("MAX_SESSION_HOURS = 8.5", "MAX_SESSION_HOURS = 5.0")]}),
+                       "سبع ساعات للمسار A وساعة ونصف للمسار B كحدّ أقصى (مقيّدة بزمن الجلسة الفعلي) بدل 8.5 لكل منهما",
+                       {"sham_cpu_training_track": [("MAX_TRAINING_HOURS = 8.5", "MAX_TRAINING_HOURS = 7.0   # 2026-10-19: 5 h + 5 h + setup hit Kaggle's 12 h kill before publishing; the training track gets the time")],
+                        "sham_cpu_research_track": [("MAX_SESSION_HOURS = 8.5", AB_RESEARCH_BUDGET)]}),
     "sham_chat_image_in_one": ("chat_image", "شام — دفتر المحادثة والمرمزات (المرحلة الثالثة + ترميز الصورة ثم الصوت والفيديو)",
                                [("sham_chat_stage", "المرحلة الثالثة — الدمج والمحادثة"), ("sham_image_tokenizer_track", "مسار ترميز الصورة (ثم الصوت والفيديو)")],
                                "ست ساعات للمحادثة على CPU بدل 11",
