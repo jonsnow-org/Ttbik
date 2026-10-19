@@ -1,26 +1,33 @@
 <!doctype html><html lang="en"><head><script src="https://telegram.org/js/telegram-web-app.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a0a12"><title>ZNBt Trade</title><script src="/zenobia/znbt/nav.js"></script><script src="/zenobia/znbt/lang.js"></script><link rel="stylesheet" href="/zenobia/znbt/style.css"></head><body><main><div class="top"><a class="brand" href="/zenobia/coins.html"><img src="/zenobia/znbt-coin-small.webp" alt="">Palmyra Launch</a><div id="connect"></div></div>
 <video id="hero" class="hero2" style="display:none" src="/zenobia/znbt/art/banner.mp4" poster="/zenobia/znbt/art/banner.jpg" autoplay muted loop playsinline></video>
-<img id="coinImg" class="coin" style="display:none" alt="">
-<h1 id="title">Loading…</h1><div class="mut" id="desc"></div><span id="sym" style="display:none">ZNBt</span>
+<div class="chead"><img id="coinImg" class="coin" style="display:none" alt=""><div style="min-width:0"><h1 id="title">Loading…</h1><div class="mut" id="desc"></div></div></div><span id="sym" style="display:none">ZNBt</span>
 <div id="hiddenNote" class="card" style="display:none;border-color:#c0392b"><b>Hidden by the platform.</b> This coin was hidden from our lists. Trade only if you know exactly what it is. · أُخفيت هذه العملة من قوائمنا.</div>
 <div id="pre" class="card" style="display:none"><b>Launching soon.</b><br>يُطلق قريباً.</div>
 <div id="app">
-<div class="card"><h2>Market · السوق</h2><div id="status">…</div><div id="price" class="mut">…</div>
-<div id="stat" class="mut"></div><div id="chartBox" class="mut" style="margin:8px 0"></div><div class="bar" style="margin:8px 0"><div id="bar"></div></div><div class="mut">Raised / graduation: <span id="raised">…</span></div></div>
-<div class="card"><h2>Trust check · فحص الثقة</h2><div id="trust" class="mut">Loading…</div></div>
-<div class="card"><h2>Holders · الحاملون</h2><div id="holders" class="mut">Loading…</div></div>
-<div class="card"><h2>Your journey · رحلتك</h2><video id="stageVideo" style="display:none;width:100%;border-radius:12px;margin-bottom:8px" muted loop playsinline autoplay></video><img id="stageImg" alt="" style="display:none;width:100%;border-radius:12px;margin-bottom:8px"><div style="font-size:20px" id="stage">Connect your wallet</div><div class="mut" id="stageNote"></div><div class="mut">Balance: <span id="balance">–</span></div></div>
-<div class="card"><h2>Buy · شراء</h2><input id="buyAmt" inputmode="decimal" value="1" aria-label="GRAM amount"><button id="buy">Buy with GRAM</button></div>
-<div class="card"><h2>Sell · بيع</h2><input id="sellAmt" inputmode="decimal" value="0" aria-label="ZNBt amount"><button id="sell" class="alt">Sell for GRAM</button></div>
-<div class="card"><h2>Creator fees · رسوم المُطلِق</h2><div class="mut">Only for the wallet that launched this coin. Step 1, wait a minute, then step 2.</div><button id="flush" class="alt">1 · Move fees to my claim box</button><button id="claim">2 · Withdraw my creator fees</button></div>
-<div class="card mut" id="log"></div>
+<div class="card" id="mkt"><div id="status" class="mut">…</div><div id="price" class="priceline">…</div><div id="stat" class="mut"></div>
+<div class="bar" style="margin:10px 0 6px"><div id="bar"></div></div><div class="mut">Raised / graduation: <span id="raised">…</span></div></div>
+<div class="tabs" id="tabs"><button type="button" data-p="chart" class="on">Chart</button><button type="button" data-p="trust">Trust</button><button type="button" data-p="holders">Holders</button><button type="button" data-p="info">Info</button></div>
+<section class="pane on" id="p-chart">
+<div class="card"><div id="chartBox" class="mut"></div></div>
+<div class="card"><h2>Your position · مركزك</h2><video id="stageVideo" style="display:none;width:100%;border-radius:12px;margin-bottom:8px" muted loop playsinline autoplay></video><img id="stageImg" alt="" style="display:none;width:100%;border-radius:12px;margin-bottom:8px"><div style="font-size:20px" id="stage">Connect your wallet</div><div class="mut" id="stageNote"></div><div class="mut">Balance: <span id="balance">–</span></div></div>
+</section>
+<section class="pane" id="p-trust"><div class="card"><h2>Trust check · فحص الثقة</h2><div id="trust" class="mut">Loading…</div></div></section>
+<section class="pane" id="p-holders"><div class="card"><h2>Holders · الحاملون</h2><div id="holders" class="mut">Loading…</div></div></section>
+<section class="pane" id="p-info">
 <div class="card"><h2>Coin facts · معلومات العملة</h2><dl class="facts" id="facts"><dt>Loading</dt><dd>…</dd></dl></div>
+<div class="card" id="creatorCard" style="display:none"><h2>Creator fees · رسوم المُطلِق</h2><div class="mut">Only for the wallet that launched this coin. Step 1, wait a minute, then step 2.</div><button id="flush" class="alt">1 · Move fees to my claim box</button><button id="claim">2 · Withdraw my creator fees</button></div>
 <div class="card"><h2>Share · شارك</h2><div class="links"><button id="copyLink" class="alt">Copy link</button><a id="tgShare" class="btn alt" target="_blank" rel="noopener">Telegram</a><a id="cardLink" class="btn alt" target="_blank" rel="noopener">Image card</a></div></div>
-<div class="card"><h2>The journey · الرحلة</h2><img src="/zenobia/znbt-emblem.svg" alt="" style="width:100%;border-radius:12px"><div class="mut">Child (days 0-6) → Queen (7-20) → Warrior (21+). Sell everything: Captive. Burn everything: Legend.</div><a class="btn alt" href="/zenobia/coins.html">All coins · كل العملات</a></div>
+<div class="card"><h2>The journey · الرحلة</h2><img src="/zenobia/znbt-emblem.svg" alt="" style="width:100%;border-radius:12px"><div class="mut">Child (days 0-6) → Queen (7-20) → Warrior (21+). Sell everything: Captive. Burn everything: Legend.</div></div>
 <div class="card mut">Contract: <code id="addr">–</code></div>
 <div class="card"><h2>Report this coin · بلّغ عن العملة</h2><div class="mut">Scam, impersonation, illegal or copied content? Tell us. A report never hides a coin by itself; the platform owner reviews it. · البلاغ لا يُخفي العملة تلقائياً، يراجعه المالك.</div>
 <select id="repReason" aria-label="Reason"><option value="scam">Scam / fraud</option><option value="impersonation">Impersonation</option><option value="illegal">Illegal content</option><option value="copyright">Copyright</option><option value="spam">Spam</option><option value="other">Other</option></select>
 <input id="repDetails" maxlength="400" placeholder="Details (optional) · تفاصيل" aria-label="Details"><button id="repSend" class="alt">Send report</button></div>
+<div class="card mut">Fees per trade: 1.5% platform + the creator fee set by the coin's creator (shown on the coins list). Slippage limit 3%. Unaudited experimental contract: you can lose everything you put in. Not financial advice; no profit is promised. <a href="/zenobia/terms.html">Terms &amp; risks</a>.<br>الرسوم لكل صفقة: 1.5% للمنصة + رسم المُطلِق الذي حدده صاحب العملة. حد الانزلاق 3%. عقد تجريبي غير مدقّق: قد تخسر كل ما تضعه. ليست نصيحة مالية ولا وعد بربح.</div>
+</section>
+<div class="card mut" id="log"></div>
+<div class="tbar" id="tbar"><button type="button" class="buy" id="openBuy">Buy · شراء</button><button type="button" class="sell" id="openSell">Sell · بيع</button><a class="btn buy" id="ddBtn" style="display:none;margin:0" target="_blank" rel="noopener">Trade on DeDust</a></div>
+<div class="scrim" id="scrim" style="display:none"></div>
+<div class="sheet" id="buySheet" style="display:none"><div class="grab"></div><h2>Buy · شراء</h2><input id="buyAmt" inputmode="decimal" value="1" aria-label="GRAM amount"><button id="buy" class="buy">Buy with GRAM</button></div>
+<div class="sheet" id="sellSheet" style="display:none"><div class="grab"></div><h2>Sell · بيع</h2><input id="sellAmt" inputmode="decimal" value="0" aria-label="ZNBt amount"><button id="sell" class="sell">Sell for GRAM</button></div>
 </div>
-<div class="card mut">Fees per trade: 1.5% platform + the creator fee set by the coin's creator (shown on the coins list). Slippage limit 3%. Unaudited experimental contract: you can lose everything you put in. Not financial advice; no profit is promised. <a href="/zenobia/terms.html">Terms &amp; risks</a>.<br>الرسوم لكل صفقة: 1.5% للمنصة + رسم المُطلِق الذي حدده صاحب العملة (حتى 2%). العقد تجريبي وغير مدقَّق: قد تخسر كل ما تضعه. ليست نصيحة مالية ولا وعداً بربح.</div>
 </main><script src="/zenobia/znbt/trade.js"></script></body></html>

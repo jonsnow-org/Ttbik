@@ -2,22 +2,30 @@
 <h1>Launch your coin<br><span class="mut">أطلق عملتك على منصة تدمر لانش</span></h1>
 <div id="closed" class="card" style="display:none"><b>Not open yet.</b> Launches will open together with the platform. · الإطلاق غير مفتوح بعد.</div>
 <div class="card"><h2>Preview · معاينة</h2><div id="preview" class="pv"><img id="pvImg" alt="" style="display:none"><div><div class="ctitle" id="pvTitle">Your coin · عملتك</div><div class="mut" id="pvDesc">…</div></div></div><div id="symWarn" class="mut" style="color:#c0392b"></div></div>
-<div class="card"><label for="name">Name · الاسم</label><input id="name" maxlength="32" placeholder="My Coin">
+<div class="card"><h2>1 · Your coin · عملتك</h2>
+<label for="name">Name · الاسم</label><input id="name" maxlength="32" placeholder="My Coin">
 <label for="symbol">Symbol · الرمز (letters/digits)</label><input id="symbol" maxlength="10" placeholder="MYC">
 <label for="desc">Description · الوصف</label><textarea id="desc" rows="3" maxlength="300"></textarea>
-<label for="image">Image link (https) · رابط الصورة</label><input id="image" inputmode="url" placeholder="https://…">
-<label for="supply">Supply · العرض</label><select id="supply"><option value="1000000000">1,000,000,000</option><option value="100000000">100,000,000</option><option value="9000000000">9,000,000,000</option><option value="10000000000">10,000,000,000</option></select>
+<label for="image">Image link (https) · رابط الصورة</label><input id="image" inputmode="url" placeholder="https://…"></div>
+<div class="card"><h2>2 · Your earnings · أرباحك</h2>
+<div class="mut">You, the creator, earn this share of every buy and sell of your coin. It is paid to your wallet by the contract, forever. Traders also pay a 1.5% platform fee.</div>
 <label for="fee">Your creator fee per trade · نسبتك لكل صفقة</label><select id="fee"><option value="150">1.5%</option><option value="100">1%</option><option value="50">0.5%</option><option value="10">0.1%</option><option value="0">0%</option><option value="200">2%</option></select>
-<div class="mut">Platform fee 1.5% + your fee = total paid by traders: <b id="total">3%</b></div>
+<div class="mut">Example: <b id="feeEx">15 GRAM</b> for you on every 1,000 GRAM traded. Total paid by traders (platform + you): <b id="total">3%</b>. No income is promised: it depends on how much your coin is traded.</div></div>
+<div class="card"><h2>3 · Your first buy (optional) · شراؤك الأول</h2>
+<div class="mut">Creators get no free coins. If you want some of your own coin, buy it here at the lowest price, together with the launch.</div>
+<label for="dev">First buy, GRAM · شراؤك الأول</label><input id="dev" inputmode="decimal" value="0"><div class="chips" style="margin:-4px 0 8px"><button class="chip" type="button" onclick="document.getElementById('dev').value='1';document.getElementById('dev').dispatchEvent(new Event('input'))">1 GRAM</button><button class="chip" type="button" onclick="document.getElementById('dev').value='3';document.getElementById('dev').dispatchEvent(new Event('input'))">3 GRAM</button><button class="chip" type="button" onclick="document.getElementById('dev').value='10';document.getElementById('dev').dispatchEvent(new Event('input'))">10 GRAM</button></div><div id="est" class="mut"></div></div>
+<div class="card"><details class="adv"><summary>⚙️ Advanced options · خيارات متقدمة</summary>
+<div class="mut" style="margin-top:8px">Everything here is fixed in the contract when you launch and cannot be changed later.</div>
+<label for="supply">Supply · العرض</label><select id="supply"><option value="1000000000">1,000,000,000</option><option value="100000000">100,000,000</option><option value="9000000000">9,000,000,000</option><option value="10000000000">10,000,000,000</option></select>
 <label for="threshold">Graduates to DeDust at (GRAM) · ينتقل إلى دي داست عند</label><select id="threshold"><option value="1000">1,000</option><option value="2000">2,000</option><option value="3000">3,000</option></select>
-<label for="dev">Your own first buy, GRAM (optional) · شراؤك الأول</label><input id="dev" inputmode="decimal" value="0"><div class="chips" style="margin:-4px 0 8px"><button class="chip" type="button" onclick="document.getElementById('dev').value='1';document.getElementById('dev').dispatchEvent(new Event('input'))">1 GRAM</button><button class="chip" type="button" onclick="document.getElementById('dev').value='3';document.getElementById('dev').dispatchEvent(new Event('input'))">3 GRAM</button><button class="chip" type="button" onclick="document.getElementById('dev').value='10';document.getElementById('dev').dispatchEvent(new Event('input'))">10 GRAM</button></div><div id="est" class="mut" style="white-space:pre-line;margin-bottom:8px"></div>
-<details class="adv"><summary>⚙️ Advanced options · خيارات متقدمة</summary>
+<div class="mut">When this much GRAM has been raised on the curve, the coin moves to a regular exchange (DeDust).</div>
 <label for="shape">Curve shape · شكل المنحنى</label><select id="shape"><option value="5">Balanced (default)</option><option value="3">Gentle start: the price rises slowly at first</option><option value="8">Steep start: the price rises quickly</option></select>
 <label for="maxbuy">Anti-whale: largest single buy · أكبر عملية شراء</label><select id="maxbuy"><option value="0">No limit (default)</option><option value="50">0.5% of the supply</option><option value="100">1% of the supply</option><option value="200">2% of the supply</option><option value="500">5% of the supply</option></select>
-<div class="chk"><input id="burn" type="checkbox"><label for="burn">Buyback &amp; burn: creator fees buy the coin back and burn it (needs a creator fee above 0 and no fee split) · شراء وحرق</label></div>
-<label for="split">Share the creator fee · تقاسم رسوم المُطلِق (optional, one per line: address percent, total 100)</label><textarea id="split" rows="3" placeholder="UQ…  60&#10;UQ…  40"></textarea>
-<div class="mut">Everything here is fixed in the contract when you launch and cannot be changed later.</div></details>
-<div class="chk"><input id="agree" type="checkbox"><label for="agree">I understand: the contracts are experimental and unaudited; a launched coin cannot be deleted; the platform may hide coins from its pages; nothing here is financial advice (see the <a href="/zenobia/terms.html" target="_blank">terms</a>). · أفهم أن العقود تجريبية وغير مدقّقة، وأن العملة المطلقة لا تُحذف، وأن المنصة قد تخفي العملات من صفحاتها، وأن هذا ليس نصيحة مالية.</label></div>
+<div class="chk"><input id="burn" type="checkbox"><label for="burn">Buyback &amp; burn: creator fees buy the coin back and burn it (needs a creator fee above 0 and no partners) · شراء وحرق</label></div>
+<label>Partners · الشركاء (optional)</label><div class="mut">Share your creator fee with other wallets. Each partner receives their percent automatically. The percents must add up to 100.</div>
+<div id="partners"></div><button type="button" class="alt" id="addPartner">+ Add a partner</button>
+<textarea id="split" style="display:none"></textarea></details></div>
+<div class="card"><div class="chk"><input id="agree" type="checkbox"><label for="agree">I understand: the contracts are experimental and unaudited; a launched coin cannot be deleted; the platform may hide coins from its pages; nothing here is financial advice (see the <a href="/zenobia/terms.html" target="_blank">terms</a>). · أفهم أن العقود تجريبية وغير مدقّقة، وأن العملة المطلقة لا تُحذف، وأن المنصة قد تخفي العملات من صفحاتها، وأن هذا ليس نصيحة مالية.</label></div>
 <button id="go">Create coin (≈1 GRAM + first buy) · أنشئ العملة</button></div>
 <div id="result" class="card" style="display:none"><b>Sent ✅</b><br><span class="mut">Coin address:</span><br><code id="resultAddr"></code><a id="resultLink" class="btn" href="#">Open the coin page · افتح صفحة العملة</a></div>
 <div class="card mut" id="log"></div>

@@ -12,7 +12,8 @@ const saveWatch = (w: Set<string>) => { try { localStorage.setItem(WATCH, JSON.s
 let rows: Row[] = [];
 let reports = new Map<string, { n: number; reason: string }>();
 let q = '';
-let sort: Sort = 'new';
+type View = 'trending' | 'new' | 'closest' | 'top' | 'grad' | 'watch';
+let view: View = new URLSearchParams(location.search).get('tab') === 'watch' ? 'watch' : 'trending';
 let featured = new Set<string>();
 async function loadFeatured() {
   try {
@@ -20,7 +21,6 @@ async function loadFeatured() {
     featured = new Set((j.featured || []).map((f: any) => { try { return Address.parse(f.curve).toString({ bounceable: true, urlSafe: true }); } catch { return ''; } }));
   } catch { featured = new Set(); }
 }
-let filter: 'all' | 'curve' | 'grad' | 'watch' = 'all';
 let watched = watch();
 let official = '';   // ZNBt's own curve, pinned first
 
@@ -47,28 +47,27 @@ function visible(): Row[] {
   const term = q.trim().toLowerCase();
   let list = rows.filter((c) => admin || !hidden.has(key(c)));
   if (term) list = list.filter((c) => (c.name + ' ' + c.symbol + ' ' + c.description + ' ' + c.curve + ' ' + c.creator).toLowerCase().includes(term));
-  if (filter === 'curve') list = list.filter((c) => c.state === undefined || c.state === 1);
-  if (filter === 'grad') list = list.filter((c) => (c.state ?? 1) >= 2);
-  if (filter === 'watch') list = list.filter((c) => watched.has(key(c)));
-  if (sort === 'progress') list = [...list].sort((a, b) => (pct(b) ?? -1) - (pct(a) ?? -1));
-  if (sort === 'raised') list = [...list].sort((a, b) => Number(BigInt(b.raisedNano || '0') - BigInt(a.raisedNano || '0')));
+  const live = (c: Row) => c.state === undefined || c.state === 1;
+  const h24 = (c: Row) => (c.raised24 ? Number(BigInt(c.raised24)) : 0);
+  if (view === 'trending') list = list.filter(live).sort((a, b) => h24(b) - h24(a) || (pct(b) ?? -1) - (pct(a) ?? -1));
+  else if (view === 'new') list = [...list].sort((a, b) => b.createdAt - a.createdAt);
+  else if (view === 'closest') list = list.filter(live).sort((a, b) => (pct(b) ?? -1) - (pct(a) ?? -1));
+  else if (view === 'top') list = [...list].sort((a, b) => Number(BigInt(b.raisedNano || '0') - BigInt(a.raisedNano || '0')));
+  else if (view === 'grad') list = list.filter((c) => (c.state ?? 1) >= 2);
+  else if (view === 'watch') list = list.filter((c) => watched.has(key(c)));
   return list;
 }
 
 function toolbar() {
   const box = $('tools');
   box.textContent = '';
-  const chips = el('div', { className: 'chips' });
-  for (const [v, t] of [['all', 'All · الكل'], ['curve', '🔥 On the curve'], ['grad', '🎓 Graduated'], ['watch', '★ Watchlist']] as const) {
-    chips.append(el('button', { className: 'chip' + (filter === v ? ' on' : ''), textContent: t, onclick: () => { filter = v; toolbar(); render(); } }));
-  }
-  const sorts = el('div', { className: 'chips' });
-  for (const [v, t] of [['new', '🆕 Newest'], ['progress', '🎯 Closest to graduation'], ['raised', '💰 Most raised']] as const) {
-    sorts.append(el('button', { className: 'chip' + (sort === v ? ' on' : ''), textContent: t, onclick: () => { sort = v as Sort; toolbar(); render(); } }));
-  }
   const input = el('input', { type: 'search', placeholder: '🔍 Search name, symbol or address · بحث', value: q, ariaLabel: 'Search' }) as HTMLInputElement;
   input.oninput = () => { q = input.value; render(); };
-  box.append(input, chips, sorts);
+  const chips = el('div', { className: 'chips' });
+  for (const [v, t] of [['trending', '🔥 Trending'], ['new', '🆕 New'], ['closest', '🎯 Closest to graduation'], ['top', '💰 Top'], ['grad', '🎓 Graduated'], ['watch', '★ Watchlist']] as const) {
+    chips.append(el('button', { className: 'chip' + (view === v ? ' on' : ''), textContent: t, onclick: () => { view = v; toolbar(); render(); } }));
+  }
+  box.append(input, chips);
 }
 
 const sign = (n: number) => (n > 0 ? '+' : '') + n.toFixed(Math.abs(n) >= 100 ? 0 : 1) + '%';
@@ -82,6 +81,7 @@ function mini(c: Row, note: string, cls = '') {
 function sections() {
   const box = $('sections');
   box.textContent = '';
+  return;
   const live = rows.filter((c) => (admin || !hidden.has(key(c))) && (c.state ?? 1) === 1);
   const king = [...live].sort((a, b) => (pct(b) ?? -1) - (pct(a) ?? -1))[0];
   const hot = [...live].filter((c) => c.raised24 && BigInt(c.raised24) > 0n).sort((a, b) => Number(BigInt(b.raised24!) - BigInt(a.raised24!))).slice(0, 8);
@@ -126,31 +126,27 @@ function render() {
       ph.append(img);
     }
     const body = el('div', { className: 'body' });
-    const t = el('div', { className: 't' }, c.name || '(no name)', el('span', { className: 'sym', textContent: c.symbol || '?' }));
-    const badges = el('div', { className: 'badges' });
-    if (k === official) badges.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
-    if (featured.has(k)) badges.append(el('span', { className: 'badge', textContent: 'SPONSORED' }));
-    if (Date.now() / 1000 - c.createdAt < 86400) badges.append(el('span', { className: 'badge new', textContent: 'NEW' }));
-    if ((c.state ?? 1) >= 2) badges.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
-    if (c.features?.maxBuyBps) badges.append(el('span', { className: 'badge', textContent: '🐋 max buy ' + (c.features.maxBuyBps / 100) + '%' }));
-    if (c.features?.buyback) badges.append(el('span', { className: 'badge', textContent: '🔥 buyback & burn' }));
-    if (c.features?.split) badges.append(el('span', { className: 'badge', textContent: '🤝 fee split' }));
+    const star = el('button', { className: 'star' + (watched.has(k) ? ' on' : ''), textContent: watched.has(k) ? '★' : '☆', title: 'Watchlist', ariaLabel: 'Watchlist', onclick: (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); if (watched.has(k)) watched.delete(k); else watched.add(k); saveWatch(watched); render(); } });
+    const t = el('div', { className: 't' }, el('span', { className: 'nm', textContent: c.name || '(no name)' }));
+    if (k === official) t.append(el('span', { className: 'badge off', textContent: 'OFFICIAL' }));
+    if (featured.has(k)) t.append(el('span', { className: 'badge', textContent: 'SPONSORED' }));
+    if (Date.now() / 1000 - c.createdAt < 86400) t.append(el('span', { className: 'badge new', textContent: 'NEW' }));
+    if ((c.state ?? 1) >= 2) t.append(el('span', { className: 'badge grad', textContent: 'Graduated' }));
     const rep = reports.get(k);
-    if (admin && rep) badges.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
-    body.append(t);
-    if (badges.childElementCount) body.append(badges);
-    body.append(el('div', { className: 'd', textContent: c.description }));
+    if (admin && rep) t.append(el('span', { className: 'badge warn', textContent: '⚑ ' + rep.n + ' · ' + rep.reason }));
+    const icons = (c.features?.maxBuyBps ? ' 🐋' : '') + (c.features?.buyback ? ' 🔥' : '') + (c.features?.split ? ' 🤝' : '');
+    const mc = c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' GRAM' : 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%';
+    body.append(t, el('div', { className: 'd', textContent: (c.symbol || '?') + ' · ' + mc + icons }));
     const p = pct(c);
     if (p !== null) {
       body.append(el('div', { className: 'bar' }, el('div', { style: 'width:' + p + '%' })));
-      body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 2) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' GRAM' }), el('b', { textContent: p.toFixed(1) + '%' })));
-      const extra = [c.mcTon ? 'MC ' + (c.mcTon >= 1000 ? (c.mcTon / 1000).toFixed(1) + 'K' : c.mcTon.toFixed(0)) + ' GRAM' : '', typeof c.chg24 === 'number' ? sign(c.chg24) + ' 24h' : ''].filter(Boolean);
-      if (extra.length) body.append(el('div', { className: 'm' }, el('span', { textContent: extra[0] }), el('span', { className: typeof c.chg24 === 'number' ? (c.chg24 >= 0 ? 'up' : 'down') : '', textContent: extra[1] || '' })));
-    } else {
-      body.append(el('div', { className: 'm' }, el('span', { textContent: 'creator fee ' + (c.creatorFeeBps / 100).toFixed(2).replace(/\.?0+$/, '') + '%' }), el('span', { textContent: new Date(c.createdAt * 1000).toISOString().slice(0, 10) })));
+      body.append(el('div', { className: 'm' }, el('span', { textContent: fmt(BigInt(c.raisedNano!), 9, 1) + ' / ' + fmt(BigInt(c.thresholdNano!), 9, 0) + ' GRAM' }), el('b', { textContent: p.toFixed(1) + '%' })));
     }
-    const star = el('button', { className: 'star' + (watched.has(k) ? ' on' : ''), textContent: watched.has(k) ? '★' : '☆', title: 'Watchlist', ariaLabel: 'Watchlist', onclick: (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); if (watched.has(k)) watched.delete(k); else watched.add(k); saveWatch(watched); render(); } });
-    row.append(ph, body, star);
+    const side = el('div', { className: 'side' });
+    side.append(typeof c.chg24 === 'number' ? el('span', { className: 'chg ' + (c.chg24 >= 0 ? 'up' : 'down'), textContent: sign(c.chg24) }) : el('span', { className: 'chg mut', textContent: '–' }));
+    if ((c.state ?? 1) === 1) side.append(el('button', { className: 'qb buy', textContent: 'Buy', onclick: (ev: Event) => { ev.preventDefault(); ev.stopPropagation(); location.href = '/zenobia/trade.html?c=' + encodeURIComponent(c.curve) + '&buy=1'; } }));
+    side.append(star);
+    row.append(ph, body, side);
     box.append(row);
     if (admin) {
       const adm = el('div', { className: 'card', style: 'margin-top:-4px' });

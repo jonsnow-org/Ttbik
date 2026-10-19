@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const shim = path.join(here, 'src/buffer-shim.js');
-for (const name of ['trade', 'launch', 'create', 'coins', 'earnings', 'swap']) {
+for (const name of ['trade', 'launch', 'create', 'coins', 'earnings', 'swap', 'portfolio']) {
   await build({
     entryPoints: [path.join(here, `src/${name}.ts`)],
     bundle: true, minify: true, format: 'iife', target: 'es2020',
