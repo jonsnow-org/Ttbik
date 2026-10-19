@@ -7,7 +7,7 @@ import { handlePlatformCallback, platformKeyboard, platformText } from "@/lib/ho
 
 export const PLATFORM_COMMANDS = [{ command: "start", description: "Open Palmyra Launch" }];
 
-const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/referrals — invite rewards log · سجل مكافآت الدعوات\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
+const HELP = "🪙 Palmyra Launch owner bot · بوت مالك تدمر لانش\n\n/referrals — invite rewards: log, payout wallet, on/off, pay, withdraw · سجل المكافآت والمحفظة والصرف\n/platform — open or close the platform, ZNBt status, reports\n/platform — فتح/إغلاق المنصة وحالة ZNBt والبلاغات\n\nOnly the owner can use this bot. · للمالك فقط.";
 
 type Lang = "en" | "ar" | "ru";
 const appUrl = (lang: Lang = "en") => `${HOSTING.gateUrl}/zenobia/coins.html${lang === "en" ? "" : `?lang=${lang}`}`;
@@ -58,10 +58,28 @@ export async function handlePlatformBotUpdate(bot: TelegramBot, botRow: BotRow, 
   } else if (/^\/platform(@\w+)?$/i.test(text) && isOwner) {
     const p = await platformText();
     await bot.api.sendMessage(chatId, p.text, { reply_markup: platformKeyboard(p.open), link_preview_options: { is_disabled: true } });
-  } else if (/^\/referrals(@\w+)?$/i.test(text) && isOwner) {
-    const { ownerLog } = await import("@/lib/znbtRefs");
-    await bot.api.sendMessage(chatId, await ownerLog().catch((e: Error) => "⚠️ " + String(e?.message || e).slice(0, 300)), { link_preview_options: { is_disabled: true } });
+  } else if (/^\/referrals(@\w+)?(\s|$)/i.test(text) && isOwner) {
+    await handleReferralsCommand(bot, chatId, text);
   } else if (text.startsWith("/") && isOwner) {
     await bot.api.sendMessage(chatId, HELP);
   }
+}
+
+/** Owner-only /referrals: the invite-reward log and the manual controls of the payout wallet (lib/znbtPayout.ts). */
+async function handleReferralsCommand(bot: TelegramBot, chatId: number, text: string): Promise<void> {
+  const say = (m: string) => bot.api.sendMessage(chatId, m, { link_preview_options: { is_disabled: true } }).catch(() => null);
+  const [, arg, rest] = text.trim().split(/\s+/);
+  try {
+    const P = await import("@/lib/znbtPayout");
+    const a = (arg || "").toLowerCase();
+    if (a === "on" || a === "off") { await P.setPayouts(a === "on"); await say(a === "on" ? "✅ Automatic payouts ON. Rewards due are paid from the payout wallet while it has funds." : "⛔ Automatic payouts OFF."); }
+    else if (a === "pay") { const r = await P.runPayouts(true); const { fmtNano } = await import("@/lib/znbtRefs"); await say(`Paid ${r.sent} payout(s), ${fmtNano(r.total)} GRAM.${r.note ? "\n" + r.note : ""}`); }
+    else if (a === "withdraw") {
+      const { Address } = await import("@ton/core");
+      try { Address.parse(rest || ""); } catch { await say("Usage: /referrals withdraw ADDRESS"); return; }
+      await say((await P.withdrawAll(rest)) ? "✅ Sent everything in the payout wallet to " + rest : "⚠️ The withdrawal could not be confirmed: check the wallet on the explorer.");
+    }
+    else if (a === "resolve" && (rest === "sent" || rest === "failed")) await say(`Marked ${await P.resolveUnknown(rest === "sent")} unresolved payout(s) as ${rest}.`);
+    else await say(await P.ownerLog());
+  } catch (e: any) { await say("⚠️ " + String(e?.message || e).slice(0, 300)); }
 }
