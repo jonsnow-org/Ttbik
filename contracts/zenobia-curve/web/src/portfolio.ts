@@ -17,8 +17,8 @@ async function load() {
   const w = Address.parse(ui.account.address);
   sum.textContent = '';
   sum.append(el('div', { className: 'mut', textContent: 'Wallet ' + short(w.toString({ bounceable: false })) }), el('div', { className: 'big sk', textContent: '···' }));
-  let holdings: any[] = [], coins: any[] = [];
-  try { const j = await (await fetch('/api/zenobia/portfolio?w=' + encodeURIComponent(w.toString({ bounceable: false })), { cache: 'no-store' })).json(); if (j.ok) holdings = j.holdings || []; } catch {}
+  let holdings: any[] = [], coins: any[] = [], athar: any = null;
+  try { const j = await (await fetch('/api/zenobia/portfolio?w=' + encodeURIComponent(w.toString({ bounceable: false })), { cache: 'no-store' })).json(); if (j.ok) { holdings = j.holdings || []; athar = j.athar || null; } } catch {}
   try { const j = await (await fetch('/api/zenobia/coins/index', { cache: 'no-store' })).json(); coins = j.coins || []; } catch {}
   if (my !== seq) return;
   const total = holdings.reduce((a, h) => a + (h.valueTon || 0), 0);
@@ -32,6 +32,18 @@ async function load() {
     const side = el('div', { className: 'side' }, el('span', { className: 'chg', textContent: h.valueTon != null ? '≈ ' + h.valueTon.toFixed(2) + ' GRAM' : '–' }));
     side.append(el('button', { className: 'qb sell', textContent: 'Sell', onclick: (ev: Event) => { ev.preventDefault(); location.href = '/zenobia/trade.html?c=' + encodeURIComponent(h.curve); } }));
     hold.append(el('a', { className: 'coin', href: '/zenobia/trade.html?c=' + encodeURIComponent(h.curve) }, ph, body, side));
+  }
+  // Athar passport: only for a wallet that holds Athar day-tokens
+  const ap = document.getElementById('athar');
+  if (ap) {
+    ap.textContent = '';
+    if (athar && athar.count > 0) {
+      ap.style.display = '';
+      ap.append(el('h2', { textContent: 'Athar passport' }), el('div', { className: 'mut', textContent: 'You hold ' + athar.count + (athar.count === 1 ? ' Athar day-token.' : ' Athar day-tokens.') }));
+      const chips = el('div', { className: 'chips', style: 'margin-top:8px;flex-wrap:wrap' });
+      for (const it of athar.items) chips.append(el('span', { className: 'chip', textContent: it.name }));
+      ap.append(chips);
+    } else ap.style.display = 'none';
   }
   // creator card: only for a wallet that launched at least one coin
   const mine = coins.filter((c) => { try { return Address.parse(c.creator).equals(w); } catch { return false; } });

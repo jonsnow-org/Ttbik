@@ -81,18 +81,20 @@ function mini(c: Row, note: string, cls = '') {
 function sections() {
   const box = $('sections');
   box.textContent = '';
-  return;
-  const live = rows.filter((c) => (admin || !hidden.has(key(c))) && (c.state ?? 1) === 1);
-  const king = [...live].sort((a, b) => (pct(b) ?? -1) - (pct(a) ?? -1))[0];
-  const hot = [...live].filter((c) => c.raised24 && BigInt(c.raised24) > 0n).sort((a, b) => Number(BigInt(b.raised24!) - BigInt(a.raised24!))).slice(0, 8);
-  if (king && (pct(king) ?? 0) > 0) {
-    box.append(el('h2', { className: 'sec', textContent: '👑 King of the hill' }));
-    box.append(el('a', { className: 'king', href: '/zenobia/trade.html?c=' + encodeURIComponent(king.curve) }, el('b', { textContent: (king.name || king.symbol) + ' · ' + king.symbol }), el('span', { textContent: (pct(king) ?? 0).toFixed(1) + '% to graduation · ' + fmt(BigInt(king.raisedNano!), 9, 2) + ' GRAM raised' })));
-  }
-  if (hot.length) {
-    box.append(el('h2', { className: 'sec', textContent: '🔥 Trending now' }));
+  // quick actions: the things people come back for
+  const J = (window as any).ZJ;
+  const streak = J ? J.streak() : 0;
+  const acts: [string, string, string][] = [['🚀', 'Launch', '/zenobia/create.html'], ['🔁', 'Swap', '/zenobia/swap.html'], ['🏆', streak > 0 ? `Journey · ${streak}🔥` : 'Journey', '/zenobia/journey.html'], ['👥', 'Invite', '/zenobia/journey.html#invite']];
+  const qa = el('div', { className: 'qa' });
+  for (const [ic, t, href] of acts) qa.append(el('a', { className: 'qa-i', href }, el('i', { textContent: ic }), el('span', { textContent: t })));
+  box.append(qa);
+  // top movers in the last 24h (price change from our own price history)
+  const mv = rows.filter((c) => (admin || !hidden.has(key(c))) && (c.state ?? 1) === 1 && typeof c.chg24 === 'number' && Math.abs(c.chg24 as number) >= 0.1)
+    .sort((a, b) => Math.abs(b.chg24 as number) - Math.abs(a.chg24 as number)).slice(0, 8);
+  if (mv.length) {
+    box.append(el('h2', { className: 'sec', textContent: 'Top movers · 24h' }));
     const strip = el('div', { className: 'strip' });
-    for (const c of hot) strip.append(mini(c, '+' + fmt(BigInt(c.raised24!), 9, 2) + ' GRAM', 'up'));
+    for (const c of mv) strip.append(mini(c, sign(c.chg24 as number), (c.chg24 as number) >= 0 ? 'up' : 'down'));
     box.append(strip);
   }
 }
