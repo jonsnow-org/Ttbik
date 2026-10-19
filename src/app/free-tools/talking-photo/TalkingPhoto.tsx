@@ -178,8 +178,8 @@ export default function TalkingPhoto({ lang = "ar" }: { lang?: Lang }) {
     if (!dec) return;
     setBusy(true); setMsg(t.analyzing);
     try {
-      const { buffer, blob } = await applyEffect(dec, id);
-      let track = analyzeAudio(buffer, 30);
+      const { buffer, blob, loudDb } = await applyEffect(dec, id);
+      let track = analyzeAudio(buffer, 30, loudDb);
       const vm = await visemeModel();
       if (vm) { try { track = refineTrack(track, buffer.getChannelData(0), buffer.sampleRate, vm); } catch { /* keep the loudness-based track */ } }
       trackRef.current = track;

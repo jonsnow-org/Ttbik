@@ -16,7 +16,7 @@
 export type Pt = { x: number; y: number };
 
 // ---------------------------------------------------------------- audio -> weights
-export type Track = { fps: number; J: Float32Array; S: Float32Array; R: Float32Array; F: Float32Array; E: Float32Array; B: Float32Array };
+export type Track = { level: number; fps: number; J: Float32Array; S: Float32Array; R: Float32Array; F: Float32Array; E: Float32Array; B: Float32Array };
 export type Weights = { J: number; S: number; R: number; F: number; E: number; B: number };   // B = eyebrow lift on emphasis
 
 function fft(re: Float32Array, im: Float32Array) {
@@ -43,7 +43,13 @@ function fft(re: Float32Array, im: Float32Array) {
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smoothstep = (a: number, b: number, x: number) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
 
-export function analyzeAudio(buf: AudioBuffer, fps = 30): Track {
+/**
+ * How wide this voice opens the mouth compared with ordinary speech, from its absolute loudness in dBFS: ordinary speech (-20 dB) = 1,
+ * +12 dB louder (a shout) = 2.6, quieter speech smaller, never below 0.5. The recording's own dynamics (stressed syllables) come on top of it.
+ */
+export const levelFromDb = (db: number) => Math.min(2.6, Math.max(0.5, Math.exp((Math.log(2.6) * (db + 20)) / 12)));
+
+export function analyzeAudio(buf: AudioBuffer, fps = 30, loudDb = -20): Track {
   const sr = buf.sampleRate;
   const ch = buf.getChannelData(0);
   const N = sr >= 32000 ? 2048 : 1024;
@@ -99,14 +105,14 @@ export function analyzeAudio(buf: AudioBuffer, fps = 30): Track {
   const Es = smooth(shift(E), 0.7, 0.35);
   const B0 = new Float32Array(frames);
   for (let i = 3; i < frames; i++) B0[i] = clamp01((Es[i] - Es[i - 3]) * 2.2) * (Es[i] > 0.45 ? 1 : 0);
-  return { fps, J: smooth(shift(J), 0.7, 0.4), S: smooth(shift(S), 0.5, 0.3), R: smooth(shift(R), 0.5, 0.3), F: smooth(shift(F), 0.6, 0.5), E: Es, B: smooth(B0, 0.5, 0.12) };
+  return { level: levelFromDb(loudDb), fps, J: smooth(shift(J), 0.7, 0.4), S: smooth(shift(S), 0.5, 0.3), R: smooth(shift(R), 0.5, 0.3), F: smooth(shift(F), 0.6, 0.5), E: Es, B: smooth(B0, 0.5, 0.12) };
 }
 
 export function sampleTrack(tr: Track | null, t: number): Weights {
   if (!tr) return { J: 0, S: 0, R: 0, F: 0, E: 0, B: 0 };
   const x = Math.max(0, t) * tr.fps, i = Math.floor(x), k = x - i, n = tr.J.length - 1;
   const g = (a: Float32Array) => a[Math.min(n, i)] * (1 - k) + a[Math.min(n, i + 1)] * k;
-  return { J: g(tr.J), S: g(tr.S), R: g(tr.R), F: g(tr.F), E: g(tr.E), B: g(tr.B) };
+  return { J: g(tr.J) * tr.level, S: Math.min(1.2, g(tr.S) * Math.sqrt(tr.level)), R: g(tr.R), F: g(tr.F), E: g(tr.E), B: g(tr.B) };
 }
 
 // ---------------------------------------------------------------- Delaunay (Bowyer-Watson)
@@ -273,9 +279,9 @@ export function headPose(t: number, w: Weights): Pose {
 function displace(model: Model, w: Weights, blink: number, pose: Pose): Pt[] {
   const { pts, jawW, lipG, isAnchor, mouth, zs, fade, center } = model;
   const { x: mx, y: my, w: mw } = mouth;
-  const jaw = w.J * mw * 0.36;
+  const jaw = w.J * mw * 0.3;   // J = 1 is the jaw drop of an open vowel in ordinary speech; a shout reaches about 2.6
   const widthF = 1 + 0.14 * w.S - 0.3 * w.R;
-  const raise = 0.09 * w.J * mw;
+  const raise = 0.09 * Math.min(w.J, 1.4) * mw;
   const sy = Math.sin(pose.yaw), cyw = Math.cos(pose.yaw), sp = Math.sin(pose.pitch), cp = Math.cos(pose.pitch);
   const out = pts.map((p, i) => {
     if (isAnchor[i]) return { x: p.x, y: p.y };
