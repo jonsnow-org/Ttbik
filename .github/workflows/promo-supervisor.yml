@@ -21,6 +21,10 @@ jobs:
           sparse-checkout: |
             deploy/hosting/site.json
             scripts/promo/supervise.mjs
+            src/lib/freeTools.ts
+            src/app/free-tools/*/page.tsx
+            public/zenobia/*.html
+            promo/platform-features.json
           sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v4
         with:
