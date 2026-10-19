@@ -4,8 +4,10 @@ name: Sham Lightning Studio (free CPU)
 # الأسرار: LIGHTNING_USER_ID، LIGHTNING_API_KEY (تضيفها المالكة).
 
 on:
-  schedule:
-    - cron: "5 */4 * * *"      # the free Studio is stopped every 4 h: each run starts it again and relaunches the media factory
+  # 2026-10-19 PAUSED: Lightning reported a security incident (credentials in Studios compromised, platform access revoked since 2026-10-16). Each scheduled run would
+  # write our Kaggle / Hugging Face tokens into the Studio once access returns. Re-enable only after the owner decides (and rotates those tokens):
+  #   schedule:
+  #     - cron: "5 */4 * * *"      # the free Studio is stopped every 4 h: each run starts it again and relaunches the media factory
   workflow_dispatch:
     inputs:
       mode:
