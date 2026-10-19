@@ -13,6 +13,8 @@ let me: Address | null = null;
 let thresholdTon = 1000n * 1_000_000_000n;
 let isZnbt = false;
 let myBal = 0n;
+let opened = false;
+let creatorAddr = '';
 
 const ui = new TonConnectUI({ manifestUrl: location.origin + '/zenobia/tonconnect-manifest.json', buttonRootId: 'connect', actionsConfiguration: { twaReturnUrl: 'https://t.me/PalmyraLaunchBot' as `${string}://${string}` } });
 const say = (m: string) => ($('log').textContent = m);
@@ -32,6 +34,11 @@ async function loadMarket() {
   if (status >= 2n && minter) $('status').innerHTML = 'Graduated: trade on <a href="https://dedust.io/swap/TON/' + minter.toString({ bounceable: true, urlSafe: true }) + '" target="_blank" rel="noopener">DeDust</a>';
   const q = await retry(() => sdk.quoteBuy(curve!, 1_000_000_000n));
   $('price').textContent = '1 GRAM ≈ ' + fmt(q, 9, 0) + ' ' + $('sym').textContent;
+  const live = status === 1n;
+  $('openBuy').style.display = $('openSell').style.display = live ? '' : 'none';
+  const dd = $('ddBtn') as HTMLAnchorElement;
+  if (status >= 2n && minter) { dd.href = 'https://dedust.io/swap/TON/' + minter.toString({ bounceable: true, urlSafe: true }); dd.style.display = ''; }
+  if (live && !opened && new URLSearchParams(location.search).get('buy') === '1') { opened = true; openSheet('buy'); }
 }
 
 async function loadIdentity() {
@@ -80,6 +87,21 @@ async function loadMe() {
   }
 }
 
+function showCreator() {
+  let mine = false;
+  try { mine = !!me && !!creatorAddr && Address.parse(creatorAddr).equals(me); } catch {}
+  $('creatorCard').style.display = mine ? '' : 'none';
+}
+// tabs, and the Buy / Sell sheets that slide up from the bottom bar
+document.querySelectorAll('#tabs button').forEach((b) => ((b as HTMLElement).onclick = () => {
+  document.querySelectorAll('#tabs button').forEach((x) => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.pane').forEach((p) => p.classList.toggle('on', p.id === 'p-' + (b as HTMLElement).dataset.p));
+}));
+function closeSheet() { for (const id of ['scrim', 'buySheet', 'sellSheet']) $(id).style.display = 'none'; }
+function openSheet(w: 'buy' | 'sell') { closeSheet(); $('scrim').style.display = ''; $(w === 'buy' ? 'buySheet' : 'sellSheet').style.display = ''; }
+$('openBuy').onclick = () => openSheet('buy');
+$('openSell').onclick = () => openSheet('sell');
+$('scrim').onclick = closeSheet;
 const slip = () => Number((document.getElementById('slipSel') as HTMLSelectElement | null)?.value || 300);
 
 $('buy').onclick = async () => {
@@ -89,6 +111,7 @@ $('buy').onclick = async () => {
     if (ton < 100_000_000n) throw new Error('Minimum 0.1 GRAM');
     const { transaction } = await sdk.prepareBuy(curve, ton, slip());
     await send(transaction);
+    closeSheet();
     say('Buy sent. Your balance updates in about a minute.');
     setTimeout(() => loadMe().catch(() => {}), 45000);
   } catch (e: any) { say('Error: ' + (e.message || e)); }
@@ -102,6 +125,7 @@ $('sell').onclick = async () => {
     if (amt > max) amt = max;
     const { transaction } = await sdk.prepareSell(curve, me, amt, slip());
     await send(transaction);
+    closeSheet();
     say('Sell sent. GRAM arrives in about a minute.');
     setTimeout(() => loadMe().catch(() => {}), 45000);
   } catch (e: any) { say('Error: ' + (e.message || e)); }
@@ -126,6 +150,7 @@ $('claim').onclick = async () => {
 ui.onStatusChange(() => {
   me = ui.account ? Address.parse(ui.account.address) : null;
   loadMe().catch(() => {});
+  showCreator();
 });
 
 async function loadFacts() {
@@ -140,6 +165,7 @@ async function loadFacts() {
   const short = (a: string) => a.slice(0, 6) + '…' + a.slice(-4);
   const link = (a: string, t: string) => { const x = document.createElement('a'); x.href = 'https://tonviewer.com/' + a; x.target = '_blank'; x.rel = 'noopener'; x.textContent = t; return x; };
   if (coin) {
+    creatorAddr = coin.creator; showCreator();
     row('Creator', link(coin.creator, short(coin.creator)));
     row('Created', new Date(coin.createdAt * 1000).toISOString().slice(0, 10));
     row('Supply', fmt(BigInt(coin.supply), 9, 0));
@@ -228,7 +254,9 @@ async function loadStats(curveStr: string) {
 // ---- Curve Map: the coin's own bonding curve with its journey on it, and the money flowing in and out ----
 // Price on this curve is a function of the TON raised, so the map needs no price feed: it is drawn from the chain, the index only adds the trail.
 let cs = { r: 0, T: 0, V: 0 };
-let trail: { ts: number; raised: number }[] = [];
+let trail: { ts: number; raised: number; p: number }[] = [];
+let chartMode: 'curve' | 'price' = 'price';
+let tf = 3600;
 const curveMult = (x: number) => Math.pow((cs.V + x) / cs.V, 2);
 function setCurveState(d: any) {
   const T = Number(thresholdTon) / 1e9, r = Number(d.realTonReserve) / 1e9;
@@ -238,9 +266,8 @@ function setCurveState(d: any) {
   cs = { r, T, V: T / best };
   drawMap();
 }
-function drawMap() {
-  const box = $('chartBox');
-  if (!(cs.T > 0)) return;
+function curveHtml(): string {
+  if (!(cs.T > 0)) return '';
   const W = 320, H = 212, L = 12, R = 308, top = 24, bot = 118, mid = 172;
   const maxM = curveMult(cs.T), lm = Math.log(maxM);
   const X = (x: number) => L + (Math.min(Math.max(x, 0), cs.T) / cs.T) * (R - L);
@@ -279,12 +306,58 @@ function drawMap() {
   } else svg += '<text x="' + ((L + R) / 2) + '" y="' + (mid + 4) + '" text-anchor="middle" fill="#8a8fa0" font-size="9">fills in as the coin trades</text>';
   svg += '</svg>';
   const now = curveMult(r), pctDone = (r / cs.T) * 100;
-  box.innerHTML = svg + '<div class="mut" style="margin-top:4px">×' + now.toFixed(2) + ' since launch · ' + pctDone.toFixed(1) + '% of the way to graduation. The price only depends on how much GRAM the curve holds, so this map is exact, not an estimate.</div>';
+  return svg + '<div class="mut" style="margin-top:4px">×' + now.toFixed(2) + ' since launch · ' + pctDone.toFixed(1) + '% of the way to graduation. The price only depends on how much GRAM the curve holds, so this map is exact, not an estimate.</div>';
+}
+
+const fmtP = (p: number) => (p === 0 ? '0' : p >= 1 ? p.toFixed(3) : p >= 0.001 ? p.toFixed(5) : p.toExponential(2));
+function priceHtml(): string {
+  const pts = trail.filter((t) => t.p > 0);
+  if (pts.length < 2) return '<div class="mut" style="padding:28px 0;text-align:center">The price chart fills in as the coin trades.</div>';
+  const W = 320, H = 200, L = 6, R = 314, top = 12, bot = 142, vb = 188;
+  const buckets = new Map<number, { o: number; c: number; h: number; l: number; v: number; prevRaised: number }>();
+  let prev = pts[0].raised;
+  for (const t of pts) {
+    const k = Math.floor(t.ts / tf);
+    const b = buckets.get(k);
+    const dv = Math.abs(t.raised - prev); prev = t.raised;
+    if (!b) buckets.set(k, { o: t.p, c: t.p, h: t.p, l: t.p, v: dv, prevRaised: t.raised });
+    else { b.c = t.p; b.h = Math.max(b.h, t.p); b.l = Math.min(b.l, t.p); b.v += dv; }
+  }
+  const cs2 = [...buckets.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]).slice(-40);
+  const hi = Math.max(...cs2.map((c) => c.h)), lo = Math.min(...cs2.map((c) => c.l)), span = Math.max(hi - lo, hi * 1e-6);
+  const vmax = Math.max(1e-9, ...cs2.map((c) => c.v));
+  const Y = (v: number) => bot - ((v - lo) / span) * (bot - top);
+  const w = (R - L) / cs2.length;
+  let svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;display:block" role="img" aria-label="Price chart">';
+  for (let i = 0; i <= 3; i++) { const y = top + ((bot - top) * i) / 3; svg += '<line x1="' + L + '" x2="' + R + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="#ffffff12"/>'; }
+  cs2.forEach((c, i) => {
+    const x = L + i * w + w / 2, up = c.c >= c.o, col = up ? '#2ee59d' : '#ff4d6a';
+    const yo = Y(c.o), yc = Y(c.c), bh = Math.max(2, Math.abs(yo - yc));
+    svg += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + Y(c.h).toFixed(1) + '" y2="' + Y(c.l).toFixed(1) + '" stroke="' + col + '" stroke-width="1.2"/>'
+      + '<rect x="' + (x - w * 0.32).toFixed(1) + '" y="' + Math.min(yo, yc).toFixed(1) + '" width="' + (w * 0.64).toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="1.5" fill="' + col + '"/>'
+      + '<rect x="' + (x - w * 0.32).toFixed(1) + '" y="' + (H - 4 - (c.v / vmax) * 34).toFixed(1) + '" width="' + (w * 0.64).toFixed(1) + '" height="' + Math.max(1, (c.v / vmax) * 34).toFixed(1) + '" rx="1" fill="' + col + '" opacity=".35"/>';
+  });
+  const last = cs2[cs2.length - 1].c, first = cs2[0].o;
+  const chg = (last / first - 1) * 100;
+  svg += '<text x="' + R + '" y="' + (top - 2) + '" text-anchor="end" font-size="10" fill="#8b8aa0">high ' + fmtP(hi) + '</text><text x="' + R + '" y="' + (bot + 12) + '" text-anchor="end" font-size="10" fill="#8b8aa0">low ' + fmtP(lo) + '</text></svg>';
+  return '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><b style="font-size:18px">' + fmtP(last) + ' GRAM</b><b class="' + (chg >= 0 ? 'up' : 'down') + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%</b></div>' + svg + '<div class="mut" style="margin-top:2px">Candles from the platform index. Bars show GRAM traded in each period.</div>';
+}
+function drawMap() {
+  const box = $('chartBox');
+  box.textContent = '';
+  const bar = document.createElement('div'); bar.className = 'chips'; bar.style.marginBottom = '10px';
+  const mk = (t: string, on: boolean, f: () => void) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip' + (on ? ' on' : ''); b.textContent = t; b.onclick = f; bar.append(b); };
+  mk('Price', chartMode === 'price', () => { chartMode = 'price'; drawMap(); });
+  mk('Curve', chartMode === 'curve', () => { chartMode = 'curve'; drawMap(); });
+  if (chartMode === 'price') for (const [t, v] of [['1h', 3600], ['4h', 14400], ['1d', 86400]] as const) mk(t, tf === v, () => { tf = v; drawMap(); });
+  const body = document.createElement('div');
+  body.innerHTML = chartMode === 'price' ? priceHtml() : curveHtml();
+  box.append(bar, body);
 }
 async function loadChart(curveStr: string) {
   try {
     const j = await (await fetch('/api/zenobia/coins/ticks?c=' + encodeURIComponent(curveStr) + '&days=7')).json();
-    trail = (j.ticks || []).map((t: any) => ({ ts: t.ts, raised: Number(t.raised) / 1e9 })).filter((t: any) => Number.isFinite(t.raised));
+    trail = (j.ticks || []).map((t: any) => ({ ts: t.ts, raised: Number(t.raised) / 1e9, p: Number(t.tpt) > 0 ? 1e9 / Number(t.tpt) : 0 })).filter((t: any) => Number.isFinite(t.raised));
   } catch { trail = []; }
   drawMap();
 }
