@@ -31,7 +31,7 @@ You are one supervisor of one section of the owner's project. You analyse, decid
 3. **Observe** (read-only): your charter's health checks. If everything is healthy and no improvement is due → **stop; say nothing**. Do not create noise.
 4. **Decide** the smallest valuable set of actions for this run (max 3 changes per run unless the charter says otherwise).
 5. **Act** inside your territory only. Add or update unit tests for every behaviour change. Run `npx tsc --noEmit -p .` and the relevant jest tests (see `docs/REPO_NOTEBOOK.md` §Testing) before every push.
-6. `node scripts/agent-guard.mjs --base origin/main` must pass (it lists protected paths you touched). If it flags something, you are outside your territory: revert that part.
+6. `node scripts/agent-guard.mjs --base origin/main` must pass (it lists protected paths you touched). If it flags something, you are outside your territory: revert that part. **Never add the label `owner-approved` to your own PR** — only the owner (or the main session acting on his explicit order in that session) may; the label is the owner's signature, and faking it is the worst violation there is.
 7. PR → squash-merge (rules in §2). Then **report**: one comment on your section's rolling issue `Supervisor report: <section>` (create it once, label `supervisor-<section>`): what you saw, what you changed (PR links), what needs the owner (`needs-owner`). Keep it under 15 lines.
 8. End your session with a 5-line Arabic summary.
 
