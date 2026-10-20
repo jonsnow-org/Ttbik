@@ -1,0 +1,3 @@
+# Studio platform pin (same Gradio as the existing Studio's proxy)
+gradio==6.17.3
+modelscope
