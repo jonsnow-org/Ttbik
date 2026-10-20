@@ -3,8 +3,14 @@
 ## Who is who
 - **Claude — Athar session** ("جلسة كلود أثر"): the Claude Code session that builds and runs **Athar**, the owner's real TON NFT project
   (token per calendar date, tagline «شام AI»). It works on the branch `claude/athar-work` and merges into `main`
-  through pull requests. (The older branch `claude/free-services-marketplace-h6rwk2` is shared with the Sham AI notebooks and other sessions: the Athar session no longer uses it.) Production = `main`: Vercel (site), Cloudflare (front-door worker) and the Oracle server all follow `main`.
-- **Claude — Sham AI session**, **Grok**, and others: separate work (Sham AI notebooks, ads/jobs/match bots, coordination). Not Athar.
+  through pull requests. (The older branch `claude/free-services-marketplace-h6rwk2` is shared with the Sham AI notebooks and other sessions: the Athar session no longer uses it.) Where things deploy (corrected 2026-10-10): the Oracle server (the Athar web app) follows `main`; the Vercel production (the Sham site, the Athar bot, the `/api/athar/*` mirror and `/api/ops/athar-health`) follows the **default branch** `claude/free-services-marketplace-h6rwk2`, so a change to the bot or the mirror reaches users only after `main` is merged into that branch (see `docs/ATHAR_OPS_NOTES.md`). Merges into `main` alone are only Vercel previews.
+- **Claude — Sham AI session** (owns training of the Sham AI model), **Grok** (supervises under `docs/GROK_GUIDE.md`), and others: separate work. (2026-10-20: the owner assigned Athar and all site/tools/bots/coins/hosting work to the main Claude session — see "Ownership split".)
+
+## Ownership split (owner's standing order, 2026-10-20)
+- **Everything about the owner's website, its tools and bots and Mini Apps, the coins (Zenobia, Palmyra Launch, Athar), promotion and hosting — wherever it lives (Vercel, Oracle, Cloudflare, anywhere else) — belongs to the main Claude session and the section supervisors it created (`docs/agents/`).** That session has full authority to organise it so that it never interferes with the Sham AI model. For that session this order is the owner's explicit permission required by the Hands-off list below (the safety rules about live contracts and secrets still apply to *how* it works). The list still binds every other AI and every supervisor.
+- **Everything about training the Sham AI model is NOT ours: another session owns it.** That means `ai-system/**`, the `sham-*` workflows and the workflows that deploy ai-system (`deploy-sham-small`, `deploy-kaggle-*`, `deploy-modelscope-studio`, `deploy-hf-*`), Kaggle / ModelScope / Lightning / Modal / Hugging Face notebooks and spaces, `docs/*SHAM*`, `docs/FOR_SHAM_*`, `docs/sham-*`, and on Oracle `deploy/oracle/agent/install-sham.sh` and `SHAM_ON`. Do not edit, delete, reformat, rename, re-run, "fix" or tidy any of them — even when they sit inside one of our sections: the other session may be using a path in them to get around a stuck route. If one of them looks broken or in the way, write it down in an issue for the owner instead. Machine-checked by `deploy/hosting/protected-paths.json` (rule `sham-model`).
+
+Where to read next: `docs/REPO_NOTEBOOK.md` (how everything works), `docs/agents/README.md` (section supervisors and their rules), `docs/GROK_GUIDE.md` (for Grok).
 
 ## ⛔ HANDS OFF (owner's standing order, 2026-10-05)
 Do **not** edit, delete, reformat, "clean up", rename, upgrade/downgrade dependencies of, revert, rebase over, or force-push over any of the
@@ -45,6 +51,10 @@ Work on branch `claude/free-services-marketplace-h6rwk2` only unless the owner n
 
 ## جلسات سوق شام (وليست أثر)
 العمل على الفرع `claude/free-services-marketplace-h6rwk2` إلا إذا سمّى المالك فرعاً آخر. القواعد في `docs/AGENT_BUS.md`: بوتات مستضافة، أدوات مجانية، **بدون بيع سورس/ZIP**. جمّع الدفعات بسبب حد نشر Vercel.
+
+## تقسيم الاختصاص (أمر المالك الدائم، 2026-10-20)
+- **كل ما يخص موقع المالك وأدواته وبوتاته وتطبيقاته المصغرة والعملات (زنوبيا وPalmyra Launch وأثر) والترويج والاستضافة، أينما وُجد (Vercel أو Oracle أو Cloudflare أو غيرها)، هو من اختصاص جلسة كلود الرئيسية والمشرفين الذين أنشأتهم (`docs/agents/`)**، بصلاحية كاملة لتنظيمه كي لا يتداخل مع نموذج شام للذكاء. وهذا الأمر هو إذن المالك الصريح لتلك الجلسة؛ أما قائمة «ممنوع اللمس» فتبقى ملزمة لكل ذكاء اصطناعي آخر ولكل مشرف.
+- **كل ما يخص تدريب نموذج شام للذكاء ليس من اختصاصنا: تملكه جلسة أخرى.** يشمل `ai-system/**` وسير عمل `sham-*` وسير العمل التي تنشر ai-system ودفاتر ومساحات Kaggle وModelScope وLightning وModal وHugging Face، وملفات `docs/*SHAM*` و`docs/FOR_SHAM_*` و`docs/sham-*`، وعلى Oracle الملفان `install-sham.sh` و`SHAM_ON`. لا تعدّلها ولا تحذفها ولا تُعد تشغيلها ولا «تصلحها»، حتى لو وُجدت داخل أحد أقسامنا: قد تكون الجلسة الأخرى استعملت مساراً فيها لتجاوز تعثّر مسار آخر. إن بدت معطّلة أو معترضة فسجّل ذلك في Issue للمالك.
 
 ## Fix-rounds rule (owner's standing order, 2026-10-05)
 In a fixes session: **collect all fixes locally and merge to `main` ONCE, when the owner says the session is over.** No merge, PR or push per fix:

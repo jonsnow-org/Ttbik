@@ -13,7 +13,7 @@ One owner, a **zero-dollar budget** (no paid service, ever — never suggest one
 2. **Hosted Telegram bots + Mini Apps**: a bot factory (one webhook, many templates), the dating/marriage bot and app, jobs, confession, quiz, prayer, media bot, the ad bot `@Admen10bot`, creator hub bots.
 3. **Coins on TON**: *Zenobia* (ZNB / the independent coin **ZNBt**, passports, caravan bot), **Palmyra Launch** (the bonding-curve launch platform where ZNBt lives; bot `@PalmyraLaunchBot`, coins channel `@Zenobiaton`, English only), and **Athar** (a real NFT token per calendar date, tagline «شام AI», live on mainnet with real money).
 4. **Promotion machine**: channel posts, promo videos (Telegram, GitHub Releases, YouTube v3), announcements, the daily promo supervisor.
-5. **Sham AI / Nova**: the owner's own model project (`ai-system/`). Kaggle is reserved for training Sham only — never use it for anything else. Nova is **paused** (`src/lib/novaPause.ts`).
+5. **Sham AI model** (NOT ours): the owner's own model project, owned by **another session** (`ai-system/`, `sham-*` workflows, Kaggle/ModelScope/Lightning/Modal/HF). Its training files are hands-off for the main session and every supervisor, even inside our sections (another session may use a path there as a workaround). Kaggle is reserved for that model only. Nova (the old assistant) is **paused** (`src/lib/novaPause.ts`).
 6. **Supervisor bots** (new, 2026-10-20): one scheduled agent per section, charters in `docs/agents/`.
 
 Product rules (what we sell and don't): `docs/AGENT_BUS.md` and `README.md`. Never promise profit; never sell code files; no paid tools.
@@ -33,7 +33,7 @@ Product rules (what we sell and don't): `docs/AGENT_BUS.md` and `README.md`. Nev
 | `deploy/hosting/` | `site.json` (public identity), `znbt-frozen.json`, `protected-paths.json`, `CRONS_ON`, env checks |
 | `prisma/` | `schema.prisma` + `migration_*.sql` (the owner runs SQL manually in Supabase) |
 | `supabase/` | older SQL, grants |
-| `ai-system/` | Sham/Nova Python (FastAPI brain, Kaggle/ModelScope/Lightning/Modal/HF deploys, training). Sham-only |
+| `ai-system/` | **Not ours.** Sham/Nova Python (FastAPI brain, Kaggle/ModelScope/Lightning/Modal/HF deploys, training), owned by the Sham-model session. Hands-off |
 | `media-bot/` | the Python media bot (Docker on Oracle) |
 | `promo/` | promo hub: `README.md`, `platform-features.json`, `remotion/` (video pipeline + `episodes.json`), `projects.json` |
 | `scripts/` | `znbt-frozen-check.mjs`, `agent-guard.mjs`, `agent/render-check.mjs`, `promo/*`, `hosting/*`, `qa/*`, `vercel-ignore.sh` |
@@ -89,8 +89,9 @@ Telegram / browsers / Mini Apps / GitHub schedules
 ### 4.4 Promotion
 Read `promo/README.md`. Summary: public channel `@ttbik5` (2-hourly, rotation built **automatically** from `freeTools`/landings/news + the hand-kept one-time list `channelChangelog.ts`), coins channel (3×/day from `coinsChannel.ts`), promo videos (`promo-remotion.yml` renders Remotion episodes `promo/remotion/episodes.json` to GitHub Releases `promo-ep-N`, posts to Telegram via `/api/cron/promo-publish`, and uploads to **YouTube Data API v3** through the same endpoint with `to=youtube`). Publishing is off until `promo/PUBLISH_ON` exists or `publish=1`. YouTube: `src/lib/youtubePublish.ts` + `/api/youtube/oauth` (one-time owner consent with a Desktop-type OAuth client: the redirect ends on `http://localhost`, the owner pastes that address into the form `?form=1`, the code is exchanged on POST only — GET links get prefetched by browsers and burn the single-use code); needs `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET` in Vercel; refresh token stored in `youtube_publish_state` (never displayed). Daily health report: `scripts/promo/supervise.mjs` via `promo-supervisor.yml` into the open issue "Promo supervisor: daily report" (label `promo-supervisor`); it also checks coverage (every tool in the rotation, every public coins page in the manifest or `exempt`).
 
-### 4.5 Sham AI / Nova (`ai-system/`)
-Own-model project. Kaggle GPU notebooks train **Sham only**; ModelScope Studio (CPU) serves it; Lightning Studio collects data; workflows `sham-*`. Nova (assistant bot) paused by owner directive 2026-09-24. Do not use these resources for anything else, and do not build features that need a GPU elsewhere.
+### 4.5 Sham AI model / Nova (`ai-system/`) — NOT OURS
+Owned by another session (owner's order 2026-10-20: the site, tools, bots, coins and hosting are the main Claude session's; *training the Sham model* is not). Description for orientation only — do not edit, re-run or tidy any of it, even files that look stray inside our sections.
+Own-model project. Kaggle GPU notebooks train **Sham only**; ModelScope Studio (CPU) serves it; Lightning Studio collects data; workflows `sham-*`. Nova (assistant bot) paused by owner directive 2026-09-24. Do not use these resources for anything else, and do not build features that need a GPU elsewhere. Machine-checked: `protected-paths.json` rule `sham-model` (site-side glue `src/lib/sham{Memory,Studio}.ts` is a warn-level rule: leave it unless a site error forces a minimal fix).
 
 ### 4.6 Talking photo tool (`/free-tools/talking-photo`, `src/app/free-tools/talking-photo/*`)
 Runs entirely in the browser. `engine.ts`: Delaunay triangle-mesh warp of MediaPipe face landmarks (468 pts + z) or a synthetic ring around a tapped mouth; painted throat/tongue/teeth; blink; **head motion = aperiodic seeded noise** (`drift`, tuned to SadTalker audio2pose statistics: 1–3° yaw, 3–6° pitch, 1.5–3° roll, 5–20°/s; guarded by `talkingPhotoHead.test.ts`); tilt pivot at 0.62H, roll soft-capped, zoom 1.12 so no corner shows; canvas MediaRecorder → MP4/WebM with the "AI-generated" mark; consent checkbox; delete-video button. `voice.ts`: f0 estimate, cepstral envelope formant shift, WSOLA pitch shift, effects (female, girl, deep, robot, alien, monster, radio). `viseme.ts`: reduced re-implementation of HeadAudio (MIT; MFCC 16 kHz/40 mel/12 coeffs + Mahalanobis classifier with the 39-prototype model `public/tools/talking-photo/viseme-model.bin`, licence copied). Loudness maps to jaw opening (`levelFromDb`, tests in `talkingPhotoLevel.test.ts`).
@@ -133,6 +134,7 @@ Cron endpoints under `src/app/api/cron/*` are secret-gated (`CRON_SECRET` as hea
 - Fix rounds: merge once at the end (rate limit), but ship money/safety fixes promptly.
 - Athar/cloudflare/deploy-oracle/framework pins: hands-off unless he asks in the session.
 - Kaggle: Sham training only.
+- **Ownership split (2026-10-20):** everything about the site, tools, bots/Mini Apps, coins (incl. Athar), promotion and hosting — on Vercel, Oracle or anywhere — is the main Claude session's, with full authority to organise it; everything about training the Sham AI model is another session's and untouchable (see `CLAUDE.md`).
 - Talking photo: quality first, commercial-licence risk accepted, >100 MB download acceptable; stop blind tweaking — measure first.
 - Promo: every new tool/feature must reach the channels automatically; verify with the supervisor.
 
