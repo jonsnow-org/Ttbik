@@ -2,7 +2,10 @@ import type { Db } from "@/lib/coderAuth";
 
 /** A small fake of exactly the SQL the coder tables use. */
 export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, any> } {
-  const t: Record<string, any[]> = { prefs: [], tasks: [], events: [], stalls: [], schedules: [], conns: [], memory: [] };
+  const t: Record<string, any[]> = { prefs: [], tasks: [], events: [], stalls: [], schedules: [], conns: [], memory: [], mems: [] };
+  let mid0 = 0;
+  let clock = Date.parse("2026-10-21T00:00:00Z");
+  const ts = () => new Date((clock += 1000)).toISOString();
   const state = new Map<string, any>();
   let eid = 0;
   const db: any = {
@@ -11,6 +14,13 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
       if (/^CREATE/i.test(sql.trim())) return;
       if (sql.includes("coder_chat_state")) return void state.set(a[0], JSON.parse(a[1]));
       if (sql.includes("coder_stall_log")) return void t.stalls.push({ run_id: a[0], pattern: a[3] });
+      if (sql.includes("UPDATE coder_memories SET updated_at")) return void Object.assign(t.mems.find((m) => m.chat_key === a[0] && m.id === Number(a[1])) || {}, { updated_at: ts() });
+      if (sql.includes("UPDATE coder_memories SET text") && sql.includes("scope = $5")) return void Object.assign(t.mems.find((m) => m.chat_key === a[0] && m.id === Number(a[1])) || {}, { text: a[2], kind: a[3], scope: a[4], updated_at: ts() });
+      if (sql.includes("UPDATE coder_memories SET text")) {
+        const m = t.mems.find((x) => x.chat_key === a[0] && x.id === Number(a[1]));
+        if (m) Object.assign(m, { text: a[2], kind: a[3], source_run: a[4] ?? m.source_run, updated_at: ts() });
+        return;
+      }
       if (sql.includes("INSERT INTO coder_task_memory")) return void t.memory.push({ run_id: a[0], segment: a[1], chat_key: a[2], summary: a[3] });
       if (sql.includes("INSERT INTO coder_connections")) {
         t.conns = t.conns.filter((c) => !(c.chat_key === a[0] && c.provider === a[1]));
@@ -59,6 +69,18 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
         return own ? t.events.filter((e) => e.run_id === a[0] && e.id > a[2]).map((e) => ({ ...e, created_at: "" })) : [];
       }
       if (sql.includes("coder_stall_log")) return [];
+      if (sql.includes("DELETE FROM coder_memories")) {
+        const n = t.mems.length;
+        t.mems = t.mems.filter((m) => !(m.chat_key === a[0] && m.id === Number(a[1])));
+        return n === t.mems.length ? [] : [{ id: a[1] }];
+      }
+      if (sql.includes("FROM coder_memories WHERE chat_key")) return t.mems.filter((m) => m.chat_key === a[0]).sort((x, y) => (x.updated_at < y.updated_at ? 1 : -1)).map((m) => ({ ...m }));
+      if (sql.includes("INSERT INTO coder_memories")) {
+        const now = ts();
+        const row = { id: ++mid0, chat_key: a[0], scope: a[1], kind: a[2], text: a[3], source_run: a[4], created_at: now, updated_at: now };
+        t.mems.push(row);
+        return [{ id: row.id }];
+      }
       if (sql.includes("FROM coder_schedules WHERE chat_key")) return t.schedules.filter((s) => s.chat_key === a[0]).map((s) => ({ ...s }));
       if (sql.includes("FROM coder_schedules WHERE id")) return t.schedules.filter((s) => s.id === a[0]).map((s) => ({ ...s }));
       if (sql.includes("FROM coder_schedules WHERE kind = 'cron'")) return t.schedules.filter((s) => s.kind === "cron" && !s.paused && s.next_run_at && s.next_run_at <= a[0]).map((s) => ({ ...s }));

@@ -193,6 +193,40 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await deleteConnection(chatId, "github", db);
       return { ok: true };
     }
+    case "memories": {
+      const { listMemories } = await import("@/lib/coderMemory");
+      return { memories: (await listMemories(chatId, db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
+    }
+    case "memory_add": {
+      const { saveMemory } = await import("@/lib/coderMemory");
+      const r = await saveMemory(chatId, { text: String(body.text || ""), kind: body.kind, repo: body.repo, source: "app" }, db);
+      if (r.action === "invalid") throw new AppError(400, "text too short");
+      return { ok: true, ...r };
+    }
+    case "memory_update": {
+      const { updateMemory } = await import("@/lib/coderMemory");
+      if (!(await updateMemory(chatId, Number(body.id), { text: body.text, kind: body.kind, scope: body.repo !== undefined ? (body.repo ? `repo:${body.repo}` : "global") : undefined }, db))) throw new AppError(404, "no such memory");
+      return { ok: true };
+    }
+    case "memory_delete": {
+      const { deleteMemory } = await import("@/lib/coderMemory");
+      if (!(await deleteMemory(chatId, Number(body.id), db))) throw new AppError(404, "no such memory");
+      return { ok: true };
+    }
+    case "new_conversation": {
+      const { newConversation } = await import("@/lib/coderSections");
+      await newConversation(chatId, await loadState(chatId, db), db);
+      return { ok: true };
+    }
+    case "status": {
+      const { coderStatus } = await import("@/lib/openCoderStudio");
+      return { status: await coderStatus().catch(() => null) };
+    }
+    case "stalls": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { recentStalls } = await import("@/lib/coderStall");
+      return { stalls: await recentStalls(30, db) };
+    }
     case "repos": {
       const { resolveConnections } = await import("@/lib/coderAuth");
       const c = await resolveConnections(chatId, db);

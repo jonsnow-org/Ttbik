@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STR, type Lang, type Str } from "./i18n";
 
-type Tab = "tasks" | "schedules" | "connect" | "settings";
+type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings";
+type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps: number; started_at: string; updated_at: string; finished_at: string | null };
 type Ev = { id: number; run_id: string; kind: string; text: string; created_at: string };
 type Pending = { runId: string; nonce: string; reason: string; summary: string; tool: string; categories: string[]; title: string; slot: string; at: number | null };
@@ -496,6 +497,7 @@ function SettingsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: Lang; relo
         <div className="space-y-2 p-4"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.language}</div><Seg label={t.language} value={lang} onChange={(v) => set({ lang: v })} options={[{ v: "ar", l: "العربية" }, { v: "en", l: "English" }]} /></div>
         <div className="flex items-center justify-between gap-3 p-4"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.tz}</div><span className="font-mono text-[13px] text-[var(--c-hint)]" dir="ltr">{me.settings.tz || "—"}</span></div>
       </Card>
+      <ExtrasCard t={t} me={me} />
       <Card className="p-4">
         <div className="text-[15px] font-bold text-[var(--c-text)]">🔐 {t.perms}</div>
         <p className="mt-1 text-[12px] leading-5 text-[var(--c-hint)]">{t.permsHint}</p>
@@ -531,6 +533,100 @@ function SettingsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: Lang; relo
   );
 }
 
+// ---------------------------------------------------------------- memory
+function MemoryTab({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
+  const [list, setList] = useState<Mem[] | null>(null);
+  const [q, setQ] = useState("");
+  const [edit, setEdit] = useState<Mem | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [del, setDel] = useState<Mem | null>(null);
+  const [form, setForm] = useState({ text: "", kind: "preference" as Mem["kind"], repo: "" });
+  const load = useCallback(async () => setList((await api<{ memories: Mem[] }>("memories")).memories), []);
+  useEffect(() => { void load(); }, [load]);
+  const open = (m: Mem | null) => { setForm(m ? { text: m.text, kind: m.kind, repo: m.scope.startsWith("repo:") ? m.scope.slice(5) : "" } : { text: "", kind: "preference", repo: me.settings.repo ? "" : "" }); setEdit(m); setAdding(!m); };
+  const save = async () => {
+    if (edit) await api("memory_update", { id: edit.id, text: form.text, kind: form.kind, repo: form.repo });
+    else await api("memory_add", { text: form.text, kind: form.kind, repo: form.repo || undefined });
+    haptic("success"); setEdit(null); setAdding(false); load();
+  };
+  const field = "w-full rounded-xl bg-[var(--c-sunken)] px-3 py-2.5 text-[14px] text-[var(--c-text)] outline-none focus:ring-2 focus:ring-[var(--c-accent)]";
+  const shown = (list || []).filter((m) => !q || m.text.toLowerCase().includes(q.toLowerCase()) || m.scope.includes(q.toLowerCase()));
+  const icon = { preference: "💡", fact: "📌", decision: "⚖️" } as const;
+  return (
+    <div className="space-y-3">
+      <Card className="p-4">
+        <div className="text-[15px] font-bold text-[var(--c-text)]">🧠 {t.memory}</div>
+        <p className="mt-1 text-[12px] leading-5 text-[var(--c-hint)]">{t.memoryHint}</p>
+        <div className="mt-3 flex gap-2">
+          <input className={field} placeholder={t.searchMemories} aria-label={t.searchMemories} value={q} onChange={(e) => setQ(e.target.value)} />
+          <Btn className="shrink-0" onClick={() => { haptic("light"); open(null); }}>＋</Btn>
+        </div>
+      </Card>
+      {list === null ? <><Skel className="h-16" /><Skel className="h-16" /></>
+        : !shown.length ? <Card className="p-6 text-center text-[13px] leading-6 text-[var(--c-hint)]">{t.noMemories}</Card>
+        : shown.map((m) => (
+          <Card key={m.id} className="coder-rise p-4">
+            <div className="flex items-start gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-[var(--c-accent-soft)] text-[16px]" aria-hidden="true">{icon[m.kind]}</div>
+              <div className="min-w-0 flex-1">
+                <div className="whitespace-pre-wrap break-words text-[14px] leading-6 text-[var(--c-text)]" dir="auto">{m.text}</div>
+                <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] text-[var(--c-hint)]">
+                  <span className="font-semibold">{(t as any)[`k_${m.kind}`]}</span><span>·</span>
+                  <span className="font-mono" dir="ltr">{m.scope === "global" ? t.global : m.scope.slice(5)}</span><span>·</span>
+                  <span>{m.source_run === "app" ? t.fromApp : m.source_run ? t.fromTask : ""} {fmtTime(m.updated_at, me.settings.tz, lang)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2"><Btn kind="ghost" className="flex-1" onClick={() => open(m)}>{t.edit}</Btn><Btn kind="danger" aria-label={t.delete} onClick={() => { haptic("warning"); setDel(m); }}>🗑️</Btn></div>
+          </Card>
+        ))}
+      <Sheet open={adding || !!edit} onClose={() => { setEdit(null); setAdding(false); }} label={edit ? t.edit : t.addMemory}>
+        <div className="space-y-3">
+          <div className="text-[17px] font-extrabold text-[var(--c-text)]">{edit ? t.edit : t.addMemory}</div>
+          <textarea className={`${field} min-h-24`} dir="auto" maxLength={500} placeholder={t.memoryText} aria-label={t.memoryText} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} />
+          <Seg label="kind" value={form.kind} onChange={(v) => setForm({ ...form, kind: v })} options={[{ v: "preference", l: t.k_preference }, { v: "fact", l: t.k_fact }, { v: "decision", l: t.k_decision }]} />
+          <input className={`${field} font-mono`} dir="ltr" placeholder={`owner/repo — ${t.global}`} aria-label={t.repo} value={form.repo} onChange={(e) => setForm({ ...form, repo: e.target.value })} />
+          <div className="grid grid-cols-2 gap-2"><Btn kind="ghost" onClick={() => { setEdit(null); setAdding(false); }}>{t.cancel}</Btn><Btn disabled={form.text.trim().length < 4} onClick={save}>{t.save}</Btn></div>
+        </div>
+      </Sheet>
+      <Sheet open={!!del} onClose={() => setDel(null)} label={t.deleteMemoryQ}>
+        <div className="space-y-3">
+          <div className="text-[17px] font-extrabold text-[var(--c-text)]">{t.deleteMemoryQ}</div>
+          <div className="rounded-xl bg-[var(--c-sunken)] p-3 text-[13px] text-[var(--c-text)]" dir="auto">{del?.text}</div>
+          <div className="grid grid-cols-2 gap-2"><Btn kind="ghost" onClick={() => setDel(null)}>{t.cancel}</Btn><Btn kind="danger" onClick={async () => { await api("memory_delete", { id: del!.id }); haptic("success"); setDel(null); load(); }}>{t.delete}</Btn></div>
+        </div>
+      </Sheet>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------- conversation, server, loops (settings extras)
+function ExtrasCard({ t, me }: { t: Str; me: Me }) {
+  const [msg, setMsg] = useState("");
+  const [status, setStatus] = useState<string>("");
+  const [stalls, setStalls] = useState<{ run_id: string; step: number; pattern: string; level: number; detail: string; created_at?: string }[] | null>(null);
+  useEffect(() => { if (me.tier === "owner") void api<{ stalls: any[] }>("stalls").then((d) => setStalls(d.stalls)).catch(() => setStalls([])); }, [me.tier]);
+  return (
+    <Card className="divide-y divide-[var(--c-line)]">
+      <div className="flex items-center justify-between gap-3 p-4">
+        <div><div className="text-[14px] font-bold text-[var(--c-text)]">{t.newConversation}</div><div className="text-[12px] text-[var(--c-hint)]">{msg || t.newConversationHint}</div></div>
+        <Btn kind="soft" onClick={async () => { await api("new_conversation"); haptic("success"); setMsg(t.started); }}>🆕</Btn>
+      </div>
+      <div className="space-y-2 p-4">
+        <div className="flex items-center justify-between gap-3"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.server}</div><Btn kind="ghost" onClick={async () => { const d = await api<{ status: unknown }>("status"); setStatus(d.status ? JSON.stringify(d.status, null, 1) : "—"); }}>{t.check}</Btn></div>
+        {status && <pre className="max-h-40 overflow-auto rounded-xl bg-[var(--c-sunken)] p-3 text-[11px] leading-5 text-[var(--c-text)]" dir="ltr">{status}</pre>}
+      </div>
+      {me.tier === "owner" && (
+        <div className="space-y-2 p-4">
+          <div className="text-[14px] font-bold text-[var(--c-text)]">🔁 {t.stalls}</div>
+          {stalls === null ? <Skel className="h-10" /> : !stalls.length ? <div className="text-[12px] text-[var(--c-hint)]">{t.noStalls}</div>
+            : stalls.slice(0, 15).map((x, i) => <div key={i} className="rounded-xl bg-[var(--c-sunken)] px-3 py-2 font-mono text-[11px] leading-5 text-[var(--c-text)]" dir="ltr">{String(x.created_at || "").slice(0, 16)} {x.run_id} #{x.step} {x.pattern} L{x.level} — {x.detail.slice(0, 140)}</div>)}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ErrorBox({ t, msg, retry }: { t: Str; msg: string; retry: () => void }) {
   return <Card className="p-6 text-center"><div className="mb-2 text-3xl">⚠️</div><div className="text-[15px] font-bold text-[var(--c-text)]">{t.error}</div><div className="mt-1 text-[13px] text-[var(--c-hint)]">{msg}</div><Btn className="mt-4" onClick={retry}>{t.retry}</Btn></Card>;
 }
@@ -539,12 +635,18 @@ function ErrorBox({ t, msg, retry }: { t: Str; msg: string; retry: () => void })
 const TABS: { id: Tab; icon: string; key: keyof Str }[] = [
   { id: "tasks", icon: "M4 6h16M4 12h10M4 18h7", key: "tabTasks" },
   { id: "schedules", icon: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z", key: "tabSchedules" },
+  { id: "memory", icon: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm6 0a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0", key: "tabMemory" },
   { id: "connect", icon: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", key: "tabConnect" },
   { id: "settings", icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z", key: "tabSettings" },
 ];
 
 export default function CoderApp() {
-  const [tab, setTab] = useState<Tab>("tasks");
+  const [tab, setTab] = useState<Tab>(() => {
+    // the bot opens the app on a tab: ?tab=… (inline button) or the start parameter
+    if (typeof window === "undefined") return "tasks";
+    const want = new URLSearchParams(window.location.search).get("tab") || tg()?.initDataUnsafe?.start_param || "";
+    return (TABS.some((x) => x.id === want) ? want : "tasks") as Tab;
+  });
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState("");
   const [dark, setDark] = useState(false);
@@ -614,11 +716,12 @@ export default function CoderApp() {
           : !me ? <div className="space-y-3"><Skel className="h-28" /><Skel className="h-16" /><Skel className="h-16" /></div>
           : tab === "tasks" ? <TasksTab t={t} me={me} lang={lang} />
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
+          : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectTab t={t} me={me} reload={reload} />
           : <SettingsTab key={lang} t={t} me={me} lang={lang} reload={reload} />}
       </main>
       <nav aria-label="tabs" className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--c-line)] bg-[var(--c-card)]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
-        <div className="mx-auto grid max-w-xl grid-cols-4">
+        <div className="mx-auto grid max-w-xl grid-cols-5">
           {TABS.map((x) => (
             <button key={x.id} aria-current={tab === x.id ? "page" : undefined} onClick={() => { haptic("select"); setTab(x.id); }}
               className={`flex flex-col items-center gap-1 py-2.5 text-[11px] font-semibold transition ${tab === x.id ? "text-[var(--c-accent)]" : "text-[var(--c-hint)]"}`}>

@@ -65,6 +65,10 @@ export const COMMON_TOOLS: CoderTool[] = [
   ...SANDBOX_TOOL_DEFS,
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
+  // long-term memory about this user (src/lib/coderMemory.ts), kept across conversations
+  tool("memory_save", "Remember a durable fact about this user for future conversations: a preference, a stable project fact, or a decision. Not for secrets or one-off details. Saving a corrected version of an existing memory updates it.", obj({ text: s("one sentence"), kind: { type: "string", enum: ["preference", "fact", "decision"] }, repo: s("owner/name if it is about one repository, else omit"), replaces: s("text of an older memory this corrects (optional)") }, ["text", "kind"])),
+  tool("memory_search", "Search what you remember about this user (preferences, project facts, decisions).", obj({ query: s("what to look for"), repo: s("owner/name (optional)") }, ["query"])),
+  tool("memory_forget", "Forget a memory that is wrong or that the user asked you to forget (by id from the memory list, or by a query).", obj({ id: n("memory id, e.g. 12 for #12"), query: s("text to match when no id") }, [])),
 ];
 
 export function coderTools(github: boolean): CoderTool[] {
@@ -83,6 +87,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
+    "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
     "Answers may be as long as needed. Use ``` code blocks for code.",
@@ -232,6 +237,7 @@ export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<
   switch (name) {
     case "github_delete_files": return { risks: ["delete", ...(await pushRisks(gh, a.repo, String(a.branch || "")))], summary: `${where}\n${list(a.paths)}` };
     case "github_delete_branch": return { risks: ["delete"], summary: where };
+    case "memory_forget": return { risks: ["delete"], summary: `memory ${a.id ? `#${a.id}` : `“${String(a.query || "").slice(0, 120)}”`}` };
     case "github_delete_repo": return { risks: ["delete"], summary: String(a.repo) };
     case "github_delete_release": return { risks: ["delete"], summary: `${a.repo} release ${a.id}` };
     case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
@@ -328,7 +334,10 @@ function stripHtml(html: string): string {
   return html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
 }
 
-export type ToolCtx = { gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null };
+export type ToolCtx = {
+  gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null;
+  userId?: number | string; db?: import("@/lib/coderAuth").Db;           // long-term memory: whose, and where
+};
 
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
@@ -337,6 +346,11 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     if (name === "memory_note") {
       ctx.addNote(String(a.text || "").slice(0, 1500));
       return "saved";
+    }
+    if (name === "memory_save" || name === "memory_search" || name === "memory_forget") {
+      if (!ctx.userId) return "error: memory is not available here";
+      const { memoryTool } = await import("@/lib/coderMemory");
+      return await memoryTool(ctx.userId, name, a, ctx.runId, ctx.db);
     }
     if (name === "web_search") {
       const q = String(a.query || "").trim();

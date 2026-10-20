@@ -1,7 +1,9 @@
 export type Lang = "ar" | "en";
 const ar = {
   brand: "المبرمج", tagline: "وكيلك البرمجي في تيليجرام",
-  tabTasks: "المهام", tabSchedules: "الجدولة", tabConnect: "الربط", tabSettings: "الإعدادات",
+  tabTasks: "المهام", tabSchedules: "الجدولة", tabConnect: "الربط", tabSettings: "الإعدادات", tabMemory: "الذاكرة",
+  memory: "ما يتذكره المبرمج عنك", memoryHint: "تفضيلاتك وحقائق مشاريعك وقراراتك. يستخرجها المبرمج تلقائياً في نهاية كل مهمة ويستخدم الأنسب منها في المهام التالية. خاصة بك وحدك.", noMemories: "لا ذكريات بعد. ستظهر هنا ما يتعلمه المبرمج عنك، أو أضف واحدة.", addMemory: "أضف ذكرى", memoryText: "ما الذي يجب تذكره؟", k_preference: "تفضيل", k_fact: "حقيقة مشروع", k_decision: "قرار", global: "عام", deleteMemoryQ: "حذف هذه الذكرى؟", fromTask: "من مهمة", fromApp: "أضفتها أنت", searchMemories: "ابحث في الذاكرة",
+  conversation: "المحادثة", newConversation: "محادثة جديدة", newConversationHint: "يبدأ من جديد؛ الإعدادات والذاكرة تبقى.", started: "بدأت محادثة جديدة", server: "خادم المبرمج", check: "فحص", stalls: "الحلقات المسجّلة (للمالك)", noStalls: "لا حلقات مسجّلة.",
   live: "جارية الآن", history: "السجل", noTasks: "لا مهام بعد. اكتب طلبك للبوت وسيظهر هنا خطوة بخطوة.", loadMore: "عرض الأقدم",
   needsYou: "بانتظار تأكيدك", approve: "نفّذ", approveAll: "اسمح لبقية المهمة", deny: "ألغِ", stop: "إيقاف",
   steps: "خطوة", status_running: "تعمل", status_waiting: "تنتظرك", status_done: "انتهت", status_failed: "فشلت", status_stopped: "أوقفت", status_ceiling: "بلغت السقف",
@@ -18,12 +20,14 @@ const ar = {
   perms: "سياسة التأكيد", permsHint: "لكل فئة: اسأل كل مرة، أو اسمح أو ارفض تلقائياً. القواعد الأدق (لمستودع أو سياق) تغلب العامة.",
   p_default: "افتراضي", p_ask: "اسأل", p_allow: "اسمح", p_deny: "ارفض", runsByDefault: "ينفَّذ افتراضياً", asksByDefault: "يسأل افتراضياً",
   scopeRule: "قاعدة لنطاق", anyRepo: "كل المستودعات", anyContext: "كل السياقات", interactive: "المحادثة", scheduled: "المجدولة", add: "إضافة", rules: "القواعد الخاصة",
-  tierOwner: "المالك", tierUser: "مستخدم", error: "حدث خطأ", retry: "إعادة المحاولة", openInTelegram: "افتح التطبيق من داخل تيليجرام (/app في البوت).", saved: "حُفظ",
+  tierOwner: "المالك", tierUser: "مستخدم", error: "حدث خطأ", retry: "إعادة المحاولة", openInTelegram: "افتح التطبيق من داخل تيليجرام (زر «المبرمج» في قائمة البوت).", saved: "حُفظ",
   justNow: "الآن", min: "د", hr: "س", day: "ي",
 };
 const en: typeof ar = {
   brand: "Coder", tagline: "Your coding agent in Telegram",
-  tabTasks: "Tasks", tabSchedules: "Schedules", tabConnect: "Connect", tabSettings: "Settings",
+  tabTasks: "Tasks", tabSchedules: "Schedules", tabConnect: "Connect", tabSettings: "Settings", tabMemory: "Memory",
+  memory: "What the coder remembers about you", memoryHint: "Your preferences, project facts and decisions. The coder extracts them at the end of each task and uses the relevant ones in later tasks. Private to you.", noMemories: "No memories yet. What the coder learns about you shows up here, or add one.", addMemory: "Add a memory", memoryText: "What should it remember?", k_preference: "Preference", k_fact: "Project fact", k_decision: "Decision", global: "Global", deleteMemoryQ: "Delete this memory?", fromTask: "From a task", fromApp: "Added by you", searchMemories: "Search memories",
+  conversation: "Conversation", newConversation: "New conversation", newConversationHint: "Starts fresh; settings and memory stay.", started: "New conversation started", server: "Coder server", check: "Check", stalls: "Logged loops (owner)", noStalls: "No loops logged.",
   live: "Live now", history: "History", noTasks: "No tasks yet. Message the bot and it appears here step by step.", loadMore: "Load older",
   needsYou: "Waiting for you", approve: "Run it", approveAll: "Allow for this task", deny: "Cancel", stop: "Stop",
   steps: "steps", status_running: "Running", status_waiting: "Needs you", status_done: "Done", status_failed: "Failed", status_stopped: "Stopped", status_ceiling: "Hit ceiling",
@@ -40,7 +44,7 @@ const en: typeof ar = {
   perms: "Confirmation policy", permsHint: "Per category: ask every time, or auto-allow / auto-deny. Narrower rules (a repo or context) beat global ones.",
   p_default: "Default", p_ask: "Ask", p_allow: "Allow", p_deny: "Deny", runsByDefault: "runs by default", asksByDefault: "asks by default",
   scopeRule: "Scoped rule", anyRepo: "Any repo", anyContext: "Any context", interactive: "Chat", scheduled: "Scheduled", add: "Add", rules: "Scoped rules",
-  tierOwner: "Owner", tierUser: "User", error: "Something went wrong", retry: "Retry", openInTelegram: "Open this app from inside Telegram (/app in the bot).", saved: "Saved",
+  tierOwner: "Owner", tierUser: "User", error: "Something went wrong", retry: "Retry", openInTelegram: "Open this app from inside Telegram (the bot's “Coder” menu button).", saved: "Saved",
   justNow: "now", min: "m", hr: "h", day: "d",
 };
 export const STR = { ar, en };

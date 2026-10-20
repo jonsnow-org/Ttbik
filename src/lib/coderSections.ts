@@ -30,8 +30,9 @@ export type Run = {
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
+  memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean };
 export type { Db };
 export { coderChatKey };
 
@@ -117,10 +118,10 @@ export function later(fn: () => Promise<unknown>): void {
 
 // ---------------------------------------------------------------- texts and keyboards
 const WELCOME =
-  "👋 أهلاً! هذا قسم «المبرمج» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق).\n" +
+  "👋 أهلاً! هذا قسم «المبرمج» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق)، ويبحث في الويب ويشغّل الكود في حاسوب افتراضي خاص بالمهمة.\n" +
   "اكتب طلبك بأي طول؛ الردود الطويلة تصل على دفعات.\n\n" +
-  "الأوامر: /mode تبديل القسم (المبرمج / شام) · /new محادثة جديدة · /stop إيقاف المهمة الجارية · /think تفكير أعمق (أبطأ) · /status حالة الخادم\n" +
-  "/app التطبيق · /schedule المهام المجدولة · /perms سياسة التأكيد";
+  "⚙️ الإعدادات، الذاكرة، الجدولة، الصلاحيات، ربط GitHub، تبديل القسم وسجل المهام: من زر «المبرمج» في القائمة أو الزر أدناه.\n" +
+  "/stop لإيقاف مهمة جارية.";
 export const modeKeyboard = (mode: Mode) =>
   new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 المبرمج`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
 
@@ -176,21 +177,28 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
-  if (cmd === "/mode") {
-    await send(bot, chatId, "اختر القسم:", { reply_markup: modeKeyboard(st.mode) });
+  // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
+  // every other command (old habits, menus) answers with the button that opens the app on the right tab.
+  const ROUTED: Record<string, string> = {
+    "/mode": "settings", "/think": "settings", "/perms": "settings", "/memory": "memory", "/schedule": "schedules", "/schedules": "schedules",
+    "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
+    "/stalls": "settings", "/new": "tasks", "/help": "tasks",
+  };
+  if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
+    await ensureMenuButton(bot, chatId, st, db);
+    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق المبرمج.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
   if (st.mode === "sham") return false;                     // the existing Sham path, exactly as before
 
   if (cmd === "/start" || cmd === "/help") {
-    await send(bot, chatId, WELCOME, { reply_markup: modeKeyboard(st.mode) });
+    await ensureMenuButton(bot, chatId, st, db, true);
+    await send(bot, chatId, WELCOME, { reply_markup: appButton("tasks") });
     return true;
   }
   if (cmd === "/new") {
-    if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
-    await endRun(st, "stopped", db, "/new", coderChatKey(chatId));
-    if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
-    await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang }, db);
+    // kept quietly for old habits (the app's "new conversation" does the same)
+    await newConversation(chatId, st, db);
     await send(bot, chatId, "🆕 بدأت محادثة جديدة.");
     return true;
   }
@@ -203,38 +211,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
     return true;
   }
-  if (cmd === "/think") {
-    st.think = !st.think;
-    await saveState(chatId, st, db);
-    await send(bot, chatId, st.think ? "🧠 التفكير الأعمق مفعّل (أدق وأبطأ)." : "⚡ التفكير الأعمق متوقف (أسرع).");
-    return true;
-  }
-  if (cmd === "/stalls" && tierFor(chatId) === "owner") {
-    const rows = await recentStalls(15);
-    await send(bot, chatId, rows.length ? rows.map((r) => `${String(r.created_at || "").slice(0, 16)} ${r.run_id} step ${r.step} ${r.pattern} L${r.level} — ${r.detail.slice(0, 120)}`).join("\n") : "لا توجد حلقات مسجّلة.");
-    return true;
-  }
-  if (cmd === "/perms") {
-    const { handlePermsCommand } = await import("@/lib/coderSchedules");
-    if (await handlePermsCommand(bot, chatId, text, db)) return true;
-    await send(bot, chatId, "🔐 سياسة التأكيد لكل فئة (اضغط للتبديل: افتراضي ← اسأل ← اسمح ← ارفض).\nلنطاق مستودع أو سياق: /perms <فئة> <ask|allow|deny|reset> [owner/repo] [interactive|scheduled]\nالفئات: " + CATEGORIES.join(", "), { reply_markup: await permsKeyboard(chatId, db) });
-    return true;
-  }
-  if (cmd === "/schedule" || cmd === "/schedules") {
-    const { handleScheduleCommand } = await import("@/lib/coderSchedules");
-    await handleScheduleCommand(bot, botRow, chatId, text, st, db);
-    return true;
-  }
-  if (cmd === "/app") {
-    const url = appUrl();
-    await send(bot, chatId, "📱 افتح تطبيق المبرمج: المهام الحية، التأكيدات، الجدولة، ربط GitHub، والإعدادات.", { reply_markup: new InlineKeyboard().webApp("💻 فتح التطبيق", url) });
-    return true;
-  }
-  if (cmd === "/status") {
-    const s = await coderStatus();
-    await send(bot, chatId, s ? `حالة خادم المبرمج:\n${JSON.stringify(s, null, 1).slice(0, 1500)}` : "تعذّر الوصول إلى خادم المبرمج الآن.");
-    return true;
-  }
+  if (!st.menu) await ensureMenuButton(bot, chatId, st, db);
 
   let content = text;
   if (msg.document) content = `${text}\n\n${await readDocument(bot, botRow, msg.document)}`.trim();
@@ -255,6 +232,39 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return true;
+}
+
+/** The inline button that opens the Mini App (optionally on one tab). */
+export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق المبرمج", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
+
+/** The chat's persistent menu button opens the Mini App (set once per chat; `force` sets it again, e.g. on /start). */
+async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
+  if (st.menu && !force) return;
+  try {
+    await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "المبرمج", web_app: { url: appUrl() } } });
+  } catch {
+    /* best-effort: the inline button still works */
+  }
+  st.menu = true;
+  await saveState(chatId, st, db);
+}
+
+/** A new conversation: the running task stops, the VM of the old conversation is stopped, settings stay. */
+export async function newConversation(chatId: number, st: ChatState, db: Db = prismaDb): Promise<void> {
+  if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
+  const old = st.messages;
+  const runId = st.run?.id;
+  await endRun(st, "stopped", db, "new conversation", coderChatKey(chatId));
+  if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
+  if (old.length) rememberLater(chatId, old, runId, st.repo, db);       // what was said is kept as long-term memory first
+  await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu }, db);
+}
+
+/** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
+function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db): void {
+  if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
+  const snap = msgs.slice(-40);
+  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
 }
 
 /**
@@ -357,6 +367,8 @@ async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null):
     tier: tierFor(chatId),
     runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
     chatKey: coderChatKey(chatId),
+    userId: chatId,
+    db,
     githubToken: conn.github?.token || null,
     gh: conn.github ? githubClient(conn.github.token) : null,
     addNote: (t: string) => {
@@ -570,6 +582,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await saveState(chatId, st, db, slot);
         continue;
       }
+      rememberLater(chatId, st.messages, run.id, st.repo, db);
       await endRun(st, "done", db, "✓", coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
@@ -600,7 +613,12 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       run.recovery = undefined;
     }
     const knobs = recoveryKnobs(run.stall);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: `${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    if (run.memory === undefined) {
+      // relevant long-term memories, once per task (keyword + recency + repo scope)
+      const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
+      run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
+    }
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     const o = await coderChat(messages, { tools: coderTools(github), think: st.think || knobs.think, temperature: knobs.temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const r = o.reply;
