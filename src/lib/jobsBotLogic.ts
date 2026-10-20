@@ -1436,6 +1436,36 @@ async function sendAdminInboxSummary(bot: TelegramBot, chatId: number) {
 // ---------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------
+/**
+ * A Telegram Stars payment is credited FIRST, before any admin/ban/mute gate: money that was paid must never be dropped because the payer is the
+ * platform owner (his messages took a text-menu path that ignored everything but text) or is muted. Idempotent on the Stars charge id.
+ */
+async function handleJobsStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any): Promise<void> {
+  const chatId = msg.chat.id;
+  const tgUserId = String(msg.from.id);
+  await ensureJobsUser(botRow.id, tgUserId);
+  const sp = msg.successful_payment;
+  const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+  if (parsed?.kind === "JOBS_DEPOSIT" && parsed.userId === tgUserId) {
+    const usd = usdForStars(Number(sp.total_amount || 0));
+    const outcome = await creditStarsPayment(
+      "jobs-stars",
+      async (tx) => {
+        await tx.jobsTransaction.create({
+          data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+        });
+      },
+      async (tx) => {
+        await tx.jobsUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+      }
+    );
+    if (outcome !== "duplicate") {
+      const updated = await prisma.jobsUser.findUnique({ where: { id: tgUserId } });
+      await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
+    }
+  }
+}
+
 export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
   if (update.callback_query) {
     await handleJobsCallback(bot, botRow, update.callback_query);
@@ -1443,6 +1473,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
   }
   const msg = update.message;
   if (!msg?.from || !msg.chat) return;
+  if (msg.successful_payment) { await handleJobsStarsPayment(bot, botRow, msg); return; }
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
@@ -1573,29 +1604,7 @@ export async function handleJobsBotUpdate(bot: TelegramBot, botRow: BotRow, upda
     return;
   }
 
-  if (msg.successful_payment) {
-    const sp = msg.successful_payment;
-    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
-    if (parsed?.kind === "JOBS_DEPOSIT" && parsed.userId === tgUserId) {
-      const usd = usdForStars(Number(sp.total_amount || 0));
-      const outcome = await creditStarsPayment(
-        "jobs-stars",
-        async (tx) => {
-          await tx.jobsTransaction.create({
-            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
-          });
-        },
-        async (tx) => {
-          await tx.jobsUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
-        }
-      );
-      if (outcome !== "duplicate") {
-        const updated = await prisma.jobsUser.findUnique({ where: { id: tgUserId } });
-        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
-      }
-    }
-    return;
-  }
+  // successful_payment is handled first thing in the dispatcher (handleJobsStarsPayment).
 
   // Mandatory subscription channel gate (owner spec, 2026-09-05) — same
   // pattern as AD_BOT's requiredChannel.
