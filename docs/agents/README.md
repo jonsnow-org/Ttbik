@@ -14,7 +14,7 @@ Created 2026-10-20 at the owner's order: «a bot for every section of the projec
 Shared rules: [COMMON.md](COMMON.md) (read first; it is protected — a PR that changes it needs the owner's `owner-approved` label). Map of the whole repository: [../REPO_NOTEBOOK.md](../REPO_NOTEBOOK.md). Guide for Grok: [../GROK_GUIDE.md](../GROK_GUIDE.md).
 
 ## How a supervisor runs
-A scheduled routine starts a fresh Claude session in this repository's environment with a short prompt: *read `CLAUDE.md`, `docs/agents/COMMON.md`, your charter; do one run; stop quietly if healthy.* The charters live in the repository, so changing a supervisor's behaviour = a reviewed PR, not a hidden prompt. Each supervisor keeps one rolling issue `Supervisor report: <section>` (label `supervisor-<section>`) and escalates with the label `needs-owner`.
+Each supervisor is a **persistent Claude session created with the repository attached** (`create_session` with `source_url`), woken by a scheduled routine (`persistent_session_id`) with a short prompt. Fresh-session routines were tried first and failed: they carry no repository source or connector, so GitHub returns 403. The wake prompt says: *read `CLAUDE.md`, `docs/agents/COMMON.md`, your charter; do one run; stop quietly if healthy.* The charters live in the repository, so changing a supervisor's behaviour = a reviewed PR, not a hidden prompt. Each supervisor keeps one rolling issue `Supervisor report: <section>` (label `supervisor-<section>`) and escalates with the label `needs-owner`.
 
 ## Technical safety net (not just rules)
 - `deploy/hosting/protected-paths.json` lists what no agent may change (coin and stage images, frozen coin facts, contracts, Athar, Oracle, the gate, the payout wallet, the notices, the guard itself). `scripts/agent-guard.mjs` checks a change against it; `.github/workflows/agent-guard.yml` runs it on every pull request (skipped for the `main → production` sync PR and the Athar session's branch). The owner lets a reviewed exception through by labelling the PR `owner-approved`.
@@ -24,7 +24,7 @@ A scheduled routine starts a fresh Claude session in this repository's environme
 
 ## Adding or changing a supervisor
 1. Write/adjust `docs/agents/<section>.md` (mission, territory, frozen, owner-only switches, health checks, allowed actions, escalation, report fields).
-2. Create the routine (a scheduled trigger that starts a **new session** per fire) with the standard prompt below; keep the cadence ≥ hourly and staggered.
+2. Create a persistent session with the repo attached (`source_url`), then a routine with `persistent_session_id` pointing to it and the standard prompt below; keep the cadence ≥ hourly and staggered. Keep each session's context small (it accumulates across runs).
 3. Add the section to the table above.
 
 Standard routine prompt (replace `<section>`):
