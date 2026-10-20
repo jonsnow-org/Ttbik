@@ -1,3 +1,2 @@
-# Studio platform pin (same Gradio as the existing Studio's proxy)
-gradio==6.17.3
+# Gradio comes from the Studio platform itself (this Studio's sdk_version: 6.29.1, read from the ModelScope API 2026-10-21; tested locally).
 modelscope

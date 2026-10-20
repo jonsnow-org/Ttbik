@@ -9,7 +9,7 @@ The commercial daily-use coding model, **separate from Sham** (Sham's Studio, no
 | Context | `-c 32768` (env `CODER_CTX`, never below 8192). No answer-length cap (`max_tokens 0`, `-n -1`). |
 | API | Gradio call protocol, same as Sham's Studio: `chat`, `job_result`, `cancel`, `status` (see the docstring of `app.py`). |
 | Queue | one generation at a time, FIFO, nobody refused; long answers continue as a job the bot polls. |
-| Studio | `novaai2026/coder-inference-server` (private, free CPU hardware only), created and updated by `.github/workflows/deploy-modelscope-coder.yml` with the existing `MODELSCOPE_TOKEN` secret. The workflow carries the llama.cpp tarball because the Studio cannot reach github.com. |
+| Studio | `novaai2026/coder-inference-server` (private, free `platform/2v-cpu-8g-mem` — the only free tier the API offered on 2026-10-21; Gradio 6.29.1 from the platform). API host `https://studio-novaai2026-coder-inference-server.api-inference.modelscope.net`, page https://www.modelscope.cn/studios/novaai2026/coder-inference-server, created and updated by `.github/workflows/deploy-modelscope-coder.yml` with the existing `MODELSCOPE_TOKEN` secret. The workflow carries the llama.cpp tarball because the Studio cannot reach github.com. |
 
 Measured on the box (2 threads, like the free 2 vCPU Studio): load ≈ 4 s from disk, ≈ 4.6–5 tokens/s generation, native tool calls work (`--jinja`).
 A full harness run (read a file on GitHub → answer → try a push to `main` → stopped at the confirmation button) took ≈ 2 min 17 s.

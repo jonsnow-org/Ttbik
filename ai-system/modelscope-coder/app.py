@@ -88,7 +88,10 @@ def _llama_dir() -> Path:
         raise RuntimeError(f"llama.cpp tarball sha256 mismatch ({h[:12]})")
     out.mkdir(parents=True, exist_ok=True)
     with tarfile.open(tgz) as t:
-        t.extractall(out)
+        try:
+            t.extractall(out, filter="data")
+        except TypeError:          # Python without extraction filters
+            t.extractall(out)
     exe = next(iter(out.rglob("llama-server")))
     exe.chmod(0o755)
     return exe.parent
