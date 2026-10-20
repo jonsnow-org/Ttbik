@@ -1,0 +1,138 @@
+{
+  "_": "Paths that autonomous agents (supervisor bots, Grok, any scheduled session) must not change without the owner's explicit approval. Checked by scripts/agent-guard.mjs (CI on pull requests; label `owner-approved` on the PR lets a reviewed change through). 'block' = modified/deleted/renamed file fails the check; added files only warn. See docs/agents/COMMON.md §1.",
+  "rules": [
+    {
+      "id": "guard-itself",
+      "level": "block",
+      "why": "The guard and the common rules cannot be weakened by the agents they restrain.",
+      "paths": [
+        "deploy/hosting/protected-paths.json",
+        "scripts/agent-guard.mjs",
+        "scripts/agent-guard.test.mjs",
+        ".github/workflows/agent-guard.yml",
+        "docs/agents/COMMON.md"
+      ]
+    },
+    {
+      "id": "coin-frozen",
+      "level": "block",
+      "why": "ZNBt's on-chain facts (master, owner, salt, image address, old links). Changing them breaks the coin.",
+      "paths": [
+        "deploy/hosting/znbt-frozen.json",
+        "src/lib/znbtBase.json",
+        "scripts/znbt-frozen-check.mjs",
+        "src/app/api/zenobia/znbt/icon/",
+        "src/app/zenobia/znbt/config.json/"
+      ]
+    },
+    {
+      "id": "coin-art",
+      "level": "block",
+      "why": "Coin, stage and passport images and art: the coin's identity (the image address is written on-chain).",
+      "paths": [
+        "public/zenobia/znbt-coin.webp",
+        "public/zenobia/znbt-coin-small.webp",
+        "public/zenobia/znbt-emblem.svg",
+        "public/zenobia/coin-icon.jpg",
+        "public/zenobia/coin-icon.png",
+        "public/zenobia/banner.jpg",
+        "public/zenobia/stage-",
+        "public/zenobia/emblem-",
+        "public/zenobia/anim/",
+        "public/zenobia/passport/",
+        "public/zenobia/znbt/art/",
+        "public/zenobia/collection.json",
+        "public/zenobia/silk-collection.json",
+        "public/athar-",
+        "public/athar-bot-avatar.png"
+      ]
+    },
+    {
+      "id": "contracts",
+      "level": "block",
+      "why": "Live or future on-chain code: a change means a different address/behaviour (real money).",
+      "paths": [
+        "contracts/",
+        "athar/build/",
+        "athar/contracts/"
+      ]
+    },
+    {
+      "id": "infrastructure",
+      "level": "block",
+      "why": "Servers and the gate that every webhook, link and the coin image pass through; Oracle must keep following main.",
+      "paths": [
+        "deploy/oracle/",
+        "cloudflare/",
+        "deploy/hosting/site.json"
+      ]
+    },
+    {
+      "id": "athar",
+      "level": "block",
+      "why": "Athar is live on mainnet with real money (CLAUDE.md hands-off list).",
+      "paths": [
+        "athar/",
+        "src/app/api/athar/",
+        "src/app/api/ops/athar-health/",
+        "src/lib/atharMirror.ts",
+        "src/lib/atharBotLogic.ts",
+        "src/lib/__tests__/atharBot.test.ts",
+        "src/app/api/admin/bots/activate-athar/",
+        "src/app/admin-tools/athar-bot/",
+        "docs/ATHAR_",
+        "docs/ENV-VARS.md"
+      ]
+    },
+    {
+      "id": "money-switches",
+      "level": "block",
+      "why": "Payout hot wallet and sale switches belong to the owner.",
+      "paths": [
+        "src/lib/znbtPayout.ts",
+        "deploy/hosting/CRONS_ON"
+      ]
+    },
+    {
+      "id": "notices",
+      "level": "block",
+      "why": "The shared-repository notice itself (owner's standing order).",
+      "paths": [
+        "CLAUDE.md",
+        "AGENTS.md"
+      ]
+    },
+    {
+      "id": "framework-pins",
+      "level": "warn",
+      "why": "Next 16.3.8, --webpack, deepmerge-ts override and isOwnerServer() async are pinned by the owner.",
+      "paths": [
+        "package.json",
+        "next.config.mjs",
+        "package-lock.json",
+        "athar/web/package.json",
+        "athar/web/next.config.mjs"
+      ]
+    },
+    {
+      "id": "workflows",
+      "level": "warn",
+      "why": "Schedules and secrets wiring; a wrong edit silently stops a whole system or floods Vercel with builds.",
+      "paths": [
+        ".github/workflows/",
+        "vercel.json",
+        "scripts/vercel-ignore.sh"
+      ]
+    },
+    {
+      "id": "database",
+      "level": "warn",
+      "why": "Schema changes need a SQL file flagged to the owner by filename (docs/AGENT_BUS.md).",
+      "paths": [
+        "prisma/schema.prisma",
+        "prisma/migration_",
+        "supabase/"
+      ]
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 
 > المصدر الحي للقرارات والقواعد: [`docs/AGENT_BUS.md`](./docs/AGENT_BUS.md) ومخطط القاعدة [`prisma/schema.prisma`](./prisma/schema.prisma).  
 > ملف `docs/PROJECT_BRIEF_FOR_HANDOFF.md` مؤرشف/قديم — لا تعتمد عليه للتنفيذ.
+> **دفتر المستودع الكامل:** [`docs/REPO_NOTEBOOK.md`](./docs/REPO_NOTEBOOK.md) · **المشرفون الآليون (بوت لكل قسم):** [`docs/agents/README.md`](./docs/agents/README.md) · **دليل جروك:** [`docs/GROK_GUIDE.md`](./docs/GROK_GUIDE.md)
 
 ## ماذا نقدّم (وما لا نقدّم)
 
