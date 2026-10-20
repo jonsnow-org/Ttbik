@@ -1,0 +1,4 @@
+numpy>=1.23
+# optional, only for face_curation.py (CPU, Apache-2.0). Use this version: 1.x wheels need system libEGL.
+mediapipe==0.10.14
+pillow
