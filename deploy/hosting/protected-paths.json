@@ -14,6 +14,26 @@
       ]
     },
     {
+      "id": "sham-model",
+      "level": "block",
+      "why": "Training of the Sham AI model belongs to another session (owner's order 2026-10-20). Even inside our sections these files may be a workaround another session depends on. Report problems in an issue; never edit, re-run or tidy them.",
+      "paths": [
+        "ai-system/",
+        ".github/workflows/sham-",
+        ".github/workflows/deploy-sham-small.yml",
+        ".github/workflows/deploy-kaggle-",
+        ".github/workflows/deploy-modelscope-studio.yml",
+        ".github/workflows/deploy-hf-",
+        ".github/workflows/gather-knowledge.yml",
+        ".github/workflows/propose-self-improvement.yml",
+        "docs/SHAM",
+        "docs/FOR_SHAM_",
+        "docs/sham-",
+        "deploy/oracle/agent/install-sham.sh",
+        "deploy/oracle/agent/SHAM_ON"
+      ]
+    },
+    {
       "id": "coin-frozen",
       "level": "block",
       "why": "ZNBt's on-chain facts (master, owner, salt, image address, old links). Changing them breaks the coin.",
@@ -70,7 +90,7 @@
     {
       "id": "athar",
       "level": "block",
-      "why": "Athar is live on mainnet with real money (CLAUDE.md hands-off list).",
+      "why": "Athar is live on mainnet with real money. Hands-off for every supervisor and outside AI; the main Claude session has the owner's full authority (order 2026-10-20) and proceeds with the label owner-approved.",
       "paths": [
         "athar/",
         "src/app/api/athar/",
@@ -132,6 +152,18 @@
         "prisma/schema.prisma",
         "prisma/migration_",
         "supabase/"
+      ]
+    },
+    {
+      "id": "sham-interface",
+      "level": "warn",
+      "why": "Site-side glue to the Sham model (memory/studio client). Leave alone unless a site error forces a minimal fix, then say so in the PR.",
+      "paths": [
+        "src/lib/shamMemory.ts",
+        "src/lib/shamStudio.ts",
+        "src/lib/__tests__/shamMemory.test.ts",
+        "src/lib/__tests__/shamStudio.test.ts",
+        "prisma/migration_19_sham_memory.sql"
       ]
     }
   ]
