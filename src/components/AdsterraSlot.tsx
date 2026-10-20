@@ -17,8 +17,11 @@ const KEY_728x90 = "4f06d38f318a4c96638f8e2289f8ca0c";
 export default function AdsterraSlot({ position }: { position: "header-banner" | "in-content" | "footer-banner" }) {
   if (position === "in-content") {
     return (
-      <div className="flex min-h-[250px] items-center justify-center">
-        <AdsterraBanner adKey={KEY_300x250} width={300} height={250} />
+      <div className="my-4">
+        <AdLabel />
+        <div className="flex min-h-[250px] items-center justify-center">
+          <AdsterraBanner adKey={KEY_300x250} width={300} height={250} />
+        </div>
       </div>
     );
   }
@@ -39,12 +42,20 @@ function ResponsiveBannerSlot() {
   }, []);
 
   return (
-    <div className="flex min-h-[50px] justify-center sm:min-h-[90px]">
-      {wide === true ? (
-        <AdsterraBanner adKey={KEY_728x90} width={728} height={90} />
-      ) : wide === false ? (
-        <AdsterraBanner adKey={KEY_320x50} width={320} height={50} />
-      ) : null}
+    <div>
+      <AdLabel />
+      <div className="flex min-h-[50px] justify-center sm:min-h-[90px]">
+        {wide === true ? (
+          <AdsterraBanner adKey={KEY_728x90} width={728} height={90} />
+        ) : wide === false ? (
+          <AdsterraBanner adKey={KEY_320x50} width={320} height={50} />
+        ) : null}
+      </div>
     </div>
   );
+}
+
+/** Ads are always marked as ads (also keeps them clearly apart from the tool's own buttons). */
+function AdLabel() {
+  return <p className="mb-1 text-center text-[10px] leading-none text-slate-400">Advertisement · إعلان</p>;
 }
