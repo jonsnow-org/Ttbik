@@ -53,6 +53,17 @@ function purchaseError(r: Exclude<Purchase, { ok: true }>): string {
   return ({ no_profile: "⚠️ يجب إنشاء ملفك الشخصي أولاً.", no_pref: "⚠️ يجب تحديد «💍 مواصفات الشريك» الأساسية أولاً.", vip_included: "✨ اشتراكك الذهبي (VIP) يشمل رفعاً مستمراً لملفك بالفعل.", not_vip: "🕶 وضع التخفي متاح فقط للأعضاء الذهبيين.", no_user: "ابدأ البوت أولاً." } as const)[r.reason];
 }
 
+
+/** Stars invoice link with Telegram's length limits respected (title 32, description 255, price label 32) and the real error logged instead of swallowed. */
+async function starsInvoiceLink(bot: TelegramBot, title: string, description: string, payload: string, stars: number): Promise<string | null> {
+  try {
+    return await bot.api.createInvoiceLink(title.slice(0, 32), description.slice(0, 255), payload, "", "XTR", [{ label: title.slice(0, 32), amount: stars }]);
+  } catch (e) {
+    console.error("match-app createInvoiceLink failed", (e as Error)?.message);
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest, props: { params: Promise<{ botId: string }> }) {
   const { botId } = await props.params;
   const body = await req.json().catch(() => null);
@@ -202,7 +213,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const stars = Number(body.stars);
       if (!(STAR_DEPOSIT_TIERS as readonly number[]).includes(stars)) return err("باقة غير صالحة");
       // Same invoice as the bot's «mstars» button: payload MATCH_DEPOSIT:<uid>, credited by the bot's successful_payment handler.
-      const link = await bot.api.createInvoiceLink("شحن رصيد بوت الزواج", `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`, starsPayload("MATCH_DEPOSIT", tg.id), "", "XTR", [{ label: "شحن رصيد بوت الزواج", amount: stars }]).catch(() => null);
+      const link = await starsInvoiceLink(bot, "شحن رصيد بوت الزواج", `شحن $${usdForStars(stars).toFixed(2)} في رصيدك عبر نجوم تيليجرام`, starsPayload("MATCH_DEPOSIT", tg.id), stars);
       return link ? NextResponse.json({ ok: true, link }) : err("تعذّر إنشاء الفاتورة");
     }
     if (action === "buy_stars") {
@@ -221,7 +232,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
       const usd = shortfallUsd(price, balance);
       const stars = starsForUsd(usd);
       const title = UPGRADE_CATALOGUE.find((c) => c.key === key)?.title || key;
-      const link = await bot.api.createInvoiceLink(`⚡ ${title}`, `شحن $${usdForStars(stars).toFixed(2)} (الفرق) ثم تفعيل «${title}» تلقائياً من رصيدك`, starsPayload(`MATCH_BUY_${key}`, tg.id), "", "XTR", [{ label: title, amount: stars }]).catch(() => null);
+      const link = await starsInvoiceLink(bot, `⚡ ${title}`, `شحن $${usdForStars(stars).toFixed(2)} (الفرق) ثم تفعيل «${title}» تلقائياً من رصيدك`, starsPayload(`MATCH_BUY_${key}`, tg.id), stars);
       if (!link) return err("تعذّر إنشاء الفاتورة");
       void trackFunnel(tg.id, "stars_invoice", key);
       return NextResponse.json({ ok: true, link, stars, usd });

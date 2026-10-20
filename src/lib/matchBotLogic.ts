@@ -2589,6 +2589,56 @@ async function handleAdminCallback(bot: TelegramBot, botId: string, chatId: numb
 // ---------------------------------------------------------------------
 // Main dispatcher
 // ---------------------------------------------------------------------
+/**
+ * A Telegram Stars payment (bot invoice or Mini App invoice link, same payload). It is credited FIRST, before any admin/ban/mute/phone gate:
+ * money that was paid must never be dropped because the payer is the platform owner (who only had a text-menu path before, so an owner's
+ * payment was silently ignored), is muted, or has not verified a phone yet. Idempotent on the Stars charge id.
+ */
+async function handleMatchStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any): Promise<void> {
+  const chatId = msg.chat.id;
+  const tgUserId = String(msg.from.id);
+  await ensureMatchUser(botRow.id, tgUserId);
+  const sp = msg.successful_payment;
+  const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+  if (parsed?.kind === "MATCH_DEPOSIT" && parsed.userId === tgUserId) {
+    const usd = usdForStars(Number(sp.total_amount || 0));
+    const outcome = await creditStarsPayment(
+      "match-stars",
+      async (tx) => {
+        await tx.matchTransaction.create({
+          data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+        });
+      },
+      async (tx) => {
+        await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+      }
+    );
+    if (outcome !== "duplicate") {
+      const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+      await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
+    }
+  }
+  // ⚡ «اشترِ الآن بالنجوم» (app + bot): tops up the exact shortfall, then activates the
+  // feature from balance. Idempotent: the Stars charge id is the ledger's unique txHash,
+  // so a redelivered update credits nothing and activates nothing twice.
+  if (parsed?.kind.startsWith("MATCH_BUY_") && parsed.userId === tgUserId) {
+    const key = parsed.kind.slice("MATCH_BUY_".length);
+    const usd = usdForStars(Number(sp.total_amount || 0));
+    const outcome = await creditStarsPayment(
+      "match-stars-buy",
+      async (tx) => { await tx.matchTransaction.create({ data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id } }); },
+      async (tx) => { await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } }); },
+    );
+    if (outcome === "ok") {
+      void trackFunnel(tgUserId, "stars_paid", key, "bot");
+      const r = isBuyNowKey(key) ? await purchaseByKey(tgUserId, key) : null;
+      if (r?.ok) void trackFunnel(tgUserId, "purchase_success", key, "bot");
+      const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
+      await bot.api.sendMessage(chatId, `${r?.ok ? r.message : `✅ تم شحن $${usd.toFixed(2)} في رصيدك (لم تُفعَّل الميزة تلقائياً — فعّلها من «⭐ الترقيات والمزايا»).`}\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() }).catch(() => null);
+    }
+  }
+}
+
 export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
   // Hybrid mode (2026-10-14, additive): inline search + consent chat requests.
   if (update.inline_query) {
@@ -2602,6 +2652,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
   }
   const msg = update.message;
   if (!msg?.from || !msg.chat) return;
+  if (msg.successful_payment) { await handleMatchStarsPayment(bot, botRow, msg); return; }
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
@@ -2680,49 +2731,7 @@ export async function handleMarriageBotUpdate(bot: TelegramBot, botRow: BotRow, 
     return;
   }
 
-  if (msg.successful_payment) {
-    const sp = msg.successful_payment;
-    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
-    if (parsed?.kind === "MATCH_DEPOSIT" && parsed.userId === tgUserId) {
-      const usd = usdForStars(Number(sp.total_amount || 0));
-      const outcome = await creditStarsPayment(
-        "match-stars",
-        async (tx) => {
-          await tx.matchTransaction.create({
-            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
-          });
-        },
-        async (tx) => {
-          await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
-        }
-      );
-      if (outcome !== "duplicate") {
-        const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() });
-      }
-    }
-    // ⚡ «اشترِ الآن بالنجوم» (app + bot): tops up the exact shortfall, then activates the
-    // feature from balance. Idempotent: the Stars charge id is the ledger's unique txHash,
-    // so a redelivered update credits nothing and activates nothing twice.
-    if (parsed?.kind.startsWith("MATCH_BUY_") && parsed.userId === tgUserId) {
-      const key = parsed.kind.slice("MATCH_BUY_".length);
-      const usd = usdForStars(Number(sp.total_amount || 0));
-      const outcome = await creditStarsPayment(
-        "match-stars-buy",
-        async (tx) => { await tx.matchTransaction.create({ data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id } }); },
-        async (tx) => { await tx.matchUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } }); },
-      );
-      if (outcome === "ok") {
-        void trackFunnel(tgUserId, "stars_paid", key, "bot");
-        const r = isBuyNowKey(key) ? await purchaseByKey(tgUserId, key) : null;
-        if (r?.ok) void trackFunnel(tgUserId, "purchase_success", key, "bot");
-        const updated = await prisma.matchUser.findUnique({ where: { id: tgUserId } });
-        await bot.api.sendMessage(chatId, `${r?.ok ? r.message : `✅ تم شحن $${usd.toFixed(2)} في رصيدك (لم تُفعَّل الميزة تلقائياً — فعّلها من «⭐ الترقيات والمزايا»).`}\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: upgradesMenu() }).catch(() => null);
-      }
-    }
-    return;
-  }
-
+  // successful_payment is handled at the top of handleMarriageBotUpdate (handleMatchStarsPayment), before every gate.
   if (msg.contact) {
     if (String(msg.contact.user_id) === tgUserId) {
       await prisma.matchUser.update({ where: { id: tgUserId }, data: { phoneNumber: msg.contact.phone_number, phoneVerified: true } });
