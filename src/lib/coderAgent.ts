@@ -4,6 +4,8 @@
 // main or default branch. Everything else runs directly.
 // GitHub access: CODER_GITHUB_TOKEN (a fine-grained token the owner scopes to the repos the coder may work on). Never logged or echoed.
 import type { CoderMessage, CoderTool, CoderToolCall } from "@/lib/openCoderStudio";
+import { deepResearch, fetchPage, formatResearch, formatSearch, webSearch } from "@/lib/coderWeb";
+import { runSandboxTool } from "@/lib/coderSandbox";
 
 const GH = "https://api.github.com";
 const RESULT_MAX = Number(process.env.CODER_TOOL_RESULT_MAX || 9000);
@@ -44,7 +46,23 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_api", "Any other GitHub REST call (path like /repos/o/r/...). Use the specific tools when one exists.", obj({ method: s("GET | POST | PATCH | PUT | DELETE"), path: s("REST path starting with /"), body: { type: "object" } }, ["method", "path"])),
   tool("github_run_workflow", "Start a workflow_dispatch workflow (e.g. tests).", obj({ repo: REPO, workflow: s("file name, e.g. ci.yml"), ref: s("branch"), inputs: { type: "object" } }, ["repo", "workflow", "ref"])),
 ];
+export const WEB_TOOLS: CoderTool[] = [
+  tool("web_search", "Search the web (several free engines merged). Returns titles, URLs and snippets. Use for current docs, errors, versions, news.", obj({ query: s("search words; add a year or a site name to narrow"), limit: n("results, default 8, max 20") }, ["query"])),
+  tool("fetch_page", "Read one web page as clean Markdown (main content only), or a raw text/JSON file.", obj({ url: s("http(s) URL"), max_chars: n("default 20000, max 60000") }, ["url"])),
+  tool("deep_research", "Research a question thoroughly: several searches in parallel, many sources read, the most relevant passages returned with numbered sources [n]. Then write the answer comparing sources and citing [n].",
+    obj({ question: s("the full question"), queries: { type: "array", items: s("search query"), description: "optional: your own 3-8 query variants (different angles, languages, years)" }, max_sources: n("sources to read, default 10, max 16") }, ["question"])),
+];
+export const SANDBOX_TOOL_DEFS: CoderTool[] = [
+  tool("sandbox_clone", "Clone a GitHub repo into this task's private Linux VM (your own computer for this task) to install deps, run code and tests.", obj({ repo: REPO, branch: s("branch, empty = default"), dir: s("folder, default = repo name"), depth: n("history depth, default 50") }, ["repo"])),
+  tool("sandbox_exec", "Run a shell command in this task's VM (bash; node24, npm, python3, pip, git; sudo dnf for system packages). Long commands return 'still running' with an id: then call sandbox_wait.", obj({ command: s("shell command, e.g. cd repo && npm ci && npm test"), cwd: s("working dir, default /vercel/sandbox") }, ["command"])),
+  tool("sandbox_wait", "Keep waiting for a long sandbox_exec command and get its output.", obj({ id: s("command id from sandbox_exec") }, ["id"])),
+  tool("sandbox_write_file", "Write a file in the VM (creates folders).", obj({ path: s("path, relative to cwd or absolute"), content: s("full file content"), cwd: s("base dir") }, ["path", "content"])),
+  tool("sandbox_read_file", "Read a file from the VM (line window for big files).", obj({ path: s("path"), start_line: n("1-based"), max_lines: n("default 800"), cwd: s("base dir") }, ["path"])),
+];
+
 export const COMMON_TOOLS: CoderTool[] = [
+  ...WEB_TOOLS,
+  ...SANDBOX_TOOL_DEFS,
   tool("web_fetch", "Read a public web page or raw file (docs, APIs, errors).", obj({ url: s("https URL") }, ["url"])),
   tool("memory_note", "Save a short note you need in later steps (plan, findings, decisions). Kept for this conversation.", obj({ text: s("note") }, ["text"])),
 ];
@@ -64,9 +82,11 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
+    "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
+    "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
     "Answers may be as long as needed. Use ``` code blocks for code.",
-    opts.github ? "You have GitHub tools with the owner's token." : "GitHub tools are not connected in this chat; you can still write and review code and read public pages with web_fetch.",
+    opts.github ? "You have GitHub tools with the owner's token." : "GitHub tools are not connected in this chat (the user can link their account in the app: /app); you can still write, run (sandbox) and review code and research the web.",
     `Current time (UTC): ${now}.`,
     opts.notes ? `Your notes so far:\n${opts.notes}` : "",
   ].filter(Boolean).join("\n");
@@ -267,9 +287,9 @@ export async function guardCall(call: CoderToolCall, gh: Gh | null, tier: "owner
   return ask.length ? { confirm: true, reason: ask.map((r) => RISK_LABEL[r]).join(" + "), summary: c.summary, risks: ask } : { confirm: false };
 }
 
-const clip = (x: unknown) => {
+const clip = (x: unknown, max = RESULT_MAX) => {
   const t = typeof x === "string" ? x : JSON.stringify(x, null, 1);
-  return t.length > RESULT_MAX ? `${t.slice(0, RESULT_MAX)}\n…[truncated ${t.length - RESULT_MAX} chars]` : t;
+  return t.length > max ? `${t.slice(0, max)}\n…[truncated ${t.length - max} chars]` : t;
 };
 
 async function writeFiles(gh: Gh, repo: string, branch: string, message: string, files: { path: string; content: string | null }[]) {
@@ -308,7 +328,7 @@ function stripHtml(html: string): string {
   return html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n").trim();
 }
 
-export type ToolCtx = { gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch };
+export type ToolCtx = { gh: Gh | null; addNote: (t: string) => void; fetchImpl?: typeof fetch; runId?: string; chatKey?: string; githubToken?: string | null };
 
 export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string> {
   const a = parseArgs(call);
@@ -318,13 +338,25 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       ctx.addNote(String(a.text || "").slice(0, 1500));
       return "saved";
     }
-    if (name === "web_fetch") {
-      const url = String(a.url || "");
-      if (!/^https?:\/\//i.test(url)) return "error: url must start with https://";
-      const r = await (ctx.fetchImpl || fetch)(url, { headers: { "User-Agent": "coder-bot" }, signal: AbortSignal.timeout(20000) });
-      const body = await r.text();
-      return clip(`HTTP ${r.status}\n${/html/i.test(r.headers.get("content-type") || "") ? stripHtml(body) : body}`);
+    if (name === "web_search") {
+      const q = String(a.query || "").trim();
+      if (!q) return "error: query is required";
+      return clip(formatSearch(q, await webSearch(q, { fetchImpl: ctx.fetchImpl, limit: Number(a.limit) || 8 })));
     }
+    if (name === "fetch_page" || name === "web_fetch") {
+      // both go through the same guarded fetch: http(s) only, no private / internal / dark-web addresses, every redirect re-checked
+      const p = await fetchPage(String(a.url || ""), { fetchImpl: ctx.fetchImpl, maxChars: Number(a.max_chars) || 20000 });
+      if (!p.ok) return `error: could not read ${p.url}: ${p.error}`;
+      return clip(`${p.title ? `# ${p.title}\n` : ""}${p.url}\n\n${p.markdown}`, Math.max(RESULT_MAX, Number(a.max_chars) || 20000));
+    }
+    if (name === "deep_research") {
+      const q = String(a.question || "").trim();
+      if (!q) return "error: question is required";
+      const r = await deepResearch(q, { fetchImpl: ctx.fetchImpl, queries: Array.isArray(a.queries) ? a.queries.map(String) : undefined, maxSources: Number(a.max_sources) || 10 });
+      return formatResearch(r, 24000);
+    }
+    const sbx = await runSandboxTool(name, a, { chatKey: ctx.chatKey, runId: ctx.runId, githubToken: ctx.githubToken });
+    if (sbx !== null) return sbx;
     const gh = ctx.gh;
     if (!gh) return "error: GitHub is not connected in this chat";
     if (name === "github_api") {
@@ -472,6 +504,6 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
 
 export function toolLabel(call: CoderToolCall): string {
   const a = parseArgs(call);
-  const bits = [a.repo, a.path, a.branch, a.number ? `#${a.number}` : "", a.url, a.query].filter(Boolean).map(String);
+  const bits = [a.repo, a.path, a.branch, a.number ? `#${a.number}` : "", a.url, a.query, a.question, a.command, a.id && call.function.name === "sandbox_wait" ? a.id : ""].filter(Boolean).map(String);
   return `🔧 ${call.function.name}${bits.length ? ` — ${bits.join(" ").slice(0, 160)}` : ""}`;
 }

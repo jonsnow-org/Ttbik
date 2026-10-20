@@ -14,6 +14,7 @@ const WINDOW = 12;
 export type StallPattern = "repeat_call" | "repeat_output" | "repeat_error" | "no_progress" | "repeat_text" | "hard_ceiling";
 export type Stall = { pattern: StallPattern; detail: string };
 export type StallState = {
+  gen?: number;            // file writes so far (see RERUNNABLE)
   calls: { sig: string; res: string; err: boolean }[];
   texts: string[];
   seen: string[];          // every distinct action+args of this task
@@ -26,7 +27,7 @@ export type StallState = {
 export const newStallState = (): StallState => ({ calls: [], texts: [], seen: [], progressStep: 0, level: 0, touched: [], counts: {}, outs: {} });
 
 // tools whose output legitimately stays the same while something else runs (CI): repeating them is waiting, not looping
-export const POLL_TOOLS = new Set(["github_ci_status", "github_list_prs", "github_list_issues", "github_list_branches"]);
+export const POLL_TOOLS = new Set(["github_ci_status", "github_list_prs", "github_list_issues", "github_list_branches", "sandbox_wait"]);
 const RUNNING_RX = /\b(in_progress|queued|pending|waiting|requested)\b/i;
 
 const canon = (v: unknown): unknown =>
@@ -46,9 +47,18 @@ export function outSig(out: string): string {
 const isError = (out: string) => /^(error|HTTP [45]\d\d)/i.test((out || "").trim());
 
 /** Before running a call: an identical (non-polling) call already made STALL_REPEAT times is not run again — its earlier result is returned. */
+// Running the same command/test again after changing files is progress, not a loop: these calls are told apart by the number of
+// file writes made so far in the task.
+export const RERUNNABLE = new Set(["sandbox_exec", "sandbox_read_file", "github_read_file"]);
+const WRITES = new Set(["sandbox_write_file", "github_write_files", "github_delete_files", "sandbox_clone"]);
+function sigOf(ss: StallState, call: CoderToolCall): string {
+  const base = callSig(call);
+  return RERUNNABLE.has(call.function.name) ? `${base}@${ss.gen || 0}` : base;
+}
+
 export function beforeCall(ss: StallState, call: CoderToolCall): { skip: string } | null {
   if (POLL_TOOLS.has(call.function.name)) return null;
-  const sig = callSig(call);
+  const sig = sigOf(ss, call);
   const n = ss.counts[sig] || 0;
   if (n >= STALL_REPEAT) {
     ss.counts[sig] = n + 1;
@@ -60,7 +70,8 @@ export function beforeCall(ss: StallState, call: CoderToolCall): { skip: string 
 
 /** After a call ran: record it; returns a stall when the task is going in circles, and whether to wait before the next step (CI still running). */
 export function afterCall(ss: StallState, call: CoderToolCall, out: string, step: number): { stall: Stall | null; wait: boolean } {
-  const sig = callSig(call);
+  const sig = sigOf(ss, call);
+  if (WRITES.has(call.function.name) && !isError(out)) ss.gen = (ss.gen || 0) + 1;
   const res = outSig(out);
   const err = isError(out);
   const poll = POLL_TOOLS.has(call.function.name);

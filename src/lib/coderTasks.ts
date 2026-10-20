@@ -1,0 +1,110 @@
+// Task history for the coder (owner's plan, 2026-10-21): one row per run in coder_tasks and its steps in coder_task_events.
+// The Mini App's live list and history read these; the bot writes them as the agent loop runs (src/lib/coderSections.ts).
+// A run lives in a "slot": "" for the chat itself, "s:<scheduleId>" for a scheduled task (its own state, its own fresh step counter).
+// Rows are keyed by the salted chat hash; titles/texts are the user's own task text and the bot's visible messages, capped.
+import { coderChatKey, prismaDb, type Db } from "@/lib/coderAuth";
+
+export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling";
+export type TaskSource = "interactive" | "scheduled" | "event";
+export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "done" | "failed" | "info";
+export type TaskRow = {
+  run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
+  steps: number; started_at: string; updated_at: string; finished_at: string | null;
+};
+export type EventRow = { id: number; run_id: string; kind: EventKind; text: string; created_at: string };
+
+let ready: Promise<void> | null = null;
+export function ensureTaskTables(db: Db): Promise<void> {
+  if (db !== prismaDb) return Promise.resolve();
+  if (!ready) {
+    ready = (async () => {
+      await db.exec(`CREATE TABLE IF NOT EXISTS coder_tasks (run_id TEXT PRIMARY KEY, chat_key TEXT NOT NULL, slot TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT 'interactive', schedule_id TEXT, title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'running', steps INT NOT NULL DEFAULT 0, started_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ)`);
+      await db.exec(`CREATE INDEX IF NOT EXISTS coder_tasks_chat_idx ON coder_tasks (chat_key, started_at DESC)`);
+      await db.exec(`CREATE TABLE IF NOT EXISTS coder_task_events (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await db.exec(`CREATE INDEX IF NOT EXISTS coder_task_events_run_idx ON coder_task_events (run_id, id)`);
+    })().catch((e) => {
+      ready = null;
+      throw e;
+    });
+  }
+  return ready;
+}
+
+export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string }, db: Db = prismaDb): Promise<void> {
+  try {
+    await ensureTaskTables(db);
+    await db.exec(
+      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status) VALUES ($1, $2, $3, $4, $5, $6, 'running') ON CONFLICT (run_id) DO NOTHING`,
+      t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300),
+    );
+    await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
+  } catch {
+    /* history is best-effort: never blocks the task */
+  }
+}
+
+export async function taskEvent(runId: string, kind: EventKind, text: string, db: Db = prismaDb): Promise<void> {
+  try {
+    await ensureTaskTables(db);
+    await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, runId, kind, text.slice(0, 4000));
+    await db.exec(`UPDATE coder_tasks SET updated_at = now() WHERE run_id = $1`, runId);
+  } catch {
+    /* best-effort */
+  }
+}
+
+export async function taskStatus(runId: string, status: TaskStatus, steps?: number, db: Db = prismaDb): Promise<void> {
+  try {
+    await ensureTaskTables(db);
+    const final = status !== "running" && status !== "waiting";
+    await db.exec(
+      `UPDATE coder_tasks SET status = $2, steps = COALESCE($3, steps), updated_at = now(), finished_at = CASE WHEN $4 THEN now() ELSE finished_at END WHERE run_id = $1`,
+      runId, status, steps ?? null, final,
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** The slot a run lives in (for the ✅/❌ callbacks of scheduled runs), or null when unknown. */
+export async function taskSlot(runId: string, chatId: number | string, db: Db = prismaDb): Promise<string | null> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ slot: string }>(`SELECT slot FROM coder_tasks WHERE run_id = $1 AND chat_key = $2`, runId, coderChatKey(chatId));
+    return rows[0] ? rows[0].slot : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
+  try {
+    await ensureTaskTables(db);
+    const limit = Math.max(1, Math.min(100, opts.limit || 30));
+    const where = [`chat_key = $1`];
+    const args: unknown[] = [coderChatKey(chatId)];
+    if (opts.active) where.push(`status IN ('running','waiting')`);
+    if (opts.before) {
+      args.push(opts.before);
+      where.push(`started_at < $${args.length}::timestamptz`);
+    }
+    return await db.query<TaskRow>(
+      `SELECT run_id, slot, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
+      ...args,
+    );
+  } catch {
+    return [];
+  }
+}
+
+export async function taskEvents(chatId: number | string, runId: string, after = 0, db: Db = prismaDb): Promise<EventRow[]> {
+  try {
+    await ensureTaskTables(db);
+    return await db.query<EventRow>(
+      `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.run_id = $1 AND t.chat_key = $2 AND e.id > $3 ORDER BY e.id ASC LIMIT 500`,
+      runId, coderChatKey(chatId), after,
+    );
+  } catch {
+    return [];
+  }
+}

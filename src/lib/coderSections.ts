@@ -13,16 +13,21 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { coderSystemPrompt, coderTools, githubClient, guardCall, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
+import { coderSystemPrompt, coderTools, githubClient, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
+import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
+import { taskEvent, taskSlot, taskStart, taskStatus, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 
 export type Mode = "coder" | "sham";
-export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string };
+export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
   id: string; chain: string; job?: string; sent: number; step: number; lease: number; pending?: Pending; queued?: CoderToolCall[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
+  // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string;
+  allowCats?: Category[];                                             // "allow for the rest of this task"
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string };
 export type { Db };
 export { coderChatKey };
 
@@ -54,22 +59,25 @@ function ensureTable(db: Db): Promise<void> {
   return ready;
 }
 
-export async function loadState(chatId: number | string, db: Db = prismaDb): Promise<ChatState> {
+/** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
+export const stateKey = (chatId: number | string, slot = "") => coderChatKey(slot ? `${chatId}#${slot}` : chatId);
+
+export async function loadState(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<ChatState> {
   try {
     await ensureTable(db);
-    const rows = await db.query<{ state: Partial<ChatState> }>(`SELECT state FROM coder_chat_state WHERE chat_key = $1`, coderChatKey(chatId));
+    const rows = await db.query<{ state: Partial<ChatState> }>(`SELECT state FROM coder_chat_state WHERE chat_key = $1`, stateKey(chatId, slot));
     return { ...emptyState(), ...(rows[0]?.state || {}) };
   } catch {
     return emptyState();
   }
 }
 
-export async function saveState(chatId: number | string, st: ChatState, db: Db = prismaDb): Promise<void> {
+export async function saveState(chatId: number | string, st: ChatState, db: Db = prismaDb, slot = ""): Promise<void> {
   try {
     await ensureTable(db);
     await db.exec(
       `INSERT INTO coder_chat_state (chat_key, state, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (chat_key) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-      coderChatKey(chatId),
+      stateKey(chatId, slot),
       JSON.stringify(st),
     );
   } catch {
@@ -87,8 +95,11 @@ export function verifyContinue(secret: string, botId: string, chatId: string, ch
   return want.length === got.length && timingSafeEqual(want, got);
 }
 
-function selfUrl(): string {
+export function selfUrl(): string {
   return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
+}
+export function appUrl(): string {
+  return (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
 }
 
 /** after() keeps the work alive once the webhook has answered Telegram; outside a request (tests) it just runs. */
@@ -104,7 +115,8 @@ export function later(fn: () => Promise<unknown>): void {
 const WELCOME =
   "👋 أهلاً! هذا قسم «المبرمج» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق).\n" +
   "اكتب طلبك بأي طول؛ الردود الطويلة تصل على دفعات.\n\n" +
-  "الأوامر: /mode تبديل القسم (المبرمج / شام) · /new محادثة جديدة · /stop إيقاف المهمة الجارية · /think تفكير أعمق (أبطأ) · /status حالة الخادم";
+  "الأوامر: /mode تبديل القسم (المبرمج / شام) · /new محادثة جديدة · /stop إيقاف المهمة الجارية · /think تفكير أعمق (أبطأ) · /status حالة الخادم\n" +
+  "/app التطبيق · /schedule المهام المجدولة · /perms سياسة التأكيد";
 export const modeKeyboard = (mode: Mode) =>
   new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 المبرمج`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
 
@@ -119,7 +131,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (cq) {
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
-    if (!chatId || !/^c(mode|cf)\|/.test(data)) return false;
+    if (!chatId || !/^c(mode|cf|perm|sch)\|/.test(data)) return false;
     const st = await loadState(chatId, db);
     if (data.startsWith("cmode|")) {
       st.mode = data === "cmode|sham" ? "sham" : "coder";
@@ -129,32 +141,28 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       await send(bot, chatId, st.mode === "coder" ? "💻 أنت الآن في قسم المبرمج. اكتب طلبك." : "🧪 أنت الآن في قسم شام (للتجربة). /mode للرجوع إلى المبرمج.");
       return true;
     }
-    const [kind, runId, nonce, answer] = data.split("|");
-    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
-    await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: new InlineKeyboard() }).catch(() => null);
-    const run = st.run;
-    if (!run || run.id !== runId) {
-      await send(bot, chatId, "انتهت هذه المهمة بالفعل.");
+    if (data.startsWith("cperm|")) {
+      const cat = data.split("|")[1];
+      if (isCategory(cat)) {
+        const rules = await loadPrefs(chatId, db);
+        const next = nextPolicy(globalPolicy(rules, cat));
+        if (next === "default") await removePref(chatId, cat, "*", "*", db);
+        else await setPref(chatId, { category: cat, repo: "*", context: "*", policy: next }, db);
+      }
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      const kb = await permsKeyboard(chatId, db);
+      await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: kb }).catch(() => null);
       return true;
     }
-    if (kind === "ccf") {
-      if (!run.pending || run.pending.nonce !== nonce) return true;
-      const pending = run.pending;
-      run.pending = undefined;
-      const [first, ...rest] = pending.calls;
-      if (answer === "yes") {
-        await send(bot, chatId, `✅ تم التأكيد: ${pending.reason}`);
-        const out = await runTool(first, await toolCtx(chatId, st, db));
-        st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
-      } else {
-        await send(bot, chatId, "❌ أُلغيت هذه الخطوة.");
-        st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
-      }
-      run.queued = rest;
+    if (data.startsWith("csch|")) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      const { handleScheduleCallback } = await import("@/lib/coderSchedules");
+      await handleScheduleCallback(bot, botRow, chatId, cq.message.message_id, data, db);
+      return true;
     }
-    startChain(botRow, chatId, st);
-    await saveState(chatId, st, db);
-    later(() => drive(bot, botRow, chatId, st.run!.chain, db));
+    const [, runId, nonce, answer] = data.split("|");
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await resolvePending(bot, botRow, chatId, runId, nonce, answer === "yes" ? "yes" : answer === "all" ? "all" : "no", db, cq.message.message_id);
     return true;
   }
 
@@ -176,13 +184,16 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (cmd === "/new") {
     if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
-    await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think }, db);
+    await endRun(st, "stopped", db, "/new", coderChatKey(chatId));
+    if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
+    await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang }, db);
     await send(bot, chatId, "🆕 بدأت محادثة جديدة.");
     return true;
   }
   if (cmd === "/stop") {
     if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
-    st.run = null;
+    await endRun(st, "stopped", db, "/stop", coderChatKey(chatId));
+    if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
     st.inbox = [];
     await saveState(chatId, st, db);
     await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
@@ -197,6 +208,22 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (cmd === "/stalls" && tierFor(chatId) === "owner") {
     const rows = await recentStalls(15);
     await send(bot, chatId, rows.length ? rows.map((r) => `${String(r.created_at || "").slice(0, 16)} ${r.run_id} step ${r.step} ${r.pattern} L${r.level} — ${r.detail.slice(0, 120)}`).join("\n") : "لا توجد حلقات مسجّلة.");
+    return true;
+  }
+  if (cmd === "/perms") {
+    const { handlePermsCommand } = await import("@/lib/coderSchedules");
+    if (await handlePermsCommand(bot, chatId, text, db)) return true;
+    await send(bot, chatId, "🔐 سياسة التأكيد لكل فئة (اضغط للتبديل: افتراضي ← اسأل ← اسمح ← ارفض).\nلنطاق مستودع أو سياق: /perms <فئة> <ask|allow|deny|reset> [owner/repo] [interactive|scheduled]\nالفئات: " + CATEGORIES.join(", "), { reply_markup: await permsKeyboard(chatId, db) });
+    return true;
+  }
+  if (cmd === "/schedule" || cmd === "/schedules") {
+    const { handleScheduleCommand } = await import("@/lib/coderSchedules");
+    await handleScheduleCommand(bot, botRow, chatId, text, st, db);
+    return true;
+  }
+  if (cmd === "/app") {
+    const url = appUrl();
+    await send(bot, chatId, "📱 افتح تطبيق المبرمج: المهام الحية، التأكيدات، الجدولة، ربط GitHub، والإعدادات.", { reply_markup: new InlineKeyboard().webApp("💻 فتح التطبيق", url) });
     return true;
   }
   if (cmd === "/status") {
@@ -219,18 +246,92 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
-  startChain(botRow, chatId, st);
+  startChain(botRow, chatId, st, {}, db);
   await saveState(chatId, st, db);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return true;
 }
 
-function startChain(_botRow: BotRow, _chatId: number, st: ChatState) {
-  if (!st.run) st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now() };
+/**
+ * A tap on ✅ / ✅ للمهمة كلها / ❌ — from the inline buttons or from the Mini App (both end here, and the other side is updated:
+ * the Telegram buttons are removed, the app sees the pending card disappear). Returns false when nothing was pending under that nonce.
+ */
+export async function resolvePending(
+  bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
+): Promise<boolean> {
+  const slot = (await taskSlot(runId, chatId, db)) ?? "";
+  const st = await loadState(chatId, db, slot);
+  const run = st.run;
+  const mid = msgId ?? run?.pending?.msgId;
+  if (mid) await bot.api.editMessageReplyMarkup(chatId, mid, { reply_markup: new InlineKeyboard() }).catch(() => null);
+  if (!run || run.id !== runId) {
+    if (msgId) await send(bot, chatId, "انتهت هذه المهمة بالفعل.");
+    return false;
+  }
+  if (!run.pending || run.pending.nonce !== nonce) return false;
+  const pending = run.pending;
+  run.pending = undefined;
+  const [first, ...rest] = pending.calls;
+  if (answer !== "no") {
+    if (answer === "all") run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
+    await send(bot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
+    await taskEvent(run.id, "approved", `${answer === "all" ? "[rest of task] " : ""}${pending.reason} — ${first.function.name}`, db);
+    const out = await runTool(first, await toolCtx(chatId, st, db, run));
+    st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
+  } else {
+    await send(bot, chatId, "❌ أُلغيت هذه الخطوة.");
+    await taskEvent(run.id, "declined", `${pending.reason} — ${first.function.name}`, db);
+    st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
+  }
+  run.queued = rest;
+  startChain(botRow, chatId, st);
+  await taskStatus(run.id, "running", run.step, db);
+  await saveState(chatId, st, db, slot);
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
+  return true;
+}
+
+async function permsKeyboard(chatId: number, db: Db): Promise<InlineKeyboard> {
+  const rules = await loadPrefs(chatId, db);
+  const tier = tierFor(chatId);
+  const kb = new InlineKeyboard();
+  for (const c of CATEGORIES) {
+    const p = globalPolicy(rules, c);
+    const label = p === "default" ? `افتراضي (${tierDefault(tier, c) === "ask" ? "اسأل" : "ينفّذ"})` : POLICY_LABEL[p].ar;
+    const icon = p === "allow" ? "🟢" : p === "deny" ? "⛔" : p === "ask" ? "❓" : "⚪";
+    kb.text(`${icon} ${CATEGORY_LABEL[c].ar}: ${label}`, `cperm|${c}`).row();
+  }
+  return kb;
+}
+
+function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partial<Run> = {}, db: Db = prismaDb) {
+  if (!st.run) {
+    st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", ...init };
+    const last = [...st.messages].reverse().find((m) => m.role === "user");
+    const title = st.run.title || String(last?.content || "").slice(0, 200);
+    void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title }, db);
+  }
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
 }
+
+/** A run ended: history status + the run cleared. */
+async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chatKeyOf = ""): Promise<void> {
+  const run = st.run;
+  st.run = null;
+  if (!run) return;
+  if (note) await taskEvent(run.id, status === "done" ? "done" : status === "stopped" ? "info" : "failed", note, db);
+  await taskStatus(run.id, status, run.step, db);
+  // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
+  if (chatKeyOf && run.slot) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(chatKeyOf, run.id)));
+  if (run.scheduleId) {
+    const { scheduleRunFinished } = await import("@/lib/coderSchedules");
+    await scheduleRunFinished(run.scheduleId, status, db);
+  }
+}
+
+const contextOf = (run: Run): Context => (run.source && run.source !== "interactive" ? "scheduled" : "interactive");
 
 async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: string; file_name?: string; file_size?: number }): Promise<string> {
   if ((doc.file_size || 0) > 400_000) return `[file ${doc.file_name || ""} is too big to read here (${doc.file_size} bytes)]`;
@@ -245,10 +346,13 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
 }
 
 /** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
-async function toolCtx(chatId: number, st: ChatState, db: Db): Promise<ToolCtx & { tier: Tier }> {
+async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null): Promise<ToolCtx & { tier: Tier }> {
   const conn = await resolveConnections(chatId, db);
   return {
     tier: tierFor(chatId),
+    runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
+    chatKey: coderChatKey(chatId),
+    githubToken: conn.github?.token || null,
     gh: conn.github ? githubClient(conn.github.token) : null,
     addNote: (t: string) => {
       st.notes = `${st.notes}\n- ${t}`.trim().slice(-4000);
@@ -276,35 +380,39 @@ async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db:
 }
 
 // ---------------------------------------------------------------- the loop: submit -> poll/stream -> tools (guarded) -> submit … until a final answer
-async function handOff(botRow: BotRow, chatId: number, chain: string): Promise<void> {
-  const body = JSON.stringify({ botId: botRow.id, chatId: String(chatId), chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, String(chatId), chain) });
+async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
+  const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
+  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
   await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000) }).catch(() => null);
 }
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
     const part = renderRange(text, a, b);
-    if (part.trim()) await send(bot, chatId, part);
+    if (part.trim()) {
+      await send(bot, chatId, part);
+      await taskEvent(run.id, "text", part);
+    }
     run.sent = b;
   }
 }
 
-export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS): Promise<void> {
+export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
   let cached: CoderReply | null = null;                 // `chat` already answered within its wait: no extra poll
   for (;;) {
-    const st = await loadState(chatId, db);
+    const st = await loadState(chatId, db, slot);
     const run = st.run;
     if (!run || run.chain !== chain || run.pending) return;
     run.stall = run.stall || newStallState();
     run.lease = Date.now();
     if (left() < 6000) {
-      await saveState(chatId, st, db);
-      await handOff(botRow, chatId, chain);
+      await saveState(chatId, st, db, slot);
+      await handOff(botRow, chatId, chain, slot);
       return;
     }
-    const ctx = await toolCtx(chatId, st, db);
+    const ctx = await toolCtx(chatId, st, db, run);
     const github = Boolean(ctx.gh);
 
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
@@ -317,27 +425,49 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         st.messages.push({ role: "tool", content: skip.skip, tool_call_id: call.id, name: call.function.name });
         await onStall({ pattern: "repeat_call", detail: `${call.function.name} skipped (identical call again)` }, run, chatId, ctx, db);
         run.queued = rest;
-        await saveState(chatId, st, db);
+        await saveState(chatId, st, db, slot);
         continue;
       }
-      const g = await guardCall(call, ctx.gh, ctx.tier);
-      if (g.confirm) {
+      // permissions: tier defaults + the user's own policy (coder_permission_prefs) + "allow for the rest of this task"
+      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), run.allowCats || []);
+      if (g.action === "deny") {
+        await taskEvent(run.id, "auto_denied", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
+        await send(bot, chatId, `⛔ رُفض تلقائياً حسب إعداداتك: ${g.reason}\n${call.function.name}`);
+        st.messages.push({ role: "tool", content: `DENIED by the user's standing policy (${g.denied.join(", ")}); it was NOT executed. Do not retry it; find another way or explain what is needed.`, tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        afterCall(run.stall, call, "denied", run.step);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      if (g.action === "ask") {
         const nonce = randomUUID().slice(0, 6);
-        run.pending = { calls: run.queued, reason: g.reason, summary: g.summary, nonce };
+        run.pending = { calls: run.queued, reason: g.reason, summary: g.summary, nonce, categories: categoriesOf(g.ask), at: Date.now() };
         run.queued = [];
-        await saveState(chatId, st, db);
-        const kb = new InlineKeyboard().text("✅ نفّذ", `ccf|${run.id}|${nonce}|yes`).text("❌ ألغِ", `ccf|${run.id}|${nonce}|no`);
-        await send(bot, chatId, `⚠️ يحتاج تأكيدك: ${g.reason}\n${call.function.name}\n${g.summary}`.slice(0, 3500), { reply_markup: kb });
+        await saveState(chatId, st, db, slot);
+        await taskEvent(run.id, "confirm", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
+        await taskStatus(run.id, "waiting", run.step, db);
+        const kb = new InlineKeyboard().text("✅ نفّذ", `ccf|${run.id}|${nonce}|yes`).text("❌ ألغِ", `ccf|${run.id}|${nonce}|no`).row().text("✅ اسمح لبقية المهمة", `ccf|${run.id}|${nonce}|all`);
+        const head = run.title && run.source !== "interactive" ? `⏰ ${run.title.slice(0, 80)}\n` : "";
+        const m = await bot.api.sendMessage(chatId, `${head}⚠️ يحتاج تأكيدك: ${g.reason}\n${call.function.name}\n${g.summary}`.slice(0, 3500), { reply_markup: kb } as never).catch(() => null);
+        if (m && (m as any).message_id) {
+          const again = await loadState(chatId, db, slot);
+          if (again.run?.pending?.nonce === nonce) {
+            again.run.pending.msgId = (m as any).message_id;
+            await saveState(chatId, again, db, slot);
+          }
+        }
         return;
       }
+      if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
       await send(bot, chatId, toolLabel(call));
+      await taskEvent(run.id, "tool", toolLabel(call), db);
       const out = await runTool(call, ctx);
       st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
       run.queued = rest;
       const seen = afterCall(run.stall, call, out, run.step);
       if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
       if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
-      await saveState(chatId, st, db);
+      await saveState(chatId, st, db, slot);
       continue;
     }
 
@@ -345,7 +475,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     if (run.waitUntil && run.waitUntil > Date.now()) {
       const ms = run.waitUntil - Date.now();
       if (ms > left() - 7000) {
-        await saveState(chatId, st, db);
+        await saveState(chatId, st, db, slot);
         await new Promise((res) => setTimeout(res, Math.max(0, left() - 7000)));
         continue;
       }
@@ -361,7 +491,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       const r: CoderReply | null = o.reply;
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
         if (!r && (o.failure === "timeout" || o.failure === "network")) {
-          await saveState(chatId, st, db);
+          await saveState(chatId, st, db, slot);
           await new Promise((res) => setTimeout(res, pollMs()));
           continue;                                   // a slow / flaky poll is not the end of the job
         }
@@ -372,18 +502,18 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           run.job = undefined;
           run.sent = 0;
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
-          await saveState(chatId, st, db);
+          await saveState(chatId, st, db, slot);
           continue;
         }
-        st.run = null;
-        await saveState(chatId, st, db);
+        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
         if (r?.type !== "cancelled") await send(bot, chatId, coderFailureText(o));
         return;
       }
       const text = r.text || "";
       if (r.type === "pending") {
         await sendParts(bot, chatId, text, run, false);
-        await saveState(chatId, st, db);
+        await saveState(chatId, st, db, slot);
         await bot.api.sendChatAction(chatId, "typing").catch(() => null);
         await new Promise((res) => setTimeout(res, pollMs()));
         continue;
@@ -404,23 +534,23 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           // the only stop: a very high ceiling against runaway compute (CODER_HARD_MAX_STEPS). Not a pause — the task ends and says so.
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `reached CODER_HARD_MAX_STEPS=${HARD_MAX_STEPS}` }, db);
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
-          st.run = null;
-          await saveState(chatId, st, db);
+          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
+          await saveState(chatId, st, db, slot);
           await send(bot, chatId, `⛔ توقفت المهمة عند سقف الأمان (${HARD_MAX_STEPS} خطوة) لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`);
           return;
         }
-        await saveState(chatId, st, db);
+        await saveState(chatId, st, db, slot);
         continue;
       }
       if (!text.trim()) await send(bot, chatId, "(انتهى الرد بلا نص)");
       if (st.inbox.length) {
         for (const m of st.inbox) st.messages.push({ role: "user", content: m });
         st.inbox = [];
-        await saveState(chatId, st, db);
+        await saveState(chatId, st, db, slot);
         continue;
       }
-      st.run = null;
-      await saveState(chatId, st, db);
+      await endRun(st, "done", db, "✓", coderChatKey(chatId));
+      await saveState(chatId, st, db, slot);
       return;
     }
 
@@ -440,13 +570,13 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     const r = o.reply;
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
       run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
-      await saveState(chatId, st, db);
+      await saveState(chatId, st, db, slot);
       await new Promise((res) => setTimeout(res, Math.min(10000, pollMs() * 2 * run.retries!)));
       continue;
     }
     if (!r || !r.job) {
-      st.run = null;
-      await saveState(chatId, st, db);
+      await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
+      await saveState(chatId, st, db, slot);
       await send(bot, chatId, coderFailureText(o));
       return;
     }
@@ -455,19 +585,40 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     if (r.type !== "pending") cached = r;
     if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(bot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
     if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز.");
-    await saveState(chatId, st, db);
+    await saveState(chatId, st, db, slot);
   }
 }
 
 /** /api/coder/continue: the next leg of a long run. */
-export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb): Promise<void> {
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = ""): Promise<void> {
   const { Bot } = await import("grammy");
   const bot = new Bot(botRow.token);
-  const st = await loadState(chatId, db);
+  const st = await loadState(chatId, db, slot);
   if (!st.run || st.run.chain !== chain) return;
   st.run.lease = Date.now();
-  await saveState(chatId, st, db);
-  await drive(bot, botRow, chatId, chain, db);
+  await saveState(chatId, st, db, slot);
+  await drive(bot, botRow, chatId, chain, db, BUDGET_MS, slot);
+}
+
+/**
+ * Starts a scheduled / event-triggered task in its own slot (src/lib/coderSchedules.ts): a fresh run with its own step counter
+ * (the hard ceiling is per run, never cumulative), same permission tiers and policy (context "scheduled"), results to the user's chat.
+ * Returns "started", "busy" (the previous run of this schedule is still going) or "off".
+ */
+export async function startScheduledRun(
+  bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db = prismaDb,
+): Promise<"started" | "busy" | "off"> {
+  if (!coderEnabled()) return "off";
+  const slot = `s:${t.scheduleId}`;
+  const prev = await loadState(chatId, db, slot);
+  if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
+  const main = await loadState(chatId, db);
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, notes: main.notes, tz: main.tz, lang: main.lang, messages: [{ role: "user", content: t.prompt }] };
+  startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
+  await saveState(chatId, st, db, slot);
+  await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
+  return "started";
 }
 
 export { splitForTelegram };
