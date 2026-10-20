@@ -1,0 +1,2 @@
+# Gradio comes from the Studio platform itself (this Studio's sdk_version: 6.29.1, read from the ModelScope API 2026-10-21; tested locally).
+modelscope
