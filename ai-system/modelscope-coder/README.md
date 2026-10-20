@@ -38,28 +38,11 @@ the same reasoning text 3×, or `CODER_STALL_NO_PROGRESS` (12) steps with nothin
 scratch. A 4th identical call is not executed again (its earlier result is returned). CI polling that still shows "in progress" is waiting,
 not looping (the loop waits `CODER_CI_WAIT_MS`, 20 s). Studio hiccups are retried (5×, smaller context on a job error).
 Every loop is logged in `coder_stall_log` (run id, chat hash, step, pattern, level, detail) + Vercel logs `[coder-stall]`; the owner sees
-the latest in the Mini App (Settings → logged loops).
+the latest with `/stalls`.
 
-**Hard ceiling**: `CODER_HARD_MAX_STEPS` (default **400**, minimum 50) counts model steps **since the last real progress** (a new successful
-action or a changed CI result), not total steps — a stall safety net only. Reaching it ends the task with a message and a `hard_ceiling` log
-row; it is not a question to the user.
-
-**Segments (long tasks)**: when a running task's context passes `CODER_SEGMENT_CHARS` (default 75% of `CODER_HISTORY_CHARS`), the model
-writes a progress summary (GOAL / PLAN / DONE / REMAINING / KEY FILES / DECISIONS / NEXT STEP; the harness writes one itself if the model's
-is unusable), it is stored in `coder_task_memory` and the task timeline, the context is reset to request + summary, and the task continues
-in the background in the next segment. The user gets a one-line notice in Telegram and the final result as usual.
-
-**Long-term memory** (`src/lib/coderMemory.ts`, table `coder_memories`): per user (keyed by the user's chat key; no query crosses
-users), kind preference / fact / decision, scope global or one repo, source task. At the end of each task (and on "new conversation") the
-explicit "remember…/تذكّر…" lines are saved and the free coder model proposes durable facts from the user's words and the coder's replies only
-(never tool output, so fetched pages cannot plant memories; credentials are dropped). Saving de-duplicates (same text → refreshed) and a fact on
-the same subject replaces the older one. At the start of a task the most relevant memories (keyword + recency + repo scope, preferences always)
-go into the system prompt. Tools: `memory_save`, `memory_search`, `memory_forget` (a delete → follows the delete confirmation policy).
-Users view, add, edit and delete them in the Mini App (Memory tab). `CODER_MEMORY=off` disables extraction.
-
-**Bot commands**: management lives in the Mini App (persistent menu button + inline web_app button). The chat keeps `/start` and `/stop`;
-other commands (/mode, /perms, /schedule, /memory, /think, /status, …) answer with a button that opens the app on the right tab.
+**Hard ceiling**: `CODER_HARD_MAX_STEPS` (default **400** model steps per task, minimum 50) — only against runaway compute. Reaching it ends
+the task with a message and a `hard_ceiling` log row; it is not a question to the user.
 
 Env: `OPEN_CODER_STUDIO_URL` (required), `MODELSCOPE_API_TOKEN` / `OPEN_CODER_STUDIO_TOKEN`, `CODER_GITHUB_TOKEN`, `CODER_TOKEN_KEY` (for
-linked user tokens), optional `CODER_HARD_MAX_STEPS`, `CODER_STALL_REPEAT`, `CODER_STALL_NO_PROGRESS`, `CODER_CI_WAIT_MS`, `CODER_HISTORY_CHARS`, `CODER_SEGMENT_CHARS`,
+linked user tokens), optional `CODER_HARD_MAX_STEPS`, `CODER_STALL_REPEAT`, `CODER_STALL_NO_PROGRESS`, `CODER_CI_WAIT_MS`, `CODER_HISTORY_CHARS`,
 `CODER_DEFAULT_MODE`, `CODER_SELF_URL`, `OPEN_CODER_API_PREFIX`.

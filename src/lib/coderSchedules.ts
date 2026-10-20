@@ -79,6 +79,13 @@ export async function createSchedule(chatId: number | string, botId: string, n: 
   const v = validate(n);
   if (!v.ok) return v;
   await ensureTable(db);
+  {
+    // plan limit: number of scheduled tasks (the owner has none)
+    const { checkLimit, limitMessage } = await import("@/lib/coderPlans");
+    const count = (await listSchedules(chatId, db)).length;
+    const c = await checkLimit(chatId, "schedules", 1, db, count);
+    if (!c.ok) return { ok: false, error: limitMessage(c) };
+  }
   const id = randomUUID().replace(/-/g, "").slice(0, 12);
   const title = (String(n.title || "").trim() || String(n.prompt).trim().split("\n")[0]).slice(0, 120);
   const next = v.cron ? nextRun(v.cron, v.tz, now) : null;

@@ -7,7 +7,6 @@
 // job, sending finished parts (< 4096 chars each) as they come. Before the 60 s function limit it hands itself to /api/coder/continue
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
-import { after } from "next/server";
 import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
@@ -16,6 +15,7 @@ import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, code
 import { coderSystemPrompt, coderTools, githubClient, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
+import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskSlot, taskStart, taskStatus, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 
@@ -107,14 +107,9 @@ export function appUrl(): string {
   return (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
 }
 
-/** after() keeps the work alive once the webhook has answered Telegram; outside a request (tests) it just runs. */
-export function later(fn: () => Promise<unknown>): void {
-  try {
-    after(fn);
-  } catch {
-    void fn().catch(() => null);
-  }
-}
+/** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
+export { later } from "@/lib/coderRuntime";
+import { later } from "@/lib/coderRuntime";
 
 // ---------------------------------------------------------------- texts and keyboards
 const WELCOME =
@@ -225,6 +220,15 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, st.run.pending ? "📥 وصلت رسالتك؛ المهمة تنتظر تأكيدك على الزر أعلاه." : "📥 وصلت رسالتك؛ سأضيفها للمهمة الجارية في الخطوة التالية.");
     return true;
   }
+  if (!st.run) {
+    // plan limit: tasks per rolling week (the owner has none)
+    const lim = await checkLimit(chatId, "tasks", 1, db);
+    if (!lim.ok) {
+      await sendLimit(bot, chatId, lim, st.tz);
+      return true;
+    }
+    await addUsage(chatId, "tasks", 1, db);
+  }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
   startChain(botRow, chatId, st, {}, db);
@@ -232,6 +236,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return true;
+}
+
+/** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */
+async function sendLimit(bot: TelegramBot, chatId: number, c: Exclude<LimitCheck, { ok: true }>, tz?: string, prefix = ""): Promise<void> {
+  await send(bot, chatId, prefix + limitMessage(c, tz || "UTC"), { reply_markup: new InlineKeyboard().webApp("⬆️ الترقية والاستخدام", `${appUrl()}?tab=plans`) });
 }
 
 /** The inline button that opens the Mini App (optionally on one tab). */
@@ -543,6 +552,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         continue;
       }
       // done
+      await addUsage(chatId, "tokens", estimateTokens(text + JSON.stringify(r.tool_calls || [])), db);
       if (run.compacting) {
         // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
         run.job = undefined;
@@ -612,14 +622,28 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       st.messages.push({ role: "user", content: run.recovery });       // the reflection / re-plan step after a detected loop
       run.recovery = undefined;
     }
+    {
+      // plan limits per model step: steps and model tokens (rolling week; the owner has none). Reached = the task ends gracefully.
+      const lim = (await checkLimit(chatId, "steps", 1, db)) as LimitCheck;
+      const limT = lim.ok ? await checkLimit(chatId, "tokens", 1, db) : lim;
+      const hit = !lim.ok ? lim : !limT.ok ? limT : null;
+      if (hit) {
+        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
+        await sendLimit(bot, chatId, hit, st.tz, run.title && run.slot ? `${run.title}: ` : "");
+        return;
+      }
+    }
     const knobs = recoveryKnobs(run.stall);
     if (run.memory === undefined) {
       // relevant long-term memories, once per task (keyword + recency + repo scope)
       const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
       run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
     }
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
+    await addUsage(chatId, "steps", 1, db);
+    await addUsage(chatId, "tokens", estimateTokens(messages.map((m) => m.content || "").join("\n")), db);
     const o = await coderChat(messages, { tools: coderTools(github), think: st.think || knobs.think, temperature: knobs.temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const r = o.reply;
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
@@ -682,12 +706,18 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
  */
 export async function startScheduledRun(
   bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db = prismaDb,
-): Promise<"started" | "busy" | "off"> {
+): Promise<"started" | "busy" | "off" | "limited"> {
   if (!coderEnabled()) return "off";
   const slot = `s:${t.scheduleId}`;
   const prev = await loadState(chatId, db, slot);
   if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
   const main = await loadState(chatId, db);
+  const lim = await checkLimit(chatId, "tasks", 1, db);
+  if (!lim.ok) {
+    await sendLimit(bot, chatId, lim, main.tz, `⏰ ${t.title}: `);
+    return "limited";
+  }
+  await addUsage(chatId, "tasks", 1, db);
   const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
   startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
   await saveState(chatId, st, db, slot);

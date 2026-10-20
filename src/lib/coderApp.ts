@@ -193,6 +193,32 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await deleteConnection(chatId, "github", db);
       return { ok: true };
     }
+    case "plans": {
+      // plans + this user's usage (rolling week); the owner also gets the admin view
+      const { listPlans, usageSummary, METRIC_LABEL } = await import("@/lib/coderPlans");
+      const count = (await listSchedules(chatId, db)).length;
+      const usage = await usageSummary(chatId, db, Date.now(), { schedules: count });
+      return { plans: (await listPlans(db)).filter((p) => p.active || user.tier === "owner"), usage, labels: METRIC_LABEL, payments: false };
+    }
+    case "plan_update": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { upsertPlan } = await import("@/lib/coderPlans");
+      try {
+        return { plan: await upsertPlan({ id: String(body.id || ""), name: body.name, price_label: body.price_label, price_cents: body.price_cents, currency: body.currency, limits: body.limits, sort: body.sort, active: body.active }, db) };
+      } catch (e) {
+        throw new AppError(400, String((e as Error).message));
+      }
+    }
+    case "plan_assign": {
+      // manual assignment by the owner (until a payment provider exists): Telegram user id, plan, days (0 = no end)
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { listPlans, setSubscription } = await import("@/lib/coderPlans");
+      const target = Number(body.userId);
+      if (!Number.isSafeInteger(target) || target <= 0) throw new AppError(400, "bad user id");
+      if (!(await listPlans(db)).some((p) => p.id === body.planId)) throw new AppError(400, "no such plan");
+      await setSubscription(target, String(body.planId), Number(body.days) || null, "manual", db);
+      return { ok: true };
+    }
     case "memories": {
       const { listMemories } = await import("@/lib/coderMemory");
       return { memories: (await listMemories(chatId, db)).map(({ id, scope, kind, text, source_run, created_at, updated_at }) => ({ id, scope, kind, text, source_run, created_at, updated_at })) };
@@ -219,8 +245,11 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok: true };
     }
     case "status": {
-      const { coderStatus } = await import("@/lib/openCoderStudio");
-      return { status: await coderStatus().catch(() => null) };
+      // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
+      const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
+      const { sandboxHealth } = await import("@/lib/coderSandbox");
+      const { searchHealth } = await import("@/lib/coderWeb");
+      return { status: await coderStatus().catch(() => null), studios: coderStudioUrls().length, sandbox: sandboxHealth(), search: searchHealth() };
     }
     case "stalls": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");

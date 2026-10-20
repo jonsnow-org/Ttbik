@@ -6,7 +6,7 @@ const ar = {
   conversation: "المحادثة", newConversation: "محادثة جديدة", newConversationHint: "يبدأ من جديد؛ الإعدادات والذاكرة تبقى.", started: "بدأت محادثة جديدة", server: "خادم المبرمج", check: "فحص", stalls: "الحلقات المسجّلة (للمالك)", noStalls: "لا حلقات مسجّلة.",
   live: "جارية الآن", history: "السجل", noTasks: "لا مهام بعد. اكتب طلبك للبوت وسيظهر هنا خطوة بخطوة.", loadMore: "عرض الأقدم",
   needsYou: "بانتظار تأكيدك", approve: "نفّذ", approveAll: "اسمح لبقية المهمة", deny: "ألغِ", stop: "إيقاف",
-  steps: "خطوة", status_running: "تعمل", status_waiting: "تنتظرك", status_done: "انتهت", status_failed: "فشلت", status_stopped: "أوقفت", status_ceiling: "بلغت السقف",
+  steps: "خطوة", status_running: "تعمل", status_waiting: "تنتظرك", status_done: "انتهت", status_failed: "فشلت", status_stopped: "أوقفت", status_ceiling: "بلغت السقف", status_limited: "بلغت حد الخطة",
   src_interactive: "محادثة", src_scheduled: "مجدولة", src_event: "حدث",
   ev_start: "الطلب", ev_text: "رد", ev_tool: "أداة", ev_confirm: "طلب تأكيد", ev_approved: "أُكّد", ev_declined: "رُفض", ev_auto_allowed: "سُمح تلقائياً", ev_auto_denied: "رُفض تلقائياً", ev_stall: "تصحيح مسار", ev_segment: "مرحلة جديدة (ملخّص التقدّم)", ev_done: "تم", ev_failed: "خطأ", ev_info: "ملاحظة",
   schedules: "المهام المجدولة", newSchedule: "مهمة جديدة", noSchedules: "لا مهام مجدولة. أنشئ مهمة تتكرر أو تعمل عند حدث في مستودعك.",
@@ -22,6 +22,7 @@ const ar = {
   scopeRule: "قاعدة لنطاق", anyRepo: "كل المستودعات", anyContext: "كل السياقات", interactive: "المحادثة", scheduled: "المجدولة", add: "إضافة", rules: "القواعد الخاصة",
   tierOwner: "المالك", tierUser: "مستخدم", error: "حدث خطأ", retry: "إعادة المحاولة", openInTelegram: "افتح التطبيق من داخل تيليجرام (زر «المبرمج» في قائمة البوت).", saved: "حُفظ",
   justNow: "الآن", min: "د", hr: "س", day: "ي",
+  plans: "الخطة والاستخدام", plansHint: "الحدود أسبوعية متجددة: كل استخدام يعود بعد ٧ أيام من وقته.", unlimited: "بلا حدود", currentPlan: "خطتك", nextRelief: "أول تجدّد", paymentsSoon: "الدفع داخل التطبيق قريباً — تواصل مع المالك للترقية.", adminPlans: "إدارة الخطط (للمالك)", priceLabel: "السعر المعروض", assignPlan: "تعيين خطة لمستخدم", userId: "معرّف تيليجرام", planDays: "أيام (0 = دائم)", assign: "تعيين",
 };
 const en: typeof ar = {
   brand: "Coder", tagline: "Your coding agent in Telegram",
@@ -30,7 +31,7 @@ const en: typeof ar = {
   conversation: "Conversation", newConversation: "New conversation", newConversationHint: "Starts fresh; settings and memory stay.", started: "New conversation started", server: "Coder server", check: "Check", stalls: "Logged loops (owner)", noStalls: "No loops logged.",
   live: "Live now", history: "History", noTasks: "No tasks yet. Message the bot and it appears here step by step.", loadMore: "Load older",
   needsYou: "Waiting for you", approve: "Run it", approveAll: "Allow for this task", deny: "Cancel", stop: "Stop",
-  steps: "steps", status_running: "Running", status_waiting: "Needs you", status_done: "Done", status_failed: "Failed", status_stopped: "Stopped", status_ceiling: "Hit ceiling",
+  steps: "steps", status_running: "Running", status_waiting: "Needs you", status_done: "Done", status_failed: "Failed", status_stopped: "Stopped", status_ceiling: "Hit ceiling", status_limited: "Plan limit",
   src_interactive: "Chat", src_scheduled: "Scheduled", src_event: "Event",
   ev_start: "Request", ev_text: "Reply", ev_tool: "Tool", ev_confirm: "Confirmation", ev_approved: "Approved", ev_declined: "Declined", ev_auto_allowed: "Auto-allowed", ev_auto_denied: "Auto-denied", ev_stall: "Course correction", ev_segment: "New segment (progress summary)", ev_done: "Done", ev_failed: "Error", ev_info: "Note",
   schedules: "Scheduled tasks", newSchedule: "New task", noSchedules: "No scheduled tasks. Create one that repeats or runs on a repo event.",
@@ -46,6 +47,7 @@ const en: typeof ar = {
   scopeRule: "Scoped rule", anyRepo: "Any repo", anyContext: "Any context", interactive: "Chat", scheduled: "Scheduled", add: "Add", rules: "Scoped rules",
   tierOwner: "Owner", tierUser: "User", error: "Something went wrong", retry: "Retry", openInTelegram: "Open this app from inside Telegram (the bot's “Coder” menu button).", saved: "Saved",
   justNow: "now", min: "m", hr: "h", day: "d",
+  plans: "Plan & usage", plansHint: "Limits are a rolling week: each use comes back 7 days after it happened.", unlimited: "Unlimited", currentPlan: "Your plan", nextRelief: "Next relief", paymentsSoon: "In-app payment is coming — contact the owner to upgrade.", adminPlans: "Manage plans (owner)", priceLabel: "Shown price", assignPlan: "Assign a plan to a user", userId: "Telegram user id", planDays: "Days (0 = no end)", assign: "Assign",
 };
 export const STR = { ar, en };
 export type Str = typeof ar;

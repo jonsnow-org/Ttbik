@@ -497,6 +497,7 @@ function SettingsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: Lang; relo
         <div className="space-y-2 p-4"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.language}</div><Seg label={t.language} value={lang} onChange={(v) => set({ lang: v })} options={[{ v: "ar", l: "العربية" }, { v: "en", l: "English" }]} /></div>
         <div className="flex items-center justify-between gap-3 p-4"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.tz}</div><span className="font-mono text-[13px] text-[var(--c-hint)]" dir="ltr">{me.settings.tz || "—"}</span></div>
       </Card>
+      <PlansCard t={t} lang={lang} me={me} />
       <ExtrasCard t={t} me={me} />
       <Card className="p-4">
         <div className="text-[15px] font-bold text-[var(--c-text)]">🔐 {t.perms}</div>
@@ -601,6 +602,61 @@ function MemoryTab({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
 }
 
 // ---------------------------------------------------------------- conversation, server, loops (settings extras)
+type PlanRow = { id: string; name: { ar: string; en: string }; price_label: string; limits: Record<string, number>; sort: number; active: boolean };
+type Usage = { plan: PlanRow; unlimited: boolean; metrics: { metric: string; used: number; limit: number; nextRelief: string | null }[] };
+function PlansCard({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
+  const [d, setD] = useState<{ plans: PlanRow[]; usage: Usage; labels: Record<string, { ar: string; en: string }> } | null>(null);
+  const [err, setErr] = useState("");
+  const [assign, setAssign] = useState({ userId: "", planId: "plus", days: "30" });
+  const [note, setNote] = useState("");
+  const load = useCallback(() => api("plans").then(setD).catch((e) => setErr(e.message)), []);
+  useEffect(() => { void load(); }, [load]);
+  const field = "rounded-xl bg-[var(--c-sunken)] px-3 py-2 text-[14px] text-[var(--c-text)] outline-none";
+  if (err) return <Card className="p-4 text-[13px] text-[var(--c-hint)]">{t.plans}: {err}</Card>;
+  if (!d) return <Skel className="h-40" />;
+  return (
+    <Card id="plans" className="space-y-3 p-4">
+      <div className="flex items-baseline justify-between gap-2"><div className="text-[15px] font-bold text-[var(--c-text)]">📊 {t.plans}</div><span className="rounded-full bg-[var(--c-accent-soft)] px-2.5 py-0.5 text-[12px] font-bold text-[var(--c-accent-ink)]">{d.usage.unlimited ? t.unlimited : d.usage.plan.name[lang]}</span></div>
+      <p className="text-[12px] leading-5 text-[var(--c-hint)]">{t.plansHint}</p>
+      {d.usage.metrics.map((m) => {
+        const pct = m.limit < 0 ? 0 : m.limit === 0 ? 100 : Math.min(100, Math.round((m.used / m.limit) * 100));
+        return (
+          <div key={m.metric} className="space-y-1">
+            <div className="flex justify-between text-[13px]"><span className="text-[var(--c-text)]">{d.labels[m.metric]?.[lang] || m.metric}</span><span className="font-mono text-[var(--c-hint)]" dir="ltr">{m.used}{m.limit >= 0 ? ` / ${m.limit}` : " / ∞"}</span></div>
+            <div className="h-2 overflow-hidden rounded-full bg-[var(--c-sunken)]" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={d.labels[m.metric]?.[lang] || m.metric}>
+              <div className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-[var(--c-danger)]" : pct >= 70 ? "bg-[var(--c-warn)]" : "bg-[var(--c-accent)]"}`} style={{ width: `${pct}%` }} />
+            </div>
+            {m.nextRelief && m.limit >= 0 && <div className="text-[11px] text-[var(--c-hint)]">{t.nextRelief}: {fmtTime(m.nextRelief, me.settings.tz, lang)}</div>}
+          </div>
+        );
+      })}
+      <div className="grid gap-2 pt-1">
+        {d.plans.map((p) => (
+          <div key={p.id} className={`flex items-center justify-between rounded-xl px-3 py-2 ring-1 ${p.id === d.usage.plan.id ? "ring-[var(--c-accent)]" : "ring-[var(--c-line)]"}`}>
+            <span className="text-[14px] font-semibold text-[var(--c-text)]">{p.name[lang]}{!p.active && " ·  ⏸"}</span>
+            {me.tier === "owner" ? (
+              <input className={`${field} w-28 py-1 text-end`} defaultValue={p.price_label} aria-label={t.priceLabel} onBlur={async (e) => { if (e.target.value !== p.price_label) { await api("plan_update", { id: p.id, price_label: e.target.value }); haptic("success"); void load(); } }} />
+            ) : <span className="text-[13px] text-[var(--c-hint)]">{p.price_label}</span>}
+          </div>
+        ))}
+      </div>
+      <p className="text-[12px] text-[var(--c-hint)]">{t.paymentsSoon}</p>
+      {me.tier === "owner" && (
+        <div className="space-y-2 border-t border-[var(--c-line)] pt-3">
+          <div className="text-[13px] font-bold text-[var(--c-text)]">{t.assignPlan}</div>
+          <div className="grid grid-cols-3 gap-2">
+            <input className={`${field} font-mono`} dir="ltr" inputMode="numeric" placeholder={t.userId} aria-label={t.userId} value={assign.userId} onChange={(e) => setAssign({ ...assign, userId: e.target.value })} />
+            <select className={field} aria-label={t.currentPlan} value={assign.planId} onChange={(e) => setAssign({ ...assign, planId: e.target.value })}>{d.plans.map((p) => <option key={p.id} value={p.id}>{p.name[lang]}</option>)}</select>
+            <input className={`${field} font-mono`} dir="ltr" inputMode="numeric" aria-label={t.planDays} placeholder={t.planDays} value={assign.days} onChange={(e) => setAssign({ ...assign, days: e.target.value })} />
+          </div>
+          <Btn kind="soft" className="w-full" onClick={async () => { try { await api("plan_assign", assign); haptic("success"); setNote(t.saved); } catch (e: any) { haptic("error"); setNote(e.message); } }}>{t.assign}</Btn>
+          {note && <div className="text-[12px] text-[var(--c-hint)]">{note}</div>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ExtrasCard({ t, me }: { t: Str; me: Me }) {
   const [msg, setMsg] = useState("");
   const [status, setStatus] = useState<string>("");
@@ -613,7 +669,7 @@ function ExtrasCard({ t, me }: { t: Str; me: Me }) {
         <Btn kind="soft" onClick={async () => { await api("new_conversation"); haptic("success"); setMsg(t.started); }}>🆕</Btn>
       </div>
       <div className="space-y-2 p-4">
-        <div className="flex items-center justify-between gap-3"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.server}</div><Btn kind="ghost" onClick={async () => { const d = await api<{ status: unknown }>("status"); setStatus(d.status ? JSON.stringify(d.status, null, 1) : "—"); }}>{t.check}</Btn></div>
+        <div className="flex items-center justify-between gap-3"><div className="text-[14px] font-bold text-[var(--c-text)]">{t.server}</div><Btn kind="ghost" onClick={async () => { const d = await api<Record<string, unknown>>("status"); setStatus(JSON.stringify(d, null, 1)); }}>{t.check}</Btn></div>
         {status && <pre className="max-h-40 overflow-auto rounded-xl bg-[var(--c-sunken)] p-3 text-[11px] leading-5 text-[var(--c-text)]" dir="ltr">{status}</pre>}
       </div>
       {me.tier === "owner" && (
@@ -645,6 +701,7 @@ export default function CoderApp() {
     // the bot opens the app on a tab: ?tab=… (inline button) or the start parameter
     if (typeof window === "undefined") return "tasks";
     const want = new URLSearchParams(window.location.search).get("tab") || tg()?.initDataUnsafe?.start_param || "";
+    if (want === "plans") return "settings";                                            // the plans card lives at the top of settings
     return (TABS.some((x) => x.id === want) ? want : "tasks") as Tab;
   });
   const [me, setMe] = useState<Me | null>(null);

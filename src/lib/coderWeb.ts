@@ -156,12 +156,68 @@ export function parseDdg(html: string): SearchHit[] {
   return out;
 }
 
-type Provider = { name: string; url: (q: string, lang: string) => string; parse: (html: string) => SearchHit[] };
-const PROVIDERS: Provider[] = [
-  { name: "brave", url: (q) => `https://search.brave.com/search?q=${encodeURIComponent(q)}&source=web`, parse: parseBrave },
-  { name: "bing", url: (q, lang) => `https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=${lang}&count=15`, parse: parseBing },
-  { name: "duckduckgo", url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, parse: parseDdg },
-];
+export function parseSearx(json: string): SearchHit[] {
+  try {
+    const d = JSON.parse(json);
+    return (Array.isArray(d?.results) ? d.results : [])
+      .filter((x: any) => /^https?:\/\//.test(String(x?.url || "")))
+      .map((x: any) => ({ title: stripTags(String(x.title || "")), url: String(x.url), snippet: stripTags(String(x.content || "")), source: "searxng" }));
+  } catch {
+    return [];
+  }
+}
+export function parseDdgLite(html: string): SearchHit[] {
+  const out: SearchHit[] = [];
+  const rx = /<a[^>]+href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>[\s\S]*?class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/g;
+  for (let m; (m = rx.exec(html)); ) {
+    let url = decodeEntities(m[1]);
+    const uddg = url.match(/[?&]uddg=([^&]+)/)?.[1];
+    if (uddg) url = decodeURIComponent(uddg);
+    if (url.startsWith("//")) url = "https:" + url;
+    if (/^https?:\/\//.test(url) && !/duckduckgo\.com\//.test(url)) out.push({ title: stripTags(m[2]), url, snippet: stripTags(m[3]), source: "duckduckgo" });
+  }
+  return out;
+}
+
+type Provider = { name: string; tier: "primary" | "backup"; url: (q: string, lang: string) => string; parse: (html: string) => SearchHit[]; accept?: string };
+/** Free engines, no keys. Primaries are asked together; backups only when the primaries left too little (or are cooling down).
+ *  Optional: CODER_SEARXNG_URLS = comma list of SearXNG instances with the JSON format enabled (e.g. self-hosted on free compute). */
+export function providers(): Provider[] {
+  const list: Provider[] = [
+    { name: "brave", tier: "primary", url: (q) => `https://search.brave.com/search?q=${encodeURIComponent(q)}&source=web`, parse: parseBrave },
+    { name: "bing", tier: "primary", url: (q, lang) => `https://www.bing.com/search?q=${encodeURIComponent(q)}&setlang=${lang}&count=15`, parse: parseBing },
+    { name: "duckduckgo", tier: "primary", url: (q) => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, parse: parseDdg },
+    { name: "duckduckgo-lite", tier: "backup", url: (q) => `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(q)}`, parse: parseDdgLite },
+  ];
+  (process.env.CODER_SEARXNG_URLS || "")
+    .split(",")
+    .map((x) => x.trim().replace(/\/+$/, ""))
+    .filter((x) => /^https:\/\//.test(x))
+    .slice(0, 3)
+    .forEach((base, i) => list.push({ name: `searxng${i + 1}`, tier: "backup", url: (q, lang) => `${base}/search?q=${encodeURIComponent(q)}&format=json&language=${lang}`, parse: parseSearx, accept: "application/json" }));
+  return list;
+}
+
+// health: an engine that failed twice in a row (error, block page, captcha, off-topic answers) rests for a while (per server instance)
+const health = new Map<string, { fails: number; until: number; ok: number }>();
+const REST_MS = 10 * 60000;
+function mark(name: string, good: boolean): void {
+  const h = health.get(name) || { fails: 0, until: 0, ok: 0 };
+  if (good) Object.assign(h, { fails: 0, until: 0, ok: Date.now() });
+  else if (++h.fails >= 2) h.until = Date.now() + REST_MS * Math.min(4, h.fails - 1);
+  health.set(name, h);
+}
+const resting = (name: string, now = Date.now()) => (health.get(name)?.until || 0) > now;
+export function searchHealth(now = Date.now()): { name: string; tier: string; ok: boolean; restingUntil: number | null; lastOk: number | null }[] {
+  const rows = providers().map((p) => ({ name: p.name, tier: p.tier, ok: !resting(p.name, now), restingUntil: resting(p.name, now) ? health.get(p.name)!.until : null, lastOk: health.get(p.name)?.ok || null }));
+  rows.push({ name: "wikipedia", tier: "backup", ok: !resting("wikipedia", now), restingUntil: resting("wikipedia", now) ? health.get("wikipedia")!.until : null, lastOk: health.get("wikipedia")?.ok || null });
+  return rows;
+}
+/** Tests. */
+export function resetSearchHealth(): void {
+  health.clear();
+  nextSlot.clear();
+}
 
 async function wikipedia(q: string, lang: string, o: FetchOpts): Promise<SearchHit[]> {
   const l = /^[a-z]{2}$/.test(lang) ? lang : "en";
@@ -211,21 +267,37 @@ export async function webSearch(query: string, opts: FetchOpts & { limit?: numbe
   const lang = opts.lang || langOf(q);
   const limit = Math.max(1, Math.min(20, opts.limit || 8));
   const tried: string[] = [];
-  const lists = await Promise.all(
-    PROVIDERS.map(async (p) => {
-      try {
-        await spaced(p.name);
-        const r = await safeGet(p.url(q, lang), { ...opts, timeoutMs: opts.timeoutMs || 9000 });
-        const got = r.status === 200 ? p.parse(r.body) : [];
-        const rel = relevance(q, got);
-        tried.push(`${p.name}:${r.status}/${got.length}${got.length ? `@${rel.toFixed(1)}` : ""}`);
-        return rel >= 0.3 ? got : [];
-      } catch (e) {
-        tried.push(`${p.name}:error(${String((e as Error)?.message || e).slice(0, 60)})`);
-        return [];
-      }
-    }),
-  );
+  const ask = (list: Provider[]) =>
+    Promise.all(
+      list.map(async (p) => {
+        try {
+          await spaced(p.name);
+          const r = await safeGet(p.url(q, lang), { ...opts, timeoutMs: opts.timeoutMs || 9000, ...(p.accept ? { accept: p.accept } : {}) });
+          const got = r.status === 200 ? p.parse(r.body) : [];
+          const rel = relevance(q, got);
+          tried.push(`${p.name}:${r.status}/${got.length}${got.length ? `@${rel.toFixed(1)}` : ""}`);
+          mark(p.name, got.length > 0 && rel >= 0.3);
+          return rel >= 0.3 ? got : [];
+        } catch (e) {
+          tried.push(`${p.name}:error(${String((e as Error)?.message || e).slice(0, 60)})`);
+          mark(p.name, false);
+          return [];
+        }
+      }),
+    );
+  const all = providers();
+  const now = Date.now();
+  const up = all.filter((p) => !resting(p.name, now));
+  const primaries = up.filter((p) => p.tier === "primary");
+  const backups = up.filter((p) => p.tier === "backup");
+  for (const p of all) if (resting(p.name, now)) tried.push(`${p.name}:resting`);
+  // every engine resting = try them all anyway (better a slow answer than none)
+  const first = primaries.length ? primaries : backups.length ? backups : all;
+  const lists = await ask(first);
+  if (lists.flat().length < 3 && first !== all) {
+    const rest = (first === primaries ? backups : []).filter((p) => !first.includes(p));
+    if (rest.length) lists.push(...(await ask(rest)));
+  }
   const seen = new Set<string>();
   const hits: SearchHit[] = [];
   const add = (h: SearchHit) => {
@@ -237,9 +309,12 @@ export async function webSearch(query: string, opts: FetchOpts & { limit?: numbe
   for (let i = 0; i < 20; i++) for (const l of lists) if (l[i]) add(l[i]);
   if (hits.length < 3) {
     try {
-      (await wikipedia(q, lang, opts)).forEach(add);
+      const w = await wikipedia(q, lang, opts);
+      w.forEach(add);
+      mark("wikipedia", w.length > 0);
       tried.push("wikipedia");
     } catch {
+      mark("wikipedia", false);
       tried.push("wikipedia:error");
     }
   }

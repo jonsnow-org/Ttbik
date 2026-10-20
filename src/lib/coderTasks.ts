@@ -4,7 +4,7 @@
 // Rows are keyed by the salted chat hash; titles/texts are the user's own task text and the bot's visible messages, capped.
 import { coderChatKey, prismaDb, type Db } from "@/lib/coderAuth";
 
-export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling";
+export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling" | "limited";
 export type TaskSource = "interactive" | "scheduled" | "event";
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {

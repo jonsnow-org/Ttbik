@@ -126,12 +126,14 @@ describe("sandbox", () => {
     expect(await runSandboxTool("sandbox_exec", { command: "pytest tests/test_tornado.py" }, ctx)).toMatch(/exit code 0/);
   });
   it("explains a used-up free allowance or missing credentials instead of failing silently", async () => {
+    process.env.CODER_LIGHT = "off";                                   // (with it on, the light runner takes over: coderFailover.test.ts)
     setSandboxDriver({ get: async () => null, create: async () => { throw new Error("Sandbox creation paused: usage limit exceeded"); } });
     expect(await runSandboxTool("sandbox_exec", { command: "ls" }, ctx)).toMatch(/free sandbox allowance/);
     setSandboxDriver({ get: async () => null, create: async () => { throw new Error("Missing OIDC token"); } });
     expect(await runSandboxTool("sandbox_exec", { command: "ls" }, ctx)).toMatch(/not available on this deployment/);
     process.env.CODER_SANDBOX = "off";
     expect(await runSandboxTool("sandbox_exec", { command: "ls" }, ctx)).toMatch(/switched off/);
+    delete process.env.CODER_LIGHT;
   });
   it("scrubs tokens of any shape", () => {
     expect(scrub("a ghp_abcdefghijklmnopqrstuvwxyz b github_pat_11ABCDEFGHIJKLMNOPQRSTUV_x c https://x-access-token:zzz@github.com", ["mysecretvalue"])).toBe("a *** b *** c https://x-access-token:***@github.com");

@@ -30,6 +30,19 @@ export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeou
 export function coderStudioUrl(): string {
   return (process.env.OPEN_CODER_STUDIO_URL || "").trim().replace(/\/+$/, "");
 }
+/** Primary Studio + optional replicas (OPEN_CODER_STUDIO_URLS, comma list): a new completion goes to the first healthy one; a job
+ *  stays on the Studio that took it (job ids from a replica carry its index: "s<i>~<id>"). */
+export function coderStudioUrls(): string[] {
+  const extra = (process.env.OPEN_CODER_STUDIO_URLS || "").split(",").map((x) => x.trim().replace(/\/+$/, "")).filter(Boolean);
+  const first = coderStudioUrl();
+  return first ? [first, ...extra.filter((x) => x !== first)] : [];
+}
+const studioCooling = new Map<string, number>();                       // base -> skip until (after a failure), per server instance
+const COOL_MS = 60000;
+export function splitJob(job: string): { idx: number; id: string } {
+  const m = /^s(\d+)~(.+)$/.exec(job || "");
+  return m ? { idx: Number(m[1]), id: m[2] } : { idx: 0, id: job };
+}
 export function coderEnabled(): boolean {
   return Boolean(coderStudioUrl());
 }
@@ -56,8 +69,34 @@ export function parseCoderSse(body: string): CoderReply | null {
 }
 
 export async function coderCall(api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
-  const base = coderStudioUrl();
-  if (!base) return { reply: null, failure: "off" };
+  const bases = coderStudioUrls();
+  if (!bases.length) return { reply: null, failure: "off" };
+  if (typeof payload.job_id === "string") {
+    // a job lives on one Studio
+    const { idx, id } = splitJob(payload.job_id);
+    const o = await callOne(bases[idx] || bases[0], api, { ...payload, job_id: id }, timeoutMs);
+    return idx ? tagJob(o, idx) : o;
+  }
+  // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
+  const now = Date.now();
+  const order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
+  let last: CoderOutcome = { reply: null, failure: "network" };
+  const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
+  for (const { b, i } of order.slice(0, 2)) {
+    last = await callOne(b, api, payload, per);
+    if (last.reply) {
+      studioCooling.delete(b);
+      return i ? tagJob(last, i) : last;
+    }
+    studioCooling.set(b, Date.now() + COOL_MS);
+  }
+  return last;
+}
+function tagJob(o: CoderOutcome, idx: number): CoderOutcome {
+  return o.reply?.job ? { ...o, reply: { ...o.reply, job: `s${idx}~${o.reply.job}` } } : o;
+}
+
+async function callOne(base: string, api: string, payload: Record<string, unknown>, timeoutMs: number): Promise<CoderOutcome> {
   const name = apiName(api);
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tok = coderToken();

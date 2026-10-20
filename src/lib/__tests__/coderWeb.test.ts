@@ -1,4 +1,6 @@
-import { checkUrl, decodeEntities, deepResearch, fetchPage, formatResearch, htmlToMarkdown, parseBing, parseBrave, parseDdg, passages, planQueries, privateIp, relevance, safeGet, webSearch } from "@/lib/coderWeb";
+import { checkUrl, decodeEntities, deepResearch, fetchPage, formatResearch, htmlToMarkdown, parseBing, parseBrave, parseDdg, passages, planQueries, privateIp, relevance, resetSearchHealth, safeGet, searchHealth, webSearch, parseDdgLite, parseSearx } from "@/lib/coderWeb";
+
+beforeEach(() => resetSearchHealth());
 import { runTool } from "@/lib/coderAgent";
 
 const PUBLIC = async () => ["93.184.216.34"];
@@ -171,5 +173,37 @@ describe("deep research", () => {
     expect(await runTool({ id: "1", type: "function", function: { name: "web_fetch", arguments: JSON.stringify({ url: "http://127.0.0.1/" }) } }, ctx)).toMatch(/^error: could not read/);
     expect(await runTool({ id: "2", type: "function", function: { name: "web_search", arguments: "{}" } }, ctx)).toMatch(/query is required/);
     expect(await runTool({ id: "3", type: "function", function: { name: "deep_research", arguments: "{}" } }, ctx)).toMatch(/question is required/);
+  });
+});
+
+describe("search failover", () => {
+  const html = (body: string, status = 200) => new Response(body, { status, headers: { "content-type": "text/html" } });
+  it("rests an engine after two failures, uses the backups when the primaries leave too little, and reports health", async () => {
+    const calls: string[] = [];
+    const lite = `<table><tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=${encodeURIComponent("https://vitejs.dev/guide/")}" class='result-link'>Vite guide config</a></td></tr><tr><td class='result-snippet'>Vite guide: config options for vite</td></tr></table>`;
+    const f = (async (u: any) => {
+      const url = String(u);
+      calls.push(url);
+      if (url.includes("lite.duckduckgo.com")) return html(lite);
+      if (url.includes("searx.example")) return new Response(JSON.stringify({ results: [{ url: "https://vitejs.dev/config/", title: "Vite config", content: "vite config reference" }] }), { status: 200, headers: { "content-type": "application/json" } });
+      return html("blocked", 429);
+    }) as typeof fetch;
+    process.env.CODER_SEARXNG_URLS = "https://searx.example";
+    for (let i = 0; i < 2; i++) {
+      const r = await webSearch("vite config guide", { fetchImpl: f, resolve: PUBLIC });
+      expect(r.hits.map((h) => h.url)).toEqual(expect.arrayContaining(["https://vitejs.dev/guide/", "https://vitejs.dev/config/"]));
+    }
+    const h = searchHealth();
+    expect(h.filter((x) => x.tier === "primary").every((x) => !x.ok)).toBe(true);
+    expect(h.find((x) => x.name === "duckduckgo-lite")!.ok).toBe(true);
+    calls.length = 0;
+    await webSearch("vite config guide", { fetchImpl: f, resolve: PUBLIC });
+    expect(calls.some((c) => c.includes("bing.com"))).toBe(false);                            // resting primaries are skipped
+    expect(calls.some((c) => c.includes("lite.duckduckgo.com"))).toBe(true);
+    delete process.env.CODER_SEARXNG_URLS;
+  });
+  it("parses the backup engines", () => {
+    expect(parseSearx("not json")).toEqual([]);
+    expect(parseDdgLite("<html></html>")).toEqual([]);
   });
 });
