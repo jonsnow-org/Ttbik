@@ -20,6 +20,15 @@ type Msg = { id: number; mine: boolean; text: string; at: string };
 type Poll = { state: "idle" | "waiting" | "timeout" | "chatting" | "ended"; fake?: boolean; sessionId?: string; filter?: string | null; messages?: Msg[]; contact?: "hidden" | "offered" | "requested_by_me" | "requested_by_partner"; partnerRead?: number; partnerTyping?: boolean; voice?: boolean };
 
 const tg = (): any => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null);
+/** Opens a Stars invoice link inside Telegram (native sheet); older clients without openInvoice get the link opened through Telegram, never a blank browser tab. */
+const openStarsInvoice = (link: string, done: (status: string) => void) => {
+  const w = tg();
+  try {
+    if (typeof w?.openInvoice === "function") { w.openInvoice(link, done); return; }
+    if (typeof w?.openTelegramLink === "function") { w.openTelegramLink(link); return; }
+  } catch { /* fall through */ }
+  window.open(link, "_blank");
+};
 const haptic = (k: "light" | "medium" | "heavy" | "success" | "error" | "select" = "light") => {
   try {
     const h = tg()?.HapticFeedback;
@@ -1283,12 +1292,12 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
     setBuying(null);
     if (!r.ok) { say(r.error, "error"); return; }
     if (r.direct) { say(r.message); reload(); return; }
-    const w = tg();
     const done = (status: string) => {
-      if (status === "paid") { say("✅ تم الدفع — تُفعَّل الميزة خلال لحظات"); [2500, 6000].forEach((ms) => window.setTimeout(reload, ms)); }
+      if (status === "paid") { say("✅ تم الدفع — تُفعَّل الميزة خلال لحظات"); [2500, 6000, 14000].forEach((ms) => window.setTimeout(reload, ms)); }
       else if (status === "failed") say("تعذّر الدفع", "error");
+      else if (status === "cancelled") say("أُلغي الدفع");
     };
-    if (w?.openInvoice) w.openInvoice(r.link, done); else window.open(r.link);
+    openStarsInvoice(r.link, done);
   };
   useEffect(() => { api("track", { event: "upgrades_view" }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const openVisitors = async () => { const r = await api("visitors"); if (r.ok) setVisitors(r.items); else say(r.error, "error"); };
@@ -1297,9 +1306,11 @@ function UpgradeScreen({ api, say, me, reload }: { api: any; say: any; me: any; 
     haptic("medium");
     const r = await api("deposit_stars", { stars });
     if (!r.ok) { say(r.error, "error"); return; }
-    const w = tg();
-    if (w?.openInvoice) w.openInvoice(r.link, (status: string) => { if (status === "paid") { say("✅ تم الدفع — يُضاف الرصيد خلال لحظات"); window.setTimeout(reload, 2500); } });
-    else window.open(r.link);
+    openStarsInvoice(r.link, (status: string) => {
+      if (status === "paid") { say("✅ تم الدفع — يُضاف الرصيد خلال لحظات"); [2500, 6000, 14000].forEach((ms) => window.setTimeout(reload, ms)); }
+      else if (status === "failed") say("تعذّر الدفع", "error");
+      else if (status === "cancelled") say("أُلغي الدفع");
+    });
   };
 
   return (

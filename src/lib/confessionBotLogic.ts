@@ -296,6 +296,36 @@ async function handleConfessionAdmin(bot: TelegramBot, botRow: BotRow, msg: any)
 // ---------------------------------------------------------------------
 // Regular flow
 // ---------------------------------------------------------------------
+/**
+ * A Telegram Stars payment is credited FIRST, before any admin/ban/mute gate: money that was paid must never be dropped because the payer is the
+ * platform owner (his messages took a text-menu path that ignored everything but text) or is muted. Idempotent on the Stars charge id.
+ */
+async function handleConfessionStarsPayment(bot: TelegramBot, botRow: BotRow, msg: any): Promise<void> {
+  const chatId = msg.chat.id;
+  const tgUserId = String(msg.from.id);
+  await ensureConfessionUser(botRow.id, tgUserId);
+  const sp = msg.successful_payment;
+  const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
+  if (parsed?.kind === "CONFESSION_DEPOSIT" && parsed.userId === tgUserId) {
+    const usd = usdForStars(Number(sp.total_amount || 0));
+    const outcome = await creditStarsPayment(
+      "confession-stars",
+      async (tx) => {
+        await tx.confessionTransaction.create({
+          data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
+        });
+      },
+      async (tx) => {
+        await tx.confessionUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
+      }
+    );
+    if (outcome !== "duplicate") {
+      const updated = await prisma.confessionUser.findUnique({ where: { id: tgUserId } });
+      await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
+    }
+  }
+}
+
 export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow, update: any) {
   if (update.callback_query) {
     await handleConfessionCallback(bot, botRow, update.callback_query);
@@ -303,6 +333,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
   }
   const msg = update.message;
   if (!msg?.from || !msg.chat) return;
+  if (msg.successful_payment) { await handleConfessionStarsPayment(bot, botRow, msg); return; }
   const chatId = msg.chat.id;
   const tgUserId = String(msg.from.id);
 
@@ -320,29 +351,7 @@ export async function handleConfessionBotUpdate(bot: TelegramBot, botRow: BotRow
     return;
   }
 
-  if (msg.successful_payment) {
-    const sp = msg.successful_payment;
-    const parsed = parseStarsPayload(String(sp.invoice_payload || ""));
-    if (parsed?.kind === "CONFESSION_DEPOSIT" && parsed.userId === tgUserId) {
-      const usd = usdForStars(Number(sp.total_amount || 0));
-      const outcome = await creditStarsPayment(
-        "confession-stars",
-        async (tx) => {
-          await tx.confessionTransaction.create({
-            data: { userId: tgUserId, amount: usd, currency: "stars", type: "DEPOSIT", status: "COMPLETED", txHash: sp.telegram_payment_charge_id },
-          });
-        },
-        async (tx) => {
-          await tx.confessionUser.update({ where: { id: tgUserId }, data: { balance: { increment: usd } } });
-        }
-      );
-      if (outcome !== "duplicate") {
-        const updated = await prisma.confessionUser.findUnique({ where: { id: tgUserId } });
-        await bot.api.sendMessage(chatId, `✅ تم شحن $${usd.toFixed(2)} في رصيدك.\n💰 رصيدك الحالي: $${Number(updated?.balance || 0).toFixed(2)}`, { reply_markup: mainMenu() });
-      }
-    }
-    return;
-  }
+  // successful_payment is handled first thing in the dispatcher (handleConfessionStarsPayment).
 
   // Mandatory subscription channel gate (same pattern as AD_BOT/JOBS_BOT).
   if (botRow.requiredChannel) {
