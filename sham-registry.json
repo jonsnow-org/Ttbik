@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20 08:42 UTC",
+  "generated_at": "2026-10-20 14:25 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -77,7 +77,7 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-20",
       "gpu": false,
@@ -149,7 +149,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-20",
       "gpu": false,
@@ -224,7 +224,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 718.7,
+      "size_mb": 0.0,
       "last_updated": "2026-10-20",
       "progress": {},
       "has_key_files": true
@@ -251,13 +251,13 @@
       "size_mb": 144.4,
       "last_updated": "2026-10-20",
       "progress": {
-        "samples_consumed": 102376,
-        "step": 9854,
+        "samples_consumed": 100396,
+        "step": 9359,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 2553,
-        "recon": 0.06380974148016642
+        "codebook_usage": 3752,
+        "recon": 0.057038446076405354
       },
       "has_key_files": true
     },
