@@ -203,7 +203,7 @@ def run(fetch=None, publish=None, gate_builder=default_gate, sources=None, devic
     # stayed refused forever. The rule is now part of the record: when it changes, every source gets one new try.
     from sham_merge import default_tolerance
     from sham_merge import skill_tolerance
-    rule = f"tol={default_tolerance()};chat={skill_tolerance('chat', default_tolerance())};anchor=1;grid=7;gate=frozen-text-v2"
+    rule = f"tol={default_tolerance()};chat={skill_tolerance('chat', default_tolerance())};text={skill_tolerance('text', default_tolerance())};anchor=1;grid=7;gate=frozen-text-v2"
     if progress.get("merge_rule") != rule:
         if merged:
             report_note = f"🔁 قاعدة البوابة تغيّرت ({progress.get('merge_rule')} → {rule}): كل المصادر تُجرَّب مرة جديدة"
