@@ -46,8 +46,13 @@ def relative_score(losses: dict, base: dict) -> tuple[float, dict]:
 
 class Guard:
     def __init__(self, model, tolerance: float = 0.02, kind_tolerance: float = 0.03,
-                 base_rehearsal: float = 0.15, max_rehearsal: float = 0.5):
+                 base_rehearsal: float = 0.15, max_rehearsal: float = 0.5,
+                 protected: tuple = ("chat", "general"), protect_tolerance: float = 0.01):
         self.tolerance, self.kind_tolerance = tolerance, kind_tolerance
+        # 2026-10-20 (measured, first trainer started from the published head): media losses fell 24% (image 8.38→6.34) while chat rose 3.5% and general 3.1%;
+        # the MEAN of ratios still read "best" and that checkpoint was published. The protected skills now decide eligibility: a checkpoint can only become
+        # "best" when none of them is more than protect_tolerance above where the session started, whatever the others gained.
+        self.protected, self.protect_tolerance = tuple(protected), protect_tolerance
         self.init = snapshot(model.named_parameters())
         self.best, self.best_score, self.best_losses, self.best_flavor = self.init, 1.0, {}, "init"
         self.base: dict[str, float] = {}      # the starting weights' loss per skill (same held-out sets)
@@ -90,7 +95,8 @@ class Guard:
         best_now, _ = relative_score(self.best_losses, self.base) if self.best_losses else (self.best_score, {})
         self.best_score = best_now if self.best_losses else self.best_score
         action = "keep"
-        if score < self.best_score - 1e-9:
+        eligible = all(rel.get(k, 1.0) <= 1 + self.protect_tolerance for k in self.protected)
+        if score < self.best_score - 1e-9 and eligible:
             self.best = snapshot(ema.shadow.items() if flavor == "ema" else model.named_parameters())
             self.best_score, self.best_losses, self.best_flavor = score, dict(losses), flavor
             action = "best"
@@ -102,11 +108,11 @@ class Guard:
             self.lr_scale *= 0.7
             self.rollbacks += 1
             action = "rollback"
-        chat = rel.get("chat")
-        if chat is not None:
-            if chat > 1 + self.kind_tolerance:
+        worst = max((rel[k] for k in self.protected if k in rel), default=None)       # chat or the general mixture, whichever drifts more
+        if worst is not None:
+            if worst > 1 + self.protect_tolerance:
                 self.rehearsal = min(self.max_rehearsal, self.rehearsal + 0.10)
-            elif chat <= 1.0:
+            elif worst <= 1.0:
                 self.rehearsal = max(self.base_rehearsal, self.rehearsal - 0.05)
         self.last_action = action
         return {"action": action, "flavor": flavor, "score": score, "rel": rel, "current": losses,
