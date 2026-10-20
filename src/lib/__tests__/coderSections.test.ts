@@ -5,14 +5,22 @@ import { drive, handleCoderSections, loadState, saveState, signContinue, verifyC
 const CHAT = 4242;
 const sse = (o: object) => `event: complete\ndata: [${JSON.stringify(JSON.stringify(o))}]\n`;
 
-function memDb(): Db & { rows: Map<string, any> } {
+function memDb(): Db & { rows: Map<string, any>; stalls: any[]; conns: any[] } {
   const rows = new Map<string, any>();
+  const stalls: any[] = [];
+  const conns: any[] = [];
   return {
-    rows,
-    exec: async (_sql: string, key: unknown, state: unknown) => {
-      rows.set(String(key), JSON.parse(String(state)));
+    rows, stalls, conns,
+    exec: async (sql: string, ...args: unknown[]) => {
+      if (sql.includes("coder_stall_log")) stalls.push({ run_id: args[0], step: args[2], pattern: args[3], level: args[4], detail: args[5] });
+      else if (sql.includes("coder_connections")) conns.push({ chat_key: args[0], provider: args[1], token_enc: args[2], login: args[3] });
+      else rows.set(String(args[0]), JSON.parse(String(args[1])));
     },
-    query: async <T,>(_sql: string, key: unknown) => (rows.has(String(key)) ? [{ state: JSON.parse(JSON.stringify(rows.get(String(key)))) }] : []) as T[],
+    query: async <T,>(sql: string, key: unknown) => {
+      if (sql.includes("coder_connections")) return conns.filter((c) => c.chat_key === key) as T[];
+      if (sql.includes("coder_stall_log")) return stalls as T[];
+      return (rows.has(String(key)) ? [{ state: JSON.parse(JSON.stringify(rows.get(String(key)))) }] : []) as T[];
+    },
   };
 }
 
@@ -219,5 +227,91 @@ describe("sections and the loop", () => {
     expect(hop).toBeTruthy();
     expect(verifyContinue("whs", "bot1", String(CHAT), "c4", hop!.body.sig)).toBe(true);
     expect(verifyContinue("whs", "bot1", String(CHAT), "c4", signContinue("other", "bot1", String(CHAT), "c4"))).toBe(false);
+  });
+});
+
+import { HARD_MAX_STEPS } from "@/lib/coderStall";
+import { saveConnection } from "@/lib/coderAuth";
+
+describe("no pause: loops are detected, logged and recovered", () => {
+  const readA = { id: "r", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: "a/b", path: "README.md" }) } };
+  const ghRead = { "GET /repos/a/b/contents/README.md": () => [200, { content: Buffer.from("# same").toString("base64"), sha: "abc1234" }] as [number, any] };
+
+  it("the same call 3× injects a reflection step, logs the stall, and a 4th identical call is not run — the task still finishes", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "", tool_calls: [readA] },
+      { type: "done", job: "j2", text: "", tool_calls: [readA] },
+      { type: "done", job: "j3", text: "", tool_calls: [readA] },
+      { type: "done", job: "j4", text: "", tool_calls: [readA] },
+      { type: "done", job: "j5", text: "انتهيت بطريقة أخرى.", tool_calls: [] },
+    ], ghRead);
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "loop1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    const st = await loadState(CHAT, db);
+    expect(st.run).toBeNull();
+    expect(sent.map((s) => s.text)).toContain("انتهيت بطريقة أخرى.");
+    expect(sent.some((s) => /متابعة|أتابع؟/.test(s.text))).toBe(false);                 // no user-facing pause
+    expect(st.messages.some((m) => m.role === "user" && m.content.startsWith("[harness] Loop detected"))).toBe(true);
+    expect(st.messages.some((m) => m.role === "tool" && m.content.includes("Not run again"))).toBe(true);
+    const ghReads = calls.filter((c) => c.url.includes("api.github.com") && c.url.includes("README.md"));
+    expect(ghReads.length).toBe(3 + 1);                                                 // 3 real reads + 1 fresh re-read on the 2nd recovery; the 4th call was skipped
+    expect(db.stalls.map((x) => x.pattern)).toEqual(["repeat_call", "repeat_call"]);
+    expect(db.stalls[0].run_id).toBe("loop1");
+    const lastChat = calls.filter((c) => c.url.includes("/call/v2/chat")).pop()!;
+    expect(lastChat.body.think).toBe("1");                                              // escalated recovery thinks harder
+  });
+
+  it("ends at the hard ceiling (no pause), and logs it", async () => {
+    studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }], ghRead);
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "cap", chain: "c", sent: 0, step: HARD_MAX_STEPS - 1, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect((await loadState(CHAT, db)).run).toBeNull();
+    expect(sent[sent.length - 1].text).toContain(String(HARD_MAX_STEPS));
+    expect(db.stalls.map((x) => x.pattern)).toContain("hard_ceiling");
+  });
+
+  it("a Studio hiccup is retried, not the end of the task", async () => {
+    let n = 0;
+    (global as any).fetch = jest.fn(async (url: string) => {
+      if (url.includes("/call/v2/chat") && n++ === 0) return new Response("busy", { status: 503 });
+      if (url.includes("/gradio_api/call/v2/")) return new Response(JSON.stringify({ event_id: "e" }), { status: 200 });
+      return new Response(sse({ type: "done", job: "j", text: "تم", tool_calls: [] }), { status: 200 });
+    });
+    const db = memDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "h", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    expect(sent.map((s) => s.text)).toContain("تم");
+  });
+});
+
+describe("tiers in the loop", () => {
+  it("a regular user with their OWN linked token gets GitHub tools, and settings changes wait for ✅ (the owner's would not)", async () => {
+    process.env.CODER_TOKEN_KEY = "test-key";
+    const settings = { id: "s", type: "function", function: { name: "github_update_repo", arguments: JSON.stringify({ repo: "a/b", settings: { private: false } }) } };
+    const calls = studio([{ type: "done", job: "j1", text: "", tool_calls: [settings] }]);
+    const db = memDb();
+    await saveConnection(555, "github", "user-own-token", "u", db);
+    const { bot, sent } = fakeBot();
+    await saveState(555, { mode: "coder", think: false, messages: [{ role: "user", content: "اجعل المستودع عاماً" }], notes: "", inbox: [], run: { id: "u1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
+    await drive(bot, botRow, 555, "c", db, 40000);
+    const tools = JSON.parse(calls.find((c) => c.url.includes("/call/v2/chat"))!.body.tools).map((t: any) => t.function.name);
+    expect(tools).toContain("github_write_files");
+    expect((await loadState(555, db)).run?.pending?.reason).toBe("تغيير إعدادات المستودع");
+    expect(sent[sent.length - 1].extra.reply_markup).toBeTruthy();
+    expect(calls.some((c) => c.url.startsWith("https://api.github.com") && c.body)).toBe(false);
+
+    // the owner: same call runs at once, with the owner token
+    const calls2 = studio([{ type: "done", job: "j1", text: "", tool_calls: [settings] }, { type: "done", job: "j2", text: "تم.", tool_calls: [] }], { "PATCH /repos/a/b": () => [200, {}] });
+    const db2 = memDb();
+    const b2 = fakeBot();
+    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "o1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db2);
+    await drive(b2.bot, botRow, CHAT, "c", db2, 40000);
+    expect(calls2.some((c) => c.url === "https://api.github.com/repos/a/b" && c.body?.private === false)).toBe(true);
+    expect(b2.sent.map((s) => s.text)).toContain("تم.");
   });
 });

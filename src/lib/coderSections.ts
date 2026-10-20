@@ -8,33 +8,30 @@
 // (signed with the bot's webhook secret), which carries on — so one answer may take many minutes.
 // State per chat in Postgres (coder_chat_state, created on first use, keyed by a salted hash — never the raw chat id).
 import { after } from "next/server";
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { coderSystemPrompt, coderTools, githubClient, guardCall, runTool, toolLabel, trimMessages } from "@/lib/coderAgent";
+import { coderSystemPrompt, coderTools, githubClient, guardCall, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
+import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string };
-export type Run = { id: string; chain: string; job?: string; sent: number; step: number; lease: number; pending?: Pending; pausedAtStep?: boolean; queued?: CoderToolCall[] };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null };
-export type Db = { exec: (sql: string, ...args: unknown[]) => Promise<unknown>; query: <T>(sql: string, ...args: unknown[]) => Promise<T[]> };
-
-const prismaDb: Db = {
-  exec: (sql, ...args) => prisma.$executeRawUnsafe(sql, ...args),
-  query: <T,>(sql: string, ...args: unknown[]) => prisma.$queryRawUnsafe<T[]>(sql, ...args),
+export type Run = {
+  id: string; chain: string; job?: string; sent: number; step: number; lease: number; pending?: Pending; queued?: CoderToolCall[];
+  stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
 };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null };
+export type { Db };
+export { coderChatKey };
 
-const MAX_STEPS = Number(process.env.CODER_MAX_STEPS || 60);         // runaway-loop pause: asks «متابعة؟» (one tap), never a refusal
 const BUDGET_MS = 47000;                                              // per invocation, inside maxDuration 60
 const LEASE_STALE_MS = 120000;
-const POLL_MS = Number(process.env.CODER_POLL_MS || 3000);
+const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
+const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
+const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
 
-export function coderChatKey(chatId: number | string): string {
-  const salt = process.env.CODER_STATE_SALT || process.env.SHAM_MEMORY_SALT || "coder-section";
-  return "tgc:" + createHash("sha256").update(`${salt}|${chatId}`).digest("hex").slice(0, 32);
-}
 
 export function defaultMode(): Mode {
   return (process.env.CODER_DEFAULT_MODE || "coder").trim().toLowerCase() === "sham" ? "sham" : "coder";
@@ -80,15 +77,6 @@ export async function saveState(chatId: number | string, st: ChatState, db: Db =
   }
 }
 
-// ---------------------------------------------------------------- who gets GitHub tools (the owner's token is not handed to strangers)
-export function githubAllowed(chatId: number | string): boolean {
-  if (!(process.env.CODER_GITHUB_TOKEN || "").trim()) return false;
-  const ids = [process.env.SUPER_ADMIN_TELEGRAM_ID, process.env.TELEGRAM_ADMIN_CHAT_ID, ...(process.env.CODER_GITHUB_CHAT_IDS || "").split(",")]
-    .map((x) => (x || "").trim())
-    .filter(Boolean);
-  return ids.includes(String(chatId));
-}
-
 // ---------------------------------------------------------------- signing of the self-continuation
 export function signContinue(secret: string, botId: string, chatId: string, chain: string): string {
   return createHmac("sha256", secret || "coder").update(`${botId}|${chatId}|${chain}`).digest("hex");
@@ -131,7 +119,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (cq) {
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
-    if (!chatId || !/^c(mode|cf|go)\|/.test(data)) return false;
+    if (!chatId || !/^c(mode|cf)\|/.test(data)) return false;
     const st = await loadState(chatId, db);
     if (data.startsWith("cmode|")) {
       st.mode = data === "cmode|sham" ? "sham" : "coder";
@@ -156,22 +144,13 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       const [first, ...rest] = pending.calls;
       if (answer === "yes") {
         await send(bot, chatId, `✅ تم التأكيد: ${pending.reason}`);
-        const out = await runTool(first, toolCtx(chatId, st));
+        const out = await runTool(first, await toolCtx(chatId, st, db));
         st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
       } else {
         await send(bot, chatId, "❌ أُلغيت هذه الخطوة.");
         st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
       }
       run.queued = rest;
-    } else if (kind === "cgo") {
-      if (answer !== "yes") {
-        st.run = null;
-        await saveState(chatId, st, db);
-        await send(bot, chatId, "⏹️ أوقفت المهمة.");
-        return true;
-      }
-      run.step = 0;
-      run.pausedAtStep = false;
     }
     startChain(botRow, chatId, st);
     await saveState(chatId, st, db);
@@ -215,6 +194,11 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, st.think ? "🧠 التفكير الأعمق مفعّل (أدق وأبطأ)." : "⚡ التفكير الأعمق متوقف (أسرع).");
     return true;
   }
+  if (cmd === "/stalls" && tierFor(chatId) === "owner") {
+    const rows = await recentStalls(15);
+    await send(bot, chatId, rows.length ? rows.map((r) => `${String(r.created_at || "").slice(0, 16)} ${r.run_id} step ${r.step} ${r.pattern} L${r.level} — ${r.detail.slice(0, 120)}`).join("\n") : "لا توجد حلقات مسجّلة.");
+    return true;
+  }
   if (cmd === "/status") {
     const s = await coderStatus();
     await send(bot, chatId, s ? `حالة خادم المبرمج:\n${JSON.stringify(s, null, 1).slice(0, 1500)}` : "تعذّر الوصول إلى خادم المبرمج الآن.");
@@ -235,7 +219,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
-  if (!st.run) st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now() };
   startChain(botRow, chatId, st);
   await saveState(chatId, st, db);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
@@ -244,7 +227,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 }
 
 function startChain(_botRow: BotRow, _chatId: number, st: ChatState) {
-  if (!st.run) st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now() };
+  if (!st.run) st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now() };
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
 }
@@ -261,14 +244,35 @@ async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: st
   }
 }
 
-function toolCtx(chatId: number, st: ChatState) {
-  const token = (process.env.CODER_GITHUB_TOKEN || "").trim();
+/** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
+async function toolCtx(chatId: number, st: ChatState, db: Db): Promise<ToolCtx & { tier: Tier }> {
+  const conn = await resolveConnections(chatId, db);
   return {
-    gh: githubAllowed(chatId) && token ? githubClient(token) : null,
+    tier: tierFor(chatId),
+    gh: conn.github ? githubClient(conn.github.token) : null,
     addNote: (t: string) => {
       st.notes = `${st.notes}\n- ${t}`.trim().slice(-4000);
     },
   };
+}
+
+/** Fresh copies of the files the task was working on (re-read on recovery), short. */
+async function rereadTouched(ctx: ToolCtx, ss: StallState): Promise<string> {
+  if (!ctx.gh) return "";
+  const out: string[] = [];
+  for (const t of ss.touched.slice(-3)) {
+    const i = t.indexOf(":");
+    const call = { id: "reread", type: "function" as const, function: { name: "github_read_file", arguments: JSON.stringify({ repo: t.slice(0, i), path: t.slice(i + 1) }) } };
+    out.push((await runTool(call, ctx)).slice(0, 3000));
+  }
+  return out.join("\n\n");
+}
+
+async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db: Db): Promise<void> {
+  const ss = run.stall!;
+  await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: stall.pattern, level: ss.level, detail: stall.detail }, db);
+  const fresh = ss.level >= 2 ? await rereadTouched(ctx, ss) : "";
+  run.recovery = `${run.recovery ? run.recovery + "\n\n" : ""}${recoveryMessage(stall, ss, fresh)}`;
 }
 
 // ---------------------------------------------------------------- the loop: submit -> poll/stream -> tools (guarded) -> submit … until a final answer
@@ -292,20 +296,31 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
   for (;;) {
     const st = await loadState(chatId, db);
     const run = st.run;
-    if (!run || run.chain !== chain || run.pending || run.pausedAtStep) return;
+    if (!run || run.chain !== chain || run.pending) return;
+    run.stall = run.stall || newStallState();
     run.lease = Date.now();
     if (left() < 6000) {
       await saveState(chatId, st, db);
       await handOff(botRow, chatId, chain);
       return;
     }
-    const github = githubAllowed(chatId);
+    const ctx = await toolCtx(chatId, st, db);
+    const github = Boolean(ctx.gh);
 
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
-      const gh = toolCtx(chatId, st).gh;
-      const g = await guardCall(call, gh);
+      const skip = beforeCall(run.stall, call);
+      if (skip) {
+        // the same call yet again after a recovery: not run; the model gets its earlier result and must change course
+        run.stall.level++;
+        st.messages.push({ role: "tool", content: skip.skip, tool_call_id: call.id, name: call.function.name });
+        await onStall({ pattern: "repeat_call", detail: `${call.function.name} skipped (identical call again)` }, run, chatId, ctx, db);
+        run.queued = rest;
+        await saveState(chatId, st, db);
+        continue;
+      }
+      const g = await guardCall(call, ctx.gh, ctx.tier);
       if (g.confirm) {
         const nonce = randomUUID().slice(0, 6);
         run.pending = { calls: run.queued, reason: g.reason, summary: g.summary, nonce };
@@ -316,10 +331,26 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         return;
       }
       await send(bot, chatId, toolLabel(call));
-      const out = await runTool(call, toolCtx(chatId, st));
+      const out = await runTool(call, ctx);
       st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
       run.queued = rest;
+      const seen = afterCall(run.stall, call, out, run.step);
+      if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
+      if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
       await saveState(chatId, st, db);
+      continue;
+    }
+
+    // CI still running with nothing new: wait (inside this leg, or hand the wait to the next leg)
+    if (run.waitUntil && run.waitUntil > Date.now()) {
+      const ms = run.waitUntil - Date.now();
+      if (ms > left() - 7000) {
+        await saveState(chatId, st, db);
+        await new Promise((res) => setTimeout(res, Math.max(0, left() - 7000)));
+        continue;
+      }
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await new Promise((res) => setTimeout(res, ms));
       continue;
     }
 
@@ -331,8 +362,18 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
         if (!r && (o.failure === "timeout" || o.failure === "network")) {
           await saveState(chatId, st, db);
-          await new Promise((res) => setTimeout(res, POLL_MS));
+          await new Promise((res) => setTimeout(res, pollMs()));
           continue;                                   // a slow / flaky poll is not the end of the job
+        }
+        if (r?.type === "error" && (run.retries || 0) < MAX_RETRIES) {
+          // e.g. the context overflowed: same step again with a smaller history, the task goes on
+          run.retries = (run.retries || 0) + 1;
+          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 70000)) / 2));
+          run.job = undefined;
+          run.sent = 0;
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
+          await saveState(chatId, st, db);
+          continue;
         }
         st.run = null;
         await saveState(chatId, st, db);
@@ -344,7 +385,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await sendParts(bot, chatId, text, run, false);
         await saveState(chatId, st, db);
         await bot.api.sendChatAction(chatId, "typing").catch(() => null);
-        await new Promise((res) => setTimeout(res, POLL_MS));
+        await new Promise((res) => setTimeout(res, pollMs()));
         continue;
       }
       // done
@@ -353,14 +394,19 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;
       run.sent = 0;
+      run.retries = 0;
       if (calls.length) {
         run.queued = calls;
         run.step++;
-        if (run.step >= MAX_STEPS) {
-          run.pausedAtStep = true;
+        const looped = afterText(run.stall, text, run.step);
+        if (looped) await onStall(looped, run, chatId, ctx, db);
+        if (run.step >= HARD_MAX_STEPS) {
+          // the only stop: a very high ceiling against runaway compute (CODER_HARD_MAX_STEPS). Not a pause — the task ends and says so.
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `reached CODER_HARD_MAX_STEPS=${HARD_MAX_STEPS}` }, db);
+          for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
+          st.run = null;
           await saveState(chatId, st, db);
-          const kb = new InlineKeyboard().text("▶️ متابعة", `cgo|${run.id}|-|yes`).text("⏹️ إيقاف", `cgo|${run.id}|-|no`);
-          await send(bot, chatId, `نفّذ المبرمج ${run.step} خطوة في هذه المهمة. أتابع؟`, { reply_markup: kb });
+          await send(bot, chatId, `⛔ توقفت المهمة عند سقف الأمان (${HARD_MAX_STEPS} خطوة) لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`);
           return;
         }
         await saveState(chatId, st, db);
@@ -383,10 +429,21 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       for (const m of st.inbox) st.messages.push({ role: "user", content: m });
       st.inbox = [];
     }
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: st.notes }) }, ...trimMessages(st.messages)];
+    if (run.recovery) {
+      st.messages.push({ role: "user", content: run.recovery });       // the reflection / re-plan step after a detected loop
+      run.recovery = undefined;
+    }
+    const knobs = recoveryKnobs(run.stall);
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: st.notes }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
-    const o = await coderChat(messages, { tools: coderTools(github), think: st.think, waitS, timeoutMs: waitS * 1000 + 9000 });
+    const o = await coderChat(messages, { tools: coderTools(github), think: st.think || knobs.think, temperature: knobs.temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const r = o.reply;
+    if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
+      run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
+      await saveState(chatId, st, db);
+      await new Promise((res) => setTimeout(res, Math.min(10000, pollMs() * 2 * run.retries!)));
+      continue;
+    }
     if (!r || !r.job) {
       st.run = null;
       await saveState(chatId, st, db);

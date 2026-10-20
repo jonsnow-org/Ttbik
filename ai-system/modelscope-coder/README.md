@@ -19,3 +19,30 @@ coder. It is **not** deployed; it would replace the Studio entry file, so the ow
 
 Bot side: `src/lib/openCoderStudio.ts` (client), `src/lib/coderAgent.ts` (tools + the only guardrail), `src/lib/coderSections.ts` (/mode,
 job/detach loop), `src/app/api/coder/continue/route.ts` (next leg of a long run).
+
+## Bot side: permissions, loops, settings
+
+**Two tiers** (`src/lib/coderAuth.ts`, `src/lib/coderAgent.ts` → `classifyCall` / `guardCall`):
+
+| | runs without asking | waits for ✅/❌ |
+|---|---|---|
+| **owner** (`SUPER_ADMIN_TELEGRAM_ID`, `TELEGRAM_ADMIN_CHAT_ID`; token `CODER_GITHUB_TOKEN`) | everything else (settings, collaborators, releases, deploy workflows, force-push to feature branches, secrets via `github_api`) | any delete; push / merge into main or the default branch; a workflow that commits/pushes |
+| **user** (only their own linked token, never the owner's) | thinking, planning, reading, searching, CI checks, test-only workflows, branches, commits/pushes to feature branches, PRs, draft releases | any delete; push/merge into main/default/protected; force-push / history rewrite; deploy/publish workflows or ones that write (the workflow file is read to decide); repo settings, secrets, collaborators; publishing a release |
+
+Per-user linking (later, Mini App): verify the user with `verifyTelegramInitData`, run the provider's OAuth/device flow, call
+`saveConnection(chatId, "github", token, login)`. Stored AES-256-GCM encrypted in `coder_connections` (key `CODER_TOKEN_KEY`).
+
+**No pause — loop recovery instead** (`src/lib/coderStall.ts`): the same action+args 3× (`CODER_STALL_REPEAT`), the same output/error 3×,
+the same reasoning text 3×, or `CODER_STALL_NO_PROGRESS` (12) steps with nothing new → a reflection + new-plan step is injected; from the
+2nd loop the files being worked on are re-read and the model thinks harder (thinking on, wider sampling); from the 3rd it re-plans from
+scratch. A 4th identical call is not executed again (its earlier result is returned). CI polling that still shows "in progress" is waiting,
+not looping (the loop waits `CODER_CI_WAIT_MS`, 20 s). Studio hiccups are retried (5×, smaller context on a job error).
+Every loop is logged in `coder_stall_log` (run id, chat hash, step, pattern, level, detail) + Vercel logs `[coder-stall]`; the owner sees
+the latest with `/stalls`.
+
+**Hard ceiling**: `CODER_HARD_MAX_STEPS` (default **400** model steps per task, minimum 50) — only against runaway compute. Reaching it ends
+the task with a message and a `hard_ceiling` log row; it is not a question to the user.
+
+Env: `OPEN_CODER_STUDIO_URL` (required), `MODELSCOPE_API_TOKEN` / `OPEN_CODER_STUDIO_TOKEN`, `CODER_GITHUB_TOKEN`, `CODER_TOKEN_KEY` (for
+linked user tokens), optional `CODER_HARD_MAX_STEPS`, `CODER_STALL_REPEAT`, `CODER_STALL_NO_PROGRESS`, `CODER_CI_WAIT_MS`, `CODER_HISTORY_CHARS`,
+`CODER_DEFAULT_MODE`, `CODER_SELF_URL`, `OPEN_CODER_API_PREFIX`.

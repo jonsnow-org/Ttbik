@@ -34,6 +34,14 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_create_issue", "Open an issue.", obj({ repo: REPO, title: s("title"), body: s("body") }, ["repo", "title"])),
   tool("github_comment", "Comment on an issue or pull request.", obj({ repo: REPO, number: n("issue / PR number"), body: s("comment") }, ["repo", "number", "body"])),
   tool("github_ci_status", "VERIFY step: check runs and statuses (tests, build, lint) of a branch or commit.", obj({ repo: REPO, ref: s("branch or sha") }, ["repo", "ref"])),
+  tool("github_update_ref", "Move a branch to a commit (force = rewrite history).", obj({ repo: REPO, branch: s("branch"), sha: s("commit sha"), force: { type: "boolean" } }, ["repo", "branch", "sha"])),
+  tool("github_delete_repo", "Delete a repository.", obj({ repo: REPO }, ["repo"])),
+  tool("github_create_release", "Create a release (draft: true = not published).", obj({ repo: REPO, tag: s("tag"), name: s("title"), body: s("notes"), target: s("branch / sha"), draft: { type: "boolean" }, prerelease: { type: "boolean" } }, ["repo", "tag"])),
+  tool("github_delete_release", "Delete a release by id.", obj({ repo: REPO, id: n("release id") }, ["repo", "id"])),
+  tool("github_update_repo", "Change repository settings (description, visibility, default_branch, features…).", obj({ repo: REPO, settings: { type: "object" } }, ["repo", "settings"])),
+  tool("github_add_collaborator", "Invite a collaborator.", obj({ repo: REPO, user: s("GitHub login"), permission: s("pull | triage | push | maintain | admin") }, ["repo", "user"])),
+  tool("github_remove_collaborator", "Remove a collaborator.", obj({ repo: REPO, user: s("GitHub login") }, ["repo", "user"])),
+  tool("github_api", "Any other GitHub REST call (path like /repos/o/r/...). Use the specific tools when one exists.", obj({ method: s("GET | POST | PATCH | PUT | DELETE"), path: s("REST path starting with /"), body: { type: "object" } }, ["method", "path"])),
   tool("github_run_workflow", "Start a workflow_dispatch workflow (e.g. tests).", obj({ repo: REPO, workflow: s("file name, e.g. ci.yml"), ref: s("branch"), inputs: { type: "object" } }, ["repo", "workflow", "ref"])),
 ];
 export const COMMON_TOOLS: CoderTool[] = [
@@ -55,7 +63,8 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "3. VERIFY: after a change, re-read what you wrote and check CI with github_ci_status (or start a workflow). If something fails, read the error, fix it, verify again.",
     "4. REPORT: finish with what you did, what you verified, and anything left open. Be honest when something failed.",
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
-    "Deleting anything, and pushing or merging into a main/default branch, waits for the user's confirmation button: just call the tool; the user decides.",
+    "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
+    "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
     "Answers may be as long as needed. Use ``` code blocks for code.",
     opts.github ? "You have GitHub tools with the owner's token." : "GitHub tools are not connected in this chat; you can still write and review code and read public pages with web_fetch.",
     `Current time (UTC): ${now}.`,
@@ -120,30 +129,142 @@ async function defaultBranch(gh: Gh, repo: string): Promise<string> {
 
 const MAIN_NAMES = new Set(["main", "master", "trunk", "production", "prod"]);
 
-export type Guard = { confirm: false } | { confirm: true; reason: string; summary: string };
+// ---------------------------------------------------------------- permissions (two tiers, like an agent's permission modes)
+// Every call is classified into the consequential things it would do; the tier decides which of those wait for a ✅/❌ tap.
+//   user  : asks for every risk below (their own repos, their own token)
+//   owner : asks only for deletes and for pushes/merges into main/default branches (incl. a workflow that writes to them) — owner's standing rule
+// Everything not listed (thinking, planning, reading, searching, CI checks, test workflows, branches, commits/pushes to feature branches, PRs) runs.
+export type Risk =
+  | "delete" | "push_default" | "merge_default" | "push_protected" | "merge_protected" | "force_push"
+  | "workflow_deploy" | "workflow_writes_default" | "settings" | "secrets" | "collaborators" | "release_publish";
+export const OWNER_CONFIRMS: ReadonlySet<Risk> = new Set<Risk>(["delete", "push_default", "merge_default", "workflow_writes_default"]);
+export const RISK_LABEL: Record<Risk, string> = {
+  delete: "حذف",
+  push_default: "دفع إلى الفرع الأساسي",
+  merge_default: "دمج في الفرع الأساسي",
+  push_protected: "دفع إلى فرع محمي",
+  merge_protected: "دمج في فرع محمي",
+  force_push: "دفع قسري / إعادة كتابة التاريخ",
+  workflow_deploy: "تشغيل سير عمل ينشر أو يطلق",
+  workflow_writes_default: "تشغيل سير عمل يكتب على الفرع الأساسي",
+  settings: "تغيير إعدادات المستودع",
+  secrets: "تغيير الأسرار",
+  collaborators: "تغيير المتعاونين والصلاحيات",
+  release_publish: "نشر إصدار",
+};
 
-/** The only guardrail: delete -> confirm; push / merge into main or the repo's default branch -> confirm. Everything else runs. */
-export async function guardCall(call: CoderToolCall, gh: Gh | null): Promise<Guard> {
+export function confirmRisks(tier: "owner" | "user", risks: Risk[]): Risk[] {
+  return tier === "owner" ? risks.filter((r) => OWNER_CONFIRMS.has(r)) : risks;
+}
+
+type BranchFacts = { main: boolean; protected: boolean };
+async function branchFacts(gh: Gh | null, repo: string, branch: string): Promise<BranchFacts> {
+  if (!branch || MAIN_NAMES.has(branch.toLowerCase())) return { main: true, protected: true };
+  if (!gh || !repoOk(repo)) return { main: false, protected: false };
+  const [def, b] = await Promise.all([defaultBranch(gh, repo).catch(() => ""), gh("GET", `/repos/${repo}/branches/${enc(branch)}`).catch(() => null)]);
+  return { main: branch === def, protected: Boolean(b?.data?.protected) };
+}
+
+const DEPLOY_RX = /\b(deploy|publish|release|vercel|netlify|gh-pages|github-pages|pages-artifact|npm publish|yarn publish|pnpm publish|docker push|twine upload|cargo publish|gh release|modelscope|huggingface-cli upload|surge|firebase deploy|fly deploy|wrangler)\b/i;
+const WRITE_RX = /(git push|contents:\s*write|git-auto-commit-action|github-push-action|create-or-update-file|git commit)/i;
+
+/** What a workflow file does, from its own text: test-only workflows run without asking. Unreadable = treated as deploying. */
+export function classifyWorkflow(fileName: string, text: string | null): { deploys: boolean; writes: boolean } {
+  if (text == null) return { deploys: true, writes: false };
+  return { deploys: DEPLOY_RX.test(text) || /deploy|publish|release/i.test(fileName), writes: WRITE_RX.test(text) };
+}
+
+async function workflowRisks(gh: Gh | null, repo: string, workflow: string, ref: string): Promise<Risk[]> {
+  let text: string | null = null;
+  if (gh && repoOk(repo)) {
+    const path = workflow.includes("/") ? workflow : `.github/workflows/${workflow}`;
+    const r = await gh("GET", `/repos/${repo}/contents/${enc(path)}${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`).catch(() => null);
+    if (r && r.status < 300 && r.data?.content) text = Buffer.from(r.data.content, "base64").toString("utf-8");
+  }
+  const w = classifyWorkflow(workflow, text);
+  const out: Risk[] = [];
+  if (w.deploys) out.push("workflow_deploy");
+  if (w.writes) out.push("workflow_writes_default");    // a workflow that commits/pushes is treated as writing to the default branch
+  return out;
+}
+
+async function pushRisks(gh: Gh | null, repo: string, branch: string, force = false): Promise<Risk[]> {
+  const f = await branchFacts(gh, repo, branch);
+  const out: Risk[] = [];
+  if (f.main) out.push("push_default");
+  else if (f.protected) out.push("push_protected");
+  if (force) out.push("force_push");
+  return out;
+}
+
+async function mergeRisks(gh: Gh | null, repo: string, base: string): Promise<Risk[]> {
+  if (!base) return ["merge_default"];
+  const f = await branchFacts(gh, repo, base);
+  return f.main ? ["merge_default"] : f.protected ? ["merge_protected"] : [];
+}
+
+/** The consequential effects of one call (empty = runs without asking for every tier). */
+export async function classifyCall(call: CoderToolCall, gh: Gh | null): Promise<{ risks: Risk[]; summary: string }> {
   const a = parseArgs(call);
   const name = call.function.name;
   const where = `${a.repo || "?"}${a.branch ? ` @ ${a.branch}` : ""}`;
-  if (name === "github_delete_files") return { confirm: true, reason: "حذف ملفات", summary: `${where}\n${(a.paths || []).slice(0, 30).join("\n")}` };
-  if (name === "github_delete_branch") return { confirm: true, reason: "حذف فرع", summary: where };
-  const isMain = async (branch: string) => {
-    if (!branch || MAIN_NAMES.has(branch.toLowerCase())) return true;
-    if (!gh || !repoOk(a.repo)) return false;
-    return branch === (await defaultBranch(gh, a.repo).catch(() => ""));
-  };
-  if (name === "github_write_files" && (await isMain(String(a.branch || "")))) {
-    const files = (Array.isArray(a.files) ? a.files : []).map((f: any) => String(f?.path || "?"));
-    return { confirm: true, reason: "دفع إلى الفرع الأساسي", summary: `${where}\n${a.message || ""}\n${files.slice(0, 30).join("\n")}` };
+  const list = (xs: unknown) => (Array.isArray(xs) ? xs.slice(0, 30).map((x: any) => String(x?.path ?? x)).join("\n") : "");
+  switch (name) {
+    case "github_delete_files": return { risks: ["delete", ...(await pushRisks(gh, a.repo, String(a.branch || "")))], summary: `${where}\n${list(a.paths)}` };
+    case "github_delete_branch": return { risks: ["delete"], summary: where };
+    case "github_delete_repo": return { risks: ["delete"], summary: String(a.repo) };
+    case "github_delete_release": return { risks: ["delete"], summary: `${a.repo} release ${a.id}` };
+    case "github_remove_collaborator": return { risks: ["delete", "collaborators"], summary: `${a.repo} − ${a.user}` };
+    case "github_write_files": return { risks: await pushRisks(gh, a.repo, String(a.branch || "")), summary: `${where}\n${a.message || ""}\n${list(a.files)}` };
+    case "github_update_ref": return { risks: await pushRisks(gh, a.repo, String(a.branch || ""), Boolean(a.force)), summary: `${where} → ${String(a.sha || "").slice(0, 10)}${a.force ? " (force)" : ""}` };
+    case "github_merge_pr": {
+      let base = "";
+      if (gh && repoOk(a.repo)) base = String((await gh("GET", `/repos/${a.repo}/pulls/${Number(a.number)}`).catch(() => null))?.data?.base?.ref || "");
+      return { risks: await mergeRisks(gh, a.repo, base), summary: `${a.repo} PR #${a.number}${base ? ` → ${base}` : ""}` };
+    }
+    case "github_run_workflow": return { risks: await workflowRisks(gh, a.repo, String(a.workflow || ""), String(a.ref || "")), summary: `${a.repo} ${a.workflow} @ ${a.ref}` };
+    case "github_update_repo": return { risks: ["settings"], summary: `${a.repo}\n${JSON.stringify(a.settings || {}).slice(0, 500)}` };
+    case "github_add_collaborator": return { risks: ["collaborators"], summary: `${a.repo} + ${a.user} (${a.permission || "push"})` };
+    case "github_create_release": return { risks: a.draft === true ? [] : ["release_publish"], summary: `${a.repo} ${a.tag}${a.draft ? " (draft)" : ""}` };
+    case "github_api": return classifyApi(String(a.method || "GET").toUpperCase(), String(a.path || ""), a.body || {}, gh);
   }
-  if (name === "github_merge_pr") {
-    let base = "";
-    if (gh && repoOk(a.repo)) base = String((await gh("GET", `/repos/${a.repo}/pulls/${Number(a.number)}`).catch(() => null))?.data?.base?.ref || "");
-    if (!base || (await isMain(base))) return { confirm: true, reason: "دمج في الفرع الأساسي", summary: `${a.repo} PR #${a.number}${base ? ` → ${base}` : ""}` };
+  return { risks: [], summary: where };
+}
+
+async function classifyApi(method: string, path: string, body: any, gh: Gh | null): Promise<{ risks: Risk[]; summary: string }> {
+  const summary = `${method} ${path}`;
+  if (method === "GET" || method === "HEAD") return { risks: [], summary };
+  const m = path.match(/^\/repos\/([\w.-]+\/[\w.-]+)(\/.*)?$/);
+  const repo = m?.[1] || "";
+  const rest = m?.[2] || "";
+  const risks = new Set<Risk>();
+  if (method === "DELETE") risks.add("delete");
+  if (/\/(actions|dependabot|codespaces)\/secrets|\/environments\/[^/]+\/secrets|\/actions\/variables/.test(rest)) risks.add("secrets");
+  if (/\/(collaborators|invitations|teams)\b/.test(rest) || /^\/orgs\/[^/]+\/(members|memberships|teams)/.test(path)) risks.add("collaborators");
+  if ((repo && rest === "" && method === "PATCH") || /\/(hooks|keys|rulesets|pages|transfer|topics|vulnerability-alerts|automated-security-fixes)\b|\/branches\/[^/]+\/protection|\/actions\/permissions/.test(rest)) risks.add("settings");
+  if (/\/releases(\/\d+)?$/.test(rest) && (method === "POST" || method === "PATCH") && body?.draft !== true) risks.add("release_publish");
+  const ref = rest.match(/^\/git\/refs\/heads\/(.+)$/);
+  if (ref) (await pushRisks(gh, repo, decodeURIComponent(ref[1]), Boolean(body?.force))).forEach((r) => risks.add(r));
+  if (rest === "/git/refs" && typeof body?.ref === "string") (await pushRisks(gh, repo, body.ref.replace(/^refs\/heads\//, ""))).forEach((r) => { if (r !== "push_protected") risks.add(r); });
+  if (/^\/contents\//.test(rest) && method === "PUT") (await pushRisks(gh, repo, String(body?.branch || ""))).forEach((r) => risks.add(r));
+  if (/^\/pulls\/\d+\/merge$/.test(rest)) {
+    const n = rest.split("/")[2];
+    const base = gh ? String((await gh("GET", `/repos/${repo}/pulls/${n}`).catch(() => null))?.data?.base?.ref || "") : "";
+    (await mergeRisks(gh, repo, base)).forEach((r) => risks.add(r));
   }
-  return { confirm: false };
+  if (rest === "/merges") (await mergeRisks(gh, repo, String(body?.base || ""))).forEach((r) => risks.add(r));
+  const wf = rest.match(/^\/actions\/workflows\/([^/]+)\/dispatches$/);
+  if (wf) (await workflowRisks(gh, repo, decodeURIComponent(wf[1]), String(body?.ref || ""))).forEach((r) => risks.add(r));
+  if (rest === "/dispatches") risks.add("workflow_deploy");
+  return { risks: [...risks], summary };
+}
+
+export type Guard = { confirm: false } | { confirm: true; reason: string; summary: string; risks: Risk[] };
+
+export async function guardCall(call: CoderToolCall, gh: Gh | null, tier: "owner" | "user" = "user"): Promise<Guard> {
+  const c = await classifyCall(call, gh);
+  const ask = confirmRisks(tier, c.risks);
+  return ask.length ? { confirm: true, reason: ask.map((r) => RISK_LABEL[r]).join(" + "), summary: c.summary, risks: ask } : { confirm: false };
 }
 
 const clip = (x: unknown) => {
@@ -206,6 +327,12 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     }
     const gh = ctx.gh;
     if (!gh) return "error: GitHub is not connected in this chat";
+    if (name === "github_api") {
+      const path = String(a.path || "");
+      if (!path.startsWith("/")) return "error: path must start with /";
+      const r = await gh(String(a.method || "GET").toUpperCase(), path, a.body && Object.keys(a.body).length ? a.body : undefined);
+      return clip(`HTTP ${r.status}\n${typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 1)}`);
+    }
     if (name !== "github_whoami" && name !== "github_list_repos" && !repoOk(a.repo)) return "error: repo must be owner/name";
     const R = `/repos/${a.repo}`;
     switch (name) {
@@ -303,6 +430,34 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
         const st = await gh("GET", `${R}/commits/${ref}/status`);
         const lines = (runs.data?.check_runs || []).map((x: any) => `${x.name}: ${x.status}${x.conclusion ? ` / ${x.conclusion}` : ""}${x.output?.summary ? ` — ${String(x.output.summary).slice(0, 300)}` : ""}`);
         return clip(`combined: ${st.data?.state || "?"}\n${lines.join("\n") || "no check runs yet"}`);
+      }
+      case "github_update_ref": {
+        const r = await gh("PATCH", `${R}/git/refs/heads/${enc(String(a.branch))}`, { sha: a.sha, force: Boolean(a.force) });
+        return r.status < 300 ? `${a.branch} → ${a.sha}` : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_delete_repo": {
+        const r = await gh("DELETE", R);
+        return r.status < 300 ? `deleted ${a.repo}` : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_create_release": {
+        const r = await gh("POST", `${R}/releases`, { tag_name: a.tag, name: a.name || a.tag, body: a.body || "", target_commitish: a.target || undefined, draft: Boolean(a.draft), prerelease: Boolean(a.prerelease) });
+        return r.status < 300 ? `release ${r.data.id} ${r.data.html_url}` : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_delete_release": {
+        const r = await gh("DELETE", `${R}/releases/${Number(a.id)}`);
+        return r.status < 300 ? `deleted release ${a.id}` : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_update_repo": {
+        const r = await gh("PATCH", R, a.settings || {});
+        return r.status < 300 ? "settings updated" : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_add_collaborator": {
+        const r = await gh("PUT", `${R}/collaborators/${encodeURIComponent(String(a.user))}`, { permission: a.permission || "push" });
+        return r.status < 300 ? `invited ${a.user}` : clip(`error ${r.status}: ${r.data?.message}`);
+      }
+      case "github_remove_collaborator": {
+        const r = await gh("DELETE", `${R}/collaborators/${encodeURIComponent(String(a.user))}`);
+        return r.status < 300 ? `removed ${a.user}` : clip(`error ${r.status}: ${r.data?.message}`);
       }
       case "github_run_workflow": {
         const r = await gh("POST", `${R}/actions/workflows/${encodeURIComponent(String(a.workflow))}/dispatches`, { ref: a.ref, inputs: a.inputs || {} });
