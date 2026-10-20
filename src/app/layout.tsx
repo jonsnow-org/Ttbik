@@ -10,6 +10,9 @@ import AnalyticsTracker from "@/components/AnalyticsTracker";
 import MobileNav from "@/components/MobileNav";
 import MarketTickers from "@/components/MarketTickers";
 import EnMarketTickers from "@/components/EnMarketTickers";
+import { fetchMarkets } from "@/lib/markets";
+import { fetchEnMarkets } from "@/lib/autoFeeds";
+import { withinMs } from "@/lib/lastGood";
 import PaidBanner from "@/components/PaidBanner";
 import StickyBottomAd from "@/components/StickyBottomAd";
 import TelegramSwipeLock from "@/components/TelegramSwipeLock";
@@ -101,6 +104,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   const isOwner = await isOwnerServer();
 
+  // The tickers are rendered with data on the server (the providers answer through Next's 5-minute data cache), so crawlers, slow phones and
+  // the first paint see numbers instead of dashes; the browser then refreshes them. A slow provider never holds the page: 2.5 s at most.
+  const isEnDesk = pathname === "/en" || pathname.startsWith("/en/");
+  const marketsAr = isEnDesk ? null : await withinMs(fetchMarkets(), 2500);
+  const marketsEn = isEnDesk ? await withinMs(fetchEnMarkets(), 2500) : null;
+
   // English desk (/en/*): its own header, ticker and footer in English, LTR,
   // with the global-markets ticker (the Arabic chrome below stays for everything else).
   if (pathname === "/en" || pathname.startsWith("/en/")) {
@@ -131,7 +140,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </header>
           <div className="relative z-20 bg-white">
-            <EnMarketTickers />
+            <EnMarketTickers initial={marketsEn} />
             <PaidBanner lang="en" />
           </div>
           <div className="mx-auto max-w-6xl px-4 py-2">
@@ -247,7 +256,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
         </header>
         <div className="relative z-20 bg-white">
-          <MarketTickers />
+          <MarketTickers initial={marketsAr} />
           <PaidBanner />
         </div>
         <div className="mx-auto max-w-6xl px-4 py-2">

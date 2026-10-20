@@ -22,8 +22,8 @@ function Track({ items }: { items: string[] }) {
 
 // Ticker for the English desk: majors, indices, metals, oil, crypto — what a
 // European or North American reader follows (not the Arabic desk's regional currencies).
-export default function EnMarketTickers() {
-  const [d, setD] = useState<EnMarkets | null>(null);
+export default function EnMarketTickers({ initial }: { initial?: EnMarkets | null }) {
+  const [d, setD] = useState<EnMarkets | null>(initial || null);
   useEffect(() => {
     let stop = false;
     const load = async () => {

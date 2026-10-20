@@ -83,3 +83,25 @@ export async function fetchEcbRates(): Promise<EcbSnapshot> {
     return null;
   }
 }
+
+/**
+ * Currencies officially fixed to the US dollar. The ECB table has no row for them, but their euro price follows exactly from the ECB's EUR/USD
+ * and the published peg, so it can be shown without inventing anything. Floating currencies (EGP, IQD, LBP...) are NOT here on purpose.
+ */
+export const USD_PEGS = [
+  { currency: "SAR", nameAr: "ريال سعودي", perUsd: 3.75 },
+  { currency: "AED", nameAr: "درهم إماراتي", perUsd: 3.6725 },
+  { currency: "QAR", nameAr: "ريال قطري", perUsd: 3.64 },
+  { currency: "BHD", nameAr: "دينار بحريني", perUsd: 0.376 },
+  { currency: "OMR", nameAr: "ريال عماني", perUsd: 0.3845 },
+  { currency: "JOD", nameAr: "دينار أردني", perUsd: 0.709 },
+] as const;
+
+export type PeggedRate = { currency: string; nameAr: string; perUsd: number; perEuro: number };
+
+/** Units per 1 euro for the pegged currencies, from the snapshot's EUR/USD; empty when the snapshot has no USD row. */
+export function peggedRates(snap: EcbSnapshot): PeggedRate[] {
+  const usd = snap?.rates.find((r) => r.currency === "USD")?.perEuro;
+  if (!usd) return [];
+  return USD_PEGS.map((p) => ({ ...p, perEuro: Math.round(usd * p.perUsd * 10000) / 10000 }));
+}
