@@ -1,4 +1,5 @@
 import { parseFeed, type RssItem } from "@/lib/newsRss";
+import { keepLastGood } from "@/lib/lastGood";
 
 // Automatic data for the English desk, refreshed by Next's data cache: English
 // RSS headlines (title + source + link out to the publisher; no article text
@@ -125,7 +126,7 @@ export async function fetchEnMarkets(): Promise<EnMarkets> {
     { pair: "EUR/CHF", rate: eur.get("CHF") ?? null },
   ];
   const quotes = indexSymbols.map(([name, , unit], i) => ({ name, unit, price: idx[i].price, pct: idx[i].pct }));
-  return {
+  return keepLastGood("markets-en", {
     updatedAt: new Date().toISOString(),
     goldUsd: gold?.price ?? null,
     silverUsd: silver?.price ?? null,
@@ -133,5 +134,5 @@ export async function fetchEnMarkets(): Promise<EnMarkets> {
     eth: eth?.price ?? null,
     fx,
     quotes,
-  };
+  });
 }
