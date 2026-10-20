@@ -36,7 +36,7 @@ Product rules (what we sell and don't): `docs/AGENT_BUS.md` and `README.md`. Nev
 | `ai-system/` | **Not ours.** Sham/Nova Python (FastAPI brain, Kaggle/ModelScope/Lightning/Modal/HF deploys, training), owned by the Sham-model session. Hands-off |
 | `media-bot/` | the Python media bot (Docker on Oracle) |
 | `promo/` | promo hub: `README.md`, `platform-features.json`, `remotion/` (video pipeline + `episodes.json`), `projects.json` |
-| `scripts/` | `znbt-frozen-check.mjs`, `agent-guard.mjs`, `agent/render-check.mjs`, `promo/*`, `hosting/*`, `qa/*`, `vercel-ignore.sh` |
+| `scripts/` | `znbt-frozen-check.mjs`, `agent-guard.mjs`, `agent/render-check.mjs`, `promo/*`, `hosting/*`, `qa/*`, `vercel-ignore.sh`, **`sham-assist/`** (numpy helpers offered to the Sham-model session: audio augmentation, viseme intelligibility gate, face curation; accepted terms on PR #2; nothing under a Sham path) |
 | `docs/**` | notes. Live sources of truth: `AGENT_BUS.md`, `HOSTING.md`, `zenobia/*`, `ATHAR_OPS_NOTES.md`, `ENV-VARS.md` (names only), this file, `agents/*` |
 | `.github/workflows/**` | ~55 workflows (see §6) |
 | `e2e/` | Playwright spec for the dating Mini App |
