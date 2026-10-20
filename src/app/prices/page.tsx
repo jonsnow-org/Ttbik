@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
-import { fetchEcbRates } from "@/lib/ecbRates";
+import { fetchEcbRates, peggedRates } from "@/lib/ecbRates";
 
 const PATH = "/prices";
 
@@ -77,8 +77,8 @@ export default async function PricesPage() {
         </nav>
         <h1 className="mb-3 text-3xl font-extrabold text-slate-900">أسعار الصرف المرجعية</h1>
         <p className="mb-4 text-sm leading-7">
-          الأرقام أدناه من نشرة ECB اليومية فقط. ليست أسعار صرافة محلية وليست تقديراً. الريال
-          السعودي والدرهم والجنيه المصري ليست في هذا الجدول؛ لذلك لا نعرض لها رقماً.
+          الأرقام أدناه من نشرة ECB اليومية. ليست أسعار صرافة محلية وليست تقديراً. العملات الخليجية والأردنية
+          المربوطة بالدولار في جدول مستقل أسفله؛ والجنيه المصري غير مدرج لأن عملته غير مربوطة وليس في النشرة.
         </p>
         {snap ? (
           <>
@@ -108,6 +108,36 @@ export default async function PricesPage() {
                 </tbody>
               </table>
             </div>
+            {peggedRates(snap).length > 0 && (
+              <>
+                <h2 className="mb-2 mt-6 text-lg font-extrabold text-slate-900">عملات مربوطة بالدولار</h2>
+                <p className="mb-2 text-xs leading-6 text-slate-500">
+                  محسوبة: سعر ECB لليورو/الدولار × سعر الربط الرسمي المعلن. ليست سعر بيع أو شراء في بنك أو صرافة.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2 text-right font-semibold">العملة</th>
+                        <th className="px-3 py-2 text-right font-semibold">الرمز</th>
+                        <th className="px-3 py-2 text-right font-semibold">سعر الربط لكل 1 دولار</th>
+                        <th className="px-3 py-2 text-right font-semibold">وحدات لكل 1 يورو</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {peggedRates(snap).map((r) => (
+                        <tr key={r.currency} className="border-t border-slate-100">
+                          <td className="px-3 py-2">{r.nameAr}</td>
+                          <td className="px-3 py-2 font-mono">{r.currency}</td>
+                          <td className="px-3 py-2 font-mono">{r.perUsd}</td>
+                          <td className="px-3 py-2 font-mono">{r.perEuro}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </>
         ) : (
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">

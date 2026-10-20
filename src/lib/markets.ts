@@ -15,6 +15,8 @@ export type MarketSnapshot = {
   note: string;
 };
 
+import { keepLastGood } from "./lastGood";
+
 const FX = [
   { code: "TRY", name: "ليرة تركية" },
   { code: "SYP", name: "ليرة سورية" },
@@ -39,6 +41,7 @@ async function getJson(url: string): Promise<unknown | null> {
     const res = await fetch(url, {
       headers: { accept: "application/json", "user-agent": "ShamAI-markets/1.0" },
       next: { revalidate: 300 },
+      signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return null;
     return await res.json();
@@ -87,7 +90,7 @@ export async function fetchMarkets(): Promise<MarketSnapshot> {
   const gram21 = gram24 ? gram24 * (21 / 24) : null;
   const syp = fx.find((row) => row.code === "SYP")?.rate ?? null;
   const tryRate = fx.find((row) => row.code === "TRY")?.rate ?? null;
-  return {
+  return keepLastGood("markets-ar", {
     updatedAt: new Date().toISOString(),
     goldUsd,
     goldGram24: gram24,
@@ -101,5 +104,5 @@ export async function fetchMarkets(): Promise<MarketSnapshot> {
     sol,
     fx,
     note: "مرجع سوقي مجاني، ليس سعر صرافة محلي ولا توصية. الليرة السورية والعراقية واللبنانية من مزود يومي، والباقي من نشرة فرانكفورتر.",
-  };
+  });
 }
