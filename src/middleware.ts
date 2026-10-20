@@ -36,6 +36,8 @@ export const config = {
     "/fadaa",
     "/fadaa/:path*",
     "/embed/:path*",
+    "/coder-app",
+    "/coder-app/:path*",
     "/en",
     "/en/:path*",
   ],

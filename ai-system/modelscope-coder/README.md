@@ -40,9 +40,15 @@ not looping (the loop waits `CODER_CI_WAIT_MS`, 20 s). Studio hiccups are retrie
 Every loop is logged in `coder_stall_log` (run id, chat hash, step, pattern, level, detail) + Vercel logs `[coder-stall]`; the owner sees
 the latest with `/stalls`.
 
-**Hard ceiling**: `CODER_HARD_MAX_STEPS` (default **400** model steps per task, minimum 50) — only against runaway compute. Reaching it ends
-the task with a message and a `hard_ceiling` log row; it is not a question to the user.
+**Hard ceiling**: `CODER_HARD_MAX_STEPS` (default **400**, minimum 50) counts model steps **since the last real progress** (a new successful
+action or a changed CI result), not total steps — a stall safety net only. Reaching it ends the task with a message and a `hard_ceiling` log
+row; it is not a question to the user.
+
+**Segments (long tasks)**: when a running task's context passes `CODER_SEGMENT_CHARS` (default 75% of `CODER_HISTORY_CHARS`), the model
+writes a progress summary (GOAL / PLAN / DONE / REMAINING / KEY FILES / DECISIONS / NEXT STEP; the harness writes one itself if the model's
+is unusable), it is stored in `coder_task_memory` and the task timeline, the context is reset to request + summary, and the task continues
+in the background in the next segment. The user gets a one-line notice in Telegram and the final result as usual.
 
 Env: `OPEN_CODER_STUDIO_URL` (required), `MODELSCOPE_API_TOKEN` / `OPEN_CODER_STUDIO_TOKEN`, `CODER_GITHUB_TOKEN`, `CODER_TOKEN_KEY` (for
-linked user tokens), optional `CODER_HARD_MAX_STEPS`, `CODER_STALL_REPEAT`, `CODER_STALL_NO_PROGRESS`, `CODER_CI_WAIT_MS`, `CODER_HISTORY_CHARS`,
+linked user tokens), optional `CODER_HARD_MAX_STEPS`, `CODER_STALL_REPEAT`, `CODER_STALL_NO_PROGRESS`, `CODER_CI_WAIT_MS`, `CODER_HISTORY_CHARS`, `CODER_SEGMENT_CHARS`,
 `CODER_DEFAULT_MODE`, `CODER_SELF_URL`, `OPEN_CODER_API_PREFIX`.

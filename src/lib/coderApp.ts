@@ -1,0 +1,214 @@
+// Server side of the coder's Telegram Mini App (/coder-app). Every call carries Telegram's signed initData (header
+// x-telegram-init-data), verified with the coder bot's own token (verifyTelegramInitData) — the user id from it is the private chat id.
+// One dispatcher (appOp) so the route stays thin and everything here is unit-testable with a fake db and bot.
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import type { Bot as TelegramBot } from "grammy";
+import type { Bot as BotRow } from "@prisma/client";
+import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
+import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
+import { listTasks, taskEvents } from "@/lib/coderTasks";
+import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
+import { validTimeZone } from "@/lib/coderCron";
+
+export type AppUser = { chatId: number; tier: "owner" | "user" };
+export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
+type Json = Record<string, any>;
+export class AppError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+  }
+}
+
+// ---------------------------------------------------------------- GitHub sign-in (OAuth App; zero cost) + pasted token fallback
+export const oauthConfigured = () => Boolean(process.env.CODER_GITHUB_CLIENT_ID && process.env.CODER_GITHUB_CLIENT_SECRET);
+export const OAUTH_SCOPES = "repo workflow admin:repo_hook read:user";
+const stateKey = () => process.env.CODER_TOKEN_KEY || process.env.CRON_SECRET || "";
+export function signState(chatId: number, now = Date.now()): string {
+  const body = `${chatId}.${now + 15 * 60000}.${randomBytes(6).toString("hex")}`;
+  return `${body}.${createHmac("sha256", stateKey()).update(body).digest("hex").slice(0, 32)}`;
+}
+export function verifyState(state: string, now = Date.now()): number | null {
+  const parts = String(state || "").split(".");
+  if (parts.length !== 4 || !stateKey()) return null;
+  const body = parts.slice(0, 3).join(".");
+  const want = Buffer.from(createHmac("sha256", stateKey()).update(body).digest("hex").slice(0, 32));
+  const got = Buffer.from(parts[3]);
+  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
+  if (Number(parts[1]) < now) return null;
+  return /^\d+$/.test(parts[0]) ? Number(parts[0]) : null;
+}
+export function oauthStartUrl(chatId: number, redirect: string): string {
+  const q = new URLSearchParams({ client_id: process.env.CODER_GITHUB_CLIENT_ID || "", redirect_uri: redirect, scope: OAUTH_SCOPES, state: signState(chatId), allow_signup: "true" });
+  return `https://github.com/login/oauth/authorize?${q}`;
+}
+async function ghUser(token: string, f: typeof fetch): Promise<{ login: string; scopes: string } | null> {
+  const r = await f("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, signal: AbortSignal.timeout(10000) }).catch(() => null);
+  if (!r || r.status !== 200) return null;
+  const d = (await r.json().catch(() => null)) as { login?: string } | null;
+  return d?.login ? { login: d.login, scopes: r.headers.get("x-oauth-scopes") || "" } : null;
+}
+export async function oauthFinish(code: string, state: string, redirect: string, db: Db = prismaDb, f: typeof fetch = globalThis.fetch): Promise<{ chatId: number; login: string }> {
+  const chatId = verifyState(state);
+  if (!chatId) throw new AppError(400, "expired or invalid sign-in link — start again from the app");
+  const r = await f("https://github.com/login/oauth/access_token", {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ client_id: process.env.CODER_GITHUB_CLIENT_ID, client_secret: process.env.CODER_GITHUB_CLIENT_SECRET, code, redirect_uri: redirect }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const d = (await r.json().catch(() => ({}))) as { access_token?: string; error_description?: string };
+  if (!d.access_token) throw new AppError(400, d.error_description || "GitHub did not return a token");
+  const u = await ghUser(d.access_token, f);
+  if (!u) throw new AppError(400, "could not read the GitHub account");
+  await saveConnection(chatId, "github", d.access_token, u.login, db);
+  return { chatId, login: u.login };
+}
+
+// ---------------------------------------------------------------- the operations
+async function sections() {
+  return import("@/lib/coderSections");
+}
+
+/** Pending confirmations across the chat and its scheduled tasks. */
+async function pendings(chatId: number, db: Db) {
+  const { loadState } = await sections();
+  const waiting = await listTasks(chatId, { active: true, limit: 30 }, db);
+  const out: Json[] = [];
+  const slots = new Set<string>(["", ...waiting.map((t) => t.slot)]);
+  for (const slot of slots) {
+    const st = await loadState(chatId, db, slot);
+    const p = st.run?.pending;
+    if (st.run && p) {
+      const c = p.calls[0];
+      out.push({ runId: st.run.id, nonce: p.nonce, reason: p.reason, summary: p.summary, tool: c?.function?.name || "", categories: p.categories || [], title: st.run.title || "", slot, at: p.at || null });
+    }
+  }
+  return out;
+}
+
+export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps): Promise<Json> {
+  const db = deps.db || prismaDb;
+  const { chatId } = user;
+  const { loadState, saveState, resolvePending, startScheduledRun } = await sections();
+  switch (op) {
+    case "me": {
+      const st = await loadState(chatId, db);
+      const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
+      return {
+        tier: user.tier, settings: { mode: st.mode, think: st.think, lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
+        prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
+        events: EVENT_TYPES,
+      };
+    }
+    case "settings": {
+      const st = await loadState(chatId, db);
+      if (body.mode === "coder" || body.mode === "sham") st.mode = body.mode;
+      if (typeof body.think === "boolean") st.think = body.think;
+      if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
+      if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
+      if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
+      await saveState(chatId, st, db);
+      return { ok: true };
+    }
+    case "pref": {
+      if (!isCategory(body.category)) throw new AppError(400, "bad category");
+      if (body.policy === "default") await removePref(chatId, body.category, body.repo || "*", body.context || "*", db);
+      else if (isPolicy(body.policy)) await setPref(chatId, { category: body.category, repo: body.repo || "*", context: body.context || "*", policy: body.policy }, db);
+      else throw new AppError(400, "bad policy");
+      return { ok: true, rules: (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r) };
+    }
+    case "tasks": {
+      const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
+      return { tasks, pending: await pendings(chatId, db) };
+    }
+    case "events": {
+      if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
+      return { events: await taskEvents(chatId, body.runId, Number(body.after) || 0, db) };
+    }
+    case "resolve": {
+      const answer = body.answer === "yes" || body.answer === "all" || body.answer === "no" ? body.answer : null;
+      if (!answer) throw new AppError(400, "bad answer");
+      const ok = await resolvePending(deps.bot, deps.botRow, chatId, String(body.runId || ""), String(body.nonce || ""), answer, db);
+      return { ok };
+    }
+    case "stop": {
+      const slot = typeof body.slot === "string" && /^(|s:[a-f0-9]{12})$/.test(body.slot) ? body.slot : "";
+      const st = await loadState(chatId, db, slot);
+      if (st.run && st.run.id === body.runId) {
+        const { taskStatus } = await import("@/lib/coderTasks");
+        await taskStatus(st.run.id, "stopped", st.run.step, db);
+        st.run = null;
+        st.inbox = [];
+        await saveState(chatId, st, db, slot);
+        return { ok: true };
+      }
+      return { ok: false };
+    }
+    case "schedules": {
+      const lang = (await loadState(chatId, db)).lang || "ar";
+      return { schedules: (await listSchedules(chatId, db)).map((s) => publicSchedule(s, lang)) };
+    }
+    case "schedule_create": {
+      const tz = body.tz || (await loadState(chatId, db)).tz || "UTC";
+      const r = await createSchedule(chatId, deps.botRow.id, { title: body.title, prompt: body.prompt, kind: body.kind, recurrence: body.recurrence, tz, repo: body.repo, events: body.events }, db);
+      if (!r.ok) throw new AppError(400, r.error);
+      return { schedule: publicSchedule(r.schedule), hook: "hook" in r ? r.hook : undefined };
+    }
+    case "schedule_update": {
+      const r = await updateSchedule(chatId, String(body.id || ""), { title: body.title, prompt: body.prompt, recurrence: body.recurrence, tz: body.tz, events: body.events }, db);
+      if (!r.ok) throw new AppError(400, r.error);
+      return { schedule: publicSchedule(r.schedule) };
+    }
+    case "schedule_pause": {
+      const s = await setPaused(chatId, String(body.id || ""), Boolean(body.paused), db);
+      if (!s) throw new AppError(404, "not found");
+      return { schedule: publicSchedule(s) };
+    }
+    case "schedule_delete": {
+      const r = await deleteSchedule(chatId, String(body.id || ""), body.confirm === true, db);
+      if (r === "not_found") throw new AppError(404, "not found");
+      return { result: r };
+    }
+    case "schedule_run": {
+      const s = await getSchedule(String(body.id || ""), db);
+      const { coderChatKey } = await import("@/lib/coderAuth");
+      if (!s || s.chat_key !== coderChatKey(chatId)) throw new AppError(404, "not found");
+      const r = await startScheduledRun(deps.bot, deps.botRow, chatId, { scheduleId: s.id, title: s.title, prompt: s.kind === "cron" ? cronPrompt(s) : s.prompt, source: "scheduled" }, db);
+      return { result: r };
+    }
+    case "github_start": {
+      if (!oauthConfigured()) throw new AppError(400, "GitHub sign-in is not configured on the server yet — paste a fine-grained token instead");
+      return { url: oauthStartUrl(chatId, String(body.redirect || "")) };
+    }
+    case "github_token": {
+      const token = String(body.token || "").trim();
+      if (!/^(github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,})$/.test(token)) throw new AppError(400, "that does not look like a GitHub token");
+      const u = await ghUser(token, deps.fetchImpl || globalThis.fetch);
+      if (!u) throw new AppError(400, "GitHub rejected this token");
+      await saveConnection(chatId, "github", token, u.login, db);
+      return { ok: true, login: u.login };
+    }
+    case "github_unlink": {
+      await deleteConnection(chatId, "github", db);
+      return { ok: true };
+    }
+    case "repos": {
+      const { resolveConnections } = await import("@/lib/coderAuth");
+      const c = await resolveConnections(chatId, db);
+      if (!c.github) return { repos: [] };
+      const q = String(body.q || "").toLowerCase();
+      const r = await (deps.fetchImpl || globalThis.fetch)(`https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member`, { headers: { Authorization: `Bearer ${c.github.token}`, Accept: "application/vnd.github+json", "User-Agent": "coder-bot" }, signal: AbortSignal.timeout(12000) }).catch(() => null);
+      const list = r && r.status === 200 ? ((await r.json().catch(() => [])) as any[]) : [];
+      return {
+        repos: list
+          .map((x) => ({ full_name: String(x.full_name), private: Boolean(x.private), default_branch: String(x.default_branch || ""), pushed_at: x.pushed_at || null, description: String(x.description || "").slice(0, 140) }))
+          .filter((x) => !q || x.full_name.toLowerCase().includes(q))
+          .slice(0, 100),
+      };
+    }
+  }
+  throw new AppError(404, `unknown op ${op}`);
+}
+
+export const tierOf = (chatId: number) => tierFor(chatId);

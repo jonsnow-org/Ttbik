@@ -14,8 +14,9 @@ import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { coderSystemPrompt, coderTools, githubClient, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
-import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
+import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
+import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskSlot, taskStart, taskStatus, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 
 export type Mode = "coder" | "sham";
@@ -26,8 +27,11 @@ export type Run = {
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string;
   allowCats?: Category[];                                             // "allow for the rest of this task"
+  // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
+  // and whether the model is writing the end-of-segment progress summary right now
+  goal?: string; segment?: number; segStep?: number; compacting?: boolean;
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string };
 export type { Db };
 export { coderChatKey };
 
@@ -310,6 +314,7 @@ function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partia
     st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", ...init };
     const last = [...st.messages].reverse().find((m) => m.role === "user");
     const title = st.run.title || String(last?.content || "").slice(0, 200);
+    st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
     void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title }, db);
   }
   st.run.chain = randomUUID().slice(0, 12);
@@ -490,6 +495,13 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       cached = null;
       const r: CoderReply | null = o.reply;
       if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
+        if (run.compacting && r?.type !== "cancelled" && !(!r && (o.failure === "timeout" || o.failure === "network"))) {
+          run.job = undefined;                        // the summary job failed: the harness writes the summary itself
+          run.sent = 0;
+          await startSegment(bot, chatId, st, run, "", db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
         if (!r && (o.failure === "timeout" || o.failure === "network")) {
           await saveState(chatId, st, db, slot);
           await new Promise((res) => setTimeout(res, pollMs()));
@@ -512,13 +524,21 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       }
       const text = r.text || "";
       if (r.type === "pending") {
-        await sendParts(bot, chatId, text, run, false);
+        if (!run.compacting) await sendParts(bot, chatId, text, run, false);
         await saveState(chatId, st, db, slot);
         await bot.api.sendChatAction(chatId, "typing").catch(() => null);
         await new Promise((res) => setTimeout(res, pollMs()));
         continue;
       }
       // done
+      if (run.compacting) {
+        // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
+        run.job = undefined;
+        run.sent = 0;
+        await startSegment(bot, chatId, st, run, text, db);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
       await sendParts(bot, chatId, text, run, true);
       const calls = (r.tool_calls || []).filter((c) => c?.function?.name);
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
@@ -530,13 +550,14 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         run.step++;
         const looped = afterText(run.stall, text, run.step);
         if (looped) await onStall(looped, run, chatId, ctx, db);
-        if (run.step >= HARD_MAX_STEPS) {
-          // the only stop: a very high ceiling against runaway compute (CODER_HARD_MAX_STEPS). Not a pause — the task ends and says so.
-          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `reached CODER_HARD_MAX_STEPS=${HARD_MAX_STEPS}` }, db);
+        if (stepsSinceProgress(run.stall, run.step) >= HARD_MAX_STEPS) {
+          // the only stop: a stall safety net against runaway compute (CODER_HARD_MAX_STEPS model steps with no real progress — not total
+          // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
           await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
           await saveState(chatId, st, db, slot);
-          await send(bot, chatId, `⛔ توقفت المهمة عند سقف الأمان (${HARD_MAX_STEPS} خطوة) لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`);
+          await send(bot, chatId, `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`);
           return;
         }
         await saveState(chatId, st, db, slot);
@@ -554,7 +575,22 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       return;
     }
 
-    // 3) nothing running: ask the model for the next step (messages that came in meanwhile join the conversation now)
+    // 3) nothing running. A long task whose context grew large first closes its segment: the model writes a progress summary
+    // (no tools), it is kept as task memory and becomes the whole context of the next segment (coderSegments.ts).
+    if (run.compacting || needsSegment(st.messages, run)) {
+      run.compacting = true;
+      const sumMsgs: CoderMessage[] = [{ role: "system", content: "You are the coding agent pausing at a context checkpoint. Write the progress summary you are asked for, nothing else." }, ...trimMessages(st.messages, run.histChars), summaryRequest(run.goal || "", run.segment || 1)];
+      const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
+      const o = await coderChat(sumMsgs, { think: false, temperature: 0.3, waitS, timeoutMs: waitS * 1000 + 9000 });
+      if (o.reply?.job) {
+        run.job = o.reply.job;
+        run.sent = 0;
+        if (o.reply.type !== "pending") cached = o.reply;
+      } else await startSegment(bot, chatId, st, run, "", db);
+      await saveState(chatId, st, db, slot);
+      continue;
+    }
+    // ask the model for the next step (messages that came in meanwhile join the conversation now)
     if (st.inbox.length) {
       for (const m of st.inbox) st.messages.push({ role: "user", content: m });
       st.inbox = [];
@@ -564,7 +600,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       run.recovery = undefined;
     }
     const knobs = recoveryKnobs(run.stall);
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: st.notes }) }, ...trimMessages(st.messages, run.histChars)];
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, notes: `${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     const o = await coderChat(messages, { tools: coderTools(github), think: st.think || knobs.think, temperature: knobs.temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const r = o.reply;
@@ -587,6 +623,27 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز.");
     await saveState(chatId, st, db, slot);
   }
+}
+
+/** Closes the current segment with `text` (the model's summary, or the harness's own when it is unusable) and opens the next one. */
+async function startSegment(bot: TelegramBot, chatId: number, st: ChatState, run: Run, text: string, db: Db): Promise<void> {
+  const seg = run.segment || 1;
+  const own = usableSummary(text);
+  const summary = own ? text.trim() : fallbackSummary(run.goal || "", st.messages, run.stall?.touched || [], st.notes);
+  await saveSegment(run.id, seg, stateKey(chatId, run.slot || ""), summary, db);
+  await taskEvent(run.id, "segment", `${seg} → ${seg + 1}${own ? "" : " (harness summary)"}
+${summary}`, db);
+  st.messages = segmentMessages(run.goal || "", summary, seg + 1);
+  run.segment = seg + 1;
+  run.segStep = run.step;
+  run.compacting = false;
+  run.histChars = undefined;                                            // a fresh context gets the full budget again
+  run.retries = 0;
+  if (run.stall) {
+    run.stall.calls = [];
+    run.stall.texts = [];
+  }
+  await send(bot, chatId, `🔁 المهمة طويلة: حفظتُ ملخّص ما أُنجز وأكمل في الخلفية (المرحلة ${seg + 1}).${run.title ? ` — ${run.title.slice(0, 80)}` : ""}`);
 }
 
 /** /api/coder/continue: the next leg of a long run. */
@@ -613,7 +670,7 @@ export async function startScheduledRun(
   const prev = await loadState(chatId, db, slot);
   if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
   const main = await loadState(chatId, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, notes: main.notes, tz: main.tz, lang: main.lang, messages: [{ role: "user", content: t.prompt }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
   startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));

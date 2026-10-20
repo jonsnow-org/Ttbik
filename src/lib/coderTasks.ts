@@ -6,7 +6,7 @@ import { coderChatKey, prismaDb, type Db } from "@/lib/coderAuth";
 
 export type TaskStatus = "running" | "waiting" | "done" | "failed" | "stopped" | "ceiling";
 export type TaskSource = "interactive" | "scheduled" | "event";
-export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "done" | "failed" | "info";
+export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
   steps: number; started_at: string; updated_at: string; finished_at: string | null;

@@ -1,14 +1,15 @@
 // Loop / stall detection for the coder's agent loop (owner's order, 2026-10-21: finish the task without stopping — no user-facing pause).
 // The harness watches what the model does; when it repeats itself it is NOT stopped: it gets a reflection step, a fresh look at the files
 // it was working on, a new plan and a different strategy, and the loop goes on. Every detected stall is logged (coder_stall_log) so the
-// root causes can be fixed. The only stop is a very high hard ceiling against runaway compute (CODER_HARD_MAX_STEPS, default 400).
+// root causes can be fixed. The only stop is a hard ceiling against runaway compute (CODER_HARD_MAX_STEPS, default 400) that counts model
+// steps since the last REAL progress, not total steps: a long task that keeps doing new things never reaches it (see coderSegments.ts).
 import { createHash } from "crypto";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export const STALL_REPEAT = Math.max(2, Number(process.env.CODER_STALL_REPEAT || 3));          // same action+args this many times = stall
 export const STALL_NO_PROGRESS = Math.max(4, Number(process.env.CODER_STALL_NO_PROGRESS || 12)); // steps without anything new = stall
-export const HARD_MAX_STEPS = Math.max(50, Number(process.env.CODER_HARD_MAX_STEPS || 400));    // runaway-compute ceiling (model steps per task)
+export const HARD_MAX_STEPS = Math.max(50, Number(process.env.CODER_HARD_MAX_STEPS || 400));    // runaway-compute ceiling (model steps without real progress)
 const WINDOW = 12;
 
 export type StallPattern = "repeat_call" | "repeat_output" | "repeat_error" | "no_progress" | "repeat_text" | "hard_ceiling";
@@ -18,7 +19,8 @@ export type StallState = {
   calls: { sig: string; res: string; err: boolean }[];
   texts: string[];
   seen: string[];          // every distinct action+args of this task
-  progressStep: number;    // last model step that did something new
+  progressStep: number;    // last model step that did something new (also moved by a recovery, for the no_progress window)
+  realStep?: number;       // last model step with REAL progress (a new successful action or a changed CI result); recoveries never move it
   level: number;           // stalls so far in this task (recovery escalates with it)
   touched: string[];       // repo:path the task read or wrote (re-read on recovery)
   counts: Record<string, number>;   // how often each action+args ran in this task
@@ -82,9 +84,11 @@ export function afterCall(ss: StallState, call: CoderToolCall, out: string, step
   ss.outs[sig] = out.slice(0, 1500);
   const keys = Object.keys(ss.outs);
   if (keys.length > 40) for (const k of keys.slice(0, keys.length - 40)) delete ss.outs[k];
-  if (!ss.seen.includes(sig) && !err) {
-    ss.seen = [...ss.seen, sig].slice(-500);
+  const key = poll ? `${sig}=${res}` : sig;           // a poll is progress when its result changed (CI moved on)
+  if (!ss.seen.includes(key) && !err) {
+    ss.seen = [...ss.seen, key].slice(-500);
     ss.progressStep = step;
+    ss.realStep = step;
   }
   try {
     const a = JSON.parse(call.function.arguments || "{}");
@@ -106,6 +110,9 @@ export function afterCall(ss: StallState, call: CoderToolCall, out: string, step
   }
   return { stall, wait };
 }
+
+/** Model steps since the last real progress: what the hard ceiling counts. */
+export const stepsSinceProgress = (ss: StallState | undefined, step: number) => step - (ss?.realStep || 0);
 
 /** After a model step that asked for tools: the same reasoning text again and again is a loop too. */
 export function afterText(ss: StallState, text: string, step: number): Stall | null {
