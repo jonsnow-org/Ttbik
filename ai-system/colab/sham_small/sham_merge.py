@@ -192,6 +192,11 @@ def skill_tolerance(skill: str, tolerance: float) -> float:
             return min(tolerance, max(0.0, float(os.environ.get("SHAM_CHAT_TOLERANCE", "0.005"))))
         except ValueError:
             return min(tolerance, 0.005)
+    if skill == "text":     # 2026-10-20: a head-started trainer was accepted at text +1.98% (media -5.2%): general text is the base of everything, 1% at most
+        try:
+            return min(tolerance, max(0.0, float(os.environ.get("SHAM_TEXT_TOLERANCE", "0.01"))))
+        except ValueError:
+            return min(tolerance, 0.01)
     return tolerance
 
 
