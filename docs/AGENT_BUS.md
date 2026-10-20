@@ -1,5 +1,7 @@
 # Agent bus — Claude + Grok
 
+> **2026-10-20:** section supervisors (one scheduled agent per section), their charters and the protected-paths guard live in [`docs/agents/`](./agents/README.md); the map of the whole repository is [`docs/REPO_NOTEBOOK.md`](./REPO_NOTEBOOK.md); Grok's guide is [`docs/GROK_GUIDE.md`](./GROK_GUIDE.md). Read them before the roll call below.
+
 > ## ⛔ ROLL CALL — owner directive 2026-09-30 (read before doing anything else)
 >
 > **Every agent (Claude session, scheduled routine, Grok, any other) working on this repo:**
