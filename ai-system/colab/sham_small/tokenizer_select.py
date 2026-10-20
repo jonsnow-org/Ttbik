@@ -122,7 +122,7 @@ def fit_codebook(tok, target: int) -> str | None:
 _PROBE: dict = {}
 
 
-def default_measure(kind: str, n: int = 24, seed: int = 20261012):
+def default_measure(kind: str, n: int = 48, seed: int = 20261012):
     """A measuring function (tokenizer → reconstruction error, lower is better) on ONE fixed sample of fresh factory items, the same for every
     candidate; None when the factory cannot be reached (offline). Quality decides between tokenizers, not how long one trained (owner, 2026-10-12:
     never replace one with another unless it measures better). The sample is random factory items, so a candidate that happened to train on exactly
@@ -136,10 +136,15 @@ def default_measure(kind: str, n: int = 24, seed: int = 20261012):
         if not manifest:
             return None
         from sham_vq_train import ManifestAudio, ManifestImages, _forward
+        frozen: dict = {}      # 2026-10-20: ManifestAudio returns a RANDOM segment on every call, so "before" and "after" were measured on different pieces (24 of them):
+                               # the audio refinement was refused at +27% (0.0138 -> 0.0176) on noise. The items are now drawn ONCE per tokenizer shape and reused for every candidate.
 
         def measure(tok) -> float | None:
-            ds = ManifestImages(manifest, tok.cfg.image_size) if kind == "image" else ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
-            items = [ds[i] for i in range(min(n, len(ds)))]
+            key = (tok.cfg.image_size,) if kind == "image" else (tok.cfg.n_mels, tok.cfg.segment_frames)
+            if key not in frozen:
+                ds = ManifestImages(manifest, tok.cfg.image_size) if kind == "image" else ManifestAudio(manifest, tok.cfg.n_mels, tok.cfg.segment_frames)
+                frozen[key] = [ds[i] for i in range(min(n, len(ds)))]
+            items = frozen[key]
             if not items:
                 return None
             tok.train(False)
