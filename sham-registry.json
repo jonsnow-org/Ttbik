@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20 14:25 UTC",
+  "generated_at": "2026-10-20 19:25 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -149,7 +149,7 @@
     {
       "alias": "دفتر المسارين A وB 1",
       "track": "ab_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-20",
       "gpu": false,
@@ -267,20 +267,20 @@
       "size_mb": 35.4,
       "last_updated": "2026-10-20",
       "progress": {
-        "samples_consumed": 15048,
-        "step": 19839,
+        "samples_consumed": 12064,
+        "step": 19466,
         "last_run_sources": {
           "cv17-ar": 1000
         },
-        "codebook_usage": 1997,
-        "recon": 0.013779010112968183
+        "codebook_usage": 1998,
+        "recon": 0.013220604858361185
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 0.0,
+      "size_mb": 580.2,
       "last_updated": "2026-10-20",
       "progress": {},
       "has_key_files": true
@@ -312,10 +312,10 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 7.1,
+      "size_mb": 7.6,
       "last_updated": "2026-10-20",
       "progress": {
-        "videos_consumed": 1967
+        "videos_consumed": 2067
       },
       "has_key_files": true
     },
@@ -380,13 +380,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 15048,
-          "step": 19839,
+          "samples_consumed": 12064,
+          "step": 19466,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 1997,
-          "recon": 0.013779010112968183
+          "codebook_usage": 1998,
+          "recon": 0.013220604858361185
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -395,7 +395,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 1967
+          "videos_consumed": 2067
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
