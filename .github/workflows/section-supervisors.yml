@@ -1,0 +1,37 @@
+# Section supervisors on GitHub (no Claude session needed): one read-mostly health report per section, as a rolling issue
+# "Supervisor report: <section>". See scripts/supervisors/run.mjs and docs/agents/README.md. Scheduled workflows run from the default branch only.
+name: section-supervisors
+on:
+  schedule:
+    - cron: "43 */6 * * *"
+  workflow_dispatch:
+concurrency:
+  group: section-supervisors
+  cancel-in-progress: false
+permissions:
+  contents: read
+  issues: write
+  actions: write
+jobs:
+  supervise:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        section: [zenobia, palmyra-launch, telegram-bots, site-content, athar]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: frozen coin facts
+        id: frozen
+        if: matrix.section == 'zenobia' || matrix.section == 'palmyra-launch'
+        continue-on-error: true
+        run: node scripts/znbt-frozen-check.mjs
+      - name: report
+        run: node scripts/supervisors/run.mjs "${{ matrix.section }}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FROZEN_CHECK: ${{ steps.frozen.outcome == 'success' && 'ok' || 'fail' }}
