@@ -52,5 +52,6 @@ test("actions change nothing without a token, and pause edits only Nova 1's swit
   expect(JSON.parse(Buffer.from(sent.content, "base64").toString())).toEqual({ enabled: true, done: true });
   expect((await panelAction("monitor_run", f)).ok).toBe(true);
   expect(calls.at(-1)!.url).toContain("/actions/workflows/sham-restarter.yml/dispatches");
+  expect(JSON.parse(calls.at(-1)!.init.body)).toEqual({ ref: "main", inputs: { live: "1" } });
   expect((await panelAction("rm -rf", f)).ok).toBe(false);
 });
