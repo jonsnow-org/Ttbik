@@ -36,7 +36,7 @@ export async function createPlanInvoice(bot: TelegramBot, chatId: number, planId
   const days = plan.days ?? 30;
   return bot.api.createInvoiceLink(
     `خطة ${plan.name.ar} — ${days} يوماً`.slice(0, 32),
-    `اشتراك المبرمج في خطة «${plan.name.ar}» لمدة ${days} يوماً. يُفعَّل فور الدفع.`.slice(0, 255),
+    `اشتراك Nova AI في خطة «${plan.name.ar}» لمدة ${days} يوماً. يُفعَّل فور الدفع.`.slice(0, 255),
     starsPayload(chatId, plan),
     "",
     "XTR",
@@ -99,7 +99,7 @@ export async function handleCoderPaymentMessage(bot: TelegramBot, msg: any, db: 
   await bot.api.sendMessage(chatId, text).catch(() => null);
   if (!r) {
     const owner = process.env.SUPER_ADMIN_TELEGRAM_ID;
-    if (owner) await bot.api.sendMessage(Number(owner), `⚠️ دفعة نجوم لخطة المبرمج لم تُفعَّل تلقائياً (المستخدم ${chatId}، ${sp.total_amount} XTR، المعرّف ${String(sp.telegram_payment_charge_id || "").slice(0, 40)}).`).catch(() => null);
+    if (owner) await bot.api.sendMessage(Number(owner), `⚠️ دفعة نجوم لخطة Nova AI لم تُفعَّل تلقائياً (المستخدم ${chatId}، ${sp.total_amount} XTR، المعرّف ${String(sp.telegram_payment_charge_id || "").slice(0, 40)}).`).catch(() => null);
   }
   return true;
 }

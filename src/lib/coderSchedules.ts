@@ -368,7 +368,7 @@ export async function handleScheduleCommand(bot: TelegramBot, botRow: BotRow, ch
       if (!s) return say(bot, chatId, "لم أجد هذه المهمة.");
       const { startScheduledRun } = await import("@/lib/coderSections");
       const r = await startScheduledRun(bot, botRow, chatId, { scheduleId: s.id, title: s.title, prompt: s.kind === "cron" ? cronPrompt(s) : s.prompt, source: "scheduled" }, db);
-      if (r !== "started") await say(bot, chatId, r === "busy" ? "⏳ التشغيل السابق لهذه المهمة ما زال جارياً." : "قسم المبرمج غير مفعّل الآن.");
+      if (r !== "started") await say(bot, chatId, r === "busy" ? "⏳ التشغيل السابق لهذه المهمة ما زال جارياً." : "قسم Nova AI غير مفعّل الآن.");
       return;
     }
     const s = await setPaused(chatId, id, verb === "pause", db);
