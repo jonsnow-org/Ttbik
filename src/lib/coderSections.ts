@@ -573,12 +573,23 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   p.msgId = (m as any)?.message_id || undefined;
 }
 
+/** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
+async function sendRich(bot: TelegramBot, chatId: number, text: string) {
+  const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
+  const html = markdownToTelegramHtml(text);
+  if (html.length <= 4096) {
+    const ok = await bot.api.sendMessage(chatId, html, { parse_mode: "HTML", link_preview_options: { is_disabled: true } } as never).then(() => true).catch(() => false);
+    if (ok) return;
+  }
+  for (const piece of splitForTelegram(stripMarkdown(text), 4000)) await send(bot, chatId, piece);
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
     const part = renderRange(text, a, b);
     if (part.trim()) {
       run.progress = undefined;                                 // a reply closes the progress card
-      await send(bot, chatId, part);
+      await sendRich(bot, chatId, part);
       await taskEvent(run.id, "text", part);
     }
     run.sent = b;
