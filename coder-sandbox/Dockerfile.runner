@@ -1,0 +1,8 @@
+# The runner itself: Node + the docker CLI (talks to the host's docker through the socket mounted in docker-compose.yml).
+FROM node:22-alpine
+RUN apk add --no-cache docker-cli bash
+WORKDIR /app
+COPY runner.mjs ./
+USER root
+ENV RUNNER_MODE=docker RUNNER_HOST=0.0.0.0
+CMD ["node", "runner.mjs"]

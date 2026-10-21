@@ -1,0 +1,16 @@
+# Coder sandbox runner on the Oracle VM: its own project name, directory, network and limits; it shares nothing with the other services.
+# Start (from this directory):  docker build -t coder-sandbox-box:latest -f Dockerfile.box . && docker compose -p coder-sandbox up -d --build
+name: coder-sandbox
+services:
+  runner:
+    build: { context: ., dockerfile: Dockerfile.runner }
+    restart: unless-stopped
+    env_file: .env                      # RUNNER_SECRET=... (24+ random chars), optional RUNNER_* overrides
+    ports: ["127.0.0.1:8790:8790"]      # localhost only: put a TLS front in front of it (see README.md, "Exposure")
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /opt/ttbik/deploy/oracle/agent:/host-flags:ro   # read-only: only to see whether SHAM_ON exists (yield to Sham)
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 128
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "2" } }

@@ -6,6 +6,10 @@
 // (as a one-off header, never written into the repo's config) and scrubbed from every output; pushes still go through the guarded
 // GitHub tools. No dark-web tooling (tor/i2p/.onion) is run.
 // Backends (failover chain, SANDBOX_BACKEND to reorder/limit; all zero cost, none shares a quota with Sham — no GitHub Actions):
+//   0. oracle      — capped container per task on the Oracle VM (coder-sandbox/runner.mjs), with CODER_SANDBOX_ORACLE_URL + _SECRET;
+//                    it refuses new work while Sham needs the machine.                                  (src/lib/coderSandboxRunner.ts)
+//   0b. codesandbox / codespaces — the same runner on a CodeSandbox VM or a personal GitHub Codespace (free monthly allowances), each
+//                    only with its keys; they sit between vercel and daytona.                           (src/lib/coderSandboxRunner.ts)
 //   1. vercel  — Vercel Sandbox microVM (Hobby free allowance, hard-capped), on Vercel deployments (OIDC).
 //   2. daytona — Daytona Cloud sandbox (free sign-up credit, no card), only with DAYTONA_API_KEY.        (src/lib/coderSandboxDrivers.ts)
 //   3. e2b     — E2B Firecracker sandbox (free one-time credit, no card), only with E2B_API_KEY.          (src/lib/coderSandboxDrivers.ts)
@@ -105,12 +109,16 @@ export function vercelDriver(): SbxDriver {
 
 // ---------------------------------------------------------------- backend selection + fallback
 export type Backend = { id: string; driver: SbxDriver };
-/** Backend ids in order of use. Only "vercel" exists today; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
-export const VM_BACKENDS = ["vercel", "daytona", "e2b"] as const;
+/** Backend ids in order of use; unknown ids in SANDBOX_BACKEND (comma list) are ignored. */
+export const VM_BACKENDS = ["oracle", "vercel", "codesandbox", "codespaces", "daytona", "e2b"] as const;
+const RUNNER_BACKENDS = new Set(["oracle", "codesandbox", "codespaces"]);
 export function backendConfigured(id: string): boolean {
   if (id === "vercel") return Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN);
   if (id === "daytona") return Boolean((process.env.DAYTONA_API_KEY || "").trim());
   if (id === "e2b") return Boolean((process.env.E2B_API_KEY || "").trim());
+  if (id === "oracle") return Boolean((process.env.CODER_SANDBOX_ORACLE_URL || "").trim() && (process.env.CODER_SANDBOX_ORACLE_SECRET || "").trim());
+  if (id === "codesandbox") return Boolean((process.env.CSB_API_KEY || "").trim() && (process.env.CODER_CSB_TEMPLATE || "").trim() && (process.env.CODER_CSB_RUNNER_SECRET || "").trim());
+  if (id === "codespaces") return Boolean((process.env.CODER_CODESPACES_TOKEN || "").trim() && (process.env.CODER_CODESPACES_REPO || "").trim() && (process.env.CODER_CODESPACES_RUNNER_SECRET || "").trim());
   return false;
 }
 /** VM backend ids in order of use: SANDBOX_BACKEND (comma list) or auto = every configured one in the default order. */
@@ -121,6 +129,14 @@ export function backendOrder(env = (process.env.SANDBOX_BACKEND || "auto").trim(
 }
 export const lightEnabled = () => (process.env.CODER_LIGHT || "on").trim().toLowerCase() !== "off";
 function driverFor(id: string): SbxDriver {
+  if (RUNNER_BACKENDS.has(id)) {
+    // lazy, like the other extra drivers
+    const pick = async () => {
+      const m = await import("@/lib/coderSandboxRunner");
+      return id === "oracle" ? m.oracleDriver() : id === "codesandbox" ? m.codesandboxDriver() : m.codespacesDriver();
+    };
+    return { get: async (n) => (await pick()).get(n), create: async (n, o) => (await pick()).create(n, o) };
+  }
   if (id === "daytona" || id === "e2b") {
     // lazy so the extra drivers cost nothing unless used
     return {
@@ -264,7 +280,8 @@ export async function runSandboxTool(name: string, a: any, ctx: SbxCtx): Promise
     }
     const { sb, fresh, backend } = opened;
     const home = sb.home || HOME;
-    const label = backend === "vercel" ? "Vercel Linux microVM" : backend === "daytona" ? "Daytona Linux sandbox" : backend === "e2b" ? "E2B Linux microVM" : backend;
+    const label = backend === "vercel" ? "Vercel Linux microVM" : backend === "daytona" ? "Daytona Linux sandbox" : backend === "e2b" ? "E2B Linux microVM"
+      : backend === "oracle" ? "capped Linux container (1 CPU, 2 GB)" : backend === "codesandbox" ? "CodeSandbox Linux VM" : backend === "codespaces" ? "GitHub Codespace" : backend;
     const note = fresh ? `[new sandbox (${label}): node + python3 + git, home ${home}, auto-stops after ${timeoutMin()} min]\n` : "";
     switch (name) {
       case "sandbox_clone": {
