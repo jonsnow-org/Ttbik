@@ -36,7 +36,7 @@ export type Run = {
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean; accuracy?: Accuracy; model?: string };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string };
 export type { Db };
 export { coderChatKey };
 
@@ -321,7 +321,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
     return true;
   }
-  if (!st.menu) await ensureMenuButton(bot, chatId, st, db);
+  if (st.menu !== appUrl()) await ensureMenuButton(bot, chatId, st, db);
 
   let content = text;
   if (msg.document) content = `${text}\n\n${await readDocument(bot, botRow, msg.document)}`.trim();
@@ -380,15 +380,15 @@ const panelKeyboard = (paused: boolean) =>
 
 export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق Nova AI", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
 
-/** The chat's persistent menu button opens the Mini App (set once per chat; `force` sets it again, e.g. on /start). */
+/** The chat's persistent menu button opens the Mini App (set once per chat and again whenever the app address changes; `force` sets it again, e.g. on /start). */
 async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
-  if (st.menu && !force) return;
+  if (st.menu === appUrl() && !force) return;
   try {
     await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: appUrl() } } });
   } catch {
     /* best-effort: the inline button still works */
   }
-  st.menu = true;
+  st.menu = appUrl();
   await saveState(chatId, st, db);
 }
 
