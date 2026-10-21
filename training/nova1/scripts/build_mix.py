@@ -66,7 +66,9 @@ def rows(key: str):
     elif key == "commitpackft":
         langs = next(x for x in yaml.safe_load((HERE / "datasets.yaml").read_text())["sources"] if x["key"] == "commitpackft")["languages"]
         for lang in langs:
-            for r in load_dataset("bigcode/commitpackft", lang, split="train", streaming=True):
+            # the hub repo still carries a loading script (no longer run by datasets>=4): read its JSONL files directly
+            files = f"hf://datasets/bigcode/commitpackft/data/{lang}/data.jsonl"
+            for r in load_dataset("json", data_files=files, split="train", streaming=True):
                 if len(r["old_contents"]) > 12_000:
                     continue
                 user = f"{r['message']}\n\nFile `{r['old_file']}`:\n```\n{r['old_contents']}\n```\nReturn the full updated file."
@@ -117,17 +119,20 @@ def main() -> None:
                 continue
             budget = int(a.tokens * float(s["weight"]))
             used = 0
-            for r in rows(s["key"]):
-                if not ok(r):
-                    continue
-                r["source"] = s["key"]
-                n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
-                if a.max_len and n > a.max_len:
-                    continue
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-                used += n
-                if used >= budget:
-                    break
+            try:
+                for r in rows(s["key"]):
+                    if not ok(r):
+                        continue
+                    r["source"] = s["key"]
+                    n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
+                    if a.max_len and n > a.max_len:
+                        continue
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    used += n
+                    if used >= budget:
+                        break
+            except Exception as e:  # e.g. a gated source without an HF token: the rest of the mix is still built
+                print(f"{s['key']:18s} skipped: {type(e).__name__}: {str(e)[:160]}")
             print(f"{s['key']:18s} {used:>12,} / {budget:,} tokens")
 
 

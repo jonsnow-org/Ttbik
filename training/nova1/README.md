@@ -95,3 +95,29 @@ the background), merging the adapter, GGUF conversion and quantising, and the ev
 ## Later phases (not in this run)
 Phase 2: longer agent traces from production (with consent) and preference tuning on passing vs failing fixes. Phase 3: broader
 Arabic technical writing and docs. Each phase gets its own section in `datasets.yaml` and its own eval line.
+
+## Kaggle run (owner decision 2026-10-21) — the plan in use
+
+Phase 1 trains on the owner's Kaggle account, on the free weekly GPU quota (30 h, resets Saturday 00:00 UTC = 03:00 Türkiye time),
+next to Sham's five notebooks.
+
+| Piece | Where |
+|---|---|
+| Notebook | `kaggle/nova1_kaggle.ipynb` + `kaggle/kernel-metadata.json` → private Kaggle notebook `jonsnowjonsnow/nova1-coder` (GPU T4 x2, one GPU used by Unsloth, internet on) |
+| Settings | `train/config.kaggle.yaml` (~20M tokens, 1 epoch, 2k context, checkpoint every 50 steps) |
+| Switch | `kaggle/run_request.json` (`enabled`, `not_before`, `session_cap_minutes`, `hold_track`, `done`) |
+| Scheduler | the existing Sham Kaggle monitor (`sham-restarter.yml` → `ai-system/supervision/sham_restarter.py` on `sham-main`) calls `ai-system/supervision/nova1_slot.py`; it pushes with the repository's Kaggle secret, nothing else holds a Kaggle key |
+
+Weekly cycle:
+1. After the reset, Sham's GPU notebook (track `all_in_one`, the only Sham notebook on GPU; the other four run on CPU) gets one GPU
+   session; its later restarts that week go to CPU through the CPU fallback it already uses when the quota is out. Nothing is stopped.
+2. Nova 1 uses the rest of the quota: each session is pushed with `MAX_MINUTES` = what is left (30 h − Sham's GPU time − Nova 1's
+   earlier sessions − 30 min, at most 660 min), saves every 50 steps and stops itself at that limit.
+3. Kaggle runs at most 5 sessions at once. While Nova 1 runs, the primary notebook of track `chat_image_in_one` is held: Nova 1 is
+   pushed only after that notebook has finished its own run, it is not restarted while Nova 1 runs, and it returns to normal restarts
+   when Nova 1's session ends.
+4. Each session leaves `data/mix.jsonl`, `out/checkpoint-*` (then the final adapter) and `nova1_status.json` in its output; the next
+   session gets that output as input and resumes. The first session builds the mix itself (streaming, a few minutes on Kaggle).
+5. When `nova1_status.json` says `done`, no more sessions are pushed. Two failed sessions in a row also stop the pushes.
+
+Stage 1 is ~5–6 T4 hours, so it fits in the first week's share; stage 2 (40M more tokens) runs in the following weeks with the same switch.
