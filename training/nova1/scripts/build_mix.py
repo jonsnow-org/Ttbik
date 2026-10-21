@@ -17,6 +17,49 @@ from datasets import load_dataset
 HERE = Path(__file__).resolve().parent.parent
 SYSTEM = "You are Nova 1, a careful software engineer. Write correct, tested, minimal code. Explain briefly in the user's language."
 CODE_BLOCK = re.compile(r"```(?:python|py)?\n(.*?)```", re.S)
+ANY_BLOCK = re.compile(r"```.*?```", re.S)
+# Rows of other sources in which an assistant (or a system message) speaks as another provider's model. SHAM AI's identity
+# comes from identity/identity_sft.jsonl, so such rows are rewritten (system message) or left out (assistant self-description).
+PROVIDERS = r"(?:Qwen\w*|Tongyi|Alibaba(?: Cloud)?|ChatGPT|GPT-?[34]\w*|OpenAI|Claude|Anthropic|Gemini|Bard|Llama\w*|Meta AI|DeepSeek\w*|Mistral|Mixtral|Nemotron|StarCoder\w*|Phi-?\d\w*|Grok|Google|Microsoft|NVIDIA)"
+SELF_ID = re.compile(
+    r"\b(?:I am|I'm|I’m|my name is|call me)\s+(?:an?\s+)?(?:AI\s+|large\s+|language\s+|model\s+|assistant\s+|named\s+|called\s+)*" + PROVIDERS + r"\b"
+    r"|\bI\s+(?:was|am|have been)\s+(?:created|developed|trained|built|made|designed)\s+by\s+(?:the\s+)?(?:\w+\s+){0,3}?" + PROVIDERS +
+    r"|\b(?:I am|I'm|I’m|as)\s+an?\s+[\w\s-]{0,40}?\b(?:created|developed|trained|built|made|designed)\s+by\s+(?:the\s+)?(?:\w+\s+){0,3}?" + PROVIDERS +
+    r"|\b(?:Qwen|Tongyi)\w*\b[^.\n]{0,80}\b(?:created|developed|made|built)\s+by\s+Alibaba"
+    r"|通义千问|我是.{0,6}(?:千问|Qwen)|阿里(?:巴巴|云)"
+    r"|أنا\s+(?:نموذج\s+)?(?:Qwen|ChatGPT|Claude|Gemini|Llama|DeepSeek|كوين|تشات ?جي ?بي ?تي)|(?:طوّرت|طورت|طوّرتني|طورتني|صنعتني|دربتني)\S*\s+(?:شركة\s+)?(?:علي ?بابا|OpenAI|Alibaba|جوجل|Google)",
+    re.I)
+SYS_ID = re.compile(r"\byou are\s+(?:an?\s+)?(?:AI\s+|assistant\s+|named\s+|called\s+)*" + PROVIDERS + r"\b|created by Alibaba|通义千问", re.I)
+SCRUB = {"system_rewritten": 0, "dropped_self_id": 0}
+
+
+def scrub_identity(row: dict) -> bool:
+    """Rewrites another provider's identity in a system message to SYSTEM; returns False for a row whose assistant turns
+    describe themselves as another provider's model (prose only; code blocks are not looked at)."""
+    for m in row["messages"]:
+        if m.get("role") == "system" and SYS_ID.search(m.get("content") or ""):
+            m["content"] = SYSTEM
+            SCRUB["system_rewritten"] += 1
+        elif m.get("role") == "assistant" and SELF_ID.search(ANY_BLOCK.sub(" ", m.get("content") or "")):
+            SCRUB["dropped_self_id"] += 1
+            return False
+    return True
+
+
+IDENTITY_TOOLS = ("web_search", "sandbox_exec", "github_read_file", "memory_search")
+
+
+def identity_rows(path: Path):
+    """identity/identity_sft.jsonl in three renderings, so the identity holds with no system message, with the training system
+    message, and with tools offered (a small subset of tools/coder_tools.json, every third row, to keep rows short)."""
+    tools = [t for t in json.loads((HERE / "tools" / "coder_tools.json").read_text()) if t["function"]["name"] in IDENTITY_TOOLS]
+    base = [json.loads(line) for line in path.open() if line.strip()]
+    for r in base:
+        yield {"messages": r["messages"]}
+    for r in base:
+        yield {"messages": [{"role": "system", "content": SYSTEM}] + r["messages"]}
+    for r in base[::3]:
+        yield {"messages": r["messages"], "tools": tools}
 
 
 def msgs(user: str, assistant: str, system: str = SYSTEM) -> list:
@@ -86,6 +129,8 @@ def rows(key: str):
                         {"type": "function", "function": {"name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)}} for c in calls]},
                 ],
             }
+    elif key == "identity":
+        yield from identity_rows(HERE / "identity" / "identity_sft.jsonl")
     else:  # generated locally (synth_repair, nova_traces, ar_code): read their JSONL
         p = HERE / "data" / f"{key}.jsonl"
         if p.exists():
@@ -126,6 +171,8 @@ def main() -> None:
                 for r in rows(s["key"]):
                     if not ok(r):
                         continue
+                    if s["key"] != "identity" and not scrub_identity(r):
+                        continue
                     r["source"] = s["key"]
                     n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
                     if a.max_len and n > a.max_len:
@@ -137,6 +184,7 @@ def main() -> None:
             except Exception as e:  # e.g. a gated source without an HF token: the rest of the mix is still built
                 print(f"{s['key']:18s} skipped: {type(e).__name__}: {str(e)[:160]}")
             print(f"{s['key']:18s} {used:>12,} / {budget:,} tokens")
+    print("identity scrub:", json.dumps(SCRUB))
 
 
 if __name__ == "__main__":

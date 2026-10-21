@@ -88,6 +88,14 @@ sources:
     status: use
     weight: 0.04
 
+  # ---- SHAM AI identity (who it is, who made it, what it can do), in the weights rather than in a prompt
+  - key: identity
+    source: "written here (scripts/make_identity.py -> identity/identity_sft.jsonl, committed): ~500 short conversations in Modern Standard Arabic, Levantine Arabic and English"
+    license: our own text
+    note: "each conversation appears three ways (no system message / training system message / with tools offered); the weight is a cap well above its size (~55k tokens), so all of it is used; dedup_decontam.py keeps these rows apart from near-duplicate removal"
+    status: use
+    weight: 0.01
+
   # ---- kept out of phase 1
   - {key: swe_agent_traj, hf: nebius/SWE-agent-trajectories, license: cc-by-4.0, status: hold, why: "trajectories from a Llama-3-based model; same naming clause as above — revisit"}
   - {key: swe_smith_traj, hf: SWE-bench/SWE-smith-trajectories, license: mit, status: excluded, why: "trajectories by Claude 3.7 Sonnet; Anthropic terms bar using outputs to build competing models"}
