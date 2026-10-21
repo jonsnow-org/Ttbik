@@ -121,3 +121,16 @@ Weekly cycle:
 5. When `nova1_status.json` says `done`, no more sessions are pushed. Two failed sessions in a row also stop the pushes.
 
 Stage 1 is ~5–6 T4 hours, so it fits in the first week's share; stage 2 (40M more tokens) runs in the following weeks with the same switch.
+
+## Serving Nova 1 — the last step is manual
+
+`export/upload_modelscope.py` only delivers files (the GGUF) to the ModelScope model repo `novaai2026/nova1-4b-gguf`. ModelScope has no
+API here that creates or updates a Studio, so the owner deploys it by hand:
+
+1. Run `export/export_gguf.sh`, then `export/upload_modelscope.py` (needs `MODELSCOPE_API_TOKEN`); check the files on the model page.
+2. On modelscope.cn: Create → Studio, Docker type, upload `export/studio/Dockerfile` and `export/studio/start.sh`
+   (or link this folder), port 7860.
+3. In the Studio's environment variables set `NOVA1_REPO=novaai2026/nova1-4b-gguf`, `NOVA1_FILE=<the Q4_K_M .gguf name>` and
+   `NOVA1_API_KEY=<a new random key>`; start it and wait for `/health` to answer.
+4. On the site set `NOVA1_STUDIO_URL` (the Studio address) and the same key, then turn Nova 1 on in the owner panel (Models).
+   Until `NOVA1_STUDIO_URL` is set, the owner panel lists this as a pending manual step.
