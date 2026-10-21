@@ -176,6 +176,20 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
     if (!chatId) return false;
+    if (data.startsWith("cpanel|")) {
+      // owner control panel buttons (src/lib/coderPanel.ts): the owner only
+      if (!owner) {
+        await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+        return true;
+      }
+      const { panel, panelAction, panelText } = await import("@/lib/coderPanel");
+      const act = data.split("|")[1];
+      const res = act === "refresh" ? null : await panelAction(act);
+      await bot.api.answerCallbackQuery(cq.id, res ? { text: res.message.slice(0, 190) } : {}).catch(() => null);
+      const d = await panel(db);
+      await bot.api.editMessageText(chatId, cq.message.message_id, panelText(d), { reply_markup: panelKeyboard(Boolean(d.training?.nova.paused)) } as never).catch(() => null);
+      return true;
+    }
     if (!/^c(mode|cf|perm|sch)\|/.test(data)) {
       if (owner) return false;                                // owner: the Sham handler's own buttons
       await bot.api.answerCallbackQuery(cq.id).catch(() => null);
@@ -236,6 +250,12 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
     "/stalls": "settings", "/new": "tasks", "/help": "tasks", "/plan": "billing", "/billing": "billing", "/upgrade": "billing", "/connectors": "connect",
   };
+  if (cmd === "/panel" && tierFor(chatId) === "owner") {
+    const { panel, panelText } = await import("@/lib/coderPanel");
+    const d = await panel(db);
+    await send(bot, chatId, panelText(d), { reply_markup: panelKeyboard(Boolean(d.training?.nova.paused)) });
+    return true;
+  }
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
     await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق المبرمج.", { reply_markup: appButton(ROUTED[cmd]) });
@@ -301,6 +321,13 @@ async function sendLimit(bot: TelegramBot, chatId: number, c: Exclude<LimitCheck
 }
 
 /** The inline button that opens the Mini App (optionally on one tab). */
+/** The owner panel's buttons (bot /panel). */
+const panelKeyboard = (paused: boolean) =>
+  new InlineKeyboard()
+    .text("🔄 تحديث", "cpanel|refresh").text(paused ? "▶️ استئناف نوفا 1" : "⏸ إيقاف نوفا 1", paused ? "cpanel|nova_resume" : "cpanel|nova_pause").row()
+    .text("🛰 تشغيل المراقب الآن", "cpanel|monitor_run").row()
+    .webApp("🎛 فتح اللوحة", `${appUrl()}?tab=panel`);
+
 export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق المبرمج", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
 
 /** The chat's persistent menu button opens the Mini App (set once per chat; `force` sets it again, e.g. on /start). */

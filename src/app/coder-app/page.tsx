@@ -8,11 +8,11 @@
 // Every API call carries the signed initData, validated on the server (src/lib/tmaInitData.ts); what a user may see (the Sham
 // section, owner tools, usage details) is decided by the server from the verified Telegram id.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppRoot } from "@telegram-apps/telegram-ui";
+import { AppRoot, Button as TgButton, Cell, Input, Section, Switch } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "./i18n";
 import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
 
-type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing";
+type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing" | "panel";
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
 type Ev = { id: number; run_id: string; kind: string; text: string; created_at: string };
@@ -827,6 +827,101 @@ function SettingsTab({ t, me, lang, reload, openBilling }: { t: Str; me: Me; lan
   );
 }
 
+// ---------------------------------------------------------------- owner control panel (owner only: the server answers 403 to anyone else)
+function PanelTab({ lang }: { lang: Lang }) {
+  const ar = lang === "ar";
+  const [d, setD] = useState<any>(null);
+  const [models, setModels] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState("");
+  const [fail, setFail] = useState("");
+  const load = useCallback(async () => {
+    setFail("");
+    try {
+      const [p, m, b] = await Promise.all([api("panel"), api("models"), api("billing")]);
+      setD(p);
+      setModels(m.owner?.models || m.owner || []);
+      setPlans(b.owner?.plans || []);
+    } catch (e: any) {
+      setFail(String(e?.message || e));
+    }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const act = async (action: string) => {
+    setBusy(action);
+    try {
+      const r = await api("panel_action", { action });
+      setMsg(r.message);
+      haptic(r.ok ? "success" : "error");
+      await load();
+    } catch (e: any) {
+      setMsg(String(e?.message || e));
+    }
+    setBusy("");
+  };
+  const trt = (iso?: string) => (iso ? new Intl.DateTimeFormat(ar ? "ar-SY" : "en-GB", { timeZone: "Europe/Istanbul", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso)) + " TRT" : "—");
+  if (fail) return <ErrorBox t={STR[lang]} msg={fail} retry={load} />;
+  if (!d) return <div className="space-y-3"><Skel className="h-28" /><Skel className="h-16" /><Skel className="h-16" /></div>;
+  const t = d.training, g = t?.gpu, nova = t?.nova;
+  return (
+    <div className="coder-rise space-y-4">
+      {d.steps?.length > 0 && (
+        <Section header={ar ? "خطوات يدوية باقية" : "Manual steps left"}>
+          {d.steps.map((s: any) => <Cell key={s.id} multiline before="📝">{ar ? s.ar : s.en}</Cell>)}
+        </Section>
+      )}
+      <Section header={ar ? "التدريب" : "Training"} footer={t?.logsReadable === false ? (ar ? "سجلات المراقب تحتاج PANEL_GITHUB_TOKEN على الموقع." : "Monitor logs need PANEL_GITHUB_TOKEN on the site.") : undefined}>
+        {g && <Cell multiline subtitle={`${ar ? "إعادة الضبط" : "Reset"}: ${trt(g.nextReset)} · ${g.rule}`}>
+          {`GPU: ${ar ? "شام" : "Sham"} ${g.shamHours}h · Nova 1 ${g.novaHours}h · ${ar ? "الباقي" : "left"} ~${g.leftHours}h / ${g.quotaHours}h`}
+        </Cell>}
+        <Cell multiline subtitle={nova?.request?.not_before ? `${ar ? "يبدأ بعد" : "Starts after"} ${trt(nova.request.not_before)}` : undefined}
+          after={<TgButton size="s" mode="bezeled" loading={busy.startsWith("nova")} onClick={() => act(nova?.paused ? "nova_resume" : "nova_pause")}>{nova?.paused ? "▶️" : "⏸"}</TgButton>}>
+          {`Nova 1: ${nova?.request?.enabled ? (nova.paused ? (ar ? "موقوف (لا جلسات جديدة)" : "paused (no new sessions)") : (ar ? "مفعّل" : "on")) : (ar ? "غير مفعّل" : "off")}`}
+        </Cell>
+        <Cell multiline subtitle={t?.monitor ? `${trt(t.monitor.at)} · ${t.monitor.conclusion}` : "—"}
+          after={<TgButton size="s" mode="bezeled" loading={busy === "monitor_run"} onClick={() => act("monitor_run")}>🛰</TgButton>}>
+          {ar ? "مراقب كاكل" : "Kaggle monitor"}
+        </Cell>
+        {(t?.monitorLines || []).filter((l: string) => l.startsWith("دفتر") || l.startsWith("Nova 1:")).slice(0, 8).map((l: string, i: number) => <Cell key={i} multiline>{l}</Cell>)}
+        {(t?.inspectorLines || []).filter((l: string) => l.startsWith("status:") || l.startsWith("=====")).slice(0, 10).map((l: string, i: number) => <Cell key={"i" + i} multiline>{l}</Cell>)}
+        {msg && <Cell multiline before="ℹ️">{msg}</Cell>}
+      </Section>
+      <Section header={ar ? "النماذج" : "Models"} footer={ar ? "الظهور للمستخدمين وسعر النجوم (فارغ = ضمن الخطة)." : "Visible to users and Stars price (empty = included)."}>
+        {models.map((m: any) => (
+          <Cell key={m.id} multiline subtitle={m.id}
+            after={<Switch checked={Boolean(m.visible)} onChange={async (e) => { await api("model_update", { id: m.id, visible: e.currentTarget.checked }); haptic("success"); void load(); }} />}>
+            {(m.name && (ar ? m.name.ar : m.name.en)) || m.id}
+          </Cell>
+        ))}
+        {models.map((m: any) => (
+          <Input key={"p" + m.id} header={`${(m.name && (ar ? m.name.ar : m.name.en)) || m.id} ⭐`} type="number" defaultValue={m.price_stars ?? ""}
+            onBlur={async (e) => { await api("model_update", { id: m.id, price_stars: e.currentTarget.value }); haptic("success"); }} />
+        ))}
+      </Section>
+      <Section header={ar ? "الخطط (نجوم)" : "Plans (Stars)"}>
+        {plans.map((p: any) => (
+          <Input key={p.id} header={`${(p.name && (ar ? p.name.ar : p.name.en)) || p.id} ⭐`} type="number" defaultValue={p.price_stars ?? ""}
+            onBlur={async (e) => { await api("plan_update", { ...p, price_stars: e.currentTarget.value === "" ? null : Number(e.currentTarget.value) }); haptic("success"); }} />
+        ))}
+      </Section>
+      <Section header={ar ? "المستخدمون والاشتراكات" : "Users & subscriptions"}>
+        <Cell after={String(d.users?.chats ?? 0)}>{ar ? "المستخدمون" : "Users"}</Cell>
+        <Cell after={String(d.users?.active7d ?? 0)}>{ar ? "نشطون خلال 7 أيام" : "Active in 7 days"}</Cell>
+        {Object.entries(d.users?.subscriptions || {}).map(([k, v]) => <Cell key={k} after={String(v)}>{`${ar ? "اشتراك" : "Plan"} ${k}`}</Cell>)}
+      </Section>
+      <Section header={ar ? "الخوادم والبدائل" : "Servers & fallbacks"}>
+        <Cell after={d.health?.studio?.ok ? "✅" : "❌"}>{`Studio (${d.health?.studio?.count ?? 0})`}</Cell>
+        <Cell after={d.health?.nova1Studio ? "✅" : "—"}>Nova 1 Studio</Cell>
+        <Cell after={d.health?.oracle ? "✅" : "—"}>Oracle</Cell>
+        {(d.health?.sandbox || []).filter((b: any) => b.configured).map((b: any) => <Cell key={b.id} after={b.ok ? "✅" : "⏳"}>{b.id}</Cell>)}
+        {(d.health?.search || []).map((s: any) => <Cell key={s.name} after={s.ok ? "✅" : "⏳"}>{s.name}</Cell>)}
+      </Section>
+      <div className="flex justify-center"><TgButton size="m" mode="plain" onClick={() => { haptic("light"); void load(); }}>🔄 {ar ? "تحديث" : "Refresh"}</TgButton></div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- billing (its own section: plan, usage as one bar, Stars upgrade, owner pricing)
 type PubPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars: number | null; days: number; current: boolean; tier: number };
 type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
@@ -1030,7 +1125,7 @@ const TABS: { id: Exclude<Tab, "billing">; icon: string; key: keyof Str }[] = [
   { id: "connect", icon: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1", key: "tabConnectors" },
   { id: "settings", icon: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z", key: "tabSettings" },
 ];
-const tabFrom = (want: string): Tab => (want === "plans" || want === "billing" ? "billing" : want === "connectors" ? "connect" : (TABS.some((x) => x.id === want) ? want : "tasks") as Tab);
+const tabFrom = (want: string): Tab => (want === "panel" ? "panel" : want === "plans" || want === "billing" ? "billing" : want === "connectors" ? "connect" : (TABS.some((x) => x.id === want) ? want : "tasks") as Tab);
 
 export default function CoderApp() {
   // Telegram Mini Apps cannot be rendered on the server (the launch data lives in the client): render after mount, like the official template
@@ -1075,6 +1170,8 @@ export default function CoderApp() {
   const openBilling = useCallback(() => { setPrevTab((p) => (tab === "billing" ? p : tab)); setTab("billing"); }, [tab]);
   const closeBilling = useCallback(() => setTab(prevTab === "billing" ? "tasks" : prevTab), [prevTab]);
   useEffect(() => (tab === "billing" ? bindBack(true, closeBilling) : undefined), [tab, closeBilling]);
+  const openPanel = useCallback(() => { setPrevTab((p) => (tab === "panel" || tab === "billing" ? p : tab)); setTab("panel"); }, [tab]);
+  useEffect(() => (tab === "panel" ? bindBack(true, closeBilling) : undefined), [tab, closeBilling]);
   const code = getLaunch().languageCode;
   const lang: Lang = me?.settings.lang || (code === "ar" || !code ? "ar" : "en");
   const t = STR[lang];
@@ -1115,6 +1212,9 @@ export default function CoderApp() {
           <div className="flex items-center gap-3">
             <Mark />
             <div className="min-w-0 flex-1"><div className="text-[17px] font-extrabold leading-tight tracking-tight">{tab === "billing" ? t.billing : t.brand}</div><div className="truncate text-[12px] text-[var(--c-hint)]">{t.tagline}</div></div>
+            {me?.tier === "owner" && tab !== "panel" && (
+              <button onClick={() => { haptic("light"); openPanel(); }} className="rounded-full bg-[var(--c-sunken)] px-3 py-1.5 text-[12px] font-bold text-[var(--c-text)]" aria-label={lang === "ar" ? "لوحة المالك" : "Owner panel"}>🎛</button>
+            )}
             {me && tab !== "billing" && (
               <button onClick={() => { haptic("light"); openBilling(); }} className="rounded-full bg-[var(--c-accent-soft)] px-3 py-1.5 text-[12px] font-bold text-[var(--c-accent-ink)]" aria-label={t.openBilling}>
                 💎 {me.tier === "owner" ? t.tierOwner : t.tabBilling}
@@ -1131,6 +1231,7 @@ export default function CoderApp() {
             : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
             : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
             : tab === "billing" ? <BillingTab t={t} lang={lang} me={me} />
+            : tab === "panel" && me.tier === "owner" ? <PanelTab lang={lang} />
             : <SettingsTab key={lang} t={t} me={me} lang={lang} reload={reload} openBilling={openBilling} />}
         </main>
         {tab !== "billing" && (

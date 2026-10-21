@@ -298,6 +298,17 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await newConversation(chatId, await loadState(chatId, db), db);
       return { ok: true };
     }
+    // ---------------------------------------------------------------- owner control panel (src/lib/coderPanel.ts)
+    case "panel": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { panel } = await import("@/lib/coderPanel");
+      return await panel(db, deps.fetchImpl || globalThis.fetch);
+    }
+    case "panel_action": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { panelAction } = await import("@/lib/coderPanel");
+      return await panelAction(String(body.action || ""), deps.fetchImpl || globalThis.fetch);
+    }
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
