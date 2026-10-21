@@ -11,6 +11,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
+import { brandSelfReferences } from "@/lib/coderIdentity";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderTools, githubClient, isAccuracy, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -617,7 +618,7 @@ async function sendRich(bot: TelegramBot, chatId: number, text: string) {
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
-    const part = renderRange(text, a, b);
+    const part = brandSelfReferences(renderRange(text, a, b));   // the model never names itself or its maker: SHAM AI by Sham
     if (part.trim()) {
       run.progress = undefined;                                 // a reply closes the progress card
       await sendRich(bot, chatId, part);
@@ -781,7 +782,8 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       }
       await sendParts(bot, chatId, text, run, true);
       const calls = (r.tool_calls || []).filter((c) => c?.function?.name);
-      st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
+      const said = brandSelfReferences(text);                     // the history keeps the SHAM AI wording the user saw
+      st.messages.push(calls.length ? { role: "assistant", content: said, tool_calls: calls } : { role: "assistant", content: said });
       run.job = undefined;
       run.sent = 0;
       run.retries = 0;
