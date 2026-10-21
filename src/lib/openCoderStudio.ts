@@ -83,7 +83,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   let last: CoderOutcome = { reply: null, failure: "network" };
   const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
   for (const { b, i } of order.slice(0, 2)) {
-    last = await callOne(b, api, payload, per);
+    last = await callOne(b, api, fitWait(payload, per), per);
     if (last.reply) {
       studioCooling.delete(b);
       return i ? tagJob(last, i) : last;
@@ -91,6 +91,19 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     studioCooling.set(b, Date.now() + COOL_MS);
   }
   return last;
+}
+/**
+ * A completion call holds the HTTP request open on the Studio for up to `wait_s` before it answers "pending" + the job id. If the
+ * attempt's own timeout is shorter than that, the bot gives up first: the job stays queued on the Studio with an id nobody knows (it
+ * can never be polled or cancelled), the call is retried and the retry lands behind it ("1 ahead") while it holds the one-at-a-time
+ * runner. So each attempt asks the Studio to answer well inside that attempt's time (CODER_STUDIO_ANSWER_MARGIN_MS, default 8 s, covers
+ * the Studio proxy and the event-stream round trip); the job then goes on and is polled with job_result as usual.
+ */
+export function fitWait(payload: Record<string, unknown>, attemptMs: number): Record<string, unknown> {
+  if (typeof payload.wait_s !== "number") return payload;
+  const margin = Math.max(3000, Number(process.env.CODER_STUDIO_ANSWER_MARGIN_MS || 8000));
+  const room = Math.max(1, Math.floor((attemptMs - margin) / 1000));
+  return payload.wait_s > room ? { ...payload, wait_s: room } : payload;
 }
 function tagJob(o: CoderOutcome, idx: number): CoderOutcome {
   return o.reply?.job ? { ...o, reply: { ...o.reply, job: `s${idx}~${o.reply.job}` } } : o;
