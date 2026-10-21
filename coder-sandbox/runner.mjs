@@ -18,7 +18,10 @@ import { existsSync, readFileSync, promises as fsp } from "node:fs";
 import path from "node:path";
 
 export function config(env = process.env) {
-  const num = (k, d, lo, hi) => Math.max(lo, Math.min(hi, Number(env[k] || d) || d));
+  const num = (k, d, lo, hi) => {
+    const v = Number(String(env[k] ?? "").trim() === "" ? d : env[k]);
+    return Math.max(lo, Math.min(hi, Number.isFinite(v) ? v : d)); // an explicit 0 stays 0
+  };
   return {
     mode: (env.RUNNER_MODE || "docker").trim() === "local" ? "local" : "docker",
     secret: (env.RUNNER_SECRET || "").trim(),

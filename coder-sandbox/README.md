@@ -53,8 +53,10 @@ A backend without all its variables is skipped. Order: Oracle → Vercel Sandbox
 ## CodeSandbox (free Build plan)
 
 1. Make a repo (or folder) with `runner.mjs` at the root and `codesandbox/.codesandbox/tasks.json` copied to `.codesandbox/tasks.json`.
-2. Import it at codesandbox.io as a sandbox; in its env settings add `RUNNER_SECRET` (24+ characters). This is the template.
-3. Create an API key at codesandbox.io/t/api. Each task forks the template on the Nano tier and shuts it down afterwards.
+2. Import it at codesandbox.io as a sandbox and put the secret (24+ characters) in a file `.runner-secret` next to `runner.mjs`
+   (a fork copies the project files; env set in a session does not carry over). This sandbox is the template; keep it private.
+3. Create an API key at codesandbox.io/t/api. Each task forks the template on the Pico tier (1 CPU, 2 GB; `CODER_CSB_TIER` to change),
+   then shuts the fork down and deletes it.
 
 ## GitHub Codespaces (personal account, free monthly hours)
 

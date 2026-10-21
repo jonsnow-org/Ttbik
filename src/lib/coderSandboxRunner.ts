@@ -4,7 +4,9 @@
 //                 CODER_SANDBOX_ORACLE_URL + CODER_SANDBOX_ORACLE_SECRET. Refuses new work (503) while Sham needs the machine.
 //   codesandbox — a CodeSandbox VM (free Build plan: 400 VM credits a month ≈ 40 Nano hours, frozen — never billed — when used up),
 //                 forked from the owner's template that starts the runner in local mode on port 8790.
-//                 CSB_API_KEY + CODER_CSB_TEMPLATE (+ CODER_CSB_RUNNER_SECRET = RUNNER_SECRET in the template's env).
+//                 CSB_API_KEY + CODER_CSB_TEMPLATE + CODER_CSB_RUNNER_SECRET (the template keeps it in .runner-secret: files are copied
+//                 by a fork, env set in a session is not). Pico tier (1 CPU, 2 GB, half the credits of Nano) unless CODER_CSB_TIER;
+//                 every fork is deleted when its task ends (a shutdown alone can leave the VM listed as running for a while).
 //   codespaces  — a GitHub Codespace on the owner's personal account (free 120 core-hours a month; the personal spending limit is $0
 //                 by default, so it stops instead of billing), from a repo holding coder-sandbox/codespaces/.devcontainer + runner.mjs.
 //                 CODER_CODESPACES_TOKEN (fine-grained PAT: Codespaces read/write + Codespaces lifecycle admin) + CODER_CODESPACES_REPO
@@ -119,14 +121,16 @@ export function codesandboxDriver(): SbxDriver {
     headers: { "x-runner-key": env("CODER_CSB_RUNNER_SECRET") },
     label: "codesandbox",
   });
-  // the VM itself is the box: stopping the box also shuts the VM down (credits stop counting)
+  // the VM itself is the box: stopping the box shuts the VM down and deletes the fork (credits stop counting, nothing piles up)
   const withShutdown = (h: SbxHandle, id: string): SbxHandle => ({
     ...h,
     async stop() {
       await h.stop();
       await f(`${api()}/vm/${id}/shutdown`, { method: "POST", headers: hdr(), body: "{}", signal: AbortSignal.timeout(20000) }).catch(() => null);
+      await f(`${api()}/vm/${id}`, { method: "DELETE", headers: hdr(), signal: AbortSignal.timeout(20000) }).catch(() => null);
     },
   });
+  const tier = () => (/^(Pico|Nano|Micro|Small)$/.test(env("CODER_CSB_TIER")) ? env("CODER_CSB_TIER") : "Pico");
   return {
     async get(name) {
       if (!codesandboxConfigured()) return null;
@@ -145,7 +149,7 @@ export function codesandboxDriver(): SbxDriver {
           headers: hdr(),
           body: JSON.stringify({
             title: name, tags: [csbTag(name)], privacy: 2, private_preview: false,
-            start_options: { tier: "Nano", hibernation_timeout_seconds: Math.min(86400, Math.max(300, Math.ceil(o.timeoutMs / 1000))), automatic_wakeup_config: { http: false, websocket: false } },
+            start_options: { tier: tier(), hibernation_timeout_seconds: Math.min(86400, Math.max(300, Math.ceil(o.timeoutMs / 1000))), automatic_wakeup_config: { http: false, websocket: false } },
           }),
           signal: AbortSignal.timeout(60000),
         }),
@@ -155,8 +159,14 @@ export function codesandboxDriver(): SbxDriver {
       const id = j?.data?.id;
       if (!id) throw new Error("codesandbox fork: no sandbox id");
       const t = target(id);
-      await waitHealthy(t);
-      return withShutdown(await runnerCreate(t, name, o.timeoutMs), id);
+      try {
+        await waitHealthy(t);
+        return withShutdown(await runnerCreate(t, name, o.timeoutMs), id);
+      } catch (e) {
+        // never leave a fork behind when it could not take the task
+        await withShutdown(runnerHandle(t, name, "/"), id).stop();
+        throw e;
+      }
     },
   };
 }

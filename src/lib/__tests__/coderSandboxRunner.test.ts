@@ -40,6 +40,7 @@ function fakeWorld(opt: { accepting?: boolean } = {}) {
       if (/\/sandbox\/tmpl1\/fork$/.test(u.pathname)) { csbVms.add("vm9"); return res(201, { data: { id: "vm9" } }); }
       if (u.pathname === "/sandbox") return res(200, { data: { sandboxes: [...csbVms].map((id) => ({ id })) } });
       if (/\/vm\/vm9\/shutdown$/.test(u.pathname)) { csbVms.delete("vm9"); return res(200, { success: true }); }
+      if (u.pathname === "/vm/vm9" && method === "DELETE") return res(200, { success: true });
       return res(404, "?");
     }
     // GitHub Codespaces
@@ -143,14 +144,14 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     expect(used).toBe(true);
   });
 
-  it("codesandbox: forks the template (Nano, no auto wake-up), waits for the runner, shuts the VM down on stop", async () => {
+  it("codesandbox: forks the template (Pico, no auto wake-up), waits for the runner, shuts the VM down and deletes the fork on stop", async () => {
     process.env.CSB_API_KEY = "csb-key";
     process.env.CODER_CSB_TEMPLATE = "tmpl1";
     process.env.CODER_CSB_RUNNER_SECRET = "csb-runner";
     const w = fakeWorld();
     const sb = await codesandboxDriver().create("coder-abc-run1", { timeoutMs: 30 * 60000, vcpus: 2, tags: {} });
     const fork = w.calls.find((c) => /\/fork$/.test(c.url))!;
-    expect(fork.body.start_options.tier).toBe("Nano");
+    expect(fork.body.start_options.tier).toBe("Pico");
     expect(fork.body.start_options.automatic_wakeup_config).toEqual({ http: false, websocket: false });
     expect(fork.body.tags).toEqual(["cx-coder-abc-run1"]);
     expect(w.calls.some((c) => c.url === "https://vm9-8790.csb.app/health")).toBe(true);
@@ -158,6 +159,17 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     expect(await codesandboxDriver().get("coder-abc-run1")).not.toBeNull();
     await sb.stop();
     expect(w.csbVms.size).toBe(0);
+    expect(w.calls.some((c) => c.method === "DELETE" && c.url === "https://api.codesandbox.io/vm/vm9")).toBe(true);
+  });
+
+  it("codesandbox: a fork that cannot take the task is shut down and deleted", async () => {
+    process.env.CSB_API_KEY = "csb-key";
+    process.env.CODER_CSB_TEMPLATE = "tmpl1";
+    process.env.CODER_CSB_RUNNER_SECRET = "csb-runner";
+    const w = fakeWorld({ accepting: false });
+    await expect(codesandboxDriver().create("coder-abc-run3", { timeoutMs: 60000, vcpus: 1, tags: {} })).rejects.toThrow(/capacity/);
+    expect(w.csbVms.size).toBe(0);
+    expect(w.calls.some((c) => c.method === "DELETE" && c.url === "https://api.codesandbox.io/vm/vm9")).toBe(true);
   });
 
   it("codespaces: creates on the owner's repo, waits until Available, uses the forwarded port, deletes on stop", async () => {
@@ -182,5 +194,28 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     expect(await codespacesDriver().get("x")).toBeNull();
     await expect(oracleDriver().create("x", { timeoutMs: 1000, vcpus: 1, tags: {} })).rejects.toThrow(/not configured/);
     expect(w.calls).toHaveLength(0);
+  });
+});
+
+describe("daytona create body", () => {
+  it("sends no cpu/memory/disk (Daytona refuses them next to its default snapshot) and deletes a sandbox that fails to start", async () => {
+    const { daytonaDriver, setDriverFetch } = await import("@/lib/coderSandboxDrivers");
+    process.env.DAYTONA_API_KEY = "dt";
+    const calls: { method: string; url: string; body: any }[] = [];
+    setDriverFetch((async (u: any, init: any = {}) => {
+      calls.push({ method: init.method || "GET", url: String(u), body: typeof init.body === "string" ? JSON.parse(init.body) : null });
+      if ((init.method || "GET") === "POST") return new Response(JSON.stringify({ id: "s1", state: "error" }), { status: 200 });
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch);
+    try {
+      await expect(daytonaDriver().create("coder-x-1", { timeoutMs: 120000, vcpus: 2, tags: {} })).rejects.toThrow(/daytona sandbox error/);
+      const body = calls[0].body;
+      expect(body).toMatchObject({ name: "coder-x-1", autoStopInterval: 2, autoDeleteInterval: 0 });
+      expect(body.cpu).toBeUndefined();
+      expect(body.memory).toBeUndefined();
+      expect(calls.some((c) => c.method === "DELETE" && /\/sandbox\/s1$/.test(c.url))).toBe(true);
+    } finally {
+      setDriverFetch(null);
+    }
   });
 });

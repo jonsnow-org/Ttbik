@@ -90,19 +90,30 @@ export function daytonaDriver(): SbxDriver {
         await f(`${api()}/sandbox`, {
           method: "POST",
           headers: { ...hdr(), "Content-Type": "application/json" },
-          body: JSON.stringify({ name, labels: o.tags, cpu: Math.min(2, o.vcpus), memory: 2, disk: 5, autoStopInterval: Math.ceil(o.timeoutMs / 60000), autoDeleteInterval: 0 }),
+          // Daytona's default snapshot fixes the size (its smallest: 1 vCPU, 1 GiB); it refuses cpu/memory/disk next to a snapshot.
+          // Stopped after the task's idle time, deleted right after it stops, so nothing is left behind.
+          body: JSON.stringify({
+            name, labels: o.tags, autoStopInterval: Math.max(1, Math.ceil(o.timeoutMs / 60000)), autoDeleteInterval: 0,
+            ...((process.env.DAYTONA_SNAPSHOT || "").trim() ? { snapshot: (process.env.DAYTONA_SNAPSHOT || "").trim() } : {}),
+          }),
           signal: AbortSignal.timeout(30000),
         }),
         "daytona create",
       );
       let sb = (await r.json()) as { id: string; state?: string; toolboxProxyUrl?: string };
       for (let i = 0; i < 30 && sb.state !== "started"; i++) {
-        if (/error|failed/.test(String(sb.state))) throw new Error(`daytona sandbox ${sb.state}`);
+        if (/error|failed/.test(String(sb.state))) {
+          await wrap(sb).stop(); // never leave a broken sandbox behind
+          throw new Error(`daytona sandbox ${sb.state}`);
+        }
         await new Promise((res) => setTimeout(res, 1000));
         const g = await f(`${api()}/sandbox/${sb.id}`, { headers: hdr(), signal: AbortSignal.timeout(10000) });
         if (g.ok) sb = (await g.json()) as typeof sb;
       }
-      if (sb.state !== "started") throw new Error("daytona sandbox did not start in time");
+      if (sb.state !== "started") {
+        await wrap(sb).stop();
+        throw new Error("daytona sandbox did not start in time");
+      }
       return wrap(sb);
     },
   };

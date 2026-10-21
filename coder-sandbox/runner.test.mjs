@@ -29,6 +29,8 @@ test("yields to Sham, to memory pressure and to capacity", () => {
   assert.equal(refusal(cfg, { shamOn: false, freeMb: 1000, active: 0 }), "low-memory");
   assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 2 }), "capacity");
   assert.equal(refusal(cfg, { shamOn: false, freeMb: 9000, active: 1 }), null);
+  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "0" }).minFreeMb, 0, "explicit 0 turns the memory check off");
+  assert.equal(config({ RUNNER_SECRET: SECRET, RUNNER_MIN_FREE_MB: "abc" }).minFreeMb, 3000);
   assert.equal(freeMemMb("MemTotal: 1 kB\nMemAvailable:    4096000 kB\n"), 4000);
 });
 
