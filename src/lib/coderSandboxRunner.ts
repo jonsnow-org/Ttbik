@@ -81,9 +81,12 @@ export async function runnerCreate(t: RunnerTarget, name: string, timeoutMs: num
 }
 /** Waits until the runner's /health answers (a freshly started VM needs a few seconds). */
 async function waitHealthy(t: RunnerTarget, tries = 30): Promise<void> {
+  // tries x 2 s (+ the time each probe takes)
   for (let i = 0; i < tries; i++) {
     const r = await f(`${t.base.replace(/\/+$/, "")}/health`, { headers: t.headers, signal: AbortSignal.timeout(8000) }).catch(() => null);
-    if (r?.ok) return;
+    // only the runner's own JSON counts: a sign-in page in front of a private port also answers 200
+    const j = r?.ok ? ((await r.json().catch(() => null)) as { ok?: boolean } | null) : null;
+    if (j?.ok === true) return;
     await sleep(2000);
   }
   throw new Error(`${t.label}: runner did not come up`);
@@ -181,10 +184,11 @@ export function codespacesDriver(): SbxDriver {
     if (!codespacesConfigured()) throw new Error("codespaces not configured");
     return { Authorization: `Bearer ${env("CODER_CODESPACES_TOKEN")}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json" };
   };
-  // the forwarded port stays private unless the devcontainer could make it public; X-Github-Token lets the owner's token through either way
+  // The devcontainer (start-runner.sh) makes the port public: a private port answers 401 even with the owner's token in
+  // X-Github-Token (checked live 2026-10-21), so no GitHub token is sent to the port; the runner's own key guards every request.
   const target = (cs: { name: string }): RunnerTarget => ({
     base: `https://${cs.name}-${CS_PORT}.app.github.dev`,
-    headers: { "x-runner-key": env("CODER_CODESPACES_RUNNER_SECRET"), "X-Github-Token": env("CODER_CODESPACES_TOKEN") },
+    headers: { "x-runner-key": env("CODER_CODESPACES_RUNNER_SECRET") },
     label: "codespaces",
   });
   const withDelete = (h: SbxHandle, csName: string): SbxHandle => ({
@@ -235,10 +239,17 @@ export function codespacesDriver(): SbxDriver {
         }),
         "codespaces create",
       );
-      const cs = await waitAvailable((await r.json()) as Cs);
-      const t = target(cs);
-      await waitHealthy(t);
-      return withDelete(await runnerCreate(t, name, o.timeoutMs), cs.name);
+      const made = (await r.json()) as Cs;
+      try {
+        const cs = await waitAvailable(made);
+        const t = target(cs);
+        await waitHealthy(t, 75); // first start: features, postStart, port made public
+        return withDelete(await runnerCreate(t, name, o.timeoutMs), cs.name);
+      } catch (e) {
+        // never leave a codespace behind when it could not take the task
+        await f(gh(`/user/codespaces/${encodeURIComponent(made.name)}`), { method: "DELETE", headers: hdr(), signal: AbortSignal.timeout(20000) }).catch(() => null);
+        throw e;
+      }
     },
   };
 }
