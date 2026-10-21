@@ -67,6 +67,29 @@ export function smallTalkReply(text: string, name = ""): string {
   return `👋 أهلاً${who ? ` ${who}` : ""}! كيف بقدر ساعدك اليوم؟ اكتب طلبك البرمجي (شرح كود، إصلاح خطأ، مهمة على مستودعك…).`;
 }
 
+/** "Who are you / what can you do" (alone or after a greeting): answered at once with who SHAM AI is, no model call, no queue. */
+const ABOUT_ME = /(?:^|[\s،,.!؟?])(?:مين|من|شو|ما|ايش|إيش)\s*(?:انت|أنت|إنت|انتا|أنتَ)(?=[\s،,.!؟?]|$)|(?:ما|شو|ماهي|ما هي|ايش|إيش)\s*(?:هي\s*)?(?:وظيفتك|وظيفتكم|قدراتك|مهاراتك|إمكانياتك|امكانياتك|عملك|مهمتك)|(?:شو|ماذا|ايش|إيش)\s*(?:بتعرف|بتقدر|تستطيع|تقدر|بتعمل|تعمل|يمكنك)(?:\s*(?:تعمل|تفعل|أن تفعل|ان تفعل|تسوي))?\s*[؟?]?\s*$|\bwho\s+are\s+you\b|\bwhat\s+(?:can|do)\s+you\s+do\b|\bwhat\s+are\s+your\s+(?:skills|capabilities)\b/iu;
+const CODING_ASK = /اكتب|أكتب|اصلح|أصلح|صلّح|صلح|برنامج|كود|دالة|دالّة|سكربت|سكريبت|ملف|مستودع|\b(?:code|write|fix|function|script|repo|file|program)\b/iu;
+export function isAboutMe(text: string): boolean {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 140 && !t.includes("```") && !/https?:\/\/|\w+\.(?:ts|js|py|tsx|json|md)\b/i.test(t) && !CODING_ASK.test(t) && ABOUT_ME.test(t);
+}
+export function aboutMeReply(name = ""): string {
+  const who = name.trim().slice(0, 40);
+  return [
+    `أهلاً بك${who ? ` يا ${who}` : ""} 👋 أنا <b>SHAM AI</b>، مساعدك في البرمجة.`,
+    "",
+    "<b>ما الذي أستطيع فعله لك:</b>",
+    "• أكتب الكود وأشرحه لك خطوة بخطوة.",
+    "• أراجع الكود، وأجد الأخطاء وأصلحها.",
+    "• أعمل على مستودعاتك في GitHub، وأستأذنك قبل أي خطوة حساسة.",
+    "• أبحث في الويب عن أحدث المعلومات والمكتبات.",
+    "• أنفّذ مهامّ مجدولة في الأوقات التي تحددها.",
+    "",
+    "اكتب طلبك وسأبدأ فوراً.",
+  ].join("\n");
+}
+
 /**
  * A run whose loop is gone (lease not renewed for RUN_DEAD_MS, not waiting for a confirmation): its Studio job is cancelled and the run
  * is closed as failed, so the next message starts fresh and the app stops showing it as running. Returns true when it cleared one.
@@ -341,6 +364,14 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, reply);
     return true;
   }
+  if (!st.run && !msg.document && isAboutMe(content)) {
+    // "who are you / what can you do": SHAM AI introduces itself at once (no model call, no queue)
+    const reply = aboutMeReply(String(msg.from?.first_name || ""));
+    st.messages.push({ role: "user", content }, { role: "assistant", content: reply.replace(/<\/?b>/g, "") });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, reply, { parse_mode: "HTML" });
+    return true;
+  }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
     await saveState(chatId, st, db);
@@ -573,12 +604,23 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   p.msgId = (m as any)?.message_id || undefined;
 }
 
+/** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
+async function sendRich(bot: TelegramBot, chatId: number, text: string) {
+  const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
+  const html = markdownToTelegramHtml(text);
+  if (html.length <= 4096) {
+    const ok = await bot.api.sendMessage(chatId, html, { parse_mode: "HTML", link_preview_options: { is_disabled: true } } as never).then(() => true).catch(() => false);
+    if (ok) return;
+  }
+  for (const piece of splitForTelegram(stripMarkdown(text), 4000)) await send(bot, chatId, piece);
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
     const part = renderRange(text, a, b);
     if (part.trim()) {
       run.progress = undefined;                                 // a reply closes the progress card
-      await send(bot, chatId, part);
+      await sendRich(bot, chatId, part);
       await taskEvent(run.id, "text", part);
     }
     run.sent = b;
