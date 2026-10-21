@@ -210,7 +210,16 @@ def main() -> int:
                 _entry.update(blocked=False, quick_fails=0, counted_fail=False, idle_since=None)
         state["fix_epoch"] = FIX_EPOCH
         print(f"إعادة ضبط قاطع الحماية مرة واحدة بعد الإصلاح: {FIX_EPOCH}")
+    # NOVA1_SLOT (2026-10-21, owner-approved additive hook): Sham and Nova 1 share the Kaggle account (one Sham GPU session a week, Nova 1 the rest;
+    # one finished Sham notebook held while Nova 1 runs). Inert unless training/nova1/kaggle/run_request.json enables it -- see nova1_slot.py.
+    _nova_notes: list = []
+    try:
+        import nova1_slot
+        watch, resume, _nova_notes = nova1_slot.coordinate(api, watch, resolved.get("refs", {}), gpu_slugs, state, live, resume, work)
+    except Exception as _exc:
+        print(f"Nova 1: تخطّي التنسيق ({type(_exc).__name__})")
     notes = run(watch, api, state, resume)
+    notes = _nova_notes + notes
     if live or not files:
         up = work / "upload"
         up.mkdir(exist_ok=True)
