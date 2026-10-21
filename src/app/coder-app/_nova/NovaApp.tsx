@@ -489,7 +489,7 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section" | "tz">("");
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -529,7 +529,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
         <Row icon="🌐" title={n.s_lang} value={lang === "ar" ? "العربية" : "English"} onClick={() => setSheet("lang")} />
         <Row icon="🎨" title={n.s_theme} value={themeLabel} onClick={() => setSheet("theme")} />
-        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} />
+        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} onClick={() => setSheet("tz")} />
         {(canAddToHome() || home === "added") && <Row icon="📲" title={n.s_home} value={home === "added" ? "✓" : ""} onClick={home === "added" ? undefined : () => addToHome()} />}
         <Row icon="🔒" title={n.s_bio} sub={bio.ok === false ? t.biometricNo : t.biometricHint}
           after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={bio.on} disabled={bio.ok === false} aria-label={n.s_bio} onChange={async (e) => { const v = e.currentTarget.checked; const ok = await setBio(v); setBioState({ on: v && ok, ok: v ? ok : bio.ok }); haptic(ok ? "success" : "error"); }} /></span>} />
@@ -550,6 +550,16 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         items={[{ id: "ar" as Lang, label: "العربية" }, { id: "en" as Lang, label: "English" }]} />
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
+      <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || "Europe/Istanbul"} onClose={closeSheet} onPick={(v) => set({ tz: v })}
+        items={[
+          { id: "Europe/Istanbul", label: "Europe/Istanbul", sub: "تركيا" },
+          { id: "Asia/Damascus", label: "Asia/Damascus", sub: "سوريا" },
+          { id: "Asia/Riyadh", label: "Asia/Riyadh", sub: "السعودية" },
+          { id: "Asia/Dubai", label: "Asia/Dubai", sub: "الإمارات" },
+          { id: "Europe/London", label: "Europe/London", sub: "المملكة المتحدة" },
+          { id: "UTC", label: "UTC", sub: "التوقيت العالمي" },
+          { id: "America/New_York", label: "America/New_York", sub: "الولايات المتحدة — الساحل الشرقي" },
+        ]} />
       <Options open={sheet === "section"} title={n.s_section} value={s.mode} onClose={closeSheet} onPick={(v) => set({ mode: v })}
         items={[{ id: "coder" as const, label: t.coder }, { id: "sham" as const, label: t.sham }]} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
@@ -655,6 +665,9 @@ export default function NovaApp() {
       setPage(r.page);
       setMounted(true);
       void reload();
+    }).catch(() => {
+      // Never leave the Mini App on an infinite spinner if the Telegram SDK fails during startup.
+      if (alive) { setErr("تعذّر تهيئة التطبيق. أغلقه وافتحه مجدداً من داخل Telegram."); setMounted(true); }
     });
     const apply = () => setTgDark(isDark() || (!getLaunch().inTelegram && Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches)));
     apply();
