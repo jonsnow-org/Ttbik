@@ -155,7 +155,10 @@ export function callbackUrl(id: string, base = siteBase()): string {
   return `${base}/api/coder/app/connectors/${id}/callback`;
 }
 export function siteBase(): string {
-  return (process.env.CODER_OAUTH_BASE_URL || process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
+  // ONE public address for every OAuth redirect_uri (the one registered in each service), whichever host (Oracle, gate, Vercel) serves the
+  // request: a host's own address (e.g. the Oracle origin in NEXT_PUBLIC_SITE_URL) would not match the registered callback.
+  // Tokens land in the shared database (coder_connections), so a callback finished on Vercel is read by the Oracle-served app too.
+  return (process.env.CODER_PUBLIC_BASE_URL || process.env.CODER_OAUTH_BASE_URL || "https://ttbik.vercel.app").trim().replace(/\/+$/, "");
 }
 
 // ---------------------------------------------------------------- state (CSRF) and PKCE
