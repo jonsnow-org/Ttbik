@@ -9,6 +9,7 @@ import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref
 import { listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { validTimeZone } from "@/lib/coderCron";
+import { isAccuracy } from "@/lib/coderAgent";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
 export type AppDeps = { db?: Db; bot: TelegramBot; botRow: BotRow; fetchImpl?: typeof fetch };
@@ -94,8 +95,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "me": {
       const st = await loadState(chatId, db);
       const rules = (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r);
+      const owner = user.tier === "owner";
       return {
-        tier: user.tier, settings: { mode: st.mode, think: st.think, lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        tier: user.tier,
+        settings: { mode: owner ? st.mode : "coder", think: st.think, accuracy: isAccuracy(st.accuracy) ? st.accuracy : "balanced", lang: st.lang || "ar", tz: st.tz || "", repo: st.repo || "" },
+        // sections this user may see — decided here from the verified Telegram id, not by the client
+        features: { sham: owner, ownerTools: owner },
         connections: await connectionInfo(chatId, db), oauth: oauthConfigured(),
         prefs: { rules, categories: CATEGORIES.map((c) => ({ id: c, label: CATEGORY_LABEL[c], tierDefault: tierDefault(user.tier, c) })) },
         events: EVENT_TYPES,
@@ -103,13 +108,25 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "settings": {
       const st = await loadState(chatId, db);
-      if (body.mode === "coder" || body.mode === "sham") st.mode = body.mode;
+      if (body.mode === "coder" || (body.mode === "sham" && user.tier === "owner")) st.mode = body.mode;
       if (typeof body.think === "boolean") st.think = body.think;
+      if (isAccuracy(body.accuracy)) st.accuracy = body.accuracy;
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
       await saveState(chatId, st, db);
       return { ok: true };
+    }
+    case "pref_preset": {
+      // one tap for the whole confirmation policy: "careful" asks for every category, "default" goes back to the tier defaults,
+      // "auto" lets routine categories run but keeps asking for deletes, force-pushes and writes to connected services
+      const preset = String(body.preset || "");
+      if (!["careful", "default", "auto"].includes(preset)) throw new AppError(400, "bad preset");
+      for (const c of CATEGORIES) {
+        if (preset === "default") await removePref(chatId, c, "*", "*", db);
+        else await setPref(chatId, { category: c, repo: "*", context: "*", policy: preset === "careful" || ["delete", "force", "external"].includes(c) ? "ask" : "allow" }, db);
+      }
+      return { ok: true, rules: (await loadPrefs(chatId, db)).map(({ chat_key: _k, ...r }: any) => r) };
     }
     case "pref": {
       if (!isCategory(body.category)) throw new AppError(400, "bad category");
@@ -120,11 +137,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "tasks": {
       const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
-      return { tasks, pending: await pendings(chatId, db) };
+      // step counts are an internal meter: the owner only
+      return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
     }
     case "events": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
-      return { events: await taskEvents(chatId, body.runId, Number(body.after) || 0, db) };
+      const evs = await taskEvents(chatId, body.runId, Number(body.after) || 0, db);
+      return { events: user.tier === "owner" ? evs : publicEvents(evs) };
     }
     case "resolve": {
       const answer = body.answer === "yes" || body.answer === "all" || body.answer === "no" ? body.answer : null;
@@ -193,18 +212,31 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       await deleteConnection(chatId, "github", db);
       return { ok: true };
     }
-    case "plans": {
-      // plans + this user's usage (rolling week); the owner also gets the admin view
-      const { listPlans, usageSummary, METRIC_LABEL } = await import("@/lib/coderPlans");
+    case "plans":
+    case "billing": {
+      // regular users: plan name, one overall percentage and the plans on sale (no meters, no counts — owner's rule 2026-10-21).
+      // The owner also gets the full meters and every plan for pricing.
+      const { listPlans, usageSummary, METRIC_LABEL, publicUsage, publicPlans } = await import("@/lib/coderPlans");
       const count = (await listSchedules(chatId, db)).length;
       const usage = await usageSummary(chatId, db, Date.now(), { schedules: count });
-      return { plans: (await listPlans(db)).filter((p) => p.active || user.tier === "owner"), usage, labels: METRIC_LABEL, payments: false };
+      const plans = await listPlans(db);
+      const out: Json = { usage: publicUsage(usage), plans: publicPlans(plans, usage.plan.id), payments: "stars" };
+      if (user.tier === "owner") out.owner = { usage, plans, labels: METRIC_LABEL };
+      return out;
+    }
+    case "buy": {
+      const { createPlanInvoice } = await import("@/lib/coderStars");
+      try {
+        return { url: await createPlanInvoice(deps.bot, chatId, String(body.planId || ""), db) };
+      } catch (e) {
+        throw new AppError(400, String((e as Error).message || "تعذّر إنشاء الفاتورة"));
+      }
     }
     case "plan_update": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { upsertPlan } = await import("@/lib/coderPlans");
       try {
-        return { plan: await upsertPlan({ id: String(body.id || ""), name: body.name, price_label: body.price_label, price_cents: body.price_cents, currency: body.currency, limits: body.limits, sort: body.sort, active: body.active }, db) };
+        return { plan: await upsertPlan({ id: String(body.id || ""), name: body.name, price_label: body.price_label, price_cents: body.price_cents, currency: body.currency, limits: body.limits, sort: body.sort, active: body.active, price_stars: body.price_stars, days: body.days }, db) };
       } catch (e) {
         throw new AppError(400, String((e as Error).message));
       }
@@ -247,14 +279,54 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "status": {
       // the model Studio(s) + the health of every failover chain (sandbox backends, search engines)
       const { coderStatus, coderStudioUrls } = await import("@/lib/openCoderStudio");
+      const status = await coderStatus().catch(() => null);
+      // users: is the service up — nothing about servers, models or backends
+      if (user.tier !== "owner") return { available: Boolean(status) };
       const { sandboxHealth } = await import("@/lib/coderSandbox");
       const { searchHealth } = await import("@/lib/coderWeb");
-      return { status: await coderStatus().catch(() => null), studios: coderStudioUrls().length, sandbox: sandboxHealth(), search: searchHealth() };
+      return { available: Boolean(status), status, studios: coderStudioUrls().length, sandbox: sandboxHealth(), search: searchHealth() };
     }
     case "stalls": {
       if (user.tier !== "owner") throw new AppError(403, "owner only");
       const { recentStalls } = await import("@/lib/coderStall");
       return { stalls: await recentStalls(30, db) };
+    }
+    // ---------------------------------------------------------------- connectors (src/lib/coderConnectors.ts)
+    case "connectors": {
+      const c = await import("@/lib/coderConnectors");
+      const ownerEnv = user.tier === "owner" && Boolean((process.env.CODER_GITHUB_TOKEN || "").trim());
+      return { connectors: await c.listConnectors(chatId, { githubOwnerEnv: ownerEnv }, db), mcp: await c.listMcpServers(chatId, db) };
+    }
+    case "connector_start": {
+      const c = await import("@/lib/coderConnectors");
+      const d = c.connectorById(String(body.id || ""));
+      if (!d) throw new AppError(404, "unknown connector");
+      if (!c.connectorReady(d)) throw new AppError(400, "soon");
+      return { url: c.connectorStartUrl(chatId, d.id) };
+    }
+    case "connector_disconnect": {
+      const c = await import("@/lib/coderConnectors");
+      if (!c.connectorById(String(body.id || ""))) throw new AppError(404, "unknown connector");
+      await c.disconnectConnector(chatId, String(body.id), db, deps.fetchImpl || globalThis.fetch);
+      return { ok: true };
+    }
+    case "mcp_add": {
+      const c = await import("@/lib/coderConnectors");
+      const { checkUrl } = await import("@/lib/coderWeb");
+      try {
+        return { server: await c.addMcpServer(chatId, String(body.url || ""), String(body.token || ""), String(body.label || ""), db, deps.fetchImpl ? undefined : async (u) => { const r = await checkUrl(u); return r.ok ? { ok: true } : { ok: false, why: r.why }; }) };
+      } catch (e) {
+        throw new AppError(400, String((e as Error).message));
+      }
+    }
+    case "mcp_remove": {
+      const c = await import("@/lib/coderConnectors");
+      try {
+        await c.removeMcpServer(chatId, String(body.id || ""), db);
+      } catch (e) {
+        throw new AppError(400, String((e as Error).message));
+      }
+      return { ok: true };
     }
     case "repos": {
       const { resolveConnections } = await import("@/lib/coderAuth");
@@ -275,3 +347,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
 }
 
 export const tierOf = (chatId: number) => tierFor(chatId);
+
+/** Task history as a regular user sees it: no loop-detector entries, no internal error texts. */
+export function publicEvents<T extends { kind: string; text: string }>(evs: T[]): T[] {
+  return evs
+    .filter((e) => e.kind !== "stall")
+    .map((e) => (e.kind === "failed" ? { ...e, text: "تعذّر إكمال هذه الخطوة." } : e.kind === "segment" ? { ...e, text: e.text.split("\n").slice(1).join("\n") || e.text } : e));
+}

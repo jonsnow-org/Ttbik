@@ -105,6 +105,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ botId: s
           await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
           return NextResponse.json({ status: "ok" });
         }
+        if (botRow.template === "NOVA_BOT" && String(body.pre_checkout_query.invoice_payload || "").startsWith("cplan:")) {
+          // the coder's plans paid in Stars: signed payload, same buyer, plan still on sale at that price (src/lib/coderStars.ts)
+          const { preCheckoutCoder } = await import("@/lib/coderStars");
+          const d = await preCheckoutCoder(body.pre_checkout_query).catch(() => ({ ok: false as const, message: "تعذّر التحقق الآن، حاول بعد قليل." }));
+          await (d.ok ? bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true) : bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, false, { error_message: d.message })).catch(() => null);
+          return NextResponse.json({ status: "ok" });
+        }
         await bot.api.answerPreCheckoutQuery(body.pre_checkout_query.id, true).catch(() => null);
         return NextResponse.json({ status: "ok" });
       }

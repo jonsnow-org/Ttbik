@@ -9,12 +9,12 @@ import { classifyCall, confirmRisks, RISK_LABEL, type Risk } from "@/lib/coderAg
 import { coderChatKey, prismaDb, type Db, type Tier } from "@/lib/coderAuth";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 
-export type Category = "delete" | "main" | "force" | "deploy" | "settings" | "release";
+export type Category = "delete" | "main" | "force" | "deploy" | "settings" | "release" | "external";
 export type Policy = "ask" | "allow" | "deny";
 export type Context = "interactive" | "scheduled";
 export type PrefRule = { category: Category; repo: string; context: Context | "*"; policy: Policy };
 
-export const CATEGORIES: Category[] = ["delete", "main", "force", "deploy", "settings", "release"];
+export const CATEGORIES: Category[] = ["delete", "main", "force", "deploy", "settings", "release", "external"];
 export const CATEGORY_OF: Record<Risk, Category> = {
   delete: "delete",
   push_default: "main", merge_default: "main", push_protected: "main", merge_protected: "main", workflow_writes_default: "main",
@@ -22,6 +22,7 @@ export const CATEGORY_OF: Record<Risk, Category> = {
   workflow_deploy: "deploy",
   settings: "settings", secrets: "settings", collaborators: "settings",
   release_publish: "release",
+  external_write: "external",
 };
 export const CATEGORY_LABEL: Record<Category, { ar: string; en: string }> = {
   delete: { ar: "الحذف", en: "Delete" },
@@ -30,6 +31,7 @@ export const CATEGORY_LABEL: Record<Category, { ar: string; en: string }> = {
   deploy: { ar: "سير عمل ينشر أو يطلق", en: "Deploy / publish workflows" },
   settings: { ar: "إعدادات المستودع والمتعاونون والأسرار", en: "Repo settings, collaborators, secrets" },
   release: { ar: "نشر إصدار", en: "Release publish" },
+  external: { ar: "الكتابة في الخدمات المربوطة (نوشن، سلاك، MCP…)", en: "Writes to connected services (Notion, Slack, MCP…)" },
 };
 export const POLICY_LABEL: Record<Policy, { ar: string; en: string }> = {
   ask: { ar: "اسأل كل مرة", en: "Ask every time" },
@@ -167,4 +169,4 @@ export function tierDefault(tier: Tier, category: Category): "ask" | "run" {
   if (tier === "user") return "ask";
   return CATEGORIES_OWNER_ASKS.has(category) ? "ask" : "run";
 }
-const CATEGORIES_OWNER_ASKS = new Set<Category>(["delete", "main"]);
+const CATEGORIES_OWNER_ASKS = new Set<Category>(["delete", "main", "external"]);
