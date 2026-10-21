@@ -1,0 +1,22 @@
+name: Coder Studio bench (read-only)
+# Measures the coder Studios' latency (queue, prompt processing, generation). Read-only; nothing secret is printed.
+on:
+  push:
+    branches: [bench/coder-speed]
+    paths: ["ai-system/coder-bench/**", ".github/workflows/coder-studio-bench.yml"]
+  workflow_dispatch:
+    inputs:
+      studios: { required: false, default: "coder-inference-server,coder-inference-server-2" }
+      mode: { required: false, default: "full" }
+permissions: { contents: read }
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          T: ${{ secrets.MODELSCOPE_TOKEN }}
+          STUDIOS: ${{ inputs.studios || 'coder-inference-server,coder-inference-server-2' }}
+          MODE: ${{ inputs.mode || 'full' }}
+        run: python3 ai-system/coder-bench/bench.py
