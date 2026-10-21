@@ -35,8 +35,9 @@ export type Run = {
   progress?: { msgId?: number; lines: string[] };                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
+  promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean | string; accuracy?: Accuracy; model?: string; threadId?: string };
 export type { Db };
 export { coderChatKey };
 
@@ -52,7 +53,10 @@ const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS |
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
 
-/** Short greetings / thanks / "how are you": answered at once, without the coding model, its queue or a task. */
+/**
+ * Short greetings / thanks / "how are you". NOT used for replies any more (owner's decision 2026-10-21: no fixed replies, every message,
+ * even one word, goes to the model). Kept only as a classifier for tests and statistics.
+ */
 const SMALL_TALK = /^(?:(?:ال)?سلام(?: عليكم)?(?: ورحمة الله(?: وبركاته)?)?|مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|كيفك|كيف حالك|شلونك|كيف الحال|شكرا|شكراً|مشكور|تسلم|يعطيك العافية|hi|hello|hey|hola|salam|thanks|thank you|thx|good (?:morning|evening))(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
 export function isSmallTalk(text: string): boolean {
   const t = String(text || "").trim();
@@ -313,11 +317,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     return true;
   }
   if (cmd === "/stop") {
-    if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
-    await endRun(st, "stopped", db, "/stop", coderChatKey(chatId));
-    if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
-    st.inbox = [];
-    await saveState(chatId, st, db);
+    await stopRun(chatId, "", undefined, db);
     await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
     return true;
   }
@@ -333,14 +333,9 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     // the previous task's loop is gone: close it (and its Studio job) so this message gets a fresh, live task
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
   }
-  if (!st.run && !msg.document && isSmallTalk(content)) {
-    // a greeting is not a coding task: instant answer, no model call, no queue, no task in the history
-    const reply = smallTalkReply(content, String(msg.from?.first_name || ""));
-    st.messages.push({ role: "user", content }, { role: "assistant", content: reply });
-    await saveState(chatId, st, db);
-    await send(bot, chatId, reply);
-    return true;
-  }
+  // every message, greetings included, goes to the model (owner's rule 2026-10-21: no canned replies)
+  // the conversation thread this message belongs to (created on the first message; an older single conversation becomes one thread)
+  if (!st.threadId) await ensureThread(chatId, st, db, content);
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
     await saveState(chatId, st, db);
@@ -392,16 +387,77 @@ async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState,
   await saveState(chatId, st, db);
 }
 
-/** A new conversation: the running task stops, the VM of the old conversation is stopped, settings stay. */
-export async function newConversation(chatId: number, st: ChatState, db: Db = prismaDb): Promise<void> {
-  if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
-  const old = st.messages;
-  const runId = st.run?.id;
-  await endRun(st, "stopped", db, "new conversation", coderChatKey(chatId));
-  if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
-  if (old.length) rememberLater(chatId, old, runId, st.repo, db);       // what was said is kept as long-term memory first
-  await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy }, db);
+/** A new conversation: the current one is kept as its own thread (nothing is wiped), a fresh thread opens, settings stay. */
+export async function newConversation(chatId: number, st: ChatState, db: Db = prismaDb): Promise<string> {
+  return switchThread(chatId, st, null, db);
 }
+
+/** The chat's first message (or an older single conversation) gets its thread. */
+async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = ""): Promise<void> {
+  const { createThread, LEGACY_TITLE } = await import("@/lib/coderThreads");
+  const legacy = st.messages.length > 0 || !firstText;
+  st.threadId = await createThread(chatId, legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
+}
+
+/**
+ * Leaves the current thread (saved as it is, its long-term memories are learned later in quiet time) and opens `targetId`
+ * (null = a fresh conversation; an empty current thread is reused). A request still running in the old thread is stopped
+ * exactly like /stop. Returns the active thread id.
+ */
+export async function switchThread(chatId: number, st: ChatState, targetId: string | null, db: Db = prismaDb): Promise<string> {
+  const T = await import("@/lib/coderThreads");
+  const key = coderChatKey(chatId);
+  if (targetId && targetId === st.threadId) return targetId;
+  let target: Awaited<ReturnType<typeof T.getThread>> = null;
+  if (targetId) {
+    target = await T.getThread(chatId, targetId, db);
+    if (!target || target.deleted_at) throw new Error("no such thread");
+  }
+  if (!targetId && st.threadId && !st.messages.length && !st.run) return st.threadId;          // already on an empty new chat
+  if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
+  await endRun(st, "stopped", db, "conversation switched", key);
+  if (st.convId) {
+    const conv = st.convId;
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
+  }
+  if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
+  else if (st.messages.length) await ensureThread(chatId, st, db);
+  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
+  const next: ChatState = { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
+  if (target) {
+    next.threadId = target.id;
+    next.messages = target.messages || [];
+    next.notes = target.notes || "";
+    next.convId = target.conv_id || undefined;
+  } else next.threadId = await T.createThread(chatId, {}, db);
+  await saveState(chatId, next, db);
+  Object.assign(st, next);
+  return next.threadId!;
+}
+
+/** The Mini App's ⏹ and /stop: the Studio job is cancelled, the request ends as stopped, its queued messages are dropped. */
+export async function stopRun(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
+  const st = await loadState(chatId, db, slot);
+  if (!st.run || (runId && st.run.id !== runId)) return false;
+  if (st.run.job) await coderCancel(st.run.job).catch(() => null);
+  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
+  if (!slot && st.convId) {
+    const conv = st.convId;
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv)));
+  }
+  st.inbox = [];
+  await saveState(chatId, st, db, slot);
+  return true;
+}
+
+/** The Mini App opened before any message: an older single conversation (or older requests) becomes the "previous conversation" thread. */
+export async function adoptThread(chatId: number, st: ChatState, db: Db = prismaDb): Promise<void> {
+  if (st.threadId) return;
+  await ensureThread(chatId, st, db);
+  await saveState(chatId, st, db);
+}
+
+const encryptionReady = () => Boolean((process.env.CODER_TOKEN_KEY || "").trim());
 
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
 function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db): void {
@@ -468,7 +524,7 @@ function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partia
     const last = [...st.messages].reverse().find((m) => m.role === "user");
     const title = st.run.title || String(last?.content || "").slice(0, 200);
     st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
-    void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title }, db);
+    void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, threadId: st.run.slot ? null : st.threadId || null }, db);
   }
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
@@ -486,6 +542,11 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
   }
   if (note) await taskEvent(run.id, status === "done" ? "done" : status === "stopped" ? "info" : "failed", note, db);
   await taskStatus(run.id, status, run.step, db);
+  // the conversation's saved copy follows each finished request (memories are learned from it later, in quiet time)
+  if (!run.slot && st.threadId && chatKeyOf) {
+    const { syncThread } = await import("@/lib/coderThreads");
+    await syncThread(chatKeyOf, st.threadId, st, db, true);
+  }
   // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
   if (chatKeyOf && run.slot) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(chatKeyOf, run.id)));
   if (run.scheduleId) {
@@ -738,8 +799,15 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await new Promise((res) => setTimeout(res, pollMs()));
         continue;
       }
-      // done
-      await addUsage(chatId, "tokens", estimateTokens(text + JSON.stringify(r.tool_calls || [])), db);
+      // done: metered in model tokens (plans are token-based): the Studio's own counts (llama.cpp timings) when it sends them,
+      // else an estimate. Input = the larger of the processed prompt and the estimated full prompt (a cached prompt still counts).
+      {
+        const tm = (r as { timings?: { prompt_n?: number; predicted_n?: number } }).timings || {};
+        const out = Number(tm.predicted_n) > 0 ? Number(tm.predicted_n) : estimateTokens(text + JSON.stringify(r.tool_calls || []));
+        const inp = Math.max(Number(tm.prompt_n) || 0, run.promptEst || 0);
+        await addUsage(chatId, "tokens", inp + out, db);
+        run.promptEst = undefined;
+      }
       if (run.compacting) {
         // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
         run.job = undefined;
@@ -759,7 +827,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         run.step++;
         const looped = afterText(run.stall, text, run.step);
         if (looped) await onStall(looped, run, chatId, ctx, db);
-        if (stepsSinceProgress(run.stall, run.step) >= HARD_MAX_STEPS) {
+        if (stepsSinceProgress(run.stall, run.step) >= HARD_MAX_STEPS && tierFor(chatId) !== "owner") {   // the owner has no ceiling
           // the only stop: a stall safety net against runaway compute (CODER_HARD_MAX_STEPS model steps with no real progress — not total
           // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
@@ -781,7 +849,8 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await saveState(chatId, st, db, slot);
         continue;
       }
-      rememberLater(chatId, st.messages, run.id, st.repo, db);
+      // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
+      if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
       await endRun(st, "done", db, "✓", coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
       return;
@@ -836,7 +905,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
-    await addUsage(chatId, "tokens", estimateTokens(messages.map((m) => m.content || "").join("\n")), db);
+    run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
     const o = await coderChat(messages, { tools: coderTools(github, connected.length > 0), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 });

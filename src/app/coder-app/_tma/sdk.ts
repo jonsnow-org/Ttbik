@@ -92,6 +92,10 @@ export function openExternal(url: string): void {
   if (avail(tmaOpenLink)) tryDo(() => tmaOpenLink(url, { tryInstantView: false }));
   else window.open(url, "_blank", "noopener");
 }
+/** Back to the chat with the bot (closes the Mini App). */
+export function closeApp(): void {
+  tryDo(() => miniApp.close());
+}
 export function openTg(url: string): void {
   if (avail(openTelegramLink)) tryDo(() => openTelegramLink(url));
   else window.open(url, "_blank", "noopener");
