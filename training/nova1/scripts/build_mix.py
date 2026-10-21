@@ -34,13 +34,82 @@ SCRUB = {"system_rewritten": 0, "dropped_self_id": 0, "dropped_empty_prompt": 0}
 
 
 def empty_prompt(row: dict) -> bool:
-    """True for a row whose user turn carries no task (nemotron_code ships many rows whose user message is just "-"): training on
+    """True for a row whose user turn carries no task (e.g. a nemotron_code row whose problem could not be looked up): training on
     them would teach answers to nothing. Identity rows are not checked (greetings such as "Hi" are short on purpose)."""
     users = [m for m in row["messages"] if m.get("role") == "user"]
     if not users or len((users[0].get("content") or "").strip()) < 16:
         SCRUB["dropped_empty_prompt"] += 1
         return True
     return False
+
+
+# nemotron_code rows ship the problem as "-" with a reference in `metadata` ({"dataset", "split", "index"}); the card
+# (and the OpenCodeReasoning-2 README it points to) says to take the problem text from the original dataset at that row.
+# Only the problem column is read (pyarrow column projection over hf://), once per dataset split, on first use.
+CODE_PROMPT = ("Write a solution for the following programming challenge. Provide a brief explanation of your approach, "
+               "followed by the complete code.\n")       # the template the Nemotron card gives for its code split
+QUESTION_FILES = {   # dataset -> (files of one split, columns); licences: TACO apache-2.0, APPS mit, code_contests / codeforces cc-by-4.0
+    "taco": ("datasets/BAAI/TACO/ALL/{split}-*.parquet", ["question"]),
+    "code_contests": ("datasets/deepmind/code_contests/data/{split}-*.parquet", ["description"]),
+    "open-r1/codeforces": ("datasets/open-r1/codeforces/data/{split}-*.parquet",
+                           ["description", "input_format", "output_format", "examples", "note"]),
+    "apps": ("datasets/codeparrot/apps/{split}.jsonl", ["question"]),
+}
+_QUESTIONS: dict = {}
+
+
+def _question_text(ds: str, r: dict):
+    if ds in ("taco", "apps"):
+        return r.get("question") or None
+    if ds == "code_contests":
+        return r.get("description") or None
+    if not r.get("description"):          # open-r1/codeforces, assembled as in the OpenCodeReasoning-2 README
+        return None
+    q = r["description"]
+    if r.get("input_format"):
+        q += "\n\nInput\n\n" + r["input_format"]
+    if r.get("output_format"):
+        q += "\n\nOutput\n\n" + r["output_format"]
+    if r.get("examples"):
+        q += "\n\nExamples"
+        for ex in r["examples"]:
+            if "input" in ex:
+                q += "\n\nInput\n\n" + ex["input"]
+            if "output" in ex:
+                q += "\n\nOutput\n\n" + ex["output"]
+    if r.get("note"):
+        q += "\n\nNote\n\n" + r["note"]
+    return q
+
+
+def external_question(meta) -> str | None:
+    """Problem text for a nemotron_code row whose prompt is "-"; None when it cannot be found (the row is then left out)."""
+    try:
+        m = json.loads(meta) if isinstance(meta, str) else (meta or {})
+        ds, split, idx = m["dataset"], m["split"], int(m["index"])
+    except (ValueError, KeyError, TypeError):
+        return None
+    if ds not in QUESTION_FILES:
+        return None
+    key = (ds, split)
+    if key not in _QUESTIONS:
+        _QUESTIONS[key] = []
+        try:
+            import pyarrow.parquet as pq
+            from huggingface_hub import HfFileSystem
+            fs = HfFileSystem()
+            pattern, cols = QUESTION_FILES[ds]
+            for path in sorted(fs.glob(pattern.format(split=split))):
+                with fs.open(path, "rb", block_size=8 << 20) as fh:
+                    if path.endswith(".parquet"):
+                        _QUESTIONS[key] += [_question_text(ds, r) for r in pq.ParquetFile(fh).read(columns=cols).to_pylist()]
+                    else:
+                        _QUESTIONS[key] += [_question_text(ds, json.loads(line)) for line in fh if line.strip()]
+            print(f"nemotron_code: {len(_QUESTIONS[key]):,} problems read from {ds} {split}")
+        except Exception as e:
+            print(f"nemotron_code: problems of {ds} {split} not available: {type(e).__name__}: {str(e)[:160]}")
+    qs = _QUESTIONS[key]
+    return qs[idx] if 0 <= idx < len(qs) else None
 
 
 def scrub_identity(row: dict) -> bool:
@@ -110,6 +179,13 @@ def rows(key: str):
             m = r["messages"]
             if isinstance(m, str):
                 m = json.loads(m)
+            if key == "nemotron_code":
+                u = next((x for x in m if x.get("role") == "user"), None)
+                if u is not None and (u.get("content") or "").strip() in ("", "-"):
+                    q = external_question(r.get("metadata"))
+                    if not q:
+                        continue
+                    m = [{**x, "content": CODE_PROMPT + q} if x is u else x for x in m]
             yield {"messages": m}
     elif key == "ocr_reasoning":
         for r in load_dataset("nvidia/OpenCodeReasoning", "split_0", split="split_0", streaming=True):
