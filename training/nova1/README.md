@@ -58,8 +58,13 @@ is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); th
 ## Free compute — no card, no ID (checked live 2026-10-21; Kaggle is kept for Sham)
 | option | free GPU | limits | card? | ID / phone? | region | use |
 |---|---|---|---|---|---|---|
-| **Lightning AI free** — [pricing](https://lightning.ai/pricing), [SDK](https://pypi.org/project/lightning-sdk/) | 5 credits at sign-up ≈ 9 T4-hours (the other 25 need a card); one-time, expire in 12 months | official Python SDK / CLI: `Job.run(machine=Machine.T4, …)`, max runtime, cost per job | no | phone number (no ID) | blocked in Syria; Turkish number OK | **automated trainer**: `train/launch_lightning.py` |
+| **AMD Radeon Cloud, China site** — [docs](https://amd-aim.github.io/radeon-cloud-docs/introduction/), [points](https://amd-aim.github.io/radeon-cloud-docs/guides/developer-program/), [CLI](https://amd-aim.github.io/radeon-cloud-docs/cli/instances/) | new AMD AI Developer Program members start with 100 points = 100 GPU-hours on a 48 GB Radeon (ROCm); more points for courses/events; up to 20 h exchanged per day; coupons valid 30 days, credits 90 days | official CLI `rcc` (PyPI `amd-oneclick-sdk`): create / SSH / delete, JSON output | not asked | email or GitHub login (phone optional); some accounts are reviewed | China-run service; check access from Türkiye at sign-up | **primary trainer**: `train/launch_radeon.sh` + `train/config.radeon.yaml` |
+| CloudRift AI Grant — [page](https://www.cloudrift.ai/ai-grant) | $100–$1,000 credits on application (reviewed every 2 weeks) | console + API | not asked on the form | GitHub / project links | US company | second source, apply with the PR and HF repo |
+| **Lightning AI free** — [pricing](https://lightning.ai/pricing), [SDK](https://pypi.org/project/lightning-sdk/) | 5 credits at sign-up ≈ 9 T4-hours (the other 25 need a card); one-time, expire in 12 months | official Python SDK / CLI: `Job.run(machine=Machine.T4, …)`, max runtime, cost per job | no | phone number (no ID) | blocked in Syria; Turkish number OK | reported down on 2026-10-21; keep `train/launch_lightning.py` for later |
 | Google Colab (free) — [FAQ](https://research.google.com/colaboratory/faq.html) | T4 usually (not guaranteed) | ≤ 12 h per session; **no official API to start sessions** | no | Google account only | works from Türkiye; Google restricts Syria | manual fallback only: `train/nova1_colab.ipynb` |
+| Cerebrium — [pricing](https://cerebrium.ai/pricing) | a "$10 free credit, no card" line was seen in search snippets, but it isn't on the live pricing page | CLI `cerebrium run` | — | — | — | unverified; check the balance after sign-up |
+| Beam, Hyperbolic, TensorDock, SaladCloud, Thunder Compute | no free GPU credit now (Beam's $30/month withdrawn Sep 2026; Hyperbolic GPUs need a $5 deposit; Thunder's $20 is US students only) | — | yes / deposit | — | — | not usable |
+| Novita | $100 credit for its Agent Sandbox (CPU only), not GPU instances | — | no | — | — | not for training |
 | Hugging Face Jobs — [pricing](https://huggingface.co/docs/hub/jobs-pricing) | T4 $0.40/h | official CLI/API | needs a positive credit balance (paid) | — | — | not free |
 | ModelScope Notebook | 36 h, 24 GB | — | no | Alibaba Cloud real-name (Chinese ID/phone) | — | not usable |
 | Modal | $1/month without card | — | $30 needs card | — | — | not usable |
@@ -72,14 +77,13 @@ is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); th
 | Google TRC (TPUs) | free TPUs on approval | needs a Google Cloud project with billing (card) | yes | — | — | not usable |
 | Oracle Always Free / our runner | CPU only | always on | — | — | — | data work, not training (below) |
 
-**Honest limit:** apart from Kaggle (kept for Sham) there is no GPU that is free *every month*, needs no card and no ID, and can be
-started by an official API. Lightning AI is the only one with an official SDK, and its no-card grant is one-time (5 credits).
-
-**Plan (hybrid):** the CPU box does all data work and calls `train/launch_lightning.py`; each call starts one T4 job through the SDK
-(150 training minutes, hard stop 20 min later), which resumes from the private HF checkpoint repo, pushes a checkpoint every
-50 steps (≈ 12–15 min) and exits. Stage 1 = `config.colab.yaml` (~20M tokens, 1 epoch, 2k context ≈ 5–6 T4-hours) = three jobs ≈
-4.7 credits, inside the free 5; a ledger refuses any job that would pass the budget. If stage 1 beats the base model, more
-training needs either a GPU the owner chooses to pay for, or a Kaggle slot when Sham does not need it (same command, same checkpoints).
+**Plan:** the CPU box does all data work; `train/launch_radeon.sh` (cron or by hand) checks the credit balance, creates one
+Radeon instance with `rcc`, trains for MINUTES over SSH (resuming from the private HF checkpoint repo, checkpoint every 100 steps),
+and deletes the instance so nothing burns idle. A 48 GB Radeon is roughly 2–3× a T4 for this job, so the full phase-1 run
+(`config.radeon.yaml`, ~120M tokens) is an estimated 12–18 GPU-hours: well inside the 100 starting points, about one week at
+the 20-hours-a-day exchange cap. CloudRift grant credits or a free Kaggle slot (when Sham allows) run the same command as a backup;
+Lightning returns as a backup when it is back up. Throughput is measured in the first session (train.py logs tokens/s)
+before committing the whole budget.
 
 **Why not CPU training:** a LoRA step still runs the full 4B model forward and backward, ≈ 16 GFLOP per token. Oracle Always Free
 Arm (2 OCPU / 12 GB for new tenancies; 4 cores on older ones) sustains maybe 30–60 GFLOPS in PyTorch → **about 1–4 tokens/s**, against

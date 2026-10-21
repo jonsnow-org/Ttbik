@@ -1,0 +1,32 @@
+# Nova 1 phase 1 (code), full run on an AMD Radeon 48 GB GPU (Radeon Cloud, ROCm). Same data and LoRA as config.yaml;
+# bf16, larger per-device batch, plain AdamW. Run through train/launch_radeon.sh, which resumes from the HF checkpoint repo.
+base_model: Qwen/Qwen3.5-4B
+max_seq_length: 4096          # 48 GB Radeon: full context
+load_in_16bit: true
+load_in_4bit: false
+lora:
+  r: 32
+  alpha: 32
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  use_rslora: false
+train:
+  epochs: 2
+  lr: 1.0e-4
+  scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  per_device_batch: 2
+  grad_accum: 8               # effective batch 16 sequences
+  packing: false              # keeps tool-call turns intact
+  assistant_only_loss: true   # loss only on assistant turns (incl. tool calls), never on tool outputs or prompts
+  optim: adamw_torch           # bitsandbytes 8-bit Adam is not guaranteed on ROCm
+  seed: 3407
+  save_steps: 100             # ~15-20 min between checkpoints
+  eval_steps: 200
+data:
+  train: data/mix.jsonl
+  holdout_share: 0.01
+  thinking_share_min: 0.75    # Qwen3.5: keep >= 75% reasoning-style rows so thinking mode survives (Unsloth guidance)
+budget:
+  target_tokens: 60_000_000   # ~2 epochs => ~120M tokens; ~25-35 GPU-hours on a T4, ~8-10 on an L4/A10G
