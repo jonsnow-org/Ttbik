@@ -876,7 +876,9 @@ export default function NativeApp() {
     "--safe-top": "calc(max(var(--tg-viewport-safe-area-inset-top, 0px), env(safe-area-inset-top, 0px)) + var(--tg-viewport-content-safe-area-inset-top, 0px))",
     "--safe-bottom": "calc(max(var(--tg-viewport-safe-area-inset-bottom, 0px), env(safe-area-inset-bottom, 0px)) + var(--tg-viewport-content-safe-area-inset-bottom, 0px))",
   }) as React.CSSProperties, []);
-  if (!mounted) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }}><Spinner size="l" /></div>;
+  // telegram-ui components throw "[TGUI] Wrap your app with <AppRoot>" outside AppRoot: the first screen (the spinner) needs it too,
+  // otherwise every launch ends on Next's "This page couldn't load" error page
+  if (!mounted) return <AppRoot appearance={dark ? "dark" : "light"} platform={platform}><div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }}><Spinner size="l" /></div></AppRoot>;
   const title = page === "billing" ? t.billing : page === "panel" ? (lang === "ar" ? "لوحة التحكم" : "Control panel") : (t[TAB_KEY[tab]] as string);
   return (
     <AppRoot appearance={dark ? "dark" : "light"} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang}
