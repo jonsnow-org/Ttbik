@@ -1,0 +1,5 @@
+data/*.jsonl
+out/
+reports/
+llama.cpp/
+__pycache__/

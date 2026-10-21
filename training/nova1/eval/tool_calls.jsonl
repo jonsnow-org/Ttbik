@@ -1,0 +1,12 @@
+{"id": "t01", "prompt": "اقرأ ملف README.md في المستودع jonsnow-org/demo", "expect_tool": "github_read_file", "expect_args": {"repo": "jonsnow-org/demo", "path": "README.md"}}
+{"id": "t02", "prompt": "Run the test suite in the sandbox with `npm test`", "expect_tool": "sandbox_exec", "expect_args": {"command": null}}
+{"id": "t03", "prompt": "ما الفرق بين list و tuple في بايثون؟", "expect_tool": null, "expect_args": {}}
+{"id": "t04", "prompt": "افتح طلب دمج من الفرع fix/login إلى main في jonsnow-org/demo بعنوان 'Fix login'", "expect_tool": "github_create_pr", "expect_args": {"repo": "jonsnow-org/demo", "head": "fix/login", "base": "main"}}
+{"id": "t05", "prompt": "Show me lines 40-80 of src/app.ts in the sandbox", "expect_tool": "sandbox_read_file", "expect_args": {"path": "src/app.ts"}}
+{"id": "t06", "prompt": "ابحث في الكود عن createInvoiceLink في المستودع jonsnow-org/demo", "expect_tool": "github_search_code", "expect_args": {"repo": "jonsnow-org/demo", "query": null}}
+{"id": "t07", "prompt": "Write a Python function that reverses a string.", "expect_tool": null, "expect_args": {}}
+{"id": "t08", "prompt": "تحقق من حالة CI لآخر commit على main في jonsnow-org/demo", "expect_tool": "github_ci_status", "expect_args": {"repo": "jonsnow-org/demo"}}
+{"id": "t09", "prompt": "Clone jonsnow-org/demo into the sandbox", "expect_tool": "sandbox_clone", "expect_args": {"repo": "jonsnow-org/demo"}}
+{"id": "t10", "prompt": "احفظ في ذاكرتك أنني أفضّل TypeScript على JavaScript", "expect_tool": "memory_save", "expect_args": {"text": null}}
+{"id": "t11", "prompt": "Search the web for the latest Next.js 16 release notes", "expect_tool": "web_search", "expect_args": {"query": null}}
+{"id": "t12", "prompt": "اشرح لي ما هو الـ closure في جافاسكربت باختصار", "expect_tool": null, "expect_args": {}}
