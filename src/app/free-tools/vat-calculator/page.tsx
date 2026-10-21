@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import VatCalculator from "./VatCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("vat-calculator", {
   title: "حاسبة ضريبة القيمة المضافة VAT | أدوات مجانية | شام AI",
   description:
     "احسب ضريبة القيمة المضافة فوراً للدول العربية: السعودية 15%، الإمارات 5%، مصر 14%، الأردن 16% — مبلغ قبل أو شامل الضريبة. أداة عربية مجانية بلا تسجيل.",
-};
+});
 
 function VatCalculatorPageBody() {
   return (

@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import LogoGenerator from "./LogoGenerator";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("logo-generator", {
   title: "مولّد شعارات نصية عربية مجاني | شام AI",
   description:
     "أنشئ شعاراً نصياً (wordmark) عربياً لمشروعك خلال ثوانٍ — خطوط عربية حقيقية وتنسيقات ألوان جاهزة، تنزيل PNG فوري، بلا تسجيل.",
   alternates: { canonical: `${SITE_URL}/free-tools/logo-generator` },
-};
+});
 
 function LogoGeneratorPageBody() {
   return (

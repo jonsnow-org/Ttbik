@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import AdSlot from "@/components/AdSlot";
 import SentimentAnalyzer from "./SentimentAnalyzer";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("sentiment-analyzer", {
   title: "محلل مشاعر النصوص مجاناً | شام AI",
   description:
     "حلّل مشاعر نص عربي أو إنجليزي فوراً في المتصفح — إيجابي/سلبي/محايد، بلا تسجيل ولا رفع لخادم.",
-};
+});
 
 function SentimentAnalyzerPageBody() {
   return (

@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import CvGenerator from "./CvGenerator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("cv-generator", {
   title: "مولّد سيرة ذاتية عربي + PDF | أدوات مجانية | شام AI",
   description:
     "أنشئ سيرة ذاتية عربية احترافية مجاناً واحفظها كـ PDF — بدون تسجيل، بدون مكتبات خارجية، النص العربي يظهر بشكل صحيح.",
-};
+});
 
 function CvGeneratorPageBody() {
   return (

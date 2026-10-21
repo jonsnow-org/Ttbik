@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import HijriConverter from "./HijriConverter";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("hijri-converter", {
   title: "محوّل التاريخ الهجري والميلادي | أدوات مجانية | شام AI",
   description:
     "حوّل أي تاريخ بين الهجري والميلادي فوراً مع أسماء الأشهر العربية واسم اليوم — أداة مجانية بلا تسجيل تعمل داخل المتصفح.",
-};
+});
 
 function HijriConverterPageBody() {
   return (

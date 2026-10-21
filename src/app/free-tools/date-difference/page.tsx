@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import DateDifference from "./DateDifference";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("date-difference", {
   title: "حاسبة الفرق بين تاريخين وإضافة أيام | شام AI",
   description:
     "احسب الفرق بين تاريخين بالسنوات والشهور والأيام، أو أضف أيامًا إلى تاريخ — حاسبة أيام مجانية بالعربي.",
   keywords: ["حاسبة الأيام بين تاريخين", "الفرق بين تاريخين", "حساب عدد الأيام", "حاسبة العمر بالأيام", "اضافة ايام الى تاريخ"],
   alternates: { canonical: "/free-tools/date-difference" },
-};
+});
 
 export default function Page() {
   return (

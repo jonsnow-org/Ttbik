@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import PregnancyCalculator from "./PregnancyCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("pregnancy-calculator", {
   title: "حاسبة الحمل وموعد الولادة المتوقع | شام AI",
   description:
     "حاسبة الحمل: اعرفي موعد الولادة المتوقع وعمر الحمل بالأسابيع وبداية كل ثلث من تاريخ آخر دورة — مجانية وبلا تسجيل.",
   keywords: ["حاسبة الحمل", "حاسبة الولادة", "موعد الولادة المتوقع", "حساب عمر الحمل بالأسابيع", "حساب موعد الولادة"],
   alternates: { canonical: "/free-tools/pregnancy-calculator" },
-};
+});
 
 export default function Page() {
   return (

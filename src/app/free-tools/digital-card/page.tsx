@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import DigitalCardForm from "./DigitalCardForm";
 import AdSlot from "@/components/AdSlot";
@@ -7,7 +8,7 @@ import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/digital-card";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("digital-card", {
   title: "بطاقة أعمال رقمية مجانية (بديل Linktree) | شام AI",
   description:
     "أنشئ صفحة روابط واحدة مجاناً مثل Linktree: اسم، نبذة، صورة وأزرار روابط مع عداد مشاهدات — بلا اشتراك وبلا تسجيل.",
@@ -26,7 +27,7 @@ export const metadata: Metadata = {
     locale: "ar_AR",
     type: "website",
   },
-};
+});
 
 function DigitalCardPageBody() {
   return (

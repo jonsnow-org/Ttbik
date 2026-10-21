@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import WritingAssistant from "./WritingAssistant";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("writing-assistant", {
   title: "مساعد الكتابة الذكي مجاناً | شام AI",
   description: "منشورات سوشيال ميديا، مقالات مدونة، أوصاف منتجات، وترجمة نصوص عمل — بالذكاء الاصطناعي، مجاناً وبدون تسجيل.",
-};
+});
 
 function WritingAssistantPageBody() {
   return (

@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import PercentageCalculator from "./PercentageCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("percentage-calculator", {
   title: "حاسبة النسبة المئوية والخصم | شام AI",
   description:
     "حاسبة النسبة المئوية: كم يساوي ٪ من رقم، نسبة الزيادة والنقصان، السعر بعد الخصم — فورية ومجانية بالعربي.",
   keywords: ["حاسبة النسبة المئوية", "حساب النسبة المئوية", "حاسبة الخصم", "حساب نسبة الزيادة", "كم يساوي 15% من"],
   alternates: { canonical: "/free-tools/percentage-calculator" },
-};
+});
 
 export default function Page() {
   return (

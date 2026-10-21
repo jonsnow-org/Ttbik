@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import StoreNetProfitCalculator from "./StoreNetProfitCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 import { SITE_URL } from "@/lib/siteUrl";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("store-net-profit", {
   title: "حاسبة صافي ربح المتجر الإلكتروني | أدوات مجانية | شام AI",
   description: "احسب صافي ربح الطلب في متجرك بعد رسوم الدفع وعمولة المنصة والشحن والإعلان والمرتجعات، مع أقصى تكلفة إعلان دون خسارة. مجانية وتعمل في متصفحك.",
   alternates: { canonical: `${SITE_URL}/free-tools/store-net-profit` },
-};
+});
 
 export default function StoreNetProfitPage() {
   return (

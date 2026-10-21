@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import WhatsappLinkGenerator from "./WhatsappLinkGenerator";
 import AdSlot from "@/components/AdSlot";
@@ -7,7 +8,7 @@ import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/whatsapp-link";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("whatsapp-link", {
   title: "مولد رابط واتساب للطلب والشراء مجاناً | شام AI",
   description:
     "أنشئ رابط طلب واتساب احترافياً برسالة جاهزة لعملائك — مجاناً بلا تسجيل. مثالي للمتاجر الإلكترونية والتسويق عبر واتساب.",
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
     locale: "ar_AR",
     type: "website",
   },
-};
+});
 
 function WhatsappLinkPageBody() {
   return (
