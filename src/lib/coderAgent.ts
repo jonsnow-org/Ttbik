@@ -83,6 +83,61 @@ export function coderTools(github: boolean, connectors = false): CoderTool[] {
   return connectors ? [...base, ...CONNECTOR_TOOLS] : base;
 }
 
+// Tool groups the model loads itself (load_tools). Measured on the coder Studio (2 vCPU, ~40 prompt tokens/s): the 40 tool schemas are
+// ~4,700 of a ~5,300-token first step, ~2 of its ~2.3 minutes; the system text alone is ~600 tokens. So a step carries only
+// load_tools (one short schema) plus the groups this conversation has already used; the model picks a group when it needs one and its
+// tools are there from the next step. CODER_TOOL_GROUPS=off sends every tool on every step (the earlier behaviour).
+export type ToolGroup = "github" | "computer" | "web" | "memory" | "connectors";
+const GROUP_TEXT: Record<ToolGroup, string> = {
+  github: "github (the user's repositories: files, branches, commits, pull requests, issues, CI, releases)",
+  computer: "computer (a private Linux VM: clone a repo, run commands and tests, read and write files)",
+  web: "web (web search, read a page, deep research)",
+  memory: "memory (notes for this task, long-term memory about this user)",
+  connectors: "connectors (services the user linked in the app, MCP servers)",
+};
+export function toolGroups(github: boolean, connectors = false): Record<string, CoderTool[]> {
+  const by = (names: string[]) => COMMON_TOOLS.filter((t) => names.includes(t.function.name));
+  const g: Record<string, CoderTool[]> = {
+    computer: SANDBOX_TOOL_DEFS,
+    web: by([...WEB_TOOLS.map((t) => t.function.name), "web_fetch"]),
+    memory: by(["memory_note", "memory_save", "memory_search", "memory_forget"]),
+  };
+  if (github) g.github = GITHUB_TOOLS;
+  if (connectors) g.connectors = CONNECTOR_TOOLS;
+  return g;
+}
+function loadToolsTool(groups: string[]): CoderTool {
+  return tool("load_tools", `Adds tool groups to this conversation: ${groups.map((x) => GROUP_TEXT[x as ToolGroup]).join(", ")}. A loaded group's tools are ready from your next step.`,
+    obj({ groups: { type: "array", items: { type: "string", enum: groups } } }, ["groups"]));
+}
+/** The groups a conversation already uses: those it loaded, and those of the tools it called. */
+export function loadedGroups(msgs: CoderMessage[], groups: Record<string, CoderTool[]>): Set<string> {
+  const out = new Set<string>();
+  const of = new Map<string, string>();
+  for (const [g, ts] of Object.entries(groups)) for (const t of ts) of.set(t.function.name, g);
+  for (const m of msgs) {
+    for (const c of (m as { tool_calls?: CoderToolCall[] }).tool_calls || []) {
+      const name = c?.function?.name || "";
+      if (name === "load_tools") for (const g of loadArgs(c)) { if (groups[g]) out.add(g); }
+      else if (of.has(name)) out.add(of.get(name)!);
+    }
+  }
+  return out;
+}
+function loadArgs(call: CoderToolCall): string[] {
+  const a = parseArgs(call);
+  const xs = Array.isArray(a.groups) ? a.groups : typeof a.groups === "string" ? String(a.groups).split(/[\s,]+/) : typeof a.group === "string" ? [a.group] : [];
+  return xs.map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
+}
+/** The tools for the next step of this conversation (see toolGroups). */
+export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[]): CoderTool[] {
+  if ((process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "off") return coderTools(github, connectors);
+  const groups = toolGroups(github, connectors);
+  const loaded = loadedGroups(msgs, groups);
+  const rest = Object.keys(groups).filter((g) => !loaded.has(g));
+  return [...(rest.length ? [loadToolsTool(rest)] : []), ...[...loaded].flatMap((g) => groups[g])];
+}
+
 export type Accuracy = "fast" | "balanced" | "precise";
 /** The user's "accuracy" setting (Mini App → model settings) as sampling temperature; recovery knobs may still raise it. */
 export const ACCURACY_TEMPERATURE: Record<Accuracy, number> = { fast: 0.7, balanced: 0.6, precise: 0.2 };
@@ -376,6 +431,13 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
   const a = parseArgs(call);
   const name = call.function.name;
   try {
+    if (name === "load_tools") {
+      const want = loadArgs(call);
+      const known = Object.keys(GROUP_TEXT);
+      const ok = want.filter((g) => known.includes(g) && (g !== "github" || ctx.gh) && (g !== "connectors" || ctx.userId !== undefined));
+      if (!ok.length) return `error: no such tool group (${want.join(", ") || "none given"}); groups: ${known.join(", ")}`;
+      return `loaded: ${ok.join(", ")}. Their tools are ready now.${want.length > ok.length ? ` Not available here: ${want.filter((g) => !ok.includes(g)).join(", ")}.` : ""}`;
+    }
     if (name === "memory_note") {
       ctx.addNote(String(a.text || "").slice(0, 1500));
       return "saved";
@@ -593,5 +655,5 @@ const FRIENDLY: Record<string, [string, string]> = {
   sandbox_clone: ["💻", "نسخ المستودع إلى الحاسوب"], sandbox_exec: ["▶️", "تشغيل أمر"], sandbox_wait: ["⏳", "انتظار الأمر"],
   sandbox_write_file: ["✍️", "كتابة ملف"], sandbox_read_file: ["📖", "قراءة ملف"], memory_note: ["🗒️", "تدوين ملاحظة"],
   memory_save: ["🧠", "حفظ في الذاكرة"], memory_search: ["🧠", "بحث في الذاكرة"], memory_forget: ["🧠", "نسيان ذكرى"],
-  connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
+load_tools: ["🧰", "تجهيز الأدوات"],   connector_api: ["🔌", "طلب من خدمة مربوطة"], mcp_list_tools: ["🧩", "أدوات MCP"], mcp_call: ["🧩", "أداة MCP"],
 };

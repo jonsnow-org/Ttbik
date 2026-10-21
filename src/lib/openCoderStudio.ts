@@ -80,7 +80,8 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
   }
   // a new call: first healthy Studio, failing over to the replicas (connection trouble only; a model error is an answer)
   const now = Date.now();
-  const order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
+  let order = bases.map((b, i) => ({ b, i })).sort((x, y) => Number((studioCooling.get(x.b) || 0) > now) - Number((studioCooling.get(y.b) || 0) > now));
+  if (api === "chat" && bases.length > 1) order = await idleFirst(order);
   let last: CoderOutcome = { reply: null, failure: "network" };
   const per = bases.length > 1 ? Math.max(8000, Math.floor(timeoutMs / Math.min(2, bases.length))) : timeoutMs;
   for (const { b, i } of order.slice(0, 2)) {
@@ -92,6 +93,31 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
     studioCooling.set(b, Date.now() + COOL_MS);
   }
   return last;
+}
+/**
+ * Both Studios serve: a new completion goes to one that is ready with nothing queued, so a second user (or a background job) does not
+ * wait behind the first on one Studio while the other is idle. Each Studio's `status` is asked at once; the first idle one wins without
+ * waiting for the rest; otherwise the shortest queue; a Studio that is loading / down goes last. CODER_STUDIO_BALANCE=off = first healthy.
+ */
+async function idleFirst(order: { b: string; i: number }[]): Promise<{ b: string; i: number }[]> {
+  if ((process.env.CODER_STUDIO_BALANCE || "").toLowerCase() === "off") return order;
+  const capMs = Math.max(1000, Number(process.env.CODER_STUDIO_BALANCE_MS || 3500));
+  const seen = new Map<string, number>();                                  // base -> queue length (Infinity = not ready / no answer)
+  const score = (st: Record<string, unknown> | null) => (st && st.phase === "ready" ? Number(st.queue) || 0 : Infinity);
+  const idle = await new Promise<string | null>((resolve) => {
+    let left = order.length;
+    const timer = setTimeout(() => resolve(null), capMs);
+    for (const { b } of order) {
+      studioStatus(b, capMs).then((st) => {
+        const q = score(st);
+        seen.set(b, q);
+        if (q === 0) { clearTimeout(timer); resolve(b); }
+        else if (--left === 0) { clearTimeout(timer); resolve(null); }
+      });
+    }
+  });
+  const rank = (b: string) => (b === idle ? -1 : seen.has(b) ? seen.get(b)! : 1e6);
+  return [...order].sort((x, y) => rank(x.b) - rank(y.b));               // stable: equal ranks keep the cooling / primary order
 }
 /**
  * A completion call holds the HTTP request open on the Studio for up to `wait_s` before it answers "pending" + the job id. If the
@@ -158,8 +184,44 @@ export function coderCancel(job: string, timeoutMs = 8000): Promise<CoderOutcome
   return coderCall("cancel", { job_id: job }, timeoutMs);
 }
 export async function coderStatus(timeoutMs = 10000): Promise<Record<string, unknown> | null> {
-  const o = await coderCall("status", {}, timeoutMs);
-  return (o.reply as unknown as Record<string, unknown>) || null;
+  const bases = coderStudioUrls();
+  for (const b of bases.slice(0, 2)) {
+    const st = await studioStatus(b, timeoutMs);
+    if (st) return st;
+  }
+  return null;
+}
+/** The Studio's `status` answer ({phase, queue, model, ...}). It has no `type` field, so parseCoderSse (completion answers) skips it. */
+export function parseStatusSse(body: string): Record<string, unknown> | null {
+  for (const line of body.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    try {
+      const data = JSON.parse(line.slice(5).trim());
+      if (!Array.isArray(data) || data[0] == null) continue;
+      const obj = typeof data[0] === "string" ? JSON.parse(data[0]) : data[0];
+      if (obj && typeof obj === "object" && typeof obj.phase === "string") return obj as Record<string, unknown>;
+    } catch {
+      /* keep reading */
+    }
+  }
+  return null;
+}
+async function studioStatus(base: string, timeoutMs: number): Promise<Record<string, unknown> | null> {
+  const name = apiName("status");
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const tok = coderToken();
+  if (tok) headers.Authorization = `Bearer ${tok}`;
+  const deadline = Date.now() + timeoutMs;
+  try {
+    const sub = await fetch(`${base}/gradio_api/call/v2/${name}`, { method: "POST", headers, body: "{}", signal: AbortSignal.timeout(timeoutMs) });
+    if (!sub.ok) return null;
+    const { event_id } = (await sub.json()) as { event_id?: string };
+    if (!event_id) return null;
+    const res = await fetch(`${base}/gradio_api/call/${name}/${event_id}`, { headers, signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())) });
+    return res.ok ? parseStatusSse(await res.text()) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function coderFailureText(o: CoderOutcome): string {
