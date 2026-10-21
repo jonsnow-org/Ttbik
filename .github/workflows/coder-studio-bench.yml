@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       studios: { required: false, default: "coder-inference-server,coder-inference-server-2" }
-      mode: { required: false, default: "full" }
+      mode: { required: false, default: "quant" }
 permissions: { contents: read }
 jobs:
   bench:
@@ -18,5 +18,5 @@ jobs:
       - env:
           T: ${{ secrets.MODELSCOPE_TOKEN }}
           STUDIOS: ${{ inputs.studios || 'coder-inference-server,coder-inference-server-2' }}
-          MODE: ${{ inputs.mode || 'full' }}
-        run: python3 ai-system/coder-bench/bench.py
+          MODE: ${{ inputs.mode || 'quant' }}
+        run: if [ "$MODE" = quant ]; then bash ai-system/coder-bench/quant.sh; else python3 ai-system/coder-bench/bench.py; fi
