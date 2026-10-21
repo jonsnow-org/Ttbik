@@ -58,8 +58,9 @@ is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); th
 ## Free compute — no card, no ID (checked live 2026-10-21; Kaggle is kept for Sham)
 | option | free GPU | limits | card? | ID / phone? | region | use |
 |---|---|---|---|---|---|---|
-| **Google Colab (free)** — [FAQ](https://research.google.com/colaboratory/faq.html) | T4 16 GB usually (not guaranteed) | ≤ 12 h per session, idle timeout, daily limits not published | no | Google account only | works from Türkiye; Google restricts Syria | **main trainer**: `train/nova1_colab.ipynb` + `train/config.colab.yaml` |
-| **Lightning AI free** — [pricing](https://lightning.ai/pricing) | 5 credits at sign-up ≈ 9 T4-hours or 6 L4-hours (the other 25 need a card) | 1 free Studio, restart every 4 h, credits expire in 12 months | no | phone number (no ID) | blocked in Syria; Turkish number OK | **second trainer**, same command as Colab |
+| **Lightning AI free** — [pricing](https://lightning.ai/pricing), [SDK](https://pypi.org/project/lightning-sdk/) | 5 credits at sign-up ≈ 9 T4-hours (the other 25 need a card); one-time, expire in 12 months | official Python SDK / CLI: `Job.run(machine=Machine.T4, …)`, max runtime, cost per job | no | phone number (no ID) | blocked in Syria; Turkish number OK | **automated trainer**: `train/launch_lightning.py` |
+| Google Colab (free) — [FAQ](https://research.google.com/colaboratory/faq.html) | T4 usually (not guaranteed) | ≤ 12 h per session; **no official API to start sessions** | no | Google account only | works from Türkiye; Google restricts Syria | manual fallback only: `train/nova1_colab.ipynb` |
+| Hugging Face Jobs — [pricing](https://huggingface.co/docs/hub/jobs-pricing) | T4 $0.40/h | official CLI/API | needs a positive credit balance (paid) | — | — | not free |
 | ModelScope Notebook | 36 h, 24 GB | — | no | Alibaba Cloud real-name (Chinese ID/phone) | — | not usable |
 | Modal | $1/month without card | — | $30 needs card | — | — | not usable |
 | Paperspace Gradient free | M4000 8 GB (too small for 4B bf16 LoRA) | 6 h | card on file | — | — | not usable |
@@ -71,9 +72,14 @@ is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); th
 | Google TRC (TPUs) | free TPUs on approval | needs a Google Cloud project with billing (card) | yes | — | — | not usable |
 | Oracle Always Free / our runner | CPU only | always on | — | — | — | data work, not training (below) |
 
-**Plan:** stage 1 on Colab with `config.colab.yaml` (~20M tokens, 1 epoch, 2k context ≈ 5–6 T4-hours = 2–3 sessions).
-A checkpoint goes to a private HF repo every 50 steps (≈ 12–15 min), the run saves and stops itself after `--max-minutes`, and the next
-session (Colab or Lightning, same command) carries on. Stage 2, if stage 1 is good: 40M more tokens with the same notebook.
+**Honest limit:** apart from Kaggle (kept for Sham) there is no GPU that is free *every month*, needs no card and no ID, and can be
+started by an official API. Lightning AI is the only one with an official SDK, and its no-card grant is one-time (5 credits).
+
+**Plan (hybrid):** the CPU box does all data work and calls `train/launch_lightning.py`; each call starts one T4 job through the SDK
+(150 training minutes, hard stop 20 min later), which resumes from the private HF checkpoint repo, pushes a checkpoint every
+50 steps (≈ 12–15 min) and exits. Stage 1 = `config.colab.yaml` (~20M tokens, 1 epoch, 2k context ≈ 5–6 T4-hours) = three jobs ≈
+4.7 credits, inside the free 5; a ledger refuses any job that would pass the budget. If stage 1 beats the base model, more
+training needs either a GPU the owner chooses to pay for, or a Kaggle slot when Sham does not need it (same command, same checkpoints).
 
 **Why not CPU training:** a LoRA step still runs the full 4B model forward and backward, ≈ 16 GFLOP per token. Oracle Always Free
 Arm (2 OCPU / 12 GB for new tenancies; 4 cores on older ones) sustains maybe 30–60 GFLOPS in PyTorch → **about 1–4 tokens/s**, against
