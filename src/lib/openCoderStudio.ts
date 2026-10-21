@@ -24,6 +24,7 @@ export type CoderReply = {
   queue_pos?: number;
   phase?: string;
   error?: string;
+  timings?: { prompt_n?: number; predicted_n?: number; predicted_per_second?: number };   // llama.cpp's own token counts (done jobs)
 };
 export type CoderOutcome = { reply: CoderReply | null; failure?: "off" | "timeout" | "http" | "network" | "unreadable" };
 

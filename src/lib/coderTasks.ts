@@ -9,7 +9,7 @@ export type TaskSource = "interactive" | "scheduled" | "event";
 export type EventKind = "start" | "text" | "tool" | "confirm" | "approved" | "declined" | "auto_allowed" | "auto_denied" | "stall" | "segment" | "done" | "failed" | "info";
 export type TaskRow = {
   run_id: string; slot: string; source: TaskSource; schedule_id: string | null; title: string; status: TaskStatus;
-  steps: number; started_at: string; updated_at: string; finished_at: string | null;
+  steps: number; started_at: string; updated_at: string; finished_at: string | null; thread_id?: string | null;
 };
 export type EventRow = { id: number; run_id: string; kind: EventKind; text: string; created_at: string };
 
@@ -22,6 +22,8 @@ export function ensureTaskTables(db: Db): Promise<void> {
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_tasks_chat_idx ON coder_tasks (chat_key, started_at DESC)`);
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_task_events (id BIGSERIAL PRIMARY KEY, run_id TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_task_events_run_idx ON coder_task_events (run_id, id)`);
+      // conversation threads (src/lib/coderThreads.ts): the request's conversation; older rows keep NULL
+      await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS thread_id TEXT`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -30,12 +32,12 @@ export function ensureTaskTables(db: Db): Promise<void> {
   return ready;
 }
 
-export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string }, db: Db = prismaDb): Promise<void> {
+export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null }, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);
     await db.exec(
-      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status) VALUES ($1, $2, $3, $4, $5, $6, 'running') ON CONFLICT (run_id) DO NOTHING`,
-      t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300),
+      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) ON CONFLICT (run_id) DO NOTHING`,
+      t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
     );
     await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
   } catch {
@@ -89,7 +91,7 @@ export async function listTasks(chatId: number | string, opts: { limit?: number;
       where.push(`started_at < $${args.length}::timestamptz`);
     }
     return await db.query<TaskRow>(
-      `SELECT run_id, slot, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
+      `SELECT run_id, slot, source, schedule_id, title, status, steps, started_at::text AS started_at, updated_at::text AS updated_at, finished_at::text AS finished_at, thread_id FROM coder_tasks WHERE ${where.join(" AND ")} ORDER BY started_at DESC LIMIT ${limit}`,
       ...args,
     );
   } catch {

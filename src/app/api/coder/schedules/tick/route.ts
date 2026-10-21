@@ -1,9 +1,9 @@
 // The single dispatcher of the coder's scheduled tasks (src/lib/coderSchedules.ts). Called every 5 minutes by the free GitHub Actions
 // scheduler (.github/workflows/coder-schedules.yml) with CRON_SECRET; a Vercel Cron GET with the same secret works too (Hobby: daily only).
-// It claims the due rows and fans out one signed request per run, so each run gets its own function invocation.
+// Each tick also does one piece of the threads' quiet-time work. It claims the due rows and fans out one signed request per run, so each run gets its own function invocation.
 import { NextRequest, NextResponse } from "next/server";
 import { claimDue, fanOut } from "@/lib/coderSchedules";
-import { selfUrl } from "@/lib/coderSections";
+import { later, selfUrl } from "@/lib/coderSections";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -18,6 +18,9 @@ async function tick(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const claimed = await claimDue().catch(() => []);
   const sent = await fanOut(claimed, selfUrl());
+  // quiet-time work of the conversation threads (long-term memories, summaries of long threads): after the answer, one item per tick,
+  // only while the Studio queue is empty and that user is quiet (src/lib/coderThreads.ts)
+  later(() => import("@/lib/coderThreads").then((m) => m.quietWork()).then(() => undefined).catch(() => undefined));
   return NextResponse.json({ due: claimed.length, sent: sent.filter((x) => x.ok).length, failed: sent.filter((x) => !x.ok).map((x) => x.id) });
 }
 export const GET = tick;
