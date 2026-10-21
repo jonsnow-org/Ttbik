@@ -13,7 +13,7 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
   use_rslora: false
 train:
-  epochs: 1
+  epochs: 2                   # 2026-10-21: the mix is now only our own data (repair rows, traces, Arabic, identity), a few million tokens; two passes over it
   lr: 1.0e-4
   scheduler: cosine
   warmup_ratio: 0.03

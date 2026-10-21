@@ -25,7 +25,7 @@ def main() -> int:
     bad = 0
     for s in plan["sources"] + plan.get("eval", []):
         repo = s.get("hf")
-        if not repo or s.get("status") in ("excluded", "hold"):
+        if not repo or s.get("status") in ("excluded", "hold") or s.get("enabled") is False:
             continue
         want = str(s["license"]).split(" ")[0].lower()
         got = card_license(repo)

@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent.parent
 SYSTEM = "You are Nova 1, a careful software engineer. Write correct, tested, minimal code. Explain briefly in the user's language."
 CODE_BLOCK = re.compile(r"```(?:python|py)?\n(.*?)```", re.S)
 ANY_BLOCK = re.compile(r"```.*?```", re.S)
-# Rows of other sources in which an assistant (or a system message) speaks as another provider's model. SHAM AI's identity
+# Rows of other sources in which an assistant (or a system message) speaks as another provider's model. Nova AI's identity
 # comes from identity/identity_sft.jsonl, so such rows are rewritten (system message) or left out (assistant self-description).
 PROVIDERS = r"(?:Qwen\w*|Tongyi|Alibaba(?: Cloud)?|ChatGPT|GPT-?[34]\w*|OpenAI|Claude|Anthropic|Gemini|Bard|Llama\w*|Meta AI|DeepSeek\w*|Mistral|Mixtral|Nemotron|StarCoder\w*|Phi-?\d\w*|Grok|Google|Microsoft|NVIDIA)"
 SELF_ID = re.compile(
@@ -163,7 +163,7 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w") as f:
         for s in plan["sources"]:
-            if s["status"] not in ("use", "use-subset"):
+            if s["status"] not in ("use", "use-subset") or s.get("enabled") is False or not float(s.get("weight") or 0):
                 continue
             budget = int(a.tokens * float(s["weight"]))
             used = 0
