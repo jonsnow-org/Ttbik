@@ -153,15 +153,15 @@ import { later } from "@/lib/coderRuntime";
 // ---------------------------------------------------------------- texts and keyboards
 // The /start welcome (owner's note 2026-10-21: warmer, shorter, nothing internal). {name} = the user's first name.
 const WELCOME_V1 =
-  "👋 أهلاً! هذا قسم «المبرمج» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق)، ويبحث في الويب ويشغّل الكود في حاسوب افتراضي خاص بالمهمة.\n" +
+  "👋 أهلاً! هذا قسم «Nova AI» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق)، ويبحث في الويب ويشغّل الكود في حاسوب افتراضي خاص بالمهمة.\n" +
   "اكتب طلبك بأي طول؛ الردود الطويلة تصل على دفعات.\n\n" +
-  "⚙️ الإعدادات، الذاكرة، الجدولة، الصلاحيات، ربط GitHub، تبديل القسم وسجل المهام: من زر «المبرمج» في القائمة أو الزر أدناه.\n" +
+  "⚙️ الإعدادات، الذاكرة، الجدولة، الصلاحيات، ربط GitHub، تبديل القسم وسجل المهام: من زر «📱 التطبيق» في القائمة أو الزر أدناه.\n" +
   "/stop لإيقاف مهمة جارية.";
 void WELCOME_V1;
 export function welcomeText(name = ""): string {
   const who = name.trim().slice(0, 40);
   return [
-    `👋 أهلاً${who ? ` ${who}` : ""}، أنا «المبرمج» من SHAM AI.`,
+    `👋 أهلاً${who ? ` ${who}` : ""}، أنا Nova AI، مساعد البرمجة من فريق شام.`,
     "",
     "أساعدك تكتب الكود وتراجعه وتصلّحه، وأنفّذ مهامك على مستودعاتك خطوة بخطوة: أخطط، أنفّذ، ثم أتحقق قبل ما أقول «تم».",
     "",
@@ -178,12 +178,12 @@ export function welcomeText(name = ""): string {
 export const WELCOME = welcomeText();
 export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
 export const modeKeyboard = (mode: Mode) =>
-  new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 المبرمج`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
+  new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 Nova AI`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
 
 /** What a regular user is told when the model service failed: plain words, never the server's own error text. */
 export function userFailureText(o: Parameters<typeof coderFailureText>[0], chatId: number | string): string {
   if (tierFor(chatId) === "owner") return coderFailureText(o);
-  if (o.failure === "off") return "🛠️ المبرمج غير متاح الآن. جرّب بعد قليل.";
+  if (o.failure === "off") return "🛠️ Nova AI غير متاح الآن. جرّب بعد قليل.";
   if (o.failure === "timeout" || o.failure === "http" || o.failure === "network") return "⌛ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
   if (o.reply?.type === "gone") return "انتهت صلاحية هذا الطلب. أعد إرسال رسالتك.";
   return "⚠️ تعذّر إكمال الرد هذه المرة. أعد المحاولة بعد قليل.";
@@ -206,7 +206,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     if (owner || fromId === undefined) return false;
     // the Sham section is the owner's only (owner's rule, 2026-10-21): users get a short notice instead
     if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id).catch(() => null);
-    else if (update.message?.chat?.id) await send(bot, update.message.chat.id, "🛠️ المبرمج قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.");
+    else if (update.message?.chat?.id) await send(bot, update.message.chat.id, "🛠️ Nova AI قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.");
     return true;
   }
   const cq = update.callback_query;
@@ -241,9 +241,9 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     if (data.startsWith("cmode|")) {
       st.mode = data === "cmode|sham" ? "sham" : "coder";
       await saveState(chatId, st, db);
-      await bot.api.answerCallbackQuery(cq.id, { text: st.mode === "coder" ? "💻 قسم المبرمج" : "🧪 قسم شام" }).catch(() => null);
+      await bot.api.answerCallbackQuery(cq.id, { text: st.mode === "coder" ? "💻 قسم Nova AI" : "🧪 قسم شام" }).catch(() => null);
       await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: modeKeyboard(st.mode) }).catch(() => null);
-      await send(bot, chatId, st.mode === "coder" ? "💻 أنت الآن في قسم المبرمج. اكتب طلبك." : "🧪 أنت الآن في قسم شام (للتجربة). /mode للرجوع إلى المبرمج.");
+      await send(bot, chatId, st.mode === "coder" ? "💻 أنت الآن في قسم Nova AI. اكتب طلبك." : "🧪 أنت الآن في قسم شام (للتجربة). /mode للرجوع إلى Nova AI.");
       return true;
     }
     if (data.startsWith("cperm|")) {
@@ -296,7 +296,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
-    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق المبرمج.", { reply_markup: appButton(ROUTED[cmd]) });
+    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
     return true;
   }
   if (st.mode === "sham") return false;                     // the existing Sham path, exactly as before
@@ -378,7 +378,7 @@ const panelKeyboard = (paused: boolean) =>
     .text("🛰 تشغيل المراقب الآن", "cpanel|monitor_run").row()
     .webApp("🎛 فتح اللوحة", `${appUrl()}?tab=panel`);
 
-export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق المبرمج", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
+export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق Nova AI", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
 
 /** The chat's persistent menu button opens the Mini App (set once per chat; `force` sets it again, e.g. on /start). */
 async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
@@ -729,7 +729,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
           await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
           await saveState(chatId, st, db, slot);
-          await send(bot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم المبرمج بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
+          await send(bot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
           return;
         }
         if (!run.compacting) await sendParts(bot, chatId, text, run, false);
@@ -860,7 +860,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     run.jobSize = "";
     if (r.type !== "pending") cached = r;
     if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(bot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
-    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
+    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
     await saveState(chatId, st, db, slot);
   }
 }
