@@ -30,7 +30,17 @@ SELF_ID = re.compile(
     r"|أنا\s+(?:نموذج\s+)?(?:Qwen|ChatGPT|Claude|Gemini|Llama|DeepSeek|كوين|تشات ?جي ?بي ?تي)|(?:طوّرت|طورت|طوّرتني|طورتني|صنعتني|دربتني)\S*\s+(?:شركة\s+)?(?:علي ?بابا|OpenAI|Alibaba|جوجل|Google)",
     re.I)
 SYS_ID = re.compile(r"\byou are\s+(?:an?\s+)?(?:AI\s+|assistant\s+|named\s+|called\s+)*" + PROVIDERS + r"\b|created by Alibaba|通义千问", re.I)
-SCRUB = {"system_rewritten": 0, "dropped_self_id": 0}
+SCRUB = {"system_rewritten": 0, "dropped_self_id": 0, "dropped_empty_prompt": 0}
+
+
+def empty_prompt(row: dict) -> bool:
+    """True for a row whose user turn carries no task (nemotron_code ships many rows whose user message is just "-"): training on
+    them would teach answers to nothing. Identity rows are not checked (greetings such as "Hi" are short on purpose)."""
+    users = [m for m in row["messages"] if m.get("role") == "user"]
+    if not users or len((users[0].get("content") or "").strip()) < 16:
+        SCRUB["dropped_empty_prompt"] += 1
+        return True
+    return False
 
 
 def scrub_identity(row: dict) -> bool:
@@ -168,16 +178,22 @@ def main() -> None:
             budget = int(a.tokens * float(s["weight"]))
             used = 0
             try:
+                misses = 0
                 for r in rows(s["key"]):
+                    if misses >= 20_000:        # a source whose rows are (nearly) all rejected is not streamed to its end
+                        print(f"{s['key']:18s} stopped: 20,000 rows in a row rejected")
+                        break
+                    misses += 1
                     if not ok(r):
                         continue
-                    if s["key"] != "identity" and not scrub_identity(r):
+                    if s["key"] != "identity" and (empty_prompt(r) or not scrub_identity(r)):
                         continue
                     r["source"] = s["key"]
                     n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
                     if a.max_len and n > a.max_len:
                         continue
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
+                    misses = 0
                     used += n
                     if used >= budget:
                         break
