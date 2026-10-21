@@ -37,12 +37,21 @@ export class GroqError extends Error {
   }
 }
 
+// A model this key cannot use ("model_not_found" / 404) is skipped for an hour on this warm instance, so each request does not
+// first spend four failed calls (seen in production on 2026-10-21: the four Llama models answered 404, gpt-oss answered).
+const UNAVAILABLE_MS = 60 * 60 * 1000;
+const unavailable = new Map<string, number>();
+export const groqSkipped = (now = Date.now()) => GROQ_MODELS.filter((m) => (unavailable.get(m) || 0) > now);
+
 export async function callGroq(systemPrompt: string, userInput: string, maxTokens: number): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("NO_API_KEY");
 
   let last: GroqError | null = null;
-  for (const model of GROQ_MODELS) {
+  const now = Date.now();
+  // every model marked unavailable: try them all again rather than fail
+  const order = GROQ_MODELS.every((m) => (unavailable.get(m) || 0) > now) ? GROQ_MODELS : GROQ_MODELS.filter((m) => (unavailable.get(m) || 0) <= now);
+  for (const model of order) {
     for (let attempt = 0; attempt < 2; attempt++) {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -81,6 +90,7 @@ export async function callGroq(systemPrompt: string, userInput: string, maxToken
         await new Promise((r) => setTimeout(r, 1200));
         continue;
       }
+      if (status === 404 || /model_not_found|decommissioned/.test(detail)) unavailable.set(model, Date.now() + UNAVAILABLE_MS);
       break; // 400/404 (e.g. model retired) → next model
     }
   }

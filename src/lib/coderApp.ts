@@ -111,6 +111,12 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (body.mode === "coder" || (body.mode === "sham" && user.tier === "owner")) st.mode = body.mode;
       if (typeof body.think === "boolean") st.think = body.think;
       if (isAccuracy(body.accuracy)) st.accuracy = body.accuracy;
+      if (typeof body.model === "string") {
+        // a user may pick only a model the owner made visible; the owner may also pick hidden ones to try them
+        const { listModels } = await import("@/lib/coderModels");
+        const m = (await listModels(db)).find((x) => x.id === body.model);
+        if (m && (m.visible || user.tier === "owner")) st.model = m.id;
+      }
       if (body.lang === "ar" || body.lang === "en") st.lang = body.lang;
       if (typeof body.tz === "string" && (body.tz === "" || validTimeZone(body.tz))) st.tz = body.tz || undefined;
       if (typeof body.repo === "string" && (body.repo === "" || /^[\w.-]+\/[\w.-]+$/.test(body.repo))) st.repo = body.repo || undefined;
@@ -230,6 +236,22 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
         return { url: await createPlanInvoice(deps.bot, chatId, String(body.planId || ""), db) };
       } catch (e) {
         throw new AppError(400, String((e as Error).message || "تعذّر إنشاء الفاتورة"));
+      }
+    }
+    // ---------------------------------------------------------------- models (src/lib/coderModels.ts)
+    case "models": {
+      const { listModels, publicModels, ownerModels } = await import("@/lib/coderModels");
+      const st = await loadState(chatId, db);
+      const all = await listModels(db);
+      return { models: publicModels(all, st.model), ...(user.tier === "owner" ? { owner: ownerModels(all, st.model) } : {}) };
+    }
+    case "model_update": {
+      if (user.tier !== "owner") throw new AppError(403, "owner only");
+      const { updateModel } = await import("@/lib/coderModels");
+      try {
+        return { model: await updateModel(String(body.id || ""), { visible: body.visible, price_stars: body.price_stars, name: body.name }, db) };
+      } catch (e) {
+        throw new AppError(400, String((e as Error).message));
       }
     }
     case "plan_update": {
