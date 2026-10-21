@@ -11,7 +11,6 @@ import { createHmac, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
-import { brandSelfReferences } from "@/lib/coderIdentity";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
 import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderTools, githubClient, isAccuracy, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
@@ -66,29 +65,6 @@ export function smallTalkReply(text: string, name = ""): string {
   if (/كيف|شلون/.test(t)) return "😊 تمام الحمد لله! جاهز أساعدك بالكود. شو المهمة اليوم؟";
   if (/سلام|salam/.test(t)) return `وعليكم السلام${who ? ` ${who}` : ""} 👋 كيف بقدر ساعدك اليوم؟ اكتب طلبك البرمجي (شرح كود، إصلاح خطأ، مهمة على مستودعك…).`;
   return `👋 أهلاً${who ? ` ${who}` : ""}! كيف بقدر ساعدك اليوم؟ اكتب طلبك البرمجي (شرح كود، إصلاح خطأ، مهمة على مستودعك…).`;
-}
-
-/** "Who are you / what can you do" (alone or after a greeting): answered at once with who SHAM AI is, no model call, no queue. */
-const ABOUT_ME = /(?:^|[\s،,.!؟?])(?:مين|من|شو|ما|ايش|إيش)\s*(?:انت|أنت|إنت|انتا|أنتَ)(?=[\s،,.!؟?]|$)|(?:ما|شو|ماهي|ما هي|ايش|إيش)\s*(?:هي\s*)?(?:وظيفتك|وظيفتكم|قدراتك|مهاراتك|إمكانياتك|امكانياتك|عملك|مهمتك)|(?:شو|ماذا|ايش|إيش)\s*(?:بتعرف|بتقدر|تستطيع|تقدر|بتعمل|تعمل|يمكنك)(?:\s*(?:تعمل|تفعل|أن تفعل|ان تفعل|تسوي))?\s*[؟?]?\s*$|\bwho\s+are\s+you\b|\bwhat\s+(?:can|do)\s+you\s+do\b|\bwhat\s+are\s+your\s+(?:skills|capabilities)\b/iu;
-const CODING_ASK = /اكتب|أكتب|اصلح|أصلح|صلّح|صلح|برنامج|كود|دالة|دالّة|سكربت|سكريبت|ملف|مستودع|\b(?:code|write|fix|function|script|repo|file|program)\b/iu;
-export function isAboutMe(text: string): boolean {
-  const t = String(text || "").trim();
-  return t.length > 0 && t.length <= 140 && !t.includes("```") && !/https?:\/\/|\w+\.(?:ts|js|py|tsx|json|md)\b/i.test(t) && !CODING_ASK.test(t) && ABOUT_ME.test(t);
-}
-export function aboutMeReply(name = ""): string {
-  const who = name.trim().slice(0, 40);
-  return [
-    `أهلاً بك${who ? ` يا ${who}` : ""} 👋 أنا <b>SHAM AI</b>، مساعدك في البرمجة.`,
-    "",
-    "<b>ما الذي أستطيع فعله لك:</b>",
-    "• أكتب الكود وأشرحه لك خطوة بخطوة.",
-    "• أراجع الكود، وأجد الأخطاء وأصلحها.",
-    "• أعمل على مستودعاتك في GitHub، وأستأذنك قبل أي خطوة حساسة.",
-    "• أبحث في الويب عن أحدث المعلومات والمكتبات.",
-    "• أنفّذ مهامّ مجدولة في الأوقات التي تحددها.",
-    "",
-    "اكتب طلبك وسأبدأ فوراً.",
-  ].join("\n");
 }
 
 /**
@@ -365,14 +341,6 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, reply);
     return true;
   }
-  if (!st.run && !msg.document && isAboutMe(content)) {
-    // "who are you / what can you do": SHAM AI introduces itself at once (no model call, no queue)
-    const reply = aboutMeReply(String(msg.from?.first_name || ""));
-    st.messages.push({ role: "user", content }, { role: "assistant", content: reply.replace(/<\/?b>/g, "") });
-    await saveState(chatId, st, db);
-    await send(bot, chatId, reply, { parse_mode: "HTML" });
-    return true;
-  }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
     await saveState(chatId, st, db);
@@ -618,7 +586,7 @@ async function sendRich(bot: TelegramBot, chatId: number, text: string) {
 
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
-    const part = brandSelfReferences(renderRange(text, a, b));   // the model never names itself or its maker: SHAM AI by Sham
+    const part = renderRange(text, a, b);
     if (part.trim()) {
       run.progress = undefined;                                 // a reply closes the progress card
       await sendRich(bot, chatId, part);
@@ -782,8 +750,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       }
       await sendParts(bot, chatId, text, run, true);
       const calls = (r.tool_calls || []).filter((c) => c?.function?.name);
-      const said = brandSelfReferences(text);                     // the history keeps the SHAM AI wording the user saw
-      st.messages.push(calls.length ? { role: "assistant", content: said, tool_calls: calls } : { role: "assistant", content: said });
+      st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;
       run.sent = 0;
       run.retries = 0;
