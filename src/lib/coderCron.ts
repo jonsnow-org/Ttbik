@@ -63,6 +63,12 @@ function dayMatches(c: Cron, w: { d: number; wd: number }): boolean {
   return c.dom.set.has(w.d) || c.dow.set.has(w.wd);
 }
 
+/** The zone used when a user never told us theirs (the bot's users are mostly on UTC+3: Syria / Türkiye). CODER_DEFAULT_TZ overrides. */
+export function defaultTz(): string {
+  const z = (process.env.CODER_DEFAULT_TZ || "Asia/Damascus").trim();
+  return validTimeZone(z) ? z : "UTC";
+}
+
 /** The first minute strictly after `from` that matches, in time zone `tz`; null if none within ~400 days. */
 export function nextRun(cron: string | Cron, tz: string, from: Date = new Date()): Date | null {
   const c = typeof cron === "string" ? parseCron(cron) : cron;

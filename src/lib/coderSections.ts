@@ -18,6 +18,7 @@ import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, g
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskSlot, taskStart, taskStatus, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { defaultTz } from "@/lib/coderCron";
 
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
@@ -32,6 +33,8 @@ export type Run = {
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
   progress?: { msgId?: number; lines: string[] };                     // the one live "progress card" message of the current tool streak
+  // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
+  jobAt?: number; jobSize?: string; jobMovedAt?: number;
 };
 export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean; accuracy?: Accuracy; model?: string };
 export type { Db };
@@ -42,6 +45,41 @@ const LEASE_STALE_MS = 120000;
 const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
 const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
+// A job that shows no sign of life (still queued, model still loading, or no new text/reasoning) for this long is cancelled and the
+// task ends with a short, friendly message instead of "typing…" forever. CODER_JOB_STALL_MS overrides (min 60 s).
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 240000));
+// A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
+const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
+const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
+
+/** Short greetings / thanks / "how are you": answered at once, without the coding model, its queue or a task. */
+const SMALL_TALK = /^(?:(?:ال)?سلام(?: عليكم)?(?: ورحمة الله(?: وبركاته)?)?|مرحب[اًا]?|مرحبتين|أهلا|اهلا|أهلاً|اهلاً|هلا|هاي|هلو|صباح الخير|مساء الخير|صباح النور|مساء النور|كيفك|كيف حالك|شلونك|كيف الحال|شكرا|شكراً|مشكور|تسلم|يعطيك العافية|hi|hello|hey|hola|salam|thanks|thank you|thx|good (?:morning|evening))(?:\s+(?:يا\s*)?[\p{L}]{0,12})?[\s!.؟?،,🌹👋😊🙏❤️]*$/iu;
+export function isSmallTalk(text: string): boolean {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 40 && !t.includes("\n") && SMALL_TALK.test(t);
+}
+export function smallTalkReply(text: string, name = ""): string {
+  const t = String(text || "").trim().toLowerCase();
+  const who = name.trim().slice(0, 40);
+  if (/شكر|مشكور|تسلم|العافية|thank|thx/.test(t)) return "🙏 العفو! إذا عندك أي طلب برمجي، اكتبه وأنا جاهز.";
+  if (/كيف|شلون/.test(t)) return "😊 تمام الحمد لله! جاهز أساعدك بالكود. شو المهمة اليوم؟";
+  if (/سلام|salam/.test(t)) return `وعليكم السلام${who ? ` ${who}` : ""} 👋 كيف بقدر ساعدك اليوم؟ اكتب طلبك البرمجي (شرح كود، إصلاح خطأ، مهمة على مستودعك…).`;
+  return `👋 أهلاً${who ? ` ${who}` : ""}! كيف بقدر ساعدك اليوم؟ اكتب طلبك البرمجي (شرح كود، إصلاح خطأ، مهمة على مستودعك…).`;
+}
+
+/**
+ * A run whose loop is gone (lease not renewed for RUN_DEAD_MS, not waiting for a confirmation): its Studio job is cancelled and the run
+ * is closed as failed, so the next message starts fresh and the app stops showing it as running. Returns true when it cleared one.
+ */
+export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
+  const st = await loadState(chatId, db, slot);
+  const run = st.run;
+  if (!run || run.pending || Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
+  if (run.job) await coderCancel(run.job).catch(() => null);
+  await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", coderChatKey(chatId));
+  await saveState(chatId, st, db, slot);
+  return true;
+}
 
 
 export function defaultMode(): Mode {
@@ -291,6 +329,18 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
     return true;
   }
+  if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
+    // the previous task's loop is gone: close it (and its Studio job) so this message gets a fresh, live task
+    if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
+  }
+  if (!st.run && !msg.document && isSmallTalk(content)) {
+    // a greeting is not a coding task: instant answer, no model call, no queue, no task in the history
+    const reply = smallTalkReply(content, String(msg.from?.first_name || ""));
+    st.messages.push({ role: "user", content }, { role: "assistant", content: reply });
+    await saveState(chatId, st, db);
+    await send(bot, chatId, reply);
+    return true;
+  }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
     await saveState(chatId, st, db);
@@ -317,7 +367,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 
 /** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */
 async function sendLimit(bot: TelegramBot, chatId: number, c: Exclude<LimitCheck, { ok: true }>, tz?: string, prefix = ""): Promise<void> {
-  await send(bot, chatId, prefix + limitMessage(c, tz || "UTC"), { reply_markup: new InlineKeyboard().webApp("⬆️ الترقية والاستخدام", `${appUrl()}?tab=plans`) });
+  await send(bot, chatId, prefix + limitMessage(c, tz || defaultTz()), { reply_markup: new InlineKeyboard().webApp("⬆️ الترقية والاستخدام", `${appUrl()}?tab=plans`) });
 }
 
 /** The inline button that opens the Mini App (optionally on one tab). */
@@ -429,6 +479,11 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
   const run = st.run;
   st.run = null;
   if (!run) return;
+  // a job still on the Studio when its run ends would hold the Studio's one-at-a-time queue for the next user: cancel it (harmless if done)
+  if (run.job) {
+    const job = run.job;
+    later(() => coderCancel(job).catch(() => null));
+  }
   if (note) await taskEvent(run.id, status === "done" ? "done" : status === "stopped" ? "info" : "failed", note, db);
   await taskStatus(run.id, status, run.step, db);
   // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
@@ -652,6 +707,20 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       }
       const text = r.text || "";
       if (r.type === "pending") {
+        // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
+        const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}`;
+        if (!run.jobMovedAt || size !== run.jobSize) {
+          run.jobSize = size;
+          run.jobMovedAt = Date.now();
+        } else if (Date.now() - run.jobMovedAt > jobStallMs()) {
+          const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
+          await coderCancel(run.job).catch(() => null);
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
+          await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
+          await saveState(chatId, st, db, slot);
+          await send(bot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم المبرمج بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
+          return;
+        }
         if (!run.compacting) await sendParts(bot, chatId, text, run, false);
         await saveState(chatId, st, db, slot);
         await bot.api.sendChatAction(chatId, "typing").catch(() => null);
@@ -717,6 +786,8 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (o.reply?.job) {
         run.job = o.reply.job;
         run.sent = 0;
+        run.jobAt = run.jobMovedAt = Date.now();
+        run.jobSize = "";
         if (o.reply.type !== "pending") cached = o.reply;
       } else await startSegment(bot, chatId, st, run, "", db);
       await saveState(chatId, st, db, slot);
@@ -773,6 +844,9 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     }
     run.job = r.job;
     run.sent = 0;
+    run.jobAt = Date.now();
+    run.jobMovedAt = Date.now();
+    run.jobSize = "";
     if (r.type !== "pending") cached = r;
     if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(bot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
     if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");

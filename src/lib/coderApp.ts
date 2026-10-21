@@ -8,7 +8,7 @@ import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, ty
 import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
-import { validTimeZone } from "@/lib/coderCron";
+import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { isAccuracy } from "@/lib/coderAgent";
 
 export type AppUser = { chatId: number; tier: "owner" | "user" };
@@ -91,6 +91,8 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, saveState, resolvePending, startScheduledRun } = await sections();
+  // a chat task whose loop died (server restart mid-task) is closed before the app shows it as "running"
+  if (op === "me" || op === "tasks") await (await sections()).recoverDeadRun(chatId, db).catch(() => false);
   switch (op) {
     case "me": {
       const st = await loadState(chatId, db);
@@ -175,7 +177,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { schedules: (await listSchedules(chatId, db)).map((s) => publicSchedule(s, lang)) };
     }
     case "schedule_create": {
-      const tz = body.tz || (await loadState(chatId, db)).tz || "UTC";
+      const tz = body.tz || (await loadState(chatId, db)).tz || defaultTz();
       const r = await createSchedule(chatId, deps.botRow.id, { title: body.title, prompt: body.prompt, kind: body.kind, recurrence: body.recurrence, tz, repo: body.repo, events: body.events }, db);
       if (!r.ok) throw new AppError(400, r.error);
       return { schedule: publicSchedule(r.schedule), hook: "hook" in r ? r.hook : undefined };

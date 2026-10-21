@@ -185,6 +185,16 @@ def _supervisor() -> None:
 
 
 # ---------------------------------------------------------------- jobs (shared FIFO queue, one generation at a time)
+# A job nobody polls any more (the bot gave up, or its task ended) must not hold the one-at-a-time queue for everyone else.
+ABANDON_S = max(60.0, float(os.environ.get("CODER_JOB_ABANDON_S", "180") or 180))
+JOB_MAX_S = max(300.0, float(os.environ.get("CODER_JOB_MAX_S", "1800") or 1800))
+
+
+def _abandoned(job: dict) -> bool:
+    now = time.time()
+    return now - job.get("seen", job.get("created", now)) > ABANDON_S or (job.get("started") and now - job["started"] > JOB_MAX_S)
+
+
 def _gc() -> None:
     now = time.time()
     with JOBS_LOCK:
@@ -204,7 +214,8 @@ def _stream(job: dict) -> None:
     calls: dict = {}
     with urllib.request.urlopen(req, timeout=24 * 3600) as r:
         for raw in r:
-            if job.get("cancel"):
+            if job.get("cancel") or _abandoned(job):
+                job["cancel"] = True
                 job["finish_reason"] = "cancelled"
                 break
             line = raw.decode("utf-8", "ignore").strip()
@@ -249,6 +260,10 @@ def _runner() -> None:
             continue
         while STATE["phase"] != "ready":
             time.sleep(2)
+        if job.get("cancel") or _abandoned(job):
+            job.update(status="cancelled", finished=time.time())
+            _log("skipped abandoned job", jid)
+            continue
         job.update(status="running", started=time.time())
         try:
             _stream(job)
@@ -260,7 +275,7 @@ def _runner() -> None:
 
 def _queue_pos(jid: str) -> int:
     with JOBS_LOCK:
-        waiting = [k for k, j in JOBS.items() if j["status"] in ("queued", "running")]
+        waiting = [k for k, j in JOBS.items() if j["status"] in ("queued", "running") and not j.get("cancel") and (k == jid or not _abandoned(j))]
     return waiting.index(jid) if jid in waiting else -1
 
 
@@ -268,6 +283,7 @@ def _view(jid: str, offset: int = 0) -> dict:
     job = JOBS.get(jid)
     if not job:
         return {"type": "gone", "job": jid}
+    job["seen"] = time.time()
     st = job["status"]
     out = {"job": jid, "status": st, "text": job["text"][offset:], "offset": offset, "total": len(job["text"]),
            "reasoning_len": len(job["reasoning"]), "finish_reason": job.get("finish_reason", "")}

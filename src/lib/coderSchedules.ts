@@ -11,7 +11,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
 import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { coderChatKey, decryptToken, encryptToken, prismaDb, resolveConnections, type Db } from "@/lib/coderAuth";
-import { describeCron, nextRun, toCron, validTimeZone } from "@/lib/coderCron";
+import { defaultTz, describeCron, nextRun, toCron, validTimeZone } from "@/lib/coderCron";
 import { CATEGORIES, isCategory, isPolicy, removePref, setPref, type Context } from "@/lib/coderPrefs";
 import type { TaskStatus } from "@/lib/coderTasks";
 
@@ -339,7 +339,7 @@ const HELP =
 
 export async function handleScheduleCommand(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, st: { tz?: string }, db: Db = prismaDb): Promise<void> {
   const rest = text.replace(/^\/schedules?(@\S+)?\s*/i, "").trim();
-  const tz = st.tz || "UTC";
+  const tz = st.tz || defaultTz();
   if (!rest || rest === "list") {
     const rows = await listSchedules(chatId, db);
     if (!rows.length) return say(bot, chatId, `لا توجد مهام مجدولة بعد.\n\n${HELP}`);
