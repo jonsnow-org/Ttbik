@@ -28,6 +28,7 @@ python scripts/collect_traces.py --n 300                           # 3. our agen
 python scripts/build_mix.py --tokens 60000000                      # 4. mix -> data/mix.raw.jsonl
 python scripts/translate_instructions.py data/mix.raw.jsonl data/ar_code.jsonl --n 15000 && python scripts/build_mix.py   # 5. Arabic wording, rebuild
 python scripts/dedup_decontam.py data/mix.raw.jsonl data/mix.jsonl # 6. exact + MinHash dedup, 13-gram decontamination vs all evals
+HF_TOKEN=... bash scripts/push_to_hub.sh <hf-user>/nova1-data      #    upload mix + code for the GPU notebook (free stage: build with --tokens 20000000 --max-len 2048)
 python eval/run_eval.py --out reports/base.json                    # 7. baseline (base model served by llama-server)
 python train/train.py --max-steps 30                               # 8. smoke run, then the full run
 python train/train.py --resume
@@ -54,14 +55,32 @@ OpenAI-compatible server (tool calls via `--jinja`) behind `NOVA1_API_KEY`. It i
 is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); the model picker (`src/lib/coderModels.ts`, entry
 `nova1`) shows it as ready, and the owner flips it visible from the owner tools when the eval report is good.
 
-## Free compute (checked 2026-10-21; Kaggle not counted)
-| option | free amount | fits phase 1? | sign-up |
-|---|---|---|---|
-| Modal (Starter) | $30 credit every month | yes — ~10 h on an L4/A10G covers one full run | GitHub or Google login |
-| Lightning AI | one-time up to 30 credits (5 at sign-up, +25 after adding a card), expire in 12 months | yes, one or two runs | account; card for the larger grant (not charged on free tier) |
-| ModelScope Notebook | one-time 36 GPU-hours for new users; sessions ≤ 10 h; CPU notebooks free | yes, one run in 3–4 resumed sessions | Alibaba Cloud account with real-name verification |
-| Google Colab (free) | T4 when available, ≤ 12 h sessions, can be cut | smoke runs, eval, GGUF export | Google account |
-| Oracle runner (ours) | CPU only | trace collection (Docker), dedup, decontamination, GGUF quantising — not training | already running |
+## Free compute — no card, no ID (checked live 2026-10-21; Kaggle is kept for Sham)
+| option | free GPU | limits | card? | ID / phone? | region | use |
+|---|---|---|---|---|---|---|
+| **Google Colab (free)** — [FAQ](https://research.google.com/colaboratory/faq.html) | T4 16 GB usually (not guaranteed) | ≤ 12 h per session, idle timeout, daily limits not published | no | Google account only | works from Türkiye; Google restricts Syria | **main trainer**: `train/nova1_colab.ipynb` + `train/config.colab.yaml` |
+| **Lightning AI free** — [pricing](https://lightning.ai/pricing) | 5 credits at sign-up ≈ 9 T4-hours or 6 L4-hours (the other 25 need a card) | 1 free Studio, restart every 4 h, credits expire in 12 months | no | phone number (no ID) | blocked in Syria; Turkish number OK | **second trainer**, same command as Colab |
+| ModelScope Notebook | 36 h, 24 GB | — | no | Alibaba Cloud real-name (Chinese ID/phone) | — | not usable |
+| Modal | $1/month without card | — | $30 needs card | — | — | not usable |
+| Paperspace Gradient free | M4000 8 GB (too small for 4B bf16 LoRA) | 6 h | card on file | — | — | not usable |
+| AMD Developer Cloud | $100 MI300X credit, 30 days | approval | payment method required | — | — | not usable |
+| SageMaker Studio Lab | — | closed to new customers since 2026-07-30 | — | — | — | not usable |
+| Hugging Face ZeroGPU | 5 min/day per free account | inference demos only | no | — | — | not for training |
+| Intel Tiber AI Cloud | shared Gaudi2 / Max GPU notebooks | short shared sessions, not CUDA | no | email | US export rules | not with Unsloth; skip for now |
+| Saturn Cloud, Deepnote | no free GPU | — | — | — | — | not usable |
+| Google TRC (TPUs) | free TPUs on approval | needs a Google Cloud project with billing (card) | yes | — | — | not usable |
+| Oracle Always Free / our runner | CPU only | always on | — | — | — | data work, not training (below) |
+
+**Plan:** stage 1 on Colab with `config.colab.yaml` (~20M tokens, 1 epoch, 2k context ≈ 5–6 T4-hours = 2–3 sessions).
+A checkpoint goes to a private HF repo every 50 steps (≈ 12–15 min), the run saves and stops itself after `--max-minutes`, and the next
+session (Colab or Lightning, same command) carries on. Stage 2, if stage 1 is good: 40M more tokens with the same notebook.
+
+**Why not CPU training:** a LoRA step still runs the full 4B model forward and backward, ≈ 16 GFLOP per token. Oracle Always Free
+Arm (2 OCPU / 12 GB for new tenancies; 4 cores on older ones) sustains maybe 30–60 GFLOPS in PyTorch → **about 1–4 tokens/s**, against
+~1,000 tokens/s on a free T4. The 20M-token stage would take months on CPU (≈ 2–6 months), the full 120M tokens years, so CPU is
+not a substitute. CPU is the right place for: licence checks, building the mix, dedup + decontamination, making and testing the
+repair rows, collecting agent runs (Docker sandboxes; the model runs as a Q4 GGUF at ~5–10 tokens/s, so a few hundred runs take days in
+the background), merging the adapter, GGUF conversion and quantising, and the evaluation runs.
 
 ## Later phases (not in this run)
 Phase 2: longer agent traces from production (with consent) and preference tuning on passing vs failing fixes. Phase 3: broader

@@ -104,6 +104,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tokens", type=int, default=60_000_000, help="target size of the mix in (approximate) tokens")
     ap.add_argument("--seed", type=int, default=3407)
+    ap.add_argument("--max-len", type=int, default=0, help="drop rows longer than this many (approx.) tokens, e.g. 2048 for config.colab.yaml")
     ap.add_argument("--out", default=str(HERE / "data" / "mix.raw.jsonl"))
     a = ap.parse_args()
     random.seed(a.seed)
@@ -121,6 +122,8 @@ def main() -> None:
                     continue
                 r["source"] = s["key"]
                 n = sum(len(m.get("content") or "") for m in r["messages"]) // 4      # ~4 chars per token
+                if a.max_len and n > a.max_len:
+                    continue
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
                 used += n
                 if used >= budget:
