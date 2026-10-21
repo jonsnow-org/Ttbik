@@ -91,7 +91,10 @@ def rows(key: str):
         if p.exists():
             with p.open() as f:
                 for line in f:
-                    yield json.loads(line)
+                    try:
+                        yield json.loads(line)
+                    except ValueError:      # a last line cut short (generator stopped by a time limit)
+                        continue
 
 
 def ok(row: dict) -> bool:
