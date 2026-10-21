@@ -11,6 +11,13 @@ export type Metric = (typeof METRICS)[number];
 export type Limits = Record<Metric, number>;                              // -1 = unlimited
 export type Plan = { id: string; name: { ar: string; en: string }; price_label: string; price_cents: number | null; currency: string; limits: Limits; sort: number; active: boolean; price_stars?: number | null; days?: number };
 export const isMetric = (m: unknown): m is Metric => METRICS.includes(m as Metric);
+/**
+ * Plans are token-based (owner's decision 2026-10-21, like Claude): the weekly allowance is model tokens (prompt + completion, from the
+ * Studio's own counts when it sends them). Tasks and agent steps are still recorded for the dashboard but no longer limit anyone
+ * (CODER_COUNT_LIMITS=on brings those two limits back). Machine minutes, deep research and scheduled tasks stay as resource caps.
+ */
+export const COUNT_METRICS: Metric[] = ["tasks", "steps"];
+export const enforced = (m: Metric) => !COUNT_METRICS.includes(m) || (process.env.CODER_COUNT_LIMITS || "").toLowerCase() === "on";
 export const WINDOW_MS = 7 * 24 * 3600 * 1000;
 const HOUR = 3600 * 1000;
 
@@ -171,7 +178,7 @@ export async function usageSummary(chatId: number | string, db: Db = prismaDb, n
     const first = mine[0]?.bucket;
     const last = mine[mine.length - 1]?.bucket;
     return {
-      metric, used, limit: owner ? -1 : plan.limits[metric],
+      metric, used, limit: owner || !enforced(metric) ? -1 : plan.limits[metric],
       nextRelief: metric === "schedules" || !first ? null : new Date(Date.parse(first) + WINDOW_MS + HOUR).toISOString(),
       fullReset: metric === "schedules" || !last ? null : new Date(Date.parse(last) + WINDOW_MS + HOUR).toISOString(),
     };
@@ -183,6 +190,7 @@ export type LimitCheck = { ok: true } | { ok: false; metric: Metric; used: numbe
 /** Is there room for `amount` more of `metric`? The owner always passes. `current` = an absolute count (schedules). */
 export async function checkLimit(chatId: number | string, metric: Metric, amount = 1, db: Db = prismaDb, current?: number, now = Date.now()): Promise<LimitCheck> {
   if (tierFor(chatId) === "owner") return { ok: true };
+  if (!enforced(metric)) return { ok: true };
   const s = await usageSummary(chatId, db, now, current !== undefined ? { [metric]: current } : {});
   const m = s.metrics.find((x) => x.metric === metric)!;
   if (m.limit < 0 || (amount === 0 ? m.used < m.limit : m.used + amount <= m.limit)) return { ok: true };   // amount 0 = "any room left"

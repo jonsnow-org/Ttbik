@@ -160,17 +160,60 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       return { ok };
     }
     case "stop": {
+      // the same as /stop: the Studio job is cancelled too, so it does not hold the queue
       const slot = typeof body.slot === "string" && /^(|s:[a-f0-9]{12})$/.test(body.slot) ? body.slot : "";
-      const st = await loadState(chatId, db, slot);
-      if (st.run && st.run.id === body.runId) {
-        const { taskStatus } = await import("@/lib/coderTasks");
-        await taskStatus(st.run.id, "stopped", st.run.step, db);
-        st.run = null;
-        st.inbox = [];
-        await saveState(chatId, st, db, slot);
-        return { ok: true };
+      const { stopRun } = await sections();
+      return { ok: await stopRun(chatId, slot, String(body.runId || ""), db) };
+    }
+    // ---------------------------------------------------------------- conversation threads (src/lib/coderThreads.ts)
+    case "threads": {
+      const T = await import("@/lib/coderThreads");
+      const st = await loadState(chatId, db);
+      if (!st.threadId && (st.messages.length || (await listTasks(chatId, { limit: 1 }, db)).length)) await (await sections()).adoptThread(chatId, st, db);
+      const threads = await T.listThreads(chatId, { limit: Number(body.limit) || 40, before: body.before || undefined }, db);
+      const live = await listTasks(chatId, { active: true, limit: 20 }, db);
+      // scheduled / event runs are not conversations: listed on their own
+      const runs = (await listTasks(chatId, { limit: 20 }, db)).filter((t) => t.source !== "interactive");
+      const strip = (x: any[]) => (user.tier === "owner" ? x : x.map(({ steps: _s, ...t }) => t));
+      return { threads, current: st.threadId || null, currentEmpty: !st.messages.length, live: strip(live), runs: strip(runs), pending: await pendings(chatId, db) };
+    }
+    case "thread": {
+      const T = await import("@/lib/coderThreads");
+      const t = await T.getThread(chatId, String(body.id || ""), db);
+      if (!t || t.deleted_at) throw new AppError(404, "not found");
+      const tasks = await T.threadTasks(chatId, t, db);
+      const out: Json[] = [];
+      for (const k of tasks.slice(-60)) {
+        const evs = await taskEvents(chatId, k.run_id, 0, db);
+        const shown = user.tier === "owner" ? evs : publicEvents(evs);
+        out.push({ ...k, events: shown.filter((e) => e.kind === "start" || e.kind === "text" || e.kind === "failed" || e.kind === "confirm" || e.kind === "segment") });
       }
-      return { ok: false };
+      const st = await loadState(chatId, db);
+      return { thread: { id: t.id, title: t.title, legacy: t.legacy, created_at: t.created_at, updated_at: t.updated_at }, current: st.threadId === t.id, tasks: out };
+    }
+    case "thread_new":
+    case "thread_open": {
+      const { switchThread } = await sections();
+      try {
+        const id = await switchThread(chatId, await loadState(chatId, db), op === "thread_new" ? null : String(body.id || ""), db);
+        return { ok: true, id };
+      } catch {
+        throw new AppError(404, "not found");
+      }
+    }
+    case "thread_rename": {
+      const { renameThread } = await import("@/lib/coderThreads");
+      if (!(await renameThread(chatId, String(body.id || ""), String(body.title || ""), db))) throw new AppError(400, "bad title");
+      return { ok: true };
+    }
+    case "thread_delete": {
+      // hidden from the list, kept in the database; deleting the active conversation opens a fresh one
+      const { hideThread } = await import("@/lib/coderThreads");
+      const id = String(body.id || "");
+      const st = await loadState(chatId, db);
+      if (st.threadId === id) await (await sections()).switchThread(chatId, st, null, db);
+      if (!(await hideThread(chatId, id, db))) throw new AppError(404, "not found");
+      return { ok: true };
     }
     case "schedules": {
       const lang = (await loadState(chatId, db)).lang || "ar";
@@ -303,8 +346,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "new_conversation": {
       const { newConversation } = await import("@/lib/coderSections");
-      await newConversation(chatId, await loadState(chatId, db), db);
-      return { ok: true };
+      return { ok: true, id: await newConversation(chatId, await loadState(chatId, db), db) };
     }
     // ---------------------------------------------------------------- owner control panel (src/lib/coderPanel.ts)
     case "panel": {

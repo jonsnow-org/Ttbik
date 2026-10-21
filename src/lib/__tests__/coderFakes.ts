@@ -2,7 +2,7 @@ import type { Db } from "@/lib/coderAuth";
 
 /** A small fake of exactly the SQL the coder tables use. */
 export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, any> } {
-  const t: Record<string, any[]> = { prefs: [], tasks: [], events: [], stalls: [], schedules: [], conns: [], memory: [], mems: [] };
+  const t: Record<string, any[]> = { prefs: [], tasks: [], events: [], stalls: [], schedules: [], conns: [], memory: [], mems: [], threads: [] };
   let mid0 = 0;
   let clock = Date.parse("2026-10-21T00:00:00Z");
   const ts = () => new Date((clock += 1000)).toISOString();
@@ -11,7 +11,16 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
   const db: any = {
     t, state,
     exec: async (sql: string, ...a: any[]) => {
-      if (/^CREATE/i.test(sql.trim())) return;
+      if (/^(CREATE|ALTER)/i.test(sql.trim())) return;
+      // conversation threads (src/lib/coderThreads.ts)
+      if (sql.includes("INSERT INTO coder_threads")) return void t.threads.push({ id: a[0], chat_key: a[1], chat_enc: a[2], title: a[3], messages: JSON.parse(a[4]), notes: a[5], conv_id: a[6], legacy: a[7], memory_due: a[8], segments: 0, updated_at: ts(), created_at: ts(), deleted_at: null });
+      if (sql.includes("UPDATE coder_threads SET messages = $3")) {
+        const x = t.threads.find((r) => r.id === a[0] && r.chat_key === a[1]);
+        if (x) Object.assign(x, { messages: JSON.parse(a[2]), notes: a[3], conv_id: a[4], title: x.title || a[5], memory_due: x.memory_due || a[6], updated_at: ts() });
+        return;
+      }
+      if (sql.includes("UPDATE coder_threads SET memory_due = false")) return void Object.assign(t.threads.find((r) => r.id === a[0]) || {}, { memory_due: false });
+      if (sql.includes("UPDATE coder_threads SET messages = $2")) return void Object.assign(t.threads.find((r) => r.id === a[0]) || {}, { messages: JSON.parse(a[1]), segments: a[2], summary: a[3] });
       if (sql.includes("coder_chat_state")) return void state.set(a[0], JSON.parse(a[1]));
       if (sql.includes("coder_stall_log")) return void t.stalls.push({ run_id: a[0], pattern: a[3] });
       if (sql.includes("UPDATE coder_memories SET updated_at")) return void Object.assign(t.mems.find((m) => m.chat_key === a[0] && m.id === Number(a[1])) || {}, { updated_at: ts() });
@@ -32,7 +41,7 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
         if (/^INSERT/i.test(sql.trim())) t.prefs.push({ chat_key: a[0], category: a[1], repo: a[2], context: a[3], policy: a[4] });
         return;
       }
-      if (sql.includes("INSERT INTO coder_tasks")) return void (t.tasks.find((x) => x.run_id === a[0]) || t.tasks.push({ run_id: a[0], chat_key: a[1], slot: a[2], source: a[3], schedule_id: a[4], title: a[5], status: "running", steps: 0 }));
+      if (sql.includes("INSERT INTO coder_tasks")) return void (t.tasks.find((x) => x.run_id === a[0]) || t.tasks.push({ run_id: a[0], chat_key: a[1], slot: a[2], source: a[3], schedule_id: a[4], title: a[5], status: "running", steps: 0, thread_id: a[6] ?? null }));
       if (sql.includes("UPDATE coder_tasks SET status")) {
         const x = t.tasks.find((r) => r.run_id === a[0]);
         if (x) Object.assign(x, { status: a[1], steps: a[2] ?? x.steps });
@@ -55,6 +64,11 @@ export function fakeDb(): Db & { t: Record<string, any[]>; state: Map<string, an
       if (sql.includes("DELETE FROM coder_schedules")) return void (t.schedules = t.schedules.filter((s) => !(s.id === a[0] && s.chat_key === a[1])));
     },
     query: async (sql: string, ...a: any[]) => {
+      if (sql.includes("FROM coder_threads t")) return t.threads.filter((r) => !r.deleted_at && r.memory_due).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) })).slice(0, 1);
+      if (sql.includes("FROM coder_threads WHERE id = $1")) return t.threads.filter((r) => r.id === a[0] && r.chat_key === a[1]).map((r) => ({ ...r, messages: JSON.parse(JSON.stringify(r.messages)) }));
+      if (sql.includes("FROM coder_threads WHERE chat_key")) return t.threads.filter((r) => r.chat_key === a[0] && !r.deleted_at).slice().reverse().map((r) => ({ ...r, messages_count: r.messages.length }));
+      if (sql.includes("UPDATE coder_threads SET title")) { const x = t.threads.find((r) => r.id === a[0] && r.chat_key === a[1]); if (x) x.title = a[2]; return x ? [{ id: x.id }] : []; }
+      if (sql.includes("UPDATE coder_threads SET deleted_at")) { const x = t.threads.find((r) => r.id === a[0] && r.chat_key === a[1] && !r.deleted_at); if (x) Object.assign(x, { deleted_at: ts(), memory_due: false }); return x ? [{ id: x.id }] : []; }
       if (sql.includes("FROM coder_chat_state")) return state.has(a[0]) ? [{ state: JSON.parse(JSON.stringify(state.get(a[0]))) }] : [];
       if (sql.includes("FROM coder_permission_prefs")) return t.prefs.filter((r) => r.chat_key === a[0]);
       if (sql.includes("SELECT slot FROM coder_tasks")) return t.tasks.filter((r) => r.run_id === a[0] && r.chat_key === a[1]).map((r) => ({ slot: r.slot }));

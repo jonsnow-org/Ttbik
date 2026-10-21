@@ -263,14 +263,15 @@ describe("no pause: loops are detected, logged and recovered", () => {
     expect(lastChat.body.think).toBe("1");                                              // escalated recovery thinks harder
   });
 
-  it("ends at the hard ceiling (no pause), and logs it", async () => {
+  it("ends at the hard ceiling (no pause), and logs it — for a regular user; the owner has no ceiling", async () => {
+    const USER = 5551;
     studio([{ type: "done", job: "j1", text: "", tool_calls: [readA] }], ghRead);
     const db = memDb();
     const { bot, sent } = fakeBot();
-    await saveState(CHAT, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "cap", chain: "c", sent: 0, step: HARD_MAX_STEPS - 1, lease: Date.now() } }, db);
-    await drive(bot, botRow, CHAT, "c", db, 40000);
-    expect((await loadState(CHAT, db)).run).toBeNull();
-    expect(sent[sent.length - 1].text).toContain(String(HARD_MAX_STEPS));
+    await saveState(USER, { mode: "coder", think: false, messages: [{ role: "user", content: "x" }], notes: "", inbox: [], run: { id: "cap", chain: "c", sent: 0, step: HARD_MAX_STEPS - 1, lease: Date.now() } }, db);
+    await drive(bot, botRow, USER, "c", db, 40000);
+    expect((await loadState(USER, db)).run).toBeNull();
+    expect(sent[sent.length - 1].text).toContain("حلقة");
     expect(db.stalls.map((x) => x.pattern)).toContain("hard_ceiling");
   });
 

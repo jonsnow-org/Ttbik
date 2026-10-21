@@ -162,7 +162,7 @@ describe("in the bot", () => {
     delete process.env.CODER_MEMORY;
   });
 
-  it("relevant memories go into the system prompt at the start of a task, and facts are extracted when it ends", async () => {
+  it("relevant memories go into the system prompt at the start of a task, and facts are extracted later in quiet time", async () => {
     const bodies: any[] = [];
     let last: any = null;
     (global as any).fetch = jest.fn(async (url: string, init?: any) => {
@@ -189,6 +189,10 @@ describe("in the bot", () => {
     expect(sys).toMatch(/Always open a PR instead of pushing to main/);
     expect(sys).not.toMatch(/falcon/);                                         // never another user's memory
     expect(sent.some((s) => s.text === "تم.")).toBe(true);
+    // not on the reply path any more: memories are learned in quiet time from the saved conversation thread
+    expect(bodies.some((b) => /long-term memory about ONE user/.test(b[0]?.content || ""))).toBe(false);
+    const { quietWork } = await import("@/lib/coderThreads");
+    expect(await quietWork(db, { status: async () => ({ queue: 0 }) })).toMatch(/^memory /);
     expect(bodies.some((b) => /long-term memory about ONE user/.test(b[0]?.content || ""))).toBe(true);
     const texts = (await listMemories(A, db)).map((m) => m.text);
     expect(texts).toContain("Release notes are written in Arabic");
