@@ -80,7 +80,7 @@ is not touched. Then on Vercel set `NOVA1_STUDIO_URL` (+ `NOVA1_STUDIO_KEY`); th
 **Plan:** the CPU box does all data work; `train/launch_radeon.sh` (cron or by hand) checks the credit balance, creates one
 Radeon instance with `rcc`, trains for MINUTES over SSH (resuming from the private HF checkpoint repo, checkpoint every 100 steps),
 and deletes the instance so nothing burns idle. A 48 GB Radeon is roughly 2–3× a T4 for this job, so the full phase-1 run
-(`config.radeon.yaml`, ~120M tokens) is an estimated 12–18 GPU-hours: well inside the 100 starting points, about one week at
+(`config.radeon.yaml`, ~120M tokens) is an estimated 12–18 GPU-hours: well inside the 100 starting points, one or two daily exchanges at
 the 20-hours-a-day exchange cap. CloudRift grant credits or a free Kaggle slot (when Sham allows) run the same command as a backup;
 Lightning returns as a backup when it is back up. Throughput is measured in the first session (train.py logs tokens/s)
 before committing the whole budget.
