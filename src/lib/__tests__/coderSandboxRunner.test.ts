@@ -195,7 +195,8 @@ describe("runner backends (oracle / codesandbox / codespaces)", () => {
     const create = w.calls.find((c) => c.method === "POST" && /\/user\/codespaces$/.test(c.url))!;
     expect(create.body).toMatchObject({ repository_id: 42, machine: "basicLinux32gb", display_name: "coder-abc-run2", idle_timeout_minutes: 30 });
     const runnerCall = w.calls.find((c) => c.url.startsWith("https://me-fluffy-x1-8790.app.github.dev/"))!;
-    expect(runnerCall.headers["x-github-token"]).toBe("gh-pat");
+    expect(runnerCall.headers["x-runner-key"]).toBe("cs-runner");
+    expect(runnerCall.headers["x-github-token"]).toBeUndefined(); // the port is public; the owner's token never goes to it
     expect(await codespacesDriver().get("coder-abc-run2")).not.toBeNull();
     await sb.stop();
     expect(w.codespaces).toHaveLength(0);
@@ -231,5 +232,25 @@ describe("daytona create body", () => {
     } finally {
       setDriverFetch(null);
     }
+  });
+});
+
+describe("runner health", () => {
+  it("a sign-in page answering 200 in front of the port is not a healthy runner; the codespace is deleted", async () => {
+    process.env.CODER_CODESPACES_TOKEN = "gh-pat";
+    process.env.CODER_CODESPACES_REPO = "me/box";
+    process.env.CODER_CODESPACES_RUNNER_SECRET = "cs-runner";
+    const calls: string[] = [];
+    setRunnerFetch((async (u: any, init: any = {}) => {
+      const url = String(u);
+      const m = init.method || "GET";
+      calls.push(`${m} ${url}`);
+      if (url.endsWith("/repos/me/box")) return new Response(JSON.stringify({ id: 1 }), { status: 200 });
+      if (url.endsWith("/user/codespaces") && m === "POST") return new Response(JSON.stringify({ name: "cs1", state: "Available" }), { status: 201 });
+      if (url.includes(".app.github.dev/health")) return new Response("<!doctype html><html>sign in</html>", { status: 200 });
+      return new Response("{}", { status: 202 });
+    }) as typeof fetch, async () => {});
+    await expect(codespacesDriver().create("coder-h-1", { timeoutMs: 60000, vcpus: 2, tags: {} })).rejects.toThrow(/did not come up/);
+    expect(calls).toContain("DELETE https://api.github.com/user/codespaces/cs1");
   });
 });

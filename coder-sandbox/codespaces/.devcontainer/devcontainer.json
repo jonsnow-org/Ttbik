@@ -1,9 +1,12 @@
 {
   "name": "coder sandbox runner",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
-  "features": { "ghcr.io/devcontainers/features/python:1": {} },
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
   "forwardPorts": [8790],
   "portsAttributes": { "8790": { "label": "coder runner", "onAutoForward": "silent" } },
   "secrets": { "CODER_SANDBOX_SECRET": { "description": "Same value as CODER_CODESPACES_RUNNER_SECRET on the site" } },
-  "postStartCommand": "nohup env RUNNER_MODE=local RUNNER_HOST=0.0.0.0 RUNNER_PORT=8790 RUNNER_MAX_BOXES=1 RUNNER_MIN_FREE_MB=0 RUNNER_SECRET=\"$CODER_SANDBOX_SECRET\" node runner.mjs > /tmp/runner.log 2>&1 & (gh codespace ports visibility 8790:public -c \"$CODESPACE_NAME\" >/dev/null 2>&1 || true)"
+  "postStartCommand": "bash .devcontainer/start-runner.sh"
 }
