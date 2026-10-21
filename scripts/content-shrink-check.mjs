@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Guard for daily-content commits: fails if a content file under src/lib shrinks by more than 50%
-// (or is deleted/emptied) compared with a base ref. Read-only; changes nothing.
+// Content size check: exits 1 if a content file under src/lib is emptied, holds placeholder text,
+// or shrinks by more than 50% compared with a base ref. Read-only; changes nothing.
 //   node scripts/content-shrink-check.mjs            # compares the working tree with HEAD
 //   node scripts/content-shrink-check.mjs origin/claude/free-services-marketplace-h6rwk2
-// Why: 2026-10-21 08:34 TRT commit 8d111d08 emptied 4 content files (1,302 lines) and broke two production deploys.
+// Background: on 2026-10-21 commit 8d111d08 emptied these 4 files and the production build failed.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
@@ -36,6 +36,6 @@ for (const f of FILES) {
   }
 }
 if (bad) {
-  console.error(`\n${bad} content file(s) emptied or shrunk >50%. Do not push: restore the content and only APPEND new items.`);
+  console.error(`\n${bad} content file(s) emptied or shrunk by more than 50%.`);
   process.exit(1);
 }
