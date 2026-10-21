@@ -1,23 +1,26 @@
 // Loop / stall detection for the coder's agent loop (owner's order, 2026-10-21: finish the task without stopping — no user-facing pause).
 // The harness watches what the model does; when it repeats itself it is NOT stopped: it gets a reflection step, a fresh look at the files
 // it was working on, a new plan and a different strategy, and the loop goes on. Every detected stall is logged (coder_stall_log) so the
-// root causes can be fixed. The only stop is a very high hard ceiling against runaway compute (CODER_HARD_MAX_STEPS, default 400).
+// root causes can be fixed. The only stop is a hard ceiling against runaway compute (CODER_HARD_MAX_STEPS, default 400) that counts model
+// steps since the last REAL progress, not total steps: a long task that keeps doing new things never reaches it (see coderSegments.ts).
 import { createHash } from "crypto";
 import type { CoderToolCall } from "@/lib/openCoderStudio";
 import { prismaDb, type Db } from "@/lib/coderAuth";
 
 export const STALL_REPEAT = Math.max(2, Number(process.env.CODER_STALL_REPEAT || 3));          // same action+args this many times = stall
 export const STALL_NO_PROGRESS = Math.max(4, Number(process.env.CODER_STALL_NO_PROGRESS || 12)); // steps without anything new = stall
-export const HARD_MAX_STEPS = Math.max(50, Number(process.env.CODER_HARD_MAX_STEPS || 400));    // runaway-compute ceiling (model steps per task)
+export const HARD_MAX_STEPS = Math.max(50, Number(process.env.CODER_HARD_MAX_STEPS || 400));    // runaway-compute ceiling (model steps without real progress)
 const WINDOW = 12;
 
 export type StallPattern = "repeat_call" | "repeat_output" | "repeat_error" | "no_progress" | "repeat_text" | "hard_ceiling";
 export type Stall = { pattern: StallPattern; detail: string };
 export type StallState = {
+  gen?: number;            // file writes so far (see RERUNNABLE)
   calls: { sig: string; res: string; err: boolean }[];
   texts: string[];
   seen: string[];          // every distinct action+args of this task
-  progressStep: number;    // last model step that did something new
+  progressStep: number;    // last model step that did something new (also moved by a recovery, for the no_progress window)
+  realStep?: number;       // last model step with REAL progress (a new successful action or a changed CI result); recoveries never move it
   level: number;           // stalls so far in this task (recovery escalates with it)
   touched: string[];       // repo:path the task read or wrote (re-read on recovery)
   counts: Record<string, number>;   // how often each action+args ran in this task
@@ -26,7 +29,7 @@ export type StallState = {
 export const newStallState = (): StallState => ({ calls: [], texts: [], seen: [], progressStep: 0, level: 0, touched: [], counts: {}, outs: {} });
 
 // tools whose output legitimately stays the same while something else runs (CI): repeating them is waiting, not looping
-export const POLL_TOOLS = new Set(["github_ci_status", "github_list_prs", "github_list_issues", "github_list_branches"]);
+export const POLL_TOOLS = new Set(["github_ci_status", "github_list_prs", "github_list_issues", "github_list_branches", "sandbox_wait"]);
 const RUNNING_RX = /\b(in_progress|queued|pending|waiting|requested)\b/i;
 
 const canon = (v: unknown): unknown =>
@@ -46,9 +49,18 @@ export function outSig(out: string): string {
 const isError = (out: string) => /^(error|HTTP [45]\d\d)/i.test((out || "").trim());
 
 /** Before running a call: an identical (non-polling) call already made STALL_REPEAT times is not run again — its earlier result is returned. */
+// Running the same command/test again after changing files is progress, not a loop: these calls are told apart by the number of
+// file writes made so far in the task.
+export const RERUNNABLE = new Set(["sandbox_exec", "sandbox_read_file", "github_read_file"]);
+const WRITES = new Set(["sandbox_write_file", "github_write_files", "github_delete_files", "sandbox_clone"]);
+function sigOf(ss: StallState, call: CoderToolCall): string {
+  const base = callSig(call);
+  return RERUNNABLE.has(call.function.name) ? `${base}@${ss.gen || 0}` : base;
+}
+
 export function beforeCall(ss: StallState, call: CoderToolCall): { skip: string } | null {
   if (POLL_TOOLS.has(call.function.name)) return null;
-  const sig = callSig(call);
+  const sig = sigOf(ss, call);
   const n = ss.counts[sig] || 0;
   if (n >= STALL_REPEAT) {
     ss.counts[sig] = n + 1;
@@ -60,7 +72,8 @@ export function beforeCall(ss: StallState, call: CoderToolCall): { skip: string 
 
 /** After a call ran: record it; returns a stall when the task is going in circles, and whether to wait before the next step (CI still running). */
 export function afterCall(ss: StallState, call: CoderToolCall, out: string, step: number): { stall: Stall | null; wait: boolean } {
-  const sig = callSig(call);
+  const sig = sigOf(ss, call);
+  if (WRITES.has(call.function.name) && !isError(out)) ss.gen = (ss.gen || 0) + 1;
   const res = outSig(out);
   const err = isError(out);
   const poll = POLL_TOOLS.has(call.function.name);
@@ -71,9 +84,11 @@ export function afterCall(ss: StallState, call: CoderToolCall, out: string, step
   ss.outs[sig] = out.slice(0, 1500);
   const keys = Object.keys(ss.outs);
   if (keys.length > 40) for (const k of keys.slice(0, keys.length - 40)) delete ss.outs[k];
-  if (!ss.seen.includes(sig) && !err) {
-    ss.seen = [...ss.seen, sig].slice(-500);
+  const key = poll ? `${sig}=${res}` : sig;           // a poll is progress when its result changed (CI moved on)
+  if (!ss.seen.includes(key) && !err) {
+    ss.seen = [...ss.seen, key].slice(-500);
     ss.progressStep = step;
+    ss.realStep = step;
   }
   try {
     const a = JSON.parse(call.function.arguments || "{}");
@@ -95,6 +110,9 @@ export function afterCall(ss: StallState, call: CoderToolCall, out: string, step
   }
   return { stall, wait };
 }
+
+/** Model steps since the last real progress: what the hard ceiling counts. */
+export const stepsSinceProgress = (ss: StallState | undefined, step: number) => step - (ss?.realStep || 0);
 
 /** After a model step that asked for tools: the same reasoning text again and again is a loop too. */
 export function afterText(ss: StallState, text: string, step: number): Stall | null {

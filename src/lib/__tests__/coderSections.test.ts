@@ -259,7 +259,7 @@ describe("no pause: loops are detected, logged and recovered", () => {
     expect(ghReads.length).toBe(3 + 1);                                                 // 3 real reads + 1 fresh re-read on the 2nd recovery; the 4th call was skipped
     expect(db.stalls.map((x) => x.pattern)).toEqual(["repeat_call", "repeat_call"]);
     expect(db.stalls[0].run_id).toBe("loop1");
-    const lastChat = calls.filter((c) => c.url.includes("/call/v2/chat")).pop()!;
+    const lastChat = calls.filter((c) => c.url.includes("/call/v2/chat") && !/long-term memory about ONE user/.test(JSON.stringify(c.body))).pop()!;   // not the memory extraction after the task
     expect(lastChat.body.think).toBe("1");                                              // escalated recovery thinks harder
   });
 

@@ -3,7 +3,8 @@
 //   tier "user"  — everyone else: ONLY their own linked credentials, never the owner's.
 // Per-user linking (later): a Telegram Mini App page verifies the user with verifyTelegramInitData (src/lib/verifyTelegramOwner.ts), runs the
 // provider's OAuth / device flow, and calls saveConnection(). Tokens are stored AES-256-GCM encrypted (key: CODER_TOKEN_KEY) in
-// coder_connections, keyed by the same salted chat hash as the chat state — never the raw id, never logged. Nothing writes there yet.
+// coder_connections, keyed by the same salted chat hash as the chat state — never the raw id, never logged. Written by the Mini App
+// (src/app/api/coder/app: GitHub OAuth sign-in or a pasted fine-grained token).
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 
@@ -84,8 +85,11 @@ export async function resolveConnections(chatId: number | string, db: Db = prism
   const out: Connections = {};
   if (tierFor(chatId) === "owner") {
     const t = (process.env.CODER_GITHUB_TOKEN || "").trim();
-    if (t) out.github = { token: t, source: "owner-env" };
-    return out;
+    if (t) {
+      out.github = { token: t, source: "owner-env" };
+      return out;
+    }
+    // no env token: the owner may link an account in the app like anyone else (below)
   }
   try {
     await ensureTable(db);
@@ -99,4 +103,16 @@ export async function resolveConnections(chatId: number | string, db: Db = prism
     /* no table / no database: no linked credentials */
   }
   return out;
+}
+
+/** Unlinks a provider (the Mini App's "disconnect"). */
+export async function deleteConnection(chatId: number | string, provider: Provider, db: Db = prismaDb): Promise<void> {
+  await ensureTable(db);
+  await db.exec(`DELETE FROM coder_connections WHERE chat_key = $1 AND provider = $2`, coderChatKey(chatId), provider);
+}
+
+/** What the app may show about a link: the login only, never the token. */
+export async function connectionInfo(chatId: number | string, db: Db = prismaDb): Promise<{ github: { linked: boolean; login?: string; source?: "owner-env" | "user-link" } }> {
+  const c = await resolveConnections(chatId, db);
+  return { github: c.github ? { linked: true, login: c.github.login, source: c.github.source } : { linked: false } };
 }
