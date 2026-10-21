@@ -136,3 +136,26 @@ describe("connectors", () => {
     expect(isReadOnlyCall("PATCH", "https://api.notion.com/v1/pages/x")).toBe(false);
   });
 });
+
+describe("groq: a model this key cannot use is skipped afterwards", () => {
+  it("404 model_not_found is remembered; the next call goes straight to a working model", async () => {
+    jest.resetModules();
+    process.env.GROQ_API_KEY = "k";
+    const { callGroq, groqSkipped } = await import("@/lib/groq");
+    const seen: string[] = [];
+    (global as any).fetch = jest.fn(async (_u: string, init: any) => {
+      const m = JSON.parse(init.body).model;
+      seen.push(m);
+      if (!m.startsWith("openai/")) return { ok: false, status: 404, text: async () => '{"error":{"code":"model_not_found"}}' };
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "ok" } }] }) };
+    });
+    const err = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await callGroq("s", "u", 50)).toBe("ok");
+    expect(seen).toHaveLength(5);
+    expect(groqSkipped()).toHaveLength(4);
+    seen.length = 0;
+    expect(await callGroq("s", "u", 50)).toBe("ok");
+    expect(seen).toEqual(["openai/gpt-oss-120b"]);
+    err.mockRestore();
+  });
+});

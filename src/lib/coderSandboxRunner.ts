@@ -1,7 +1,9 @@
 // Backends of the coder sandbox chain (src/lib/coderSandbox.ts) that talk to our own runner (coder-sandbox/runner.mjs) over HTTP.
 // Each is OFF until its settings are present, so nothing changes for the live bot until the owner provides them.
 //   oracle      — the capped runner on the Oracle VM (an ephemeral container per task: 1 CPU, 2 GiB, 256 PIDs, tmpfs disk).
-//                 CODER_SANDBOX_ORACLE_URL + CODER_SANDBOX_ORACLE_SECRET. Refuses new work (503) while Sham needs the machine.
+//                 CODER_SANDBOX_ORACLE_URL + CODER_SANDBOX_ORACLE_SECRET; without them: https://<PUBLIC_HOST>/coder-sbx (the Oracle site has
+//                 PUBLIC_HOST) and a key derived from the bot token both sides already share (deploy/oracle/agent/install-coder-sandbox.sh
+//                 derives the same one). Refuses new work (503) while Sham needs the machine.
 //   codesandbox — a CodeSandbox VM (free Build plan: 400 VM credits a month ≈ 40 Nano hours, frozen — never billed — when used up),
 //                 forked from the owner's template that starts the runner in local mode on port 8790.
 //                 CSB_API_KEY + CODER_CSB_TEMPLATE + CODER_CSB_RUNNER_SECRET (the template keeps it in .runner-secret: files are copied
@@ -11,6 +13,7 @@
 //                 by default, so it stops instead of billing), from a repo holding coder-sandbox/codespaces/.devcontainer + runner.mjs.
 //                 CODER_CODESPACES_TOKEN (fine-grained PAT: Codespaces read/write + Codespaces lifecycle admin) + CODER_CODESPACES_REPO
 //                 (owner/name) + CODER_CODESPACES_RUNNER_SECRET (the repo's Codespaces secret CODER_SANDBOX_SECRET).
+import { createHash } from "node:crypto";
 import type { ExecResult, SbxDriver, SbxHandle } from "@/lib/coderSandbox";
 
 type Fetch = typeof fetch;
@@ -93,11 +96,21 @@ async function waitHealthy(t: RunnerTarget, tries = 30): Promise<void> {
 }
 
 // ---------------------------------------------------------------- 1. Oracle (capped containers)
-export const oracleConfigured = () => Boolean(env("CODER_SANDBOX_ORACLE_URL") && env("CODER_SANDBOX_ORACLE_SECRET"));
+export function oracleUrl(): string {
+  const host = env("PUBLIC_HOST").replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  return env("CODER_SANDBOX_ORACLE_URL") || (host ? `https://${host}/coder-sbx` : "");
+}
+export function oracleSecret(): string {
+  const set = env("CODER_SANDBOX_ORACLE_SECRET");
+  if (set) return set;
+  const token = env("BOT_TOKEN") || env("TELEGRAM_BOT_TOKEN");
+  return token ? createHash("sha256").update(`coder-sandbox:${token}`).digest("hex").slice(0, 48) : "";
+}
+export const oracleConfigured = () => Boolean(oracleUrl() && oracleSecret());
 export function oracleDriver(): SbxDriver {
   const target = (): RunnerTarget => {
     if (!oracleConfigured()) throw new Error("oracle sandbox not configured");
-    return { base: env("CODER_SANDBOX_ORACLE_URL"), headers: { "x-runner-key": env("CODER_SANDBOX_ORACLE_SECRET") }, label: "oracle sandbox" };
+    return { base: oracleUrl(), headers: { "x-runner-key": oracleSecret() }, label: "oracle sandbox" };
   };
   return {
     async get(name) {

@@ -33,7 +33,7 @@ export type Run = {
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
   progress?: { msgId?: number; lines: string[] };                     // the one live "progress card" message of the current tool streak
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean; accuracy?: Accuracy };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean; accuracy?: Accuracy; model?: string };
 export type { Db };
 export { coderChatKey };
 

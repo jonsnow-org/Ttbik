@@ -17,6 +17,7 @@
 // A task sticks to the backend that holds its VM. A backend that failed (quota / capacity / auth / network) is skipped for a cool-down
 // and the next one is used; sandboxHealth() reports the chain for the status page.
 import { createHash, randomUUID } from "crypto";
+import { oracleConfigured } from "@/lib/coderSandboxRunner";
 
 export type ExecResult = { exitCode: number | null; stdout: string; stderr: string };
 export interface SbxHandle {
@@ -116,7 +117,7 @@ export function backendConfigured(id: string): boolean {
   if (id === "vercel") return Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.VERCEL_TOKEN);
   if (id === "daytona") return Boolean((process.env.DAYTONA_API_KEY || "").trim());
   if (id === "e2b") return Boolean((process.env.E2B_API_KEY || "").trim());
-  if (id === "oracle") return Boolean((process.env.CODER_SANDBOX_ORACLE_URL || "").trim() && (process.env.CODER_SANDBOX_ORACLE_SECRET || "").trim());
+  if (id === "oracle") return oracleConfigured();
   if (id === "codesandbox") return Boolean((process.env.CSB_API_KEY || "").trim() && (process.env.CODER_CSB_TEMPLATE || "").trim() && (process.env.CODER_CSB_RUNNER_SECRET || "").trim());
   if (id === "codespaces") return Boolean((process.env.CODER_CODESPACES_TOKEN || "").trim() && (process.env.CODER_CODESPACES_REPO || "").trim() && (process.env.CODER_CODESPACES_RUNNER_SECRET || "").trim());
   return false;

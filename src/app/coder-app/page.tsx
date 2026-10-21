@@ -727,6 +727,43 @@ function PolicyEditor({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
   );
 }
 
+// ---------------------------------------------------------------- model picker (src/lib/coderModels.ts): users see the models the owner switched on
+type PubModel = { id: string; name: { ar: string; en: string }; desc: { ar: string; en: string }; price_stars: number | null; selected: boolean };
+type OwnModel = PubModel & { visible: boolean; isDefault: boolean; ready: boolean };
+function ModelPicker({ t, lang }: { t: Str; lang: Lang }) {
+  const [d, setD] = useState<{ models: PubModel[]; owner?: OwnModel[] } | null>(null);
+  const load = useCallback(() => api("models").then(setD).catch(() => setD(null)), []);
+  useEffect(() => { void load(); }, [load]);
+  if (!d) return null;
+  const list: PubModel[] = d.owner || d.models;
+  const pick = async (id: string) => { await api("settings", { model: id }); haptic("success"); void load(); };
+  const field = "w-24 rounded-xl bg-[var(--c-sunken)] px-3 py-1.5 font-mono text-[13px] text-[var(--c-text)] outline-none";
+  if (!d.owner && d.models.length < 2) return null;              // one model only: nothing to choose
+  return (
+    <div className="space-y-2">
+      <div><div className="text-[14px] font-bold text-[var(--c-text)]">{d.owner ? t.modelsOwner : t.models}</div><div className="text-[12px] text-[var(--c-hint)]">{t.modelsHint}</div></div>
+      {list.map((m) => {
+        const o = d.owner?.find((x) => x.id === m.id);
+        return (
+          <div key={m.id} className={`space-y-2 rounded-xl p-3 ring-1 ${m.selected ? "ring-2 ring-[var(--c-accent)]" : "ring-[var(--c-line)]"}`}>
+            <button className="flex w-full items-center gap-2 text-start" onClick={() => pick(m.id)} aria-pressed={m.selected}>
+              <span className="min-w-0 flex-1"><span className="block text-[14px] font-bold text-[var(--c-text)]">{m.name[lang]}{o?.isDefault ? ` · ${t.modelDefault}` : ""}</span><span className="block text-[12px] text-[var(--c-hint)]">{m.desc[lang]}</span></span>
+              <span className="text-[12px] font-semibold text-[var(--c-hint)]">{m.price_stars ? `⭐ ${m.price_stars}` : t.modelIncluded}</span>
+            </button>
+            {o && !o.isDefault && (
+              <div className="flex flex-wrap items-center gap-3 border-t border-[var(--c-line)] pt-2 text-[12px] text-[var(--c-hint)]">
+                <span className="flex items-center gap-2">{t.modelVisible}<Toggle on={o.visible} label={t.modelVisible} onChange={async (v) => { await api("model_update", { id: o.id, visible: v }); haptic("success"); void load(); }} /></span>
+                <label className="flex items-center gap-2">{t.starsPrice}<input className={field} dir="ltr" inputMode="numeric" defaultValue={o.price_stars ?? ""} onBlur={async (e) => { const v = e.target.value.trim(); if (String(o.price_stars ?? "") !== v) { await api("model_update", { id: o.id, price_stars: v ? Number(v) : null }); haptic("success"); void load(); } }} /></label>
+                <span>{o.ready ? `✅ ${t.modelReady}` : `⏳ ${t.modelNotReady}`}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SettingsTab({ t, me, lang, reload, openBilling }: { t: Str; me: Me; lang: Lang; reload: () => void; openBilling: () => void }) {
   const [s, setS] = useState(me.settings);
   const [home, setHome] = useState<string>("");
@@ -744,6 +781,7 @@ function SettingsTab({ t, me, lang, reload, openBilling }: { t: Str; me: Me; lan
     <div className="space-y-4">
       <Card className="space-y-4 p-4">
         <div><div className="text-[16px] font-extrabold text-[var(--c-text)]">🧠 {t.modelSettings}</div><p className="mt-1 text-[12px] leading-5 text-[var(--c-hint)]">{t.modelHint}</p></div>
+        <ModelPicker t={t} lang={lang} />
         <div className="flex items-center justify-between gap-3"><div><div className="text-[14px] font-bold text-[var(--c-text)]">{t.thinking}</div><div className="text-[12px] text-[var(--c-hint)]">{t.thinkingHint}</div></div><Toggle on={s.think} label={t.thinking} onChange={(v) => set({ think: v })} /></div>
         <div className="space-y-1.5">
           <div className="text-[14px] font-bold text-[var(--c-text)]">{t.accuracy}</div>
