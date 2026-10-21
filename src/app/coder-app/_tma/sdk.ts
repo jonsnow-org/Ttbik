@@ -154,7 +154,7 @@ export async function setBio(on: boolean): Promise<boolean> {
     return true;
   }
   if (!(await bioSupported())) return false;
-  const granted = await Promise.resolve(tryDo(() => biometry.requestAccess({ reason: "لتأكيد الإجراءات الحساسة في المبرمج" }))).catch(() => false);
+  const granted = await Promise.resolve(tryDo(() => biometry.requestAccess({ reason: "لتأكيد الإجراءات الحساسة في Nova AI" }))).catch(() => false);
   if (!granted) return false;
   tryDo(() => localStorage.setItem(BIO_KEY, "1"));
   return true;

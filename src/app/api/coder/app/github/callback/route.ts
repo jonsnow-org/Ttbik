@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   try {
     const { chatId, login } = await oauthFinish(code, state, redirect);
     const botRow = await prisma.bot.findFirst({ where: process.env.CODER_BOT_ID ? { id: process.env.CODER_BOT_ID } : { template: "NOVA_BOT", isActive: true } }).catch(() => null);
-    if (botRow) await new Bot(botRow.token).api.sendMessage(chatId, `🔗 رُبط حساب GitHub ‏@${login} بالمبرمج. يمكنك الآن العمل على مستودعاتك.`).catch(() => null);
+    if (botRow) await new Bot(botRow.token).api.sendMessage(chatId, `🔗 رُبط حساب GitHub ‏@${login} بـ Nova AI. يمكنك الآن العمل على مستودعاتك.`).catch(() => null);
     return page("تم ربط GitHub", `الحساب ‎@${esc(login)}‎ مربوط الآن. ارجع إلى تيليجرام.`, true);
   } catch (e) {
     return page("تعذّر الربط", esc(e instanceof AppError ? e.message : "حدث خطأ؛ حاول مجدداً من التطبيق."), false);
