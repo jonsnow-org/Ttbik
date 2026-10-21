@@ -39,6 +39,7 @@ def run(base, name, msgs, tools, max_tokens=0, think=""):
                       "max_queue_pos": max([q for q in qpos if isinstance(q, int)] or [0]), "text": (r.get("text") or "")[:160], "err": r.get("error")}, ensure_ascii=False), flush=True)
 
 turn = json.load(open(os.path.join(os.path.dirname(__file__), "turn_owner.json")))
+new = json.load(open(os.path.join(os.path.dirname(__file__), "turn_new.json")))
 for s in STUDIOS:
     base = f"https://studio-novaai2026-{s}.api-inference.modelscope.net"
     print(f"===== {s}", flush=True)
@@ -59,6 +60,8 @@ for s in STUDIOS:
     except Exception as e:
         print("logs err", e)
     tests = [("tiny_no_tools", [{"role": "user", "content": "مرحبا"}], None, 24)]
+    if MODE == "after":
+        tests = [("after_owner_load_tools", [{"role": "system", "content": new["sys"]}, {"role": "user", "content": "من انت"}], new["tools"], 0)]
     if MODE == "full":
         tests += [("real_turn_owner_tools_40", [{"role": "system", "content": turn["sys"]}, {"role": "user", "content": "من انت"}], turn["tools"], 0),
                   ("same_system_no_tools", [{"role": "system", "content": turn["sys"]}, {"role": "user", "content": "من انت"}], None, 0)]
