@@ -4,7 +4,7 @@
 //              inspector (sham-kaggle-inspect.yml); the weekly GPU split is summed from the monitor's "Nova 1:" lines since the last reset
 //              (Saturday 00:00 UTC). Nova 1's switch is training/nova1/kaggle/run_request.json on branch training/nova1.
 //   actions  — pause / resume Nova 1's cycle (edits "done" in that file: a running session always finishes and saves) and a monitor run
-//              (workflow_dispatch of sham-restarter.yml). Both go through GitHub's API with the owner's token (PANEL_GITHUB_TOKEN, else
+//              (workflow_dispatch of sham-restarter.yml with live=1: the same pass its schedule makes, never a stop). Both go through GitHub's API with the owner's token (PANEL_GITHUB_TOKEN, else
 //              CODER_GITHUB_TOKEN); without a token with that access they answer "unavailable" and change nothing.
 //   users    — counts only (chats, active in 7 days, active subscriptions per plan).
 //   health   — the model Studios, sandbox backends and search engines (same checks as the "status" op).
@@ -135,7 +135,7 @@ export async function panel(db: Db = prismaDb, f: F = fetch) {
 export async function panelAction(action: string, f: F = fetch): Promise<{ ok: boolean; message: string }> {
   if (!token()) return { ok: false, message: "no GitHub token with access (PANEL_GITHUB_TOKEN)" };
   if (action === "monitor_run") {
-    const r = await gh(f, `/actions/workflows/sham-restarter.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) }).catch(() => null);
+    const r = await gh(f, `/actions/workflows/sham-restarter.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main", inputs: { live: "1" } }) }).catch(() => null);
     cache = null;
     return r && r.status === 204 ? { ok: true, message: "monitor run started" } : { ok: false, message: `GitHub refused (${r?.status ?? "network"})` };
   }
