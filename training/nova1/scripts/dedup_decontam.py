@@ -4,6 +4,8 @@
 2. near:  MinHash LSH over 5-gram word shingles of the user turn + answer, Jaccard >= 0.85 (datasketch)
 3. decon: drop a row if it shares any 13-gram (word) with a prompt or canonical solution of HumanEval+, MBPP+, BigCodeBench,
           LiveCodeBench, or our own eval files (eval/*.jsonl). 13-gram overlap is the rule used for the GPT-3 / StarCoder reports.
+Rows with source "identity" (identity/identity_sft.jsonl, already deduplicated where it is written, and present on purpose in three
+renderings that differ only in the system message / tools) go through step 3 only.
 
     python scripts/dedup_decontam.py data/mix.raw.jsonl data/mix.jsonl
 """
@@ -76,12 +78,20 @@ def main(src: str, dst: str) -> None:
     bench = eval_grams()
     lsh = MinHashLSH(threshold=0.85, num_perm=128)
     seen: set = set()
-    kept = exact = near = decon = 0
+    kept = exact = near = decon = identity = 0
     with open(src) as fi, open(dst, "w") as fo:
         for i, line in enumerate(fi):
             row = json.loads(line)
             t = text_of(row)
             ws = words(t)
+            if row.get("source") == "identity":
+                if grams(ws, N) & bench:
+                    decon += 1
+                    continue
+                fo.write(line)
+                kept += 1
+                identity += 1
+                continue
             h = hashlib.sha1(" ".join(ws).encode()).hexdigest()
             if h in seen:
                 exact += 1
@@ -99,7 +109,7 @@ def main(src: str, dst: str) -> None:
             lsh.insert(str(i), mh)
             fo.write(line)
             kept += 1
-    print(json.dumps({"kept": kept, "exact_dupes": exact, "near_dupes": near, "contaminated": decon}))
+    print(json.dumps({"kept": kept, "exact_dupes": exact, "near_dupes": near, "contaminated": decon, "identity_kept": identity}))
 
 
 if __name__ == "__main__":
