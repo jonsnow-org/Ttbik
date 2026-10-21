@@ -23,6 +23,7 @@ Settings (Studio settings -> environment variables; all optional):
   CODER_THREADS    CPU threads                               (default: all cores)
   CODER_API_PREFIX prefix for the api names ("coder_" in the combined variant, combined_app.py)
   MODELSCOPE_API_TOKEN  only if a private model repo is used (the defaults are public)
+  CODER_JOB_HEARTBEAT_S  a job not polled for this long is not live: no queue position, cancelled at once (default 75, min 30)
 """
 from __future__ import annotations
 
@@ -31,6 +32,8 @@ import hashlib
 import json
 import os
 import queue
+import socket
+import http.client
 import subprocess
 import tarfile
 import threading
@@ -190,9 +193,30 @@ ABANDON_S = max(60.0, float(os.environ.get("CODER_JOB_ABANDON_S", "180") or 180)
 JOB_MAX_S = max(300.0, float(os.environ.get("CODER_JOB_MAX_S", "1800") or 1800))
 
 
+# The bot polls a live job every few seconds; one not polled for HEARTBEAT_S has no one waiting for it (an orphan of a timed-out call,
+# or a task that ended). It no longer counts in anyone's queue position and is cancelled, even mid prompt-processing.
+HEARTBEAT_S = max(30.0, float(os.environ.get("CODER_JOB_HEARTBEAT_S", "75") or 75))
+
+
 def _abandoned(job: dict) -> bool:
     now = time.time()
     return now - job.get("seen", job.get("created", now)) > ABANDON_S or (job.get("started") and now - job["started"] > JOB_MAX_S)
+
+
+def _stale(job: dict) -> bool:
+    """No heartbeat (poll) within HEARTBEAT_S, cancelled, or abandoned: not a live job."""
+    now = time.time()
+    return bool(job.get("cancel")) or _abandoned(job) or now - job.get("seen", job.get("created", now)) > HEARTBEAT_S
+
+
+def _purge() -> None:
+    """On every read: stale queued / running jobs are marked cancelled, so they never hold the queue or a position."""
+    with JOBS_LOCK:
+        for j in JOBS.values():
+            if j["status"] in ("queued", "running") and _stale(j):
+                j["cancel"] = True
+                if j["status"] == "queued":
+                    j.update(status="cancelled", finished=time.time())
 
 
 def _gc() -> None:
@@ -209,12 +233,32 @@ def _stream(job: dict) -> None:
         body["tools"] = job["tools"]
     if job["max_tokens"] > 0:
         body["max_tokens"] = job["max_tokens"]
-    req = urllib.request.Request(f"http://127.0.0.1:{LLAMA_PORT}/v1/chat/completions", data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json"})
     calls: dict = {}
-    with urllib.request.urlopen(req, timeout=24 * 3600) as r:
+    # a plain connection the guard can close: a cancelled / stale job stops at once, even while llama-server is still reading the prompt
+    # (no stream line yet); llama-server drops the task when its client goes away, and the runner moves on to the next job
+    conn = http.client.HTTPConnection("127.0.0.1", LLAMA_PORT, timeout=24 * 3600)
+    done = threading.Event()
+
+    def guard() -> None:
+        while not done.wait(2):
+            if _stale(job):
+                job["cancel"] = True
+                job["finish_reason"] = "cancelled"
+                try:
+                    if conn.sock is not None:
+                        conn.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                return
+
+    threading.Thread(target=guard, daemon=True).start()
+    try:
+        conn.request("POST", "/v1/chat/completions", body=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        r = conn.getresponse()
+        if r.status != 200:
+            raise RuntimeError(f"HTTP {r.status}: {r.read(300).decode('utf-8', 'ignore')}")
         for raw in r:
-            if job.get("cancel") or _abandoned(job):
+            if job.get("cancel") or _stale(job):
                 job["cancel"] = True
                 job["finish_reason"] = "cancelled"
                 break
@@ -247,6 +291,12 @@ def _stream(job: dict) -> None:
                     job["finish_reason"] = ch["finish_reason"]
             if ev.get("timings"):
                 job["timings"] = {k: ev["timings"].get(k) for k in ("prompt_n", "predicted_n", "predicted_per_second")}
+    except (OSError, http.client.HTTPException):
+        if not job.get("cancel"):
+            raise
+    finally:
+        done.set()
+        conn.close()
     job["tool_calls"] = [calls[i] for i in sorted(calls)]
 
 
@@ -260,7 +310,7 @@ def _runner() -> None:
             continue
         while STATE["phase"] != "ready":
             time.sleep(2)
-        if job.get("cancel") or _abandoned(job):
+        if job.get("cancel") or _stale(job):
             job.update(status="cancelled", finished=time.time())
             _log("skipped abandoned job", jid)
             continue
@@ -269,13 +319,17 @@ def _runner() -> None:
             _stream(job)
             job.update(status="cancelled" if job.get("cancel") else "done", finished=time.time())
         except Exception as exc:
+            if job.get("cancel"):
+                job.update(status="cancelled", finished=time.time())
+                continue
             job.update(status="error", error=f"{type(exc).__name__}: {str(exc)[:300]}", finished=time.time())
         _gc()
 
 
 def _queue_pos(jid: str) -> int:
+    _purge()
     with JOBS_LOCK:
-        waiting = [k for k, j in JOBS.items() if j["status"] in ("queued", "running") and not j.get("cancel") and (k == jid or not _abandoned(j))]
+        waiting = [k for k, j in JOBS.items() if j["status"] in ("queued", "running") and not j.get("cancel") and (k == jid or not _stale(j))]
     return waiting.index(jid) if jid in waiting else -1
 
 
@@ -321,6 +375,7 @@ def chat(messages: str, tools: str = "", max_tokens: float = 0, think: str = "",
     QUEUE.put(jid)
     deadline = time.time() + max(0.0, min(50.0, _num(wait_s, 20)))
     while time.time() < deadline and job["status"] in ("queued", "running"):
+        job["seen"] = time.time()                                  # its caller is still on the line
         time.sleep(0.5)
     return json.dumps(_view(jid), ensure_ascii=False)
 
@@ -337,8 +392,9 @@ def cancel(job_id: str) -> str:
 
 
 def status() -> str:
+    _purge()
     with JOBS_LOCK:
-        q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running"))
+        q = sum(1 for j in JOBS.values() if j["status"] in ("queued", "running") and not j.get("cancel"))
     return json.dumps(dict(STATE, queue=q, uptime_s=int(time.time() - STATE["started_at"])), ensure_ascii=False)
 
 
