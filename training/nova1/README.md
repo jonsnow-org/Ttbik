@@ -134,3 +134,19 @@ API here that creates or updates a Studio, so the owner deploys it by hand:
    `NOVA1_API_KEY=<a new random key>`; start it and wait for `/health` to answer.
 4. On the site set `NOVA1_STUDIO_URL` (the Studio address) and the same key, then turn Nova 1 on in the owner panel (Models).
    Until `NOVA1_STUDIO_URL` is set, the owner panel lists this as a pending manual step.
+
+## SHAM AI identity (in the weights and the model files)
+- `identity/identity_sft.jsonl` (written by `scripts/make_identity.py`): 504 short conversations in Modern Standard Arabic, Levantine
+  Arabic and English: who it is, who made it, which model it is, whether it is some other assistant, what it can do, where it runs,
+  questions about its internals, greetings, follow-ups after a coding answer, and attempts to pull internal details out of it.
+  The answers name SHAM AI (شام), the Sham team and Nova 1 only.
+- `build_mix.py` adds them as source `identity` (weight 0.01, a cap above their ~55k tokens, so all of them are used), each
+  conversation three ways: without a system message, with the training system message, and (every third) with four of the coder's
+  tools offered. Rows of the other sources whose assistant calls itself another provider's model are left out, and a system message
+  naming another provider's model is replaced by the training one (counts printed as `identity scrub`).
+- `dedup_decontam.py` runs only the benchmark check on `identity` rows (they are deduplicated where they are written).
+- `export/export_gguf.sh` gives every Nova 1 GGUF SHAM AI metadata (`general.name` "SHAM AI Nova 1", organization "Sham", the original
+  upload's provenance keys left out, the Apache-2.0 licence keys kept) and removes any provider default system text from the chat
+  template (`export/sham_identity.py`). The Qwen3.5 template has none, so it stays as it is and nothing is added to it.
+- `export/rebrand_gguf.py` does the same for the GGUF the coder Studio serves today. That changes the file's metadata only: the
+  weights still answer as the base model until Nova 1 is trained, so it is not uploaded.
