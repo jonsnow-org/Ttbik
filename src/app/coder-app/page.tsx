@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "./i18n";
-import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
+import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isAndroid, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
 
 type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing";
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
@@ -1041,6 +1041,7 @@ export default function CoderApp() {
   const [me, setMe] = useState<Me | null>(null);
   const [err, setErr] = useState("");
   const [dark, setDark] = useState(false);
+  const [android, setAndroid] = useState(false);
   const reload = useCallback(async () => {
     try {
       setMe(await api<Me>("me"));
@@ -1054,6 +1055,7 @@ export default function CoderApp() {
     void startTma().then((lp) => {
       if (!alive) return;
       setPlatform(isApple() ? "ios" : "base");
+      setAndroid(isAndroid());
       const want = new URLSearchParams(window.location.search).get("tab") || lp.startParam || "";
       setTab(tabFrom(want));
       setMounted(true);
@@ -1065,6 +1067,25 @@ export default function CoderApp() {
     const id = setInterval(apply, 1500);
     return () => { alive = false; clearInterval(id); };
   }, [reload]);
+  useEffect(() => {
+    // Material touch feedback on Android: an ink ripple from the touch point on every button / link (telegram-ui's "base" platform look)
+    if (!android) return;
+    const onDown = (e: PointerEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest?.("button, a, [role=button]") as HTMLElement | null;
+      if (!el || (el as HTMLButtonElement).disabled) return;
+      const r = el.getBoundingClientRect();
+      const size = Math.max(r.width, r.height) * 2;
+      const ink = document.createElement("span");
+      ink.className = "coder-ink";
+      ink.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px`;
+      if (getComputedStyle(el).position === "static") el.style.position = "relative";
+      el.style.overflow = "hidden";
+      el.appendChild(ink);
+      setTimeout(() => ink.remove(), 550);
+    };
+    document.addEventListener("pointerdown", onDown, { passive: true });
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [android]);
   useEffect(() => {
     // the user's own time zone, once, for schedules
     if (me && !me.settings.tz) {
@@ -1102,7 +1123,7 @@ export default function CoderApp() {
   if (!mounted) return <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }}><Mark size={44} /></div>;
   return (
     <AppRoot appearance={dark ? "dark" : "light"} platform={platform}>
-      <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} style={vars} className="min-h-screen bg-[var(--c-bg)] font-sans text-[var(--c-text)] antialiased ps-[var(--safe-left)] pe-[var(--safe-right)]">
+      <div dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} style={vars} data-platform={android ? "android" : platform} data-theme={dark ? "dark" : "light"} className="min-h-screen bg-[var(--c-bg)] font-sans text-[var(--c-text)] antialiased ps-[var(--safe-left)] pe-[var(--safe-right)]">
         <style>{`
           .coder-skel{background:linear-gradient(90deg,var(--c-sunken) 0%,var(--c-line) 50%,var(--c-sunken) 100%);background-size:200% 100%;animation:cs 1.3s ease-in-out infinite}
           @keyframes cs{0%{background-position:200% 0}100%{background-position:-200% 0}}
@@ -1110,6 +1131,13 @@ export default function CoderApp() {
           .coder-fade{animation:cf .25s ease both}@keyframes cf{from{opacity:0}to{opacity:1}}
           .coder-pulse{animation:cp 1.2s ease-in-out infinite}@keyframes cp{0%,100%{opacity:1}50%{opacity:.3}}
           @media (prefers-reduced-motion:reduce){.coder-skel,.coder-rise,.coder-fade,.coder-pulse{animation:none!important}}
+          [data-platform=android]{font-family:Roboto,"Noto Sans Arabic","Noto Sans",system-ui,sans-serif;letter-spacing:.01em}
+          [data-platform=android] header{backdrop-filter:none;background:var(--tg-theme-header-bg-color,var(--c-bg));box-shadow:0 1px 3px rgba(0,0,0,.18);border-bottom:0}
+          [data-platform=android] nav[aria-label=tabs]{backdrop-filter:none;background:var(--tg-theme-bottom-bar-bg-color,var(--c-card));box-shadow:0 -1px 3px rgba(0,0,0,.14);border-top:0}
+          [data-platform=android] button{text-transform:none;-webkit-tap-highlight-color:transparent}
+          [data-platform=ios]{font-family:-apple-system,"SF Pro Text","SF Arabic",system-ui,sans-serif}
+          .coder-ink{position:absolute;border-radius:50%;pointer-events:none;background:currentColor;opacity:.18;transform:scale(0);animation:ci .55s ease-out forwards}
+          @keyframes ci{to{transform:scale(1);opacity:0}}
         `}</style>
         <header className="sticky top-0 z-30 border-b border-[var(--c-line)] bg-[var(--c-bg)]/85 px-4 pb-3 pt-[calc(12px+var(--safe-top))] backdrop-blur">
           <div className="flex items-center gap-3">

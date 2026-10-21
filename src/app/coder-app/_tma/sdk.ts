@@ -38,9 +38,13 @@ export async function startTma(): Promise<Launch> {
     inTelegram,
   };
   tryDo(() => backButton.mount());
+  // theme params FIRST (as in the official tma.js template): miniApp's colours and isDark() derive from them, and without this mount
+  // bindCssVars() fails, so the app stayed light with fallback colours inside a dark Telegram
+  tryDo(() => themeParams.mount());
   tryDo(() => miniApp.mount());
   tryDo(() => themeParams.bindCssVars());
   tryDo(() => miniApp.bindCssVars());
+  tpLaunch = (lp.tgWebAppThemeParams || {}) as Record<string, string>;
   tryDo(() => swipeBehavior.mount());
   if (avail(swipeBehavior.disableVertical)) tryDo(() => swipeBehavior.disableVertical());   // scrolling lists never closes the app
   tryDo(() => closingBehavior.mount());
@@ -55,8 +59,26 @@ export async function startTma(): Promise<Launch> {
 
 export const rawInitData = () => raw || tryDo(() => retrieveRawInitData()) || "";
 export const getLaunch = () => launch;
-export const isDark = () => Boolean(tryDo(() => miniApp.isDark()));
+let tpLaunch: Record<string, string> = {};
+const darkHex = (hex?: string) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!m) return undefined;
+  const n = parseInt(m[1], 16);
+  return 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) < 128;
+};
+/** Telegram's own theme decides dark/light: theme params (live), then the mini app, then the launch theme, then the legacy global. */
+export const isDark = (): boolean => {
+  const tp = tryDo(() => (themeParams.isMounted() ? themeParams.isDark() : undefined));
+  if (typeof tp === "boolean") return tp;
+  const ma = tryDo(() => (miniApp.isMounted() ? miniApp.isDark() : undefined));
+  if (ma === true) return true;
+  const lp = darkHex(tpLaunch.bg_color || tpLaunch.bgColor || tpLaunch.secondary_bg_color || tpLaunch.secondaryBgColor);
+  if (typeof lp === "boolean") return lp;
+  const g = tryDo(() => (window as any).Telegram?.WebApp?.colorScheme);
+  return g === "dark" || Boolean(ma);
+};
 export const isApple = () => launch.platform === "ios" || launch.platform === "macos";
+export const isAndroid = () => launch.platform === "android" || launch.platform === "android_x";
 
 export function haptic(k: "light" | "medium" | "success" | "warning" | "error" | "select"): void {
   if (k === "select") {
