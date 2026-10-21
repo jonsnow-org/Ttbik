@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot, Button as TgButton, Cell, Input, Section, Switch } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "./i18n";
+import NativeApp from "./_native/NativeApp";
 import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isAndroid, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
 
 type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing" | "panel";
@@ -1127,7 +1128,8 @@ const TABS: { id: Exclude<Tab, "billing">; icon: string; key: keyof Str }[] = [
 ];
 const tabFrom = (want: string): Tab => (want === "panel" ? "panel" : want === "plans" || want === "billing" ? "billing" : want === "connectors" ? "connect" : (TABS.some((x) => x.id === want) ? want : "tasks") as Tab);
 
-export default function CoderApp() {
+/** The classic screens (custom-drawn), kept as they were; open with ?ui=classic. */
+function ClassicCoderApp() {
   // Telegram Mini Apps cannot be rendered on the server (the launch data lives in the client): render after mount, like the official template
   const [mounted, setMounted] = useState(false);
   const [platform, setPlatform] = useState<"ios" | "base">("base");
@@ -1279,4 +1281,12 @@ export default function CoderApp() {
       </div>
     </AppRoot>
   );
+}
+
+/** The Mini App: native telegram-ui screens (./_native/NativeApp.tsx: Material on Android, iOS on Apple); ?ui=classic keeps the classic ones. */
+export default function CoderApp() {
+  const [ui, setUi] = useState<"native" | "classic" | null>(null);
+  useEffect(() => setUi(new URLSearchParams(window.location.search).get("ui") === "classic" ? "classic" : "native"), []);
+  if (!ui) return <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }} />;
+  return ui === "classic" ? <ClassicCoderApp /> : <NativeApp />;
 }
