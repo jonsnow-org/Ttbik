@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import BusinessNameGenerator from "./BusinessNameGenerator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("business-name-generator", {
   title: "مولد أسماء المشاريع والمتاجر مجاناً | شام AI",
   description: "احصل على 8 اقتراحات أسماء لمشروعك أو متجرك خلال ثوانٍ، مجاناً بالكامل وبدون تسجيل.",
-};
+});
 
 function BusinessNameGeneratorPageBody() {
   return (

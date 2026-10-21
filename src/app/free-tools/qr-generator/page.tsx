@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import QrGenerator from "./QrGenerator";
 import ToolSponsor from "@/components/ToolSponsor";
@@ -7,7 +8,7 @@ import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("qr-generator", {
   title: "مولّد رمز QR مجاني (عربي) | أدوات مجانية | شام AI",
   description:
     "أنشئ رمز QR لأي رابط أو نص خلال ثوانٍ — حجم وألوان قابلة للتخصيص، تنزيل PNG فوري، يعمل بالكامل داخل المتصفح بلا تسجيل وبلا تكلفة.",
@@ -19,7 +20,7 @@ export const metadata: Metadata = {
       "x-default": `${SITE_URL}/free-tools/qr-generator`,
     },
   },
-};
+});
 
 function QrGeneratorPageBody() {
   return (

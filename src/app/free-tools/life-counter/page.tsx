@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import LifeCounter from "./LifeCounter";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("life-counter", {
   title: "عدّاد عمرك الحيّ: كم يوماً وثانية عشت؟ | شام AI",
   description:
     "أدخل تاريخ ميلادك وشاهد عمرك يعدّ بالثواني لحظة بلحظة: الأيام والساعات، نبضات القلب، أيام النوم، اليوم الذي وُلدت فيه، برجك، وكم تبقى لعيد ميلادك القادم. بطاقة جاهزة للمشاركة.",
@@ -16,7 +17,7 @@ export const metadata: Metadata = {
     "موعد عيد ميلادي",
     "أدوات مجانية",
   ],
-};
+});
 
 function LifeCounterPageBody() {
   return (

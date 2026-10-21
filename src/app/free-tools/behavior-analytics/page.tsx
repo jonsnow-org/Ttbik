@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import AdSlot from "@/components/AdSlot";
 import BehaviorAnalytics from "./BehaviorAnalytics";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("behavior-analytics", {
   title: "محلل سلوك الأحداث (CSV/JSON) مجاناً | شام AI",
   description:
     "الصق سجلات أحداث CSV أو JSON واحصل على ملخص سلوك المستخدمين فوراً في المتصفح — بلا تسجيل.",
-};
+});
 
 function BehaviorAnalyticsPageBody() {
   return (

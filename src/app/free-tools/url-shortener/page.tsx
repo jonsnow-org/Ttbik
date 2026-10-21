@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import UrlShortener from "./UrlShortener";
 import AdSlot from "@/components/AdSlot";
 import { SITE_URL } from "@/lib/siteUrl";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("url-shortener", {
   title: "اختصار روابط مجاني مع عداد نقرات حقيقي | شام AI",
   description:
     "قصّر الروابط الطويلة مجاناً واحصل على عداد نقرات حقيقي — مثالي للسوشيال والإعلانات والمتاجر. بلا تسجيل.",
@@ -18,7 +19,7 @@ export const metadata: Metadata = {
       "x-default": `${SITE_URL}/free-tools/url-shortener`,
     },
   },
-};
+});
 
 function UrlShortenerPageBody() {
   return (

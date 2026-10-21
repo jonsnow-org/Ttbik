@@ -45,9 +45,11 @@ function group(n: number, fem: boolean): string {
   return r ? `${hw} و${under100(r, fem)}` : hw;
 }
 
-// Counted noun after a number: 1 -> singular, 2 -> dual, 3..10 -> plural, else tamyeez.
+// Counted noun after a number: 1 -> singular, 2 -> dual, 3..10 -> plural, 11..99 -> tamyeez (accusative),
+// and a round hundred/thousand/million (n % 100 === 0) -> genitive singular: "ألف ريال", "مليون ريال", not "ريالًا".
 function counted(n: number, one: string, two: string, many: string, single: string): string {
   const r = n % 100;
+  if (r === 0) return one;
   if (n === 1) return one;
   if (n === 2) return two;
   if (r >= 3 && r <= 10) return many;

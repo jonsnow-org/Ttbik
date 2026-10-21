@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import TalkingPhoto from "./TalkingPhoto";
 import AdSlot from "@/components/AdSlot";
@@ -7,7 +8,7 @@ import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/talking-photo";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("talking-photo", {
   title: "تحريك صورة بالصوت: اجعل أي صورة تتكلم مجاناً | شام AI",
   description: "ارفع صورة وصوتاً (أو سجّل بصوتك) فتتحرك الصورة وكأنها تتكلم، وتنزّل فيديو قصيراً. كل شيء داخل متصفحك بلا رفع لأي خادم.",
   keywords: ["صورة تتكلم", "تحريك صورة بالصوت", "فيديو من صورة وصوت", "أداة مجانية", "شام AI"],
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [{ url: `${SITE_URL}/og/cover.jpg`, width: 1200, height: 630 }],
   },
-};
+});
 
 export default function TalkingPhotoPage() {
   return (

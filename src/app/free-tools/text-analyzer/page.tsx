@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import TextAnalyzer from "./TextAnalyzer";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("text-analyzer", {
   title: "محلل النصوص الذكي مجاناً | شام AI",
   description: "لخّص تقاريرك الطويلة، أو حلّل آراء عملائك بالجملة مع رد مقترح جاهز لكل واحد — بالذكاء الاصطناعي، مجاناً.",
-};
+});
 
 function TextAnalyzerPageBody() {
   return (

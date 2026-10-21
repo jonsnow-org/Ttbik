@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import NameDecorator from "./NameDecorator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("name-decorator", {
   title: "زخرفة الأسماء بالعربي والإنجليزي للألعاب والسوشيال | شام AI",
   description:
     "زخرفة الأسماء العربية والإنجليزية بنسخ بضغطة واحدة لببجي وفري فاير وانستغرام وتيك توك وواتساب — مجاني وبلا تسجيل.",
   keywords: ["زخرفة الأسماء", "زخرفة اسم", "زخرفة أسماء ببجي", "زخرفة فري فاير", "زخرفة عربي", "اسماء مزخرفة"],
   alternates: { canonical: "/free-tools/name-decorator" },
-};
+});
 
 export default function Page() {
   return (

@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import NumberToWords from "./NumberToWords";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("number-to-words", {
   title: "تفقيط الأرقام: تحويل الرقم إلى حروف بالعربي | شام AI",
   description:
     "تفقيط الأرقام وتحويل المبلغ إلى كتابة بالحروف العربية (ريال، دينار، جنيه، درهم، دولار) — أداة مجانية للشيكات والفواتير والعقود، بلا تسجيل.",
   keywords: ["تفقيط الأرقام", "تحويل الرقم إلى حروف", "كتابة المبلغ بالحروف", "تفقيط المبلغ", "تفقيط ريال سعودي"],
   alternates: { canonical: "/free-tools/number-to-words" },
-};
+});
 
 export default function Page() {
   return (

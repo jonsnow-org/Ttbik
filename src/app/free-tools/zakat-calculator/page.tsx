@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import ZakatCalculator from "./ZakatCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("zakat-calculator", {
   title: "حاسبة الزكاة الذكية | أدوات مجانية | شام AI",
   description:
     "احسب زكاة المال والذهب والفضة والأسهم وعروض التجارة فوراً — نصاب قابل للتعديل، 2.5%. أداة عربية مجانية بلا تسجيل.",
-};
+});
 
 function ZakatCalculatorPageBody() {
   return (

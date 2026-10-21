@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import InvoiceGenerator from "./InvoiceGenerator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("invoice-generator", {
   title: "مولّد فواتير وعقود بسيطة بالعربي | أدوات مجانية | شام AI",
   description:
     "أنشئ فاتورة أو عقد خدمة بسيط بالعربي مجاناً واحفظه كـ PDF من المتصفح — بدون تسجيل، نص عربي صحيح.",
-};
+});
 
 function InvoiceGeneratorPageBody() {
   return (

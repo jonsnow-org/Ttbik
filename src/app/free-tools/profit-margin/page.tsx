@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import ProfitMarginCalculator from "./ProfitMarginCalculator";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("profit-margin", {
   title: "حاسبة هامش الربح ونقطة التعادل | أدوات مجانية | شام AI",
   description:
     "احسب هامش الربح ونسبة الإضافة ونقطة التعادل فوراً — تكلفة الوحدة، سعر البيع، التكاليف الثابتة. أداة عربية مجانية بلا تسجيل.",
-};
+});
 
 function ProfitMarginPageBody() {
   return (

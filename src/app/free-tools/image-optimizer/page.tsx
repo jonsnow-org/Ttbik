@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import Link from "next/link";
 import ImageOptimizer from "./ImageOptimizer";
 import AdSlot from "@/components/AdSlot";
@@ -7,7 +8,7 @@ import ToolSeoSection from "@/components/ToolSeoSection";
 
 const PATH = "/free-tools/image-optimizer";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("image-optimizer", {
   title: "أداة ضغط وتحويل الصور مجاناً (WebP/JPEG/PNG) | شام AI",
   description:
     "اضغط صورك وحوّلها إلى WebP أو JPEG أو PNG داخل المتصفح مجاناً — بدون رفع للخادم، تنزيل فوري، خصوصية كاملة.",
@@ -35,7 +36,7 @@ export const metadata: Metadata = {
     type: "website",
     images: [{ url: `${SITE_URL}/og/cover.jpg`, width: 1200, height: 630 }],
   },
-};
+});
 
 function ImageOptimizerPageBody() {
   return (

@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
+import { toolMeta } from "@/lib/toolMeta";
 import CryptoConverter from "./CryptoConverter";
 import AdSlot from "@/components/AdSlot";
 import ToolSeoSection from "@/components/ToolSeoSection";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = toolMeta("crypto-converter", {
   title: "محول عملات رقمية (TON / BTC / ETH) | أدوات مجانية | شام AI",
   description:
     "حوّل بين TON وبيتكوين وإيثريوم وUSDT والدولار والريال بأسعار حية — مجاناً بلا تسجيل. مفيد أيضاً لمستخدمي محفظة TON على شام AI.",
-};
+});
 
 function CryptoConverterPageBody() {
   return (
