@@ -189,7 +189,9 @@ describe("sections and the loop", () => {
     expect(st.run).toBeNull();
     expect(sent.map((s) => s.text)).toContain("تم الدفع.");
     const chatCalls = calls.filter((c) => c.url.includes("/call/v2/chat"));
-    expect(JSON.parse(chatCalls[0].body.tools).length).toBeGreaterThan(5);
+    // tools come in groups the model loads itself (load_tools); the GitHub group is offered here
+    const first = JSON.parse(chatCalls[0].body.tools);
+    expect(first.find((t: any) => t.function.name === "load_tools").function.parameters.properties.groups.items.enum).toContain("github");
   });
 
   it("a declined delete is NOT executed and the model is told", async () => {
@@ -301,7 +303,8 @@ describe("tiers in the loop", () => {
     await saveState(555, { mode: "coder", think: false, messages: [{ role: "user", content: "اجعل المستودع عاماً" }], notes: "", inbox: [], run: { id: "u1", chain: "c", sent: 0, step: 0, lease: Date.now() } }, db);
     await drive(bot, botRow, 555, "c", db, 40000);
     const tools = JSON.parse(calls.find((c) => c.url.includes("/call/v2/chat"))!.body.tools).map((t: any) => t.function.name);
-    expect(tools).toContain("github_write_files");
+    const offered = JSON.parse(calls.find((c) => c.url.includes("/call/v2/chat"))!.body.tools).find((t: any) => t.function.name === "load_tools");
+    expect(tools.includes("github_write_files") || offered?.function.parameters.properties.groups.items.enum.includes("github")).toBe(true);
     expect((await loadState(555, db)).run?.pending?.reason).toBe("تغيير إعدادات المستودع");
     expect(sent[sent.length - 1].extra.reply_markup).toBeTruthy();
     expect(calls.some((c) => c.url.startsWith("https://api.github.com") && c.body)).toBe(false);
