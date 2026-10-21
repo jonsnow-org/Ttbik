@@ -9,7 +9,7 @@ import { prismaDb, coderChatKey, tierFor, type Db } from "@/lib/coderAuth";
 export const METRICS = ["tasks", "steps", "tokens", "sandbox_minutes", "research", "schedules"] as const;
 export type Metric = (typeof METRICS)[number];
 export type Limits = Record<Metric, number>;                              // -1 = unlimited
-export type Plan = { id: string; name: { ar: string; en: string }; price_label: string; price_cents: number | null; currency: string; limits: Limits; sort: number; active: boolean };
+export type Plan = { id: string; name: { ar: string; en: string }; price_label: string; price_cents: number | null; currency: string; limits: Limits; sort: number; active: boolean; price_stars?: number | null; days?: number };
 export const isMetric = (m: unknown): m is Metric => METRICS.includes(m as Metric);
 export const WINDOW_MS = 7 * 24 * 3600 * 1000;
 const HOUR = 3600 * 1000;
@@ -18,9 +18,9 @@ const HOUR = 3600 * 1000;
 export const DEFAULT_PLANS: Plan[] = [
   { id: "free", name: { ar: "مجاني", en: "Free" }, price_label: "0", price_cents: 0, currency: "USD", sort: 0, active: true,
     limits: { tasks: 20, steps: 600, tokens: 2_000_000, sandbox_minutes: 60, research: 10, schedules: 2 } },
-  { id: "plus", name: { ar: "بلس", en: "Plus" }, price_label: "—", price_cents: null, currency: "USD", sort: 1, active: true,
+  { id: "plus", name: { ar: "بلس", en: "Plus" }, price_label: "—", price_cents: null, currency: "USD", sort: 1, active: true, price_stars: 250, days: 30,
     limits: { tasks: 100, steps: 4000, tokens: 12_000_000, sandbox_minutes: 400, research: 60, schedules: 10 } },
-  { id: "pro", name: { ar: "برو", en: "Pro" }, price_label: "—", price_cents: null, currency: "USD", sort: 2, active: true,
+  { id: "pro", name: { ar: "برو", en: "Pro" }, price_label: "—", price_cents: null, currency: "USD", sort: 2, active: true, price_stars: 750, days: 30,
     limits: { tasks: 400, steps: 20000, tokens: 50_000_000, sandbox_minutes: 1500, research: 250, schedules: 40 } },
 ];
 
@@ -43,6 +43,9 @@ function ensureTables(db: Db): Promise<void> {
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_subscriptions (chat_key TEXT PRIMARY KEY, plan_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', period_start TIMESTAMPTZ NOT NULL DEFAULT now(), period_end TIMESTAMPTZ, provider TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await db.exec(`CREATE TABLE IF NOT EXISTS coder_usage (chat_key TEXT NOT NULL, metric TEXT NOT NULL, bucket TIMESTAMPTZ NOT NULL, amount BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (chat_key, metric, bucket))`);
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_usage_bucket_idx ON coder_usage (bucket)`);
+      // Telegram Stars price and period of a plan (2026-10-21): added columns, older rows keep working
+      await db.exec(`ALTER TABLE coder_plans ADD COLUMN IF NOT EXISTS price_stars INT`);
+      await db.exec(`ALTER TABLE coder_plans ADD COLUMN IF NOT EXISTS days INT`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -58,7 +61,7 @@ export async function listPlans(db: Db = prismaDb): Promise<Plan[]> {
   let rows: any[] = [];
   try {
     await ensureTables(db);
-    rows = await db.query(`SELECT id, name, price_label, price_cents, currency, limits, sort, active FROM coder_plans`);
+    rows = await db.query(`SELECT * FROM coder_plans`);
   } catch {
     rows = [];
   }
@@ -67,7 +70,8 @@ export async function listPlans(db: Db = prismaDb): Promise<Plan[]> {
     const base = byId.get(r.id) || DEFAULT_PLANS[0];
     const name = typeof r.name === "string" ? JSON.parse(r.name) : r.name;
     const limits = typeof r.limits === "string" ? JSON.parse(r.limits) : r.limits;
-    byId.set(r.id, { id: r.id, name: { ar: String(name?.ar || base.name.ar), en: String(name?.en || base.name.en) }, price_label: String(r.price_label ?? ""), price_cents: r.price_cents == null ? null : Number(r.price_cents), currency: String(r.currency || "USD"), limits: clean(limits, base.limits), sort: Number(r.sort) || 0, active: r.active !== false });
+    byId.set(r.id, { id: r.id, name: { ar: String(name?.ar || base.name.ar), en: String(name?.en || base.name.en) }, price_label: String(r.price_label ?? ""), price_cents: r.price_cents == null ? null : Number(r.price_cents), currency: String(r.currency || "USD"), limits: clean(limits, base.limits), sort: Number(r.sort) || 0, active: r.active !== false,
+      price_stars: r.price_stars === undefined ? base.price_stars ?? null : r.price_stars === null ? null : Number(r.price_stars), days: r.days ? Number(r.days) : base.days ?? 30 });
   }
   return [...byId.values()].sort((a, b) => a.sort - b.sort);
 }
@@ -85,6 +89,8 @@ export async function upsertPlan(p: Partial<Plan> & { id: string }, db: Db = pri
     limits: clean((p.limits || {}) as any, cur.limits),
     sort: p.sort === undefined ? cur.sort : Number(p.sort) || 0,
     active: p.active === undefined ? cur.active : Boolean(p.active),
+    price_stars: p.price_stars === undefined ? cur.price_stars ?? null : p.price_stars === null || Number(p.price_stars) <= 0 ? null : Math.min(100000, Math.floor(Number(p.price_stars) || 0)) || null,
+    days: p.days === undefined ? cur.days ?? 30 : Math.max(1, Math.min(366, Math.floor(Number(p.days) || 30))),
   };
   await ensureTables(db);
   await db.exec(
@@ -92,6 +98,7 @@ export async function upsertPlan(p: Partial<Plan> & { id: string }, db: Db = pri
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, price_label = EXCLUDED.price_label, price_cents = EXCLUDED.price_cents, currency = EXCLUDED.currency, limits = EXCLUDED.limits, sort = EXCLUDED.sort, active = EXCLUDED.active, updated_at = now()`,
     next.id, JSON.stringify(next.name), next.price_label, next.price_cents, next.currency, JSON.stringify(next.limits), next.sort, next.active,
   );
+  await db.exec(`UPDATE coder_plans SET price_stars = $2, days = $3 WHERE id = $1`, next.id, next.price_stars ?? null, next.days ?? 30).catch(() => null);
   return next;
 }
 
@@ -189,6 +196,15 @@ export const METRIC_LABEL: Record<Metric, { ar: string; en: string }> = {
 
 /** The user-facing message when a limit is reached (Arabic; times in the user's zone). */
 export function limitMessage(c: Exclude<LimitCheck, { ok: true }>, tz = "UTC"): string {
+  // what a user sees: the plan name and when it frees up — never the internal meters (tokens, steps, machine minutes) or counts
+  const when = c.resetAt ? new Intl.DateTimeFormat("ar-SY", { timeZone: tz, weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long" }).format(new Date(c.resetAt)) : "";
+  return c.metric === "schedules"
+    ? `⏳ وصلت إلى عدد المهام المجدولة المسموح في خطة «${c.plan.name.ar}». احذف مهمة مجدولة أو رقِّ خطتك من قسم «الاشتراك».`
+    : `⏳ وصلت إلى حد استخدامك الأسبوعي في خطة «${c.plan.name.ar}».` + (when ? ` يتجدد تدريجياً، وأول تجدّد: ${when}.` : "") + " يمكنك الترقية من قسم «الاشتراك» في التطبيق.";
+}
+
+/** The detailed (owner / log) form of a reached limit, with the meter and the counts. */
+export function limitMessageDetailed(c: Exclude<LimitCheck, { ok: true }>, tz = "UTC"): string {
   const when = c.resetAt ? new Intl.DateTimeFormat("ar-SY", { timeZone: tz, weekday: "long", hour: "2-digit", minute: "2-digit", day: "numeric", month: "long" }).format(new Date(c.resetAt)) : "";
   return `⏳ وصلت إلى حد ${METRIC_LABEL[c.metric].ar} الأسبوعي في خطة «${c.plan.name.ar}» (${c.used}/${c.limit}).` +
     (c.metric === "schedules" ? " احذف مهمة مجدولة أو رقِّ خطتك." : when ? ` يتجدد الاستخدام تدريجياً؛ أول تجدّد: ${when}.` : "") +
@@ -200,4 +216,30 @@ export function estimateTokens(text: string): number {
   const s = text || "";
   const arabic = (s.match(/[\u0600-\u06FF]/g) || []).length;
   return Math.ceil(arabic / 2.5 + (s.length - arabic) / 4);
+}
+
+// ---------------------------------------------------------------- what a regular user may see of the plan (owner's rule, 2026-10-21)
+// No meters by name, no counts of tokens / steps / machine minutes / tasks: the plan name, one overall "used" percentage of the
+// week, when it starts freeing up, and the plans on sale with their Stars price. The owner keeps the full usageSummary.
+export type PublicUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
+export function publicUsage(s: UsageSummary): PublicUsage {
+  let pct = 0;
+  let renew: string | null = null;
+  for (const m of s.metrics) {
+    if (m.limit < 0) continue;
+    const p = m.limit === 0 ? 100 : Math.min(100, Math.round((m.used / m.limit) * 100));
+    if (p > pct) {
+      pct = p;
+      renew = m.nextRelief;
+    }
+  }
+  if (s.unlimited) pct = 0;
+  return {
+    plan: { id: s.plan.id, name: s.plan.name }, unlimited: s.unlimited, percent: pct, level: pct >= 100 ? "full" : pct >= 80 ? "high" : "ok",
+    renewsAt: pct > 0 ? renew : null, periodEnd: s.subscription.period_end,
+  };
+}
+export type PublicPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars: number | null; days: number; current: boolean; tier: number };
+export function publicPlans(plans: Plan[], currentId: string): PublicPlan[] {
+  return plans.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name, price_label: p.price_label, price_stars: p.price_stars ?? null, days: p.days ?? 30, current: p.id === currentId, tier: p.sort }));
 }

@@ -37,10 +37,13 @@ describe("mini app api", () => {
     const { bot } = fakeBot();
     await appOp({ chatId: USER, tier: "user" }, "settings", { mode: "sham", think: true, lang: "en", tz: "Europe/Istanbul", repo: "o/r" }, { db, bot, botRow });
     let st = await loadState(USER, db);
-    expect([st.mode, st.think, st.lang, st.tz, st.repo]).toEqual(["sham", true, "en", "Europe/Istanbul", "o/r"]);
+    // the Sham section belongs to the owner: a user's "sham" is ignored, the rest is saved
+    expect([st.mode, st.think, st.lang, st.tz, st.repo]).toEqual(["coder", true, "en", "Europe/Istanbul", "o/r"]);
     await appOp({ chatId: USER, tier: "user" }, "settings", { mode: "x", tz: "Mars/Base", repo: "not a repo" }, { db, bot, botRow });
     st = await loadState(USER, db);
-    expect([st.mode, st.tz, st.repo]).toEqual(["sham", "Europe/Istanbul", "o/r"]);
+    expect([st.mode, st.tz, st.repo]).toEqual(["coder", "Europe/Istanbul", "o/r"]);
+    await appOp({ chatId: OWNER, tier: "owner" }, "settings", { mode: "sham" }, { db, bot, botRow });
+    expect((await loadState(OWNER, db)).mode).toBe("sham");
   });
 
   it("policy rules: set, scope, reset", async () => {
