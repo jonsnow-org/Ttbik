@@ -12,7 +12,7 @@ import {
 import { STR, type Lang, type Str } from "../i18n";
 import {
   addToHome, bindBack, bindMain, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
-  payInvoice, rawInitData, setBio, startTma,
+  payInvoice, rawInitData, setBio, startTma, closeApp,
 } from "../_tma/sdk";
 
 type Tab = "tasks" | "schedules" | "connect" | "memory" | "settings";
@@ -197,6 +197,141 @@ function TasksTab({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
     </List>
   );
 }
+
+// ---------------------------------------------------------------- conversations (threads): like Claude / ChatGPT — each chat on its own
+type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
+type ThreadTask = { run_id: string; title: string; status: string; started_at: string; finished_at: string | null; events: Ev[] };
+function ThreadView({ id, t, onChanged, onClose }: { id: string; t: Str; onChanged: () => void; onClose: () => void }) {
+  const [d, setD] = useState<{ thread: Thread; current: boolean; tasks: ThreadTask[] } | null>(null);
+  const [err, setErr] = useState("");
+  const [name, setName] = useState<string | null>(null);
+  const [busy, setBusy] = useState("");
+  const load = useCallback(async () => { try { setD(await api("thread", { id })); setErr(""); } catch (e: any) { setErr(e.message); } }, [id]);
+  useEffect(() => {
+    void load();
+    const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
+    return () => clearInterval(iv);
+  }, [load]);
+  if (err && !d) return <Fail t={t} msg={err} retry={load} />;
+  if (!d) return <Loading />;
+  const live = (s: string) => s === "running" || s === "waiting";
+  const cont = async () => {
+    setBusy("open");
+    haptic("medium");
+    try { await api("thread_open", { id }); onChanged(); closeApp(); } finally { setBusy(""); }
+  };
+  return (
+    <List>
+      <Section footer={t.continueHint}>
+        <ButtonCell before="💬" disabled={!!busy} onClick={cont}>{d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</ButtonCell>
+      </Section>
+      {!d.tasks.length && <Placeholder description={t.noMessages}><span style={{ fontSize: 40 }}>💬</span></Placeholder>}
+      {d.tasks.map((k) => (
+        <Section key={k.run_id} header={ago(k.started_at, t)}>
+          {k.events.map((e) => (
+            <Cell key={e.id} multiline before={<Emoji c={e.kind === "start" ? "🧑" : e.kind === "failed" ? "⚠️" : e.kind === "confirm" ? "❓" : "✨"} />}
+              subtitle={e.kind === "start" ? t.you : tx(t, `ev_${e.kind}`)}>
+              <span dir="auto" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{e.kind === "text" || e.kind === "start" ? e.text.slice(0, 4000) : e.text.slice(0, 400)}</span>
+            </Cell>
+          ))}
+          <Cell after={live(k.status) ? <Spinner size="s" /> : <StatusBadge s={k.status} t={t} />}>
+            <Caption>{live(k.status) ? tx(t, `status_${k.status}`) : ""}</Caption>
+          </Cell>
+          {live(k.status) && <ButtonCell mode="destructive" onClick={async () => { haptic("warning"); await api("stop", { runId: k.run_id, slot: "" }); void load(); }}>⏹ {t.stop}</ButtonCell>}
+        </Section>
+      ))}
+      <Section>
+        {name === null ? <ButtonCell before="✏️" onClick={() => setName(d.thread.title)}>{t.rename}</ButtonCell> : (
+          <>
+            <Input header={t.rename} value={name} maxLength={80} dir="auto" onChange={(e) => setName(e.target.value)} />
+            <ButtonCell disabled={!name.trim()} onClick={async () => { await api("thread_rename", { id, title: name }); haptic("success"); setName(null); void load(); onChanged(); }}>{t.save}</ButtonCell>
+          </>
+        )}
+        <ButtonCell mode="destructive" before="🗑" onClick={async () => { if (!(await guard(t.hideChat))) return; await api("thread_delete", { id }); haptic("success"); onChanged(); onClose(); }}>{t.hideChat}</ButtonCell>
+      </Section>
+    </List>
+  );
+}
+
+function ThreadsTab({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
+  const [data, setData] = useState<{ threads: Thread[]; current: string | null; currentEmpty: boolean; live: Task[]; runs: Task[]; pending: Pending[] } | null>(null);
+  const [err, setErr] = useState("");
+  const [open, setOpen] = useState<Thread | null>(null);
+  const [run, setRun] = useState<Task | null>(null);
+  const [note, setNote] = useState("");
+  const load = useCallback(async () => {
+    try { setData(await api("threads", { limit: 40 })); setErr(""); } catch (e: any) { setErr(e.message); }
+  }, []);
+  useEffect(() => {
+    void load();
+    const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
+    return () => clearInterval(iv);
+  }, [load]);
+  const close = useCallback(() => setOpen(null), []);
+  const closeRun = useCallback(() => setRun(null), []);
+  if (err && !data) return <Fail t={t} msg={err} retry={load} />;
+  if (!data) return <Loading />;
+  const fresh = async () => {
+    haptic("medium");
+    await api("thread_new");
+    setNote(t.newChatStarted);
+    void load();
+  };
+  const isLive = (x: Task) => x.status === "running" || x.status === "waiting";
+  return (
+    <List>
+      {data.pending.map((p) => <PendingBanner key={p.nonce} p={p} t={t} cats={me.prefs.categories} lang={lang} onDone={load} />)}
+      <Section>
+        <ButtonCell before={<span aria-hidden="true" style={{ fontSize: 20 }}>＋</span>} onClick={fresh}>{t.newChat}</ButtonCell>
+        {note && <Cell multiline><Caption>{note}</Caption></Cell>}
+      </Section>
+      {data.live.map((x) => (
+        <Section key={x.run_id} header={t.live}>
+          <Cell before={<Emoji c={srcIcon(x.source)} />} subtitle={ago(x.updated_at, t)} after={<Spinner size="s" />}
+            onClick={() => { haptic("light"); const th = data.threads.find((h) => h.id === (x as any).thread_id); if (th) setOpen(th); else setRun(x); }}>
+            <span dir="auto">{x.title || "—"}</span>
+          </Cell>
+          <EventsTimeline runId={x.run_id} live t={t} last={4} />
+        </Section>
+      ))}
+      <Section header={t.chats}>
+        {data.threads.length === 0 ? <Placeholder description={t.noChats}><span style={{ fontSize: 44 }}>💬</span></Placeholder>
+          : data.threads.map((h) => (
+            <Cell key={h.id} before={<Emoji c={h.legacy ? "🗂️" : "💬"} />} subtitle={ago(h.updated_at, t)}
+              titleBadge={h.id === data.current ? <Badge type="number" mode="primary">{t.currentChat}</Badge> : undefined}
+              after={<Navigation />} onClick={() => { haptic("light"); setOpen(h); }}>
+              <span dir="auto">{h.title || t.untitled}</span>
+            </Cell>
+          ))}
+      </Section>
+      {data.runs.length > 0 && (
+        <Section header={t.scheduledRuns}>
+          {data.runs.map((x) => (
+            <Cell key={x.run_id} before={<Emoji c={srcIcon(x.source)} />} subtitle={`${tx(t, `src_${x.source}`)} · ${ago(x.updated_at, t)}`}
+              after={isLive(x) ? <Spinner size="s" /> : <StatusBadge s={x.status} t={t} />} onClick={() => { haptic("light"); setRun(x); }}>
+              <span dir="auto">{x.title || "—"}</span>
+            </Cell>
+          ))}
+        </Section>
+      )}
+      <Sheet open={!!open} onClose={close} title={(open?.title || t.untitled).slice(0, 60)}>
+        {open && <ThreadView id={open.id} t={t} onChanged={load} onClose={close} />}
+      </Sheet>
+      <Sheet open={!!run} onClose={closeRun} title={run?.title?.slice(0, 60)}>
+        {run && (
+          <List>
+            <Section>
+              <Cell multiline after={<StatusBadge s={run.status} t={t} />}><span dir="auto">{run.title}</span></Cell>
+              {isLive(run) && <ButtonCell mode="destructive" onClick={async () => { haptic("warning"); await api("stop", { runId: run.run_id, slot: run.slot }); setRun(null); void load(); }}>⏹ {t.stop}</ButtonCell>}
+            </Section>
+            <Section><EventsTimeline runId={run.run_id} live={isLive(run)} t={t} /></Section>
+          </List>
+        )}
+      </Sheet>
+    </List>
+  );
+}
+void TasksTab;                                                       // the per-request list (kept; the Chats tab replaced it)
 
 // ---------------------------------------------------------------- schedules
 const DAY_KEYS = [1, 2, 3, 4, 5, 6, 0];
@@ -644,7 +779,7 @@ function SettingsTab({ t, me, lang, reload, openPage }: { t: Str; me: Me; lang: 
 
 // ---------------------------------------------------------------- billing (sub-page)
 function BillingPage({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
-  const [d, setD] = useState<{ usage: PubUsage; plans: PubPlan[]; owner?: { plans: OwnPlan[] } } | null>(null);
+  const [d, setD] = useState<{ usage: PubUsage; plans: PubPlan[]; owner?: { plans: OwnPlan[]; usage?: { metrics: { metric: string; used: number; limit: number }[] } } } | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
@@ -684,6 +819,10 @@ function BillingPage({ t, lang, me }: { t: Str; lang: Lang; me: Me }) {
             <Cell multiline><Caption>{u.level === "full" ? t.usageFull : u.level === "high" ? t.usageHigh : t.usageOk}{u.renewsAt ? ` · ${t.renewsAt}: ${fmtTime(u.renewsAt, me.settings.tz, lang)}` : ""}</Caption></Cell>
           </>
         )}
+        {d.owner?.usage && (() => {
+          const tk = d.owner.usage.metrics.find((m) => m.metric === "tokens");
+          return tk ? <Cell after={<Caption><span dir="ltr">{tk.used.toLocaleString("en-US")}</span></Caption>}>{t.tokensWeek}</Cell> : null;
+        })()}
       </Section>
       <Section header={t.plans}>
         {d.plans.map((p) => (
@@ -818,13 +957,13 @@ function PanelPage({ lang }: { lang: Lang }) {
 
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
 const TAB_ICON: Record<Tab, string> = {
-  tasks: "M4 6h16M4 12h10M4 18h7",
+  tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   connect: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   memory: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm6 0a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
-const TAB_KEY: Record<Tab, keyof Str> = { tasks: "tabTasks", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
+const TAB_KEY: Record<Tab, keyof Str> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
 const TABS: Tab[] = ["tasks", "schedules", "connect", "memory", "settings"];
 function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "panel") return { tab: "settings", page: "panel" };
@@ -893,7 +1032,7 @@ export default function NativeApp() {
           : !me ? <Loading />
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
-          : tab === "tasks" ? <TasksTab t={t} me={me} lang={lang} />
+          : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
