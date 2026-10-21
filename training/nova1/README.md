@@ -28,6 +28,8 @@ python scripts/collect_traces.py --n 300                           # 3. our agen
 python scripts/build_mix.py --tokens 60000000                      # 4. mix -> data/mix.raw.jsonl
 python scripts/translate_instructions.py data/mix.raw.jsonl data/ar_code.jsonl --n 15000 && python scripts/build_mix.py   # 5. Arabic wording, rebuild
 python scripts/dedup_decontam.py data/mix.raw.jsonl data/mix.jsonl # 6. exact + MinHash dedup, 13-gram decontamination vs all evals
+python scripts/known_filter.py score data/mix.jsonl --scores data/known.0.jsonl   # 7. (GPU) base-model loss of each row's answer
+python scripts/known_filter.py select data/mix.jsonl --scores 'data/known.*.jsonl' --out data/mix.filtered.jsonl   #    drop rows it already knows
 HF_TOKEN=... bash scripts/push_to_hub.sh <hf-user>/nova1-data      #    upload mix + code for the GPU notebook (free stage: build with --tokens 20000000 --max-len 2048)
 python eval/run_eval.py --out reports/base.json                    # 7. baseline (base model served by llama-server)
 python train/train.py --max-steps 30                               # 8. smoke run, then the full run
@@ -135,13 +137,26 @@ API here that creates or updates a Studio, so the owner deploys it by hand:
 4. On the site set `NOVA1_STUDIO_URL` (the Studio address) and the same key, then turn Nova 1 on in the owner panel (Models).
    Until `NOVA1_STUDIO_URL` is set, the owner panel lists this as a pending manual step.
 
+## Skipping what the base model already knows (`scripts/known_filter.py`)
+Every source stays in the mix; the rows the base model already reproduces are taken out instead, so the training budget goes to
+what it does not know yet. Settings are `known_filter` in `datasets.yaml` (on by default; the Kaggle notebook runs it).
+- Score: mean negative log-likelihood (nats/token) of the row's last assistant turn given everything before it, under
+  Qwen/Qwen3.5-4B in fp16, one forward pass, no generation. Rows are rendered with the model's own chat template, scored on at most
+  2,048 tokens, batched by length (~12k tokens per pass), one process per T4.
+- Rule: score below `threshold` (0.30) means the model already writes that answer, so the row is skipped; at most `max_skip_share`
+  (85%) of a source goes this way (lowest scores first). `identity` is exempt. The mix is then cut to `target_tokens` (20M),
+  lowest-scored rows first, so on Kaggle a 30M-token mix is built and filtered down.
+- Time cap `max_minutes` (45): rows are scored in a random order, so a cap leaves every source partly scored; unscored rows are kept.
+- Failure never stops a session: a row the template cannot render, a failed batch or the cap leaves rows unscored (kept); if
+  scoring fails as a whole, `select` still cuts the mix to the target; if `select` fails, the unfiltered mix is used.
+- Output: per-source table in the session log (rows, scored, skipped as known, trimmed, kept, kept tokens, median score) and
+  `known_report.json` in the session output. The threshold is a first value; the report's per-source medians are what to tune it on.
+
 ## Nova AI identity (in the weights and the model files)
-- `identity/identity_sft.jsonl` (written by `scripts/make_identity.py`): 540 short conversations in Modern Standard Arabic, Levantine
-  Arabic and English: who it is, who made it, which model it is, whether it is some other assistant, how it differs from Sham, how it compares with other assistants
-  (no numbers, no claims of being the best), what it can do, where it runs,
+- `identity/identity_sft.jsonl` (written by `scripts/make_identity.py`): 504 short conversations in Modern Standard Arabic, Levantine
+  Arabic and English: who it is, who made it, which model it is, whether it is some other assistant, what it can do, where it runs,
   questions about its internals, greetings, follow-ups after a coding answer, and attempts to pull internal details out of it.
-  The assistant is Nova AI, the coding assistant by the Sham team, running on Nova 1. Sham is a separate model of the same
-  team and SHAM AI is the platform both belong to; the answers name only these.
+  The assistant is Nova AI, the coding assistant by the Sham team, running on Nova 1, on the SHAM AI platform; the answers name only these.
 - `build_mix.py` adds them as source `identity` (weight 0.01, a cap above their ~45k tokens, so all of them are used), each
   conversation three ways: without a system message, with the training system message, and (every third) with four of the coder's
   tools offered. Rows of the other sources whose assistant calls itself another provider's model are left out, and a system message
