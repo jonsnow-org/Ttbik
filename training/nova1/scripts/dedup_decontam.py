@@ -42,7 +42,6 @@ def eval_grams() -> set:
         ("evalplus/humanevalplus", None, "test", ("prompt", "canonical_solution")),
         ("evalplus/mbppplus", None, "test", ("prompt", "code")),
         ("bigcode/bigcodebench", None, "v0.1.4", ("complete_prompt", "canonical_solution")),
-        ("livecodebench/code_generation_lite", "release_v6", "test", ("question_content",)),
     ):
         try:
             ds = load_dataset(name, cfg, split=split, trust_remote_code=False) if cfg else load_dataset(name, split=split)
@@ -51,6 +50,19 @@ def eval_grams() -> set:
         except Exception as e:  # a benchmark that cannot be loaded is reported, never silently skipped
             print(f"!! could not load {name}: {e}", file=sys.stderr)
             sys.exit(2)
+    # LiveCodeBench (release_v6 = test.jsonl .. test6.jsonl): its hub repo only has a loading script, which datasets>=4 no longer runs,
+    # so its JSONL files are streamed directly (about 4.5 GB, read line by line, only question_content kept)
+    import urllib.request
+    base = "https://huggingface.co/datasets/livecodebench/code_generation_lite/resolve/main/"
+    try:
+        for f in ("test.jsonl", "test2.jsonl", "test3.jsonl", "test4.jsonl", "test5.jsonl", "test6.jsonl"):
+            with urllib.request.urlopen(base + f, timeout=120) as r:
+                for line in r:
+                    if line.strip():
+                        texts.append(str(json.loads(line).get("question_content") or ""))
+    except Exception as e:
+        print(f"!! could not load livecodebench/code_generation_lite: {e}", file=sys.stderr)
+        sys.exit(2)
     for p in (HERE / "eval").glob("*.jsonl"):
         for line in p.open():
             r = json.loads(line)
