@@ -16,7 +16,7 @@ export type CoderModel = {
 };
 
 export const DEFAULT_MODELS: CoderModel[] = [
-  { id: "coder", name: { ar: "المبرمج", en: "Coder" }, desc: { ar: "النموذج الحالي، متاح للجميع.", en: "The current model, for everyone." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
+  { id: "coder", name: { ar: "Nova AI", en: "Nova AI" }, desc: { ar: "النموذج الحالي، متاح للجميع.", en: "The current model, for everyone." }, price_stars: null, visible: true, isDefault: true, sort: 0 },
   { id: "nova1", name: { ar: "نوفا 1", en: "Nova 1" }, desc: { ar: "نموذج برمجة عربي مُدرَّب خصيصاً (قيد التحضير).", en: "Our Arabic-tuned coding model (in preparation)." }, price_stars: null, visible: false, serveEnv: "NOVA1_STUDIO_URL", sort: 1 },
   { id: "sham", name: { ar: "شام", en: "Sham" }, desc: { ar: "نموذج شام.", en: "The Sham model." }, price_stars: null, visible: false, serveEnv: "SHAM_MODEL_URL", sort: 2 },
 ];
