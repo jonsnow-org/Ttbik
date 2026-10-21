@@ -2,7 +2,7 @@
 # Merge the Nova 1 LoRA into Qwen3.5-4B, convert to GGUF (llama.cpp) and quantise.
 #   bash export/export_gguf.sh out/nova1-lora out/gguf
 # Produces nova1-4b-f16.gguf (kept for re-quantising), nova1-4b-q4_k_m.gguf (served) and nova1-4b-q8_0.gguf.
-# Each GGUF carries the SHAM AI identity in its metadata and chat template (export/sham_identity.py).
+# Each GGUF carries the Nova AI identity ("Nova AI (Nova 1)", organization "Sham") in its metadata and chat template (export/sham_identity.py).
 set -euo pipefail
 LORA=${1:-out/nova1-lora}
 OUT=${2:-out/gguf}

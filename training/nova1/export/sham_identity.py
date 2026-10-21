@@ -1,8 +1,8 @@
-"""SHAM AI identity in the model files themselves: GGUF metadata (general.*) and the chat template stored in the tokenizer.
+"""Nova AI identity (Nova 1, by the Sham team) in the model files themselves: GGUF metadata (general.*) and the chat template stored in the tokenizer.
 
 Used by export_gguf.sh on the Nova 1 GGUFs it produces, and by rebrand_gguf.py on a GGUF that is already being served.
 What changes in a GGUF:
-  * general.name / basename / organization / version / description / finetune / size_label -> SHAM AI values;
+  * general.name / basename / organization / version / description / finetune / size_label -> Nova AI values;
   * provenance keys of the original upload (base_model.*, tags, repo_url, quantized_by, imatrix file and dataset names) are left out;
   * general.license and general.license.link are kept (Apache-2.0 asks that the licence travels with redistributed copies);
   * tokenizer.chat_template: a default system text naming another provider's model, if the template has one, is removed;
@@ -13,12 +13,12 @@ import re
 from pathlib import Path
 
 META = {
-    "general.name": "SHAM AI Nova 1",
-    "general.basename": "sham-ai-nova-1",
+    "general.name": "Nova AI (Nova 1)",
+    "general.basename": "nova-ai-nova-1",
     "general.organization": "Sham",
     "general.version": "1",
     "general.finetune": "coder",
-    "general.description": "SHAM AI coding model (Nova 1), developed by the Sham team.",
+    "general.description": "Nova AI coding model (Nova 1), developed by the Sham team.",
 }
 DROP_PREFIXES = ("general.base_model.", "general.dataset.")
 DROP_KEYS = ("general.tags", "general.repo_url", "general.url", "general.quantized_by", "general.source.url", "general.source.repo_url",
@@ -62,7 +62,7 @@ def clean_tokenizer_dir(path: str | Path) -> bool:
 
 
 def rebrand_gguf(src: str | Path, dst: str | Path, meta: dict | None = None) -> dict:
-    """Writes a copy of src to dst with SHAM AI metadata and a cleaned chat template; returns what changed."""
+    """Writes a copy of src to dst with Nova AI metadata and a cleaned chat template; returns what changed."""
     import gguf
     from gguf.scripts.gguf_new_metadata import MetadataDetails, copy_with_new_metadata
 
