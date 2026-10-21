@@ -3,7 +3,7 @@
 // uses) instead of the raw telegram-web-app.js global. Everything here is safe to call outside Telegram (it simply does nothing).
 import {
   addToHomeScreen, backButton, biometry, checkHomeScreenStatus, closingBehavior, hapticFeedback, init, initData, invoice, isTMA,
-  miniApp, openLink as tmaOpenLink, openTelegramLink, retrieveLaunchParams, retrieveRawInitData, swipeBehavior, themeParams, viewport,
+  mainButton, miniApp, openLink as tmaOpenLink, openTelegramLink, retrieveLaunchParams, retrieveRawInitData, swipeBehavior, themeParams, viewport,
 } from "@tma.js/sdk-react";
 
 let started = false;
@@ -173,3 +173,22 @@ export async function guard(reason: string): Promise<boolean> {
 
 /** Same as useBack, under a name that does not look like a React hook (it is called inside effects). */
 export const bindBack = (on: boolean, cb: () => void): (() => void) => useBack(on, cb);
+
+// ---------------------------------------------------------------- Telegram's own bottom button (MainButton) for the primary action of a form
+let mainMounted = false;
+/** Shows Telegram's MainButton with `text` while a form is open; returns a cleanup that hides it again. Does nothing outside Telegram. */
+export function bindMain(text: string, cb: () => void, opts: { enabled?: boolean; loading?: boolean } = {}): () => void {
+  if (!launch.inTelegram) return () => undefined;
+  if (!mainMounted) {
+    tryDo(() => mainButton.mount());
+    mainMounted = true;
+  }
+  tryDo(() => mainButton.setParams({ text, isVisible: true, isEnabled: opts.enabled !== false, isLoaderVisible: Boolean(opts.loading) }));
+  const off = tryDo(() => mainButton.onClick(cb));
+  return () => {
+    tryDo(() => off?.());
+    tryDo(() => mainButton.setParams({ isVisible: false, isLoaderVisible: false }));
+  };
+}
+/** True when Telegram draws the MainButton (the in-page save button can then stay as a quiet fallback). */
+export const hasMain = () => launch.inTelegram && Boolean(tryDo(() => mainButton.isMounted()));

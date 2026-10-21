@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import { Bot } from "grammy";
 import { prisma } from "@/lib/prisma";
 import { AppError, oauthFinish } from "@/lib/coderApp";
+import { siteBase } from "@/lib/coderConnectors";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ const esc = (s: string) => s.replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code") || "";
   const state = req.nextUrl.searchParams.get("state") || "";
-  const redirect = `${req.nextUrl.origin}/api/coder/app/github/callback`;
+  const redirect = `${siteBase()}/api/coder/app/github/callback`;           // must equal the redirect_uri of the start leg
   try {
     const { chatId, login } = await oauthFinish(code, state, redirect);
     const botRow = await prisma.bot.findFirst({ where: process.env.CODER_BOT_ID ? { id: process.env.CODER_BOT_ID } : { template: "NOVA_BOT", isActive: true } }).catch(() => null);

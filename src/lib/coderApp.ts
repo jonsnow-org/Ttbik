@@ -206,7 +206,13 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     }
     case "github_start": {
       if (!oauthConfigured()) throw new AppError(400, "GitHub sign-in is not configured on the server yet — paste a fine-grained token instead");
-      return { url: oauthStartUrl(chatId, String(body.redirect || "")) };
+      // the registered callback, never the address the request came through (src/lib/coderConnectors.ts siteBase)
+      const c = await import("@/lib/coderConnectors");
+      try {
+        return { url: c.connectorStartUrl(chatId, "github") };
+      } catch {
+        return { url: oauthStartUrl(chatId, `${c.siteBase()}/api/coder/app/github/callback`) };
+      }
     }
     case "github_token": {
       const token = String(body.token || "").trim();
