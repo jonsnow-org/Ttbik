@@ -108,4 +108,12 @@ if [ -f "$OR/agent/ZENOBIA_ON" ] && [ -f "$OR/agent/install-zenobia.sh" ]; then
     fi
   fi
 fi
+# The coder sandbox runner (agent/install-coder-sandbox.sh, owner-approved 2026-10-21; isolated like the two above). Once per version of its
+# files; a failed version is retried at most every 6 hours. A failure here changes nothing else.
+if [ -f "$OR/agent/CODER_SANDBOX_ON" ] && [ -f "$OR/agent/install-coder-sandbox.sh" ]; then
+  CV=$(cat "$OR/agent/install-coder-sandbox.sh" /opt/ttbik/coder-sandbox/install.sh /opt/ttbik/coder-sandbox/runner.mjs /opt/ttbik/coder-sandbox/docker-compose.yml /opt/ttbik/coder-sandbox/Dockerfile.* "$OR/Caddyfile" 2>/dev/null | sha1sum | cut -c1-12)
+  if [ ! -f "$STATE/coder_sbx_ok_$CV" ] && [ -z "$(find "$STATE" -maxdepth 1 -name "coder_sbx_fail_$CV" -mmin -360 2>/dev/null)" ]; then
+    if bash "$OR/agent/install-coder-sandbox.sh" > "$STATE/coder_sbx_install.log" 2>&1; then touch "$STATE/coder_sbx_ok_$CV"; else touch "$STATE/coder_sbx_fail_$CV"; fi
+  fi
+fi
 report

@@ -91,6 +91,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     );
   }
 
+  // The coder's Telegram Mini App (/coder-app) paints its own themed screen: none of the site's chrome.
+  if (pathname.startsWith("/coder-app")) {
+    return (
+      <html lang="ar" dir="rtl">
+        <body className="font-sans antialiased">{children}</body>
+      </html>
+    );
+  }
+
   if (isMiniApp) {
     return (
       <html lang="ar" dir="rtl">

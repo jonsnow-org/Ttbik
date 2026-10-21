@@ -1,0 +1,11 @@
+{
+  "setupTasks": [],
+  "tasks": {
+    "coder-runner": {
+      "name": "coder sandbox runner",
+      "command": "RUNNER_SECRET=\"${RUNNER_SECRET:-$(cat .runner-secret 2>/dev/null)}\" RUNNER_MODE=local RUNNER_HOST=0.0.0.0 RUNNER_PORT=8790 RUNNER_MAX_BOXES=1 RUNNER_MIN_FREE_MB=0 node runner.mjs",
+      "runAtStart": true,
+      "preview": { "port": 8790 }
+    }
+  }
+}

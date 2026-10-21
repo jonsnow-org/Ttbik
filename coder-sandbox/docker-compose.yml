@@ -1,0 +1,25 @@
+# Coder sandbox runner on the Oracle VM: its own project name, image, sandbox network and limits.
+# Started by deploy/oracle/agent/install-coder-sandbox.sh (or by hand: ./install.sh). The runner also joins the site's network
+# (ttbik_default, alias coder-sandbox-runner) only so Caddy can send https://<host>/coder-sbx/* to it; the boxes it starts never do.
+name: coder-sandbox
+services:
+  runner:
+    build: { context: ., dockerfile: Dockerfile.runner }
+    restart: unless-stopped
+    env_file: ${CODER_SBX_ENV_FILE:-/var/lib/coder-sandbox/runner.env}   # RUNNER_SECRET=... (never in the repo), optional RUNNER_* overrides
+    ports: ["127.0.0.1:8790:8790"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/coder-sandbox/flags:/host-flags:ro   # SHAM_ON here while the Sham job runs (written by the host timer): new boxes wait
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 128
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "2" } }
+    networks:
+      default: {}
+      site:
+        aliases: [coder-sandbox-runner]
+networks:
+  site:
+    name: ${CODER_SBX_SITE_NET:-ttbik_default}
+    external: true
