@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
+from app.telegram_delivery import split_telegram_text as _split_telegram_text
 from app.concurrency import with_hard_deadline
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
@@ -130,31 +131,6 @@ def _strip_markdown(text: str) -> str:
     text = re.sub(r"__(.+?)__", r"\1", text)
     text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
     return text
-
-
-def _split_telegram_text(text: str, limit: int = 3900) -> list[str]:
-    """Split long model answers into Telegram-safe messages.
-
-    Telegram's sendMessage limit is 4096 characters. Prefer paragraph/line
-    boundaries, then whitespace, without exceeding a safe payload size.
-    """
-    remaining = (text or "").strip()
-    if not remaining:
-        return []
-    chunks: list[str] = []
-    while len(remaining) > limit:
-        cut = remaining.rfind("\n", 0, limit + 1)
-        if cut < limit // 2:
-            cut = remaining.rfind(" ", 0, limit + 1)
-        if cut < limit // 2:
-            cut = limit
-        chunk = remaining[:cut].strip()
-        if chunk:
-            chunks.append(chunk)
-        remaining = remaining[cut:].strip()
-    if remaining:
-        chunks.append(remaining)
-    return chunks
 
 
 def _send_telegram_message(chat_id: str, text: str) -> None:
