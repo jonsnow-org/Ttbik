@@ -1,5 +1,6 @@
 # One public hostname, automatic HTTPS (Let's Encrypt).
 #   /tg/*  -> media-bot engine (Telegram updates forwarded by the Vercel front door)
+#   /coder-sbx/* -> the coder sandbox runner (coder-sandbox/, agent/CODER_SANDBOX_ON)
 #   rest   -> the site (only when the "site" profile is running)
 {$PUBLIC_HOST} {
 	encode zstd gzip
@@ -7,6 +8,11 @@
 	@engine path /tg/*
 	handle @engine {
 		reverse_proxy media-engine:10000
+	}
+
+	# coder sandbox runner (coder-sandbox/, its own key on every request); only while that project runs
+	handle_path /coder-sbx/* {
+		reverse_proxy coder-sandbox-runner:8790
 	}
 
 	handle {
