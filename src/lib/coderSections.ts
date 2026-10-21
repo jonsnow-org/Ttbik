@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { coderSystemPrompt, coderTools, githubClient, runTool, toolLabel, trimMessages, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, coderSystemPrompt, coderTools, githubClient, isAccuracy, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
@@ -31,8 +31,9 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
+  progress?: { msgId?: number; lines: string[] };                     // the one live "progress card" message of the current tool streak
 };
-export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean };
+export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; notes: string; inbox: string[]; run: Run | null; tz?: string; lang?: "ar" | "en"; convId?: string; repo?: string; menu?: boolean; accuracy?: Accuracy };
 export type { Db };
 export { coderChatKey };
 
@@ -112,13 +113,43 @@ export { later } from "@/lib/coderRuntime";
 import { later } from "@/lib/coderRuntime";
 
 // ---------------------------------------------------------------- texts and keyboards
-const WELCOME =
+// The /start welcome (owner's note 2026-10-21: warmer, shorter, nothing internal). {name} = the user's first name.
+const WELCOME_V1 =
   "👋 أهلاً! هذا قسم «المبرمج» 💻 — نموذج برمجة مفتوح يكتب الكود ويراجعه ويشرحه، وينفّذ مهام على GitHub خطوة بخطوة (يخطط ← ينفّذ ← يتحقق)، ويبحث في الويب ويشغّل الكود في حاسوب افتراضي خاص بالمهمة.\n" +
   "اكتب طلبك بأي طول؛ الردود الطويلة تصل على دفعات.\n\n" +
   "⚙️ الإعدادات، الذاكرة، الجدولة، الصلاحيات، ربط GitHub، تبديل القسم وسجل المهام: من زر «المبرمج» في القائمة أو الزر أدناه.\n" +
   "/stop لإيقاف مهمة جارية.";
+void WELCOME_V1;
+export function welcomeText(name = ""): string {
+  const who = name.trim().slice(0, 40);
+  return [
+    `👋 أهلاً${who ? ` ${who}` : ""}، أنا «المبرمج» من SHAM AI.`,
+    "",
+    "أساعدك تكتب الكود وتراجعه وتصلّحه، وأنفّذ مهامك على مستودعاتك خطوة بخطوة: أخطط، أنفّذ، ثم أتحقق قبل ما أقول «تم».",
+    "",
+    "✨ جرّب تكتب لي مثلاً:",
+    "• «اشرح لي هذا الكود» وأرسل الملف",
+    "• «أصلح الخطأ في مستودعي وافتح طلب دمج»",
+    "• «كل يوم الساعة 9 راجع طلبات الدمج الجديدة»",
+    "",
+    "📱 من زر «فتح التطبيق» تلاقي مهامك مباشرة، الموصلات (GitHub وGoogle وNotion…)، الذاكرة، الإعدادات والاشتراك.",
+    "",
+    "اكتب طلبك بالطول اللي بدك، وأي خطوة حساسة بستأذنك فيها قبل ما نفّذها. /stop يوقف المهمة الجارية.",
+  ].join("\n");
+}
+export const WELCOME = welcomeText();
+export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
 export const modeKeyboard = (mode: Mode) =>
   new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 المبرمج`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
+
+/** What a regular user is told when the model service failed: plain words, never the server's own error text. */
+export function userFailureText(o: Parameters<typeof coderFailureText>[0], chatId: number | string): string {
+  if (tierFor(chatId) === "owner") return coderFailureText(o);
+  if (o.failure === "off") return "🛠️ المبرمج غير متاح الآن. جرّب بعد قليل.";
+  if (o.failure === "timeout" || o.failure === "http" || o.failure === "network") return "⌛ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
+  if (o.reply?.type === "gone") return "انتهت صلاحية هذا الطلب. أعد إرسال رسالتك.";
+  return "⚠️ تعذّر إكمال الرد هذه المرة. أعد المحاولة بعد قليل.";
+}
 
 async function send(bot: TelegramBot, chatId: number, text: string, extra: Record<string, unknown> = {}) {
   await bot.api.sendMessage(chatId, text.slice(0, 4096), extra as never).catch(() => null);
@@ -126,13 +157,35 @@ async function send(bot: TelegramBot, chatId: number, text: string, extra: Recor
 
 // ---------------------------------------------------------------- entry from the Telegram route (true = handled here)
 export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, update: any, db: Db = prismaDb): Promise<boolean> {
-  if (!coderEnabled()) return false;
+  // Stars payment for a coder plan (src/lib/coderStars.ts): recorded even while the coder itself is switched off
+  if (update.message?.successful_payment) {
+    const { handleCoderPaymentMessage } = await import("@/lib/coderStars");
+    if (await handleCoderPaymentMessage(bot, update.message, db)) return true;
+  }
+  const fromId = update.callback_query?.from?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.from?.id ?? update.message?.chat?.id;
+  const owner = fromId !== undefined && tierFor(fromId) === "owner";
+  if (!coderEnabled()) {
+    if (owner || fromId === undefined) return false;
+    // the Sham section is the owner's only (owner's rule, 2026-10-21): users get a short notice instead
+    if (update.callback_query) await bot.api.answerCallbackQuery(update.callback_query.id).catch(() => null);
+    else if (update.message?.chat?.id) await send(bot, update.message.chat.id, "🛠️ المبرمج قيد الصيانة لدقائق. جرّب بعد قليل، وشكراً لصبرك.");
+    return true;
+  }
   const cq = update.callback_query;
   if (cq) {
     const data = String(cq.data || "");
     const chatId = cq.message?.chat?.id;
-    if (!chatId || !/^c(mode|cf|perm|sch)\|/.test(data)) return false;
+    if (!chatId) return false;
+    if (!/^c(mode|cf|perm|sch)\|/.test(data)) {
+      if (owner) return false;                                // owner: the Sham handler's own buttons
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      return true;
+    }
     const st = await loadState(chatId, db);
+    if (data === "cmode|sham" && !owner) {
+      await bot.api.answerCallbackQuery(cq.id, { text: "هذا القسم غير متاح حالياً." }).catch(() => null);
+      return true;
+    }
     if (data.startsWith("cmode|")) {
       st.mode = data === "cmode|sham" ? "sham" : "coder";
       await saveState(chatId, st, db);
@@ -172,12 +225,16 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
   const cmd = text.split(/[\s@]/)[0].toLowerCase();
   const st = await loadState(chatId, db);
+  if (st.mode === "sham" && tierFor(chatId) !== "owner") {
+    st.mode = "coder";                                        // the Sham section is the owner's only
+    await saveState(chatId, st, db);
+  }
   // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
   // every other command (old habits, menus) answers with the button that opens the app on the right tab.
   const ROUTED: Record<string, string> = {
     "/mode": "settings", "/think": "settings", "/perms": "settings", "/memory": "memory", "/schedule": "schedules", "/schedules": "schedules",
     "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
-    "/stalls": "settings", "/new": "tasks", "/help": "tasks",
+    "/stalls": "settings", "/new": "tasks", "/help": "tasks", "/plan": "billing", "/billing": "billing", "/upgrade": "billing", "/connectors": "connect",
   };
   if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
     await ensureMenuButton(bot, chatId, st, db);
@@ -188,7 +245,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
 
   if (cmd === "/start" || cmd === "/help") {
     await ensureMenuButton(bot, chatId, st, db, true);
-    await send(bot, chatId, WELCOME, { reply_markup: appButton("tasks") });
+    await send(bot, chatId, welcomeText(String(msg.from?.first_name || "")), { reply_markup: welcomeKeyboard() });
     return true;
   }
   if (cmd === "/new") {
@@ -250,7 +307,7 @@ export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح 
 async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
   if (st.menu && !force) return;
   try {
-    await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "المبرمج", web_app: { url: appUrl() } } });
+    await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: appUrl() } } });
   } catch {
     /* best-effort: the inline button still works */
   }
@@ -266,7 +323,7 @@ export async function newConversation(chatId: number, st: ChatState, db: Db = pr
   await endRun(st, "stopped", db, "new conversation", coderChatKey(chatId));
   if (st.convId) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), st.convId!)));
   if (old.length) rememberLater(chatId, old, runId, st.repo, db);       // what was said is kept as long-term memory first
-  await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu }, db);
+  await saveState(chatId, { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy }, db);
 }
 
 /** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
@@ -412,10 +469,33 @@ async function handOff(botRow: BotRow, chatId: number, chain: string, slot = "")
   await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000) }).catch(() => null);
 }
 
+/**
+ * One live "progress card" per streak of tool calls (idea taken from CI agents that keep a single status comment up to date):
+ * the first tool sends a message, the next ones edit it, so the chat is not flooded with one line per step. A text reply from the
+ * model closes the card; the next tools open a new one. CODER_PROGRESS_CARD=off restores one message per tool.
+ */
+async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: string): Promise<void> {
+  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") {
+    await send(bot, chatId, line);
+    return;
+  }
+  const p = (run.progress ||= { lines: [] });
+  p.lines.push(line.slice(0, 300));
+  const shown = p.lines.slice(-12);
+  const text = `⚙️ أعمل على مهمتك…\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} خطوة سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▸ ${l}` : `✓ ${l}`)).join("\n")}`.slice(0, 4000);
+  if (p.msgId) {
+    const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
+    if (ok) return;
+  }
+  const m = await bot.api.sendMessage(chatId, text).catch(() => null);
+  p.msgId = (m as any)?.message_id || undefined;
+}
+
 async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
     const part = renderRange(text, a, b);
     if (part.trim()) {
+      run.progress = undefined;                                 // a reply closes the progress card
       await send(bot, chatId, part);
       await taskEvent(run.id, "text", part);
     }
@@ -485,7 +565,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         return;
       }
       if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
-      await send(bot, chatId, toolLabel(call));
+      await progressLine(bot, chatId, run, toolLabel(call));
       await taskEvent(run.id, "tool", toolLabel(call), db);
       const out = await runTool(call, ctx);
       st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
@@ -540,7 +620,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         }
         await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
         await saveState(chatId, st, db, slot);
-        if (r?.type !== "cancelled") await send(bot, chatId, coderFailureText(o));
+        if (r?.type !== "cancelled") await send(bot, chatId, userFailureText(o, chatId));
         return;
       }
       const text = r.text || "";
@@ -579,7 +659,9 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
           await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
           await saveState(chatId, st, db, slot);
-          await send(bot, chatId, `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`);
+          await send(bot, chatId, tierFor(chatId) === "owner"
+            ? `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`
+            : "⛔ توقفت المهمة لأنها دارت في حلقة بلا تقدّم. اكتب «تابع» لأكمل من حيث توقفت، أو وضّح لي المطلوب أكثر.");
           return;
         }
         await saveState(chatId, st, db, slot);
@@ -640,11 +722,15 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
       run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
     }
-    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+    const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
     const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
     await addUsage(chatId, "steps", 1, db);
     await addUsage(chatId, "tokens", estimateTokens(messages.map((m) => m.content || "").join("\n")), db);
-    const o = await coderChat(messages, { tools: coderTools(github), think: st.think || knobs.think, temperature: knobs.temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
+    const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
+    const o = await coderChat(messages, { tools: coderTools(github, connected.length > 0), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
     const r = o.reply;
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
       run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
@@ -655,14 +741,14 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     if (!r || !r.job) {
       await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
       await saveState(chatId, st, db, slot);
-      await send(bot, chatId, coderFailureText(o));
+      await send(bot, chatId, userFailureText(o, chatId));
       return;
     }
     run.job = r.job;
     run.sent = 0;
     if (r.type !== "pending") cached = r;
     if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(bot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
-    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز.");
+    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم المبرمج يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
     await saveState(chatId, st, db, slot);
   }
 }
@@ -718,7 +804,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
   startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));

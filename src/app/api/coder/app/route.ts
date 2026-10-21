@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Bot } from "grammy";
 import { prisma } from "@/lib/prisma";
-import { verifyTelegramInitData } from "@/lib/verifyTelegramOwner";
+import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { AppError, appOp, tierOf } from "@/lib/coderApp";
 
 export const maxDuration = 30;
@@ -22,7 +22,8 @@ async function coderBot() {
 export async function POST(req: NextRequest) {
   const botRow = await coderBot();
   if (!botRow) return NextResponse.json({ error: "bot not configured" }, { status: 503 });
-  const user = verifyTelegramInitData(req.headers.get("x-telegram-init-data") || "", botRow.token);
+  // every call: Telegram-signed initData, validated here with the bot token (never trusted from the client)
+  const user = verifyTmaInitData(req.headers.get("x-telegram-init-data") || "", botRow.token);
   if (!user) return NextResponse.json({ error: "open this from Telegram" }, { status: 401 });
   const body = (await req.json().catch(() => ({}))) as Record<string, any>;
   const chatId = Number(user.id);
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
     const out = await appOp({ chatId, tier: tierOf(chatId) }, String(body.op || ""), body, { bot: new Bot(botRow.token), botRow });
     return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
-    if (e instanceof AppError) return NextResponse.json({ error: e.message }, { status: e.status });
+    if (e instanceof AppError) return NextResponse.json({ error: e.message }, { status: e.status, headers: { "Cache-Control": "no-store" } });
     return NextResponse.json({ error: "server error" }, { status: 500 });
   }
 }

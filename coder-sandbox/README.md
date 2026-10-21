@@ -64,6 +64,10 @@ A backend without all its variables is skipped. Order: Oracle → Vercel Sandbox
 3. Create a fine-grained token for that repo with Codespaces read/write, and keep the spending limit at $0.
    Each task creates a 2-core codespace and deletes it afterwards.
 
+The site can only reach the runner on a public port: a private one answers with a GitHub sign-in page (200) or 401, also with
+the token in `X-Github-Token`. `.devcontainer/start-runner.sh` asks `gh` inside the codespace to make 8790 public; with the
+codespace's own default token that did not happen in the test of 2026-10-21, so this backend stays off for now.
+
 ## API
 
 All requests need the header `x-runner-key: <secret>`.
