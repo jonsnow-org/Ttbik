@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-21 05:01 UTC",
+  "generated_at": "2026-10-21 12:02 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -70,7 +70,7 @@
       "track": "chat_stage",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-20",
+      "last_run": "2026-10-21",
       "gpu": false,
       "failure": ""
     },
@@ -79,7 +79,7 @@
       "track": "all_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-20",
+      "last_run": "2026-10-21",
       "gpu": false,
       "failure": ""
     },
@@ -243,29 +243,29 @@
       "size_mb": 35.4,
       "last_updated": "2026-10-21",
       "progress": {
-        "samples_consumed": 24880,
-        "step": 21068,
+        "samples_consumed": 40208,
+        "step": 22984,
         "last_run_sources": {
           "cv17-ar": 1000
         },
-        "codebook_usage": 2002,
-        "recon": 0.01176309585571289
+        "codebook_usage": 1996,
+        "recon": 0.013131437182892114
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 144.5,
       "last_updated": "2026-10-21",
       "progress": {
-        "samples_consumed": 101256,
-        "step": 9574,
+        "samples_consumed": 101664,
+        "step": 9676,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 3017,
-        "recon": 0.049345310777425766
+        "codebook_usage": 3371,
+        "recon": 0.06564769583443801
       },
       "has_key_files": true
     },
@@ -273,7 +273,7 @@
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -281,7 +281,7 @@
       "alias": "نتائج المسار A 1",
       "track": "cpu_training_track",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -312,8 +312,8 @@
     {
       "alias": "نتائج المرحلة الثالثة 2",
       "track": "chat_stage",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "size_mb": 580.1,
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -331,7 +331,7 @@
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -380,13 +380,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 24880,
-          "step": 21068,
+          "samples_consumed": 40208,
+          "step": 22984,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 2002,
-          "recon": 0.01176309585571289
+          "codebook_usage": 1996,
+          "recon": 0.013131437182892114
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
