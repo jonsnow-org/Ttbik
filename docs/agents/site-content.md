@@ -26,3 +26,6 @@ New ad networks or placements policy, anything paid, legal pages wording, domain
 
 ## Report fields
 Pages rendered · tools checked · feeds status · defects fixed (PRs) · content added · needs-owner.
+
+## Daily content: no deletions
+Before any content push read `docs/notes/CONTENT_AGENT_NO_DELETE.md` (append only, run `node scripts/content-shrink-check.mjs <tip>`, build first). Incident: 8d111d08/aa54a02e on 2026-10-21 emptied 4 content files and failed two production deploys.

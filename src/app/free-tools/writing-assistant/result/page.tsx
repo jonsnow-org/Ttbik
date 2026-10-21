@@ -3,9 +3,14 @@ import { Suspense } from "react";
 import Link from "next/link";
 import AdSlot from "@/components/AdSlot";
 import ResultView from "./ResultView";
+import { SITE_URL } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
-  title: "نتيجة مساعد الكتابة | شام AI",
+  // Result pages only echo the ?output=… of one visitor: keep them out of the index,
+  // point the canonical at the tool, and use an absolute title (the root template already adds "| شام AI").
+  title: { absolute: "نتيجة مساعد الكتابة | شام AI" },
+  robots: { index: false, follow: true },
+  alternates: { canonical: `${SITE_URL}/free-tools/writing-assistant` },
 };
 
 export default function WritingAssistantResultPage() {

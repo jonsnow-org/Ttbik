@@ -78,7 +78,8 @@ export function toWords(num: bigint, fem = false): string {
     if (g === 1) parts.push(s1);
     else if (g === 2) parts.push(s2);
     else if (g % 100 >= 3 && g % 100 <= 10) parts.push(`${group(g, false)} ${sp}`);
-    else parts.push(`${group(g, false)} ${s1}`);
+    // "مئتا ألف" / "مئتا مليون": a dual directly followed by the noun it counts drops its nun (construct form).
+    else parts.push(`${group(g, false).replace(/مئتان$/, "مئتا")} ${s1}`);
   }
   return parts.join(" و");
 }
@@ -86,7 +87,10 @@ export function toWords(num: bigint, fem = false): string {
 function amountWords(n: bigint, c: { one: string; two: string; many: string; single: string }, fem: boolean): string {
   if (n === BigInt(1)) return c.one;
   if (n === BigInt(2)) return c.two;
-  const w = toWords(n, fem);
+  let w = toWords(n, fem);
+  // A number ending in a dual (200, 2000, 2 million…) is followed directly by the currency noun:
+  // construct form drops the nun — "مئتا ريال", "ألفا ريال", "مليونا ريال".
+  if (n % BigInt(100) === BigInt(0)) w = w.replace(/(مئتان|ألفان|مليونان|ملياران|تريليونان)$/, (d) => d.slice(0, -1));
   return `${w} ${counted(Number(n % BigInt(100)), c.one, c.two, c.many, c.single)}`;
 }
 
