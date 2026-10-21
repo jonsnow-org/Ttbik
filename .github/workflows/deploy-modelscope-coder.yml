@@ -19,6 +19,10 @@ on:
         description: "true = ask ModelScope to (re)deploy after pushing the files"
         required: false
         default: "true"
+      studio:
+        description: "Studio repo name: coder-inference-server (primary) or a replica coder-inference-server-<n>. Never Sham's."
+        required: false
+        default: "coder-inference-server"
 
 concurrency:
   group: deploy-modelscope-coder
@@ -27,7 +31,7 @@ concurrency:
 env:
   MS: https://www.modelscope.cn
   OWNER: novaai2026
-  REPO: coder-inference-server
+  REPO: ${{ inputs.studio || 'coder-inference-server' }}
   LLAMA_BUILD: b11757
   LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
 
@@ -35,6 +39,13 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Only coder Studios (Sham's Studio is never touched)
+        run: |
+          case "$REPO" in
+            coder-inference-server|coder-inference-server-[0-9]|coder-inference-server-[0-9][0-9]) echo "studio: $OWNER/$REPO";;
+            *) echo "::error::refusing studio name '$REPO'"; exit 1;;
+          esac
+
       - uses: actions/checkout@v7
 
       - name: Account, free hardware and existing Studio (read-only)
@@ -72,7 +83,7 @@ jobs:
           )
           echo "hardware pick: $HW"
           case "$HW" in paid/*) echo "refusing paid hardware"; exit 1;; esac
-          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':'coder-inference-server'}))")
+          body=$(python3 -c "import json,os;print(json.dumps({'owner':os.environ['OWNER'],'repo_name':os.environ['REPO'],'sdk_type':'gradio','visibility':'private','hardware':'$HW','display_name':os.environ['REPO']}))")
           code=$(curl -sS -o create.json -w '%{http_code}' -X POST -H "Authorization: Bearer $T" -H "Content-Type: application/json" -d "$body" "$MS/openapi/v1/studios")
           echo "create http $code"; head -c 2000 create.json; echo
           [ "$code" -lt 300 ] || { echo "::error::Studio creation refused (see body above: quota / verification / one-Studio limit)"; exit 1; }
