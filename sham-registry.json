@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-21 00:01 UTC",
+  "generated_at": "2026-10-21 05:01 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -97,7 +97,7 @@
       "track": "chat_image_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-20",
+      "last_run": "2026-10-21",
       "gpu": false,
       "failure": ""
     },
@@ -151,7 +151,7 @@
       "track": "ab_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-20",
+      "last_run": "2026-10-21",
       "gpu": false,
       "failure": ""
     },
@@ -214,18 +214,18 @@
   "engineer_notebooks_count": 3,
   "datasets": [
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 1",
-      "track": "image_tokenizer",
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -233,6 +233,46 @@
       "alias": "نتائج المدرّب الحي 2",
       "track": "live_trainer",
       "size_mb": 793.3,
+      "last_updated": "2026-10-20",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار ترميز الصوت 1",
+      "track": "audio_tokenizer",
+      "size_mb": 35.4,
+      "last_updated": "2026-10-21",
+      "progress": {
+        "samples_consumed": 24880,
+        "step": 21068,
+        "last_run_sources": {
+          "cv17-ar": 1000
+        },
+        "codebook_usage": 2002,
+        "recon": 0.01176309585571289
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار ترميز الصورة 2",
+      "track": "image_tokenizer",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-21",
+      "progress": {
+        "samples_consumed": 101256,
+        "step": 9574,
+        "last_run_sources": {
+          "flickr30k": 1000
+        },
+        "codebook_usage": 3017,
+        "recon": 0.049345310777425766
+      },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الثالثة 1",
+      "track": "chat_stage",
+      "size_mb": 0.0,
       "last_updated": "2026-10-20",
       "progress": {},
       "has_key_files": true
@@ -246,50 +286,10 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 2",
-      "track": "image_tokenizer",
-      "size_mb": 144.4,
-      "last_updated": "2026-10-20",
-      "progress": {
-        "samples_consumed": 100396,
-        "step": 9359,
-        "last_run_sources": {
-          "flickr30k": 1000
-        },
-        "codebook_usage": 3752,
-        "recon": 0.057038446076405354
-      },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار ترميز الصوت 1",
-      "track": "audio_tokenizer",
-      "size_mb": 35.4,
-      "last_updated": "2026-10-20",
-      "progress": {
-        "samples_consumed": 12064,
-        "step": 19466,
-        "last_run_sources": {
-          "cv17-ar": 1000
-        },
-        "codebook_usage": 1998,
-        "recon": 0.013220604858361185
-      },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المرحلة الثالثة 1",
-      "track": "chat_stage",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-20",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
       "has_key_files": true
     },
@@ -305,18 +305,8 @@
       "alias": "نتائج المسار B 1",
       "track": "research_track",
       "size_mb": 0.0,
-      "last_updated": "2026-10-20",
+      "last_updated": "2026-10-21",
       "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار جمع وترميز الفيديو 1",
-      "track": "video_corpus",
-      "size_mb": 7.6,
-      "last_updated": "2026-10-20",
-      "progress": {
-        "videos_consumed": 2067
-      },
       "has_key_files": true
     },
     {
@@ -325,6 +315,16 @@
       "size_mb": 0.0,
       "last_updated": "2026-10-20",
       "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار جمع وترميز الفيديو 1",
+      "track": "video_corpus",
+      "size_mb": 8.0,
+      "last_updated": "2026-10-21",
+      "progress": {
+        "videos_consumed": 2167
+      },
       "has_key_files": true
     },
     {
@@ -380,13 +380,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 12064,
-          "step": 19466,
+          "samples_consumed": 24880,
+          "step": 21068,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 1998,
-          "recon": 0.013220604858361185
+          "codebook_usage": 2002,
+          "recon": 0.01176309585571289
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
@@ -395,7 +395,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 2067
+          "videos_consumed": 2167
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
