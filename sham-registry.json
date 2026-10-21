@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20 19:25 UTC",
+  "generated_at": "2026-10-21 00:01 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -280,7 +280,7 @@
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 580.2,
+      "size_mb": 0.0,
       "last_updated": "2026-10-20",
       "progress": {},
       "has_key_files": true
@@ -322,7 +322,7 @@
     {
       "alias": "نتائج المرحلة الثالثة 2",
       "track": "chat_stage",
-      "size_mb": 580.1,
+      "size_mb": 0.0,
       "last_updated": "2026-10-20",
       "progress": {},
       "has_key_files": true
