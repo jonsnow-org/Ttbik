@@ -132,19 +132,57 @@ def _strip_markdown(text: str) -> str:
     return text
 
 
+def _split_telegram_text(text: str, limit: int = 3900) -> list[str]:
+    """Split long model answers into Telegram-safe messages.
+
+    Telegram's sendMessage limit is 4096 characters. Prefer paragraph/line
+    boundaries, then whitespace, without exceeding a safe payload size.
+    """
+    remaining = (text or "").strip()
+    if not remaining:
+        return []
+    chunks: list[str] = []
+    while len(remaining) > limit:
+        cut = remaining.rfind("\n", 0, limit + 1)
+        if cut < limit // 2:
+            cut = remaining.rfind(" ", 0, limit + 1)
+        if cut < limit // 2:
+            cut = limit
+        chunk = remaining[:cut].strip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[cut:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
 def _send_telegram_message(chat_id: str, text: str) -> None:
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async answer to Telegram chat_id=%s", chat_id)
         return
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
-            json={"chat_id": chat_id, "text": text},
-            timeout=15,
-        )
-    except Exception:
-        logger.exception("Failed to deliver async answer to Telegram chat_id=%s", chat_id)
-
+    chunks = _split_telegram_text(text)
+    if not chunks:
+        logger.warning("Nova produced an empty Telegram answer for chat_id=%s", chat_id)
+        return
+    for index, chunk in enumerate(chunks, start=1):
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": chunk},
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not payload.get("ok", False):
+                raise RuntimeError(f"Telegram API rejected sendMessage: {payload.get('description', 'unknown error')}")
+        except Exception:
+            logger.exception(
+                "Failed to deliver Nova answer chunk %s/%s to Telegram chat_id=%s",
+                index, len(chunks), chat_id,
+            )
+            # Stop after the first failed chunk to avoid silently reordering a partial answer.
+            break
 
 def _send_telegram_photo(chat_id: str, photo_bytes: bytes, caption: str) -> None:
     """Same async-delivery shape as _send_telegram_message above, but
