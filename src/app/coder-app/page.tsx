@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRoot, Button as TgButton, Cell, Input, Section, Switch } from "@telegram-apps/telegram-ui";
 import { STR, type Lang, type Str } from "./i18n";
 import NativeApp from "./_native/NativeApp";
+import NovaApp from "./_nova/NovaApp";
 import { addToHome, bioSupported, bioWanted, canAddToHome, getLaunch, guard, haptic, homeStatus, isAndroid, isApple, isDark, openExternal, payInvoice, rawInitData, setBio, startTma, bindBack } from "./_tma/sdk";
 
 type Tab = "tasks" | "schedules" | "memory" | "connect" | "settings" | "billing" | "panel";
@@ -1283,10 +1284,16 @@ function ClassicCoderApp() {
   );
 }
 
-/** The Mini App: native telegram-ui screens (./_native/NativeApp.tsx: Material on Android, iOS on Apple); ?ui=classic keeps the classic ones. */
+/**
+ * The Mini App: Nova's redesign (./_nova/NovaApp.tsx: Mira's structure in Fadaa's colours) by default; ?ui=native keeps the telegram-ui
+ * screens (./_native/NativeApp.tsx) and ?ui=classic the classic ones. Nothing is removed.
+ */
 export default function CoderApp() {
-  const [ui, setUi] = useState<"native" | "classic" | null>(null);
-  useEffect(() => setUi(new URLSearchParams(window.location.search).get("ui") === "classic" ? "classic" : "native"), []);
+  const [ui, setUi] = useState<"nova" | "native" | "classic" | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("ui");
+    setUi(q === "classic" ? "classic" : q === "native" ? "native" : "nova");
+  }, []);
   if (!ui) return <div style={{ minHeight: "100vh", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }} />;
-  return ui === "classic" ? <ClassicCoderApp /> : <NativeApp />;
+  return ui === "classic" ? <ClassicCoderApp /> : ui === "native" ? <NativeApp /> : <NovaApp />;
 }
