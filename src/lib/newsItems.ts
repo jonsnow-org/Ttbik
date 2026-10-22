@@ -31,3 +31,22 @@ export const NEWS_ITEMS: NewsItem[] = [
     ],
   }
 ];
+
+/** Find one authored item by its public slug. */
+export function getNewsItem(slug: string): NewsItem | undefined {
+  return NEWS_ITEMS.find((item) => item.slug === slug);
+}
+
+/** The newest authored news item, or undefined when the desk is empty. */
+export function latestNewsItem(): NewsItem | undefined {
+  return [...NEWS_ITEMS].sort((a, b) => b.dateIso.localeCompare(a.dateIso))[0];
+}
+
+/** Public URLs used by IndexNow and the news sitemap. */
+export function newsSitemapEntries(): Array<{ path: string; dateIso: string; title: string }> {
+  return NEWS_ITEMS.map((item) => ({
+    path: `/news/${item.slug}`,
+    dateIso: item.dateIso,
+    title: item.title,
+  }));
+}
