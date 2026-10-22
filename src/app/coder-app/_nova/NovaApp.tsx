@@ -504,7 +504,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   const set = async (p: Partial<Me["settings"]>) => {
     const prev = s;
     setS({ ...s, ...p });
-    try { await api("settings", p); haptic("success"); if (p.lang || p.mode) reload(); } catch { setS(prev); haptic("error"); }
+    try { await api("settings", p); haptic("success"); if (p.lang || p.mode || p.tz) reload(); } catch { setS(prev); haptic("error"); }
   };
   const closeSheet = useCallback(() => setSheet(""), []);
   const acc = s.accuracy || "balanced";
