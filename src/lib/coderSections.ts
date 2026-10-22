@@ -146,8 +146,8 @@ export function verifyContinue(secret: string, botId: string, chatId: string, ch
 export function selfUrl(): string {
   return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
 }
-// redeploy trigger 2026-10-22T14:04Z
-// redeploy trigger
+// token updated 2026-10-22T14:04Z
+// token updated
 export function appUrl(): string {
   // Telegram must be given the Mini App route, not the marketing homepage. A configured
   // CODER_APP_URL may accidentally contain only the site origin; normalize that safely.
