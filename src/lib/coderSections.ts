@@ -180,7 +180,7 @@ export function welcomeText(name = ""): string {
   ].join("\n");
 }
 export const WELCOME = welcomeText();
-export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
+export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🖥 الطرفية", `${appUrl()}?tab=terminal`).webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).row().webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
 export const modeKeyboard = (mode: Mode) =>
   new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 Nova AI`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
 
