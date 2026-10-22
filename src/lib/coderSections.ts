@@ -46,9 +46,9 @@ const LEASE_STALE_MS = 120000;
 const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
 const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
-// A job that shows no sign of life (still queued, model still loading, or no new text/reasoning) for this long is cancelled and the
-// task ends with a short, friendly message instead of "typing…" forever. CODER_JOB_STALL_MS overrides (min 60 s).
-const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 240000));
+// Free/open model cold starts and long reasoning can legitimately exceed four minutes. Give the job 10 minutes without
+// observable progress before cancelling; operators can tune this with CODER_JOB_STALL_MS (minimum 60 s).
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 600000));
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
