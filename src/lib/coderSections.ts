@@ -747,9 +747,10 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         return;
       }
       if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
-      await progressLine(bot, chatId, run, toolLabel(call));
+      const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
+      await progressLine(bot, chatId, run, short);
       await taskEvent(run.id, "tool", toolLabel(call), db);
-      const out = await withHeartbeat(bot, chatId, run, `تنفيذ الأداة: ${toolLabel(call)}`, () => runTool(call, ctx));
+      const out = await withHeartbeat(bot, chatId, run, `تنفيذ: ${short}`, () => runTool(call, ctx));
       st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
       run.queued = rest;
       const seen = afterCall(run.stall, call, out, run.step);
