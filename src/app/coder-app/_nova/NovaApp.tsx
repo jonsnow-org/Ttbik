@@ -12,7 +12,7 @@ import { AppRoot, List, Spinner, Switch, Input } from "@telegram-apps/telegram-u
 import { STR, type Lang, type Str } from "../i18n";
 import {
   addToHome, bindBack, bioSupported, bioWanted, canAddToHome, closeApp, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
-  payInvoice, setBio, startTma,
+  payInvoice, rawInitData, setBio, startTma,
 } from "../_tma/sdk";
 import { NSTR, fill, type NStr } from "./strings";
 import { THEME_MODES, leaveFullscreen, loadMode, paintTelegram, resolveMode, saveMode, themeVars, type Resolved, type ThemeMode } from "./theme";
@@ -31,7 +31,8 @@ type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDe
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
 const TABS: Tab[] = ["home", "chats", "auto", "settings"];
-const NAV_KEY: Record<Tab, keyof NStr> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
+const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
+const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
 const NAV_ICON: Record<Tab, string> = {
   home: "M3 10.5 12 3l9 7.5M5.5 9v11h4.5v-6h4v6h4.5V9",
   chats: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
@@ -45,9 +46,91 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "connectors" || want === "connect") return { tab: "home", page: { k: "connect" } };
   if (want === "memory") return { tab: "settings", page: { k: "memory" } };
   if (want === "tasks" || want === "chats") return { tab: "chats", page: null };
+  if (want === "terminal") return { tab: "chats", page: null }; // terminal now lives inside Chats
   if (want === "schedules" || want === "auto") return { tab: "auto", page: null };
   if (want === "settings") return { tab: "settings", page: null };
   return { tab: "home", page: null };
+}
+
+// ---------------------------------------------------------------- private live terminal inside the default Nova UI
+function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fixedRunId?: string; compact?: boolean }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selected, setSelected] = useState("");
+  const [events, setEvents] = useState<Ev[]>([]);
+  const [error, setError] = useState("");
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const cursor = useRef(0);
+  const ar = lang === "ar";
+  const fetchJson = useCallback(async (url: string) => {
+    const r = await fetch(url, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  }, []);
+  const load = useCallback(async () => {
+    try {
+      const d = await fetchJson("/api/coder/terminal?limit=40");
+      setTasks(d.tasks || []);
+      setSelected((old) => fixedRunId || (old && (d.tasks || []).some((x: Task) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || ""));
+      setError("");
+    } catch (e: any) { setError(e?.message || "API error"); }
+  }, [fetchJson]);
+  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 4000); return () => clearInterval(id); }, [load]);
+  useEffect(() => {
+    let stopped = false; cursor.current = 0; setEvents([]);
+    if (!selected) return;
+    const pull = async () => {
+      try {
+        const d = await fetchJson(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`);
+        if (stopped) return;
+        if (d.events?.length) { cursor.current = d.events[d.events.length - 1].id; setEvents((old) => [...old, ...d.events].slice(-800)); }
+      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
+    };
+    void pull(); const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
+    return () => { stopped = true; clearInterval(id); };
+  }, [selected, fetchJson]);
+  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  const sendCmd = async () => {
+    const txt = input.trim();
+    if (!txt || sending) return;
+    setSending(true);
+    try {
+      const r = await fetch("/api/coder/app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+        body: JSON.stringify({ op: "send", text: txt }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Send failed");
+      setInput("");
+      void load();
+    } catch (e: any) { setError(e?.message || "Send failed"); }
+    finally { setSending(false); }
+  };
+  return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 180 : undefined, border: "2px solid #0e7490" }}>
+    <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
+        <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
+        <button type="button" onClick={() => void load()} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "8px 10px", background: "#082f49", color: "#a5f3fc" }}>{ar ? "تحديث" : "Refresh"}</button>
+      </div>
+      <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 10, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 10 }}>
+        {!tasks.length && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
+        {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 70)} · {t.status}</option>)}
+      </select>
+      <div aria-live="polite" style={{ minHeight: 260, maxHeight: "55vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
+        <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
+        {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
+        {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
+        {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
+        {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command or request…"} style={{ flex: 1, padding: 10, borderRadius: 10, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75" }} />
+        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "10px 14px", borderRadius: 10, background: "#0e7490", color: "#fff", border: "none", fontWeight: 700 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
+      </div>
+      <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
+    </div>
+  </div>;
 }
 
 // ---------------------------------------------------------------- small pieces
@@ -328,6 +411,10 @@ function Chats({ c }: { c: Ctx }) {
         <h1>{n.chatsTitle}</h1>
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
+      {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
+      <div style={{ margin: "0 0 16px", minHeight: 180 }}>
+        <TerminalScreen lang={lang} compact />
+      </div>
       {note && (
         <div className="n-note" role="status">
           {t.newChatStarted}
@@ -390,7 +477,7 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
     const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
     return () => clearInterval(iv);
   }, [load]);
-  if (err && !d) return <div className="n-page"><Fail t={t} msg={err} retry={load} /></div>;
+  if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
   if (!d) return <Loading />;
   const live = (s: string) => s === "running" || s === "waiting";
   const cont = async () => { setBusy(true); haptic("medium"); try { await api("thread_open", { id }); closeApp(); } finally { setBusy(false); } };
@@ -408,6 +495,11 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
           {live(k.status) && <div className="n-wrap"><button type="button" className="n-btn n-ghost" onClick={async () => { haptic("warning"); await api("stop", { runId: k.run_id, slot: "" }); void load(); }}>⏹ {t.stop}</button></div>}
         </div>
       ))}
+      {/* Terminal for this conversation — logs stay in Mini App only */}
+      {(() => {
+        const active = d.tasks.find((k) => live(k.status));
+        return active ? <div style={{ margin: "12px 0" }}><TerminalScreen lang={c.lang} fixedRunId={active.run_id} compact /></div> : null;
+      })()}
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</button>
         <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{t.continueHint}</p>
@@ -489,7 +581,7 @@ function Schedules({ c }: { c: Ctx }) {
 function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: ThemeMode; setMode: (m: ThemeMode) => void; models: Models | null; reloadModels: () => void }) {
   const { t, n, lang, me, owner, open, reload } = c;
   const [s, setS] = useState(me.settings);
-  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section" | "tz">("");
+  const [sheet, setSheet] = useState<"" | "theme" | "lang" | "acc" | "section">("");
   const [pop, setPop] = useState<Anchor>(null);
   const [memCount, setMemCount] = useState<number | null>(null);
   const [home, setHome] = useState("");
@@ -504,7 +596,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
   const set = async (p: Partial<Me["settings"]>) => {
     const prev = s;
     setS({ ...s, ...p });
-    try { await api("settings", p); haptic("success"); if (p.lang || p.mode || p.tz) reload(); } catch { setS(prev); haptic("error"); }
+    try { await api("settings", p); haptic("success"); if (p.lang || p.mode) reload(); } catch { setS(prev); haptic("error"); }
   };
   const closeSheet = useCallback(() => setSheet(""), []);
   const acc = s.accuracy || "balanced";
@@ -529,7 +621,7 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         <Row icon="🤖" title={n.s_model} value={modelName(models, lang)} onClick={(el) => setPop(anchorOf(el))} />
         <Row icon="🌐" title={n.s_lang} value={lang === "ar" ? "العربية" : "English"} onClick={() => setSheet("lang")} />
         <Row icon="🎨" title={n.s_theme} value={themeLabel} onClick={() => setSheet("theme")} />
-        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} onClick={() => setSheet("tz")} />
+        <Row icon="🕒" title={n.s_tz} value={<span dir="ltr">{s.tz || "—"}</span>} />
         {(canAddToHome() || home === "added") && <Row icon="📲" title={n.s_home} value={home === "added" ? "✓" : ""} onClick={home === "added" ? undefined : () => addToHome()} />}
         <Row icon="🔒" title={n.s_bio} sub={bio.ok === false ? t.biometricNo : t.biometricHint}
           after={<span dir="ltr" style={{ display: "inline-flex" }}><Switch checked={bio.on} disabled={bio.ok === false} aria-label={n.s_bio} onChange={async (e) => { const v = e.currentTarget.checked; const ok = await setBio(v); setBioState({ on: v && ok, ok: v ? ok : bio.ok }); haptic(ok ? "success" : "error"); }} /></span>} />
@@ -550,16 +642,6 @@ function Settings({ c, mode, setMode, models, reloadModels }: { c: Ctx; mode: Th
         items={[{ id: "ar" as Lang, label: "العربية" }, { id: "en" as Lang, label: "English" }]} />
       <Options open={sheet === "acc"} title={n.s_acc} value={acc} onClose={closeSheet} onPick={(v) => set({ accuracy: v })}
         items={(["fast", "balanced", "precise"] as const).map((a) => ({ id: a, label: tx(t, `acc_${a}`), sub: tx(t, `accHint_${a}`) }))} />
-      <Options open={sheet === "tz"} title={n.s_tz} value={s.tz || "Europe/Istanbul"} onClose={closeSheet} onPick={(v) => set({ tz: v })}
-        items={[
-          { id: "Europe/Istanbul", label: "Europe/Istanbul", sub: "تركيا" },
-          { id: "Asia/Damascus", label: "Asia/Damascus", sub: "سوريا" },
-          { id: "Asia/Riyadh", label: "Asia/Riyadh", sub: "السعودية" },
-          { id: "Asia/Dubai", label: "Asia/Dubai", sub: "الإمارات" },
-          { id: "Europe/London", label: "Europe/London", sub: "المملكة المتحدة" },
-          { id: "UTC", label: "UTC", sub: "التوقيت العالمي" },
-          { id: "America/New_York", label: "America/New_York", sub: "الولايات المتحدة — الساحل الشرقي" },
-        ]} />
       <Options open={sheet === "section"} title={n.s_section} value={s.mode} onClose={closeSheet} onPick={(v) => set({ mode: v })}
         items={[{ id: "coder" as const, label: t.coder }, { id: "sham" as const, label: t.sham }]} />
       <ModelPopover at={pop} d={models} lang={lang} n={n} onPicked={reloadModels} onClose={() => setPop(null)} />
@@ -665,9 +747,6 @@ export default function NovaApp() {
       setPage(r.page);
       setMounted(true);
       void reload();
-    }).catch(() => {
-      // Never leave the Mini App on an infinite spinner if the Telegram SDK fails during startup.
-      if (alive) { setErr("تعذّر تهيئة التطبيق. أغلقه وافتحه مجدداً من داخل Telegram."); setMounted(true); }
     });
     const apply = () => setTgDark(isDark() || (!getLaunch().inTelegram && Boolean(window.matchMedia?.("(prefers-color-scheme: dark)").matches)));
     apply();
@@ -711,7 +790,7 @@ export default function NovaApp() {
       style={{ ...vars, paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
       <main className={`n-main${page ? " n-sub" : ""}`}>
         {err === "__tg" ? <div className="n-page"><Card><div className="n-empty"><div className="n-mark"><Mark size={52} color="var(--n-primary)" /></div>{t.openInTelegram}</div></Card></div>
-          : err ? <div className="n-page"><Fail t={t} msg={err} retry={err.startsWith("تعذّر تهيئة التطبيق") ? () => window.location.reload() : reload} /></div>
+          : err ? <div className="n-page"><Fail t={t} msg={err} retry={reload} /></div>
           : !ctx ? <div style={{ minHeight: "80vh", display: "grid", placeItems: "center" }}><Spinner size="l" /></div>
           : page ? (
             <>
@@ -740,7 +819,7 @@ export default function NovaApp() {
           {TABS.map((id) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => go(id)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={tab === id ? 2.4 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={NAV_ICON[id]} /></svg>
-              {n[NAV_KEY[id]]}
+              {NAV_KEY[id] ? n[NAV_KEY[id]!] : NAV_LABEL[id][lang]}
             </button>
           ))}
         </nav>
