@@ -148,9 +148,12 @@ export function selfUrl(): string {
 }
 // redeploy trigger 2026-10-22T14:04Z
 export function appUrl(): string {
-  // Clean URL for Mini App (no query params — Telegram rejects webApp URLs with unknown params)
-  const base = (process.env.CODER_APP_URL || `${selfUrl()}/app2`).replace(/\/+$/, "");
-  return base.split("?")[0];
+  // Telegram must be given the Mini App route, not the marketing homepage. A configured
+  // CODER_APP_URL may accidentally contain only the site origin; normalize that safely.
+  const raw = (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).trim().split("?")[0].replace(/\/+$/, "");
+  if (!raw) return `${selfUrl()}/coder-app`;
+  if (/^https?:\/\/[^/]+$/i.test(raw)) return `${raw}/coder-app`;
+  return raw;
 }
 
 /** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
