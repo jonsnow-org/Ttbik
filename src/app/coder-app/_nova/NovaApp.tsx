@@ -73,7 +73,13 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     try {
       const d = await fetchJson("/api/coder/terminal?limit=40");
       setTasks(d.tasks || []);
-      setSelected((old) => fixedRunId || (old && (d.tasks || []).some((x: Task) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || ""));
+      setSelected((old) => {
+        if (fixedRunId) return fixedRunId;
+        const list = d.tasks || [];
+        if (old && list.some((x: Task) => x.run_id === old && x.status !== "failed")) return old;
+        const running = list.find((x: Task) => x.status === "running" || x.status === "pending");
+        return running?.run_id || list[0]?.run_id || "";
+      });
       setError("");
     } catch (e: any) { setError(e?.message || "API error"); }
   }, [fetchJson]);
@@ -116,10 +122,11 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
         <button type="button" onClick={() => void load()} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "8px 10px", background: "#082f49", color: "#a5f3fc" }}>{ar ? "تحديث" : "Refresh"}</button>
       </div>
-      <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 10, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 10 }}>
-        {!tasks.length && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
-        {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 70)} · {t.status}</option>)}
-      </select>
+      {tasks.length > 1 && (
+        <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 8, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 8, fontSize: 13 }}>
+          {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 50)} · {t.status}</option>)}
+        </select>
+      )}
       <div aria-live="polite" style={{ minHeight: 260, maxHeight: "55vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
@@ -127,9 +134,9 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
       </div>
-      <div style={{ display: "flex", gap: 10, marginTop: 14, padding: 8, background: "linear-gradient(135deg, #0c4a6e, #164e63)", borderRadius: 16, alignItems: "center", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command or request…"} style={{ flex: 1, padding: 16, borderRadius: 12, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 16, outline: "none" }} />
-        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "16px 24px", borderRadius: 12, background: sending ? "#64748b" : "linear-gradient(135deg, #0891b2, #0e7490)", color: "#fff", border: "none", fontWeight: 700, fontSize: 16, minWidth: 90, cursor: sending ? "wait" : "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }}>{sending ? "⏳" : ar ? "📤 إرسال" : "📤 Send"}</button>
+      <div dir="ltr" style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "stretch" }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command…"} style={{ flex: 1, padding: "14px 12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, outline: "none", minWidth: 0 }} />
+        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
       <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
       {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
