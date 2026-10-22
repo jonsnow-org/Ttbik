@@ -398,22 +398,8 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   const runId = st.run!.id;
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveState(chatId, st, db);
-  // The terminal is app-only: persist output to coder_task_events, but never emit chat messages or typing indicators to Telegram.
-  const silentBot = new Proxy(bot, {
-    get(target, prop, receiver) {
-      if (prop !== "api") return Reflect.get(target, prop, receiver);
-      return new Proxy(target.api, {
-        get(api, method, apiReceiver) {
-          if (["sendMessage", "sendPhoto", "sendDocument", "sendVideo", "sendChatAction", "editMessageText", "editMessageReplyMarkup", "answerCallbackQuery"].includes(String(method))) {
-            return async () => null;
-          }
-          const value = Reflect.get(api, method, apiReceiver);
-          return typeof value === "function" ? value.bind(api) : value;
-        },
-      });
-    },
-  }) as TelegramBot;
-  later(() => drive(silentBot, botRow, chatId, st.run!.chain, db));
+  // Terminal starts the task; short progress reports go to bot chat, full logs stay in terminal.
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return { runId, queued: false };
 }
 
