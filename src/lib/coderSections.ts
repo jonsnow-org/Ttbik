@@ -148,10 +148,9 @@ export function selfUrl(): string {
 }
 // redeploy trigger 2026-10-22T14:04Z
 export function appUrl(): string {
-  // Use /nova path so Telegram treats it as a new Mini App (bypasses WebView cache on /coder-app)
+  // Clean URL for Mini App (no query params — Telegram rejects webApp URLs with unknown params)
   const base = (process.env.CODER_APP_URL || `${selfUrl()}/app2`).replace(/\/+$/, "");
-  const v = process.env.CODER_APP_VERSION || "20261022e";
-  return base.includes("?") ? `${base}&v=${v}` : `${base}?v=${v}`;
+  return base.split("?")[0];
 }
 
 /** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
