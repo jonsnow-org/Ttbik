@@ -147,9 +147,9 @@ export function selfUrl(): string {
   return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
 }
 export function appUrl(): string {
-  const base = (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
-  // Cache buster so Telegram Mini App WebView loads fresh code after deploys
-  const v = process.env.CODER_APP_VERSION || "20261022c";
+  // Use /nova path so Telegram treats it as a new Mini App (bypasses WebView cache on /coder-app)
+  const base = (process.env.CODER_APP_URL || `${selfUrl()}/nova`).replace(/\/+$/, "");
+  const v = process.env.CODER_APP_VERSION || "20261022d";
   return base.includes("?") ? `${base}&v=${v}` : `${base}?v=${v}`;
 }
 
