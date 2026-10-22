@@ -219,14 +219,9 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const text = String(body.text || "").trim();
       if (!text) throw new AppError(400, "empty");
       const runId = `t${Date.now().toString(36)}`;
-      await (await import("@/lib/coderTasks")).taskStart(chatId, { runId, slot: "app", source: "app", title: text.slice(0, 80) }, db);
-      await (await import("@/lib/coderTasks")).taskEvent(runId, "start", text, db);
-      // Trigger processing via continue endpoint
-      const botRow = (await import("@/lib/coderSections")).coderBot ? null : null;
-      later(() => fetch(`${process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || ""}/api/coder/continue`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId, text, runId, source: "app" })
-      }).catch(() => null));
+      const tasks = await import("@/lib/coderTasks");
+      await tasks.taskStart(chatId, { runId, slot: "user", source: "user", title: text.slice(0, 80) }, db);
+      await tasks.taskEvent(runId, "start", text, db);
       return { ok: true, runId };
     }
     case "schedules": {
