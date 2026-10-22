@@ -15,7 +15,7 @@ import {
   payInvoice, rawInitData, setBio, startTma, closeApp,
 } from "../_tma/sdk";
 
-type Tab = "tasks" | "schedules" | "connect" | "memory" | "settings";
+type Tab = "tasks" | "terminal" | "schedules" | "connect" | "memory" | "settings";
 type Page = "billing" | "panel" | null;
 type Mem = { id: number; scope: string; kind: "preference" | "fact" | "decision"; text: string; source_run: string | null; created_at: string; updated_at: string };
 type Task = { run_id: string; slot: string; source: "interactive" | "scheduled" | "event"; schedule_id: string | null; title: string; status: string; steps?: number; started_at: string; updated_at: string; finished_at: string | null };
@@ -955,16 +955,84 @@ function PanelPage({ lang }: { lang: Lang }) {
   );
 }
 
+// ---------------------------------------------------------------- interactive terminal: live task logs stay inside the Mini App, never sent as chat messages
+function TerminalTab({ lang }: { lang: Lang }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selected, setSelected] = useState("");
+  const [events, setEvents] = useState<Ev[]>([]);
+  const [error, setError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const cursor = useRef(0);
+  const ar = lang === "ar";
+  const loadTasks = useCallback(async () => {
+    try {
+      const d = await api<{ tasks: Task[] }>("tasks", { limit: 40 });
+      setTasks(d.tasks || []);
+      setError("");
+      setSelected((old) => old && (d.tasks || []).some((x) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
+    } catch (e: any) { setError(e?.message || "API error"); }
+  }, []);
+  useEffect(() => { void loadTasks(); const id = setInterval(() => { if (document.visibilityState === "visible") void loadTasks(); }, 4000); return () => clearInterval(id); }, [loadTasks]);
+  useEffect(() => {
+    let stopped = false;
+    cursor.current = 0;
+    setEvents([]);
+    if (!selected) return;
+    const pull = async () => {
+      try {
+        const d = await api<{ events: Ev[] }>("events", { runId: selected, after: cursor.current });
+        if (stopped) return;
+        if (d.events?.length) {
+          cursor.current = d.events[d.events.length - 1].id;
+          setEvents((old) => [...old, ...d.events].slice(-800));
+        }
+      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
+    };
+    void pull();
+    const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
+    return () => { stopped = true; clearInterval(id); };
+  }, [selected]);
+  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  return (
+    <div style={{ padding: "12px", color: "#d1fae5" }}>
+      <div style={{ borderRadius: 16, overflow: "hidden", background: "#050b10", border: "1px solid #164e63", boxShadow: "0 8px 28px #02061730" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "12px 14px", background: "#0b1720", borderBottom: "1px solid #164e63" }}>
+          <div><div style={{ fontFamily: "monospace", fontWeight: 800, color: "#5eead4" }}>NOVA / TERMINAL</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
+          <button type="button" onClick={() => { setRefreshing(true); void loadTasks().finally(() => setRefreshing(false)); }} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "7px 10px", color: "#a5f3fc", background: "#082f49", fontSize: 12 }}>{refreshing ? "…" : (ar ? "تحديث" : "Refresh")}</button>
+        </div>
+        <div style={{ padding: 10, background: "#071018", borderBottom: "1px solid #164e63" }}>
+          <label style={{ display: "block", fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>{ar ? "اختر المهمة لعرض سجلاتها" : "Select a job to inspect logs"}</label>
+          <select value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: "10px", borderRadius: 10, color: "#d1fae5", background: "#0b1720", border: "1px solid #155e75" }}>
+            {tasks.length === 0 && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
+            {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.status === "running" ? "● " : t.status === "failed" ? "× " : "✓ ") + (t.title || t.run_id).slice(0, 80) + " · " + t.status}</option>)}
+          </select>
+        </div>
+        <div aria-live="polite" style={{ minHeight: 260, maxHeight: "58vh", overflowY: "auto", padding: 12, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 12, lineHeight: 1.65, whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: "#03070b" }}>
+          <div style={{ color: "#22d3ee" }}># {ar ? "سجل حي — لا تُرسل هذه البيانات إلى محادثة البوت" : "Live logs — these stay in the Mini App"}</div>
+          {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
+          {!selected && <div style={{ color: "#64748b" }}>{ar ? "أرسل طلباً للبوت أو اختر مهمة سابقة." : "Send a bot request or choose a previous task."}</div>}
+          {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : ev.kind === "tool" ? "#fcd34d" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}<span>{ev.text}</span></div>)}
+          {selected && events.length === 0 && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
+          {selected && tasks.find((x) => x.run_id === selected)?.status === "running" && <div className="coder-pulse" style={{ marginTop: 8, color: "#5eead4" }}>▌ {ar ? "المهمة قيد التشغيل…" : "Job is running…"}</div>}
+        </div>
+        <div style={{ padding: "8px 12px", color: "#64748b", fontSize: 10, background: "#0b1720", borderTop: "1px solid #164e63" }}>Postgres task events · polling 1.2s · {events.length} {ar ? "سجل معروض" : "events shown"}</div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- shell: Tabbar for the main sections, sub-pages behind Telegram's BackButton
 const TAB_ICON: Record<Tab, string> = {
   tasks: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
+  terminal: "M4 17l6-5-6-5M12 19h8",
   schedules: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   connect: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   memory: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 6 0V7a3 3 0 0 0-3-3Zm6 0a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-6 0",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
-const TAB_KEY: Record<Tab, keyof Str> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
-const TABS: Tab[] = ["tasks", "schedules", "connect", "memory", "settings"];
+const TAB_KEY: Partial<Record<Tab, keyof Str>> = { tasks: "tabChats", schedules: "tabSchedules", connect: "tabConnectors", memory: "tabMemory", settings: "tabSettings" };
+const TAB_LABEL: Record<Tab, { ar: string; en: string }> = { tasks: { ar: "المحادثة", en: "Chat" }, terminal: { ar: "الطرفية", en: "Terminal" }, schedules: { ar: "المهام", en: "Tasks" }, connect: { ar: "الموصلات", en: "Connectors" }, memory: { ar: "الذاكرة", en: "Memory" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const TABS: Tab[] = ["tasks", "terminal", "schedules", "connect", "memory", "settings"];
 function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "panel") return { tab: "settings", page: "panel" };
   if (want === "plans" || want === "billing") return { tab: "settings", page: "billing" };
@@ -1018,7 +1086,7 @@ export default function NativeApp() {
   // telegram-ui components throw "[TGUI] Wrap your app with <AppRoot>" outside AppRoot: the first screen (the spinner) needs it too,
   // otherwise every launch ends on Next's "This page couldn't load" error page
   if (!mounted) return <AppRoot appearance={dark ? "dark" : "light"} platform={platform}><div style={{ minHeight: "100vh", display: "grid", placeItems: "center", background: "var(--tg-theme-secondary-bg-color, #f3f5f9)" }}><Spinner size="l" /></div></AppRoot>;
-  const title = page === "billing" ? t.billing : page === "panel" ? (lang === "ar" ? "لوحة التحكم" : "Control panel") : (t[TAB_KEY[tab]] as string);
+  const title = page === "billing" ? t.billing : page === "panel" ? (lang === "ar" ? "لوحة التحكم" : "Control panel") : (TAB_KEY[tab] ? (t[TAB_KEY[tab]!] as string) : TAB_LABEL[tab][lang]);
   return (
     <AppRoot appearance={dark ? "dark" : "light"} platform={platform} dir={lang === "ar" ? "rtl" : "ltr"} lang={lang}
       style={{ ...safe, minHeight: "100vh", background: "var(--tgui--secondary_bg_color)", paddingTop: "var(--safe-top)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
@@ -1033,6 +1101,7 @@ export default function NativeApp() {
           : page === "billing" ? <BillingPage t={t} lang={lang} me={me} />
           : page === "panel" ? (me.tier === "owner" ? <PanelPage lang={lang} /> : <Fail t={t} msg="—" retry={closePage} />)
           : tab === "tasks" ? <ThreadsTab t={t} me={me} lang={lang} />
+          : tab === "terminal" ? <TerminalTab lang={lang} />
           : tab === "schedules" ? <SchedulesTab t={t} lang={lang} me={me} />
           : tab === "memory" ? <MemoryTab t={t} lang={lang} me={me} />
           : tab === "connect" ? <ConnectorsTab t={t} me={me} lang={lang} reload={reload} />
@@ -1041,7 +1110,7 @@ export default function NativeApp() {
       {!page && (
         <Tabbar style={{ paddingBottom: "var(--safe-bottom)" }}>
           {TABS.map((id) => (
-            <Tabbar.Item key={id} text={t[TAB_KEY[id]] as string} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
+            <Tabbar.Item key={id} text={TAB_KEY[id] ? (t[TAB_KEY[id]!] as string) : TAB_LABEL[id][lang]} selected={tab === id} onClick={() => { haptic("select"); setTab(id); }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={TAB_ICON[id]} /></svg>
             </Tabbar.Item>
           ))}
