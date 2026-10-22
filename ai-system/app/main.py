@@ -24,7 +24,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app import cloudflare_ai, council, deep_think, files, hf_image, hf_video, quota, rag, router, self_improve, tts
-from app.telegram_delivery import split_telegram_text as _split_telegram_text
 from app.concurrency import with_hard_deadline
 from app.config import NOVA_BOT_TOKEN, NOVA_INTERNAL_SECRET, SUPER_ADMIN_TELEGRAM_ID
 
@@ -137,28 +136,15 @@ def _send_telegram_message(chat_id: str, text: str) -> None:
     if not NOVA_BOT_TOKEN:
         logger.warning("NOVA_BOT_TOKEN not set on Render — cannot deliver async answer to Telegram chat_id=%s", chat_id)
         return
-    chunks = _split_telegram_text(text)
-    if not chunks:
-        logger.warning("Nova produced an empty Telegram answer for chat_id=%s", chat_id)
-        return
-    for index, chunk in enumerate(chunks, start=1):
-        try:
-            response = requests.post(
-                f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
-                json={"chat_id": chat_id, "text": chunk},
-                timeout=15,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            if not payload.get("ok", False):
-                raise RuntimeError(f"Telegram API rejected sendMessage: {payload.get('description', 'unknown error')}")
-        except Exception:
-            logger.exception(
-                "Failed to deliver Nova answer chunk %s/%s to Telegram chat_id=%s",
-                index, len(chunks), chat_id,
-            )
-            # Stop after the first failed chunk to avoid silently reordering a partial answer.
-            break
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{NOVA_BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=15,
+        )
+    except Exception:
+        logger.exception("Failed to deliver async answer to Telegram chat_id=%s", chat_id)
+
 
 def _send_telegram_photo(chat_id: str, photo_bytes: bytes, caption: str) -> None:
     """Same async-delivery shape as _send_telegram_message above, but
