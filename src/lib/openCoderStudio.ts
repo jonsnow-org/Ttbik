@@ -44,6 +44,7 @@ export function splitJob(job: string): { idx: number; id: string } {
   const m = /^s(\d+)~(.+)$/.exec(job || "");
   return m ? { idx: Number(m[1]), id: m[2] } : { idx: 0, id: job };
 }
+// force redeploy 2
 export function coderEnabled(): boolean {
   return Boolean(coderStudioUrl());
 }
