@@ -146,6 +146,7 @@ export function verifyContinue(secret: string, botId: string, chatId: string, ch
 export function selfUrl(): string {
   return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
 }
+// redeploy trigger 2026-10-22T14:04Z
 export function appUrl(): string {
   // Use /nova path so Telegram treats it as a new Mini App (bypasses WebView cache on /coder-app)
   const base = (process.env.CODER_APP_URL || `${selfUrl()}/nova`).replace(/\/+$/, "");
