@@ -32,7 +32,7 @@ export type Run = {
   // and whether the model is writing the end-of-segment progress summary right now
   goal?: string; segment?: number; segStep?: number; compacting?: boolean;
   memory?: string;                                                    // long-term memories retrieved for this task (system prompt)
-  progress?: { msgId?: number; lines: string[] };                     // the one live "progress card" message of the current tool streak
+  progress?: { msgId?: number; lines: string[] }; progressAt?: number;                     // the one live "progress card" message of the current tool streak
   // the Studio job's own watchdog: when it was taken, its last seen size (text + reasoning) and when that last grew
   jobAt?: number; jobSize?: string; jobMovedAt?: number;
   promptEst?: number;                                                 // estimated prompt tokens of the job in flight (when the Studio sends no count)
@@ -807,6 +807,12 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       }
       const text = r.text || "";
       if (r.type === "pending") {
+        // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
+        if (run.progress?.msgId && Date.now() - (run.progressAt || 0) >= 12000) {
+          run.progressAt = Date.now();
+          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : "جارٍ انتظار أول مخرجات النموذج";
+          void (bot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })`).catch(() => null);
+        }
         // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
         const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}`;
         if (!run.jobMovedAt || size !== run.jobSize) {
@@ -816,6 +822,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
           await coderCancel(run.job).catch(() => null);
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
+          if (run.progress?.msgId) await (bot.api as any).editMessageText(chatId, run.progress.msgId, `❌ توقفت المهمة بسبب عدم وصول أي تقدم من خادم النموذج.\nالسبب: ${where}\nيمكنك إعادة المحاولة أو فتح الطرفية لعرض السجلات.`).catch(() => null);
           await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
           await saveState(chatId, st, db, slot);
           await send(bot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
