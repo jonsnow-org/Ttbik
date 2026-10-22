@@ -132,6 +132,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "16px 24px", borderRadius: 12, background: sending ? "#64748b" : "linear-gradient(135deg, #0891b2, #0e7490)", color: "#fff", border: "none", fontWeight: 700, fontSize: 16, minWidth: 90, cursor: sending ? "wait" : "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.2)" }}>{sending ? "⏳" : ar ? "📤 إرسال" : "📤 Send"}</button>
       </div>
       <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
+      {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
     </div>
   </div>;
 }
