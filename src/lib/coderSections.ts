@@ -48,10 +48,10 @@ const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI 
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
 // The CPU-only Studio can spend several minutes in prompt prefill before the first token, especially on repo-wide tasks.
 // Allow a longer default before declaring a genuine stall; CODER_JOB_STALL_MS overrides (minimum 60 s).
-const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 600000));
+const jobStallMs = () => Math.max(60000, Number(process.env.CODER_JOB_STALL_MS || 180000));
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
-const BUSY_TEXT = "⌛️ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
+const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
 
 /**
  * Short greetings / thanks / "how are you". NOT used for replies any more (owner's decision 2026-10-21: no fixed replies, every message,
@@ -180,15 +180,15 @@ export function welcomeText(name = ""): string {
   ].join("\n");
 }
 export const WELCOME = welcomeText();
-export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🖥️ الطرفية", `${appUrl()}?tab=terminal`).webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).row().webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
+export const welcomeKeyboard = () => new InlineKeyboard().webApp("📱 فتح التطبيق", appUrl()).row().webApp("🖥 الطرفية", `${appUrl()}?tab=terminal`).webApp("🔌 الموصلات", `${appUrl()}?tab=connect`).row().webApp("💎 الاشتراك", `${appUrl()}?tab=billing`);
 export const modeKeyboard = (mode: Mode) =>
-  new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 Nova AI`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)", "cmode|sham");
+  new InlineKeyboard().text(`${mode === "coder" ? "✅ " : ""}💻 Nova AI`, "cmode|coder").text(`${mode === "sham" ? "✅ " : ""}🧪 شام (تجريبي)`, "cmode|sham");
 
 /** What a regular user is told when the model service failed: plain words, never the server's own error text. */
 export function userFailureText(o: Parameters<typeof coderFailureText>[0], chatId: number | string): string {
   if (tierFor(chatId) === "owner") return coderFailureText(o);
   if (o.failure === "off") return "🛠️ Nova AI غير متاح الآن. جرّب بعد قليل.";
-  if (o.failure === "timeout" || o.failure === "http" || o.failure === "network") return "⌛️ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
+  if (o.failure === "timeout" || o.failure === "http" || o.failure === "network") return "⌛ الخدمة مشغولة الآن. أعد إرسال طلبك بعد دقيقة.";
   if (o.reply?.type === "gone") return "انتهت صلاحية هذا الطلب. أعد إرسال رسالتك.";
   return "⚠️ تعذّر إكمال الرد هذه المرة. أعد المحاولة بعد قليل.";
 }
@@ -243,4 +243,809 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
       return true;
     }
     if (data.startsWith("cmode|")) {
-      st.mode = 
+      st.mode = data === "cmode|sham" ? "sham" : "coder";
+      await saveState(chatId, st, db);
+      await bot.api.answerCallbackQuery(cq.id, { text: st.mode === "coder" ? "💻 قسم Nova AI" : "🧪 قسم شام" }).catch(() => null);
+      await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: modeKeyboard(st.mode) }).catch(() => null);
+      await send(bot, chatId, st.mode === "coder" ? "💻 أنت الآن في قسم Nova AI. اكتب طلبك." : "🧪 أنت الآن في قسم شام (للتجربة). /mode للرجوع إلى Nova AI.");
+      return true;
+    }
+    if (data.startsWith("cperm|")) {
+      const cat = data.split("|")[1];
+      if (isCategory(cat)) {
+        const rules = await loadPrefs(chatId, db);
+        const next = nextPolicy(globalPolicy(rules, cat));
+        if (next === "default") await removePref(chatId, cat, "*", "*", db);
+        else await setPref(chatId, { category: cat, repo: "*", context: "*", policy: next }, db);
+      }
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      const kb = await permsKeyboard(chatId, db);
+      await bot.api.editMessageReplyMarkup(chatId, cq.message.message_id, { reply_markup: kb }).catch(() => null);
+      return true;
+    }
+    if (data.startsWith("csch|")) {
+      await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+      const { handleScheduleCallback } = await import("@/lib/coderSchedules");
+      await handleScheduleCallback(bot, botRow, chatId, cq.message.message_id, data, db);
+      return true;
+    }
+    const [, runId, nonce, answer] = data.split("|");
+    await bot.api.answerCallbackQuery(cq.id).catch(() => null);
+    await resolvePending(bot, botRow, chatId, runId, nonce, answer === "yes" ? "yes" : answer === "all" ? "all" : "no", db, cq.message.message_id);
+    return true;
+  }
+
+  const msg = update.message;
+  const chatId: number | undefined = msg?.chat?.id;
+  if (!chatId) return false;
+  const text: string = typeof msg.text === "string" ? msg.text.trim() : typeof msg.caption === "string" ? msg.caption.trim() : "";
+  const cmd = text.split(/[\s@]/)[0].toLowerCase();
+  const st = await loadState(chatId, db);
+  if (st.mode === "sham" && tierFor(chatId) !== "owner") {
+    st.mode = "coder";                                        // the Sham section is the owner's only
+    await saveState(chatId, st, db);
+  }
+  // Management lives in the Mini App (owner's UX decision, 2026-10-21): the chat is for the conversation. Only /start and /stop stay;
+  // every other command (old habits, menus) answers with the button that opens the app on the right tab.
+  const ROUTED: Record<string, string> = {
+    "/mode": "settings", "/think": "settings", "/perms": "settings", "/memory": "memory", "/schedule": "schedules", "/schedules": "schedules",
+    "/app": "tasks", "/settings": "settings", "/github": "connect", "/connect": "connect", "/history": "tasks", "/tasks": "tasks", "/status": "settings",
+    "/stalls": "settings", "/new": "tasks", "/help": "tasks", "/plan": "billing", "/billing": "billing", "/upgrade": "billing", "/connectors": "connect",
+  };
+  if (cmd === "/panel" && tierFor(chatId) === "owner") {
+    const { panel, panelText } = await import("@/lib/coderPanel");
+    const d = await panel(db);
+    await send(bot, chatId, panelText(d), { reply_markup: panelKeyboard(Boolean(d.training?.nova.paused)) });
+    return true;
+  }
+  if (cmd in ROUTED && cmd !== "/new" && cmd !== "/help") {
+    await ensureMenuButton(bot, chatId, st, db);
+    await send(bot, chatId, "📱 الإعدادات والذاكرة والجدولة والصلاحيات والربط وسجل المهام كلها في تطبيق Nova AI.", { reply_markup: appButton(ROUTED[cmd]) });
+    return true;
+  }
+  if (st.mode === "sham") return false;                     // the existing Sham path, exactly as before
+
+  if (cmd === "/start" || cmd === "/help") {
+    await ensureMenuButton(bot, chatId, st, db, true);
+    await send(bot, chatId, welcomeText(String(msg.from?.first_name || "")), { reply_markup: welcomeKeyboard() });
+    return true;
+  }
+  if (cmd === "/new") {
+    // kept quietly for old habits (the app's "new conversation" does the same)
+    await newConversation(chatId, st, db);
+    await send(bot, chatId, "🆕 بدأت محادثة جديدة.");
+    return true;
+  }
+  if (cmd === "/stop") {
+    await stopRun(chatId, "", undefined, db);
+    await send(bot, chatId, "⏹️ أوقفت المهمة الجارية.");
+    return true;
+  }
+  if (st.menu !== appUrl()) await ensureMenuButton(bot, chatId, st, db);
+
+  let content = text;
+  if (msg.document) content = `${text}\n\n${await readDocument(bot, botRow, msg.document)}`.trim();
+  if (!content) {
+    await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
+    return true;
+  }
+  if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
+    // the previous task's loop is gone: close it (and its Studio job) so this message gets a fresh, live task
+    if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
+  }
+  // every message, greetings included, goes to the model (owner's rule 2026-10-21: no canned replies)
+  // the conversation thread this message belongs to (created on the first message; an older single conversation becomes one thread)
+  if (!st.threadId) await ensureThread(chatId, st, db, content);
+  if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
+    st.inbox.push(content);
+    await saveState(chatId, st, db);
+    await send(bot, chatId, st.run.pending ? "📥 وصلت رسالتك؛ المهمة تنتظر تأكيدك على الزر أعلاه." : "📥 وصلت رسالتك؛ سأضيفها للمهمة الجارية في الخطوة التالية.");
+    return true;
+  }
+  if (!st.run) {
+    // plan limit: tasks per rolling week (the owner has none)
+    const lim = await checkLimit(chatId, "tasks", 1, db);
+    if (!lim.ok) {
+      await sendLimit(bot, chatId, lim, st.tz);
+      return true;
+    }
+    await addUsage(chatId, "tasks", 1, db);
+  }
+  if (st.run) st.inbox.push(content);
+  else st.messages.push({ role: "user", content });
+  startChain(botRow, chatId, st, {}, db);
+  // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
+  // waits for this short Telegram API call; all heavy work remains in the background continuation.
+  const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
+  if (accepted?.message_id && st.run) {
+    st.run.progress = { msgId: accepted.message_id, lines: ["📥 تم استلام الطلب", "⏳ بانتظار بدء المعالجة"] };
+    await taskEvent(st.run.id, "info", "📥 تم استلام الطلب؛ بدأ مسار المعالجة الخلفية.", db);
+  }
+  await saveState(chatId, st, db);
+  await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db));
+  return true;
+}
+
+/** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */
+async function sendLimit(bot: TelegramBot, chatId: number, c: Exclude<LimitCheck, { ok: true }>, tz?: string, prefix = ""): Promise<void> {
+  await send(bot, chatId, prefix + limitMessage(c, tz || defaultTz()), { reply_markup: new InlineKeyboard().webApp("⬆️ الترقية والاستخدام", `${appUrl()}?tab=plans`) });
+}
+
+/** The inline button that opens the Mini App (optionally on one tab). */
+/** The owner panel's buttons (bot /panel). */
+const panelKeyboard = (paused: boolean) =>
+  new InlineKeyboard()
+    .text("🔄 تحديث", "cpanel|refresh").text(paused ? "▶️ استئناف نوفا 1" : "⏸ إيقاف نوفا 1", paused ? "cpanel|nova_resume" : "cpanel|nova_pause").row()
+    .text("🛰 تشغيل المراقب الآن", "cpanel|monitor_run").row()
+    .webApp("🎛 فتح اللوحة", `${appUrl()}?tab=panel`);
+
+export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح تطبيق Nova AI", `${appUrl()}${tab ? `?tab=${tab}` : ""}`);
+
+/** The chat's persistent menu button opens the Mini App (set once per chat and again whenever the app address changes; `force` sets it again, e.g. on /start). */
+async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
+  if (st.menu === appUrl() && !force) return;
+  try {
+    await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: appUrl() } } });
+  } catch {
+    /* best-effort: the inline button still works */
+  }
+  st.menu = appUrl();
+  await saveState(chatId, st, db);
+}
+
+/** A new conversation: the current one is kept as its own thread (nothing is wiped), a fresh thread opens, settings stay. */
+export async function newConversation(chatId: number, st: ChatState, db: Db = prismaDb): Promise<string> {
+  return switchThread(chatId, st, null, db);
+}
+
+/** The chat's first message (or an older single conversation) gets its thread. */
+async function ensureThread(chatId: number, st: ChatState, db: Db, firstText = ""): Promise<void> {
+  const { createThread, LEGACY_TITLE } = await import("@/lib/coderThreads");
+  const legacy = st.messages.length > 0 || !firstText;
+  st.threadId = await createThread(chatId, legacy ? { title: LEGACY_TITLE, messages: st.messages, notes: st.notes, convId: st.convId, legacy: true } : { title: firstText }, db);
+}
+
+/**
+ * Leaves the current thread (saved as it is, its long-term memories are learned later in quiet time) and opens `targetId`
+ * (null = a fresh conversation; an empty current thread is reused). A request still running in the old thread is stopped
+ * exactly like /stop. Returns the active thread id.
+ */
+export async function switchThread(chatId: number, st: ChatState, targetId: string | null, db: Db = prismaDb): Promise<string> {
+  const T = await import("@/lib/coderThreads");
+  const key = coderChatKey(chatId);
+  if (targetId && targetId === st.threadId) return targetId;
+  let target: Awaited<ReturnType<typeof T.getThread>> = null;
+  if (targetId) {
+    target = await T.getThread(chatId, targetId, db);
+    if (!target || target.deleted_at) throw new Error("no such thread");
+  }
+  if (!targetId && st.threadId && !st.messages.length && !st.run) return st.threadId;          // already on an empty new chat
+  if (st.run?.job) await coderCancel(st.run.job).catch(() => null);
+  await endRun(st, "stopped", db, "conversation switched", key);
+  if (st.convId) {
+    const conv = st.convId;
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(key, conv)));
+  }
+  if (st.threadId) await T.syncThread(key, st.threadId, st, db, st.messages.length > 0);
+  else if (st.messages.length) await ensureThread(chatId, st, db);
+  if (!encryptionReady() && st.messages.length) rememberLater(chatId, st.messages, undefined, st.repo, db);   // no key for quiet time: as before
+  const next: ChatState = { ...emptyState(), mode: st.mode, think: st.think, tz: st.tz, lang: st.lang, repo: st.repo, menu: st.menu, accuracy: st.accuracy, model: st.model };
+  if (target) {
+    next.threadId = target.id;
+    next.messages = target.messages || [];
+    next.notes = target.notes || "";
+    next.convId = target.conv_id || undefined;
+  } else next.threadId = await T.createThread(chatId, {}, db);
+  await saveState(chatId, next, db);
+  Object.assign(st, next);
+  return next.threadId!;
+}
+
+/** The Mini App's ⏹ and /stop: the Studio job is cancelled, the request ends as stopped, its queued messages are dropped. */
+export async function stopRun(chatId: number, slot = "", runId?: string, db: Db = prismaDb): Promise<boolean> {
+  const st = await loadState(chatId, db, slot);
+  if (!st.run || (runId && st.run.id !== runId)) return false;
+  if (st.run.job) await coderCancel(st.run.job).catch(() => null);
+  await endRun(st, "stopped", db, slot ? "stopped from the app" : "/stop", coderChatKey(chatId));
+  if (!slot && st.convId) {
+    const conv = st.convId;
+    later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(coderChatKey(chatId), conv)));
+  }
+  st.inbox = [];
+  await saveState(chatId, st, db, slot);
+  return true;
+}
+
+/** The Mini App opened before any message: an older single conversation (or older requests) becomes the "previous conversation" thread. */
+export async function adoptThread(chatId: number, st: ChatState, db: Db = prismaDb): Promise<void> {
+  if (st.threadId) return;
+  await ensureThread(chatId, st, db);
+  await saveState(chatId, st, db);
+}
+
+const encryptionReady = () => Boolean((process.env.CODER_TOKEN_KEY || "").trim());
+
+/** Long-term memory extraction in the background (coderMemory.ts); CODER_MEMORY=off disables it. */
+function rememberLater(chatId: number, msgs: CoderMessage[], runId: string | undefined, repo: string | undefined, db: Db): void {
+  if ((process.env.CODER_MEMORY || "").toLowerCase() === "off") return;
+  const snap = msgs.slice(-40);
+  later(() => import("@/lib/coderMemory").then((m) => m.extractMemories(chatId, snap, { runId, repo }, db)).catch(() => null));
+}
+
+/**
+ * A tap on ✅ / ✅ للمهمة كلها / ❌ — from the inline buttons or from the Mini App (both end here, and the other side is updated:
+ * the Telegram buttons are removed, the app sees the pending card disappear). Returns false when nothing was pending under that nonce.
+ */
+export async function resolvePending(
+  bot: TelegramBot, botRow: BotRow, chatId: number, runId: string, nonce: string, answer: "yes" | "no" | "all", db: Db = prismaDb, msgId?: number,
+): Promise<boolean> {
+  const slot = (await taskSlot(runId, chatId, db)) ?? "";
+  const st = await loadState(chatId, db, slot);
+  const run = st.run;
+  const mid = msgId ?? run?.pending?.msgId;
+  if (mid) await bot.api.editMessageReplyMarkup(chatId, mid, { reply_markup: new InlineKeyboard() }).catch(() => null);
+  if (!run || run.id !== runId) {
+    if (msgId) await send(bot, chatId, "انتهت هذه المهمة بالفعل.");
+    return false;
+  }
+  if (!run.pending || run.pending.nonce !== nonce) return false;
+  const pending = run.pending;
+  run.pending = undefined;
+  const [first, ...rest] = pending.calls;
+  if (answer !== "no") {
+    if (answer === "all") run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
+    await send(bot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
+    await taskEvent(run.id, "approved", `${answer === "all" ? "[rest of task] " : ""}${pending.reason} — ${first.function.name}`, db);
+    const out = await runTool(first, await toolCtx(chatId, st, db, run));
+    st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
+  } else {
+    await send(bot, chatId, "❌ أُلغيت هذه الخطوة.");
+    await taskEvent(run.id, "declined", `${pending.reason} — ${first.function.name}`, db);
+    st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
+  }
+  run.queued = rest;
+  startChain(botRow, chatId, st);
+  await taskStatus(run.id, "running", run.step, db);
+  await saveState(chatId, st, db, slot);
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
+  return true;
+}
+
+async function permsKeyboard(chatId: number, db: Db): Promise<InlineKeyboard> {
+  const rules = await loadPrefs(chatId, db);
+  const tier = tierFor(chatId);
+  const kb = new InlineKeyboard();
+  for (const c of CATEGORIES) {
+    const p = globalPolicy(rules, c);
+    const label = p === "default" ? `افتراضي (${tierDefault(tier, c) === "ask" ? "اسأل" : "ينفّذ"})` : POLICY_LABEL[p].ar;
+    const icon = p === "allow" ? "🟢" : p === "deny" ? "⛔" : p === "ask" ? "❓" : "⚪";
+    kb.text(`${icon} ${CATEGORY_LABEL[c].ar}: ${label}`, `cperm|${c}`).row();
+  }
+  return kb;
+}
+
+function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partial<Run> = {}, db: Db = prismaDb) {
+  if (!st.run) {
+    st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", ...init };
+    const last = [...st.messages].reverse().find((m) => m.role === "user");
+    const title = st.run.title || String(last?.content || "").slice(0, 200);
+    st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
+    void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, threadId: st.run.slot ? null : st.threadId || null }, db);
+  }
+  st.run.chain = randomUUID().slice(0, 12);
+  st.run.lease = Date.now();
+}
+
+/** A run ended: history status + the run cleared. */
+async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chatKeyOf = ""): Promise<void> {
+  const run = st.run;
+  st.run = null;
+  if (!run) return;
+  // a job still on the Studio when its run ends would hold the Studio's one-at-a-time queue for the next user: cancel it (harmless if done)
+  if (run.job) {
+    const job = run.job;
+    later(() => coderCancel(job).catch(() => null));
+  }
+  if (note) await taskEvent(run.id, status === "done" ? "done" : status === "stopped" ? "info" : "failed", note, db);
+  await taskStatus(run.id, status, run.step, db);
+  // the conversation's saved copy follows each finished request (memories are learned from it later, in quiet time)
+  if (!run.slot && st.threadId && chatKeyOf) {
+    const { syncThread } = await import("@/lib/coderThreads");
+    await syncThread(chatKeyOf, st.threadId, st, db, true);
+  }
+  // a scheduled run's VM ends with the run; the chat's VM lives for the conversation (stopped by /new or /stop, or its own timeout)
+  if (chatKeyOf && run.slot) later(() => import("@/lib/coderSandbox").then((m) => m.stopSandbox(chatKeyOf, run.id)));
+  if (run.scheduleId) {
+    const { scheduleRunFinished } = await import("@/lib/coderSchedules");
+    await scheduleRunFinished(run.scheduleId, status, db);
+  }
+}
+
+const contextOf = (run: Run): Context => (run.source && run.source !== "interactive" ? "scheduled" : "interactive");
+
+async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: string; file_name?: string; file_size?: number }): Promise<string> {
+  if ((doc.file_size || 0) > 400_000) return `[file ${doc.file_name || ""} is too big to read here (${doc.file_size} bytes)]`;
+  try {
+    const f = await bot.api.getFile(doc.file_id);
+    const r = await fetch(`https://api.telegram.org/file/bot${botRow.token}/${f.file_path}`, { signal: AbortSignal.timeout(15000) });
+    const body = await r.text();
+    return `File ${doc.file_name || f.file_path}:\n\`\`\`\n${body.slice(0, 120000)}\n\`\`\``;
+  } catch {
+    return `[could not read file ${doc.file_name || ""}]`;
+  }
+}
+
+/** Tools for this chat: the owner's token for the owner, a user's own linked token for a user (src/lib/coderAuth.ts), else none. */
+async function toolCtx(chatId: number, st: ChatState, db: Db, run?: Run | null): Promise<ToolCtx & { tier: Tier }> {
+  const conn = await resolveConnections(chatId, db);
+  return {
+    tier: tierFor(chatId),
+    runId: (run || st.run)?.slot ? (run || st.run)!.id : (st.convId ||= randomUUID().slice(0, 12)),   // sandbox key: per scheduled run, per chat conversation
+    chatKey: coderChatKey(chatId),
+    userId: chatId,
+    db,
+    githubToken: conn.github?.token || null,
+    gh: conn.github ? githubClient(conn.github.token) : null,
+    addNote: (t: string) => {
+      st.notes = `${st.notes}\n- ${t}`.trim().slice(-4000);
+    },
+  };
+}
+
+/** Fresh copies of the files the task was working on (re-read on recovery), short. */
+async function rereadTouched(ctx: ToolCtx, ss: StallState): Promise<string> {
+  if (!ctx.gh) return "";
+  const out: string[] = [];
+  for (const t of ss.touched.slice(-3)) {
+    const i = t.indexOf(":");
+    const call = { id: "reread", type: "function" as const, function: { name: "github_read_file", arguments: JSON.stringify({ repo: t.slice(0, i), path: t.slice(i + 1) }) } };
+    out.push((await runTool(call, ctx)).slice(0, 3000));
+  }
+  return out.join("\n\n");
+}
+
+async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db: Db): Promise<void> {
+  const ss = run.stall!;
+  await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: stall.pattern, level: ss.level, detail: stall.detail }, db);
+  const fresh = ss.level >= 2 ? await rereadTouched(ctx, ss) : "";
+  run.recovery = `${run.recovery ? run.recovery + "\n\n" : ""}${recoveryMessage(stall, ss, fresh)}`;
+}
+
+// ---------------------------------------------------------------- the loop: submit -> poll/stream -> tools (guarded) -> submit … until a final answer
+async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
+  const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
+  const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
+  await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000) }).catch(() => null);
+}
+
+/**
+ * One live "progress card" per streak of tool calls (idea taken from CI agents that keep a single status comment up to date):
+ * the first tool sends a message, the next ones edit it, so the chat is not flooded with one line per step. A text reply from the
+ * model closes the card; the next tools open a new one. CODER_PROGRESS_CARD=off restores one message per tool.
+ */
+async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: string): Promise<void> {
+  if ((process.env.CODER_PROGRESS_CARD || "").toLowerCase() === "off" || typeof (bot.api as any).editMessageText !== "function") {
+    await send(bot, chatId, line);
+    return;
+  }
+  const p = (run.progress ||= { lines: [] });
+  p.lines.push(line.slice(0, 300));
+  const shown = p.lines.slice(-12);
+  const text = `⚙️ [محطة العمل]\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} خطوة سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `⏳ ${l}` : `✔ ${l}`)).join("\n")}\n\n🟢 المهمة نشطة — تُحدّث هذه البطاقة عند كل خطوة.`.slice(0, 4000);
+  if (p.msgId) {
+    const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
+    if (ok) return;
+  }
+  const m = await bot.api.sendMessage(chatId, text).catch(() => null);
+  p.msgId = (m as any)?.message_id || undefined;
+}
+
+/** Keep the existing progress message alive while a slow Studio/GitHub call is in flight. */
+async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, label: string, work: () => Promise<T>): Promise<T> {
+  let beat = 0;
+  const timer = setInterval(() => {
+    const msgId = run.progress?.msgId;
+    if (!msgId) return;
+    beat += 1;
+    const dots = ".".repeat((beat % 3) + 1);
+    const text = `⚙️ [محطة العمل]\n⏳ ${label}\n🟢 ما زلت أعمل${dots}\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
+  }, 12000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+/** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
+async function sendRich(bot: TelegramBot, chatId: number, text: string) {
+  const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
+  const html = markdownToTelegramHtml(text);
+  if (html.length <= 4096) {
+    const ok = await bot.api.sendMessage(chatId, html, { parse_mode: "HTML", link_preview_options: { is_disabled: true } } as never).then(() => true).catch(() => false);
+    if (ok) return;
+  }
+  for (const piece of splitForTelegram(stripMarkdown(text), 4000)) await send(bot, chatId, piece);
+}
+
+async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Run, final: boolean) {
+  for (const [a, b] of chunkRanges(text, run.sent, final)) {
+    const part = renderRange(text, a, b);
+    if (part.trim()) {
+      if (final && run.progress?.msgId) {
+        await (bot.api as any).editMessageText(chatId, run.progress.msgId, "✅ اكتمل توليد الرد بنجاح.\n📄 أُرسلت النتيجة في الرسائل التالية.").catch(() => null);
+      }
+      run.progress = undefined;
+      await sendRich(bot, chatId, part);
+      await taskEvent(run.id, "text", part);
+    }
+    run.sent = b;
+  }
+}
+
+export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+  const t0 = Date.now();
+  const left = () => budgetMs - (Date.now() - t0);
+  let cached: CoderReply | null = null;                 // `chat` already answered within its wait: no extra poll
+  for (;;) {
+    const st = await loadState(chatId, db, slot);
+    const run = st.run;
+    if (!run || run.chain !== chain || run.pending) return;
+    run.stall = run.stall || newStallState();
+    run.lease = Date.now();
+    if (left() < 6000) {
+      await saveState(chatId, st, db, slot);
+      await handOff(botRow, chatId, chain, slot);
+      return;
+    }
+    const ctx = await toolCtx(chatId, st, db, run);
+    const github = Boolean(ctx.gh);
+
+    // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
+    if (run.queued?.length) {
+      const [call, ...rest] = run.queued;
+      const skip = beforeCall(run.stall, call);
+      if (skip) {
+        // the same call yet again after a recovery: not run; the model gets its earlier result and must change course
+        run.stall.level++;
+        st.messages.push({ role: "tool", content: skip.skip, tool_call_id: call.id, name: call.function.name });
+        await onStall({ pattern: "repeat_call", detail: `${call.function.name} skipped (identical call again)` }, run, chatId, ctx, db);
+        run.queued = rest;
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      // permissions: tier defaults + the user's own policy (coder_permission_prefs) + "allow for the rest of this task"
+      const g = await evaluateCall(call, ctx.gh, ctx.tier, contextOf(run), await loadPrefs(chatId, db), run.allowCats || []);
+      if (g.action === "deny") {
+        await taskEvent(run.id, "auto_denied", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
+        await send(bot, chatId, `⛔ رُفض تلقائياً حسب إعداداتك: ${g.reason}\n${call.function.name}`);
+        st.messages.push({ role: "tool", content: `DENIED by the user's standing policy (${g.denied.join(", ")}); it was NOT executed. Do not retry it; find another way or explain what is needed.`, tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        afterCall(run.stall, call, "denied", run.step);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      if (g.action === "ask") {
+        const nonce = randomUUID().slice(0, 6);
+        run.pending = { calls: run.queued, reason: g.reason, summary: g.summary, nonce, categories: categoriesOf(g.ask), at: Date.now() };
+        run.queued = [];
+        await saveState(chatId, st, db, slot);
+        await taskEvent(run.id, "confirm", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
+        await taskStatus(run.id, "waiting", run.step, db);
+        const kb = new InlineKeyboard().text("✅ نفّذ", `ccf|${run.id}|${nonce}|yes`).text("❌ ألغِ", `ccf|${run.id}|${nonce}|no`).row().text("✅ اسمح لبقية المهمة", `ccf|${run.id}|${nonce}|all`);
+        const head = run.title && run.source !== "interactive" ? `⏰ ${run.title.slice(0, 80)}\n` : "";
+        const m = await bot.api.sendMessage(chatId, `${head}⚠️ يحتاج تأكيدك: ${g.reason}\n${call.function.name}\n${g.summary}`.slice(0, 3500), { reply_markup: kb } as never).catch(() => null);
+        if (m && (m as any).message_id) {
+          const again = await loadState(chatId, db, slot);
+          if (again.run?.pending?.nonce === nonce) {
+            again.run.pending.msgId = (m as any).message_id;
+            await saveState(chatId, again, db, slot);
+          }
+        }
+        return;
+      }
+      if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
+      await progressLine(bot, chatId, run, toolLabel(call));
+      await taskEvent(run.id, "tool", toolLabel(call), db);
+      const out = await withHeartbeat(bot, chatId, run, `تنفيذ الأداة: ${toolLabel(call)}`, () => runTool(call, ctx));
+      st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
+      run.queued = rest;
+      const seen = afterCall(run.stall, call, out, run.step);
+      if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
+      if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
+      await saveState(chatId, st, db, slot);
+      continue;
+    }
+
+    // CI still running with nothing new: wait (inside this leg, or hand the wait to the next leg)
+    if (run.waitUntil && run.waitUntil > Date.now()) {
+      const ms = run.waitUntil - Date.now();
+      if (ms > left() - 7000) {
+        await saveState(chatId, st, db, slot);
+        await new Promise((res) => setTimeout(res, Math.max(0, left() - 7000)));
+        continue;
+      }
+      await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+      await new Promise((res) => setTimeout(res, ms));
+      continue;
+    }
+
+    // 2) a job on the Studio: poll it and send what is finished
+    if (run.job) {
+      const o = cached && cached.job === run.job ? { reply: cached } : await coderJobResult(run.job, 0, Math.min(10000, left() - 2000));
+      cached = null;
+      const r: CoderReply | null = o.reply;
+      if (!r || r.type === "error" || r.type === "gone" || r.type === "cancelled") {
+        if (run.compacting && r?.type !== "cancelled" && !(!r && (o.failure === "timeout" || o.failure === "network"))) {
+          run.job = undefined;                        // the summary job failed: the harness writes the summary itself
+          run.sent = 0;
+          await startSegment(bot, chatId, st, run, "", db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        if (!r && (o.failure === "timeout" || o.failure === "network")) {
+          await saveState(chatId, st, db, slot);
+          await new Promise((res) => setTimeout(res, pollMs()));
+          continue;                                   // a slow / flaky poll is not the end of the job
+        }
+        if (r?.type === "error" && (run.retries || 0) < MAX_RETRIES) {
+          // e.g. the context overflowed: same step again with a smaller history, the task goes on
+          run.retries = (run.retries || 0) + 1;
+          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 70000)) / 2));
+          run.job = undefined;
+          run.sent = 0;
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        await endRun(st, r?.type === "cancelled" ? "stopped" : "failed", db, r?.type === "cancelled" ? "cancelled" : coderFailureText(o), coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
+        if (r?.type !== "cancelled") await send(bot, chatId, userFailureText(o, chatId));
+        return;
+      }
+      const text = r.text || "";
+      if (r.type === "pending") {
+        // Keep the Telegram progress card alive while Studio is in prompt prefill / queue and emits no tokens.
+        if (run.progress?.msgId && Date.now() - (run.progressAt || 0) >= 12000) {
+          run.progressAt = Date.now();
+          const phase = r.phase && r.phase !== "ready" ? `مرحلة النموذج: ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `في الطابور، الترتيب ${r.queue_pos}` : "جارٍ انتظار أول مخرجات النموذج";
+          void (bot.api as any).editMessageText(chatId, run.progress.msgId, `⚙️ [محطة العمل]\n⏳ ${phase}\n🟢 المهمة ما زالت قيد المعالجة…\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`).catch(() => null);
+        }
+        // the job's watchdog: any growth of its text or reasoning, a move in the queue or a model phase change counts as life
+        const size = `${r.total || 0}|${Number((r as { reasoning_len?: number }).reasoning_len || 0)}|${r.queue_pos ?? ""}|${r.phase || ""}`;
+        if (!run.jobMovedAt || size !== run.jobSize) {
+          run.jobSize = size;
+          run.jobMovedAt = Date.now();
+        } else if (Date.now() - run.jobMovedAt > jobStallMs()) {
+          const where = r.phase && r.phase !== "ready" ? `model ${r.phase}` : r.queue_pos && r.queue_pos > 0 ? `queued behind ${r.queue_pos}` : "no new output";
+          await coderCancel(run.job).catch(() => null);
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job stalled ${Math.round(jobStallMs() / 1000)}s (${where}); cancelled` }, db);
+          if (run.progress?.msgId) await (bot.api as any).editMessageText(chatId, run.progress.msgId, `❌ توقفت المهمة بسبب عدم وصول أي تقدم من خادم النموذج.\nالسبب: ${where}\nيمكنك إعادة المحاولة أو فتح الطرفية لعرض السجلات.`).catch(() => null);
+          await endRun(st, "failed", db, `studio job stalled (${where})`, coderChatKey(chatId));
+          await saveState(chatId, st, db, slot);
+          await send(bot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
+          return;
+        }
+        if (!run.compacting) await sendParts(bot, chatId, text, run, false);
+        await saveState(chatId, st, db, slot);
+        await bot.api.sendChatAction(chatId, "typing").catch(() => null);
+        await new Promise((res) => setTimeout(res, pollMs()));
+        continue;
+      }
+      // done: metered in model tokens (plans are token-based): the Studio's own counts (llama.cpp timings) when it sends them,
+      // else an estimate. Input = the larger of the processed prompt and the estimated full prompt (a cached prompt still counts).
+      {
+        const tm = (r as { timings?: { prompt_n?: number; predicted_n?: number } }).timings || {};
+        const out = Number(tm.predicted_n) > 0 ? Number(tm.predicted_n) : estimateTokens(text + JSON.stringify(r.tool_calls || []));
+        const inp = Math.max(Number(tm.prompt_n) || 0, run.promptEst || 0);
+        await addUsage(chatId, "tokens", inp + out, db);
+        run.promptEst = undefined;
+      }
+      if (run.compacting) {
+        // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
+        run.job = undefined;
+        run.sent = 0;
+        await startSegment(bot, chatId, st, run, text, db);
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      const completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      // Some Studio/model responses finish with neither text nor tool calls. Never report that as success:
+      // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
+      if (!text.trim() && completedCalls.length === 0) {
+        run.job = undefined;
+        run.sent = 0;
+        if ((run.retries || 0) < 1) {
+          run.retries = (run.retries || 0) + 1;
+          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 40000)) / 2));
+          run.promptEst = undefined;
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned done with empty text and no tool calls; retrying once with smaller context" }, db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
+        await endRun(st, "failed", db, "empty model output after retry", coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
+        await send(bot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
+        return;
+      }
+      await sendParts(bot, chatId, text, run, true);
+      const calls = completedCalls;
+      st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
+      run.job = undefined;
+      run.sent = 0;
+      run.retries = 0;
+      if (calls.length) {
+        run.queued = calls;
+        run.step++;
+        const looped = afterText(run.stall, text, run.step);
+        if (looped) await onStall(looped, run, chatId, ctx, db);
+        if (stepsSinceProgress(run.stall, run.step) >= HARD_MAX_STEPS && tierFor(chatId) !== "owner") {   // the owner has no ceiling
+          // the only stop: a stall safety net against runaway compute (CODER_HARD_MAX_STEPS model steps with no real progress — not total
+          // steps, so a long task that keeps moving never reaches it). Not a pause — the task ends and says so.
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "hard_ceiling", level: run.stall.level, detail: `${HARD_MAX_STEPS} steps without progress (CODER_HARD_MAX_STEPS), step ${run.step}` }, db);
+          for (const c of calls) st.messages.push({ role: "tool", content: "[harness] Hard safety ceiling reached; the task was stopped here (not executed).", tool_call_id: c.id, name: c.function.name });
+          await endRun(st, "ceiling", db, `hard ceiling ${HARD_MAX_STEPS}`, coderChatKey(chatId));
+          await saveState(chatId, st, db, slot);
+          await send(bot, chatId, tierFor(chatId) === "owner"
+            ? `⛔ توقفت المهمة عند سقف الأمان: ${HARD_MAX_STEPS} خطوة متتالية بلا أي تقدّم حقيقي، لمنع استهلاك لا نهائي. اكتب «تابع» لأكمل من حيث توقفت.`
+            : "⛔ توقفت المهمة لأنها دارت في حلقة بلا تقدّم. اكتب «تابع» لأكمل من حيث توقفت، أو وضّح لي المطلوب أكثر.");
+          return;
+        }
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      if (!text.trim()) await send(bot, chatId, "(انتهى الرد بلا نص)");
+      if (st.inbox.length) {
+        for (const m of st.inbox) st.messages.push({ role: "user", content: m });
+        st.inbox = [];
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
+      if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
+      await endRun(st, "done", db, "✓", coderChatKey(chatId));
+      await saveState(chatId, st, db, slot);
+      return;
+    }
+
+    // 3) nothing running. A long task whose context grew large first closes its segment: the model writes a progress summary
+    // (no tools), it is kept as task memory and becomes the whole context of the next segment (coderSegments.ts).
+    if (run.compacting || needsSegment(st.messages, run)) {
+      run.compacting = true;
+      const sumMsgs: CoderMessage[] = [{ role: "system", content: "You are the coding agent pausing at a context checkpoint. Write the progress summary you are asked for, nothing else." }, ...trimMessages(st.messages, run.histChars), summaryRequest(run.goal || "", run.segment || 1)];
+      const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
+      const o = await coderChat(sumMsgs, { think: false, temperature: 0.3, waitS, timeoutMs: waitS * 1000 + 9000 });
+      if (o.reply?.job) {
+        run.job = o.reply.job;
+        run.sent = 0;
+        run.jobAt = run.jobMovedAt = Date.now();
+        run.jobSize = "";
+        if (o.reply.type !== "pending") cached = o.reply;
+      } else await startSegment(bot, chatId, st, run, "", db);
+      await saveState(chatId, st, db, slot);
+      continue;
+    }
+    // ask the model for the next step (messages that came in meanwhile join the conversation now)
+    if (st.inbox.length) {
+      for (const m of st.inbox) st.messages.push({ role: "user", content: m });
+      st.inbox = [];
+    }
+    if (run.recovery) {
+      st.messages.push({ role: "user", content: run.recovery });       // the reflection / re-plan step after a detected loop
+      run.recovery = undefined;
+    }
+    {
+      // plan limits per model step: steps and model tokens (rolling week; the owner has none). Reached = the task ends gracefully.
+      const lim = (await checkLimit(chatId, "steps", 1, db)) as LimitCheck;
+      const limT = lim.ok ? await checkLimit(chatId, "tokens", 1, db) : lim;
+      const hit = !lim.ok ? lim : !limT.ok ? limT : null;
+      if (hit) {
+        await endRun(st, "limited", db, `plan limit: ${hit.metric}`, coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
+        await sendLimit(bot, chatId, hit, st.tz, run.title && run.slot ? `${run.title}: ` : "");
+        return;
+      }
+    }
+    const knobs = recoveryKnobs(run.stall);
+    if (run.memory === undefined) {
+      // relevant long-term memories, once per task (keyword + recency + repo scope)
+      const { memoryPrompt, repoOf } = await import("@/lib/coderMemory");
+      run.memory = await memoryPrompt(chatId, run.goal || "", repoOf(run.goal || "", st.repo), db).catch(() => "");
+    }
+    const connected = await import("@/lib/coderConnectors").then((m) => m.connectedIds(chatId, db)).catch(() => [] as string[]);
+    const accuracy: Accuracy = isAccuracy(st.accuracy) ? st.accuracy : "balanced";
+    const messages: CoderMessage[] = [{ role: "system", content: coderSystemPrompt({ github, owner: tierFor(chatId) === "owner", accuracy, connectors: connected, notes: `${run.memory ? `${run.memory}\n` : ""}${st.repo ? `Default repository for this user: ${st.repo}\n` : ""}${st.notes}` }) }, ...trimMessages(st.messages, run.histChars)];
+    const waitS = Math.max(1, Math.min(20, Math.floor((left() - 12000) / 1000)));
+    await addUsage(chatId, "steps", 1, db);
+    run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
+    // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
+    const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
+    const o = await withHeartbeat(bot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
+    const r = o.reply;
+    if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
+      run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
+      await saveState(chatId, st, db, slot);
+      await new Promise((res) => setTimeout(res, Math.min(10000, pollMs() * 2 * run.retries!)));
+      continue;
+    }
+    if (!r || !r.job) {
+      await endRun(st, "failed", db, coderFailureText(o), coderChatKey(chatId));
+      await saveState(chatId, st, db, slot);
+      await send(bot, chatId, userFailureText(o, chatId));
+      return;
+    }
+    run.job = r.job;
+    run.sent = 0;
+    run.jobAt = Date.now();
+    run.jobMovedAt = Date.now();
+    run.jobSize = "";
+    if (r.type !== "pending") cached = r;
+    if (r.type === "pending" && r.queue_pos && r.queue_pos > 0) await send(bot, chatId, `⏳ طلبك في الدور (${r.queue_pos} قبله).`);
+    if (r.type === "pending" && r.phase && r.phase !== "ready") await send(bot, chatId, tierFor(chatId) === "owner" ? "⏳ خادم Nova AI يحمّل النموذج الآن؛ سيبدأ الرد حين يجهز." : "⏳ أجهّز نفسي للرد، لحظات…");
+    await saveState(chatId, st, db, slot);
+  }
+}
+
+/** Closes the current segment with `text` (the model's summary, or the harness's own when it is unusable) and opens the next one. */
+async function startSegment(bot: TelegramBot, chatId: number, st: ChatState, run: Run, text: string, db: Db): Promise<void> {
+  const seg = run.segment || 1;
+  const own = usableSummary(text);
+  const summary = own ? text.trim() : fallbackSummary(run.goal || "", st.messages, run.stall?.touched || [], st.notes);
+  await saveSegment(run.id, seg, stateKey(chatId, run.slot || ""), summary, db);
+  await taskEvent(run.id, "segment", `${seg} → ${seg + 1}${own ? "" : " (harness summary)"}
+${summary}`, db);
+  st.messages = segmentMessages(run.goal || "", summary, seg + 1);
+  run.segment = seg + 1;
+  run.segStep = run.step;
+  run.compacting = false;
+  run.histChars = undefined;                                            // a fresh context gets the full budget again
+  run.retries = 0;
+  if (run.stall) {
+    run.stall.calls = [];
+    run.stall.texts = [];
+  }
+  await send(bot, chatId, `🔁 المهمة طويلة: حفظتُ ملخّص ما أُنجز وأكمل في الخلفية (المرحلة ${seg + 1}).${run.title ? ` — ${run.title.slice(0, 80)}` : ""}`);
+}
+
+/** /api/coder/continue: the next leg of a long run. */
+export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = ""): Promise<void> {
+  const { Bot } = await import("grammy");
+  const bot = new Bot(botRow.token);
+  const st = await loadState(chatId, db, slot);
+  if (!st.run || st.run.chain !== chain) return;
+  st.run.lease = Date.now();
+  await saveState(chatId, st, db, slot);
+  await drive(bot, botRow, chatId, chain, db, BUDGET_MS, slot);
+}
+
+/**
+ * Starts a scheduled / event-triggered task in its own slot (src/lib/coderSchedules.ts): a fresh run with its own step counter
+ * (the hard ceiling is per run, never cumulative), same permission tiers and policy (context "scheduled"), results to the user's chat.
+ * Returns "started", "busy" (the previous run of this schedule is still going) or "off".
+ */
+export async function startScheduledRun(
+  bot: TelegramBot, botRow: BotRow, chatId: number, t: { scheduleId: string; title: string; prompt: string; source: "scheduled" | "event" }, db: Db = prismaDb,
+): Promise<"started" | "busy" | "off" | "limited"> {
+  if (!coderEnabled()) return "off";
+  const slot = `s:${t.scheduleId}`;
+  const prev = await loadState(chatId, db, slot);
+  if (prev.run && Date.now() - prev.run.lease < LEASE_STALE_MS * 5) return "busy";
+  const main = await loadState(chatId, db);
+  const lim = await checkLimit(chatId, "tasks", 1, db);
+  if (!lim.ok) {
+    await sendLimit(bot, chatId, lim, main.tz, `⏰ ${t.title}: `);
+    return "limited";
+  }
+  await addUsage(chatId, "tasks", 1, db);
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
+  startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
+  await saveState(chatId, st, db, slot);
+  await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
+  return "started";
+}
+
+export { splitForTelegram };
