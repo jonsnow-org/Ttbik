@@ -89,8 +89,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     return () => { stopped = true; clearInterval(id); };
   }, [selected, fetchJson]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
-  return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 160 : undefined }}>
-    <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 140 }}>
+  return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 180 : undefined, border: "2px solid #0e7490" }}>
+    <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
         <button type="button" onClick={() => void load()} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "8px 10px", background: "#082f49", color: "#a5f3fc" }}>{ar ? "تحديث" : "Refresh"}</button>
@@ -455,7 +455,7 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
     const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
     return () => clearInterval(iv);
   }, [load]);
-  if (err && !d) return <div className="n-page"><Fail t={t} msg={err} retry={load} /></div>;
+  if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? (t.lang === "ar" ? "المحادثة غير موجودة أو حُذفت" : "Conversation not found") : err} retry={load} /></div>;
   if (!d) return <Loading />;
   const live = (s: string) => s === "running" || s === "waiting";
   const cont = async () => { setBusy(true); haptic("medium"); try { await api("thread_open", { id }); closeApp(); } finally { setBusy(false); } };
