@@ -392,23 +392,32 @@ def _enforce_quota(user: dict, kind: str = "TEXT") -> str:
     return quota_message
 
 
+_FEEDBACK_DETECTION_LIMIT = threading.BoundedSemaphore(2)
+
+
 def _maybe_flag_previous_answer(user_id: str, new_message: str) -> None:
-    """Silent thumbs-down detector (owner spec 2026-09-08, replacing
-    visible 👍/👎 buttons — real risk of an accidental tap, and one
-    fewer screen element for the user to deal with). Runs right before
-    generating the NEW answer, so it judges the PREVIOUS turn based on
-    how the user actually reacted to it — see
-    council.detect_dissatisfaction. Never raises; a failure here just
-    means one fewer DPO example, never a blocked chat."""
-    try:
-        prev = quota.get_last_usage_log(user_id)
-        if not prev or prev.get("rating") or not prev.get("answer"):
-            return
-        if council.detect_dissatisfaction(prev["answer"], new_message):
-            quota.set_feedback(prev["id"], "DOWN")
-            logger.info("passive feedback: flagged log %s as DOWN from the user's own follow-up message", prev["id"])
-    except Exception:
-        logger.exception("passive feedback detection failed — skipping")
+    """Run optional feedback detection off the response-critical path.
+    The previous implementation waited for a database read and a second
+    model call before answering the user's new message. Keep this
+    enrichment bounded and best-effort so it cannot add seconds to chat
+    latency or create unbounded background work."""
+    if not _FEEDBACK_DETECTION_LIMIT.acquire(blocking=False):
+        return
+
+    def _check() -> None:
+        try:
+            prev = quota.get_last_usage_log(user_id)
+            if not prev or prev.get("rating") or not prev.get("answer"):
+                return
+            if council.detect_dissatisfaction(prev["answer"], new_message):
+                quota.set_feedback(prev["id"], "DOWN")
+                logger.info("passive feedback: flagged log %s as DOWN from the user's own follow-up message", prev["id"])
+        except Exception:
+            logger.exception("passive feedback detection failed — skipping")
+        finally:
+            _FEEDBACK_DETECTION_LIMIT.release()
+
+    threading.Thread(target=_check, daemon=True, name="nova-feedback-check").start()
 
 
 # Owner report, 2026-09-14 ("اريد اصلاح جذري... في حال كان هناك مستخدمين
@@ -436,8 +445,8 @@ _PIPELINE_BUSY_MESSAGE = "الخادم يعالج عدداً كبيراً من �
 
 
 def _run_text_pipeline_bounded(user: dict, channel: str, message: str) -> tuple[str, str, str]:
-    if not _CONCURRENT_PIPELINE_LIMIT.acquire(timeout=90):
-        logger.warning("pipeline concurrency limit hit — replying busy instead of adding a 3rd concurrent request")
+    if not _CONCURRENT_PIPELINE_LIMIT.acquire(timeout=15):
+        logger.warning("pipeline concurrency limit hit — replying busy instead of waiting more than 15 seconds for a generation slot")
         return _PIPELINE_BUSY_MESSAGE, "GENERAL", ""
     try:
         return _run_text_pipeline(user, channel, message)
@@ -514,7 +523,7 @@ def _run_text_pipeline(user: dict, channel: str, message: str) -> tuple[str, str
         try:
             deep_result = with_hard_deadline(
                 deep_think.deep_answer, message, context, query_type=query_type,
-                is_owner=quota.is_platform_owner(user), timeout=150,
+                is_owner=quota.is_platform_owner(user), timeout=40,
             )
         except Exception:
             logger.exception("deep_think failed for user_id=%s — falling back to the normal answer path", user["id"])
@@ -783,9 +792,16 @@ def _process_chat_and_deliver_impl(user: dict, channel: str, message: str, chat_
             # real code change in plain conversation instead of the
             # fixed "/اقتراح_تعديل" command (that command still works
             # too, for a precise one-liner).
-            intent_result = council.classify_intent(
-                message, _recent_context_for_intent(user["id"]), allow_dev=quota.is_platform_owner(user)
+            intent_result = with_hard_deadline(
+                council.classify_intent,
+                message,
+                _recent_context_for_intent(user["id"]),
+                allow_dev=quota.is_platform_owner(user),
+                timeout=12,
             )
+            if not isinstance(intent_result, dict):
+                logger.warning("intent classification exceeded 12s or returned no result — defaulting to TEXT")
+                intent_result = {"intent": "TEXT", "prompt": ""}
         except Exception:
             logger.exception("intent classification failed for chat_id=%s — defaulting to a normal text answer", chat_id)
             intent_result = {"intent": "TEXT", "prompt": ""}

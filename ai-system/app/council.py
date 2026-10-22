@@ -331,7 +331,7 @@ def _groq_client() -> Groq:
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY غير مُعدّ — راجع ai-system/.env.example")
     if _groq_client_singleton is None:
-        _groq_client_singleton = Groq(api_key=GROQ_API_KEY)
+        _groq_client_singleton = Groq(api_key=GROQ_API_KEY, timeout=12.0, max_retries=0)
     return _groq_client_singleton
 
 
@@ -560,7 +560,7 @@ def call_modelscope_specialist(
     docstring for the exact real bug this closes (an SSE stream with
     keepalive bytes can make requests' own `timeout=` never fire even
     though a job is genuinely stalled)."""
-    result_timeout = 630 if image_base64 else 100  # a little above the inner call's own nominal timeouts
+    result_timeout = 630 if image_base64 else 55  # a little above the inner call's own nominal timeouts
     return with_hard_deadline(
         _call_modelscope_specialist_blocking, message, context, image_base64=image_base64, query_type=query_type,
         is_owner=is_owner, timeout=result_timeout,
