@@ -175,7 +175,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
 }
 
 /** Keep the conversation inside the model's context: newest messages first, whole turns only (never start on a tool result). */
-export function trimMessages(msgs: CoderMessage[], maxChars = Number(process.env.CODER_HISTORY_CHARS || 70000)): CoderMessage[] {
+export function trimMessages(msgs: CoderMessage[], maxChars = Number(process.env.CODER_HISTORY_CHARS || 40000)): CoderMessage[] {
   let total = 0;
   let i = msgs.length;
   while (i > 0) {
