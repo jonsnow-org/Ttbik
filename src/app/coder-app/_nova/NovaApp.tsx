@@ -32,11 +32,10 @@ type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab)
 
 const TABS: Tab[] = ["home", "chats", "auto", "settings"];
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
-const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, terminal: { ar: "الطرفية", en: "Terminal" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
+const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
 const NAV_ICON: Record<Tab, string> = {
   home: "M3 10.5 12 3l9 7.5M5.5 9v11h4.5v-6h4v6h4.5V9",
   chats: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
-  terminal: "M4 17l6-5-6-5M12 19h8",
   auto: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
@@ -384,7 +383,6 @@ function Chats({ c }: { c: Ctx }) {
     try { await api("thread_new"); setNote(true); haptic("success"); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
   const isLive = (s: string) => s === "running" || s === "waiting";
-  const hasLive = !!(d?.live?.length);
   return (
     <div className="n-page">
       <div className="n-ph" lang={lang}>
@@ -392,7 +390,7 @@ function Chats({ c }: { c: Ctx }) {
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
       {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
-      {hasLive && <div style={{ margin: "0 0 14px" }}><TerminalScreen lang={lang} compact /></div>}
+      <div style={{ margin: "0 0 14px" }}><TerminalScreen lang={lang} compact /></div>
       {note && (
         <div className="n-note" role="status">
           {t.newChatStarted}
