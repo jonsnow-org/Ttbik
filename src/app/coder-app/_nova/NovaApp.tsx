@@ -455,7 +455,7 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
     const iv = setInterval(() => document.visibilityState === "visible" && load(), 4000);
     return () => clearInterval(iv);
   }, [load]);
-  if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? (t.lang === "ar" ? "المحادثة غير موجودة أو حُذفت" : "Conversation not found") : err} retry={load} /></div>;
+  if (err && !d) return <div className="n-page"><Fail t={t} msg={err === "not found" ? "المحادثة غير موجودة أو حُذفت" : err} retry={load} /></div>;
   if (!d) return <Loading />;
   const live = (s: string) => s === "running" || s === "waiting";
   const cont = async () => { setBusy(true); haptic("medium"); try { await api("thread_open", { id }); closeApp(); } finally { setBusy(false); } };
