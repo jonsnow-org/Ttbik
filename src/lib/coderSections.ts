@@ -370,6 +370,34 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   return true;
 }
 
+/** Starts a coding task from the Mini App using the same durable runner as Telegram chat. */
+export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: number, text: string, db: Db = prismaDb): Promise<{ runId: string; queued: boolean }> {
+  const content = String(text || "").trim();
+  if (!content) throw new Error("empty task");
+  if (!coderEnabled()) throw new Error("coder service is not configured");
+  const st = await loadState(chatId, db);
+  if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
+    if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
+  }
+  if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
+    st.inbox.push(content);
+    await saveState(chatId, st, db);
+    await taskEvent(st.run.id, "info", "وصل طلب جديد من الطرفية وأُضيف إلى المهمة الجارية.", db);
+    return { runId: st.run.id, queued: true };
+  }
+  if (!st.threadId) await ensureThread(chatId, st, db, content);
+  const lim = await checkLimit(chatId, "tasks", 1, db);
+  if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
+  await addUsage(chatId, "tasks", 1, db);
+  st.messages.push({ role: "user", content });
+  startChain(botRow, chatId, st, { source: "interactive", title: content.slice(0, 200) }, db);
+  const runId = st.run!.id;
+  await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
+  await saveState(chatId, st, db);
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db));
+  return { runId, queued: false };
+}
+
 /** A plan limit was reached: the message (with the reset time) and an "upgrade" button that opens the plans page of the app. */
 async function sendLimit(bot: TelegramBot, chatId: number, c: Exclude<LimitCheck, { ok: true }>, tz?: string, prefix = ""): Promise<void> {
   await send(bot, chatId, prefix + limitMessage(c, tz || defaultTz()), { reply_markup: new InlineKeyboard().webApp("⬆️ الترقية والاستخدام", `${appUrl()}?tab=plans`) });
