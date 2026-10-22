@@ -967,7 +967,7 @@ function TerminalTab({ lang }: { lang: Lang }) {
   const loadTasks = useCallback(async () => {
     try {
       const response = await fetch("/api/coder/terminal?limit=40", { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
-      const d = await response.json().catch(() => ({}));
+      const d = await response.json().catch(() => ({})) as { tasks?: Task[]; error?: string };
       if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
       setTasks(d.tasks || []);
       setError("");
