@@ -96,7 +96,12 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     if (!txt || sending) return;
     setSending(true);
     try {
-      await api("send", { text: txt });
+      const r = await fetch("/api/coder/app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+        body: JSON.stringify({ op: "send", text: txt }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Send failed");
       setInput("");
       void load();
     } catch (e: any) { setError(e?.message || "Send failed"); }
