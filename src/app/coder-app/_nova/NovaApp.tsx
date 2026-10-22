@@ -711,7 +711,7 @@ export default function NovaApp() {
       style={{ ...vars, paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
       <main className={`n-main${page ? " n-sub" : ""}`}>
         {err === "__tg" ? <div className="n-page"><Card><div className="n-empty"><div className="n-mark"><Mark size={52} color="var(--n-primary)" /></div>{t.openInTelegram}</div></Card></div>
-          : err ? <div className="n-page"><Fail t={t} msg={err} retry={reload} /></div>
+          : err ? <div className="n-page"><Fail t={t} msg={err} retry={err.startsWith("تعذّر تهيئة التطبيق") ? () => window.location.reload() : reload} /></div>
           : !ctx ? <div style={{ minHeight: "80vh", display: "grid", placeItems: "center" }}><Spinner size="l" /></div>
           : page ? (
             <>
