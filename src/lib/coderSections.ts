@@ -641,6 +641,24 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   p.msgId = (m as any)?.message_id || undefined;
 }
 
+/** Keep the existing progress message alive while a slow Studio/GitHub call is in flight. */
+async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, label: string, work: () => Promise<T>): Promise<T> {
+  let beat = 0;
+  const timer = setInterval(() => {
+    const msgId = run.progress?.msgId;
+    if (!msgId) return;
+    beat += 1;
+    const dots = ".".repeat((beat % 3) + 1);
+    const text = `⚙️ [محطة العمل]\n⏳ ${label}\n🟢 ما زلت أعمل${dots}\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
+  }, 12000);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 /** A model reply: its Markdown rendered as Telegram HTML; if Telegram refuses that, the same text without the marks. */
 async function sendRich(bot: TelegramBot, chatId: number, text: string) {
   const { markdownToTelegramHtml, stripMarkdown } = await import("@/lib/telegramMarkdown");
@@ -731,7 +749,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (g.autoAllowed.length) await taskEvent(run.id, "auto_allowed", `${g.reason} — ${call.function.name}\n${g.summary}`, db);
       await progressLine(bot, chatId, run, toolLabel(call));
       await taskEvent(run.id, "tool", toolLabel(call), db);
-      const out = await runTool(call, ctx);
+      const out = await withHeartbeat(bot, chatId, run, `تنفيذ الأداة: ${toolLabel(call)}`, () => runTool(call, ctx));
       st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
       run.queued = rest;
       const seen = afterCall(run.stall, call, out, run.step);
@@ -938,7 +956,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
-    const o = await coderChat(messages, { tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 });
+    const o = await withHeartbeat(bot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
       run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
