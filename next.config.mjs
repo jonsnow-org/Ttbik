@@ -15,9 +15,11 @@ const nextConfig = {
   images: { unoptimized: true },
   async rewrites() {
     return [
-      // Fresh path so Telegram Mini App WebView loads new bundle (bypasses aggressive path cache)
+      // Fresh paths so Telegram Mini App WebView loads new bundle
       { source: "/nova", destination: "/coder-app" },
       { source: "/nova/:path*", destination: "/coder-app/:path*" },
+      { source: "/app2", destination: "/coder-app" },
+      { source: "/app2/:path*", destination: "/coder-app/:path*" },
     ];
   },   // no next/image anywhere: the image optimizer (a known attack surface of Next) is off
   // Self-hosting (Oracle, see deploy/oracle): NEXT_OUTPUT=standalone builds a
