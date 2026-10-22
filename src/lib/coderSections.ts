@@ -43,15 +43,19 @@ export { coderChatKey };
 
 const BUDGET_MS = 47000;                                              // per invocation, inside maxDuration 60
 const LEASE_STALE_MS = 120000;
-const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
-const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
+// Invalid environment values must not turn a poll interval into NaN (a tight loop) or disable the watchdog.
+const envDuration = (name: string, fallback: number, minimum: number): number => {
+  const raw = process.env[name];
+  if (!raw?.trim()) return fallback;
+  const configured = Number(raw);
+  return Number.isFinite(configured) && configured > 0 ? Math.max(minimum, configured) : fallback;
+};
+const pollMs = () => envDuration("CODER_POLL_MS", 3000, 500);
+const ciWaitMs = () => envDuration("CODER_CI_WAIT_MS", 20000, 1000);     // CI still running and nothing changed: wait this long before the next step
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
 // Free/open model cold starts and long reasoning can legitimately exceed four minutes. Give the job 10 minutes without
 // observable progress before cancelling; operators can tune this with CODER_JOB_STALL_MS (minimum 60 s).
-const jobStallMs = () => {
-  const configured = Number(process.env.CODER_JOB_STALL_MS || 600000);
-  return Number.isFinite(configured) ? Math.max(60000, configured) : 600000;
-};
+const jobStallMs = () => envDuration("CODER_JOB_STALL_MS", 600000, 60000);
 // A run whose loop died (no lease renewal, e.g. a server restart mid-task) is cleared after this long, so the chat and the app recover.
 const RUN_DEAD_MS = () => Math.max(LEASE_STALE_MS * 2, Number(process.env.CODER_RUN_DEAD_MS || 360000));
 const BUSY_TEXT = "⌛ الخدمة مزدحمة الآن ولم أستطع الرد هذه المرة. أعد إرسال رسالتك بعد دقيقة، وسأرد عليك.";
