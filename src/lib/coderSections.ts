@@ -149,7 +149,7 @@ export function selfUrl(): string {
 export function appUrl(): string {
   const base = (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
   // Cache buster so Telegram Mini App WebView loads fresh code after deploys
-  const v = process.env.CODER_APP_VERSION || "20261022b";
+  const v = process.env.CODER_APP_VERSION || "20261022c";
   return base.includes("?") ? `${base}&v=${v}` : `${base}?v=${v}`;
 }
 
@@ -387,7 +387,8 @@ export const appButton = (tab = "") => new InlineKeyboard().webApp("💻 فتح 
 
 /** The chat's persistent menu button opens the Mini App (set once per chat and again whenever the app address changes; `force` sets it again, e.g. on /start). */
 async function ensureMenuButton(bot: TelegramBot, chatId: number, st: ChatState, db: Db, force = false): Promise<void> {
-  if (st.menu === appUrl() && !force) return;
+  // Always refresh menu button so Telegram picks up new Mini App URL after deploys
+  if (st.menu === appUrl() && !force) { /* still update to be safe */ }
   try {
     await (bot.api as any).setChatMenuButton?.({ chat_id: chatId, menu_button: { type: "web_app", text: "📱 التطبيق", web_app: { url: appUrl() } } });
   } catch {
