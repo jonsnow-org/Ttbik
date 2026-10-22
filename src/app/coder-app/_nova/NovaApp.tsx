@@ -523,7 +523,6 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
             onClick={async () => { if (!(await guard(t.hideChat))) return; await api("thread_delete", { id }); haptic("success"); onGone(); }} />
         </Card>
               </div>
-      {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
     </div>
   );
 }
