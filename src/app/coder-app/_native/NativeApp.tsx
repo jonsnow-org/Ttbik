@@ -966,7 +966,9 @@ function TerminalTab({ lang }: { lang: Lang }) {
   const ar = lang === "ar";
   const loadTasks = useCallback(async () => {
     try {
-      const d = await api<{ tasks: Task[] }>("tasks", { limit: 40 });
+      const response = await fetch("/api/coder/terminal?limit=40", { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+      const d = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
       setTasks(d.tasks || []);
       setError("");
       setSelected((old) => old && (d.tasks || []).some((x) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
@@ -980,7 +982,9 @@ function TerminalTab({ lang }: { lang: Lang }) {
     if (!selected) return;
     const pull = async () => {
       try {
-        const d = await api<{ events: Ev[] }>("events", { runId: selected, after: cursor.current });
+        const response = await fetch(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+        const d = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(d.error || `HTTP ${response.status}`);
         if (stopped) return;
         if (d.events?.length) {
           cursor.current = d.events[d.events.length - 1].id;
