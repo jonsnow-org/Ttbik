@@ -12,7 +12,7 @@ import { AppRoot, List, Spinner, Switch, Input } from "@telegram-apps/telegram-u
 import { STR, type Lang, type Str } from "../i18n";
 import {
   addToHome, bindBack, bioSupported, bioWanted, canAddToHome, closeApp, getLaunch, guard, haptic, homeStatus, isApple, isDark, openExternal,
-  payInvoice, setBio, startTma,
+  payInvoice, rawInitData, setBio, startTma,
 } from "../_tma/sdk";
 import { NSTR, fill, type NStr } from "./strings";
 import { THEME_MODES, leaveFullscreen, loadMode, paintTelegram, resolveMode, saveMode, themeVars, type Resolved, type ThemeMode } from "./theme";
@@ -22,7 +22,7 @@ import {
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
 
-type Tab = "home" | "chats" | "auto" | "settings";
+type Tab = "home" | "chats" | "terminal" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | null;
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
@@ -30,11 +30,13 @@ type Billing = { usage: PubUsage; plans: PubPlan[] };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
-const TABS: Tab[] = ["home", "chats", "auto", "settings"];
-const NAV_KEY: Record<Tab, keyof NStr> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
+const TABS: Tab[] = ["home", "chats", "terminal", "auto", "settings"];
+const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
+const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, terminal: { ar: "الطرفية", en: "Terminal" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
 const NAV_ICON: Record<Tab, string> = {
   home: "M3 10.5 12 3l9 7.5M5.5 9v11h4.5v-6h4v6h4.5V9",
   chats: "M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z",
+  terminal: "M4 17l6-5-6-5M12 19h8",
   auto: "M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
   settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z",
 };
@@ -45,9 +47,69 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "connectors" || want === "connect") return { tab: "home", page: { k: "connect" } };
   if (want === "memory") return { tab: "settings", page: { k: "memory" } };
   if (want === "tasks" || want === "chats") return { tab: "chats", page: null };
+  if (want === "terminal") return { tab: "terminal", page: null };
   if (want === "schedules" || want === "auto") return { tab: "auto", page: null };
   if (want === "settings") return { tab: "settings", page: null };
   return { tab: "home", page: null };
+}
+
+// ---------------------------------------------------------------- private live terminal inside the default Nova UI
+function TerminalScreen({ lang }: { lang: Lang }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [selected, setSelected] = useState("");
+  const [events, setEvents] = useState<Ev[]>([]);
+  const [error, setError] = useState("");
+  const cursor = useRef(0);
+  const ar = lang === "ar";
+  const fetchJson = useCallback(async (url: string) => {
+    const r = await fetch(url, { headers: { "x-telegram-init-data": rawInitData() }, cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    return d;
+  }, []);
+  const load = useCallback(async () => {
+    try {
+      const d = await fetchJson("/api/coder/terminal?limit=40");
+      setTasks(d.tasks || []);
+      setSelected((old) => old && (d.tasks || []).some((x: Task) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
+      setError("");
+    } catch (e: any) { setError(e?.message || "API error"); }
+  }, [fetchJson]);
+  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 4000); return () => clearInterval(id); }, [load]);
+  useEffect(() => {
+    let stopped = false; cursor.current = 0; setEvents([]);
+    if (!selected) return;
+    const pull = async () => {
+      try {
+        const d = await fetchJson(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`);
+        if (stopped) return;
+        if (d.events?.length) { cursor.current = d.events[d.events.length - 1].id; setEvents((old) => [...old, ...d.events].slice(-800)); }
+      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
+    };
+    void pull(); const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
+    return () => { stopped = true; clearInterval(id); };
+  }, [selected, fetchJson]);
+  const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  return <div className="n-page" style={{ paddingBottom: 20 }}>
+    <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
+        <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
+        <button type="button" onClick={() => void load()} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "8px 10px", background: "#082f49", color: "#a5f3fc" }}>{ar ? "تحديث" : "Refresh"}</button>
+      </div>
+      <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 10, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 10 }}>
+        {!tasks.length && <option value="">{ar ? "لا توجد مهام بعد" : "No tasks yet"}</option>}
+        {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 70)} · {t.status}</option>)}
+      </select>
+      <div aria-live="polite" style={{ minHeight: 260, maxHeight: "55vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
+        <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
+        {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
+        {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
+        {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
+        {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
+      </div>
+      <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
+    </div>
+  </div>;
 }
 
 // ---------------------------------------------------------------- small pieces
@@ -719,6 +781,7 @@ export default function NovaApp() {
           )
           : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
+          : tab === "terminal" ? <TerminalScreen lang={lang} />
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} reloadModels={reloadModels} />}
       </main>
@@ -727,7 +790,7 @@ export default function NovaApp() {
           {TABS.map((id) => (
             <button key={id} type="button" aria-current={tab === id ? "page" : undefined} onClick={() => go(id)}>
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={tab === id ? 2.4 : 1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={NAV_ICON[id]} /></svg>
-              {n[NAV_KEY[id]]}
+              {NAV_KEY[id] ? n[NAV_KEY[id]!] : NAV_LABEL[id][lang]}
             </button>
           ))}
         </nav>
