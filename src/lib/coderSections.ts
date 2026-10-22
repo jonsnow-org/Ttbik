@@ -354,6 +354,13 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
   startChain(botRow, chatId, st, {}, db);
+  // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
+  // waits for this short Telegram API call; all heavy work remains in the background continuation.
+  const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
+  if (accepted?.message_id && st.run) {
+    st.run.progress = { msgId: accepted.message_id, lines: ["📥 تم استلام الطلب", "⏳ بانتظار بدء المعالجة"] };
+    await taskEvent(st.run.id, "info", "📥 تم استلام الطلب؛ بدأ مسار المعالجة الخلفية.", db);
+  }
   await saveState(chatId, st, db);
   await bot.api.sendChatAction(chatId, "typing").catch(() => null);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
@@ -625,7 +632,7 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   const p = (run.progress ||= { lines: [] });
   p.lines.push(line.slice(0, 300));
   const shown = p.lines.slice(-12);
-  const text = `⚙️ أعمل على مهمتك…\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} خطوة سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▸ ${l}` : `✓ ${l}`)).join("\n")}`.slice(0, 4000);
+  const text = `⚙️ [محطة العمل]\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} خطوة سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `⏳ ${l}` : `✔ ${l}`)).join("\n")}\n\n🟢 المهمة نشطة — تُحدّث هذه البطاقة عند كل خطوة.`.slice(0, 4000);
   if (p.msgId) {
     const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
     if (ok) return;
@@ -649,7 +656,10 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
     const part = renderRange(text, a, b);
     if (part.trim()) {
-      run.progress = undefined;                                 // a reply closes the progress card
+      if (final && run.progress?.msgId) {
+        await (bot.api as any).editMessageText(chatId, run.progress.msgId, "✅ اكتمل توليد الرد بنجاح.\n📄 أُرسلت النتيجة في الرسائل التالية.").catch(() => null);
+      }
+      run.progress = undefined;
       await sendRich(bot, chatId, part);
       await taskEvent(run.id, "text", part);
     }
