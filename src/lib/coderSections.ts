@@ -147,7 +147,10 @@ export function selfUrl(): string {
   return (process.env.CODER_SELF_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ttbik.vercel.app").replace(/\/+$/, "");
 }
 export function appUrl(): string {
-  return (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
+  const base = (process.env.CODER_APP_URL || `${selfUrl()}/coder-app`).replace(/\/+$/, "");
+  // Cache buster so Telegram Mini App WebView loads fresh code after deploys
+  const v = process.env.CODER_APP_VERSION || "20261022b";
+  return base.includes("?") ? `${base}&v=${v}` : `${base}?v=${v}`;
 }
 
 /** Background work after the response: next/server after() on Vercel, plain async on a long-lived Node server (coderRuntime.ts). */
@@ -898,7 +901,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await saveState(chatId, st, db, slot);
         continue;
       }
-      if (!text.trim()) await send(bot, chatId, "(انتهى الرد بلا نص)");
+      if (!text.trim()) await send(bot, chatId, "⚠️ انتهى الرد بلا نص. قد يكون خادم البرمجة مشغولاً أو يعيد نتيجة فارغة. جرّب مرة أخرى بعد دقيقة، أو افتح التطبيق لرؤية السجلات.");
       if (st.inbox.length) {
         for (const m of st.inbox) st.messages.push({ role: "user", content: m });
         st.inbox = [];
