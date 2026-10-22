@@ -28,10 +28,28 @@ export type PubPlan = { id: string; name: { ar: string; en: string }; price_labe
 export type PubUsage = { plan: { id: string; name: { ar: string; en: string } }; unlimited: boolean; percent: number; level: "ok" | "high" | "full"; renewsAt: string | null; periodEnd: string | null };
 export type OwnPlan = { id: string; name: { ar: string; en: string }; price_label: string; price_stars?: number | null; days?: number; active: boolean };
 export async function api<T = any>(op: string, body: Record<string, unknown> = {}): Promise<T> {
-  const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op, ...body }), cache: "no-store" });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(d.error || `HTTP ${r.status}`), { status: r.status });
-  return d as T;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const r = await fetch("/api/coder/app", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+      body: JSON.stringify({ op, ...body }),
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    const d = await r.json().catch(() => ({}));
+    if (controller.signal.aborted) throw new Error("Request timed out");
+    if (!r.ok) throw Object.assign(new Error(d.error || `HTTP ${r.status}`), { status: r.status });
+    return d as T;
+  } catch (e) {
+    if (controller.signal.aborted) {
+      throw new Error("انتهت مهلة الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 export const toDate = (iso: string) => new Date(iso.replace(" ", "T").replace(/\+00$/, "Z"));
 export function ago(iso: string | null, t: Str): string {
