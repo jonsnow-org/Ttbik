@@ -58,6 +58,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<Ev[]>([]);
   const [error, setError] = useState("");
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
   const cursor = useRef(0);
   const ar = lang === "ar";
   const fetchJson = useCallback(async (url: string) => {
@@ -89,6 +91,17 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     return () => { stopped = true; clearInterval(id); };
   }, [selected, fetchJson]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  const sendCmd = async () => {
+    const txt = input.trim();
+    if (!txt || sending) return;
+    setSending(true);
+    try {
+      await api("send", { text: txt });
+      setInput("");
+      void load();
+    } catch (e: any) { setError(e?.message || "Send failed"); }
+    finally { setSending(false); }
+  };
   return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 180 : undefined, border: "2px solid #0e7490" }}>
     <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
@@ -105,6 +118,10 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
         {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command or request…"} style={{ flex: 1, padding: 10, borderRadius: 10, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75" }} />
+        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "10px 14px", borderRadius: 10, background: "#0e7490", color: "#fff", border: "none", fontWeight: 700 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
       <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
     </div>
