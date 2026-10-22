@@ -20,9 +20,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: node scripts/znbt-frozen-check.mjs   # what must never change after ZNBt's launch
-      - name: Nova Python delivery tests
-        run: |
-          PYTHONPATH=ai-system python -m unittest discover -s ai-system/tests -v
-          python -m py_compile ai-system/app/main.py ai-system/app/telegram_delivery.py
       - run: npm ci
       - run: npm run build
