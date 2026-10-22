@@ -215,6 +215,15 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!(await hideThread(chatId, id, db))) throw new AppError(404, "not found");
       return { ok: true };
     }
+    case "send": {
+      const text = String(body.text || "").trim();
+      if (!text) throw new AppError(400, "empty");
+      const runId = `t${Date.now().toString(36)}`;
+      const tasks = await import("@/lib/coderTasks");
+      await tasks.taskStart(chatId, { runId, slot: "user", source: "interactive", title: text.slice(0, 80) }, db);
+      await tasks.taskEvent(runId, "start", text, db);
+      return { ok: true, runId };
+    }
     case "schedules": {
       const lang = (await loadState(chatId, db)).lang || "ar";
       return { schedules: (await listSchedules(chatId, db)).map((s) => publicSchedule(s, lang)) };
