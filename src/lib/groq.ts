@@ -19,12 +19,14 @@ const SITE_IDENTITY_PROMPT = `أنت محرك تنفيذ نصوص مدمج دا�
 // and every AI tool on the site silently broke with it. Try the next free
 // model instead of failing (first one that answers wins).
 const GROQ_MODELS = [
+  // Production logs showed the four Llama IDs below returning model_not_found.
+  // Try the available OpenAI-compatible models first to avoid four failed round-trips.
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
   "llama-3.1-8b-instant",
   "llama-3.3-70b-versatile",
   "meta-llama/llama-4-scout-17b-16e-instruct",
   "meta-llama/llama-4-maverick-17b-128e-instruct",
-  "openai/gpt-oss-120b",
-  "openai/gpt-oss-20b",
 ];
 // gpt-oss models reason before answering; with the small budgets the site's
 // tools use, the reasoning ate every token and the visible answer came back

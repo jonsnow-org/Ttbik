@@ -305,7 +305,7 @@ export const BRAND_SVG: Record<string, string> = {
 };
 export function BrandIcon({ c }: { c: ConnView }) {
   const path = BRAND_SVG[c.id];
-  const glyph: Record<string, string> = { google_drive: "▲", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉" };
+  const glyph: Record<string, string> = { google_drive: "▲", google_calendar: "▦", gmail: "✉", notion: "N", supabase: "⚡", slack: "#", discord: "◉", gitlab: "◆" };
   return (
     <div aria-hidden="true" style={{ width: 40, height: 40, borderRadius: 10, background: c.color, color: "#fff", display: "grid", placeItems: "center" }}>
       {path ? <svg width="22" height="22" viewBox="0 0 16 16" fill="currentColor"><path d={path} /></svg> : <span style={{ fontWeight: 900, fontSize: 18 }}>{glyph[c.id] || c.name[0]}</span>}
@@ -316,6 +316,8 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   const [list, setList] = useState<{ connectors: ConnView[]; mcp: McpView[] } | null>(null);
   const [waiting, setWaiting] = useState("");
   const [busy, setBusy] = useState("");
+  const [testing, setTesting] = useState("");
+  const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [adv, setAdv] = useState(false);
   const [mcp, setMcp] = useState({ url: "", token: "", label: "" });
@@ -323,7 +325,6 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   const load = useCallback(async () => { try { setList(await api("connectors")); } catch (e: any) { setMsg(e.message); } }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    // back from the service's sign-in page: refresh, and poll a little while a sign-in is open
     const on = () => document.visibilityState === "visible" && void load().then(reload);
     document.addEventListener("visibilitychange", on);
     window.addEventListener("focus", on);
@@ -333,78 +334,70 @@ export function ConnectorsTab({ t, me, lang, reload }: { t: Str; me: Me; lang: L
   }, [load, reload, waiting]);
   useEffect(() => { if (waiting && list?.connectors.find((c) => c.id === waiting)?.status === "connected") { haptic("success"); setWaiting(""); reload(); } }, [list, waiting, reload]);
   const start = async (c: ConnView) => {
-    haptic("medium");
-    setMsg("");
-    setBusy(c.id);
-    try {
-      const { url } = await api<{ url: string }>("connector_start", { id: c.id });
-      setWaiting(c.id);
-      openExternal(url);
-    } catch (e: any) {
-      haptic("error");
-      setMsg(e.message === "soon" ? t.soon : e.message);
-    } finally {
-      setBusy("");
-    }
+    haptic("medium"); setMsg(""); setBusy(c.id);
+    try { const { url } = await api<{ url: string }>("connector_start", { id: c.id }); setWaiting(c.id); openExternal(url); }
+    catch (e: any) { haptic("error"); setMsg(e.message === "soon" ? t.soon : e.message); }
+    finally { setBusy(""); }
   };
   const stop = async (c: ConnView) => {
     if (!(await guard(`${t.disconnect} ${c.name}`))) return;
     setBusy(c.id);
-    try { await api("connector_disconnect", { id: c.id }); haptic("success"); await load(); reload(); } finally { setBusy(""); }
+    try { await api("connector_disconnect", { id: c.id }); haptic("success"); await load(); reload(); }
+    catch (e: any) { setMsg(e.message); }
+    finally { setBusy(""); }
+  };
+  const test = async (c: ConnView) => {
+    setTesting(c.id); setMsg("");
+    try {
+      const r = await api<{ ok: boolean; label?: string; message: string }>("connector_test", { id: c.id });
+      setTestResults((old) => ({ ...old, [c.id]: (r.ok ? "✓ " : "⚠ ") + r.message }));
+      if (r.ok) haptic("success"); else haptic("error");
+    } catch (e: any) { setTestResults((old) => ({ ...old, [c.id]: "⚠ " + e.message })); haptic("error"); }
+    finally { setTesting(""); }
   };
   if (!list) return <Loading />;
   const gh = list.connectors.find((c) => c.id === "github");
-  return (
-    <List>
-      <Section header={t.tabConnectors} footer={t.connectorsHint}>
-        {list.connectors.map((c) => (
-          <Cell key={c.id} multiline before={<BrandIcon c={c} />}
-            titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
-            subtitle={<span dir="auto">{c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang]}</span>}
-            after={c.status === "connected" ? (c.source === "owner-env" ? undefined : <Button size="s" mode="gray" loading={busy === c.id} onClick={() => stop(c)}>{t.disconnect}</Button>)
-              : c.status === "soon" ? <Badge type="number" mode="gray">{t.soon}</Badge>
-              : <Button size="s" loading={busy === c.id} onClick={() => start(c)}>{t.connect}</Button>}>
-            {c.name}
-          </Cell>
-        ))}
-      </Section>
-      {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
-      {gh?.status === "connected" && (
-        <Section header={t.pickRepo}><RepoSelect t={t} value={me.settings.repo} onChange={async (v) => { await api("settings", { repo: v }); haptic("success"); reload(); }} /></Section>
-      )}
-      <Section>
-        <Cell before={<Emoji c="⚙️" />} after={<Navigation>{adv ? "▴" : "▾"}</Navigation>} onClick={() => { haptic("select"); setAdv((x) => !x); }} aria-expanded={adv}>{t.advanced}</Cell>
-      </Section>
-      {adv && (
-        <>
-          <Section header={t.mcpTitle} footer={t.mcpHint}>
-            {list.mcp.map((m) => (
-              <Cell key={m.id} subtitle={<span dir="ltr">{m.url}</span>} after={<Button size="s" mode="plain" aria-label={t.delete} onClick={async () => { if (!(await guard(t.delete))) return; await api("mcp_remove", { id: m.id }); haptic("success"); void load(); }}>✕</Button>}>{m.label}</Cell>
-            ))}
-            <Input header={t.mcpUrl} dir="ltr" placeholder="https://" value={mcp.url} onChange={(e) => setMcp({ ...mcp, url: e.target.value })} />
-            <Input header={t.mcpName} value={mcp.label} onChange={(e) => setMcp({ ...mcp, label: e.target.value })} />
-            <Input header={t.mcpToken} dir="ltr" type="password" autoComplete="off" value={mcp.token} onChange={(e) => setMcp({ ...mcp, token: e.target.value })} />
-            <ButtonCell disabled={!/^https:\/\//.test(mcp.url)} onClick={async () => { try { await api("mcp_add", mcp); setMcp({ url: "", token: "", label: "" }); haptic("success"); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>＋ {t.add2}</ButtonCell>
-          </Section>
-          {gh?.source !== "owner-env" && (
-            <Section header={t.tokenFallback} footer={me.oauth ? t.pasteToken : t.tokenHelp}>
-              {me.connections.github.linked ? (
-                <ButtonCell mode="destructive" onClick={async () => { await api("github_unlink"); haptic("success"); reload(); void load(); }}>{t.unlink}</ButtonCell>
-              ) : (
-                <>
-                  {me.oauth && <ButtonCell onClick={async () => { haptic("medium"); try { const { url } = await api<{ url: string }>("github_start"); openExternal(url); } catch (e: any) { setMsg(e.message); } }}>{t.signIn}</ButtonCell>}
-                  <Input header="GitHub token" dir="ltr" type="password" autoComplete="off" placeholder="github_pat_…" value={pat} onChange={(e) => setPat(e.target.value)} />
-                  <ButtonCell disabled={!pat} onClick={async () => { try { await api("github_token", { token: pat }); setPat(""); haptic("success"); reload(); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>{t.link}</ButtonCell>
-                </>
-              )}
-            </Section>
-          )}
-        </>
-      )}
-    </List>
+  const groups = [
+    { title: lang === "ar" ? "التطوير والنشر" : "Development & deployment", ids: ["github", "gitlab", "vercel", "supabase"] },
+    { title: lang === "ar" ? "العمل والإنتاجية" : "Work & productivity", ids: ["google_drive", "google_calendar", "gmail", "notion", "slack", "discord"] },
+  ];
+  const renderConnector = (c: ConnView) => (
+    <Cell key={c.id} multiline before={<BrandIcon c={c} />}
+      titleBadge={c.status === "connected" ? <Badge type="dot" mode="primary" /> : undefined}
+      subtitle={<span dir="auto">{testResults[c.id] || (c.status === "connected" ? `${t.connected}${c.label ? ` · ${c.label}` : ""}${c.source === "owner-env" ? ` · ${t.ownerAccount}` : ""}` : waiting === c.id ? t.connecting : c.desc[lang])}</span>}
+      after={c.status === "connected" ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <Button size="s" mode="gray" loading={testing === c.id} onClick={() => void test(c)}>{lang === "ar" ? "اختبار" : "Test"}</Button>
+        {c.source !== "owner-env" && <Button size="s" mode="gray" loading={busy === c.id} onClick={() => void stop(c)}>{t.disconnect}</Button>}
+      </div> : c.status === "soon" ? <Badge type="number" mode="gray">{t.soon}</Badge> : <Button size="s" loading={busy === c.id} onClick={() => void start(c)}>{t.connect}</Button>}>
+      {c.name}
+    </Cell>
   );
+  return <List>
+    {groups.map((group) => {
+      const items = group.ids.map((id) => list.connectors.find((c) => c.id === id)).filter((c): c is ConnView => Boolean(c));
+      return <Section key={group.title} header={group.title} footer={group.ids.includes("github") ? t.connectorsHint : undefined}>{items.map(renderConnector)}</Section>;
+    })}
+    {msg && <Section><Cell multiline before="⚠️">{msg}</Cell></Section>}
+    {gh?.status === "connected" && <Section header={t.pickRepo}><RepoSelect t={t} value={me.settings.repo} onChange={async (v) => { await api("settings", { repo: v }); haptic("success"); reload(); }} /></Section>}
+    <Section><Cell before={<Emoji c="⚙️" />} after={<Navigation>{adv ? "▴" : "▾"}</Navigation>} onClick={() => { haptic("select"); setAdv((x) => !x); }} aria-expanded={adv}>{t.advanced}</Cell></Section>
+    {adv && <>
+      <Section header={t.mcpTitle} footer={t.mcpHint}>
+        {list.mcp.map((m) => <Cell key={m.id} subtitle={<span dir="ltr">{m.url}</span>} after={<Button size="s" mode="plain" aria-label={t.delete} onClick={async () => { if (!(await guard(t.delete))) return; await api("mcp_remove", { id: m.id }); haptic("success"); void load(); }}>✕</Button>}>{m.label}</Cell>)}
+        <Input header={t.mcpUrl} dir="ltr" placeholder="https://" value={mcp.url} onChange={(e) => setMcp({ ...mcp, url: e.target.value })} />
+        <Input header={t.mcpName} value={mcp.label} onChange={(e) => setMcp({ ...mcp, label: e.target.value })} />
+        <Input header={t.mcpToken} dir="ltr" type="password" autoComplete="off" value={mcp.token} onChange={(e) => setMcp({ ...mcp, token: e.target.value })} />
+        <ButtonCell disabled={!/^https:\/\//.test(mcp.url)} onClick={async () => { try { await api("mcp_add", mcp); setMcp({ url: "", token: "", label: "" }); haptic("success"); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>＋ {t.add2}</ButtonCell>
+      </Section>
+      {gh?.source !== "owner-env" && <Section header={t.tokenFallback} footer={me.oauth ? t.pasteToken : t.tokenHelp}>
+        {me.connections.github.linked ? <ButtonCell mode="destructive" onClick={async () => { await api("github_unlink"); haptic("success"); reload(); void load(); }}>{t.unlink}</ButtonCell> : <>
+          {me.oauth && <ButtonCell onClick={async () => { haptic("medium"); try { const { url } = await api<{ url: string }>("github_start"); openExternal(url); } catch (e: any) { setMsg(e.message); } }}>{t.signIn}</ButtonCell>}
+          <Input header="GitHub token" dir="ltr" type="password" autoComplete="off" placeholder="github_pat_…" value={pat} onChange={(e) => setPat(e.target.value)} />
+          <ButtonCell disabled={!pat} onClick={async () => { try { await api("github_token", { token: pat }); setPat(""); haptic("success"); reload(); void load(); } catch (e: any) { haptic("error"); setMsg(e.message); } }}>{t.link}</ButtonCell>
+        </>}
+      </Section>}
+    </>}
+  </List>;
 }
-
 export function PolicySection({ t, me, lang }: { t: Str; me: Me; lang: Lang }) {
   const [rules, setRules] = useState<Rule[]>(me.prefs.rules);
   const [scoped, setScoped] = useState({ category: me.prefs.categories[0]?.id || "delete", repo: "", context: "*", policy: "allow" as Rule["policy"] });

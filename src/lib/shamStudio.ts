@@ -25,17 +25,18 @@ export async function shamGenerate(prompt: string, maxNewTokens = 60, timeoutMs 
   if (!shamStudioEnabled()) return null;
   const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
+  const deadline = Date.now() + timeoutMs;
   try {
     const sub = await fetch(`${base}/gradio_api/call/v2/generate_text`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ prompt, max_new_tokens: maxNewTokens }),
-      signal: AbortSignal.timeout(timeoutMs),
+      method: "POST", headers, body: JSON.stringify({ prompt, max_new_tokens: maxNewTokens }),
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
     });
     if (!sub.ok) return null;
     const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return null;
-    const res = await fetch(`${base}/gradio_api/call/generate_text/${event_id}`, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!event_id || deadline <= Date.now()) return null;
+    const res = await fetch(`${base}/gradio_api/call/generate_text/${event_id}`, {
+      headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
     if (!res.ok) return null;
     return parseShamSse(await res.text());
   } catch {
@@ -69,12 +70,18 @@ async function shamCall(api: string, payload: Record<string, unknown>, timeoutMs
   if (!shamStudioEnabled()) return null;
   const base = (process.env.SHAM_MODELSCOPE_URL || DEFAULT_URL).replace(/\/+$/, "");
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
+  const deadline = Date.now() + timeoutMs;
   try {
-    const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
+    const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, {
+      method: "POST", headers, body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
     if (!sub.ok) return null;
     const { event_id } = (await sub.json()) as { event_id?: string };
-    if (!event_id) return null;
-    const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, { headers, signal: AbortSignal.timeout(timeoutMs) });
+    if (!event_id || deadline <= Date.now()) return null;
+    const res = await fetch(`${base}/gradio_api/call/${api}/${event_id}`, {
+      headers, signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
     return res.ok ? await res.text() : null;
   } catch {
     return null;
@@ -130,7 +137,7 @@ export async function shamCallOutcome(api: string, payload: Record<string, unkno
   const headers = { Authorization: `Bearer ${(process.env.MODELSCOPE_API_TOKEN || "").trim()}`, "Content-Type": "application/json" };
   const deadline = Date.now() + timeoutMs;
   try {
-    const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs) });
+    const sub = await fetch(`${base}/gradio_api/call/v2/${api}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
     if (!sub.ok) return { reply: null, failure: "http" };
     const { event_id } = (await sub.json()) as { event_id?: string };
     if (!event_id) return { reply: null, failure: "http" };
