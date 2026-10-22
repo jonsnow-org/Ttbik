@@ -22,7 +22,7 @@ import {
   type ConnView, type Me, type Pending, type PubModel, type PubPlan, type PubUsage, type Sched, type Task, type Ev,
 } from "./parts";
 
-type Tab = "home" | "chats" | "terminal" | "auto" | "settings";
+type Tab = "home" | "chats" | "auto" | "settings";
 type Page = { k: "billing" | "pricing" | "panel" | "connect" | "memory" | "policy" } | { k: "thread"; id: string; title: string } | null;
 type Thread = { id: string; title: string; legacy: boolean; messages_count?: number; created_at: string; updated_at: string };
 type Threads = { threads: Thread[]; current: string | null; currentEmpty: boolean; live: (Task & { thread_id?: string })[]; runs: Task[]; pending: Pending[] };
@@ -30,7 +30,7 @@ type Billing = { usage: PubUsage; plans: PubPlan[] };
 type Models = { models: PubModel[]; owner?: (PubModel & { visible: boolean; isDefault: boolean; ready: boolean })[] };
 type Ctx = { t: Str; n: NStr; lang: Lang; me: Me; owner: boolean; go: (tab: Tab) => void; open: (p: Page) => void; reload: () => void; mode: Resolved };
 
-const TABS: Tab[] = ["home", "chats", "terminal", "auto", "settings"];
+const TABS: Tab[] = ["home", "chats", "auto", "settings"];
 const NAV_KEY: Partial<Record<Tab, keyof NStr>> = { home: "navHome", chats: "navChats", auto: "navSchedules", settings: "navSettings" };
 const NAV_LABEL: Record<Tab, { ar: string; en: string }> = { home: { ar: "الرئيسية", en: "Home" }, chats: { ar: "المحادثة", en: "Chats" }, terminal: { ar: "الطرفية", en: "Terminal" }, auto: { ar: "المهام", en: "Schedules" }, settings: { ar: "الإعدادات", en: "Settings" } };
 const NAV_ICON: Record<Tab, string> = {
@@ -47,14 +47,14 @@ function routeFrom(want: string): { tab: Tab; page: Page } {
   if (want === "connectors" || want === "connect") return { tab: "home", page: { k: "connect" } };
   if (want === "memory") return { tab: "settings", page: { k: "memory" } };
   if (want === "tasks" || want === "chats") return { tab: "chats", page: null };
-  if (want === "terminal") return { tab: "terminal", page: null };
+  if (want === "terminal") return { tab: "chats", page: null }; // terminal now lives inside Chats
   if (want === "schedules" || want === "auto") return { tab: "auto", page: null };
   if (want === "settings") return { tab: "settings", page: null };
   return { tab: "home", page: null };
 }
 
 // ---------------------------------------------------------------- private live terminal inside the default Nova UI
-function TerminalScreen({ lang }: { lang: Lang }) {
+function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fixedRunId?: string; compact?: boolean }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<Ev[]>([]);
@@ -71,7 +71,7 @@ function TerminalScreen({ lang }: { lang: Lang }) {
     try {
       const d = await fetchJson("/api/coder/terminal?limit=40");
       setTasks(d.tasks || []);
-      setSelected((old) => old && (d.tasks || []).some((x: Task) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || "");
+      setSelected((old) => fixedRunId || (old && (d.tasks || []).some((x: Task) => x.run_id === old) ? old : (d.tasks || [])[0]?.run_id || ""));
       setError("");
     } catch (e: any) { setError(e?.message || "API error"); }
   }, [fetchJson]);
@@ -90,7 +90,7 @@ function TerminalScreen({ lang }: { lang: Lang }) {
     return () => { stopped = true; clearInterval(id); };
   }, [selected, fetchJson]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
-  return <div className="n-page" style={{ paddingBottom: 20 }}>
+  return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20 }}>
     <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden" }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
@@ -384,12 +384,15 @@ function Chats({ c }: { c: Ctx }) {
     try { await api("thread_new"); setNote(true); haptic("success"); void load(); } catch { haptic("error"); } finally { setBusy(false); }
   };
   const isLive = (s: string) => s === "running" || s === "waiting";
+  const hasLive = !!(d?.live?.length);
   return (
     <div className="n-page">
       <div className="n-ph" lang={lang}>
         <h1>{n.chatsTitle}</h1>
         {!fallback && <button type="button" className="n-fab" aria-label={t.newChat} onClick={fresh} disabled={busy}>+</button>}
       </div>
+      {/* Live terminal lives ONLY inside the Chats tab — never sends messages to the bot */}
+      {hasLive && <div style={{ margin: "0 0 14px" }}><TerminalScreen lang={lang} compact /></div>}
       {note && (
         <div className="n-note" role="status">
           {t.newChatStarted}
@@ -470,6 +473,11 @@ function ThreadPage({ c, id, onGone }: { c: Ctx; id: string; onGone: () => void 
           {live(k.status) && <div className="n-wrap"><button type="button" className="n-btn n-ghost" onClick={async () => { haptic("warning"); await api("stop", { runId: k.run_id, slot: "" }); void load(); }}>⏹ {t.stop}</button></div>}
         </div>
       ))}
+      {/* Terminal for this conversation — logs stay in Mini App only */}
+      {(() => {
+        const active = d.tasks.find((k) => live(k.status));
+        return active ? <div style={{ margin: "12px 0" }}><TerminalScreen lang={c.lang} fixedRunId={active.run_id} compact /></div> : null;
+      })()}
       <div className="n-wrap" style={{ marginTop: 16 }}>
         <button type="button" className="n-btn n-wide" disabled={busy} onClick={cont}>💬 {d.current ? `${t.continueHere} · ${t.currentChat}` : t.continueHere}</button>
         <p className="n-meta" style={{ margin: "8px 4px 16px" }}>{t.continueHint}</p>
@@ -781,7 +789,6 @@ export default function NovaApp() {
           )
           : tab === "home" ? <Home c={ctx} firstName={getLaunch().firstName} models={models} reloadModels={reloadModels} />
           : tab === "chats" ? <Chats c={ctx} />
-          : tab === "terminal" ? <TerminalScreen lang={lang} />
           : tab === "auto" ? <Schedules c={ctx} />
           : <Settings key={lang} c={ctx} mode={mode} setMode={setMode} models={models} reloadModels={reloadModels} />}
       </main>
