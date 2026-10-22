@@ -124,9 +124,9 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 12, padding: 4, background: "#0c4a6e", borderRadius: 12 }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command or request…"} style={{ flex: 1, padding: 12, borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 14 }} />
-        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "12px 16px", borderRadius: 10, background: "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 14 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "center" }}>
+        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command or request…"} style={{ flex: 1, padding: 14, borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15 }} />
+        <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "14px 20px", borderRadius: 10, background: sending ? "#64748b" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, minWidth: 80 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
       <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
     </div>
