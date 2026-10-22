@@ -816,8 +816,28 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await saveState(chatId, st, db, slot);
         continue;
       }
+      const completedCalls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      // Some Studio/model responses finish with neither text nor tool calls. Never report that as success:
+      // retry once with a smaller prompt, then close the run with a useful error instead of a blank answer.
+      if (!text.trim() && completedCalls.length === 0) {
+        run.job = undefined;
+        run.sent = 0;
+        if ((run.retries || 0) < 1) {
+          run.retries = (run.retries || 0) + 1;
+          run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 40000)) / 2));
+          run.promptEst = undefined;
+          await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned done with empty text and no tool calls; retrying once with smaller context" }, db);
+          await saveState(chatId, st, db, slot);
+          continue;
+        }
+        await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: "Studio returned empty output twice; ending run as failed" }, db);
+        await endRun(st, "failed", db, "empty model output after retry", coderChatKey(chatId));
+        await saveState(chatId, st, db, slot);
+        await send(bot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
+        return;
+      }
       await sendParts(bot, chatId, text, run, true);
-      const calls = (r.tool_calls || []).filter((c) => c?.function?.name);
+      const calls = completedCalls;
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;
       run.sent = 0;
