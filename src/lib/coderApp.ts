@@ -218,11 +218,14 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
     case "send": {
       const text = String(body.text || "").trim();
       if (!text) throw new AppError(400, "empty");
-      const runId = `t${Date.now().toString(36)}`;
-      const tasks = await import("@/lib/coderTasks");
-      await tasks.taskStart(chatId, { runId, slot: "user", source: "interactive", title: text.slice(0, 80) }, db);
-      await tasks.taskEvent(runId, "start", text, db);
-      return { ok: true, runId };
+      if (text.length > 12000) throw new AppError(400, "task too long (max 12000 characters)");
+      // Do not create a fake task row: start the actual background agent so progress, output, stop and history all refer to one run.
+      const { startAppTask } = await import("@/lib/coderSections");
+      try {
+        return { ok: true, ...(await startAppTask(deps.bot, deps.botRow, chatId, text, db)) };
+      } catch (e) {
+        throw new AppError(503, String((e as Error)?.message || "could not start task").slice(0, 300));
+      }
     }
     case "schedules": {
       const lang = (await loadState(chatId, db)).lang || "ar";
