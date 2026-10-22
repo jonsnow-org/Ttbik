@@ -38,13 +38,19 @@ export async function api<T = any>(op: string, body: Record<string, unknown> = {
       cache: "no-store",
       signal: controller.signal,
     });
-    const d = await r.json().catch(() => ({}));
+    const d = await r.json().catch(() => null);
     if (controller.signal.aborted) throw new Error("Request timed out");
-    if (!r.ok) throw Object.assign(new Error(d.error || `HTTP ${r.status}`), { status: r.status });
+    if (!r.ok) throw Object.assign(new Error(d && typeof d.error === "string" ? d.error : `HTTP ${r.status}`), { status: r.status });
+    if (!d || typeof d !== "object" || Array.isArray(d)) {
+      throw new Error("أعاد الخادم استجابة غير صالحة. أعد المحاولة، وإذا تكرر الخطأ فتحقّق من سجل النشر.");
+    }
     return d as T;
   } catch (e) {
     if (controller.signal.aborted) {
       throw new Error("انتهت مهلة الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    }
+    if (e instanceof TypeError) {
+      throw new Error("تعذّر الاتصال بالخادم. تحقّق من الإنترنت وحالة النشر ثم أعد المحاولة.");
     }
     throw e;
   } finally {
@@ -101,16 +107,24 @@ export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; li
     let stop = false;
     after.current = 0;
     setEvs(null);
+    let inFlight = false;
     const pull = async () => {
+      // A slow response must not overlap the next poll: overlapping requests can return the
+      // same cursor and append duplicate events to the timeline.
+      if (stop || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
       try {
         const d = await api<{ events: Ev[] }>("events", { runId, after: after.current });
         if (stop) return;
-        if (d.events.length) {
-          after.current = d.events[d.events.length - 1].id;
-          setEvs((x) => [...(x || []), ...d.events]);
+        const events = Array.isArray(d.events) ? d.events.filter((e) => Number.isFinite(e.id) && e.id > after.current) : [];
+        if (events.length) {
+          after.current = events[events.length - 1].id;
+          setEvs((x) => [...(x || []), ...events]);
         } else setEvs((x) => x || []);
       } catch {
         setEvs((x) => x || []);
+      } finally {
+        inFlight = false;
       }
     };
     void pull();
@@ -135,17 +149,29 @@ export function EventsTimeline({ runId, live, t, last = 0 }: { runId: string; li
 
 export function PendingBanner({ p, t, cats, lang, onDone }: { p: Pending; t: Str; cats: Cat[]; lang: Lang; onDone: () => void }) {
   const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
   const label = (p.categories || []).map((c) => cats.find((x) => x.id === c)?.label[lang]).filter(Boolean).join(" · ") || p.reason;
   const act = async (answer: "yes" | "all" | "no") => {
+    if (busy) return;
     setBusy(answer);
+    setError("");
     haptic(answer === "no" ? "warning" : "success");
-    try { await api("resolve", { runId: p.runId, nonce: p.nonce, answer }); } finally { setBusy(""); onDone(); }
+    try {
+      await api("resolve", { runId: p.runId, nonce: p.nonce, answer });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تعذّر تنفيذ الإجراء. أعد المحاولة.");
+      haptic("error");
+    } finally {
+      setBusy("");
+    }
   };
   return (
     <Banner type="section" before={<Emoji c="⚠️" />} header={`${t.needsYou}${p.title ? ` · ${p.title}` : ""}`} subheader={label} description={p.summary.slice(0, 300)}>
-      <Button size="s" loading={busy === "yes"} disabled={!!busy} onClick={() => act("yes")}>{t.approve}</Button>
-      <Button size="s" mode="bezeled" loading={busy === "all"} disabled={!!busy} onClick={() => act("all")}>{t.approveAll}</Button>
-      <Button size="s" mode="plain" loading={busy === "no"} disabled={!!busy} onClick={() => act("no")}>{t.deny}</Button>
+      {error && <Caption>{error}</Caption>}
+      <Button size="s" loading={busy === "yes"} disabled={!!busy} onClick={() => void act("yes")}>{t.approve}</Button>
+      <Button size="s" mode="bezeled" loading={busy === "all"} disabled={!!busy} onClick={() => void act("all")}>{t.approveAll}</Button>
+      <Button size="s" mode="plain" loading={busy === "no"} disabled={!!busy} onClick={() => void act("no")}>{t.deny}</Button>
     </Banner>
   );
 }
