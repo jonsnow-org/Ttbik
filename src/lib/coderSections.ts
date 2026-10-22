@@ -669,7 +669,7 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
   const p = (run.progress ||= { lines: [] });
   p.lines.push(line.slice(0, 300));
   const shown = p.lines.slice(-12);
-  const text = `⚙️ [محطة العمل]\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} خطوة سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `⏳ ${l}` : `✔ ${l}`)).join("\n")}\n\n🟢 المهمة نشطة — تُحدّث هذه البطاقة عند كل خطوة.`.slice(0, 4000);
+  const text = `📋 التقدم\n${p.lines.length > shown.length ? `… (${p.lines.length - shown.length} سابقة)\n` : ""}${shown.map((l, i) => (i === shown.length - 1 ? `▶️ ${l}` : `✅ ${l}`)).join("\n")}\n\n🔄 جارٍ...`.slice(0, 4000);
   if (p.msgId) {
     const ok = await (bot.api as any).editMessageText(chatId, p.msgId, text).then(() => true).catch(() => false);
     if (ok) return;
@@ -686,9 +686,9 @@ async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, labe
     if (!msgId) return;
     beat += 1;
     const dots = ".".repeat((beat % 3) + 1);
-    const text = `⚙️ [محطة العمل]\n⏳ ${label}\n🟢 ما زلت أعمل${dots}\n\nآخر تحديث: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
-  }, 12000);
+  }, 8000);
   try {
     return await work();
   } finally {
