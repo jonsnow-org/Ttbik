@@ -220,7 +220,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       if (!text) throw new AppError(400, "empty");
       const runId = `t${Date.now().toString(36)}`;
       const tasks = await import("@/lib/coderTasks");
-      await tasks.taskStart(chatId, { runId, slot: "user", source: "user", title: text.slice(0, 80) }, db);
+      await tasks.taskStart(chatId, { runId, slot: "user", source: "interactive", title: text.slice(0, 80) }, db);
       await tasks.taskEvent(runId, "start", text, db);
       return { ok: true, runId };
     }
