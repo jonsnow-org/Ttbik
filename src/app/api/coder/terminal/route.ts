@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
 import { loadState } from "@/lib/coderSections";
+import { prismaDb } from "@/lib/coderAuth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
     if (!runId) {
       const [tasks, state] = await Promise.all([
         listTasks(user.id, { limit }),
-        loadState(user.id, prisma as any).catch(() => null),
+        loadState(user.id, prismaDb).catch(() => null),
       ]);
       const run = state?.run;
       const p = run?.pending;
