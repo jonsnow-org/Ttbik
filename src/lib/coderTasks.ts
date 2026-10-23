@@ -116,7 +116,7 @@ export async function taskSlot(runId: string, chatId: number | string, db: Db = 
   }
 }
 
-export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
+let lastStaleRecoveryAt = 0;\n\nexport async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
   try {
     await ensureTaskTables(db);
     // A worker heartbeat keeps legitimate long tasks alive; rows without one are stale, not "active forever".
