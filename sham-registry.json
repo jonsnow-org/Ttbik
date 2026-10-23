@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-23 17:18 UTC",
+  "generated_at": "2026-10-23 21:32 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -77,7 +77,7 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-23",
       "gpu": false,
@@ -224,7 +224,7 @@
     {
       "alias": "نتائج مسار ترميز الصورة 1",
       "track": "image_tokenizer",
-      "size_mb": 719.0,
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
@@ -240,32 +240,32 @@
     {
       "alias": "نتائج مسار ترميز الصوت 1",
       "track": "audio_tokenizer",
-      "size_mb": 35.5,
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {
-        "samples_consumed": 95936,
-        "step": 29950,
+        "samples_consumed": 108472,
+        "step": 31517,
         "last_run_sources": {
           "cv17-ar": 1000
         },
-        "codebook_usage": 2009,
-        "recon": 0.015276465378701688
+        "codebook_usage": 2008,
+        "recon": 0.01286012158893487
       },
       "has_key_files": true
     },
     {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 144.5,
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {
-        "samples_consumed": 101812,
-        "step": 9713,
+        "samples_consumed": 100580,
+        "step": 9405,
         "last_run_sources": {
           "flickr30k": 1000
         },
-        "codebook_usage": 3606,
-        "recon": 0.055208093724971596
+        "codebook_usage": 2038,
+        "recon": 0.06919184971068587
       },
       "has_key_files": true
     },
@@ -320,7 +320,7 @@
     {
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
-      "size_mb": 0.0,
+      "size_mb": 2422.8,
       "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
@@ -388,13 +388,13 @@
         "ready": true,
         "kernel_status": "error",
         "progress": {
-          "samples_consumed": 95936,
-          "step": 29950,
+          "samples_consumed": 108472,
+          "step": 31517,
           "last_run_sources": {
             "cv17-ar": 1000
           },
-          "codebook_usage": 2009,
-          "recon": 0.015276465378701688
+          "codebook_usage": 2008,
+          "recon": 0.01286012158893487
         },
         "dataset": "نتائج مسار ترميز الصوت 1"
       },
