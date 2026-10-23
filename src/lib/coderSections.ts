@@ -26,7 +26,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string;
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean;
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -110,27 +110,26 @@ function ensureTable(db: Db): Promise<void> {
 /** The state row of a chat (slot "") or of one of its scheduled tasks (slot "s:<id>"). */
 export const stateKey = (chatId: number | string, slot = "") => coderChatKey(slot ? `${chatId}#${slot}` : chatId);
 
+export async function loadStateStrict(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<ChatState> {
+  await ensureTable(db);
+  const rows = await db.query<{ state: Partial<ChatState> }>(`SELECT state FROM coder_chat_state WHERE chat_key = $1`, stateKey(chatId, slot));
+  return { ...emptyState(), ...(rows[0]?.state || {}) };
+}
+
 export async function loadState(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<ChatState> {
-  try {
-    await ensureTable(db);
-    const rows = await db.query<{ state: Partial<ChatState> }>(`SELECT state FROM coder_chat_state WHERE chat_key = $1`, stateKey(chatId, slot));
-    return { ...emptyState(), ...(rows[0]?.state || {}) };
-  } catch {
-    return emptyState();
-  }
+  try { return await loadStateStrict(chatId, db, slot); } catch { return emptyState(); }
+}
+
+export async function saveStateStrict(chatId: number | string, st: ChatState, db: Db = prismaDb, slot = ""): Promise<void> {
+  await ensureTable(db);
+  await db.exec(
+    `INSERT INTO coder_chat_state (chat_key, state, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (chat_key) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
+    stateKey(chatId, slot), JSON.stringify(st),
+  );
 }
 
 export async function saveState(chatId: number | string, st: ChatState, db: Db = prismaDb, slot = ""): Promise<void> {
-  try {
-    await ensureTable(db);
-    await db.exec(
-      `INSERT INTO coder_chat_state (chat_key, state, updated_at) VALUES ($1, $2::jsonb, now()) ON CONFLICT (chat_key) DO UPDATE SET state = EXCLUDED.state, updated_at = now()`,
-      stateKey(chatId, slot),
-      JSON.stringify(st),
-    );
-  } catch {
-    /* best-effort: a database error never blocks a reply */
-  }
+  try { await saveStateStrict(chatId, st, db, slot); } catch { /* best-effort for non-critical state updates */ }
 }
 
 // ---------------------------------------------------------------- signing of the self-continuation
@@ -400,13 +399,13 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   const content = String(text || "").trim();
   if (!content) throw new Error("empty task");
   if (!coderEnabled()) throw new Error("coder service is not configured");
-  const st = await loadState(chatId, db);
+  const st = await loadStateStrict(chatId, db);
   if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
   }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
-    await saveState(chatId, st, db);
+    await saveStateStrict(chatId, st, db);
     await taskEvent(st.run.id, "info", "وصل طلب جديد من الطرفية وأُضيف إلى المهمة الجارية.", db);
     return { runId: st.run.id, queued: true };
   }
@@ -418,8 +417,9 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   await startChain(botRow, chatId, st, { source: "interactive", title: content.slice(0, 200), surface: "app" }, db);
   const runId = st.run!.id;
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
-  await saveState(chatId, st, db);
-  // Terminal starts the task; short progress reports go to bot chat, full logs stay in terminal.
+  await saveStateStrict(chatId, st, db);
+  // Acknowledge immediately in Telegram; the final model answer is delivered there and recorded in the terminal feed.
+  await send(bot, chatId, "📨 وصل طلبك من الطرفية. ستظهر النتيجة هنا وفي الطرفية تلقائياً.");
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return { runId, queued: false };
 }
@@ -743,6 +743,11 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
     if (delta.trim()) await taskEvent(run.id, "text", delta, db);
     run.logged = text.length;
     run.sent = text.length;
+    // Keep the terminal and Telegram conversation in sync: stream progress in the app, deliver one final answer to the bot chat.
+    if (final && text.trim() && !run.appReplySent) {
+      run.appReplySent = true;
+      await sendRich(bot, chatId, text);
+    }
     return;
   }
   for (const [a, b] of chunkRanges(text, run.sent, final)) {
@@ -764,7 +769,15 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
   const left = () => budgetMs - (Date.now() - t0);
   let cached: CoderReply | null = null;                 // `chat` already answered within its wait: no extra poll
   for (;;) {
-    const st = await loadState(chatId, db, slot);
+    let st: ChatState;
+    try {
+      st = await loadStateStrict(chatId, db, slot);
+    } catch {
+      // A transient pooler/DB error must not look like an empty conversation and silently kill the task.
+      if (left() < 7000) { await handOff(botRow, chatId, chain, slot); return; }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1200, Math.max(200, left() - 6000))));
+      continue;
+    }
     const run = st.run;
     if (!run || run.chain !== chain || run.pending) return;
     const ioBot = surfaceBot(bot, run.surface);
@@ -924,7 +937,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           await send(ioBot, chatId, tierFor(chatId) === "owner" ? `⌛ أوقفت الطلب: خادم Nova AI بلا أي تقدّم منذ ${Math.round(jobStallMs() / 60000)} دقائق (${where}). أعد الإرسال بعد قليل.` : BUSY_TEXT);
           return;
         }
-        if (!run.compacting) await sendParts(ioBot, chatId, text, run, false, db);
+        if (!run.compacting) await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, false, db);
         await saveState(chatId, st, db, slot);
         await ioBot.api.sendChatAction(chatId, "typing").catch(() => null);
         await new Promise((res) => setTimeout(res, pollMs()));
@@ -969,7 +982,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
         return;
       }
-      await sendParts(ioBot, chatId, text, run, true, db);
+      await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       const calls = completedCalls;
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;

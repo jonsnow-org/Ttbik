@@ -63,6 +63,11 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [sendError, setSendError] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(true);
+  const [notice, setNotice] = useState("");
+  const loadBusy = useRef(false);
+  const pullBusy = useRef(false);
+  const sendLock = useRef(false);
   const cursor = useRef(0);
   const ar = lang === "ar";
   const fetchJson = useCallback(async (url: string) => {
@@ -72,6 +77,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     return d;
   }, []);
   const load = useCallback(async () => {
+    if (loadBusy.current) return;
+    loadBusy.current = true;
     try {
       const d = await fetchJson("/api/coder/terminal?limit=40");
       setTasks(d.tasks || []);
@@ -79,25 +86,35 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       setSelected((old) => {
         if (fixedRunId) return fixedRunId;
         const list = d.tasks || [];
-        if (old && list.some((x: Task) => x.run_id === old && x.status !== "failed")) return old;
+        if (old && list.some((x: Task) => x.run_id === old)) return old;
         const running = list.find((x: Task) => x.status === "running" || x.status === "waiting" || x.status === "pending");
         return running?.run_id || list[0]?.run_id || "";
       });
       setError("");
     } catch (e: any) { setError(e?.message || "API error"); }
+    finally { loadBusy.current = false; }
   }, [fetchJson]);
-  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 4000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 6000); return () => clearInterval(id); }, [load]);
   useEffect(() => {
     let stopped = false; cursor.current = 0; setEvents([]);
     if (!selected) return;
     const pull = async () => {
+      if (pullBusy.current) return;
+      pullBusy.current = true;
       try {
         const d = await fetchJson(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`);
         if (stopped) return;
-        if (d.events?.length) { cursor.current = d.events[d.events.length - 1].id; setEvents((old) => [...old, ...d.events].slice(-800)); }
+        if (d.events?.length) {
+          cursor.current = Math.max(cursor.current, d.events[d.events.length - 1].id);
+          setEvents((old) => {
+            const seen = new Set(old.map((ev) => ev.id));
+            return [...old, ...d.events.filter((ev: Ev) => !seen.has(ev.id))].slice(-400);
+          });
+        }
       } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
+      finally { pullBusy.current = false; }
     };
-    void pull(); const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 1200);
+    void pull(); const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 2500);
     return () => { stopped = true; clearInterval(id); };
   }, [selected, fetchJson]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
@@ -117,9 +134,33 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       setError(e?.message || (ar ? "تعذّر تنفيذ الموافقة" : "Could not resolve approval"));
     } finally { setPendingBusy(""); }
   };
+  const clearHistory = async () => {
+    if (!tasks.some((t) => t.status !== "running" && t.status !== "waiting")) return;
+    if (!window.confirm(ar ? "إخفاء كل المهام المنتهية من السجل؟ لن تتأثر المهام الجارية." : "Archive all finished tasks? Running tasks will not be affected.")) return;
+    try {
+      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "tasks_clear" }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "تعذّر تنظيف السجل");
+      cursor.current = 0; setEvents([]); setSelected("");
+      await load();
+      setNotice(ar ? `تم إخفاء ${d.archived || 0} مهمة منتهية.` : `Archived ${d.archived || 0} finished tasks.`);
+    } catch (e: any) { setError(e?.message || "تعذّر تنظيف السجل"); }
+  };
+  const stopSelected = async () => {
+    const task = tasks.find((t) => t.run_id === selected);
+    if (!task || (task.status !== "running" && task.status !== "waiting")) return;
+    try {
+      const r = await fetch("/api/coder/app", { method: "POST", headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() }, body: JSON.stringify({ op: "stop", runId: selected, slot: task.slot }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || "تعذّر إيقاف المهمة");
+      setNotice(ar ? "أُرسل طلب إيقاف المهمة." : "Stop requested.");
+      await load();
+    } catch (e: any) { setError(e?.message || "تعذّر إيقاف المهمة"); }
+  };
   const sendCmd = async () => {
     const txt = input.trim();
-    if (!txt || sending) return;
+    if (!txt || sendLock.current) return;
+    sendLock.current = true;
     setSending(true);
     setSendError("");
     try {
@@ -138,13 +179,18 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       }
       await load();
     } catch (e: any) { setSendError(e?.message || "فشل الإرسال"); }
-    finally { setSending(false); }
+    finally { sendLock.current = false; setSending(false); }
   };
   return <div className={compact ? "" : "n-page"} style={{ paddingBottom: compact ? 8 : 20, minHeight: compact ? 180 : undefined, border: "2px solid #0e7490" }}>
     <div style={{ padding: 14, borderRadius: 18, background: "#050b10", color: "#d1fae5", border: "1px solid #164e63", overflow: "hidden", minHeight: 160 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
-        <button type="button" onClick={() => void load()} style={{ border: "1px solid #155e75", borderRadius: 10, padding: "8px 10px", background: "#082f49", color: "#a5f3fc" }}>{ar ? "تحديث" : "Refresh"}</button>
+        <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <span style={{ color: "#5eead4", fontSize: 10 }}>{ar ? "مزامنة تلقائية" : "Auto-sync"}</span>
+          <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
+          {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
+          {tasks.some((t) => t.run_id === selected && (t.status === "running" || t.status === "waiting")) && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "6px 8px", background: "#450a0a", color: "#fecaca", fontSize: 11 }}>{ar ? "إيقاف" : "Stop"}</button>}
+        </div>
       </div>
       {tasks.length > 1 && (
         <select aria-label={ar ? "المهمة" : "Task"} value={selected} onChange={(e) => setSelected(e.target.value)} style={{ width: "100%", padding: 8, borderRadius: 8, background: "#0b1720", color: "#d1fae5", border: "1px solid #155e75", marginBottom: 8, fontSize: 13 }}>
@@ -163,18 +209,18 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
           </div>
         </div>
       ))}
-      <div aria-live="polite" style={{ minHeight: 260, maxHeight: "55vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
+      {notice && <div style={{ color: "#86efac", fontSize: 12, padding: "5px 8px" }}>{notice}</div>}
+      {logsOpen && <div aria-live="polite" style={{ minHeight: 180, maxHeight: "45vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
         {events.map((ev) => <div key={ev.id} style={{ borderBottom: "1px solid #0f172a", padding: "4px 0" }}><span style={{ color: "#64748b" }}>{new Date(ev.created_at).toLocaleTimeString()}</span>{" "}<span style={{ color: ev.kind === "failed" || ev.kind === "stall" ? "#fca5a5" : ev.kind === "done" ? "#86efac" : "#67e8f9" }}>[{ev.kind.toUpperCase()}]</span>{" "}{ev.text}</div>)}
-        {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار السجلات…" : "Waiting for logs…"}</div>}
-      </div>
+        {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
+      </div>}
       <div dir="ltr" style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "stretch" }}>
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command…"} style={{ flex: 1, padding: "14px 12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, outline: "none", minWidth: 0 }} />
         <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
-      <div style={{ color: "#64748b", fontSize: 10, marginTop: 8 }}>PostgreSQL task events · 1.2s polling · {events.length} {ar ? "سجل" : "events"}</div>
       {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
     </div>
   </div>;
