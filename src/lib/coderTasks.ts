@@ -35,11 +35,12 @@ export function ensureTaskTables(db: Db): Promise<void> {
 export async function taskStart(chatId: number | string, t: { runId: string; slot: string; source: TaskSource; scheduleId?: string | null; title: string; threadId?: string | null }, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);
-    await db.exec(
-      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) ON CONFLICT (run_id) DO NOTHING`,
+    // Only a genuinely new task row receives a START event; retries must not duplicate it.
+    const inserted = await db.query<{ run_id: string }>(
+      `INSERT INTO coder_tasks (run_id, chat_key, slot, source, schedule_id, title, status, thread_id) VALUES ($1, $2, $3, $4, $5, $6, 'running', $7) ON CONFLICT (run_id) DO NOTHING RETURNING run_id`,
       t.runId, coderChatKey(chatId), t.slot, t.source, t.scheduleId || null, t.title.slice(0, 300), t.threadId || null,
     );
-    await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
+    if (inserted.length) await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, t.runId, "start", t.title.slice(0, 2000));
   } catch {
     /* history is best-effort: never blocks the task */
   }
