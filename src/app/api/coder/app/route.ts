@@ -5,9 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { AppError, appOp, tierOf } from "@/lib/coderApp";
 
-// The task runner uses next/server after() and must reach its 47s checkpoint to hand off to /api/coder/continue.
-// Keeping this at 30s kills the background callback before it can hand off, leaving START/INFO-only tasks forever.
-export const maxDuration = 60;
+// Mini App task legs run for up to four minutes, then checkpoint and hand off with ample time before Vercel’s ceiling.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 let cached: { at: number; row: any } | null = null;
