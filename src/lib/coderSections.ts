@@ -682,8 +682,8 @@ async function handOff(botRow: BotRow, chatId: number, chain: string, slot = "")
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
-      if (res.ok) return;
-      last = `HTTP ${res.status}`;
+      if (res.status === 202) return;
+      last = `HTTP ${res.status}${res.ok ? " (continuation was not accepted)" : ""}`;
     } catch (e) { last = (e as Error)?.name || "network error"; }
     if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
   }
