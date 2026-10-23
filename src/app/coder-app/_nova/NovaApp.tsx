@@ -64,7 +64,9 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [logsOpen, setLogsOpen] = useState(true);
+  const [streamState, setStreamState] = useState<"connecting" | "connected" | "reconnecting">("connecting");
   const [notice, setNotice] = useState("");
+  const logsRef = useRef<HTMLDivElement | null>(null);
   const loadBusy = useRef(false);
   
   const sendLock = useRef(false);
@@ -101,6 +103,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     let retryMs = 800;
     cursor.current = 0;
     setEvents([]);
+    setStreamState("connecting");
     if (!selected) return;
     const connect = async () => {
       while (!stopped) {
@@ -117,6 +120,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
           }
           if (!r.body) throw new Error("Live stream is not supported by this browser");
           retryMs = 800;
+          setStreamState("connected");
           const reader = r.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
@@ -143,11 +147,15 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
           }
           if (!stopped) setError("");
         } catch (e: any) {
-          if (!stopped && e?.name !== "AbortError") setError(e?.message || "Live stream disconnected; reconnecting…");
+          if (!stopped && e?.name !== "AbortError") {
+            setStreamState("reconnecting");
+            setError(e?.message || "Live stream disconnected; reconnecting…");
+          }
         } finally {
           controller = undefined;
         }
         if (!stopped) {
+          setStreamState("connecting");
           await new Promise((resolve) => setTimeout(resolve, retryMs));
           retryMs = Math.min(10000, retryMs * 2);
         }
@@ -156,6 +164,9 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     void connect();
     return () => { stopped = true; controller?.abort(); };
   }, [selected]);
+  useEffect(() => {
+    if (logsOpen && logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
+  }, [events, logsOpen]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
   const resolveApproval = async (p: Pending, answer: "yes" | "all" | "no") => {
     const key = `${p.runId}:${answer}`;
@@ -225,7 +236,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
         <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span style={{ color: "#5eead4", fontSize: 10 }}>{ar ? "اتصال مباشر" : "Live connection"}</span>
+          <span style={{ color: streamState === "connected" ? "#5eead4" : streamState === "reconnecting" ? "#fbbf24" : "#94a3b8", fontSize: 10, whiteSpace: "nowrap" }}>{ar ? (streamState === "connected" ? "● اتصال مباشر" : streamState === "reconnecting" ? "↻ إعادة الاتصال" : "◌ جارٍ الاتصال") : (streamState === "connected" ? "● Live" : streamState === "reconnecting" ? "↻ Reconnecting" : "◌ Connecting")}</span>
           <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
           {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
           {tasks.some((t) => t.run_id === selected && (t.status === "running" || t.status === "waiting")) && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "6px 8px", background: "#450a0a", color: "#fecaca", fontSize: 11 }}>{ar ? "إيقاف" : "Stop"}</button>}
@@ -249,7 +260,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         </div>
       ))}
       {notice && <div style={{ color: "#86efac", fontSize: 12, padding: "5px 8px" }}>{notice}</div>}
-      {logsOpen && <div aria-live="polite" style={{ minHeight: 180, maxHeight: "45vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
+      {logsOpen && <div ref={logsRef} aria-live="polite" style={{ minHeight: 110, maxHeight: "32vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere", overscrollBehavior: "contain" }}>
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
         {!selected && <div style={{ color: "#64748b" }}>{ar ? "اختر مهمة أو أرسل طلباً للبوت." : "Choose a task or send a bot request."}</div>}
@@ -257,7 +268,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         {selected && !events.length && !error && <div style={{ color: "#64748b" }}>{ar ? "بانتظار الأحداث…" : "Waiting for events…"}</div>}
       </div>}
       <div dir="ltr" style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 12, padding: 6, background: "#0c4a6e", borderRadius: 14, alignItems: "stretch" }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendCmd()} placeholder={ar ? "اكتب أمراً أو طلباً…" : "Type a command…"} style={{ flex: 1, padding: "14px 12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, outline: "none", minWidth: 0 }} />
+        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendCmd(); } }} rows={2} placeholder={ar ? "اكتب طلبك… Enter للإرسال، Shift+Enter لسطر جديد" : "Write a task… Enter to send, Shift+Enter for a new line"} style={{ flex: 1, padding: "12px", borderRadius: 10, background: "#082f49", color: "#e0f2fe", border: "2px solid #22d3ee", fontSize: 15, lineHeight: 1.5, outline: "none", minWidth: 0, minHeight: 56, maxHeight: 140, resize: "vertical", fontFamily: "inherit" }} />
         <button type="button" onClick={sendCmd} disabled={sending || !input.trim()} style={{ padding: "14px 18px", borderRadius: 10, background: sending ? "#475569" : "#0891b2", color: "#fff", border: "none", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : ar ? "إرسال" : "Send"}</button>
       </div>
       {sendError && <div style={{ color: "#f87171", fontSize: 13, marginTop: 8, padding: "8px 12px", background: "#450a0a", borderRadius: 8 }}>{sendError}</div>}
