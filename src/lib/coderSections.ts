@@ -41,7 +41,7 @@ export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; 
 export type { Db };
 export { coderChatKey };
 
-const BUDGET_MS = 47000;                                              // per invocation, inside maxDuration 60
+const BUDGET_MS = 30000;                                              // leave 30s headroom for slow DB/tool cleanup before Vercel hard timeout
 const LEASE_STALE_MS = 120000;
 const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
 const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
