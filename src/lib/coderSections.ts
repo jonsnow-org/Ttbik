@@ -757,7 +757,8 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
     const botFrom = Math.max(0, Math.min(text.length, run.botSent || 0));
     const unsent = text.length - botFrom;
     if (text.slice(botFrom).trim() && (final || unsent > 1000 || (unsent >= 300 && Date.now() - (run.botProgressAt || 0) > 25000))) {
-      for (const [a, b] of chunkRanges(text, botFrom, final, 1200)) {
+      const batchSize = final ? 1200 : Math.max(250, Math.min(1200, unsent - 1));
+      for (const [a, b] of chunkRanges(text, botFrom, final, batchSize)) {
         const part = renderRange(text, a, b);
         if (part.trim()) await sendRich(bot, chatId, part);
         run.botSent = b;
