@@ -17,7 +17,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
-import { taskEvent, taskSlot, taskStart, taskStatus, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { taskEvent, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 
 export type Mode = "coder" | "sham";
@@ -1140,13 +1140,15 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       const st = await loadStateStrict(chatId, db, slot);
       if (st.run?.chain === chain) {
         runId = st.run.id;
-        if (st.run.surface === "app") {
-          heartbeat = setInterval(() => {
-            if (heartbeatBusy || !runId) return;
-            heartbeatBusy = true;
-            void taskEvent(runId, "info", "⏳ العامل الخلفي حيّ؛ ما زال يجهّز الخطوة التالية.", db).finally(() => { heartbeatBusy = false; });
-          }, 15000);
-        }
+        const surface = st.run.surface;
+        heartbeat = setInterval(() => {
+          if (heartbeatBusy || !runId) return;
+          heartbeatBusy = true;
+          const beat = surface === "app"
+            ? taskEvent(runId, "info", "⏳ العامل الخلفي حيّ؛ ما زال يجهّز الخطوة التالية.", db)
+            : taskTouch(runId, db);
+          void beat.finally(() => { heartbeatBusy = false; });
+        }, 15000);
       }
     } catch { /* driveLoop retries transient state-store failures itself */ }
     await driveLoop(bot, botRow, chatId, chain, db, budgetMs, slot);
