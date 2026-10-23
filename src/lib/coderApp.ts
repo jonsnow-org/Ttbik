@@ -6,7 +6,7 @@ import type { Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { connectionInfo, deleteConnection, prismaDb, saveConnection, tierFor, type Db } from "@/lib/coderAuth";
 import { CATEGORIES, CATEGORY_LABEL, isCategory, isPolicy, loadPrefs, removePref, setPref, tierDefault } from "@/lib/coderPrefs";
-import { listTasks, taskEvents } from "@/lib/coderTasks";
+import { archiveFinishedTasks, listTasks, taskEvents } from "@/lib/coderTasks";
 import { createSchedule, deleteSchedule, getSchedule, listSchedules, publicSchedule, setPaused, updateSchedule, cronPrompt, EVENT_TYPES } from "@/lib/coderSchedules";
 import { defaultTz, validTimeZone } from "@/lib/coderCron";
 import { isAccuracy } from "@/lib/coderAgent";
@@ -147,6 +147,10 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
       const tasks = await listTasks(chatId, { limit: Number(body.limit) || 30, before: body.before || undefined }, db);
       // step counts are an internal meter: the owner only
       return { tasks: user.tier === "owner" ? tasks : tasks.map(({ steps: _s, ...t }: any) => t), pending: await pendings(chatId, db) };
+    }
+    case "tasks_clear": {
+      const archived = await archiveFinishedTasks(chatId, db);
+      return { ok: true, archived };
     }
     case "events": {
       if (!/^[\w-]{4,40}$/.test(String(body.runId || ""))) throw new AppError(400, "bad run id");
