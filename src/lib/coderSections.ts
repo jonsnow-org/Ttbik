@@ -17,7 +17,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
-import { taskEvent, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
+import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
 import { defaultTz } from "@/lib/coderCron";
 
 export type Mode = "coder" | "sham";
@@ -78,7 +78,13 @@ export function smallTalkReply(text: string, name = ""): string {
 export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb, slot = ""): Promise<boolean> {
   const st = await loadState(chatId, db, slot);
   const run = st.run;
-  if (!run || run.pending || Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
+  if (!run || run.pending) return false;
+  // The persisted task heartbeat is authoritative: Vercel can kill a background leg while the chat-state lease
+  // still looks fresh. Recover from a missing heartbeat quickly instead of queuing messages behind a dead runner.
+  const heartbeatFresh = await taskHeartbeatFresh(run.id, 90000, db);
+  if (heartbeatFresh === true) return false;
+  if (heartbeatFresh === null && Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
+  if (heartbeatFresh === false && Date.now() - (run.startedAt || run.lease || 0) < 45000) return false;
   if (run.job) await coderCancel(run.job).catch(() => null);
   await endRun(st, "failed", db, "no progress: the run's loop stopped (recovered)", coderChatKey(chatId));
   await saveState(chatId, st, db, slot);
@@ -400,7 +406,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   if (!content) throw new Error("empty task");
   if (!coderEnabled()) throw new Error("coder service is not configured");
   const st = await loadStateStrict(chatId, db);
-  if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
+  if (st.run && !st.run.pending) {
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
   }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
