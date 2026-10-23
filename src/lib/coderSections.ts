@@ -678,7 +678,16 @@ async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db:
 async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
   const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
   const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
-  await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(8000) }).catch(() => null);
+  let last = "network error";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
+      if (res.ok) return;
+      last = `HTTP ${res.status}`;
+    } catch (e) { last = (e as Error)?.name || "network error"; }
+    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  throw new Error(`coder continuation handoff failed: ${last}`);
 }
 
 /**
@@ -764,7 +773,7 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
   }
 }
 
-export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   const t0 = Date.now();
   const left = () => budgetMs - (Date.now() - t0);
   let cached: CoderReply | null = null;                 // `chat` already answered within its wait: no extra poll
@@ -1125,6 +1134,49 @@ ${summary}`, db);
 }
 
 /** /api/coder/continue: the next leg of a long run. */
+/**
+ * Supervise one runner leg. Unexpected exceptions must become a visible failed task, never a silent fire-and-forget rejection.
+ * The route maxDuration is 60s; driveLoop hands off around 47s, leaving room for the next durable HTTP leg.
+ */
+export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
+  let runId = "";
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let heartbeatBusy = false;
+  try {
+    try {
+      const st = await loadStateStrict(chatId, db, slot);
+      if (st.run?.chain === chain) {
+        runId = st.run.id;
+        if (st.run.surface === "app") {
+          heartbeat = setInterval(() => {
+            if (heartbeatBusy || !runId) return;
+            heartbeatBusy = true;
+            void taskEvent(runId, "info", "⏳ العامل الخلفي حيّ؛ ما زال يجهّز الخطوة التالية.", db).finally(() => { heartbeatBusy = false; });
+          }, 15000);
+        }
+      }
+    } catch { /* driveLoop retries transient state-store failures itself */ }
+    await driveLoop(bot, botRow, chatId, chain, db, budgetMs, slot);
+  } catch (error) {
+    console.error("[coder-drive]", { chatId, chain, error: String((error as Error)?.message || error).slice(0, 240) });
+    try {
+      const st = await loadStateStrict(chatId, db, slot);
+      if (st.run?.chain === chain) {
+        const run = st.run;
+        runId = run.id;
+        await endRun(st, "failed", db, "توقف العامل الخلفي بسبب خطأ غير متوقع. أعد إرسال الطلب؛ لن تبقى المهمة عالقة بصمت.", coderChatKey(chatId));
+        await saveStateStrict(chatId, st, db, slot);
+        await taskEvent(run.id, "failed", "تعذّر على العامل متابعة التنفيذ. راجع سجلات الخادم ثم أعد إرسال الطلب.", db);
+        await send(surfaceBot(bot, run.surface), chatId, "⚠️ توقّف تنفيذ المهمة بسبب خطأ داخلي. أصبحت المهمة معلّمة كفاشلة بدل بقائها معلّقة؛ أعد إرسال طلبك بعد قليل.");
+      }
+    } catch (recoveryError) {
+      console.error("[coder-drive-recovery]", String((recoveryError as Error)?.message || recoveryError).slice(0, 200));
+    }
+  } finally {
+    if (heartbeat) clearInterval(heartbeat);
+  }
+}
+
 export async function continueRun(botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, slot = ""): Promise<void> {
   const { Bot } = await import("grammy");
   const bot = new Bot(botRow.token);
