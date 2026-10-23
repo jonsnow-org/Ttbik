@@ -57,6 +57,8 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState("");
   const [events, setEvents] = useState<Ev[]>([]);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const [pendingBusy, setPendingBusy] = useState("");
   const [error, setError] = useState("");
   const [sendError, setSendError] = useState("");
   const [input, setInput] = useState("");
@@ -73,6 +75,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     try {
       const d = await fetchJson("/api/coder/terminal?limit=40");
       setTasks(d.tasks || []);
+      setPending(d.pending || []);
       setSelected((old) => {
         if (fixedRunId) return fixedRunId;
         const list = d.tasks || [];
@@ -98,6 +101,22 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     return () => { stopped = true; clearInterval(id); };
   }, [selected, fetchJson]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
+  const resolveApproval = async (p: Pending, answer: "yes" | "all" | "no") => {
+    const key = `${p.runId}:${answer}`;
+    setPendingBusy(key);
+    try {
+      const r = await fetch("/api/coder/app", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": rawInitData() },
+        body: JSON.stringify({ op: "resolve", runId: p.runId, nonce: p.nonce, answer }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || (ar ? "تعذّر تنفيذ الموافقة" : "Could not resolve approval"));
+      await load();
+    } catch (e: any) {
+      setError(e?.message || (ar ? "تعذّر تنفيذ الموافقة" : "Could not resolve approval"));
+    } finally { setPendingBusy(""); }
+  };
   const sendCmd = async () => {
     const txt = input.trim();
     if (!txt || sending) return;
@@ -132,6 +151,18 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
           {tasks.map((t) => <option key={t.run_id} value={t.run_id}>{(t.title || t.run_id).slice(0, 50)} · {t.status}</option>)}
         </select>
       )}
+      {pending.filter((p) => p.runId === selected).map((p) => (
+        <div key={p.runId + p.nonce} style={{ margin: "8px 0", padding: 12, border: "1px solid #f59e0b", borderRadius: 12, background: "#422006", color: "#fef3c7" }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>{ar ? "يتطلب تأكيدك قبل تنفيذ الأداة" : "Approval required before running a tool"}</div>
+          <div style={{ fontSize: 13, marginBottom: 6 }}>{p.reason} · {p.tool}</div>
+          <div style={{ color: "#fde68a", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{p.summary}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "yes")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#059669", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:yes` ? "…" : ar ? "موافقة" : "Approve"}</button>
+            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "all")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#0e7490", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:all` ? "…" : ar ? "السماح لبقية المهمة" : "Approve task"}</button>
+            <button type="button" disabled={!!pendingBusy} onClick={() => void resolveApproval(p, "no")} style={{ border: 0, borderRadius: 8, padding: "8px 10px", background: "#991b1b", color: "#fff", fontWeight: 700 }}>{pendingBusy === `${p.runId}:no` ? "…" : ar ? "رفض" : "Deny"}</button>
+          </div>
+        </div>
+      ))}
       <div aria-live="polite" style={{ minHeight: 260, maxHeight: "55vh", overflowY: "auto", padding: 10, background: "#03070b", borderRadius: 10, font: "12px/1.7 ui-monospace,monospace", overflowWrap: "anywhere" }}>
         <div style={{ color: "#22d3ee" }}># {ar ? "سجلات حية — تبقى داخل التطبيق" : "Live logs — kept inside the Mini App"}</div>
         {error && <div style={{ color: "#fca5a5" }}>! {error}</div>}
