@@ -1207,9 +1207,10 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
   const bot = new Bot(botRow.token);
   const st = await loadState(chatId, db, slot);
   if (!st.run || st.run.chain !== chain) return;
+  const surface = st.run.surface;
   st.run.lease = Date.now();
   await saveState(chatId, st, db, slot);
-  await drive(bot, botRow, chatId, chain, db, st.run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
+  await drive(bot, botRow, chatId, chain, db, surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
 }
 
 /**
