@@ -77,7 +77,7 @@ export async function taskTouch(runId: string, db: Db = prismaDb): Promise<void>
 export async function recoverStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
   try {
     await ensureTaskTables(db);
-    const staleMs = Math.max(120000, Number(process.env.CODER_TASK_STALE_MS || 180000));
+    const staleMs = Math.max(120000, Number(process.env.CODER_TASK_STALE_MS || 600000));
     const key = coderChatKey(chatId);
     const stale = await db.query<{ run_id: string }>(
       `UPDATE coder_tasks SET status = $3, updated_at = now(), finished_at = now()
