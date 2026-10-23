@@ -849,6 +849,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         if (run.compacting && r?.type !== "cancelled" && !(!r && (o.failure === "timeout" || o.failure === "network"))) {
           run.job = undefined;                        // the summary job failed: the harness writes the summary itself
           run.sent = 0;
+        run.logged = 0;
           await startSegment(ioBot, chatId, st, run, "", db);
           await saveState(chatId, st, db, slot);
           continue;
@@ -864,6 +865,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
           run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 70000)) / 2));
           run.job = undefined;
           run.sent = 0;
+        run.logged = 0;
           await logStall({ run_id: run.id, chat_key: coderChatKey(chatId), step: run.step, pattern: "repeat_error", level: run.stall.level, detail: `studio job error, retry ${run.retries}: ${(r.error || "").slice(0, 200)}` }, db);
           await saveState(chatId, st, db, slot);
           continue;
@@ -916,6 +918,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         // the end-of-segment progress summary: memory, a fresh context, and the task goes on in the next segment
         run.job = undefined;
         run.sent = 0;
+        run.logged = 0;
         await startSegment(ioBot, chatId, st, run, text, db);
         await saveState(chatId, st, db, slot);
         continue;
@@ -926,6 +929,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (!text.trim() && completedCalls.length === 0) {
         run.job = undefined;
         run.sent = 0;
+        run.logged = 0;
         if ((run.retries || 0) < 1) {
           run.retries = (run.retries || 0) + 1;
           run.histChars = Math.max(12000, Math.floor((run.histChars || Number(process.env.CODER_HISTORY_CHARS || 40000)) / 2));
@@ -945,6 +949,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       st.messages.push(calls.length ? { role: "assistant", content: text, tool_calls: calls } : { role: "assistant", content: text });
       run.job = undefined;
       run.sent = 0;
+        run.logged = 0;
       run.retries = 0;
       if (calls.length) {
         run.queued = calls;
@@ -990,6 +995,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (o.reply?.job) {
         run.job = o.reply.job;
         run.sent = 0;
+        run.logged = 0;
         run.jobAt = run.jobMovedAt = Date.now();
         run.jobSize = "";
         if (o.reply.type !== "pending") cached = o.reply;
@@ -1048,6 +1054,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     }
     run.job = r.job;
     run.sent = 0;
+        run.logged = 0;
     run.jobAt = Date.now();
     run.jobMovedAt = Date.now();
     run.jobSize = "";
