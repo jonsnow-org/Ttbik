@@ -65,6 +65,23 @@ export async function taskEvent(runId: string, kind: EventKind, text: string, db
   }
 }
 
+/** True when the persisted task row has a recent runner heartbeat; null means the DB check failed or the row is missing. */
+export async function taskHeartbeatFresh(runId: string, maxAgeMs = 90000, db: Db = prismaDb): Promise<boolean | null> {
+  try {
+    await ensureTaskTables(db);
+    const rows = await db.query<{ status: string; updated_at: Date | string }>(
+      `SELECT status, updated_at FROM coder_tasks WHERE run_id = $1 LIMIT 1`, runId,
+    );
+    const row = rows[0];
+    if (!row) return null;
+    if (row.status !== "running") return false;
+    const at = row.updated_at instanceof Date ? row.updated_at.getTime() : new Date(row.updated_at).getTime();
+    return Number.isFinite(at) && Date.now() - at <= maxAgeMs;
+  } catch {
+    return null;
+  }
+}
+
 /** Update liveness without adding a visible log row. */
 export async function taskTouch(runId: string, db: Db = prismaDb): Promise<void> {
   try {
@@ -77,7 +94,7 @@ export async function taskTouch(runId: string, db: Db = prismaDb): Promise<void>
 export async function recoverStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
   try {
     await ensureTaskTables(db);
-    const staleMs = Math.max(120000, Number(process.env.CODER_TASK_STALE_MS || 600000));
+    const staleMs = Math.max(60000, Number(process.env.CODER_TASK_STALE_MS || 90000));
     const key = coderChatKey(chatId);
     const stale = await db.query<{ run_id: string }>(
       `UPDATE coder_tasks SET status = $3, updated_at = now(), finished_at = now()
