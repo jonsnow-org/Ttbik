@@ -102,7 +102,7 @@ export async function coderCall(api: string, payload: Record<string, unknown>, t
  */
 async function idleFirst(order: { b: string; i: number }[]): Promise<{ b: string; i: number }[]> {
   if ((process.env.CODER_STUDIO_BALANCE || "").toLowerCase() === "off") return order;
-  const capMs = Math.max(1000, Number(process.env.CODER_STUDIO_BALANCE_MS || 3500));
+  const capMs = Math.max(400, Number(process.env.CODER_STUDIO_BALANCE_MS || 900));
   const seen = new Map<string, number>();                                  // base -> queue length (Infinity = not ready / no answer)
   const score = (st: Record<string, unknown> | null) => (st && st.phase === "ready" ? Number(st.queue) || 0 : Infinity);
   const idle = await new Promise<string | null>((resolve) => {
