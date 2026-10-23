@@ -116,11 +116,17 @@ export async function taskSlot(runId: string, chatId: number | string, db: Db = 
   }
 }
 
-let lastStaleRecoveryAt = 0;\n\nexport async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
+let lastStaleRecoveryAt = 0;
+
+export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
   try {
     await ensureTaskTables(db);
-    // A worker heartbeat keeps legitimate long tasks alive; rows without one are stale, not "active forever".
-    await recoverStaleTasks(chatId, db);
+    // Terminal refreshes every few seconds. Run stale-row cleanup at most once per minute per warm instance,
+    // rather than adding multiple write queries to every poll and competing with the live worker for DB connections.
+    if (Date.now() - lastStaleRecoveryAt > 60000) {
+      lastStaleRecoveryAt = Date.now();
+      await recoverStaleTasks(chatId, db);
+    }
     const limit = Math.max(1, Math.min(100, opts.limit || 30));
     const where = [`chat_key = $1 AND archived_at IS NULL`];
     const args: unknown[] = [coderChatKey(chatId)];
