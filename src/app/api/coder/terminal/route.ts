@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
-import { loadState, recoverDeadRun } from "@/lib/coderSections";
+import { loadState } from "@/lib/coderSections";
 import { prismaDb } from "@/lib/coderAuth";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+export const maxDuration = 30;
 
 let cached: { at: number; row: any } | null = null;
 async function coderBot() {
