@@ -24,6 +24,7 @@ export function ensureTaskTables(db: Db): Promise<void> {
       await db.exec(`CREATE INDEX IF NOT EXISTS coder_task_events_run_idx ON coder_task_events (run_id, id)`);
       // conversation threads (src/lib/coderThreads.ts): the request's conversation; older rows keep NULL
       await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS thread_id TEXT`);
+      await db.exec(`ALTER TABLE coder_tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ`);
     })().catch((e) => {
       ready = null;
       throw e;
@@ -44,6 +45,14 @@ export async function taskStart(chatId: number | string, t: { runId: string; slo
   } catch {
     /* history is best-effort: never blocks the task */
   }
+}
+
+export async function archiveFinishedTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
+  await ensureTaskTables(db);
+  const key = coderChatKey(chatId);
+  const rows = await db.query<{ count: number }>(`SELECT count(*)::int AS count FROM coder_tasks WHERE chat_key = $1 AND archived_at IS NULL AND status NOT IN ('running','waiting')`, key);
+  await db.exec(`UPDATE coder_tasks SET archived_at = now(), updated_at = now() WHERE chat_key = $1 AND archived_at IS NULL AND status NOT IN ('running','waiting')`, key);
+  return rows[0]?.count || 0;
 }
 
 export async function taskEvent(runId: string, kind: EventKind, text: string, db: Db = prismaDb): Promise<void> {
@@ -84,7 +93,7 @@ export async function listTasks(chatId: number | string, opts: { limit?: number;
   try {
     await ensureTaskTables(db);
     const limit = Math.max(1, Math.min(100, opts.limit || 30));
-    const where = [`chat_key = $1`];
+    const where = [`chat_key = $1 AND archived_at IS NULL`];
     const args: unknown[] = [coderChatKey(chatId)];
     if (opts.active) where.push(`status IN ('running','waiting')`);
     if (opts.before) {
@@ -104,7 +113,7 @@ export async function taskEvents(chatId: number | string, runId: string, after =
   try {
     await ensureTaskTables(db);
     return await db.query<EventRow>(
-      `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.run_id = $1 AND t.chat_key = $2 AND e.id > $3 ORDER BY e.id ASC LIMIT 500`,
+      `SELECT e.id::int AS id, e.run_id, e.kind, e.text, e.created_at::text AS created_at FROM coder_task_events e JOIN coder_tasks t ON t.run_id = e.run_id WHERE e.run_id = $1 AND t.chat_key = $2 AND t.archived_at IS NULL AND e.id > $3 ORDER BY e.id ASC LIMIT 500`,
       runId, coderChatKey(chatId), after,
     );
   } catch {
