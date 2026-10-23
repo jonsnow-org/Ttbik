@@ -10,26 +10,9 @@ let cached: { at: number; row: any } | null = null;
 async function coderBot() {
   if (cached && Date.now() - cached.at < 60000) return cached.row;
   const id = process.env.CODER_BOT_ID || "";
-  let row = null;
-  if (id) {
-    row = await prisma.bot.findUnique({ where: { id } }).catch(() => null);
-  }
-  if (!row) {
-    // Prefer active NOVA_BOT
-    row = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, orderBy: { created_at: "asc" } as any }).catch(() => null);
-  }
-  if (!row) {
-    // Any NOVA_BOT (even inactive)
-    row = await prisma.bot.findFirst({ where: { template: "NOVA_BOT" }, orderBy: { created_at: "desc" } as any }).catch(() => null);
-  }
-  if (!row && process.env.BOT_TOKEN) {
-    // Fall back to the bot whose token matches BOT_TOKEN
-    row = await prisma.bot.findUnique({ where: { token: process.env.BOT_TOKEN } }).catch(() => null);
-  }
-  if (!row) {
-    // Last resort: any active bot
-    row = await prisma.bot.findFirst({ where: { isActive: true }, orderBy: { created_at: "desc" } as any }).catch(() => null);
-  }
+  let row = id ? await prisma.bot.findUnique({ where: { id } }).catch(() => null) : null;
+  // Must match /api/coder/app exactly so initData is verified against the same bot token.
+  if (!row) row = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, orderBy: { created_at: "asc" } as any }).catch(() => null);
   cached = { at: Date.now(), row };
   return row;
 }
