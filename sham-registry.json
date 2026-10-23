@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-23 11:50 UTC",
+  "generated_at": "2026-10-23 17:18 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -77,7 +77,7 @@
     {
       "alias": "الدفتر الشامل 1",
       "track": "all_in_one",
-      "status": "running",
+      "status": "complete",
       "role": "primary",
       "last_run": "2026-10-23",
       "gpu": false,
@@ -216,7 +216,7 @@
     {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 791.7,
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
@@ -288,7 +288,7 @@
     {
       "alias": "نتائج المرحلة الثالثة 1",
       "track": "chat_stage",
-      "size_mb": 580.3,
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
@@ -321,7 +321,7 @@
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
       "size_mb": 0.0,
-      "last_updated": "2026-10-21",
+      "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
     },
