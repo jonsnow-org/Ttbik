@@ -66,7 +66,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
   const [logsOpen, setLogsOpen] = useState(true);
   const [notice, setNotice] = useState("");
   const loadBusy = useRef(false);
-  const pullBusy = useRef(false);
+  
   const sendLock = useRef(false);
   const cursor = useRef(0);
   const ar = lang === "ar";
@@ -94,29 +94,68 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
     } catch (e: any) { setError(e?.message || "API error"); }
     finally { loadBusy.current = false; }
   }, [fetchJson]);
-  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 6000); return () => clearInterval(id); }, [load]);
+  useEffect(() => { void load(); const id = setInterval(() => { if (document.visibilityState === "visible") void load(); }, 10000); return () => clearInterval(id); }, [load]);
   useEffect(() => {
-    let stopped = false; cursor.current = 0; setEvents([]);
+    let stopped = false;
+    let controller: AbortController | undefined;
+    let retryMs = 800;
+    cursor.current = 0;
+    setEvents([]);
     if (!selected) return;
-    const pull = async () => {
-      if (pullBusy.current) return;
-      pullBusy.current = true;
-      try {
-        const d = await fetchJson(`/api/coder/terminal?runId=${encodeURIComponent(selected)}&after=${cursor.current}`);
-        if (stopped) return;
-        if (d.events?.length) {
-          cursor.current = Math.max(cursor.current, d.events[d.events.length - 1].id);
-          setEvents((old) => {
-            const seen = new Set(old.map((ev) => ev.id));
-            return [...old, ...d.events.filter((ev: Ev) => !seen.has(ev.id))].slice(-400);
+    const connect = async () => {
+      while (!stopped) {
+        controller = new AbortController();
+        try {
+          const r = await fetch(`/api/coder/stream?runId=${encodeURIComponent(selected)}&after=${cursor.current}`, {
+            headers: { "x-telegram-init-data": rawInitData() },
+            cache: "no-store",
+            signal: controller.signal,
           });
+          if (!r.ok) {
+            const d = await r.json().catch(() => ({}));
+            throw new Error(d.error || `HTTP ${r.status}`);
+          }
+          if (!r.body) throw new Error("Live stream is not supported by this browser");
+          retryMs = 800;
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          while (!stopped) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let boundary = buffer.indexOf("\\n\\n");
+            while (boundary >= 0) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              const dataLine = frame.split("\\n").find((line) => line.startsWith("data:"));
+              if (dataLine) {
+                try {
+                  const ev = JSON.parse(dataLine.slice(5).trim()) as Ev;
+                  if (typeof ev.id === "number" && ev.id > cursor.current) {
+                    cursor.current = ev.id;
+                    setEvents((old) => old.some((x) => x.id === ev.id) ? old : [...old, ev].slice(-400));
+                  }
+                } catch { /* ignore malformed frames and continue the stream */ }
+              }
+              boundary = buffer.indexOf("\\n\\n");
+            }
+          }
+          if (!stopped) setError("");
+        } catch (e: any) {
+          if (!stopped && e?.name !== "AbortError") setError(e?.message || "Live stream disconnected; reconnecting…");
+        } finally {
+          controller = undefined;
         }
-      } catch (e: any) { if (!stopped) setError(e?.message || "Log fetch failed"); }
-      finally { pullBusy.current = false; }
+        if (!stopped) {
+          await new Promise((resolve) => setTimeout(resolve, retryMs));
+          retryMs = Math.min(10000, retryMs * 2);
+        }
+      }
     };
-    void pull(); const id = setInterval(() => { if (document.visibilityState === "visible") void pull(); }, 2500);
-    return () => { stopped = true; clearInterval(id); };
-  }, [selected, fetchJson]);
+    void connect();
+    return () => { stopped = true; controller?.abort(); };
+  }, [selected]);
   const active = tasks.filter((x) => x.status === "running" || x.status === "waiting").length;
   const resolveApproval = async (p: Pending, answer: "yes" | "all" | "no") => {
     const key = `${p.runId}:${answer}`;
@@ -186,7 +225,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <div><div style={{ color: "#5eead4", font: "800 15px ui-monospace,monospace" }}>NOVA / TERMINAL</div><div style={{ color: "#94a3b8", fontSize: 12 }}>{ar ? `المهام النشطة: ${active}` : `Active jobs: ${active}`}</div></div>
         <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-          <span style={{ color: "#5eead4", fontSize: 10 }}>{ar ? "مزامنة تلقائية" : "Auto-sync"}</span>
+          <span style={{ color: "#5eead4", fontSize: 10 }}>{ar ? "اتصال مباشر" : "Live connection"}</span>
           <button type="button" onClick={() => setLogsOpen((v) => !v)} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{logsOpen ? (ar ? "إخفاء السجل" : "Hide logs") : (ar ? "إظهار السجل" : "Show logs")}</button>
           {tasks.some((t) => t.status !== "running" && t.status !== "waiting") && <button type="button" onClick={() => void clearHistory()} style={{ border: "1px solid #155e75", borderRadius: 8, padding: "6px 8px", background: "#082f49", color: "#a5f3fc", fontSize: 11 }}>{ar ? "تنظيف المنتهية" : "Clear finished"}</button>}
           {tasks.some((t) => t.run_id === selected && (t.status === "running" || t.status === "waiting")) && <button type="button" onClick={() => void stopSelected()} style={{ border: "1px solid #7f1d1d", borderRadius: 8, padding: "6px 8px", background: "#450a0a", color: "#fecaca", fontSize: 11 }}>{ar ? "إيقاف" : "Stop"}</button>}
