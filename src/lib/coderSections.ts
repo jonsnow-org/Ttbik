@@ -221,10 +221,16 @@ function surfaceBot(bot: TelegramBot, surface: "telegram" | "app" | undefined): 
         const extra = args[2];
         const rows = extra?.reply_markup?.inline_keyboard;
         const isApproval = Array.isArray(rows) && rows.some((row: any[]) => Array.isArray(row) && row.some((button: any) => String(button?.callback_data || "").startsWith("ccf|")));
-        if (isApproval) return value.apply(target, args);
+        const isProgress = String(args[1] || "").startsWith("📋 التقدم");
+        if (isApproval || isProgress) return value.apply(target, args);
         return Promise.resolve(null);
       };
-      if (["sendChatAction", "editMessageText", "editMessageReplyMarkup", "sendPhoto", "sendDocument", "sendVideo", "sendAudio", "sendVoice", "sendAnimation", "sendSticker"].includes(String(prop))) return async () => null;
+      if (prop === "editMessageText") return (...args: any[]) => {
+        const text = String(args[2] || "");
+        if (text.startsWith("📋 التقدم") || text.startsWith("⚙️ [محطة العمل]")) return value.apply(target, args);
+        return Promise.resolve(null);
+      };
+      if (["sendChatAction", "editMessageReplyMarkup", "sendPhoto", "sendDocument", "sendVideo", "sendAudio", "sendVoice", "sendAnimation", "sendSticker"].includes(String(prop))) return async () => null;
       return typeof value === "function" ? value.bind(target) : value;
     },
   });
@@ -387,7 +393,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
-  await startChain(botRow, chatId, st, {}, db);
+  await startChain(botRow, chatId, st, { surface: "app" }, db);
   // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
   // waits for this short Telegram API call; all heavy work remains in the background continuation.
   const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
