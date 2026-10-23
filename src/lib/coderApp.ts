@@ -91,8 +91,7 @@ export async function appOp(user: AppUser, op: string, body: Json, deps: AppDeps
   const db = deps.db || prismaDb;
   const { chatId } = user;
   const { loadState, saveState, resolvePending, startScheduledRun } = await sections();
-  // a chat task whose loop died (server restart mid-task) is closed before the app shows it as "running"
-  if (op === "me" || op === "tasks") await (await sections()).recoverDeadRun(chatId, db).catch(() => false);
+  // Status polling is read-only; stale-run recovery happens on incoming messages using the persisted worker heartbeat.
   switch (op) {
     case "me": {
       const st = await loadState(chatId, db);
