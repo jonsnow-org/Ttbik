@@ -82,7 +82,7 @@ export async function recoverDeadRun(chatId: number | string, db: Db = prismaDb,
   if (!run || run.pending) return false;
   // The persisted task heartbeat is authoritative: Vercel can kill a background leg while the chat-state lease
   // still looks fresh. Recover from a missing heartbeat quickly instead of queuing messages behind a dead runner.
-  const heartbeatFresh = await taskHeartbeatFresh(run.id, 90000, db);
+  const heartbeatFresh = await taskHeartbeatFresh(run.id, 300000, db);
   if (heartbeatFresh === true) return false;
   if (heartbeatFresh === null && Date.now() - (run.lease || 0) < RUN_DEAD_MS()) return false;
   if (heartbeatFresh === false && Date.now() - (run.startedAt || run.lease || 0) < 45000) return false;
