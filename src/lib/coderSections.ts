@@ -41,9 +41,10 @@ export type ChatState = { mode: Mode; think: boolean; messages: CoderMessage[]; 
 export type { Db };
 export { coderChatKey };
 
-const BUDGET_MS = 30000;                                              // leave 30s headroom for slow DB/tool cleanup before Vercel hard timeout
+const BUDGET_MS = 30000;                                              // Telegram webhook leg stays short under its 60s route ceiling
+const APP_BUDGET_MS = 240000;                                           // Mini App terminal leg: 4 minutes, with 60s headroom under Vercel 300s
 const LEASE_STALE_MS = 120000;
-const pollMs = () => Number(process.env.CODER_POLL_MS || 3000);
+const pollMs = () => Math.max(800, Number(process.env.CODER_POLL_MS || 1200));
 const ciWaitMs = () => Number(process.env.CODER_CI_WAIT_MS || 20000);     // CI still running and nothing changed: wait this long before the next step
 const MAX_RETRIES = 5;                                                // Studio hiccups are retried (with a smaller context on a job error)
 // The CPU-only Studio can spend several minutes in prompt prefill before the first token, especially on repo-wide tasks.
@@ -426,7 +427,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   await saveStateStrict(chatId, st, db);
   // Acknowledge immediately in Telegram; the final model answer is delivered there and recorded in the terminal feed.
   await send(bot, chatId, "📨 وصل طلبك من الطرفية. ستظهر النتيجة هنا وفي الطرفية تلقائياً.");
-  later(() => drive(bot, botRow, chatId, st.run!.chain, db));
+  later(() => drive(bot, botRow, chatId, st.run!.chain, db, APP_BUDGET_MS));
   return { runId, queued: false };
 }
 
@@ -1084,8 +1085,11 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
     run.promptEst = estimateTokens(messages.map((m) => m.content || "").join("\n"));   // metered when the job is done (with the real counts)
     // the user's model settings (Mini App → settings): deeper thinking and accuracy; a detected loop may still raise both
     const temperature = run.stall.level >= 2 ? knobs.temperature : ACCURACY_TEMPERATURE[accuracy];
+    await taskEvent(run.id, "info", "🧠 إرسال الخطوة " + (run.step + 1) + " إلى خادم النموذج؛ السياق التقريبي " + run.promptEst + " رمزاً.", db);
+    const modelStartedAt = Date.now();
     const o = await withHeartbeat(ioBot, chatId, run, "انتظار استجابة النموذج", () => coderChat(messages, { tools: coderToolsFor(github, connected.length > 0, messages), think: st.think || knobs.think, temperature, waitS, timeoutMs: waitS * 1000 + 9000 }));
     const r = o.reply;
+    await taskEvent(run.id, "info", "⏱️ استجابة خادم النموذج الأولية بعد " + (Date.now() - modelStartedAt) + "ms" + (r?.queue_pos ? "؛ في الطابور: " + r.queue_pos : "") + (r?.phase ? "؛ المرحلة: " + r.phase : "") + (o.failure ? "؛ تعذر الاتصال: " + o.failure : "") + ".", db);
     if ((!r || !r.job) && o.failure && o.failure !== "off" && (run.retries || 0) < MAX_RETRIES) {
       run.retries = (run.retries || 0) + 1;                            // a Studio hiccup is not the end of the task
       await saveState(chatId, st, db, slot);
@@ -1135,7 +1139,7 @@ ${summary}`, db);
 /** /api/coder/continue: the next leg of a long run. */
 /**
  * Supervise one runner leg. Unexpected exceptions must become a visible failed task, never a silent fire-and-forget rejection.
- * The route maxDuration is 60s; driveLoop hands off around 47s, leaving room for the next durable HTTP leg.
+ * Terminal tasks get a 4-minute leg under the 300s app/continuation routes; Telegram tasks keep a short leg under the shared webhook route.
  */
 export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, chain: string, db: Db = prismaDb, budgetMs = BUDGET_MS, slot = ""): Promise<void> {
   let runId = "";
@@ -1187,7 +1191,7 @@ export async function continueRun(botRow: BotRow, chatId: number, chain: string,
   if (!st.run || st.run.chain !== chain) return;
   st.run.lease = Date.now();
   await saveState(chatId, st, db, slot);
-  await drive(bot, botRow, chatId, chain, db, BUDGET_MS, slot);
+  await drive(bot, botRow, chatId, chain, db, st.run.surface === "app" ? APP_BUDGET_MS : BUDGET_MS, slot);
 }
 
 /**
