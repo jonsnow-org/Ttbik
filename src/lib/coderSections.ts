@@ -405,7 +405,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   }
   if (st.run && Date.now() - st.run.lease < LEASE_STALE_MS) {
     st.inbox.push(content);
-    await saveState(chatId, st, db);
+    await saveStateStrict(chatId, st, db);
     await taskEvent(st.run.id, "info", "وصل طلب جديد من الطرفية وأُضيف إلى المهمة الجارية.", db);
     return { runId: st.run.id, queued: true };
   }
@@ -418,7 +418,8 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   const runId = st.run!.id;
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveStateStrict(chatId, st, db);
-  // Terminal logs are live; the completed answer is also delivered once to the same Telegram conversation.
+  // Acknowledge immediately in Telegram; the final model answer is delivered there and recorded in the terminal feed.
+  await send(bot, chatId, "📨 وصل طلبك من الطرفية. ستظهر النتيجة هنا وفي الطرفية تلقائياً.");
   later(() => drive(bot, botRow, chatId, st.run!.chain, db));
   return { runId, queued: false };
 }
