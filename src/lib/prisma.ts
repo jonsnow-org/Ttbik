@@ -2,15 +2,14 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-// The DB pool is limited to 15 sessions in session mode. Serverless instances multiply quickly,
-// so force a low per-instance connection limit unless an explicit operator override is supplied.
-// A short pool timeout fails fast enough for the app to show a retryable error instead of hanging until Vercel kills the request.
+// The database pooler allows only a few sessions in total (EMAXCONNSESSION "max clients reached in session mode, pool_size 15" took the
+// bots down on 2026-10-18). Vercel can run many serverless instances at once, so keep each instance to one DB connection by default; override with PRISMA_CONNECTION_LIMIT or DATABASE_URL only if the database pool has headroom.
 function pooledUrl(url?: string): string | undefined {
   if (!url) return undefined;
   try {
     const u = new URL(url);
-    u.searchParams.set("connection_limit", process.env.PRISMA_CONNECTION_LIMIT || "1");
-    u.searchParams.set("pool_timeout", process.env.PRISMA_POOL_TIMEOUT || "8");
+    if (!u.searchParams.has("connection_limit")) u.searchParams.set("connection_limit", process.env.PRISMA_CONNECTION_LIMIT || "1");
+    if (!u.searchParams.has("pool_timeout")) u.searchParams.set("pool_timeout", "20");
     return u.toString();
   } catch {
     return url;
