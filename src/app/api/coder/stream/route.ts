@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
   let cursor = Math.max(0, Math.min(2_000_000_000, Number(q.get("after") || 0) || 0));
 
+  let cancelled = false;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -38,11 +39,11 @@ export async function GET(req: NextRequest) {
       const started = Date.now();
       let lastPing = Date.now();
       const write = (s: string) => {
-        if (!closed) controller.enqueue(encoder.encode(s));
+        if (!closed && !cancelled) controller.enqueue(encoder.encode(s));
       };
       try {
         write(": connected\n\n");
-        while (!closed && Date.now() - started < 270000) {
+        while (!closed && !cancelled && Date.now() - started < 270000) {
           const rows = await taskEvents(user.id, runId, cursor);
           for (const ev of rows) {
             if (closed) break;
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
       }
     },
     cancel() {
-      // The browser cancels this stream when the selected task changes or the app closes.
+      cancelled = true;
     },
   });
   return new Response(stream, {
