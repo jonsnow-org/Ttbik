@@ -678,16 +678,9 @@ async function onStall(stall: Stall, run: Run, chatId: number, ctx: ToolCtx, db:
 async function handOff(botRow: BotRow, chatId: number, chain: string, slot = ""): Promise<void> {
   const who = slot ? `${chatId}#${slot}` : String(chatId);       // the slot is part of what is signed
   const body = JSON.stringify({ botId: botRow.id, chatId: who, chain, sig: signContinue(botRow.webhookSecret || "", botRow.id, who, chain) });
-  let last = "network error";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
-      if (res.status === 202) return;
-      last = `HTTP ${res.status}${res.ok ? " (continuation was not accepted)" : ""}`;
-    } catch (e) { last = (e as Error)?.name || "network error"; }
-    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  throw new Error(`coder continuation handoff failed: ${last}`);
+  // Do not retry an ambiguous POST: the server may have accepted it even if the response was lost, and a retry could start two runners.
+  const res = await fetch(`${selfUrl()}/api/coder/continue`, { method: "POST", headers: { "Content-Type": "application/json" }, body, signal: AbortSignal.timeout(5000), cache: "no-store" });
+  if (res.status !== 202) throw new Error(`coder continuation handoff was not accepted (HTTP ${res.status})`);
 }
 
 /**
