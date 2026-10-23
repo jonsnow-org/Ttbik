@@ -26,7 +26,7 @@ export type Run = {
   id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
-  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean;
+  slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number;
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
   // and whether the model is writing the end-of-segment progress summary right now
@@ -752,10 +752,21 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
     if (delta.trim()) await taskEvent(run.id, "text", delta, db);
     run.logged = text.length;
     run.sent = text.length;
-    // Keep the terminal and Telegram conversation in sync: stream progress in the app, deliver one final answer to the bot chat.
+
+    // The terminal is the detailed live feed; Telegram receives readable batches, not every token.
+    const botFrom = Math.max(0, Math.min(text.length, run.botSent || 0));
+    const unsent = text.length - botFrom;
+    if (text.slice(botFrom).trim() && (final || unsent > 1000 || (unsent >= 300 && Date.now() - (run.botProgressAt || 0) > 25000))) {
+      for (const [a, b] of chunkRanges(text, botFrom, final, 1200)) {
+        const part = renderRange(text, a, b);
+        if (part.trim()) await sendRich(bot, chatId, part);
+        run.botSent = b;
+      }
+      run.botProgressAt = Date.now();
+    }
     if (final && text.trim() && !run.appReplySent) {
       run.appReplySent = true;
-      await sendRich(bot, chatId, text);
+      await send(bot, chatId, "✅ اكتمل توليد الإجابة. أرسلت التحديثات على دفعات، والسجل التفصيلي محفوظ في الطرفية.");
     }
     return;
   }
