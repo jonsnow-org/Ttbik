@@ -32,8 +32,7 @@ export async function GET(req: NextRequest) {
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
   try {
     if (!runId) {
-      // Heal an abandoned main run before showing the task list, rather than leaving a stale "running" row forever.
-      await recoverDeadRun(user.id, prismaDb).catch(() => false);
+      // Keep this read endpoint side-effect free: recovery runs when a new task starts, not on every UI poll.
       const [tasks, state] = await Promise.all([
         listTasks(user.id, { limit }),
         loadState(user.id, prismaDb).catch(() => null),
