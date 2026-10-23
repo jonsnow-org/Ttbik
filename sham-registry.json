@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-22 21:45 UTC",
+  "generated_at": "2026-10-23 05:02 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -68,7 +68,7 @@
     {
       "alias": "المرحلة الثالثة 5",
       "track": "chat_stage",
-      "status": "complete",
+      "status": "running",
       "role": "primary",
       "last_run": "2026-10-22",
       "gpu": false,
@@ -79,7 +79,7 @@
       "track": "all_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-22",
+      "last_run": "2026-10-23",
       "gpu": false,
       "failure": ""
     },
@@ -214,25 +214,25 @@
   "engineer_notebooks_count": 3,
   "datasets": [
     {
-      "alias": "نتائج مسار ترميز الصورة 1",
-      "track": "image_tokenizer",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-22",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج المدرّب الحي 1",
       "track": "live_trainer",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-22",
+      "size_mb": 792.1,
+      "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 793.1,
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
+      "size_mb": 719.0,
+      "last_updated": "2026-10-23",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار ترميز الصورة 2",
+      "track": "image_tokenizer",
+      "size_mb": 0.0,
       "last_updated": "2026-10-22",
       "progress": {},
       "has_key_files": true
@@ -254,17 +254,9 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المسار A 1",
-      "track": "cpu_training_track",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-22",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار ترميز الصورة 2",
+      "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
-      "size_mb": 0.0,
+      "size_mb": 144.5,
       "last_updated": "2026-10-22",
       "progress": {
         "samples_consumed": 107736,
@@ -278,14 +270,6 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثالثة 1",
-      "track": "chat_stage",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-22",
-      "progress": {},
-      "has_key_files": true
-    },
-    {
       "alias": "نتائج المسار B 1",
       "track": "research_track",
       "size_mb": 0.0,
@@ -294,10 +278,18 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 3",
-      "track": "image_tokenizer",
+      "alias": "نتائج المسار A 1",
+      "track": "cpu_training_track",
       "size_mb": 0.0,
       "last_updated": "2026-10-22",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المرحلة الثالثة 1",
+      "track": "chat_stage",
+      "size_mb": 580.3,
+      "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
     },
@@ -306,6 +298,14 @@
       "track": "chat_stage",
       "size_mb": 0.0,
       "last_updated": "2026-10-22",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
     },
@@ -328,7 +328,7 @@
     {
       "alias": "نتائج مسار جمع وترميز الفيديو 1",
       "track": "video_corpus",
-      "size_mb": 9.4,
+      "size_mb": 9.9,
       "last_updated": "2026-10-22",
       "progress": {
         "videos_consumed": 2567
@@ -351,6 +351,14 @@
         "updated": "2026-10-15 01:25",
         "samples_consumed": 94440
       },
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج المدرّب الحي 3",
+      "track": "live_trainer",
+      "size_mb": 791.5,
+      "last_updated": "2026-10-15",
+      "progress": {},
       "has_key_files": true
     }
   ],
@@ -423,7 +431,7 @@
       "chat_stage": {
         "name": "المرحلة الثالثة — التجميع والمحادثة (كل الوسائط + البحث + الدمج)",
         "ready": true,
-        "kernel_status": "complete",
+        "kernel_status": "running",
         "progress": {},
         "dataset": "نتائج المرحلة الثالثة 1"
       }
