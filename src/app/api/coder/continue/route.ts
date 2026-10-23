@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { continueRun, later, verifyContinue } from "@/lib/coderSections";
 
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const body = (await req.json().catch(() => null)) as { botId?: string; chatId?: string; chain?: string; sig?: string } | null;
