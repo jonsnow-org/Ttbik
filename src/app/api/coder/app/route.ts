@@ -12,9 +12,9 @@ let cached: { at: number; row: any } | null = null;
 async function coderBot() {
   if (cached && Date.now() - cached.at < 60000) return cached.row;
   const id = process.env.CODER_BOT_ID || "";
-  const row = id
-    ? await prisma.bot.findUnique({ where: { id } }).catch(() => null)
-    : await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, orderBy: { created_at: "asc" } as any }).catch(() => null);
+  let row = id ? await prisma.bot.findUnique({ where: { id } }).catch(() => null) : null;
+  // Use the same fallback in every Nova endpoint; never authenticate the terminal with an unrelated active bot.
+  if (!row) row = await prisma.bot.findFirst({ where: { template: "NOVA_BOT", isActive: true }, orderBy: { created_at: "asc" } as any }).catch(() => null);
   cached = { at: Date.now(), row };
   return row;
 }
