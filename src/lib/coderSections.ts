@@ -23,7 +23,7 @@ import { defaultTz } from "@/lib/coderCron";
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
-  id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[];
+  id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[]; approved?: string[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string;
@@ -556,14 +556,16 @@ export async function resolvePending(
     if (answer === "all") run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
     await send(ioBot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
     await taskEvent(run.id, "approved", `${answer === "all" ? "[rest of task] " : ""}${pending.reason} — ${first.function.name}`, db);
-    const out = await runTool(first, await toolCtx(chatId, st, db, run));
-    st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
+    // Never execute a potentially slow GitHub/sandbox tool inside the 30-second Mini App HTTP request.
+    // The shared background runner consumes this one-time approval and performs the tool after the response.
+    run.approved = [...new Set([...(run.approved || []), toolCallKey(first)])];
+    run.queued = pending.calls;
   } else {
     await send(ioBot, chatId, "❌ أُلغيت هذه الخطوة.");
     await taskEvent(run.id, "declined", `${pending.reason} — ${first.function.name}`, db);
     st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
+    run.queued = rest;
   }
-  run.queued = rest;
   await startChain(botRow, chatId, st);
   await taskStatus(run.id, "running", run.step, db);
   await saveState(chatId, st, db, slot);
@@ -622,6 +624,7 @@ async function endRun(st: ChatState, status: TaskStatus, db: Db, note = "", chat
 }
 
 const contextOf = (run: Run): Context => (run.source && run.source !== "interactive" ? "scheduled" : "interactive");
+const toolCallKey = (call: CoderToolCall): string => call.id || `${call.function.name}:${call.function.arguments}`;
 
 async function readDocument(bot: TelegramBot, botRow: BotRow, doc: { file_id: string; file_name?: string; file_size?: number }): Promise<string> {
   if ((doc.file_size || 0) > 400_000) return `[file ${doc.file_name || ""} is too big to read here (${doc.file_size} bytes)]`;
@@ -704,9 +707,13 @@ async function progressLine(bot: TelegramBot, chatId: number, run: Run, line: st
 async function withHeartbeat<T>(bot: TelegramBot, chatId: number, run: Run, label: string, work: () => Promise<T>): Promise<T> {
   let beat = 0;
   const timer = setInterval(() => {
+    beat += 1;
+    if (run.surface === "app") {
+      if (beat % 2 === 0) void taskEvent(run.id, "info", `⏳ ${label} — ما زال التنفيذ جارياً`).catch(() => null);
+      return;
+    }
     const msgId = run.progress?.msgId;
     if (!msgId) return;
-    beat += 1;
     const dots = ".".repeat((beat % 3) + 1);
     const text = `📋 التقدم\n⏳ ${label}\n🔄 أعمل${dots}\n\n⏱️ ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
     void (bot.api as any).editMessageText(chatId, msgId, text).catch(() => null);
@@ -774,6 +781,8 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
     // 1) tool calls waiting to run (after a confirmation, or the rest of a batch)
     if (run.queued?.length) {
       const [call, ...rest] = run.queued;
+      const approvedKey = toolCallKey(call);
+      const wasApproved = (run.approved || []).includes(approvedKey);
       const skip = beforeCall(run.stall, call);
       if (skip) {
         // the same call yet again after a recovery: not run; the model gets its earlier result and must change course
@@ -781,6 +790,21 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
         st.messages.push({ role: "tool", content: skip.skip, tool_call_id: call.id, name: call.function.name });
         await onStall({ pattern: "repeat_call", detail: `${call.function.name} skipped (identical call again)` }, run, chatId, ctx, db);
         run.queued = rest;
+        await saveState(chatId, st, db, slot);
+        continue;
+      }
+      // A one-time approval from the Mini App / Telegram is consumed here, in the background runner.
+      // All unapproved calls still go through the normal permission policy.
+      if (wasApproved) {
+        run.approved = (run.approved || []).filter((key) => key !== approvedKey);
+        const short = toolLabel(call).split("—")[0].trim().slice(0, 80) || "تنفيذ أداة";
+        await taskEvent(run.id, "tool", toolLabel(call), db);
+        const out = await withHeartbeat(ioBot, chatId, run, `تنفيذ بعد الموافقة: ${short}`, () => runTool(call, ctx));
+        st.messages.push({ role: "tool", content: out, tool_call_id: call.id, name: call.function.name });
+        run.queued = rest;
+        const seen = afterCall(run.stall, call, out, run.step);
+        if (seen.stall) await onStall(seen.stall, run, chatId, ctx, db);
+        if (seen.wait) run.waitUntil = Date.now() + ciWaitMs();
         await saveState(chatId, st, db, slot);
         continue;
       }
