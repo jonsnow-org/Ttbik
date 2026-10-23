@@ -2,7 +2,7 @@ import { createHash } from "crypto";
 import type { Db } from "@/lib/coderAuth";
 import { DEFAULT_PLANS, publicPlans, publicUsage, upsertPlan, usageSummary, getSubscription, limitMessage } from "@/lib/coderPlans";
 import { parseStarsPayload, preCheckoutCoder, recordCoderPayment, starsPayload } from "@/lib/coderStars";
-import { callbackUrl, CONNECTORS, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, verifyConnectorState } from "@/lib/coderConnectors";
+import { callbackUrl, CONNECTORS, connectorStartUrl, disconnectConnector, finishConnector, isReadOnlyCall, listConnectors, pkceChallenge, pkceVerifier, signConnectorState, testConnector, verifyConnectorState } from "@/lib/coderConnectors";
 
 function memDb(): Db & { conns: any[]; pays: Set<string> } {
   const plans = new Map<string, any>();
@@ -96,6 +96,33 @@ describe("connectors", () => {
     expect(l.find((c) => c.id === "notion")?.status).toBe("available");
     expect(callbackUrl("notion")).toBe("https://site.test/api/coder/app/connectors/notion/callback");
   });
+  it("registers Calendar and GitLab only as available after OAuth app credentials are configured", async () => {
+    const db = memDb();
+    let list = await listConnectors(USER, {}, db);
+    expect(list.find((c) => c.id === "google_calendar")?.status).toBe("soon");
+    expect(list.find((c) => c.id === "gitlab")?.status).toBe("soon");
+    process.env.CODER_GOOGLE_CLIENT_ID = "gid";
+    process.env.CODER_GOOGLE_CLIENT_SECRET = "gsec";
+    process.env.CODER_GITLAB_CLIENT_ID = "lid";
+    process.env.CODER_GITLAB_CLIENT_SECRET = "lsec";
+    list = await listConnectors(USER, {}, db);
+    expect(list.find((c) => c.id === "google_calendar")?.status).toBe("available");
+    expect(list.find((c) => c.id === "gitlab")?.status).toBe("available");
+    expect(CONNECTORS.find((c) => c.id === "github")?.scope).not.toContain("admin:repo_hook");
+  });
+  it("validates a linked GitLab credential against its live identity endpoint", async () => {
+    process.env.CODER_GITLAB_CLIENT_ID = "lid";
+    process.env.CODER_GITLAB_CLIENT_SECRET = "lsec";
+    const db = memDb();
+    const u = new URL(connectorStartUrl(USER, "gitlab"));
+    const f: any = jest.fn(async (url: string, init?: any) => {
+      if (url === "https://gitlab.com/oauth/token" && init?.method === "POST") return { ok: true, json: async () => ({ access_token: "gitlab-secret", token_type: "Bearer", expires_in: 3600 }) };
+      if (url === "https://gitlab.com/api/v4/user") return { ok: true, json: async () => ({ username: "alice" }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    await finishConnector("gitlab", "code", u.searchParams.get("state")!, db, f);
+    expect(await testConnector(USER, "gitlab", {}, db, f)).toEqual({ ok: true, label: "alice", message: "الاتصال سليم: alice" });
+  });
   it("state is signed, bound to the user and the service, and expires; PKCE challenge is S256 of the verifier", () => {
     const s = signConnectorState(USER, "vercel");
     expect(verifyConnectorState(s, "vercel")).toBe(USER);
@@ -137,7 +164,7 @@ describe("connectors", () => {
   });
 });
 
-describe("groq: a model this key cannot use is skipped afterwards", () => {
+describe("groq: prefer the model known to work in production", () => {
   it("404 model_not_found is remembered; the next call goes straight to a working model", async () => {
     jest.resetModules();
     process.env.GROQ_API_KEY = "k";
@@ -151,8 +178,8 @@ describe("groq: a model this key cannot use is skipped afterwards", () => {
     });
     const err = jest.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await callGroq("s", "u", 50)).toBe("ok");
-    expect(seen).toHaveLength(5);
-    expect(groqSkipped()).toHaveLength(4);
+    expect(seen).toHaveLength(1);
+    expect(groqSkipped()).toHaveLength(0);
     seen.length = 0;
     expect(await callGroq("s", "u", 50)).toBe("ok");
     expect(seen).toEqual(["openai/gpt-oss-120b"]);
