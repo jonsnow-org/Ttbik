@@ -548,17 +548,18 @@ export async function resolvePending(
     return false;
   }
   if (!run.pending || run.pending.nonce !== nonce) return false;
+  const ioBot = surfaceBot(bot, run.surface);
   const pending = run.pending;
   run.pending = undefined;
   const [first, ...rest] = pending.calls;
   if (answer !== "no") {
     if (answer === "all") run.allowCats = [...new Set([...(run.allowCats || []), ...(pending.categories || [])])];
-    await send(bot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
+    await send(ioBot, chatId, answer === "all" ? `✅ تم التأكيد لبقية هذه المهمة: ${pending.reason}` : `✅ تم التأكيد: ${pending.reason}`);
     await taskEvent(run.id, "approved", `${answer === "all" ? "[rest of task] " : ""}${pending.reason} — ${first.function.name}`, db);
     const out = await runTool(first, await toolCtx(chatId, st, db, run));
     st.messages.push({ role: "tool", content: out, tool_call_id: first.id, name: first.function.name });
   } else {
-    await send(bot, chatId, "❌ أُلغيت هذه الخطوة.");
+    await send(ioBot, chatId, "❌ أُلغيت هذه الخطوة.");
     await taskEvent(run.id, "declined", `${pending.reason} — ${first.function.name}`, db);
     st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
   }
