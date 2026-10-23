@@ -1164,10 +1164,12 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       if (st.run?.chain === chain) {
         const run = st.run;
         runId = run.id;
-        await endRun(st, "failed", db, "توقف العامل الخلفي بسبب خطأ غير متوقع. أعد إرسال الطلب؛ لن تبقى المهمة عالقة بصمت.", coderChatKey(chatId));
-        await saveStateStrict(chatId, st, db, slot);
-        await taskEvent(run.id, "failed", "تعذّر على العامل متابعة التنفيذ. راجع سجلات الخادم ثم أعد إرسال الطلب.", db);
-        await send(surfaceBot(bot, run.surface), chatId, "⚠️ توقّف تنفيذ المهمة بسبب خطأ داخلي. أصبحت المهمة معلّمة كفاشلة بدل بقائها معلّقة؛ أعد إرسال طلبك بعد قليل.");
+        st.run = null;
+        await saveStateStrict(chatId, st, db, slot); // persist the terminal state before best-effort cleanup
+        if (run.job) later(() => coderCancel(run.job!).catch(() => null));
+        await taskEvent(run.id, "failed", "توقف العامل الخلفي بسبب خطأ غير متوقع. أعد إرسال الطلب؛ لن تبقى المهمة عالقة بصمت.", db);
+        await taskStatus(run.id, "failed", run.step, db);
+        await send(bot, chatId, "⚠️ توقّف تنفيذ المهمة بسبب خطأ داخلي. أصبحت المهمة معلّمة كفاشلة بدل بقائها معلّقة؛ أعد إرسال طلبك بعد قليل.");
       }
     } catch (recoveryError) {
       console.error("[coder-drive-recovery]", String((recoveryError as Error)?.message || recoveryError).slice(0, 200));
