@@ -65,6 +65,33 @@ export async function taskEvent(runId: string, kind: EventKind, text: string, db
   }
 }
 
+/** Update liveness without adding a visible log row. */
+export async function taskTouch(runId: string, db: Db = prismaDb): Promise<void> {
+  try {
+    await ensureTaskTables(db);
+    await db.exec(`UPDATE coder_tasks SET updated_at = now() WHERE run_id = $1 AND status = $2`, runId, "running");
+  } catch { /* best-effort heartbeat */ }
+}
+
+/** Close orphaned running rows left behind when a serverless worker was hard-killed. Approval-waiting tasks are intentionally excluded. */
+export async function recoverStaleTasks(chatId: number | string, db: Db = prismaDb): Promise<number> {
+  try {
+    await ensureTaskTables(db);
+    const staleMs = Math.max(120000, Number(process.env.CODER_TASK_STALE_MS || 180000));
+    const key = coderChatKey(chatId);
+    const stale = await db.query<{ run_id: string }>(
+      `UPDATE coder_tasks SET status = $3, updated_at = now(), finished_at = now()
+       WHERE chat_key = $1 AND archived_at IS NULL AND status = $4
+       AND updated_at < now() - ($2::int * interval '1 millisecond')
+       RETURNING run_id`, key, staleMs, "failed", "running",
+    );
+    for (const row of stale) {
+      await db.exec(`INSERT INTO coder_task_events (run_id, kind, text) VALUES ($1, $2, $3)`, row.run_id, "failed", "أُغلقت المهمة تلقائياً لأن العامل الخلفي توقف عن إرسال نبضات الحياة.");
+    }
+    return stale.length;
+  } catch { return 0; }
+}
+
 export async function taskStatus(runId: string, status: TaskStatus, steps?: number, db: Db = prismaDb): Promise<void> {
   try {
     await ensureTaskTables(db);
@@ -92,6 +119,8 @@ export async function taskSlot(runId: string, chatId: number | string, db: Db = 
 export async function listTasks(chatId: number | string, opts: { limit?: number; before?: string; active?: boolean } = {}, db: Db = prismaDb): Promise<TaskRow[]> {
   try {
     await ensureTaskTables(db);
+    // A worker heartbeat keeps legitimate long tasks alive; rows without one are stale, not "active forever".
+    await recoverStaleTasks(chatId, db);
     const limit = Math.max(1, Math.min(100, opts.limit || 30));
     const where = [`chat_key = $1 AND archived_at IS NULL`];
     const args: unknown[] = [coderChatKey(chatId)];
