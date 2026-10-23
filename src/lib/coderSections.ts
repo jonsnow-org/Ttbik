@@ -783,7 +783,7 @@ export async function drive(bot: TelegramBot, botRow: BotRow, chatId: number, ch
       const [call, ...rest] = run.queued;
       const approvedKey = toolCallKey(call);
       const wasApproved = (run.approved || []).includes(approvedKey);
-      const skip = beforeCall(run.stall, call);
+      const skip = wasApproved ? null : beforeCall(run.stall, call);
       if (skip) {
         // the same call yet again after a recovery: not run; the model gets its earlier result and must change course
         run.stall.level++;
