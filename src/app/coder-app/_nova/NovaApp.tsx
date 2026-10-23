@@ -77,7 +77,7 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
         if (fixedRunId) return fixedRunId;
         const list = d.tasks || [];
         if (old && list.some((x: Task) => x.run_id === old && x.status !== "failed")) return old;
-        const running = list.find((x: Task) => x.status === "running" || x.status === "pending");
+        const running = list.find((x: Task) => x.status === "running" || x.status === "waiting" || x.status === "pending");
         return running?.run_id || list[0]?.run_id || "";
       });
       setError("");
@@ -112,7 +112,12 @@ function TerminalScreen({ lang, fixedRunId, compact = false }: { lang: Lang; fix
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "فشل الإرسال");
       setInput("");
-      void load();
+      if (d.runId) {
+        cursor.current = 0;
+        setEvents([]);
+        setSelected(d.runId);
+      }
+      await load();
     } catch (e: any) { setSendError(e?.message || "فشل الإرسال"); }
     finally { setSending(false); }
   };
