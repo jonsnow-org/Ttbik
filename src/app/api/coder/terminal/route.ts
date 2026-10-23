@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
+import { loadState } from "@/lib/coderSections";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
@@ -30,8 +31,18 @@ export async function GET(req: NextRequest) {
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
   try {
     if (!runId) {
-      const tasks = await listTasks(user.id, { limit });
-      return NextResponse.json({ tasks }, { headers: { "Cache-Control": "no-store" } });
+      const [tasks, state] = await Promise.all([
+        listTasks(user.id, { limit }),
+        loadState(user.id, prisma as any).catch(() => null),
+      ]);
+      const run = state?.run;
+      const p = run?.pending;
+      const pending = run && p ? [{
+        runId: run.id, nonce: p.nonce, reason: p.reason, summary: p.summary,
+        tool: p.calls?.[0]?.function?.name || "", categories: p.categories || [],
+        title: run.title || "", slot: run.slot || "", at: p.at || null,
+      }] : [];
+      return NextResponse.json({ tasks, pending }, { headers: { "Cache-Control": "no-store" } });
     }
     const events = await taskEvents(user.id, runId, after);
     return NextResponse.json({ events: events.slice(0, 200) }, { headers: { "Cache-Control": "no-store" } });
