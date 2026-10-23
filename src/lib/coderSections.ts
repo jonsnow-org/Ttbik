@@ -362,8 +362,8 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
     await send(bot, chatId, "أرسل طلبك نصاً (أو ملف كود نصي).");
     return true;
   }
-  if (st.run && !st.run.pending && Date.now() - st.run.lease >= RUN_DEAD_MS()) {
-    // the previous task's loop is gone: close it (and its Studio job) so this message gets a fresh, live task
+  if (st.run && !st.run.pending) {
+    // Check the persisted worker heartbeat before queueing: the state lease can look fresh after Vercel killed the worker.
     if (await recoverDeadRun(chatId, db)) Object.assign(st, await loadState(chatId, db));
   }
   // every message, greetings included, goes to the model (owner's rule 2026-10-21: no canned replies)
