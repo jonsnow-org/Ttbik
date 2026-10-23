@@ -23,7 +23,7 @@ import { defaultTz } from "@/lib/coderCron";
 export type Mode = "coder" | "sham";
 export type Pending = { calls: CoderToolCall[]; reason: string; summary: string; nonce: string; categories?: Category[]; msgId?: number; at?: number };
 export type Run = {
-  id: string; chain: string; job?: string; sent: number; step: number; lease: number; pending?: Pending; queued?: CoderToolCall[];
+  id: string; chain: string; job?: string; sent: number; logged?: number; step: number; lease: number; surface?: "telegram" | "app"; pending?: Pending; queued?: CoderToolCall[];
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string;
@@ -360,7 +360,7 @@ export async function handleCoderSections(bot: TelegramBot, botRow: BotRow, upda
   }
   if (st.run) st.inbox.push(content);
   else st.messages.push({ role: "user", content });
-  startChain(botRow, chatId, st, {}, db);
+  await startChain(botRow, chatId, st, {}, db);
   // Send a durable-looking progress card before starting any model/GitHub work. The webhook only
   // waits for this short Telegram API call; all heavy work remains in the background continuation.
   const accepted = await bot.api.sendMessage(chatId, "📥 تم استلام الطلب، جارٍ إضافته إلى المعالجة الخلفية…").catch(() => null);
@@ -394,7 +394,7 @@ export async function startAppTask(bot: TelegramBot, botRow: BotRow, chatId: num
   if (!lim.ok) throw new Error(limitMessage(lim, st.tz || defaultTz()));
   await addUsage(chatId, "tasks", 1, db);
   st.messages.push({ role: "user", content });
-  startChain(botRow, chatId, st, { source: "interactive", title: content.slice(0, 200) }, db);
+  await startChain(botRow, chatId, st, { source: "interactive", title: content.slice(0, 200), surface: "app" }, db);
   const runId = st.run!.id;
   await taskEvent(runId, "info", "بدأت المهمة من طرفية التطبيق المصغر.", db);
   await saveState(chatId, st, db);
@@ -542,7 +542,7 @@ export async function resolvePending(
     st.messages.push({ role: "tool", content: "The user declined this action (it was NOT executed). Continue without it or ask what they want.", tool_call_id: first.id, name: first.function.name });
   }
   run.queued = rest;
-  startChain(botRow, chatId, st);
+  await startChain(botRow, chatId, st);
   await taskStatus(run.id, "running", run.step, db);
   await saveState(chatId, st, db, slot);
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
@@ -562,13 +562,13 @@ async function permsKeyboard(chatId: number, db: Db): Promise<InlineKeyboard> {
   return kb;
 }
 
-function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partial<Run> = {}, db: Db = prismaDb) {
+async function startChain(_botRow: BotRow, chatId: number, st: ChatState, init: Partial<Run> = {}, db: Db = prismaDb): Promise<void> {
   if (!st.run) {
-    st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, step: 0, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", ...init };
+    st.run = { id: randomUUID().slice(0, 12), chain: "", sent: 0, logged: 0, step: 0, lease: Date.now(), startedAt: Date.now(), source: "interactive", slot: "", surface: "telegram", ...init };
     const last = [...st.messages].reverse().find((m) => m.role === "user");
     const title = st.run.title || String(last?.content || "").slice(0, 200);
     st.run.goal = st.run.goal || String(last?.content || "").slice(0, 4000);
-    void taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, threadId: st.run.slot ? null : st.threadId || null }, db);
+    await taskStart(chatId, { runId: st.run.id, slot: st.run.slot || "", source: st.run.source || "interactive", scheduleId: st.run.scheduleId, title, threadId: st.run.slot ? null : st.threadId || null }, db);
   }
   st.run.chain = randomUUID().slice(0, 12);
   st.run.lease = Date.now();
@@ -1079,7 +1079,7 @@ export async function startScheduledRun(
   }
   await addUsage(chatId, "tasks", 1, db);
   const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
-  startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
+  await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
   later(() => drive(bot, botRow, chatId, st.run!.chain, db, BUDGET_MS, slot));
