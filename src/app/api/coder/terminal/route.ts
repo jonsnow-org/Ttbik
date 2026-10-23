@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyTmaInitData } from "@/lib/tmaInitData";
 import { listTasks, taskEvents } from "@/lib/coderTasks";
-import { loadState } from "@/lib/coderSections";
+import { loadState, recoverDeadRun } from "@/lib/coderSections";
 import { prismaDb } from "@/lib/coderAuth";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
   const limit = Math.max(1, Math.min(60, Number(q.get("limit") || 30) || 30));
   try {
     if (!runId) {
+      // Heal an abandoned main run before showing the task list, rather than leaving a stale "running" row forever.
+      await recoverDeadRun(user.id, prismaDb).catch(() => false);
       const [tasks, state] = await Promise.all([
         listTasks(user.id, { limit }),
         loadState(user.id, prismaDb).catch(() => null),
