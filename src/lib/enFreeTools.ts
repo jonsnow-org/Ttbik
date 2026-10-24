@@ -15,4 +15,5 @@ export const EN_FREE_TOOLS = [
   { href: "/en/free-tools/date-difference", title: "Days between dates", text: "Date gaps and adding days to a date." },
   { href: "/en/free-tools/pregnancy-calculator", title: "Pregnancy due date calculator", text: "Due date and week from your last period." },
   { href: "/en/free-tools/fancy-text", title: "Fancy text generator", text: "Cool fonts to copy for names and bios." },
+  { href: "/en/free-tools/json-workbench", title: "JSON formatter & CSV converter", text: "Validate, format or minify JSON and convert CSV locally in your browser." },
 ] as const;
