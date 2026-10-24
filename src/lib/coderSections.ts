@@ -17,7 +17,7 @@ import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceP
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
 import { SECTIONS_MAX, parallelEnabled, parallelReport, studioWriter } from "@/lib/coderParallel";
-import { agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
+import { AGENT_REPORT_STORE, agentMaxSteps, AGENT_TIMEOUT_MS, agentSlot, agentsEnabled, agentToolAllowed, composeResults, isAgentSlot, normalizeTasks, type AgentResult, type AgentRole, type AgentTask } from "@/lib/coderAgents";
 import { addUsage, checkLimit, estimateTokens, limitMessage, type LimitCheck } from "@/lib/coderPlans";
 import { fallbackSummary, needsSegment, saveSegment, segmentMessages, summaryRequest, usableSummary } from "@/lib/coderSegments";
 import { taskEvent, taskHeartbeatFresh, taskSlot, taskStart, taskStatus, taskTouch, type TaskSource, type TaskStatus } from "@/lib/coderTasks";
@@ -1292,7 +1292,7 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       }
       // long-term memory: learned in quiet time from the saved thread (coderThreads.ts quietWork), never on the reply path
       if (!run.agent && (!encryptionReady() || run.slot || !st.threadId)) rememberLater(chatId, st.messages, run.id, st.repo, db);
-      if (run.agent) st.agentResult = { status: "done", text: text.trim().slice(0, 6000) || "(empty report)", at: Date.now() };
+      if (run.agent) st.agentResult = { status: "done", text: text.trim().slice(0, AGENT_REPORT_STORE) || "(empty report)", at: Date.now() };
       else if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
         // the owner's successful runs become lessons for training another model (coderLessons.ts: owner only, secrets drop the whole run)
         const snap = [...st.messages], id = run.id, steps = run.step;

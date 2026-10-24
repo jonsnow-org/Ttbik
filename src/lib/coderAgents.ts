@@ -14,7 +14,8 @@ export const WORKER_MAX_STEPS = 12;
 export type AgentRole = "reader" | "tester" | "sham" | "worker";   // worker = full tools, the parent's own permission settings, asks the user like the parent does; sham = the owner's own model, raw answer, owner only
 export const agentMaxSteps = (role?: AgentRole): number => (role === "tester" ? TESTER_MAX_STEPS : role === "worker" ? WORKER_MAX_STEPS : role === "sham" ? 1 : AGENT_MAX_STEPS);
 export const AGENT_TIMEOUT_MS = 25 * 60000;
-export const AGENT_REPORT_MAX = 4000;
+export const AGENT_REPORT_STORE = 30000;      // what an agent's report may hold (it is the agent's own full text)
+export const agentReportsBudget = (): number => Math.max(6000, Number(process.env.CODER_AGENT_REPORTS_CHARS || 20000));   // what ALL the reports together may take of the parent's context
 
 export const agentsEnabled = (): boolean => (process.env.CODER_AGENTS || "").toLowerCase() !== "off";
 
@@ -87,7 +88,7 @@ export function normalizeTasks(a: Record<string, unknown>, owner = false, depth 
 /** Every agent's report has the same shape and covers ONLY its own job; the parent (or the worker that started a helper) is the one who combines reports for the user. */
 export const REPORT_RULES = (lang: "ar" | "en"): string => [
   "REPORT RULES (strict). Your report is about YOUR job only, in your own words about what YOU did. Never answer the user's overall request, never write a final answer for the user, never describe other agents or the parent's wider task. Reports from helpers you started are inputs: use them, do not paste them.",
-  `Write exactly these four lines (the labels stay in English, the content is in ${lang === "ar" ? "Arabic" : "English"}), 150 words in total at most:`,
+  `Write exactly these four lines (the labels stay in English, the content is in ${lang === "ar" ? "Arabic" : "English"}). Use as much room as the job really needs: a small job gets a short report, a big job gets a full one with every file, name and number. Never pad, never cut a finding to be short:`,
   "JOB: <the job you were given, one short line>",
   "DONE: <what you actually did or found: names, paths, versions, sources; only what a tool showed you>",
   "NOT DONE: <what you could not do, was declined or denied, or did not find; write nothing if all was done>",
@@ -138,21 +139,33 @@ const none = (x: string) => !x || /^(none|nothing|لا شيء|لا يوجد|بل
 /**
  * The tool message the parent receives: one block per agent, in order, each in the same shape. The harness itself organises them (no model call:
  * a "collector" model step would cost a slow generation and would not know the user's request); the parent writes the one answer for the user.
- * Under the size budget what was NOT done and what was produced are kept first and the findings are trimmed.
+ * Nothing is cut while all the reports fit the parent's context (agentReportsBudget). Only beyond that are the findings (DONE) of the LONGEST
+ * reports shortened, to one common length, so short reports are never touched; JOB, NOT DONE and OUTPUT are never cut, and a cut is marked.
  */
 export function composeResults(items: { title: string; result?: AgentResult }[]): string {
-  const per = Math.floor(AGENT_REPORT_MAX * 1.5 / Math.max(1, items.length));
   const head = `Reports of ${items.length} agent${items.length === 1 ? "" : "s"}. Each covers ONLY that agent's own job. The user's request is yours: combine them, resolve conflicts between them, say plainly what was NOT DONE, and never present an agent's NOT DONE as done.`;
-  const blocks = items.map((it, i) => {
+  type Row = { title: string; fixed: string; body: string; label: string };
+  const rows: Row[] = items.map((it, i) => {
     const r = it.result;
     const title = `## Agent ${i + 1}: ${it.title}`;
-    if (!r) return `${title}\n[status: no report — it did not finish in time]`;
+    if (!r) return { title, fixed: "[status: no report — it did not finish in time]", body: "", label: "" };
     const status = `[status: ${r.status}]`;
     const p = parseAgentReport(r.text);
-    if (!p) return `${title}\n${status} (not in the report format)\n${r.text.slice(0, per)}`;
-    const keep = (x: string, n: number) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
-    const rest = Math.max(300, per - 600);
-    return [title, status, `JOB: ${keep(p.job || it.title, 160)}`, `NOT DONE: ${none(p.notDone) ? "nothing" : keep(p.notDone, 400)}`, `OUTPUT: ${none(p.output) ? "none" : keep(p.output, 300)}`, `DONE: ${keep(p.done || "(empty)", rest)}`].join("\n");
+    if (!p) return { title, fixed: `${status} (not in the report format)`, body: r.text, label: "" };
+    return { title, fixed: [status, `JOB: ${p.job || it.title}`, `NOT DONE: ${none(p.notDone) ? "nothing" : p.notDone}`, `OUTPUT: ${none(p.output) ? "none" : p.output}`].join("\n"), body: p.done || "(empty)", label: "DONE: " };
+  });
+  const budget = agentReportsBudget();
+  const size = (cap: number) => rows.reduce((n, r) => n + r.title.length + r.fixed.length + r.label.length + Math.min(r.body.length, cap) + 4, 0);
+  let cap = Infinity;
+  if (size(Infinity) > budget) {                       // one common cap, as high as the budget allows (never below 800 characters)
+    let lo = 800, hi = Math.max(...rows.map((r) => r.body.length), 800);
+    while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (size(mid) <= budget) lo = mid; else hi = mid - 1; }
+    cap = lo;
+  }
+  const blocks = rows.map((r) => {
+    const cut = r.body.length > cap;
+    const body = cut ? `${r.body.slice(0, cap)}\n[… ${r.body.length - cap} more characters of this report were left out to fit; the full text is in the agent's own task log]` : r.body;
+    return [r.title, r.fixed, body ? `${r.label}${body}` : ""].filter(Boolean).join("\n");
   });
   return `${head}\n\n${blocks.join("\n\n")}`;
 }

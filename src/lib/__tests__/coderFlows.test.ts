@@ -721,6 +721,7 @@ describe("agent reports: each covers only its own job, in one shape, organised b
       expect(sys).toMatch(/about YOUR job only/);
       expect(sys).toMatch(/Never answer the user's overall request/);
       expect(sys).toMatch(/NOT DONE:/);
+      expect(sys).toMatch(/as much room as the job really needs/);
     }
   });
   it("parses the four lines (also multi-line) and returns null for a raw answer", () => {
@@ -728,7 +729,7 @@ describe("agent reports: each covers only its own job, in one shape, organised b
     expect(p).toEqual({ job: "دمج PR 5", done: "دُمج بعد موافقتك\nوتم التحقق من CI", notDone: "لم أحذف الفرع (رُفض)", output: "PR #5" });
     expect(parseAgentReport("جواب خام بلا تنسيق")).toBeNull();
   });
-  it("the parent gets one organised block per agent; under the budget what was NOT done is kept and the findings are trimmed; a raw or missing report is labelled", () => {
+  it("a long report stays whole while all reports fit; the parent gets one organised block per agent; a raw or missing report is labelled", () => {
     const long = "نتيجة ".repeat(900);
     const out = composeResults([
       { title: "أ", result: { status: "done", text: `JOB: مهمة أ\nDONE: ${long}\nNOT DONE: لم أجد ملف الإعدادات\nOUTPUT: none` } },
@@ -737,8 +738,23 @@ describe("agent reports: each covers only its own job, in one shape, organised b
     ]);
     expect(out).toMatch(/^Reports of 3 agents\. Each covers ONLY that agent's own job/);
     expect(out).toMatch(/## Agent 1: أ\n\[status: done\]\nJOB: مهمة أ\nNOT DONE: لم أجد ملف الإعدادات\nOUTPUT: none\nDONE: /);
+    expect(out).toContain(long.trim());                                  // 5400 characters: whole, not cut
+    expect(out).not.toMatch(/left out to fit/);
     expect(out).toMatch(/## Agent 2: ب\n\[status: done\] \(not in the report format\)\nجواب خام/);
     expect(out).toMatch(/## Agent 3: ج\n\[status: no report/);
-    expect(out.length).toBeLessThan(7000);
+  });
+  it("only beyond the parent's budget: the LONGEST findings are shortened to one common length, short reports and NOT DONE / OUTPUT are never touched, and the cut is marked", () => {
+    process.env.CODER_AGENT_REPORTS_CHARS = "6000";
+    const big = "س".repeat(9000), small = "قصير ومفيد.";
+    const out = composeResults([
+      { title: "كبير", result: { status: "done", text: `JOB: ج\nDONE: ${big}\nNOT DONE: رُفض الدمج\nOUTPUT: PR #7` } },
+      { title: "صغير", result: { status: "done", text: `JOB: ج2\nDONE: ${small}\nNOT DONE: nothing\nOUTPUT: none` } },
+    ]);
+    delete process.env.CODER_AGENT_REPORTS_CHARS;
+    expect(out).toContain(small);
+    expect(out).toMatch(/NOT DONE: رُفض الدمج\nOUTPUT: PR #7/);
+    expect(out).toMatch(/more characters of this report were left out/);
+    expect(out.length).toBeLessThan(6600);
+    expect(out.length).toBeGreaterThan(5000);                            // as much as the budget allows, not a small fixed share
   });
 });
