@@ -523,3 +523,20 @@ describe("research fast path for GitHub requests", () => {
     expect(report).toMatch(/retries sendMessage with backoff/);
   }, 60000);
 });
+
+describe("announce-only replies", () => {
+  it("a reply that only says it will search is not sent; the model is told to act, and the real answer is what the user sees", async () => {
+    const calls = studio([
+      { type: "done", job: "j1", text: "النتائج غير موجودة. سأقوم الآن بالبحث عن مقالات تقنية.", tool_calls: [] },
+      { type: "done", job: "j2", text: "هذا هو الجواب النهائي.", tool_calls: [] },
+    ]);
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await saveState(CHAT, st0("اشرح لي الفكرة", run("an1")), db);
+    await drive(bot, botRow, CHAT, "c", db, 40000);
+    const all = sent.map((s) => s.text).join("\n");
+    expect(all).toMatch(/الجواب النهائي/);
+    expect(all).not.toMatch(/سأقوم الآن/);
+    expect(calls.filter((c) => c.url.includes("/gradio_api/call/") && !c.url.includes("/v2/")).length).toBeGreaterThanOrEqual(2);
+  });
+});

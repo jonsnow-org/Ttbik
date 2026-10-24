@@ -1,0 +1,43 @@
+name: Nova publish lessons
+# MANUAL only (no schedule): copies the owner's successful Nova runs to a PRIVATE Hugging Face dataset repo, on the owner's order.
+on:
+  workflow_dispatch:
+    inputs:
+      repo_name:
+        description: "dataset name under your Hugging Face account"
+        default: nova-lessons
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/hosting/site.json
+          sparse-checkout-cone-mode: false
+      - name: fetch lessons and upload (private)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          REPO_NAME: ${{ inputs.repo_name }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$HF_TOKEN" ]; then echo "CRON_SECRET or HF_TOKEN missing"; exit 1; fi
+          BASE=$(jq -r '.vercelUrl // "https://ttbik.vercel.app"' deploy/hosting/site.json)
+          code=$(curl -s -o lessons.jsonl -D h.txt -w '%{http_code}' -m 90 -H "Authorization: Bearer $CRON_SECRET" "$BASE/api/coder/lessons")
+          echo "fetch -> $code, count $(grep -i x-lessons-count h.txt | tr -d '\r')"
+          [ "$code" = "200" ] || { echo "endpoint not ready (is the latest commit deployed on the default branch?)"; exit 1; }
+          [ -s lessons.jsonl ] || { echo "no lessons recorded yet: nothing to publish"; exit 1; }
+          pip install -q huggingface_hub
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          ns = api.whoami()["name"]
+          rid = f"{ns}/{os.environ.get('REPO_NAME') or 'nova-lessons'}"
+          api.create_repo(rid, repo_type="dataset", private=True, exist_ok=True)
+          api.update_repo_settings(rid, repo_type="dataset", private=True)
+          api.upload_file(path_or_fileobj="lessons.jsonl", path_in_repo="data/lessons.jsonl", repo_id=rid, repo_type="dataset", commit_message="update Nova lessons")
+          print("published (private):", f"https://huggingface.co/datasets/{rid}")
+          PY

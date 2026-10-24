@@ -29,7 +29,7 @@ export type Run = {
   stall?: StallState; recovery?: string; waitUntil?: number; retries?: number; histChars?: number; startedAt?: number;
   // a run's "slot": "" = the chat itself, "s:<scheduleId>" = a scheduled/event task with its own state and its own fresh step counter
   slot?: string; source?: TaskSource; scheduleId?: string; title?: string; appReplySent?: boolean; botSent?: number; botProgressAt?: number; origin?: "chat"; asking?: { id: string; name: string; question: string; at: number };
-  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
+  prefetched?: boolean; softSteps?: number; softWarned?: boolean; keepGroups?: string[]; announceNudges?: number; outageSince?: number; outageNoted?: boolean; stallRetries?: number; goneRetries?: number; pollFailSince?: number;   // model-server patience
   agent?: boolean; agentRole?: AgentRole; agentWarned?: boolean; delegating?: { id: string; slots: string[]; titles: string[]; at: number; noted?: number }; draftId?: number; draftAt?: number; draftText?: string; noDraft?: boolean;   // agent/delegating: sub-agents (coderAgents.ts)
   allowCats?: Category[];                                             // "allow for the rest of this task"
   // segment continuation (coderSegments.ts): the request that started the task, the current segment, the step it began at,
@@ -1206,6 +1206,15 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
         await saveState(chatId, st, db, slot);
         await send(ioBot, chatId, "⚠️ انتهى توليد النموذج بلا نص مرتين. لم أعتبر المهمة ناجحة؛ جرّب مرة أخرى بعد قليل، وسأحتفظ بسياق المحادثة.");
         return;
+      }
+      // the model only announced what it will do ("سأقوم الآن بالبحث...") and stopped: not an answer. Nothing is sent; it is told to act now (twice at most).
+      if (!completedCalls.length && !run.agent && (run.announceNudges || 0) < 2 && text.trim().length < 900 && /(?:سأقوم|سوف أقوم|سأبدأ|سأبحث|سأحاول|سأستخدم|لذلك،? سأ)|\b(?:I(?:'ll| will) (?:now )?(?:search|try|run|use|look)|Let me (?:search|try|look))/i.test(text) && !/[؟?]\s*$/.test(text.trim())) {
+        run.announceNudges = (run.announceNudges || 0) + 1;
+        st.messages.push({ role: "assistant", content: text });
+        st.messages.push({ role: "user", content: "[harness] You only announced a plan and stopped. Do NOT announce: call the tool NOW, or, if the sources you already have are enough, write the final answer from them. Never repeat an earlier message." });
+        run.job = undefined; run.sent = 0; run.botSent = 0; run.draftId = undefined; run.draftText = undefined; run.logged = 0;
+        await saveState(chatId, st, db, slot);
+        continue;
       }
       await sendParts(run.surface === "app" ? bot : ioBot, chatId, text, run, true, db);
       const calls = completedCalls;
