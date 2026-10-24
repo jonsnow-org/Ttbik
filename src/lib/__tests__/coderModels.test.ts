@@ -16,7 +16,7 @@ describe("coder models", () => {
   it("the current model is the default and visible; Nova 1 and Sham are hidden until the owner turns them on", async () => {
     const db = modelsDb();
     const all = await listModels(db);
-    expect(all.map((m) => m.id)).toEqual(["coder", "nova1", "sham", "nova_pro"]);
+    expect(all.map((m) => m.id)).toEqual(["coder", "nova1", "sham", "nova_pro", "sham_loop"]);
     expect(publicModels(all, undefined).map((m) => m.id)).toEqual(["coder"]);
     expect(effectiveModel(all, "nova1", false).id).toBe("coder");          // a user cannot use a hidden one
     expect(effectiveModel(all, "nova1", true).id).toBe("nova1");           // the owner can try it
