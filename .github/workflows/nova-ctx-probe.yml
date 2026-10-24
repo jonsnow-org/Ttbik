@@ -16,7 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ctx: [32768, 65536, 98304, 131072]
+        include:
+          - { ctx: 65536,  k: f16,  v: f16,  fa: "off" }
+          - { ctx: 65536,  k: q8_0, v: q8_0, fa: "on" }
+          - { ctx: 98304,  k: q8_0, v: q8_0, fa: "on" }
+          - { ctx: 131072, k: q8_0, v: q8_0, fa: "on" }
+          - { ctx: 131072, k: q4_0, v: q4_0, fa: "on" }
+          - { ctx: 65536,  k: f16,  v: f16,  fa: "on" }
     steps:
       - name: llama.cpp and the model
         run: |
@@ -29,7 +35,7 @@ jobs:
         run: |
           BIN=$(dirname "$(find llama -name llama-server | head -1)")
           export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
-          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ matrix.ctx }} -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ matrix.ctx }} -t 2 -np 1 -n -1 --jinja -fa ${{ matrix.fa }} --cache-type-k ${{ matrix.k }} --cache-type-v ${{ matrix.v }} --host 127.0.0.1 --port 8080 > server.log 2>&1 &
           PID=$!
           for i in $(seq 1 120); do
             curl -sf http://127.0.0.1:8080/health >/dev/null && break
@@ -37,10 +43,24 @@ jobs:
             sleep 5
           done
           curl -sf http://127.0.0.1:8080/health >/dev/null || { tail -30 server.log; echo "::error::not healthy"; exit 1; }
-          curl -s -m 300 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"قل مرحبا"}],"max_tokens":16,"stream":false}' | head -c 300; echo
+          # speed and a recall check with a ~3,000-token prompt: a code word hidden in the middle of filler text
+          python3 - <<'PY' > prompt.json
+          import json
+          filler = "The quarterly report discusses routine matters such as scheduling, budgets and logistics in great detail. " * 120
+          text = filler[: len(filler)//2] + " The secret code word is MANGO-4471. " + filler[len(filler)//2 :]
+          print(json.dumps({"messages": [{"role": "user", "content": text + "\n\nWhat is the secret code word? Answer with the code word only."}], "max_tokens": 24, "stream": False, "chat_template_kwargs": {"enable_thinking": False}}))
+          PY
+          curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > resp.json
+          python3 - <<'PY' | tee speed.txt
+          import json
+          r = json.load(open("resp.json"))
+          t = r.get("timings", {})
+          ans = (r["choices"][0]["message"].get("content") or "").strip()
+          print(f"recall: {'OK' if 'MANGO-4471' in ans else 'FAILED'} (answer: {ans[:40]!r}); prompt {t.get('prompt_n')} tok at {t.get('prompt_per_second', 0):.1f} tok/s; generation {t.get('predicted_per_second', 0):.2f} tok/s")
+          PY
           HWM=$(awk '/VmHWM/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
           RSS=$(awk '/VmRSS/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
-          echo "ctx ${{ matrix.ctx }}: peak ${HWM} GB, now ${RSS} GB"
+          echo "ctx ${{ matrix.ctx }} k=${{ matrix.k }} v=${{ matrix.v }} fa=${{ matrix.fa }}: peak ${HWM} GB, now ${RSS} GB"
           grep -iE "kv|buffer|n_ctx|slot.*n_ctx" server.log | grep -iE "size|MiB|n_ctx" | head -12 | tee kv.txt
-          { echo "### ctx ${{ matrix.ctx }}"; echo "peak memory ${HWM} GB, current ${RSS} GB (the Studio has 8 GB in total)"; echo '```'; cat kv.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### ctx ${{ matrix.ctx }} k=${{ matrix.k }} v=${{ matrix.v }} fa=${{ matrix.fa }}"; echo "peak memory ${HWM} GB (the Studio has 8 GB in total); $(cat speed.txt)"; } >> "$GITHUB_STEP_SUMMARY"
           kill $PID
