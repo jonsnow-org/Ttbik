@@ -1,0 +1,46 @@
+name: Nova context probe (free, read-only)
+# How much memory does the coder model need at a bigger context? The Studio has 8 GB in total; the model file is 2.74 GB. Serves the SAME model with the
+# SAME pinned llama.cpp and flags as ai-system/modelscope-coder/app.py at several -c values (2 cores), asks for one short completion, and prints the
+# model server's peak memory and the context buffer sizes it reports. Manual only; nothing secret.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        ctx: [32768, 65536, 98304, 131072]
+    steps:
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          ls -l model.gguf
+      - name: serve at this context and measure
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ matrix.ctx }} -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do
+            curl -sf http://127.0.0.1:8080/health >/dev/null && break
+            kill -0 $PID 2>/dev/null || { tail -30 server.log; echo "::error::server exited at ctx ${{ matrix.ctx }}"; exit 1; }
+            sleep 5
+          done
+          curl -sf http://127.0.0.1:8080/health >/dev/null || { tail -30 server.log; echo "::error::not healthy"; exit 1; }
+          curl -s -m 300 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"قل مرحبا"}],"max_tokens":16,"stream":false}' | head -c 300; echo
+          HWM=$(awk '/VmHWM/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
+          RSS=$(awk '/VmRSS/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
+          echo "ctx ${{ matrix.ctx }}: peak ${HWM} GB, now ${RSS} GB"
+          grep -iE "kv|buffer|n_ctx|slot.*n_ctx" server.log | grep -iE "size|MiB|n_ctx" | head -12 | tee kv.txt
+          { echo "### ctx ${{ matrix.ctx }}"; echo "peak memory ${HWM} GB, current ${RSS} GB (the Studio has 8 GB in total)"; echo '```'; cat kv.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          kill $PID
