@@ -449,11 +449,12 @@ describe("research fast path: one deep research first, then the report", () => {
     for (let i = 0; i < 80 && !calls.some((c) => c.url.includes("/call/v2/chat")); i++) await new Promise((r) => setTimeout(r, 250));   // the searches run first
     await new Promise((r) => setTimeout(r, 1500));
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
-    expect(chat).toHaveLength(1);                                                         // the harness did the searching; the model wrote the report in ONE step
-    const body = JSON.stringify(chat[0].body);
+    expect(chat).toHaveLength(2);                                                         // a short query-draft call, then ONE report step (the harness did the searching)
+    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
+    const body = JSON.stringify(chat[1].body);
     expect(body).toMatch(/deep_research/);
-    expect(body).toMatch(/already run for you/);
-    expect(JSON.parse(chat[0].body.tools).length).toBeGreaterThan(0);
+    expect(body).toMatch(/found little or nothing|already run for you/);   // (the mocked searches return nothing: the "do not invent" variant)
+    expect(JSON.parse(chat[1].body.tools).length).toBeGreaterThan(0);
     expect(sent.some((s) => /التقرير: الطوابير/.test(s.text))).toBe(true);
     const st = await loadState(CHAT, db);
     expect(st.run).toBeNull();
@@ -483,8 +484,42 @@ describe("Sham (advanced): Sham inside the engine, with the engine's research as
     expect(sham).toBeTruthy();
     expect(String(sham.body.prompt)).toMatch(/السؤال: اذهب وابحث عن مشاريع/);
     expect(String(sham.body.prompt)).not.toMatch(/Nova AI|IDENTITY|load_tools/);              // no Nova system prompt or tool schemas for Sham
-    expect(calls.some((c) => c.url.includes("/call/v2/chat"))).toBe(false);                    // the coder Studio was not used for the answer
+    const chatCalls = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    expect(chatCalls).toHaveLength(1);                                                         // only the query draft used the coder Studio; the ANSWER is Sham's
+    expect(JSON.stringify(chatCalls[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
     expect(sent.some((s) => /الطوابير وإعادة المحاولة هي الحل الشائع/.test(s.text))).toBe(true);
     expect((await loadState(CHAT, db)).run).toBeNull();
   }, 40000);
+});
+
+describe("research fast path for GitHub requests", () => {
+  it("drafts focused queries first (not the user's command sentence), asks GitHub for repositories, reads the top READMEs", async () => {
+    const calls = studio(
+      [
+        { type: "done", job: "j0", text: "1. telegram bot llm gateway\n2. telegram bot message queue retry\n3. aiogram long message split\n4. telegram bot webhook timeout handling", tool_calls: [] },   // the query draft
+        { type: "done", job: "j1", text: "التقرير: مشروع a/tg-llm يقسّم الرسائل الطويلة ويعيد المحاولة [GitHub].", tool_calls: [] },                                      // the report
+      ],
+      {
+        "GET /search/repositories": () => [200, { items: [{ full_name: "a/tg-llm", stargazers_count: 321, language: "Python", pushed_at: "2026-10-01T00:00:00Z", description: "Telegram LLM bot" }] }],
+        "GET /repos/a/tg-llm/contents/README.md": () => [200, { content: Buffer.from("# tg-llm\nSplits long answers at 4000 chars and retries sendMessage with backoff.").toString("base64"), sha: "abc1234" }],
+      },
+    );
+    const db = fakeDb();
+    const { bot, sent } = fakeBot();
+    await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث على جيتهوب عن مشاريع ذكاء اصطناعي تستخدم تلجرام وكيف تحل مشكلة التأخر وانقطاع الاتصال" } }, db);
+    for (let i = 0; i < 100 && !sent.some((s) => /التقرير: مشروع a\/tg-llm/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 250));
+    expect(sent.some((s) => /التقرير: مشروع a\/tg-llm/.test(s.text))).toBe(true);
+    const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
+    expect(chat).toHaveLength(2);                                                          // one query-draft call, one report call
+    expect(JSON.stringify(chat[0].body)).toMatch(/Turn this request into 4 short web-search queries/);
+    const searched = calls.filter((c) => /bing|brave|duckduckgo|wikipedia/.test(c.url)).map((c) => decodeURIComponent(c.url));
+    expect(searched.some((u) => /telegram bot message queue retry/.test(u))).toBe(true);   // the drafted queries went to the search engines
+    expect(searched.some((u) => /اذهب وابحث/.test(u) && u.length > 400)).toBe(false);      // not the whole command sentence as a query
+    expect(calls.some((c) => c.url.includes("api.github.com/search/repositories"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/repos/a/tg-llm/contents/README.md"))).toBe(true);
+    const report = JSON.stringify(chat[1].body);
+    expect(report).toMatch(/GitHub repository search/);
+    expect(report).toMatch(/a\/tg-llm ★321/);
+    expect(report).toMatch(/retries sendMessage with backoff/);
+  }, 60000);
 });

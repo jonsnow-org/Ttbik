@@ -748,3 +748,26 @@ export function researchQuestion(goal: string): string {
   if (ACT_RX.test(t) || !RESEARCH_RX.test(t)) return "";
   return t.slice(0, 600);
 }
+
+
+/** Search engines do not want commands: keywords from the request, without "go and search for…" fillers (fallback when the model cannot draft queries). */
+const FILLER = new Set(["اذهب", "وابحث", "ابحث", "بحث", "على", "عن", "في", "من", "قم", "بالقراءة", "والتحليل", "واحضر", "تلك", "الأفكار", "واخبرني", "اخبرني", "أخبرني", "بها", "كي", "ننفذها", "وكل", "ما", "مايتعلق", "يتعلق", "بهذا", "هذا", "هذه", "حلل", "وحلل", "لي", "الى", "إلى", "ثم", "و", "أو", "او", "التي", "الذي", "كيف", "قاموا", "بحل", "مشكلة", "go", "and", "search", "for", "find", "me", "the", "of", "to", "how", "please"]);
+export function fallbackQueries(request: string): string[] {
+  const words = request.replace(/[^\p{L}\p{N}\s.+#-]/gu, " ").split(/\s+/).filter((w) => w.length > 1 && !FILLER.has(w.toLowerCase()));
+  const q = words.slice(0, 8).join(" ");
+  return q ? [q, `${words.slice(0, 5).join(" ")} github`.trim()] : [];
+}
+/** The model's reply to "write 4 search queries" as clean query lines (3 to 6), or [] when it did not follow the format. */
+export function parseQueries(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of String(text || "").split("\n")) {
+    const q = raw.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").replace(/^["'`“”]+|["'`“”]+$/g, "").trim();
+    if (q.length >= 6 && q.length <= 120 && !/[:؟?]\s*$/.test(q) && !out.includes(q)) out.push(q);
+    if (out.length >= 6) break;
+  }
+  return out.length >= 2 ? out : [];
+}
+export const queryDraftPrompt = (request: string): CoderMessage[] => [{
+  role: "user",
+  content: `Turn this request into 4 short web-search queries (3 to 7 words each, keywords only, no commands or questions; mix English technical terms with the request's own terms; aim at GitHub projects, documentation and technical articles). Output the queries only, one per line.\n\nRequest: ${request.slice(0, 500)}`,
+}];

@@ -12,7 +12,7 @@ import { InlineKeyboard, type Bot as TelegramBot } from "grammy";
 import type { Bot as BotRow } from "@prisma/client";
 import { prismaDb, coderChatKey, resolveConnections, tierFor, type Db, type Tier } from "@/lib/coderAuth";
 import { coderEnabled, coderChat, coderJobResult, coderCancel, coderStatus, coderFailureText, chunkRanges, renderRange, splitForTelegram, type CoderMessage, type CoderToolCall, type CoderReply } from "@/lib/openCoderStudio";
-import { ACCURACY_TEMPERATURE, researchQuestion, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
+import { ACCURACY_TEMPERATURE, researchQuestion, fallbackQueries, parseQueries, queryDraftPrompt, agentToolDefs, loadedGroups, toolGroups, coderSystemPrompt, coderToolsFor, githubClient, isAccuracy, parseArgs, runTool, toolLabel, trimMessages, type Accuracy, type ToolCtx } from "@/lib/coderAgent";
 import { afterCall, afterText, beforeCall, HARD_MAX_STEPS, logStall, stepsSinceProgress, newStallState, recentStalls, recoveryKnobs, recoveryMessage, type Stall, type StallState } from "@/lib/coderStall";
 import { CATEGORIES, CATEGORY_LABEL, POLICY_LABEL, categoriesOf, evaluateCall, globalPolicy, isCategory, loadPrefs, nextPolicy, removePref, setPref, tierDefault, type Category, type Context } from "@/lib/coderPrefs";
 import { chooseModel } from "@/lib/coderModels";
@@ -1287,12 +1287,33 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
       run.prefetched = true;
       const q = researchQuestion(run.goal || String([...st.messages].reverse().find((m) => m.role === "user")?.content || ""));
       if (q) {
-        const call = { id: "pre_research", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: q }) } };
+        // the request's own words ("go and search for…") make poor search queries: the model drafts 4 focused ones first (a short call), keywords as the fallback
+        const drafted = parseQueries(await import("@/lib/coderMemory").then((m) => m.studioLlm(75000)(queryDraftPrompt(q))).catch(() => ""));
+        const queries = (drafted.length ? drafted : fallbackQueries(q)).slice(0, 6);
+        await taskEvent(run.id, "info", `🔎 استعلامات البحث: ${queries.join(" | ")}`, db);
+        const call = { id: "pre_research", type: "function" as const, function: { name: "deep_research", arguments: JSON.stringify({ question: q, ...(queries.length ? { queries } : {}) }) } };
         await progressLine(ioBot, chatId, run, "بحث معمّق");
         await taskEvent(run.id, "tool", toolLabel(call), db);
         const out = await withHeartbeat(ioBot, chatId, run, "بحث معمّق", () => runTool(call, ctx));
         st.messages.push({ role: "assistant", content: "", tool_calls: [call] }, { role: "tool", content: out, tool_call_id: call.id, name: "deep_research" });
-        st.messages.push({ role: "user", content: "[harness] The research above was already run for you. Write the final answer / report NOW from these sources (cite them by number, in the user's language). If they are not enough, say exactly what is missing; at most one more search." });
+        // "search GitHub" requests: the engine also asks GitHub itself (repositories by stars) and reads the top READMEs, so the report names real projects
+        if (/github|جيتهوب|جيت هاب|git hub/i.test(q) && ctx.gh) {
+          const lists: string[] = [];
+          for (const qq of queries.slice(0, 2)) lists.push(await runTool({ id: "pre_gh", type: "function", function: { name: "github_search_repos", arguments: JSON.stringify({ query: qq, sort: "stars" }) } }, ctx));
+          const repos = [...new Set(lists.join("\n").split("\n").map((l) => /^([\w.-]+\/[\w.-]+) ★/.exec(l)?.[1] || "").filter(Boolean))].slice(0, 3);
+          const readmes: string[] = [];
+          for (const r of repos) {
+            const t = await runTool({ id: "pre_rd", type: "function", function: { name: "github_read_file", arguments: JSON.stringify({ repo: r, path: "README.md" }) } }, ctx);
+            if (!/^error/.test(t)) readmes.push(`## ${r} README (start)\n${t.slice(0, 1500)}`);
+          }
+          const text = `GitHub repository search:\n${lists.join("\n") || "(none)"}${readmes.length ? `\n\n${readmes.join("\n\n")}` : ""}`;
+          await taskEvent(run.id, "tool", `🔭 بحث عن مستودعات: ${repos.join(", ") || "لا نتائج"}`, db);
+          st.messages.push({ role: "assistant", content: "", tool_calls: [{ id: "pre_gh", type: "function" as const, function: { name: "github_search_repos", arguments: JSON.stringify({ query: queries[0] || q, sort: "stars" }) } }] }, { role: "tool", content: text, tool_call_id: "pre_gh", name: "github_search_repos" });
+        }
+        const thin = out.length < 700 || /no (?:usable )?sources|لم يُعثر/i.test(out.slice(0, 400));
+        st.messages.push({ role: "user", content: thin
+          ? "[harness] The research above found little or nothing. Do NOT invent names or facts. Run at most two precise web_search queries, then answer only from what they return; if still nothing, say plainly what you could not find."
+          : "[harness] The research above was already run for you. Write the final answer / report NOW from these sources (cite them by number, in the user's language). Use only what the sources say; if they are not enough, say exactly what is missing; at most one more search." });
         run.softSteps = 6;                                                 // a research task ends in a few steps, not in half an hour
         await saveState(chatId, st, db, slot);
       }
