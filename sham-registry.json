@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-23 21:32 UTC",
+  "generated_at": "2026-10-24 04:48 UTC",
   "privacy": "public — aliases only; real names are in the owner's Telegram report",
   "kernels": [
     {
@@ -79,8 +79,8 @@
       "track": "all_in_one",
       "status": "running",
       "role": "primary",
-      "last_run": "2026-10-23",
-      "gpu": false,
+      "last_run": "2026-10-24",
+      "gpu": true,
       "failure": ""
     },
     {
@@ -214,18 +214,18 @@
   "engineer_notebooks_count": 3,
   "datasets": [
     {
-      "alias": "نتائج المدرّب الحي 1",
-      "track": "live_trainer",
+      "alias": "نتائج مسار ترميز الصورة 1",
+      "track": "image_tokenizer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-23",
+      "last_updated": "2026-10-24",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج مسار ترميز الصورة 1",
-      "track": "image_tokenizer",
+      "alias": "نتائج المدرّب الحي 1",
+      "track": "live_trainer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-23",
+      "last_updated": "2026-10-24",
       "progress": {},
       "has_key_files": true
     },
@@ -233,7 +233,7 @@
       "alias": "نتائج مسار ترميز الصورة 2",
       "track": "image_tokenizer",
       "size_mb": 0.0,
-      "last_updated": "2026-10-23",
+      "last_updated": "2026-10-24",
       "progress": {},
       "has_key_files": true
     },
@@ -254,6 +254,14 @@
       "has_key_files": true
     },
     {
+      "alias": "نتائج المدرّب الحي 2",
+      "track": "live_trainer",
+      "size_mb": 792.9,
+      "last_updated": "2026-10-23",
+      "progress": {},
+      "has_key_files": true
+    },
+    {
       "alias": "نتائج مسار ترميز الصورة 3",
       "track": "image_tokenizer",
       "size_mb": 0.0,
@@ -267,14 +275,6 @@
         "codebook_usage": 2038,
         "recon": 0.06919184971068587
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المسار B 1",
-      "track": "research_track",
-      "size_mb": 0.0,
-      "last_updated": "2026-10-23",
-      "progress": {},
       "has_key_files": true
     },
     {
@@ -294,19 +294,29 @@
       "has_key_files": true
     },
     {
-      "alias": "نتائج المرحلة الثالثة 2",
-      "track": "chat_stage",
-      "size_mb": 579.9,
+      "alias": "نتائج المسار B 1",
+      "track": "research_track",
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {},
       "has_key_files": true
     },
     {
-      "alias": "نتائج المدرّب الحي 2",
-      "track": "live_trainer",
-      "size_mb": 792.9,
+      "alias": "نتائج المرحلة الثالثة 2",
+      "track": "chat_stage",
+      "size_mb": 0.0,
       "last_updated": "2026-10-23",
       "progress": {},
+      "has_key_files": true
+    },
+    {
+      "alias": "نتائج مسار جمع وترميز الفيديو 1",
+      "track": "video_corpus",
+      "size_mb": 10.8,
+      "last_updated": "2026-10-23",
+      "progress": {
+        "videos_consumed": 2767
+      },
       "has_key_files": true
     },
     {
@@ -320,19 +330,9 @@
     {
       "alias": "نتائج المرحلة الأولى 1",
       "track": "text_stage1",
-      "size_mb": 2422.8,
-      "last_updated": "2026-10-23",
+      "size_mb": 0.0,
+      "last_updated": "2026-10-24",
       "progress": {},
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج مسار جمع وترميز الفيديو 1",
-      "track": "video_corpus",
-      "size_mb": 10.3,
-      "last_updated": "2026-10-23",
-      "progress": {
-        "videos_consumed": 2667
-      },
       "has_key_files": true
     },
     {
@@ -351,14 +351,6 @@
         "updated": "2026-10-15 01:25",
         "samples_consumed": 94440
       },
-      "has_key_files": true
-    },
-    {
-      "alias": "نتائج المدرّب الحي 3",
-      "track": "live_trainer",
-      "size_mb": 791.5,
-      "last_updated": "2026-10-15",
-      "progress": {},
       "has_key_files": true
     }
   ],
@@ -403,7 +395,7 @@
         "ready": true,
         "kernel_status": "complete",
         "progress": {
-          "videos_consumed": 2667
+          "videos_consumed": 2767
         },
         "dataset": "نتائج مسار جمع وترميز الفيديو 1"
       },
