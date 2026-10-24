@@ -1,0 +1,109 @@
+name: Nova CPU tuning (free)
+# What makes the coder model faster on the Studio's 2 CPU cores, measured with llama.cpp's own llama-bench (prompt speed pp = prefill,
+# generation speed tg) on a GitHub runner pinned to 2 cores (taskset), same pinned llama.cpp release as the Studio.
+# job flags : the current Qwen3.5-4B Q4_K_M under different llama.cpp flags (flash attention, KV-cache type, micro-batch)
+# job quants: the same model in other quantisations (speed here; quality is checked with scripts/nova-eval)
+# job spec  : speculative decoding with Qwen3.5-0.8B as the draft (may be unsupported by this architecture: then it says so)
+# Manual only; nothing secret.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  LLAMA_BUILD: b11757
+  LLAMA_SHA256: 87aae0ada6ace2aa82e098994ef92ed76677b221941ce940c83757a89f2b1a6e
+jobs:
+  flags:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+      - name: llama-bench under each flag set (2 cores)
+        run: |
+          BIN=$(dirname "$(find llama -name llama-bench | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          run() { echo "### $1"; shift; taskset -c 0,1 "$BIN/llama-bench" -m m.gguf -t 2 -p 512,2048 -n 48 -r 2 "$@" 2>&1 | tail -6; }
+          run "baseline (as the Studio runs now: flash-attn auto, f16 KV)" -fa 0
+          run "flash attention on" -fa 1
+          run "flash attention + q8_0 KV cache" -fa 1 -ctk q8_0 -ctv q8_0
+          run "micro-batch 128" -fa 0 -ub 128
+          run "micro-batch 256" -fa 0 -ub 256
+          run "micro-batch 1024" -fa 0 -ub 1024
+          run "no mmap" -fa 0 -mmp 0
+  quants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: q3_k_m, file: Qwen3.5-4B-Q3_K_M.gguf }
+          - { id: q4_k_m-current, file: Qwen3.5-4B-Q4_K_M.gguf }
+          - { id: ud-q4_k_xl, file: Qwen3.5-4B-UD-Q4_K_XL.gguf }
+          - { id: q5_k_m, file: Qwen3.5-4B-Q5_K_M.gguf }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the model
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/${{ matrix.file }}"
+          ls -l m.gguf
+      - name: speed (llama-bench) and quality (tool calling + code tests), 2 cores
+        run: |
+          set -o pipefail
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          echo "### ${{ matrix.id }}: speed"
+          taskset -c 0,1 "$BIN/llama-bench" -m m.gguf -t 2 -p 512,2048 -n 48 -r 2 2>&1 | tail -5
+          taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 32768 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+          PID=$!
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { tail -20 server.log; exit 1; }; sleep 5; done
+          echo "### ${{ matrix.id }}: quality"
+          EVAL_BASE=http://127.0.0.1:8080/v1 python3 scripts/nova-eval/model_eval.py --models "${{ matrix.id }}"
+          RSS=$(awk '/VmHWM/ {printf "%.1f", $2/1048576}' /proc/$PID/status)
+          echo "peak memory: ${RSS} GB"
+          kill $PID
+  spec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: llama.cpp and the models
+        run: |
+          curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
+          mkdir llama && tar -xzf llama.tgz -C llama
+          curl -sSL --fail -o m.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
+          curl -sSL --fail -o d.gguf "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf"
+      - name: with and without the 0.8B draft model (2 cores)
+        run: |
+          BIN=$(dirname "$(find llama -name llama-server | head -1)")
+          export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
+          go() { # name, extra server flags
+            echo "### $1"; shift
+            taskset -c 0,1 "$BIN/llama-server" -m m.gguf -c 8192 -t 2 -np 1 -n -1 --jinja --host 127.0.0.1 --port 8081 "$@" > srv.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 60); do curl -sf http://127.0.0.1:8081/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "server exited:"; tail -8 srv.log; return 0; }; sleep 5; done
+            curl -sf http://127.0.0.1:8081/health >/dev/null || { echo "not healthy"; tail -8 srv.log; kill $PID 2>/dev/null; return 0; }
+            for k in 1 2; do
+              curl -s -m 600 http://127.0.0.1:8081/v1/chat/completions -H 'content-type: application/json' -d '{"messages":[{"role":"user","content":"Write a Python function that parses a CSV line with quoted fields and explain it step by step."}],"max_tokens":300,"temperature":0.2,"chat_template_kwargs":{"enable_thinking":false}}' | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('timings',{}); print('run $k: gen %.1f tok/s, prompt %.1f tok/s, n=%s'%(t.get('predicted_per_second',0),t.get('prompt_per_second',0),t.get('predicted_n')), 'draft_n=%s accepted=%s'%(t.get('draft_n'),t.get('draft_n_accepted')))"
+            done
+            kill $PID 2>/dev/null; wait $PID 2>/dev/null
+          }
+          go "no draft"
+          go "draft 0.8B, up to 8 tokens" -md d.gguf --draft-max 8 --draft-min 1
+          go "draft 0.8B, up to 4 tokens" -md d.gguf --draft-max 4 --draft-min 1
