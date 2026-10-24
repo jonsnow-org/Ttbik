@@ -1,0 +1,35 @@
+name: Nova model bake-off (free)
+# Measures candidate models on ModelScope API-Inference's free quota: tool calling in Nova's format, small coding tasks graded by tests, speed.
+# Manual only. Nothing here costs money; the token is the existing MODELSCOPE_TOKEN secret and is never printed.
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "comma list of model ids (empty = the built-in candidates)"
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: nova-model-eval
+  cancel-in-progress: false
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/nova-eval
+          sparse-checkout-cone-mode: false
+      - name: selftest
+        run: python3 scripts/nova-eval/model_eval.py --selftest
+      - name: evaluate
+        env:
+          MODELSCOPE_TOKEN: ${{ secrets.MODELSCOPE_TOKEN }}
+          MODELS: ${{ inputs.models }}
+        run: |
+          set -o pipefail
+          if [ -n "$MODELS" ]; then ARGS="--models $MODELS"; else ARGS=""; fi
+          python3 scripts/nova-eval/model_eval.py $ARGS | tee eval.txt
+          { echo '## Nova model bake-off'; sed -n '/^| rank/,$p' eval.txt; } >> "$GITHUB_STEP_SUMMARY"
