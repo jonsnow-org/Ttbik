@@ -134,7 +134,7 @@ export function afterText(ss: StallState, text: string, step: number): Stall | n
 export function recoveryMessage(stall: Stall, ss: StallState, fresh: string): string {
   const lines = [
     `[harness] Loop detected (${stall.pattern}: ${stall.detail}). You are repeating yourself without progress.`,
-    "Before the next action, reflect in 3 short points: what you tried, why it did not work, what is actually blocking.",
+    "Before the next action, reflect in 3 short points: what you tried, why it did not work, what is actually blocking. Write in the language of the original request, not English.",
     "Then write a NEW numbered plan that uses a different strategy (different tool, different file, smaller step, or read the error/source first), save it with memory_note, and continue the task. Do not repeat the same call with the same arguments.",
   ];
   if (ss.level >= 2) lines.push("This is not the first loop in this task: re-check your assumptions against the real files below and the original request.");

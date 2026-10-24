@@ -266,7 +266,7 @@ export function eventPrompt(s: Schedule, summary: string): string {
   return `${s.prompt}\n\n[Trigger: GitHub event on ${s.repo}]\n${summary}`;
 }
 export function cronPrompt(s: Schedule, now = new Date()): string {
-  return `${s.prompt}\n\n[Scheduled task "${s.title}" — ${describeCron(s.cron || "", "en")} (${s.tz}); this run: ${now.toISOString().slice(0, 16)} UTC${s.repo ? `; repo ${s.repo}` : ""}]`;
+  return `${s.prompt}\n\n[Scheduled task "${s.title}" — ${describeCron(s.cron || "", "en")} (${s.tz}); this run: ${now.toISOString().slice(0, 16)} UTC${s.repo ? `; repo ${s.repo}` : ""}]\n[Automated run: nobody is chatting with you now and there is no earlier conversation. Carry out the instruction above now with your tools, in the language of the instruction. Never summarise this conversation. If the instruction names no concrete subject to work on, say that in one sentence instead of guessing.]`;
 }
 export const scheduleChatId = (s: Schedule): number | null => {
   const t = decryptToken(s.chat_enc);

@@ -67,7 +67,7 @@ export const COMMON_TOOLS: CoderTool[] = [
   // the agent asks the user ONE question in the chat and the task waits for the answer (src/lib/coderSections.ts, `asking`)
   tool("ask_user", "Ask the user ONE short question and wait for their answer in the chat. Use it only when you cannot go on without a decision or a missing detail (which repository / branch / file, a choice between options). Never use it to ask permission for normal steps.", obj({ question: s("the question, in the user's language"), options: { type: "array", items: { type: "string" } } }, ["question"])),
   // scheduled tasks (src/lib/coderSchedules.ts): the user asks in plain words, the model creates the schedule itself; the dispatcher runs it
-  tool("schedule_create", "Schedule a task that runs by itself later and reports back to the user in this chat. kind 'cron' = repeats on a time pattern; kind 'event' = runs when something happens in a GitHub repository. Write the prompt as a complete standalone instruction (the scheduled run does not see this conversation).", obj({
+  tool("schedule_create", "Schedule a task that runs by itself later and reports back to the user in this chat. kind 'cron' = repeats on a time pattern; kind 'event' = runs when something happens in a GitHub repository. Write the prompt as a complete standalone instruction with the concrete subject (the scheduled run does not see this conversation, so 'a short summary' is useless unless it says a summary OF WHAT). If the subject or the time is unclear, ask the user with ask_user first.", obj({
     title: s("short name"), prompt: s("the full instruction the scheduled run will carry out"), kind: { type: "string", enum: ["cron", "event"] },
     recurrence: s("for cron: 'daily 09:00', 'weekdays 08:30', 'weekly mon,thu 18:00', 'monthly 1 09:00', 'hourly :15' or a raw 5-field cron; times are in the user's time zone"),
     repo: s("owner/name (required for event, optional for cron)"), events: { type: "array", items: { type: "string" } },
@@ -170,7 +170,7 @@ export function coderSystemPrompt(opts: { github: boolean; notes: string; now?: 
     "Prefer a feature branch + pull request for code changes. Keep commits focused and messages clear.",
     "Consequential actions (deleting, pushing/merging into main/default branches, and for linked users also settings, secrets, collaborators, releases, deploy workflows) wait for the user's confirmation button: just call the tool; the user decides.",
     "RESEARCH: use web_search for quick facts and fetch_page to read a page; for questions that need several sources (comparisons, current best practice, unfamiliar libraries) use deep_research and cite sources as [n] with their URLs.",
-    "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs; never just promise. The scheduled run starts by itself and reports in this chat.",
+    "SCHEDULING: when the user asks you to do something later or on repeat ('every morning', 'daily at 9', 'when someone opens an issue'), load the schedule tools and CREATE it with schedule_create, then tell them what was scheduled and when it first runs (give the time in their own timezone exactly as the tool returns it); never just promise. If what to do or what to cover is unclear ('write me a short summary' of what?), ask ONE question with ask_user BEFORE creating the schedule. The scheduled run starts by itself and reports in this chat.",
     "MEMORY: you have long-term memory about this user across conversations. When they state a lasting preference, a stable project fact or a decision (or say 'remember…'), save it with memory_save (one sentence, kind, repo if it is about one repo); never save secrets. Use memory_search when earlier context would help; memory_forget a memory that turned out wrong or that they ask you to forget.",
     "COMPUTER: each task has its own private Linux VM. Before pushing code, sandbox_clone the repo, install deps and run the tests/build/lint with sandbox_exec, read the output, fix, and run again. Long commands: sandbox_wait. Commands there are safe (isolated) and never need confirmation; pushes still go through the GitHub tools.",
     "If the harness tells you that you are repeating yourself, stop that approach: re-read the relevant files, write a new plan, and try a different strategy.",
@@ -486,7 +486,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const r = await S.createSchedule(ctx.userId, ctx.botId, { title: a.title, prompt: String(a.prompt || ""), kind: a.kind === "event" ? "event" : "cron", recurrence: a.recurrence, repo: a.repo, events: a.events, tz: ctx.tz }, ctx.db);
       if (!r.ok) return `error: ${r.error}`;
       const p = S.publicSchedule(r.schedule, "ar");
-      return `scheduled ${r.schedule.id}: ${p.describe} (${r.schedule.tz})${r.schedule.next_run_at ? `; first run ${r.schedule.next_run_at}` : ""}${r.hook ? `; ${r.hook.note}` : ""}. It runs by itself and reports in this chat.`;
+      return `scheduled ${r.schedule.id}: ${p.describe} (${r.schedule.tz})${r.schedule.next_run_at ? `; first run ${localTime(r.schedule.next_run_at, r.schedule.tz)}` : ""}${r.hook ? `; ${r.hook.note}` : ""}. It runs by itself and reports in this chat.`;
     }
     if (name === "memory_save" || name === "memory_search" || name === "memory_forget") {
       if (!ctx.userId) return "error: memory is not available here";
@@ -679,6 +679,18 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
     return `error: unknown tool ${name}`;
   } catch (e) {
     return `error: ${(e as Error)?.name || "Error"}: ${String((e as Error)?.message || e).slice(0, 300)}`;
+  }
+}
+
+/** `2026-10-24 19:30 (Europe/Istanbul)`: the time the user lives by, never a bare UTC string they could mistake for local. */
+function localTime(iso: string, tz: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  try {
+    const f = new Intl.DateTimeFormat("sv-SE", { timeZone: tz || "UTC", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
+    return `${f} (${tz || "UTC"})`;
+  } catch {
+    return `${d.toISOString().slice(0, 16).replace("T", " ")} (UTC)`;
   }
 }
 
