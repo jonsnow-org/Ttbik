@@ -771,9 +771,11 @@ async function sendParts(bot: TelegramBot, chatId: number, text: string, run: Ru
       }
       run.botProgressAt = Date.now();
     }
-    if (final && text.trim() && !run.appReplySent) {
-      run.appReplySent = true;
-      await send(bot, chatId, "✅ اكتمل توليد الإجابة. أرسلت التحديثات على دفعات، والسجل التفصيلي محفوظ في الطرفية.");
+    // a plain answer (no tool ran): the "request received" card has nothing more to say, so it is removed instead of staying stuck
+    if (final && text.trim() && run.progress?.msgId && run.progress.lines.length <= 2) {
+      const mid = run.progress.msgId;
+      run.progress = undefined;
+      await (bot.api as any).deleteMessage?.(chatId, mid)?.catch?.(() => null);
     }
     return;
   }
