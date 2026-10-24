@@ -10,7 +10,7 @@
   :root[data-theme="dark"] { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#17110a; --fg:#f4ead8; --card:#241a0f; --gold:#e0b25a; --line:#3a2b18; --ok:#4ade80; --err:#f87171; } }
   body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; display:grid; place-items:center; min-height:100vh; padding:16px; box-sizing:border-box; }
-  main { max-width:520px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
+  main { box-sizing:border-box; max-width:520px; width:100%; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:24px; }
   h1 { font-size:21px; margin:0 0 4px; color:var(--gold); }
   h2 { font-size:15px; margin:0 0 12px; font-weight:500; opacity:.8; }
   ul { padding-inline-start:20px; margin:8px 0; }
