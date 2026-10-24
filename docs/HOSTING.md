@@ -80,3 +80,7 @@
 | ذاكرة Oracle | بناء الموقع معزول، ويُقاس بعد التشغيل |
 | `NEXT_PUBLIC_*` تُخبز وقت البناء | أي تغيير لها يتطلب إعادة بناء الخادمين |
 | نسيان متغير بيئة على Oracle | `check-env.sh` و`env-audit.mjs` |
+
+## 9) One line of history (2026-10-24, owner's order: Oracle is primary, everything else is backup)
+Oracle builds `main`; Vercel builds the default branch `claude/free-services-marketplace-h6rwk2`. They had drifted (the same coder work landed on both as different commits, and Oracle served a build without the 10-23 terminal/stream routes). They were merged into one history on 2026-10-24 (both point at the same commit).
+Rule from now on: **land every change on `main` first** (that is what the primary serves), then move the default branch to the same commit (`git push origin main:claude/free-services-marketplace-h6rwk2`, fast-forward only) so the Vercel backup is never behind. Never commit to only one of them. Check: `curl -s -o /dev/null -w '%{http_code}' https://<gate>/api/coder/terminal` must answer 401 on both Oracle and Vercel (404 = that server is on an old build).
