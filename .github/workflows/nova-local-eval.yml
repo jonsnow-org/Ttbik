@@ -8,13 +8,13 @@ on:
   workflow_dispatch:
     inputs:
       only:
-        description: "run only this candidate id (empty = all)"
+        description: "run only these candidate ids, comma list (empty = all)"
         required: false
         default: ""
 permissions:
   contents: read
 concurrency:
-  group: nova-local-eval
+  group: nova-local-eval-${{ github.run_id }}
   cancel-in-progress: false
 env:
   LLAMA_BUILD: b11757
@@ -31,14 +31,16 @@ jobs:
           - { id: qwen3.5-9b, repo: unsloth/Qwen3.5-9B-GGUF, file: Qwen3.5-9B-Q4_K_M.gguf }
           - { id: qwen3-8b, repo: Qwen/Qwen3-8B-GGUF, file: Qwen3-8B-Q4_K_M.gguf }
           - { id: qwen2.5-coder-7b, repo: Qwen/Qwen2.5-Coder-7B-Instruct-GGUF, file: qwen2.5-coder-7b-instruct-q4_k_m.gguf }
+          - { id: deepseek-r1-0528-qwen3-8b, repo: unsloth/DeepSeek-R1-0528-Qwen3-8B-GGUF, file: DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf }
+          - { id: qwen3.5-9b-deepseek-v4-flash, repo: Jackrong/Qwen3.5-9B-DeepSeek-V4-Flash-GGUF, file: Qwen3.5-9B-DeepSeek-V4-Flash-Q4_K_M.gguf }
     steps:
       - uses: actions/checkout@v4
-        if: inputs.only == '' || inputs.only == matrix.id
+        if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
         with:
           sparse-checkout: scripts/nova-eval
           sparse-checkout-cone-mode: false
       - name: llama.cpp and the model
-        if: inputs.only == '' || inputs.only == matrix.id
+        if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
         run: |
           curl -sSL -o llama.tgz "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_BUILD}/llama-${LLAMA_BUILD}-bin-ubuntu-x64.tar.gz"
           echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
@@ -46,7 +48,7 @@ jobs:
           curl -sSL --fail -o model.gguf "https://huggingface.co/${{ matrix.repo }}/resolve/main/${{ matrix.file }}"
           ls -l model.gguf
       - name: serve (2 cores, same flags as the Studio) and evaluate
-        if: inputs.only == '' || inputs.only == matrix.id
+        if: inputs.only == '' || contains(format(',{0},', inputs.only), format(',{0},', matrix.id))
         run: |
           set -o pipefail
           BIN=$(dirname "$(find llama -name llama-server | head -1)")
