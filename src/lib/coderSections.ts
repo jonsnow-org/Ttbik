@@ -1329,7 +1329,7 @@ export async function startScheduledRun(
     return "limited";
   }
   await addUsage(chatId, "tasks", 1, db);
-  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: t.prompt }] };
+  const st: ChatState = { ...emptyState(), mode: "coder", think: main.think, accuracy: main.accuracy, notes: main.notes, tz: main.tz, lang: main.lang, repo: main.repo, messages: [{ role: "user", content: `${t.prompt}\n\n[${main.lang === "en" ? "Reply to the user in English." : "الرد للمستخدم يكون بالعربية دائماً (الكود وأسماء الملفات تبقى بالإنجليزية)."}]` }] };
   await startChain(botRow, chatId, st, { slot, source: t.source, scheduleId: t.scheduleId, title: t.title, surface: "app" }, db);
   await saveState(chatId, st, db, slot);
   await send(bot, chatId, `⏰ بدأت مهمة ${t.source === "event" ? "حدث" : "مجدولة"}: ${t.title}`.slice(0, 600));
