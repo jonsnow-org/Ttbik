@@ -266,7 +266,7 @@ export function eventPrompt(s: Schedule, summary: string): string {
   return `${s.prompt}\n\n[Trigger: GitHub event on ${s.repo}]\n${summary}`;
 }
 export function cronPrompt(s: Schedule, now = new Date()): string {
-  return `${s.prompt}\n\n[Scheduled task "${s.title}" — ${describeCron(s.cron || "", "en")} (${s.tz}); this run: ${now.toISOString().slice(0, 16)} UTC${s.repo ? `; repo ${s.repo}` : ""}]\n[Automated run: nobody is chatting with you now and there is no earlier conversation. Carry out the instruction above now with your tools, in the language of the instruction. Never summarise this conversation. If the instruction names no concrete subject to work on, say that in one sentence instead of guessing.]`;
+  return `${s.prompt}\n\n[Scheduled task "${s.title}" — ${describeCron(s.cron || "", "en")} (${s.tz}); this run: ${now.toISOString().slice(0, 16)} UTC${s.repo ? `; repo ${s.repo}` : ""}]\n[Automated run: nobody is chatting with you now, so there is no chat history to rely on. Your saved memory about this user (projects, repositories, preferences) and your tools ARE available: when the instruction refers to their projects or earlier work, look it up with memory_search and the tools, then carry the instruction out now and report the result. Do not summarise this empty conversation. Only if the instruction names nothing to work on and memory gives nothing either, say that in one sentence instead of guessing.]`;
 }
 export const scheduleChatId = (s: Schedule): number | null => {
   const t = decryptToken(s.chat_enc);
