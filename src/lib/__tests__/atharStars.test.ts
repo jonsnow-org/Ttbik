@@ -1,7 +1,7 @@
 // Athar Stars: the pure decisions (prices, dates, addresses, pre-checkout) and the "off by default" guarantees. The database is not touched here.
 jest.mock("@/lib/prisma", () => ({ prisma: { $executeRawUnsafe: jest.fn(), $queryRawUnsafe: jest.fn(async () => []) } }));
 import { decidePreCheckout, isOrderPayload, isTaken, parseDateIndex, parseRecipient, starsEnabled, starsPrices, dateText, type Order } from "../atharStars";
-import { handleStarsMessage } from "../atharStarsBot";
+import { handleStarsMessage, isPaySupport } from "../atharStarsBot";
 
 const order = (o: Partial<Order> = {}): Order => ({
   id: "11111111-2222-3333-4444-555555555555", bot_id: "b", tg_user_id: "42", date_index: 100, tier: "silver", stars_amount: 750, recipient_address: "x", status: "pending",
@@ -89,5 +89,21 @@ describe("the bot while the flag is off", () => {
     expect(await handleStarsMessage(bot, "b", { chat: { id: 1 }, from: { id: 42 }, text: "/stars" }, "en")).toBe(true);
     expect(sent[0][1]).toMatch(/date of your token/);
     delete process.env.ATHAR_ENABLE_STARS;
+  });
+});
+
+describe("/paysupport (Telegram Bot Developer Terms 6.2.1)", () => {
+  const api = () => ({ sendMessage: jest.fn(async () => ({})) });
+  it("recognises the command", () => { expect(isPaySupport("/paysupport")).toBe(true); expect(isPaySupport("/paysupport@AtharDaysBot")).toBe(true); expect(isPaySupport("/pay")).toBe(false); });
+  it("answers even while Stars are off", async () => {
+    delete process.env.ATHAR_ENABLE_STARS; const a = api();
+    expect(await handleStarsMessage({ api: a } as any, "b", { chat: { id: 5 }, from: { id: 5 }, text: "/paysupport" }, "en")).toBe(true);
+    expect(a.sendMessage).toHaveBeenCalledTimes(1);
+  });
+  it("passes a reply to the owner and thanks the user", async () => {
+    delete process.env.ATHAR_ENABLE_STARS; const a = api();
+    const msg = { chat: { id: 5 }, from: { id: 5, username: "u" }, text: "where is my token", reply_to_message: { text: "x\nref: paysupport" } };
+    expect(await handleStarsMessage({ api: a } as any, "b", msg, "en")).toBe(true);
+    expect(a.sendMessage).toHaveBeenCalledTimes(2);
   });
 });

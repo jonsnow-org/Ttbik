@@ -19,6 +19,8 @@ const TX: Record<"en" | "ar", Record<string, string>> = {
     busy: "Someone is paying for this date right now. Try again in a few minutes.",
     unknown: "I cannot check the chain right now. Please try again in a minute.",
     off: "Paying with Stars is not available now.",
+    support: "💬 Payment help. Reply to this message with your question (include the date and wallet of your order); the owner reads every message.\nStars for an order that is not minted are returned: automatically after 7 days, or sooner on request.\nref: paysupport",
+    supportThanks: "Thank you, your message was passed to the owner.",
     invTitle: "Athar · {d} · {k}",
     invDesc: "A token for {d} on TON, gifted to your wallet. A keepsake, not an investment. Minted by hand, usually within a day.",
     paid: "✅ Payment received. Your token for {d} will be minted to your wallet soon; I will message you here when it is done. If it cannot be minted, your Stars are returned automatically.",
@@ -37,6 +39,8 @@ const TX: Record<"en" | "ar", Record<string, string>> = {
     busy: "هناك من يدفع لهذا التاريخ الآن. جرّب بعد دقائق.",
     unknown: "لا أستطيع فحص السلسلة الآن. جرّب بعد دقيقة.",
     off: "الدفع بالنجوم غير متاح الآن.",
+    support: "💬 مساعدة في الدفع. اكتب سؤالك رداً على هذه الرسالة (مع تاريخ الطلب والمحفظة)؛ يقرأ المالك كل رسالة.\nنجوم أي طلب لم يُسك تعود إليك: تلقائياً بعد 7 أيام أو أسرع عند الطلب.\nref: paysupport",
+    supportThanks: "شكراً، وصلت رسالتك إلى المالك.",
     invTitle: "أثر · {d} · {k}",
     invDesc: "رمز لتاريخ {d} على TON يُهدى إلى محفظتك. ذكرى لا استثمار. يُسك يدوياً وغالباً خلال يوم.",
     paid: "✅ وصل الدفع. سيُسك رمز {d} إلى محفظتك قريباً وسأراسلك هنا عند الانتهاء. وإن تعذّر سكّه تعود نجومك تلقائياً.",
@@ -57,11 +61,21 @@ const isAskDate = (t?: string) => !!t && (t === TX.en.askDate || t === TX.ar.ask
 const askAddrRef = (t?: string) => (t ? /ref:\s*(normal|silver|gold)·(\d{1,5})\s*$/.exec(t) : null);
 const tierFromRef = (s: string) => TIERS.find((x) => x === s);
 
+/** Telegram's rules require every bot that takes Stars to answer /paysupport (Bot Developer Terms 6.2.1). Answered even while the flag is off. */
+export const isPaySupport = (t?: string) => !!t && /^\/paysupport(?:@\w+)?$/i.test(t.trim());
+const SUPPORT_OWNER = () => (process.env.NEXT_PUBLIC_OWNER_ID || process.env.OWNER_ID || "420066855").split(",")[0].trim();
+
 /** True when the update was a Stars step and has been answered. Called first in the text handler; does nothing when the flag is off. */
 export async function handleStarsMessage(bot: TelegramBot, botId: string, msg: any, lang: L): Promise<boolean> {
-  if (!starsEnabled()) return false;
   const chatId = msg.chat.id, text = String(msg.text || "").trim(), from = String(msg.from?.id || "");
   const replyTo = msg.reply_to_message?.text as string | undefined;
+  if (isPaySupport(text)) { await bot.api.sendMessage(chatId, tx(lang, "support"), { reply_markup: { force_reply: true } }); return true; }
+  if (replyTo && /ref:\s*paysupport\s*$/.test(replyTo) && text) {
+    await bot.api.sendMessage(Number(SUPPORT_OWNER()), `💬 Payment support from ${from}${msg.from?.username ? " (@" + msg.from.username + ")" : ""}:\n\n${text.slice(0, 1500)}`).catch(() => null);
+    await bot.api.sendMessage(chatId, tx(lang, "supportThanks"));
+    return true;
+  }
+  if (!starsEnabled()) return false;
   const ask = /^\/stars(?:@\w+)?$/i.test(text) || starsLabels().includes(text);
   if (ask) {
     await bot.api.sendMessage(chatId, tx(lang, "askDate"), { reply_markup: { force_reply: true, input_field_placeholder: "14/3/2003" } });
