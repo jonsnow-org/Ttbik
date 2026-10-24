@@ -2,3 +2,4 @@
 # A new replica: add its name here (coder-inference-server-<n>, never Sham's), then put its address in OPEN_CODER_STUDIO_URLS (docs/coder/CODER.md).
 coder-inference-server
 coder-inference-server-2
+coder-inference-server-3
