@@ -679,7 +679,7 @@ describe("parallel report writing over several Studios", () => {
     expect(ok.text).toMatch(/## قسم 1/);
     expect(await parallelReport({ request: "r", queries: ["one only here"], sources: "S", lang: "ar", write: async () => "x".repeat(200) })).toBeNull();
     expect(await parallelReport({ request: "r", queries: ["aaaa bbb", "cccc ddd"], sources: "S", lang: "ar", write: async (_m: any, i: number) => (i === 0 ? "x".repeat(200) : "") })).toBeNull();
-    expect(composeReport([{ topic: "t", text: "بلا عنوان" }], "ar")).toMatch(/## t\nبلا عنوان/);
+    expect(composeReport([{ topic: "t", text: "بلا عنوان" }])).toBe("## t\nبلا عنوان");
   });
 
   it("a GitHub research request with two Studios: the sections are written on different Studios at the same time, and no single-writer report step runs", async () => {
@@ -697,8 +697,10 @@ describe("parallel report writing over several Studios", () => {
     const db = fakeDb();
     const { bot, sent } = fakeBot();
     await handleCoderSections(bot, botRow, { message: { chat: { id: CHAT }, text: "اذهب وابحث على جيتهوب عن مشاريع ذكاء اصطناعي تستخدم تلجرام وكيف تحل مشكلة التأخر وانقطاع الاتصال وحجم الرسائل وقم بالتحليل وأحضر الأفكار" } }, db);
-    for (let i = 0; i < 120 && !sent.some((s) => /كل قسم كُتب على خادم مستقل/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 250));
-    expect(sent.some((s) => /كل قسم كُتب على خادم مستقل/.test(s.text))).toBe(true);
+    for (let i = 0; i < 120 && !sent.some((s) => /مشروع a\/tg-llm يقسّم/.test(s.text)); i++) await new Promise((r) => setTimeout(r, 250));
+    const shown = sent.map((s) => s.text).join("\n");
+    expect(shown).toMatch(/مشروع a\/tg-llm يقسّم/);
+    expect(shown).not.toMatch(/خادم مستقل|بالتوازي|parallel/i);          // the user sees the report only, never how it was made
     const chat = calls.filter((c) => c.url.includes("/call/v2/chat"));
     const writers = chat.filter((c) => /ONE section of a research report/.test(JSON.stringify(c.body)));
     expect(writers.length).toBeGreaterThanOrEqual(2);
@@ -709,4 +711,34 @@ describe("parallel report writing over several Studios", () => {
     const st = await loadState(CHAT, db);
     expect(st.run).toBeNull();
   }, 40000);
+});
+
+describe("agent reports: each covers only its own job, in one shape, organised by the harness", () => {
+  const { parseAgentReport, composeResults, AGENT_SYSTEM } = require("@/lib/coderAgents");
+  it("every role's prompt carries the strict report rules (own job only, four labelled lines)", () => {
+    for (const role of ["reader", "tester", "worker"]) {
+      const sys = AGENT_SYSTEM("2026-10-24", "ar", role, 1);
+      expect(sys).toMatch(/about YOUR job only/);
+      expect(sys).toMatch(/Never answer the user's overall request/);
+      expect(sys).toMatch(/NOT DONE:/);
+    }
+  });
+  it("parses the four lines (also multi-line) and returns null for a raw answer", () => {
+    const p = parseAgentReport("JOB: دمج PR 5\nDONE: دُمج بعد موافقتك\nوتم التحقق من CI\nNOT DONE: لم أحذف الفرع (رُفض)\nOUTPUT: PR #5");
+    expect(p).toEqual({ job: "دمج PR 5", done: "دُمج بعد موافقتك\nوتم التحقق من CI", notDone: "لم أحذف الفرع (رُفض)", output: "PR #5" });
+    expect(parseAgentReport("جواب خام بلا تنسيق")).toBeNull();
+  });
+  it("the parent gets one organised block per agent; under the budget what was NOT done is kept and the findings are trimmed; a raw or missing report is labelled", () => {
+    const long = "نتيجة ".repeat(900);
+    const out = composeResults([
+      { title: "أ", result: { status: "done", text: `JOB: مهمة أ\nDONE: ${long}\nNOT DONE: لم أجد ملف الإعدادات\nOUTPUT: none` } },
+      { title: "ب", result: { status: "done", text: "جواب خام" } },
+      { title: "ج" },
+    ]);
+    expect(out).toMatch(/^Reports of 3 agents\. Each covers ONLY that agent's own job/);
+    expect(out).toMatch(/## Agent 1: أ\n\[status: done\]\nJOB: مهمة أ\nNOT DONE: لم أجد ملف الإعدادات\nOUTPUT: none\nDONE: /);
+    expect(out).toMatch(/## Agent 2: ب\n\[status: done\] \(not in the report format\)\nجواب خام/);
+    expect(out).toMatch(/## Agent 3: ج\n\[status: no report/);
+    expect(out.length).toBeLessThan(7000);
+  });
 });

@@ -34,10 +34,9 @@ export function sectionPrompt(request: string, topic: string, sources: string, l
   ];
 }
 
-export function composeReport(parts: { topic: string; text: string }[], lang: "ar" | "en"): string {
-  const body = parts.map((p) => (/^\s*#{1,3}\s/.test(p.text) ? p.text.trim() : `## ${p.topic}\n${p.text.trim()}`)).join("\n\n");
-  const head = lang === "ar" ? "📄 تقرير مبني على المصادر التي جُمعت (كل قسم كُتب على خادم مستقل بالتوازي):" : "📄 Report from the collected sources (each section written on its own server in parallel):";
-  return `${head}\n\n${body}`;
+export function composeReport(parts: { topic: string; text: string }[]): string {
+  // exactly what the user reads: the sections, nothing about how they were written
+  return parts.map((p) => (/^\s*#{1,3}\s/.test(p.text) ? p.text.trim() : `## ${p.topic}\n${p.text.trim()}`)).join("\n\n");
 }
 
 /** The sections, written in parallel. null when fewer than two came back usable (the caller then writes it the ordinary way). */
@@ -47,7 +46,7 @@ export async function parallelReport(o: { request: string; queries: string[]; so
   const done = await Promise.all(topics.map((t, i) => o.write(sectionPrompt(o.request, t, o.sources, o.lang), i).then((text) => ({ topic: t, text: (text || "").trim() })).catch(() => ({ topic: t, text: "" }))));
   const ok = done.filter((d) => d.text.length >= 80);
   if (ok.length < 2) return null;
-  return { text: composeReport(ok, o.lang), sections: ok.length };
+  return { text: composeReport(ok), sections: ok.length };
 }
 
 /** A Writer on our Studios: one bounded completion per section, polled until done or the deadline; each section its own affinity so they spread over the Studios. */

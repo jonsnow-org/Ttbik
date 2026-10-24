@@ -84,40 +84,75 @@ export function normalizeTasks(a: Record<string, unknown>, owner = false, depth 
   return out;
 }
 
+/** Every agent's report has the same shape and covers ONLY its own job; the parent (or the worker that started a helper) is the one who combines reports for the user. */
+export const REPORT_RULES = (lang: "ar" | "en"): string => [
+  "REPORT RULES (strict). Your report is about YOUR job only, in your own words about what YOU did. Never answer the user's overall request, never write a final answer for the user, never describe other agents or the parent's wider task. Reports from helpers you started are inputs: use them, do not paste them.",
+  `Write exactly these four lines (the labels stay in English, the content is in ${lang === "ar" ? "Arabic" : "English"}), 150 words in total at most:`,
+  "JOB: <the job you were given, one short line>",
+  "DONE: <what you actually did or found: names, paths, versions, sources; only what a tool showed you>",
+  "NOT DONE: <what you could not do, was declined or denied, or did not find; write nothing if all was done>",
+  "OUTPUT: <branches / pull requests / files / commands you produced; write none if none>",
+].join("\n");
+
 export const AGENT_SYSTEM = (now: string, lang: "ar" | "en", role: AgentRole = "reader", depth = 1) => role === "worker" ? [
   "You are a worker agent of Nova AI. A parent agent gave you ONE job; do it completely with your tools (read, search, edit files, branches, pull requests, tests in your VM, connected services).",
   "You have the SAME permissions and the SAME settings as the user's main assistant: anything consequential (delete, merge, push to the main branch, settings, releases, connected-service writes) is asked of the USER on their phone, who answers ✅ or ❌. If a step is declined or denied, do not retry it: continue without it and say so in your report.",
   `You may start at most ${SUB_AGENT_MAX} read-only helper agents with the delegate tool for parts of your job${depth >= AGENT_MAX_DEPTH ? " (not available to you: you are already a helper level)" : ""}. Give each helper a job name and ONE argument (helper + arg), the server writes the recipe: ${Object.entries(HELPERS).map(([id, h]) => `${id}(${h.hint})`).join(", ")}. runner is the only one with a VM (one per call). You cannot ask the user free questions.`,
   "Tools come in groups: call load_tools with the group you need (github, computer, web, memory, schedule, connectors); its tools are there from the next step.",
   `You have at most ${WORKER_MAX_STEPS} steps; on your last step stop calling tools and write the report.`,
-  "REPORT: plain text, at most 350 words: what you did (exact repo / branch / PR / file names), what the user approved or declined, what remains. Never claim something you did not see succeed.",
   `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; code, paths and identifiers stay in English." : "Write the report in English."}`,
+  REPORT_RULES(lang),
 ].join("\n") : role === "tester" ? [
   "You are a test-runner sub-agent of Nova AI. A parent agent gave you ONE job: run the project's own checks in YOUR private, disposable Linux VM and report what happened.",
   "Typical steps: sandbox_clone the repository, install dependencies (npm ci / pip install -r …), run the test / lint / build command the task names (or the project's own: look at package.json scripts, Makefile, CI workflow files), read the output.",
   "You cannot change the user's repository: no pushing, no pull requests, no GitHub writes (the VM is thrown away when you finish). You cannot ask the user or start other agents; commands that need a confirmation are refused.",
   `You have at most ${TESTER_MAX_STEPS} steps; long commands: use sandbox_wait instead of repeating them. On your last step stop calling tools and write the report.`,
-  "REPORT: plain text, at most 350 words: the exact command(s) you ran, PASS or FAIL, the names of failing tests and the key error lines, and what you could not run and why. Never claim a pass you did not see in the output.",
+  "For a test run, DONE holds the exact command(s), PASS or FAIL, the failing test names and key error lines; never claim a pass you did not see in the output.",
   `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; commands, paths and test names stay in English." : "Write the report in English."}`,
+  REPORT_RULES(lang),
 ].join("\n") : [
   "You are a read-only research sub-agent of Nova AI. A parent agent gave you ONE investigation; nobody else will answer questions for you.",
   "Use your tools (read files, search code, list issues/PRs, search the web) to find the facts. You cannot write, run commands, ask the user or start other agents.",
   `You have at most ${AGENT_MAX_STEPS} steps. Never repeat a call. When you have enough (or on your last step), STOP calling tools and write the final report.`,
-  "REPORT: plain text, at most 350 words: the facts you found (file paths and line numbers, versions, names), what you could not find, and nothing invented. No preamble.",
   `Current date (UTC): ${now}. ${lang === "ar" ? "Write the report in Arabic; code, paths and identifiers stay in English." : "Write the report in English."}`,
+  REPORT_RULES(lang),
 ].join("\n");
 
 export type AgentResult = { status: string; text: string; at?: number };
 
-/** The tool message the parent receives: one block per agent, in order. */
+export type ParsedReport = { job: string; done: string; notDone: string; output: string };
+/** The four labelled lines of an agent report, or null when it does not follow the format (a raw answer, an empty or cut-off report). */
+export function parseAgentReport(text: string): ParsedReport | null {
+  const r: Record<string, string> = {};
+  let cur = "";
+  for (const line of String(text || "").split("\n")) {
+    const m = /^\s*(JOB|DONE|NOT DONE|OUTPUT)\s*[:：]\s*(.*)$/i.exec(line);
+    if (m) { cur = m[1].toUpperCase(); r[cur] = m[2].trim(); }
+    else if (cur) r[cur] = `${r[cur]}\n${line}`.trim();
+  }
+  if (!r.DONE && !r["NOT DONE"] && !r.JOB) return null;
+  return { job: r.JOB || "", done: r.DONE || "", notDone: r["NOT DONE"] || "", output: r.OUTPUT || "" };
+}
+const none = (x: string) => !x || /^(none|nothing|لا شيء|لا يوجد|بلا|-)\.?$/i.test(x.trim());
+
+/**
+ * The tool message the parent receives: one block per agent, in order, each in the same shape. The harness itself organises them (no model call:
+ * a "collector" model step would cost a slow generation and would not know the user's request); the parent writes the one answer for the user.
+ * Under the size budget what was NOT done and what was produced are kept first and the findings are trimmed.
+ */
 export function composeResults(items: { title: string; result?: AgentResult }[]): string {
   const per = Math.floor(AGENT_REPORT_MAX * 1.5 / Math.max(1, items.length));
-  return items
-    .map((it, i) => {
-      const r = it.result;
-      const head = `## Agent ${i + 1}: ${it.title}`;
-      if (!r) return `${head}\n(did not finish in time; no report)`;
-      return `${head}\n${r.status === "done" ? "" : `(ended: ${r.status}) `}${r.text.slice(0, per)}`;
-    })
-    .join("\n\n");
+  const head = `Reports of ${items.length} agent${items.length === 1 ? "" : "s"}. Each covers ONLY that agent's own job. The user's request is yours: combine them, resolve conflicts between them, say plainly what was NOT DONE, and never present an agent's NOT DONE as done.`;
+  const blocks = items.map((it, i) => {
+    const r = it.result;
+    const title = `## Agent ${i + 1}: ${it.title}`;
+    if (!r) return `${title}\n[status: no report — it did not finish in time]`;
+    const status = `[status: ${r.status}]`;
+    const p = parseAgentReport(r.text);
+    if (!p) return `${title}\n${status} (not in the report format)\n${r.text.slice(0, per)}`;
+    const keep = (x: string, n: number) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
+    const rest = Math.max(300, per - 600);
+    return [title, status, `JOB: ${keep(p.job || it.title, 160)}`, `NOT DONE: ${none(p.notDone) ? "nothing" : keep(p.notDone, 400)}`, `OUTPUT: ${none(p.output) ? "none" : keep(p.output, 300)}`, `DONE: ${keep(p.done || "(empty)", rest)}`].join("\n");
+  });
+  return `${head}\n\n${blocks.join("\n\n")}`;
 }

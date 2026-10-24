@@ -1366,13 +1366,13 @@ async function driveLoop(bot: TelegramBot, botRow: BotRow, chatId: number, chain
 
         // Several Studios and real sources: the independent SECTIONS of the report are written at the same time, one per Studio (coderParallel.ts), instead of one Studio writing it all
         if (!thin && (!st.model || st.model === "coder") && parallelEnabled(coderStudioUrls().length)) {
-          await taskEvent(run.id, "info", `✍️ كتابة التقرير بالتوازي: ${Math.min(coderStudioUrls().length, SECTIONS_MAX)} أقسام على خوادم مستقلة.`, db);
+          await taskEvent(run.id, "info", `✍️ [سجل داخلي] كتابة التقرير بالتوازي: ${Math.min(coderStudioUrls().length, SECTIONS_MAX)} أقسام.`, db);
           const srcText = st.messages.filter((m) => m.role === "tool").map((m) => String(m.content || "")).join("\n\n");
-          const pr = await withHeartbeat(ioBot, chatId, run, "كتابة التقرير بالتوازي", () => parallelReport({ request: q, queries, sources: srcText, lang: st.lang === "en" ? "en" : "ar", write: studioWriter(`${chatId}:${run.id}`) }));
+          const pr = await withHeartbeat(ioBot, chatId, run, "كتابة التقرير", () => parallelReport({ request: q, queries, sources: srcText, lang: st.lang === "en" ? "en" : "ar", write: studioWriter(`${chatId}:${run.id}`) }));
           if (pr) {
             st.messages.push({ role: "assistant", content: pr.text });
             await sendParts(run.surface === "app" ? bot : ioBot, chatId, pr.text, run, true, db);
-            await taskEvent(run.id, "info", `✍️ كُتب التقرير من ${pr.sections} أقسام بالتوازي.`, db);
+            await taskEvent(run.id, "info", `✍️ [سجل داخلي] كُتب التقرير من ${pr.sections} أقسام بالتوازي.`, db);
             if (!encryptionReady() || run.slot || !st.threadId) rememberLater(chatId, st.messages, run.id, st.repo, db);
             if (tierFor(chatId) === "owner" && !run.slot && st.mode !== "sham") {
               const snap = [...st.messages], id = run.id, steps = run.step;
