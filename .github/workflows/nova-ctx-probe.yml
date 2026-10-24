@@ -1,9 +1,13 @@
 name: Nova context probe (free, read-only)
-# How much memory does the coder model need at a bigger context? The Studio has 8 GB in total; the model file is 2.74 GB. Serves the SAME model with the
-# SAME pinned llama.cpp and flags as ai-system/modelscope-coder/app.py at several -c values (2 cores), asks for one short completion, and prints the
-# model server's peak memory and the context buffer sizes it reports. Manual only; nothing secret.
+# Memory AND speed of the coder model at a bigger context, measured on ONE runner back to back (runners differ in CPU, so cross-runner numbers are noise).
+# The SAME model and pinned llama.cpp as ai-system/modelscope-coder/app.py, 2 cores. Each config: peak memory, prefill and generation speed on a ~2,000-token
+# prompt, and a recall check (a code word hidden in the middle). The two baseline configs are run twice, interleaved, to see the noise. Manual only.
 on:
   workflow_dispatch:
+    inputs:
+      ctx:
+        description: "context tokens"
+        default: "65536"
 permissions:
   contents: read
 env:
@@ -12,17 +16,7 @@ env:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { ctx: 65536,  k: f16,  v: f16,  fa: "off" }
-          - { ctx: 65536,  k: q8_0, v: q8_0, fa: "on" }
-          - { ctx: 98304,  k: q8_0, v: q8_0, fa: "on" }
-          - { ctx: 131072, k: q8_0, v: q8_0, fa: "on" }
-          - { ctx: 131072, k: q4_0, v: q4_0, fa: "on" }
-          - { ctx: 65536,  k: f16,  v: f16,  fa: "on" }
+    timeout-minutes: 60
     steps:
       - name: llama.cpp and the model
         run: |
@@ -30,37 +24,37 @@ jobs:
           echo "${LLAMA_SHA256}  llama.tgz" | sha256sum -c -
           mkdir llama && tar -xzf llama.tgz -C llama
           curl -sSL --fail -o model.gguf "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf"
-          ls -l model.gguf
-      - name: serve at this context and measure
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee cpu.txt
+      - name: measure every config on this runner
         run: |
           BIN=$(dirname "$(find llama -name llama-server | head -1)")
           export LD_LIBRARY_PATH="$BIN:${LD_LIBRARY_PATH:-}"
-          taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ matrix.ctx }} -t 2 -np 1 -n -1 --jinja -fa ${{ matrix.fa }} --cache-type-k ${{ matrix.k }} --cache-type-v ${{ matrix.v }} --host 127.0.0.1 --port 8080 > server.log 2>&1 &
-          PID=$!
-          for i in $(seq 1 120); do
-            curl -sf http://127.0.0.1:8080/health >/dev/null && break
-            kill -0 $PID 2>/dev/null || { tail -30 server.log; echo "::error::server exited at ctx ${{ matrix.ctx }}"; exit 1; }
-            sleep 5
-          done
-          curl -sf http://127.0.0.1:8080/health >/dev/null || { tail -30 server.log; echo "::error::not healthy"; exit 1; }
-          # speed and a recall check with a ~3,000-token prompt: a code word hidden in the middle of filler text
           python3 - <<'PY' > prompt.json
           import json
           filler = "The quarterly report discusses routine matters such as scheduling, budgets and logistics in great detail. " * 120
           text = filler[: len(filler)//2] + " The secret code word is MANGO-4471. " + filler[len(filler)//2 :]
-          print(json.dumps({"messages": [{"role": "user", "content": text + "\n\nWhat is the secret code word? Answer with the code word only."}], "max_tokens": 24, "stream": False, "chat_template_kwargs": {"enable_thinking": False}}))
+          print(json.dumps({"messages": [{"role": "user", "content": text + "\n\nWhat is the secret code word? Answer with the code word only."}], "max_tokens": 40, "stream": False, "chat_template_kwargs": {"enable_thinking": False}, "cache_prompt": False}))
           PY
-          curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > resp.json
-          python3 - <<'PY' | tee speed.txt
-          import json
-          r = json.load(open("resp.json"))
-          t = r.get("timings", {})
+          run_one() {   # name fa k v
+            name="$1"; fa="$2"; k="$3"; v="$4"
+            taskset -c 0,1 "$BIN/llama-server" -m model.gguf -c ${{ inputs.ctx || '65536' }} -t 2 -np 1 -n -1 --jinja -fa $fa --cache-type-k $k --cache-type-v $v --host 127.0.0.1 --port 8080 > server.log 2>&1 &
+            PID=$!
+            for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/health >/dev/null && break; kill -0 $PID 2>/dev/null || { echo "$name: server exited"; tail -5 server.log; return; }; sleep 3; done
+            curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'content-type: application/json' -d @prompt.json > resp.json
+            HWM=$(awk '/VmHWM/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
+            python3 - "$name" "$HWM" <<'PY'
+          import json, sys
+          r = json.load(open("resp.json")); t = r.get("timings", {})
           ans = (r["choices"][0]["message"].get("content") or "").strip()
-          print(f"recall: {'OK' if 'MANGO-4471' in ans else 'FAILED'} (answer: {ans[:40]!r}); prompt {t.get('prompt_n')} tok at {t.get('prompt_per_second', 0):.1f} tok/s; generation {t.get('predicted_per_second', 0):.2f} tok/s")
+          print(f"{sys.argv[1]:28s} peak {sys.argv[2]} GB | prefill {t.get('prompt_per_second', 0):5.1f} tok/s | generation {t.get('predicted_per_second', 0):5.2f} tok/s | recall {'OK' if 'MANGO-4471' in ans else 'FAILED'}")
           PY
-          HWM=$(awk '/VmHWM/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
-          RSS=$(awk '/VmRSS/ {printf "%.2f", $2/1048576}' /proc/$PID/status)
-          echo "ctx ${{ matrix.ctx }} k=${{ matrix.k }} v=${{ matrix.v }} fa=${{ matrix.fa }}: peak ${HWM} GB, now ${RSS} GB"
-          grep -iE "kv|buffer|n_ctx|slot.*n_ctx" server.log | grep -iE "size|MiB|n_ctx" | head -12 | tee kv.txt
-          { echo "### ctx ${{ matrix.ctx }} k=${{ matrix.k }} v=${{ matrix.v }} fa=${{ matrix.fa }}"; echo "peak memory ${HWM} GB (the Studio has 8 GB in total); $(cat speed.txt)"; } >> "$GITHUB_STEP_SUMMARY"
-          kill $PID
+            kill $PID; wait $PID 2>/dev/null; sleep 2
+          }
+          { run_one "f16 FA-off (now) #1" off f16 f16
+            run_one "f16 FA-on        #1" on f16 f16
+            run_one "f16 FA-off (now) #2" off f16 f16
+            run_one "f16 FA-on        #2" on f16 f16
+            run_one "q8_0 FA-on" on q8_0 q8_0
+            run_one "q4_0 FA-on" on q4_0 q4_0
+          } | tee result.txt
+          { echo "### Context ${{ inputs.ctx || '65536' }} on one runner ($(grep 'Model name' cpu.txt | sed 's/.*: *//'))"; echo '```'; cat result.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
