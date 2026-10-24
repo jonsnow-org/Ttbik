@@ -304,8 +304,15 @@ class Encoder:
             if len(lines) >= 2 and len(lines[0]) <= 100 and not lines[0].rstrip().endswith((".", "؟", "!", "…", ":")) \
                     and r2.random() < float(sham_auto_config.get("search_share", 0.08)):
                 day = datetime.date(2024, 1, 1) + datetime.timedelta(days=r2.randrange(0, 365 * 5))
-                ex = build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2,
-                                          date_line=date_context_line(day) if r2.random() < 0.5 else None)
+                dl = date_context_line(day) if r2.random() < 0.5 else None
+                ex = None
+                try:      # what Nova's runs taught (sham_agent_data): short topic queries, honest "not found", a second try — a share of the same examples
+                    import sham_agent_data
+                    if r2.random() < sham_agent_data.mix_share():
+                        ex = sham_agent_data.build_agent_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2, date_line=dl)
+                except Exception:
+                    ex = None
+                ex = ex or build_search_example(self.tok.encode, lines[0].strip(), "\n".join(lines[1:]), r2, date_line=dl)
                 if ex:
                     out.append(ex)
             if r2.random() < float(sham_auto_config.get("date_share", 0.01)):

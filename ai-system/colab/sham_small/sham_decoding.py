@@ -323,8 +323,12 @@ def install_on_serve(serve_module, chat: bool, max_prompt_tokens: int = 384, sea
             # Answers: calmer sampling than serve.py's 0.8/top-k 50 (fewer invented words).
             kw.update(temperature=min(kw.get("temperature", 0.7), 0.6), top_k=min(kw.get("top_k") or 40, 40),
                       top_p=min(kw.get("top_p") or 0.9, 0.9))
-            answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(),
-                                                        search_fn=web_search_text if search else None, **kw)
+            try:      # patient search (retry, topic-only second try, cache, time budget): sham_agent_search.py
+                from sham_agent_search import agent_search
+                fn = agent_search(web_search_text) if search else None
+            except Exception:
+                fn = web_search_text if search else None
+            answer, queries = chat_generate_with_search(model, wrapped, max_new_tokens, tokenizer(), search_fn=fn, **kw)
             if queries:
                 answer = tokenizer().encode("[بحث: " + " | ".join(queries) + "] ") + answer
             return torch.cat([prompt_ids, torch.tensor([answer], dtype=torch.long, device=prompt_ids.device)], dim=1)
