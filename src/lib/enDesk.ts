@@ -207,3 +207,17 @@ export const EN_ARTICLES: DeskItem[] = [
     tool: "/en/news",
   },
 ];
+
+
+// Shared exports used by the English desk route pages.
+// Keep event entries sourced from the desk items explicitly tagged for event pages.
+export const EN_EVENTS: DeskItem[] = EN_NEWS.filter(
+  (item) => item.tool === "/en/events" || item.tool === "/en/events/upcoming",
+);
+
+export function bySlug<T extends { slug: string }>(
+  items: T[],
+  slug: string,
+): T | undefined {
+  return items.find((item) => item.slug === slug);
+}
