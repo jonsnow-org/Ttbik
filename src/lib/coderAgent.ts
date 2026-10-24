@@ -24,6 +24,7 @@ export const GITHUB_TOOLS: CoderTool[] = [
   tool("github_list_files", "List files of a repository (recursive tree, or one folder).", obj({ repo: REPO, path: s("folder, empty = whole repo"), ref: s("branch / sha, empty = default") }, ["repo"])),
   tool("github_read_file", "Read a text file. Use start_line/end_line for big files.", obj({ repo: REPO, path: s("file path"), ref: s("branch / sha"), start_line: n("1-based"), end_line: n("inclusive") }, ["repo", "path"])),
   tool("github_search_code", "Search code in one repository.", obj({ repo: REPO, query: s("search words") }, ["repo", "query"])),
+  tool("github_search_repos", "Find repositories on GitHub (any owner) by keywords/topics, best first. Use it to discover projects; then read their README with github_read_file.", obj({ query: s("search words, e.g. 'telegram bot llm' (GitHub qualifiers like language:python stars:>100 work)"), sort: s("stars (default) | updated | best-match") }, ["query"])),
   tool("github_list_branches", "List branches.", obj({ repo: REPO }, ["repo"])),
   tool("github_create_branch", "Create a branch from another branch (default branch when `from` is empty).", obj({ repo: REPO, branch: s("new branch"), from: s("source branch") }, ["repo", "branch"])),
   tool("github_write_files", "Create or update several files in ONE commit on a branch (created from the default branch if missing).",
@@ -152,10 +153,11 @@ function loadArgs(call: CoderToolCall): string[] {
   return xs.map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean);
 }
 /** The tools for the next step of this conversation (see toolGroups). */
-export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[]): CoderTool[] {
+export function coderToolsFor(github: boolean, connectors: boolean, msgs: CoderMessage[], keep: string[] = []): CoderTool[] {
   if ((process.env.CODER_TOOL_GROUPS || "").toLowerCase() === "off") return coderTools(github, connectors);
   const groups = toolGroups(github, connectors);
   const loaded = loadedGroups(msgs, groups);
+  for (const g of keep) if (groups[g]) loaded.add(g);                       // groups used before a segment break stay loaded (the new context starts empty)
   const rest = Object.keys(groups).filter((g) => !loaded.has(g));
   return [...(rest.length ? [loadToolsTool(rest)] : []), ASK_USER_TOOL, ...(agentsEnabled() ? [DELEGATE_TOOL] : []), ...[...loaded].flatMap((g) => groups[g])];
 }
@@ -556,7 +558,7 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       const r = await gh(String(a.method || "GET").toUpperCase(), path, a.body && Object.keys(a.body).length ? a.body : undefined);
       return clip(`HTTP ${r.status}\n${typeof r.data === "string" ? r.data : JSON.stringify(r.data, null, 1)}`);
     }
-    if (name !== "github_whoami" && name !== "github_list_repos" && !repoOk(a.repo)) return "error: repo must be owner/name";
+    if (name !== "github_whoami" && name !== "github_list_repos" && name !== "github_search_repos" && !repoOk(a.repo)) return "error: repo must be owner/name";
     const R = `/repos/${a.repo}`;
     switch (name) {
       case "github_whoami": {
@@ -596,6 +598,14 @@ export async function runTool(call: CoderToolCall, ctx: ToolCtx): Promise<string
       case "github_search_code": {
         const r = await gh("GET", `/search/code?q=${encodeURIComponent(`${a.query} repo:${a.repo}`)}&per_page=30`);
         return clip((r.data?.items || []).map((x: any) => x.path).join("\n") || `no results (${r.status})`);
+      }
+      case "github_search_repos": {
+        const q = String(a.query || "").trim().slice(0, 256);
+        if (!q) return "error: query is required";
+        const sort = ["stars", "updated"].includes(String(a.sort)) ? `&sort=${a.sort}&order=desc` : "";
+        const r = await gh("GET", `/search/repositories?q=${encodeURIComponent(q)}${sort}&per_page=15`);
+        const items: any[] = r.data?.items || [];
+        return clip(items.map((x) => `${x.full_name} ★${x.stargazers_count} ${x.language || "-"} (updated ${String(x.pushed_at || "").slice(0, 10)}) ${String(x.description || "").slice(0, 140)}`).join("\n") || `no results (${r.status})`);
       }
       case "github_list_branches": {
         const r = await gh("GET", `${R}/branches?per_page=100`);
@@ -714,7 +724,7 @@ export function toolLabel(call: CoderToolCall): string {
 // Plain-Arabic step names for the chat's progress card (the task history keeps the same text).
 const FRIENDLY: Record<string, [string, string]> = {
   github_whoami: ["👤", "التعرّف على الحساب"], github_list_repos: ["📚", "عرض المستودعات"], github_repo_info: ["📦", "معلومات المستودع"],
-  github_list_files: ["🗂️", "استعراض الملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"],
+  github_list_files: ["🗂️", "استعراض الملفات"], github_read_file: ["📖", "قراءة ملف"], github_search_code: ["🔍", "بحث في الكود"], github_search_repos: ["🔭", "بحث عن مستودعات"],
   github_list_branches: ["🌿", "عرض الفروع"], github_create_branch: ["🌱", "إنشاء فرع"], github_write_files: ["✍️", "كتابة تعديلات"],
   github_delete_files: ["🗑️", "حذف ملفات"], github_delete_branch: ["🗑️", "حذف فرع"], github_create_pr: ["🔀", "فتح طلب دمج"],
   github_merge_pr: ["✅", "دمج طلب"], github_list_prs: ["🔀", "عرض طلبات الدمج"], github_list_issues: ["📝", "عرض المشكلات"],

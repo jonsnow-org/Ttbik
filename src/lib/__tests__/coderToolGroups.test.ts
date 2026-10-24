@@ -42,4 +42,25 @@ describe("tool groups the model loads itself", () => {
     expect(await runTool({ function: { name: "load_tools", arguments: '{"groups":["web","github"]}' } }, ctx)).toMatch(/^loaded: web\..*Not available here: github/);
     expect(await runTool({ function: { name: "load_tools", arguments: '{"groups":["nope"]}' } }, ctx)).toMatch(/^error/);
   });
+  it("groups used before a segment break stay loaded (keep), so the next segment does not spend a step on load_tools again", () => {
+    const fresh: any[] = [{ role: "user", content: "تابع من الملخص" }];
+    expect(names(coderToolsFor(true, false, fresh))).not.toContain("web_search");
+    const n = names(coderToolsFor(true, false, fresh, ["web", "memory"]));
+    expect(n).toEqual(expect.arrayContaining(["web_search", "fetch_page", "memory_note"]));
+    expect(n).not.toContain("github_write_files");                      // only the kept groups
+    expect(names(coderToolsFor(true, false, fresh, ["nope"]))).not.toContain("web_search");
+  });
+  it("github_search_repos finds repositories of any owner and lists them compactly", async () => {
+    const seen: string[] = [];
+    const gh = async (method: string, path: string) => {
+      seen.push(`${method} ${path}`);
+      return { status: 200, data: { items: [{ full_name: "a/tg-llm", stargazers_count: 120, language: "Python", pushed_at: "2026-10-01T00:00:00Z", description: "Telegram LLM bot" }, { full_name: "b/bot", stargazers_count: 5, language: null, pushed_at: "2026-09-01T00:00:00Z", description: null }] } };
+    };
+    const out = await runTool({ function: { name: "github_search_repos", arguments: '{"query":"telegram bot llm language:python","sort":"stars"}' } }, { gh, addNote: () => {} } as any);
+    expect(seen[0]).toMatch(/^GET \/search\/repositories\?q=telegram%20bot%20llm%20language%3Apython&sort=stars&order=desc&per_page=15$/);
+    expect(out).toContain("a/tg-llm ★120 Python (updated 2026-10-01) Telegram LLM bot");
+    expect(out).toContain("b/bot ★5 -");
+    expect(await runTool({ function: { name: "github_search_repos", arguments: "{}" } }, { gh, addNote: () => {} } as any)).toMatch(/^error/);
+    expect(names(coderTools(true))).toContain("github_search_repos");
+  });
 });
